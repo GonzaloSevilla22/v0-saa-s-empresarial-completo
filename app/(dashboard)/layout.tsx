@@ -1,8 +1,5 @@
 "use client"
 
-import { useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/contexts/auth-context"
 import { DataProvider } from "@/contexts/data-context"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -28,24 +25,7 @@ const pageNames: Record<string, string> = {
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
-  const router = useRouter()
   const pathname = usePathname()
-
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.replace("/login")
-    }
-  }, [isAuthenticated, router])
-
-  if (!isAuthenticated) {
-    return (
-      <div className="flex min-h-svh items-center justify-center bg-background">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    )
-  }
-
   const currentPageName = pageNames[pathname] || "EIE"
 
   return (

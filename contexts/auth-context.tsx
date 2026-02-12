@@ -16,7 +16,12 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<User | null>({
+    id: "u1",
+    name: "Emprendedor",
+    email: "demo@eie.com",
+    plan: "pro",
+  })
 
   const login = useCallback((email: string, _password: string) => {
     // Login simulado: siempre pasa

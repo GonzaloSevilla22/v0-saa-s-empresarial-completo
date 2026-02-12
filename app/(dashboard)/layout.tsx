@@ -1,0 +1,76 @@
+"use client"
+
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/contexts/auth-context"
+import { DataProvider } from "@/contexts/data-context"
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { AppSidebar } from "@/components/app-sidebar"
+import { Separator } from "@/components/ui/separator"
+import {
+  Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage,
+} from "@/components/ui/breadcrumb"
+import { usePathname } from "next/navigation"
+
+const pageNames: Record<string, string> = {
+  "/dashboard": "Dashboard",
+  "/ventas": "Ventas",
+  "/compras": "Compras",
+  "/gastos": "Gastos",
+  "/productos": "Productos",
+  "/stock": "Stock",
+  "/clientes": "Clientes",
+  "/insights": "Insights AI",
+  "/simulador": "Simulador de Precios",
+  "/comunidad": "Comunidad",
+  "/cursos": "Cursos",
+  "/configuracion": "Configuracion",
+}
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth()
+  const router = useRouter()
+  const pathname = usePathname()
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login")
+    }
+  }, [isAuthenticated, router])
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-svh items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    )
+  }
+
+  const currentPageName = pageNames[pathname] || "EIE"
+
+  return (
+    <DataProvider>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
+            <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
+            <Separator orientation="vertical" className="mr-2 h-4" />
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem>
+                  <BreadcrumbPage className="text-foreground font-medium">
+                    {currentPageName}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+          </header>
+          <div className="flex-1 overflow-auto p-4 md:p-6">
+            {children}
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </DataProvider>
+  )
+}

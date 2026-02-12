@@ -1,0 +1,65 @@
+"use client"
+
+import { useState } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Sparkles, RefreshCw } from "lucide-react"
+import { useData } from "@/contexts/data-context"
+
+const summaries = [
+  "Hoy tus ventas crecieron un 15% comparado con ayer. Los Auriculares Bluetooth siguen siendo tu producto estrella. Tenes 2 productos por debajo del stock minimo que necesitan reposicion urgente.",
+  "Excelente dia de ventas con $151 facturados. Tu margen promedio es del 67%. Recomendamos revisar el stock de Zapatillas Running y Power Bank antes del fin de semana.",
+  "Las ventas de esta semana muestran una tendencia positiva. Ana Martinez y Lucas Romero fueron tus clientes mas activos. Considera una promocion en productos de Electrónica para mantener el impulso.",
+]
+
+export function AiSummaryCard() {
+  const { getTodaySales, getLowStockProducts } = useData()
+  const [summaryIndex, setSummaryIndex] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+
+  const todaySales = getTodaySales()
+  const lowStock = getLowStockProducts()
+
+  function handleRegenerate() {
+    setIsLoading(true)
+    setTimeout(() => {
+      setSummaryIndex((prev) => (prev + 1) % summaries.length)
+      setIsLoading(false)
+    }, 1200)
+  }
+
+  return (
+    <Card className="border-primary/20 bg-card relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent pointer-events-none" />
+      <CardHeader className="flex flex-row items-center justify-between pb-2 relative">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/20">
+            <Sparkles className="h-4 w-4 text-primary" />
+          </div>
+          <CardTitle className="text-sm font-medium text-card-foreground">
+            Resumen AI del dia
+          </CardTitle>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleRegenerate}
+          disabled={isLoading}
+          className="h-7 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <RefreshCw className={`h-3 w-3 mr-1 ${isLoading ? "animate-spin" : ""}`} />
+          Regenerar
+        </Button>
+      </CardHeader>
+      <CardContent className="relative">
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          {summaries[summaryIndex]}
+        </p>
+        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
+          <span>Ventas hoy: <span className="text-primary font-medium">${todaySales}</span></span>
+          <span>Stock bajo: <span className={`font-medium ${lowStock.length > 0 ? "text-red-400" : "text-emerald-400"}`}>{lowStock.length} productos</span></span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}

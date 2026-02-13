@@ -1,12 +1,14 @@
 "use client"
 
 import React, { createContext, useContext, useState, useCallback } from "react"
-import type { User, Plan } from "@/lib/types"
+import type { User, Plan, UserRole } from "@/lib/types"
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
+  isAdmin: boolean
   login: (email: string, password: string) => void
+  loginAsAdmin: () => void
   register: (name: string, email: string, password: string) => void
   logout: () => void
   upgradePlan: () => void
@@ -21,15 +23,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name: "Emprendedor",
     email: "demo@eie.com",
     plan: "pro",
+    role: "user",
   })
 
   const login = useCallback((email: string, _password: string) => {
-    // Login simulado: siempre pasa
     setUser({
       id: "u1",
       name: email.split("@")[0] || "Emprendedor",
       email,
       plan: "free",
+      role: "user",
+    })
+  }, [])
+
+  const loginAsAdmin = useCallback(() => {
+    setUser({
+      id: "admin1",
+      name: "Administrador",
+      email: "admin@eie.com",
+      plan: "pro",
+      role: "admin",
     })
   }, [])
 
@@ -39,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       name,
       email,
       plan: "free",
+      role: "user",
     })
   }, [])
 
@@ -59,7 +73,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
+        isAdmin: user?.role === "admin",
         login,
+        loginAsAdmin,
         register,
         logout,
         upgradePlan,

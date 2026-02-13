@@ -1,10 +1,12 @@
 export type Plan = "free" | "pro"
+export type UserRole = "user" | "admin"
 
 export interface User {
   id: string
   name: string
   email: string
   plan: Plan
+  role: UserRole
   avatar?: string
 }
 
@@ -29,6 +31,7 @@ export interface Sale {
   quantity: number
   unitPrice: number
   total: number
+  currency: "ARS" | "USD" | "EUR" | "BRL"
 }
 
 export interface Purchase {

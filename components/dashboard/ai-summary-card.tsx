@@ -12,21 +12,33 @@ const summaries = [
   "Las ventas de esta semana muestran una tendencia positiva. Ana Martinez y Lucas Romero fueron tus clientes mas activos. Considera una promocion en productos de Electrónica para mantener el impulso.",
 ]
 
+import { services } from "@/lib/supabase/services"
+
 export function AiSummaryCard() {
   const { getTodaySales, getLowStockProducts } = useData()
-  const [summaryIndex, setSummaryIndex] = useState(0)
+  const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)
 
   const todaySales = getTodaySales()
   const lowStock = getLowStockProducts()
 
-  function handleRegenerate() {
+  async function handleRegenerate() {
     setIsLoading(true)
-    setTimeout(() => {
-      setSummaryIndex((prev) => (prev + 1) % summaries.length)
+    try {
+      const result = await services.getAISummary('daily')
+      setSummary(result.summary || "No se pudo generar el resumen en este momento.")
+    } catch (error) {
+      console.error(error)
+      setSummary("Error al conectar con la IA de EIE. Reintenta en unos minutos.")
+    } finally {
       setIsLoading(false)
-    }, 1200)
+    }
   }
+
+  // Initial load
+  useState(() => {
+    handleRegenerate()
+  })
 
   return (
     <Card className="border-primary/20 bg-card relative overflow-hidden">
@@ -53,7 +65,7 @@ export function AiSummaryCard() {
       </CardHeader>
       <CardContent className="relative">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          {summaries[summaryIndex]}
+          {summary}
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
           <span>Ventas hoy: <span className="text-primary font-medium">${todaySales}</span></span>

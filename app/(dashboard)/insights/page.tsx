@@ -16,25 +16,29 @@ const extraInsights: Insight[] = [
   { id: "ix3", type: "clientes", priority: "baja", message: "Valentina Ruiz no compra hace 90 días. Un cupón de descuento podría reactivarla.", date: new Date().toISOString().split("T")[0] },
 ]
 
+import { services } from "@/lib/supabase/services"
+
 export default function InsightsPage() {
-  const { insights, addInsight } = useData()
+  const { insights, refreshData } = useData()
   const { user } = useAuth()
   const [isGenerating, setIsGenerating] = useState(false)
-  const [generated, setGenerated] = useState(0)
 
   const isFree = user?.plan === "free"
   const usedInsights = insights.length
-  const atLimit = isFree && generated >= MAX_INSIGHTS_FREE
+  const atLimit = isFree && usedInsights >= MAX_INSIGHTS_FREE
 
-  function handleGenerate() {
+  async function handleGenerate() {
     if (atLimit) return
     setIsGenerating(true)
-    setTimeout(() => {
-      const newInsight = extraInsights[generated % extraInsights.length]
-      addInsight({ ...newInsight, id: `ig${Date.now()}` })
-      setGenerated((prev) => prev + 1)
+    try {
+      await services.getAIInsights()
+      await refreshData()
+    } catch (error: any) {
+      console.error(error)
+      alert(error.message || "Error al generar insights")
+    } finally {
       setIsGenerating(false)
-    }, 1500)
+    }
   }
 
   return (
@@ -49,7 +53,7 @@ export default function InsightsPage() {
         <div className="flex items-center gap-3">
           {isFree && (
             <span className="text-xs text-muted-foreground">
-              {generated}/{MAX_INSIGHTS_FREE} generados
+              {usedInsights}/{MAX_INSIGHTS_FREE} generados
             </span>
           )}
           <Button

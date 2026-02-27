@@ -16,10 +16,20 @@ export default function LoginPage() {
   const { login } = useAuth()
   const router = useRouter()
 
-  function handleSubmit(e: React.FormEvent) {
+  const [isLoading, setIsLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    login(email || "emprendedor@eie.com", password)
-    router.push("/dashboard")
+    setIsLoading(true)
+    try {
+      await login(email || "emprendedor@eie.com", password)
+      router.push("/dashboard")
+    } catch (error: any) {
+      console.error(error)
+      alert(error.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (

@@ -17,10 +17,20 @@ export default function RegisterPage() {
   const { register } = useAuth()
   const router = useRouter()
 
-  function handleSubmit(e: React.FormEvent) {
+  const [isLoading, setIsLoading] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    register(name || "Emprendedor", email || "emprendedor@eie.com", password)
-    router.push("/dashboard")
+    setIsLoading(true)
+    try {
+      await register(name || "Emprendedor", email || "emprendedor@eie.com", password)
+      router.push("/dashboard")
+    } catch (error: any) {
+      console.error(error)
+      alert(error.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (

@@ -244,7 +244,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Purchases (Using Edge Function for Stock Safety)
   const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
     await services.createPurchase(p)
-  }, [])
+    await refreshData()
+  }, [refreshData])
 
   const updatePurchase = useCallback(async (p: Purchase) => {
     await supabase.from('purchases').update({
@@ -260,7 +261,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Expenses
   const addExpense = useCallback(async (e: Omit<Expense, "id">) => {
     await services.createExpense(e)
-  }, [])
+    await refreshData()
+  }, [refreshData])
 
   const updateExpense = useCallback(async (e: Expense) => {
     await supabase.from('expenses').update({
@@ -277,7 +279,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Clients
   const addClient = useCallback(async (c: Omit<Client, "id">) => {
     await services.createClient(c)
-  }, [])
+    await refreshData()
+  }, [refreshData])
 
   const updateClient = useCallback(async (c: Client) => {
     await supabase.from('clients').update({

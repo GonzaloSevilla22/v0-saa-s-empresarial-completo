@@ -45,7 +45,7 @@ export default function InsightsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Insights AI</h1>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Consejos AI</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Recomendaciones inteligentes basadas en tus datos
           </p>
@@ -66,7 +66,7 @@ export default function InsightsPage() {
             ) : (
               <Sparkles className="h-4 w-4 mr-1" />
             )}
-            Generar insights
+            Generar consejos
           </Button>
         </div>
       </div>
@@ -75,7 +75,7 @@ export default function InsightsPage() {
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardContent className="p-4">
             <p className="text-sm text-yellow-400">
-              Alcanzaste el límite de {MAX_INSIGHTS_FREE} insights del plan gratuito. Actualizá a Pro para obtener insights ilimitados.
+              Alcanzaste el límite de {MAX_INSIGHTS_FREE} consejos del plan gratuito. Actualizá a Pro para obtener consejos ilimitados.
             </p>
           </CardContent>
         </Card>

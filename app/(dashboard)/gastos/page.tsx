@@ -3,8 +3,12 @@
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { DataTable, type Column } from "@/components/data-table/data-table"
-import { ExpenseForm } from "@/components/forms/expense-form"
+import { ExpenseForm } from "@/components/forms/expense-form-v2"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { useAuth } from "@/contexts/auth-context"
+import { BarChart3 } from "lucide-react"
+import Link from "next/link"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney, formatDate } from "@/lib/format"
 import type { Expense } from "@/lib/types"
@@ -53,12 +57,23 @@ const columns: Column<Expense>[] = [
 export default function GastosPage() {
   const { expenses, deleteExpense } = useData()
   const [open, setOpen] = useState(false)
+  const { isAdmin } = useAuth()
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
-        <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
+          <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
+        </div>
+        {isAdmin && (
+          <Button asChild variant="outline" className="border-red-500/20 text-red-400 hover:bg-red-500/10">
+            <Link href="/admin/metricas/gastos">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Ver Analíticas Globales
+            </Link>
+          </Button>
+        )}
       </div>
 
       <DataTable

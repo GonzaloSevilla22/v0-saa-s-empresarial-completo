@@ -21,28 +21,35 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
-    const { period } = await req.json() // e.g., 'week', 'month'
+    const { period } = await req.json()
     
-    // Simulating API call for Summary to keep concise
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openAiKey) throw new Error('OpenAI key required')
+    let content = ''
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: 'Resume el periodo financiero.' }, { role: 'user', content: `Genera un resumen para el periodo ${period}` }]
-      }),
-    })
+    if (!openAiKey) {
+      const mocks = [
+        "Resumen del día: Ventas estables con un ligero incremento en la tarde. El stock de insumos básicos está en niveles saludables.",
+        "Resumen semanal: Gran desempeño en la categoría calzado. Se recomienda monitorear gastos operativos fijos.",
+        "Resumen mensual: Cierre de mes con balance positivo. El margen neto se mantuvo por encima del 25%."
+      ]
+      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+    } else {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'system', content: 'Eres un asistente financiero. Resume el periodo financiero de forma profesional.' }, { role: 'user', content: `Genera un resumen para el periodo ${period}` }]
+        }),
+      })
 
-    const aiData = await response.json()
-    const content = aiData.choices?.[0]?.message?.content || 'Resumen generado.'
+      const aiData = await response.json()
+      content = aiData.choices?.[0]?.message?.content || 'Resumen generado.'
+    }
 
-    // Atomic Postgres RPC handles limits, locking, telemetry and insertion securely
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
       p_user_id: user.id,
       p_type: 'general',
@@ -52,7 +59,6 @@ serve(async (req) => {
 
     if (rpcError) {
       if (rpcError.code === 'insufficient_privilege') throw new Error(`${rpcError.message} | 403`)
-      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
       throw new Error(`${rpcError.message} | 500`)
     }
 
@@ -61,8 +67,6 @@ serve(async (req) => {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error'
     const parts = errorMsg.split(' | ')
     const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
-    const msg = parts[0]
-
-    return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
+    return new Response(JSON.stringify({ error: parts[0] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
   }
 })

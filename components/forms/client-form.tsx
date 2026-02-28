@@ -32,24 +32,25 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
 
     const clientData = {
       name,
-      email,
-      phone,
+      email: email.trim() || null,
+      phone: phone.trim() || null,
       status,
-      category,
+      category: category.trim() || null,
       lastPurchase: initialData?.lastPurchase || new Date().toISOString().split("T")[0],
       totalSpent: initialData?.totalSpent || 0,
     }
 
     try {
       if (initialData) {
-        await updateClient({ ...clientData, id: initialData.id })
+        await updateClient({ ...clientData, id: initialData.id } as any)
         toast.success("Cliente actualizado")
       } else {
-        await addClient(clientData)
+        await addClient(clientData as any)
         toast.success("Cliente creado")
       }
       onSuccess()
     } catch (error) {
+      console.error(error)
       toast.error("Error al guardar cliente")
     }
   }

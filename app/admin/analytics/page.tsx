@@ -190,7 +190,7 @@ export default async function AdminAnalyticsPage() {
                 <section className="bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
                     <div className="flex items-center space-x-2 mb-6 text-slate-100">
                         <Sparkles className="w-5 h-5 text-amber-500" />
-                        <h2 className="text-xl font-bold">AI Generation Distribution</h2>
+                        <h2 className="text-xl font-bold">Distribución de Consejos AI</h2>
                     </div>
                     <div className="w-full">
                         <StackedBarsChart data={insightsBreakdown} width={500} height={300} />

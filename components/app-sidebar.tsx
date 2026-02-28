@@ -7,6 +7,7 @@ import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
+  ShieldCheck, BarChart3,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -22,7 +23,7 @@ const navGroups = [
   {
     label: "Principal",
     items: [
-      { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, pro: false },
+      { title: "Tablero", href: "/dashboard", icon: LayoutDashboard, pro: false },
     ],
   },
   {
@@ -44,7 +45,7 @@ const navGroups = [
   {
     label: "Inteligencia",
     items: [
-      { title: "Insights AI", href: "/insights", icon: Sparkles, pro: false },
+      { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false },
       { title: "Simulador", href: "/simulador", icon: Calculator, pro: false },
     ],
   },
@@ -59,7 +60,7 @@ const navGroups = [
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin } = useAuth()
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
@@ -111,6 +112,53 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         ))}
+
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-emerald-500 uppercase text-[10px] tracking-wider font-bold">
+              Administración
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/metricas"}
+                    tooltip="Métricas Estratégicas"
+                    className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Link href="/admin/metricas">
+                      <BarChart3 className="h-4 w-4" />
+                      <span>Métricas Globales</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                {/* Module Analytics Submenu */}
+                <div className="px-4 py-2 flex flex-col gap-1 border-l border-emerald-500/20 ml-4 mt-1">
+                  <Link href="/admin/metricas/ventas" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Ventas</Link>
+                  <Link href="/admin/metricas/compras" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Compras</Link>
+                  <Link href="/admin/metricas/stock" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Stock</Link>
+                  <Link href="/admin/metricas/clientes" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Clientes</Link>
+                  <Link href="/admin/metricas/gastos" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Gastos</Link>
+                </div>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/analytics"}
+                    tooltip="Analiticas Técnicas"
+                  >
+                    <Link href="/admin/analytics">
+                      <ShieldCheck className="h-4 w-4" />
+                      <span>Panel Técnico</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarSeparator />

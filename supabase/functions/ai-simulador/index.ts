@@ -21,27 +21,35 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
-    const { scenario_details } = await req.json()
+    const { scenario } = await req.json()
     
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openAiKey) throw new Error('OpenAI key required')
+    let content = ''
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: 'Simula el impacto de una decisión de negocio.' }, { role: 'user', content: `Simula lo siguiente: ${scenario_details}` }]
-      }),
-    })
+    if (!openAiKey) {
+      const mocks = [
+        `Simulación exitosa: El escenario '${scenario}' muestra un retorno de inversión estimado del 15% en 3 meses.`,
+        `Análisis de riesgo: La propuesta '${scenario}' tiene un riesgo moderado debido a la volatilidad del mercado actual.`,
+        `Optimización: Implementar '${scenario}' podría reducir tus costos operativos en un 10%.`
+      ]
+      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+    } else {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'system', content: 'Eres un simulador de estrategias para negocios. Analiza el impacto del escenario propuesto.' }, { role: 'user', content: `Simula el impacto de: ${scenario}` }]
+        }),
+      })
 
-    const aiData = await response.json()
-    const content = aiData.choices?.[0]?.message?.content || 'Simulación generada.'
+      const aiData = await response.json()
+      content = aiData.choices?.[0]?.message?.content || 'Simulación generada.'
+    }
 
-    // Atomic Postgres RPC handles limits, locking, telemetry and insertion securely
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
       p_user_id: user.id,
       p_type: 'simulation',
@@ -51,7 +59,6 @@ serve(async (req) => {
 
     if (rpcError) {
       if (rpcError.code === 'insufficient_privilege') throw new Error(`${rpcError.message} | 403`)
-      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
       throw new Error(`${rpcError.message} | 500`)
     }
 
@@ -60,8 +67,6 @@ serve(async (req) => {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error'
     const parts = errorMsg.split(' | ')
     const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
-    const msg = parts[0]
-
-    return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
+    return new Response(JSON.stringify({ error: parts[0] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
   }
 })

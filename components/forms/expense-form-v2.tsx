@@ -20,20 +20,26 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState(0)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!category || !description) {
       toast.error("Completá todos los campos")
       return
     }
-    addExpense({
-      date: new Date().toISOString().split("T")[0],
-      category,
-      description,
-      amount,
-    })
-    toast.success("Gasto registrado")
-    onSuccess()
+    try {
+      await addExpense({
+        date: new Date().toISOString().split("T")[0],
+        category,
+        description,
+        amount,
+      })
+      toast.success("Gasto registrado")
+      onSuccess()
+    } catch (error: any) {
+      console.error("Expense creation error:", error)
+      const errorMsg = error.message || (typeof error === 'string' ? error : "Error desconocido")
+      toast.error(`Error al registrar gasto: ${errorMsg}`)
+    }
   }
 
   return (

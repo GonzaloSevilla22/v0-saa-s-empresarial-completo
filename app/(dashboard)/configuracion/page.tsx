@@ -12,7 +12,7 @@ import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/co
 const features = [
   { name: "Productos", free: `Hasta ${MAX_PRODUCTS_FREE}`, pro: "Ilimitados" },
   { name: "Clientes", free: `Hasta ${MAX_CLIENTS_FREE}`, pro: "Ilimitados" },
-  { name: "Insights AI", free: `${MAX_INSIGHTS_FREE} por sesión`, pro: "Ilimitados" },
+  { name: "Consejos AI", free: `${MAX_INSIGHTS_FREE} por sesión`, pro: "Ilimitados" },
   { name: "Simulador AI", free: "Limitado", pro: "Completo" },
   { name: "Comunidad", free: "Solo lectura", pro: "Completo" },
   { name: "Cursos", free: "Básicos", pro: "Todos" },
@@ -68,7 +68,7 @@ export default function ConfiguracionPage() {
         <CardContent className="flex flex-col gap-3">
           <UsageStat icon={Package} label="Productos" current={products.length} max={isPro ? Infinity : MAX_PRODUCTS_FREE} />
           <UsageStat icon={Users} label="Clientes" current={clients.length} max={isPro ? Infinity : MAX_CLIENTS_FREE} />
-          <UsageStat icon={Sparkles} label="Insights" current={5} max={isPro ? Infinity : MAX_INSIGHTS_FREE} />
+          <UsageStat icon={Sparkles} label="Consejos" current={5} max={isPro ? Infinity : MAX_INSIGHTS_FREE} />
         </CardContent>
       </Card>
 

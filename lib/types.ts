@@ -44,6 +44,7 @@ export interface Purchase {
   quantity: number
   unitCost: number
   total: number
+  description?: string
 }
 
 export interface Expense {

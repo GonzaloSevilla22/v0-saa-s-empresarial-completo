@@ -18,29 +18,7 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         React.useImperativeHandle(ref, () => inputRef.current!)
 
         const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-            // Reset click count on focus to ensure logic starts fresh
-            setClickCount(0)
-        }
-
-        const handleClick = (e: React.MouseEvent<HTMLInputElement>) => {
-            const newCount = clickCount + 1
-            setClickCount(newCount)
-
-            if (newCount === 1) {
-                // First click: select all or clear if preferred. 
-                // User requested "borrar el valor actual automáticamente".
-                // We set to empty string temporarily or just select all so typing replaces it.
-                // To truly "borrar", we notify the parent of a 0 or null value.
-                if (onValueChange) onValueChange(0)
-                if (inputRef.current) {
-                    inputRef.current.value = ""
-                }
-            }
-            // Second click (count > 1) does nothing special, allowing default cursor behavior
-        }
-
-        const handleBlur = () => {
-            setClickCount(0)
+            e.target.select()
         }
 
         const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,11 +32,10 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
                 type="number"
                 ref={inputRef}
                 className={cn("tabular-nums", className)}
-                value={value}
+                value={value === 0 ? "" : value}
                 onFocus={handleFocus}
-                onClick={handleClick}
-                onBlur={handleBlur}
                 onChange={handleChange}
+                placeholder="0"
                 {...props}
             />
         )

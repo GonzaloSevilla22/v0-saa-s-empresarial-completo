@@ -26,7 +26,7 @@ export function AiSummaryCard() {
     setIsLoading(true)
     try {
       const result = await services.getAISummary('daily')
-      setSummary(result.summary || "No se pudo generar el resumen en este momento.")
+      setSummary(result.content || "No se pudo generar el resumen en este momento.")
     } catch (error) {
       console.error(error)
       setSummary("Error al conectar con la IA de EIE. Reintenta en unos minutos.")

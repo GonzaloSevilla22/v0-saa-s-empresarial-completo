@@ -29,7 +29,20 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error: authError
   } = await supabase.auth.getUser()
+
+  // Handle stale sessions after a local DB reset
+  if (authError && authError.message.includes('Refresh Token Not Found')) {
+    // Clear cookies to avoid infinite loops and console noise
+    const response = NextResponse.redirect(new URL('/login', request.url))
+    request.cookies.getAll().forEach(cookie => {
+      if (cookie.name.startsWith('sb-')) {
+        response.cookies.delete(cookie.name)
+      }
+    })
+    return response
+  }
 
   const isAuthRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/register');
   const isProtected = request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/admin')

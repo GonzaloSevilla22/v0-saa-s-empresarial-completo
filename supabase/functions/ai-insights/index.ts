@@ -22,14 +22,11 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
-    // Setup parameters for AI request context
+    // 2. Setup parameters for AI request context
     const threeMonthsAgo = new Date()
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
 
     // 3. Get Data (Sales, Expenses for the last 3 months)
-    const threeMonthsAgo = new Date()
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
-
     const [salesResult, expensesResult] = await Promise.all([
       supabaseClient.from('sales').select('amount, date').gte('date', threeMonthsAgo.toISOString()),
       supabaseClient.from('expenses').select('amount, category, date').gte('date', threeMonthsAgo.toISOString())
@@ -42,24 +39,34 @@ serve(async (req) => {
     Ventas: ${JSON.stringify(sales)}
     Gastos: ${JSON.stringify(expenses)}`
 
-    // 4. Call OpenAI API directly
+    // 4. Call OpenAI API or Mock Fallback
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openAiKey) throw new Error('OpenAI key configured incorrectly')
+    let content = ''
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: 'Eres un analista financiero experto para emprendedores pequeños. Responde con un análisis corto y una acción específica recomendada.' }, { role: 'user', content: prompt }]
-      }),
-    })
+    if (!openAiKey) {
+      // Mock result for local development "wow" factor
+      const mocks = [
+        "Tus ventas han subido un 12% este mes. Considerá aumentar el stock de productos de electrónica.",
+        "Detectamos un gasto inusual en logística. Podrías ahorrar un 5% renegociando con tu proveedor.",
+        "Tus clientes más leales compran cada 15 días. Una promo de fidelidad podría aumentar tu frecuencia de venta."
+      ]
+      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+    } else {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'system', content: 'Eres un analista financiero experto para emprendedores pequeños. Responde con un análisis corto y una acción específica recomendada.' }, { role: 'user', content: prompt }]
+        }),
+      })
 
-    const aiData = await response.json()
-    const content = aiData.choices?.[0]?.message?.content || 'No se pudo generar insight'
+      const aiData = await response.json()
+      content = aiData.choices?.[0]?.message?.content || 'No se pudo generar insight'
+    }
 
     // 5. Atomic Postgres RPC handles limits, locking, telemetry and insertion securely
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
@@ -74,7 +81,6 @@ serve(async (req) => {
       if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
       throw new Error(`${rpcError.message} | 500`)
     }
-
 
     return new Response(JSON.stringify(insight), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

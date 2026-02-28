@@ -6,6 +6,10 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { SaleForm } from "@/components/forms/sale-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { formatMoney, formatDate } from "@/lib/format"
+import { Button } from "@/components/ui/button"
+import { useAuth } from "@/contexts/auth-context"
+import { BarChart3 } from "lucide-react"
+import Link from "next/link"
 import type { Sale } from "@/lib/types"
 
 const columns: Column<Sale>[] = [
@@ -50,12 +54,23 @@ const columns: Column<Sale>[] = [
 export default function VentasPage() {
   const { sales, deleteSale } = useData()
   const [open, setOpen] = useState(false)
+  const { isAdmin } = useAuth()
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Ventas</h1>
-        <p className="text-sm text-muted-foreground mt-1">Gestión de todas tus ventas</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Ventas</h1>
+          <p className="text-sm text-muted-foreground mt-1">Gestión de todas tus ventas</p>
+        </div>
+        {isAdmin && (
+          <Button asChild variant="outline" className="border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10">
+            <Link href="/admin/metricas/ventas">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Ver Analíticas Globales
+            </Link>
+          </Button>
+        )}
       </div>
 
       <DataTable

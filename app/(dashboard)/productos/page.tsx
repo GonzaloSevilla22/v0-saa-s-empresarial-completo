@@ -8,6 +8,9 @@ import { ProductForm } from "@/components/forms/product-form"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { BarChart3 } from "lucide-react"
+import Link from "next/link"
 import { formatMoney } from "@/lib/format"
 import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
@@ -96,12 +99,22 @@ export default function ProductosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Productos</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {products.length} productos
-          {user?.plan === "free" && ` / ${MAX_PRODUCTS_FREE} (plan gratis)`}
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Productos</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {products.length} productos
+            {user?.plan === "free" && ` / ${MAX_PRODUCTS_FREE} (plan gratis)`}
+          </p>
+        </div>
+        {user?.role === "admin" && (
+          <Button asChild variant="outline" className="border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10">
+            <Link href="/admin/metricas/stock">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Ver Analíticas de Stock
+            </Link>
+          </Button>
+        )}
       </div>
 
       {isAtLimit && (

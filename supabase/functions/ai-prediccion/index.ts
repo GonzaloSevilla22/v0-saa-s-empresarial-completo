@@ -24,24 +24,32 @@ serve(async (req) => {
     const { days_ahead } = await req.json()
     
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
-    if (!openAiKey) throw new Error('OpenAI key required')
+    let content = ''
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: 'Predice ventas futuras basadas en histórico.' }, { role: 'user', content: `Predice para los próximos ${days_ahead} días.` }]
-      }),
-    })
+    if (!openAiKey) {
+      const mocks = [
+        `Predicción a ${days_ahead} días: Se espera un pico de demanda el próximo miércoles. Aseguráte de tener stock suficiente.`,
+        `Pronóstico financiero: Estabilidad en el flujo de caja. Buen momento para realizar inversiones menores en marketing.`,
+        `Alerta de tendencia: Crecimiento proyectado del 5% en productos de temporada.`
+      ]
+      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+    } else {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openAiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'system', content: 'Predice ventas futuras basadas en histórico.' }, { role: 'user', content: `Predice para los próximos ${days_ahead} días.` }]
+        }),
+      })
 
-    const aiData = await response.json()
-    const content = aiData.choices?.[0]?.message?.content || 'Predicción generada.'
+      const aiData = await response.json()
+      content = aiData.choices?.[0]?.message?.content || 'Predicción generada.'
+    }
 
-    // Atomic Postgres RPC handles limits, locking, telemetry and insertion securely
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
       p_user_id: user.id,
       p_type: 'prediction',
@@ -51,7 +59,6 @@ serve(async (req) => {
 
     if (rpcError) {
       if (rpcError.code === 'insufficient_privilege') throw new Error(`${rpcError.message} | 403`)
-      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
       throw new Error(`${rpcError.message} | 500`)
     }
 
@@ -60,8 +67,6 @@ serve(async (req) => {
     const errorMsg = error instanceof Error ? error.message : 'Unknown error'
     const parts = errorMsg.split(' | ')
     const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
-    const msg = parts[0]
-
-    return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
+    return new Response(JSON.stringify({ error: parts[0] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
   }
 })

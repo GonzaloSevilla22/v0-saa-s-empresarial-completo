@@ -20,21 +20,11 @@ serve(async (req) => {
 
     // 1. Session check
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
-    if (userError || !user) throw new Error('Unauthorized')
+    if (userError || !user) throw new Error('Unauthorized | 401')
 
-    // 2. Fetch Profile & Check limits
-    const { data: profile, error: profileError } = await supabaseClient
-      .from('profiles')
-      .select('plan, insights_used, insights_reset_at')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profile) throw new Error('Profile not found')
-
-    // If it's a new month, we should reset insights_used. (For simplicity here, we assume a cron or trigger handles this, or we check date diff).
-    if (profile.plan === 'free' && profile.insights_used >= 5) {
-      throw new Error('Limit reached: MAX_INSIGHTS_MONTH is 5 for free plan')
-    }
+    // Setup parameters for AI request context
+    const threeMonthsAgo = new Date()
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
 
     // 3. Get Data (Sales, Expenses for the last 3 months)
     const threeMonthsAgo = new Date()
@@ -71,48 +61,34 @@ serve(async (req) => {
     const aiData = await response.json()
     const content = aiData.choices?.[0]?.message?.content || 'No se pudo generar insight'
 
-    // 5. Persist Insight
-    const { data: insight, error: insightError } = await supabaseClient
-      .from('insights')
-      .insert({
-        user_id: user.id,
-        type: 'general',
-        content: content,
-        actionable: 'actionable_extracted_from_content'
-      })
-      .select()
-      .single()
-
-    if (insightError) throw insightError
-
-    // Increment usage
-    await supabaseClient
-      .from('profiles')
-      .update({ insights_used: profile.insights_used + 1 })
-      .eq('id', user.id)
-
-    // Fire AARRR Event (UMV reached!)
-    await supabaseClient.from('analytics_events').insert({
-      user_id: user.id,
-      event_name: 'umv_reached',
-      event_data: { type: 'insight_generated', insight_id: insight.id }
+    // 5. Atomic Postgres RPC handles limits, locking, telemetry and insertion securely
+    const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
+      p_user_id: user.id,
+      p_type: 'general',
+      p_content: content,
+      p_source_function: 'ai-insights'
     })
 
-    // Fire Analytics Event (Dashboard tracking)
-    await supabaseClient.from('analytics_events').insert({
-      user_id: user.id,
-      event_name: 'insight_generated',
-      event_data: { type: 'general', source_function: 'ai-insights', insight_id: insight.id }
-    })
+    if (rpcError) {
+      if (rpcError.code === 'insufficient_privilege') throw new Error(`${rpcError.message} | 403`)
+      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
+      throw new Error(`${rpcError.message} | 500`)
+    }
+
 
     return new Response(JSON.stringify(insight), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    const parts = errorMsg.split(' | ')
+    const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
+    const msg = parts[0]
+
+    return new Response(JSON.stringify({ error: msg }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      status: status,
     })
   }
 })

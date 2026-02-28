@@ -20,70 +20,27 @@ serve(async (req) => {
 
     // 1. Get User Session
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
-    if (userError || !user) throw new Error('Unauthorized')
+    if (userError || !user) throw new Error('Unauthorized | 401')
 
     // 2. Parse payload
-    const { client_id, product_id, amount, quantity, date } = await req.json()
-    if (!product_id || !amount) throw new Error('Missing required fields')
+    const { client_id, product_id, amount, quantity } = await req.json()
+    if (!product_id || !amount) throw new Error('Missing required fields | 400')
 
-    // 3. User & Plan limits check (Zero Trust Validation Server-side)
-    // - A user has a max limit of 20 products for free plan. Though this is for products, 
-    //   for create-sale we could check if they have reached the limit of sales per month for a free plan if applicable.
-    // For this MVP, we enforce basic data integrity.
-
-    // Get the product to adjust stock and check ownership
-    const { data: product, error: productError } = await supabaseClient
-      .from('products')
-      .select('id, stock')
-      .eq('id', product_id)
-      .single()
-
-    if (productError || !product) throw new Error('Product not found or access denied')
-
-    // In a real transactional system we would use a DB function. Here we orchestrate.
-    const { data: sale, error: saleError } = await supabaseClient
-      .from('sales')
-      .insert({
-        user_id: user.id,
-        client_id: client_id || null,
-        product_id: product_id,
-        amount: amount,
-        quantity: quantity || 1,
-        date: date || new Date().toISOString()
-      })
-      .select()
-      .single()
-
-    if (saleError) throw saleError
-
-    // Deduct stock
-    await supabaseClient
-      .from('products')
-      .update({ stock: product.stock - (quantity || 1) })
-      .eq('id', product_id)
-
-    // Fire AARRR Analytics Event
-    await supabaseClient.from('analytics_events').insert({
-      user_id: user.id,
-      event_name: 'operation_created',
-      event_data: { type: 'sale', sale_id: sale.id }
+    // 3. Delegate to Atomic Postgres RPC
+    // This handles stock verification, FOR UPDATE row locking, inserting the sale, 
+    // and correctly pushing timeline telemetry safely under a single DB transaction.
+    const { data: sale, error: rpcError } = await supabaseClient.rpc('rpc_atomic_create_sale', {
+      p_client_id: client_id || null,
+      p_product_id: product_id,
+      p_amount: amount,
+      p_quantity: quantity || 1,
+      p_user_id: user.id
     })
 
-    // Check if it's the first operation
-    const { data: existingFirstOp } = await supabaseClient
-      .from('analytics_events')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('event_name', 'first_operation')
-      .limit(1)
-      .maybeSingle()
-
-    if (!existingFirstOp) {
-      await supabaseClient.from('analytics_events').insert({
-        user_id: user.id,
-        event_name: 'first_operation',
-        event_data: { type: 'sale', sale_id: sale.id }
-      })
+    if (rpcError) {
+      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
+      if (rpcError.code === 'integrity_constraint_violation') throw new Error(`${rpcError.message} | 409`)
+      throw new Error(`${rpcError.message} | 500`)
     }
 
     return new Response(JSON.stringify(sale), {
@@ -91,9 +48,14 @@ serve(async (req) => {
       status: 200,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    const parts = errorMsg.split(' | ')
+    const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
+    const msg = parts[0]
+
+    return new Response(JSON.stringify({ error: msg }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      status: status,
     })
   }
 })

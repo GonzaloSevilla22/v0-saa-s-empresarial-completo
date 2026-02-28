@@ -15,7 +15,7 @@ const columns: Column<Product>[] = [
   },
   {
     key: "category",
-    header: "Categoria",
+    header: "Categoría",
     cell: (row) => <span className="text-muted-foreground">{row.category}</span>,
   },
   {

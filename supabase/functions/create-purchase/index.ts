@@ -20,64 +20,25 @@ serve(async (req) => {
 
     // 1. Validate Session
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
-    if (userError || !user) throw new Error('Unauthorized')
+    if (userError || !user) throw new Error('Unauthorized | 401')
 
     // 2. Parse Payload
-    const { product_id, amount, quantity, date } = await req.json()
-    if (!product_id || !amount) throw new Error('Missing required fields')
+    const { product_id, amount, quantity } = await req.json()
+    if (!product_id || !amount) throw new Error('Missing required fields | 400')
 
-    // 3. Data Integrity & Ownership check
-    const { data: product, error: productError } = await supabaseClient
-      .from('products')
-      .select('id, stock')
-      .eq('id', product_id)
-      .single()
-
-    if (productError || !product) throw new Error('Product not found or access denied')
-
-    // 4. Create Purchase
-    const { data: purchase, error: purchaseError } = await supabaseClient
-      .from('purchases')
-      .insert({
-        user_id: user.id,
-        product_id: product_id,
-        amount: amount,
-        quantity: quantity || 1,
-        date: date || new Date().toISOString()
-      })
-      .select()
-      .single()
-
-    if (purchaseError) throw purchaseError
-
-    // Add stock
-    await supabaseClient
-      .from('products')
-      .update({ stock: product.stock + (quantity || 1) })
-      .eq('id', product_id)
-
-    // Fire AARRR event
-    await supabaseClient.from('analytics_events').insert({
-      user_id: user.id,
-      event_name: 'operation_created',
-      event_data: { type: 'purchase', purchase_id: purchase.id }
+    // 3. Delegate to Atomic Postgres RPC
+    // Handles stock verification, FOR UPDATE row locking, inserting the purchase,
+    // and telemetry safely under a single DB transaction.
+    const { data: purchase, error: rpcError } = await supabaseClient.rpc('rpc_atomic_create_purchase', {
+      p_product_id: product_id,
+      p_amount: amount,
+      p_quantity: quantity || 1,
+      p_user_id: user.id
     })
 
-    // Check if it's the first operation
-    const { data: existingFirstOp } = await supabaseClient
-      .from('analytics_events')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('event_name', 'first_operation')
-      .limit(1)
-      .maybeSingle()
-
-    if (!existingFirstOp) {
-      await supabaseClient.from('analytics_events').insert({
-        user_id: user.id,
-        event_name: 'first_operation',
-        event_data: { type: 'purchase', purchase_id: purchase.id }
-      })
+    if (rpcError) {
+      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
+      throw new Error(`${rpcError.message} | 500`)
     }
 
     return new Response(JSON.stringify(purchase), {
@@ -85,9 +46,14 @@ serve(async (req) => {
       status: 200,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    const parts = errorMsg.split(' | ')
+    const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
+    const msg = parts[0]
+
+    return new Response(JSON.stringify({ error: msg }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
+      status: status,
     })
   }
 })

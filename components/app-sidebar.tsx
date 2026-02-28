@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { ModeToggle } from "@/components/mode-toggle"
 
 const navGroups = [
   {
@@ -33,7 +34,7 @@ const navGroups = [
     ],
   },
   {
-    label: "Catalogo",
+    label: "Catálogo",
     items: [
       { title: "Productos", href: "/productos", icon: Package, pro: false },
       { title: "Stock", href: "/stock", icon: Warehouse, pro: false },
@@ -117,10 +118,10 @@ export function AppSidebar() {
       <SidebarFooter className="p-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Configuracion">
+            <SidebarMenuButton asChild tooltip="Configuración">
               <Link href="/configuracion">
                 <Settings className="h-4 w-4" />
-                <span>Configuracion</span>
+                <span>Configuración</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -133,8 +134,14 @@ export function AppSidebar() {
               tooltip="Cerrar sesion"
             >
               <LogOut className="h-4 w-4" />
-              <span>Cerrar sesion</span>
+              <span>Cerrar sesión</span>
             </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <div className="px-2 py-1 flex items-center justify-between group-data-[collapsible=icon]:justify-center">
+              <span className="text-xs text-sidebar-foreground/60 group-data-[collapsible=icon]:hidden">Interfaz</span>
+              <ModeToggle />
+            </div>
           </SidebarMenuItem>
         </SidebarMenu>
         <SidebarSeparator />
@@ -150,11 +157,10 @@ export function AppSidebar() {
             </span>
             <Badge
               variant="outline"
-              className={`w-fit text-[10px] px-1.5 py-0 ${
-                user?.plan === "pro"
-                  ? "border-yellow-500/50 text-yellow-500"
-                  : "border-sidebar-border text-sidebar-foreground/60"
-              }`}
+              className={`w-fit text-[10px] px-1.5 py-0 ${user?.plan === "pro"
+                ? "border-yellow-500/50 text-yellow-500"
+                : "border-sidebar-border text-sidebar-foreground/60"
+                }`}
             >
               {user?.plan === "pro" ? "PRO" : "FREE"}
             </Badge>

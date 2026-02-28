@@ -49,7 +49,7 @@ export default function SimuladorPage() {
       if (!selectedProduct) return
       const optimalPrice = Math.round(selectedProduct.cost * 2.2)
       setSuggestion(
-        `Basado en tus datos de ventas y el costo de $${selectedProduct.cost}, el precio optimo sugerido es $${optimalPrice}. Esto te daría un margen del ${Math.round(((optimalPrice - selectedProduct.cost) / optimalPrice) * 100)}% manteniendo competitividad.`
+        `Basado en tus datos de ventas y el costo de $${selectedProduct.cost}, el precio óptimo sugerido es $${optimalPrice}. Esto te daría un margen del ${Math.round(((optimalPrice - selectedProduct.cost) / optimalPrice) * 100)}% manteniendo competitividad.`
       )
       setIsLoading(false)
     }, 1500)
@@ -66,7 +66,7 @@ export default function SimuladorPage() {
         <div className="flex flex-col gap-4">
           <Card className="border-border bg-card">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-card-foreground">Configuracion</CardTitle>
+              <CardTitle className="text-sm font-medium text-card-foreground">Configuración</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-5">
               <div className="flex flex-col gap-2">
@@ -151,7 +151,7 @@ export default function SimuladorPage() {
               <Card className="border-primary/20 bg-card">
                 <CardContent className="p-4 flex flex-col items-center gap-1">
                   <TrendingUp className="h-5 w-5 text-primary mb-1" />
-                  <span className="text-xs text-muted-foreground">Proyeccion</span>
+                  <span className="text-xs text-muted-foreground">Proyección</span>
                   <span className={`text-xl font-bold ${projectedRevenue > currentRevenue ? "text-emerald-400" : "text-red-400"}`}>
                     ${projectedRevenue.toFixed(0)}
                   </span>

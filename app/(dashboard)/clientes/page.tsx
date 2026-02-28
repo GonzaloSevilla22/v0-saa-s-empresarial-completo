@@ -6,6 +6,7 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ClientForm } from "@/components/forms/client-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { formatMoney } from "@/lib/format"
 import type { Client } from "@/lib/types"
 
 const statusColors: Record<string, string> = {
@@ -18,7 +19,19 @@ const columns: Column<Client>[] = [
   {
     key: "name",
     header: "Nombre",
-    cell: (row) => <span className="font-medium">{row.name}</span>,
+    cell: (row) => (
+      <div className="flex flex-col">
+        <span className="font-medium">{row.name}</span>
+        <span className="text-[10px] text-muted-foreground">{row.email}</span>
+      </div>
+    ),
+  },
+  {
+    key: "category",
+    header: "Categoría",
+    cell: (row) => (
+      <span className="text-xs text-muted-foreground italic">{row.category || "-"}</span>
+    ),
   },
   {
     key: "email",
@@ -27,7 +40,7 @@ const columns: Column<Client>[] = [
   },
   {
     key: "phone",
-    header: "Telefono",
+    header: "Teléfono",
     cell: (row) => <span className="text-muted-foreground">{row.phone}</span>,
   },
   {
@@ -49,7 +62,7 @@ const columns: Column<Client>[] = [
   {
     key: "totalSpent",
     header: "Total gastado",
-    cell: (row) => <span className="font-medium text-primary">${row.totalSpent.toLocaleString()}</span>,
+    cell: (row) => <span className="font-medium text-primary">{formatMoney(row.totalSpent)}</span>,
     sortable: true,
     sortValue: (row) => row.totalSpent,
   },
@@ -58,6 +71,17 @@ const columns: Column<Client>[] = [
 export default function ClientesPage() {
   const { clients, deleteClient } = useData()
   const [open, setOpen] = useState(false)
+  const [editingClient, setEditingClient] = useState<Client | undefined>()
+
+  const handleEdit = (client: Client) => {
+    setEditingClient(client)
+    setOpen(true)
+  }
+
+  const handleAdd = () => {
+    setEditingClient(undefined)
+    setOpen(true)
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -71,8 +95,9 @@ export default function ClientesPage() {
         columns={columns}
         searchPlaceholder="Buscar clientes..."
         searchKey={(row) => `${row.name} ${row.email}`}
-        onAdd={() => setOpen(true)}
+        onAdd={handleAdd}
         addLabel="Nuevo cliente"
+        onEdit={handleEdit}
         onDelete={deleteClient}
         getId={(row) => row.id}
       />
@@ -80,9 +105,17 @@ export default function ClientesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>
-            <DialogTitle className="text-card-foreground">Nuevo cliente</DialogTitle>
+            <DialogTitle className="text-card-foreground">
+              {editingClient ? "Editar cliente" : "Nuevo cliente"}
+            </DialogTitle>
           </DialogHeader>
-          <ClientForm onSuccess={() => setOpen(false)} />
+          <ClientForm
+            initialData={editingClient}
+            onSuccess={() => {
+              setOpen(false)
+              setEditingClient(undefined)
+            }}
+          />
         </DialogContent>
       </Dialog>
     </div>

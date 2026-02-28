@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData } from "@/contexts/data-context"
@@ -40,7 +41,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
 
   function handleCreateProduct() {
     if (!newProductName.trim() || !newProductCategory) {
-      toast.error("Nombre y categoria son obligatorios")
+      toast.error("Nombre y categoría son obligatorios")
       return
     }
     const margin = newProductPrice > 0 ? Math.round(((newProductPrice - newProductCost) / newProductPrice) * 100) : 0
@@ -66,7 +67,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedProduct) {
-      toast.error("Selecciona un producto")
+      toast.error("Seleccioná un producto")
       return
     }
     addPurchase({
@@ -108,7 +109,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             />
             <Select value={newProductCategory} onValueChange={setNewProductCategory}>
               <SelectTrigger className="bg-background border-border text-foreground text-sm">
-                <SelectValue placeholder="Categoria" />
+                <SelectValue placeholder="Categoría" />
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">
                 {PRODUCT_CATEGORIES.map((c) => (
@@ -119,31 +120,28 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1">
                 <Label className="text-[10px] text-muted-foreground">Costo</Label>
-                <Input
-                  type="number"
+                <NumericInput
                   min={0}
                   value={newProductCost}
-                  onChange={(e) => setNewProductCost(parseFloat(e.target.value) || 0)}
+                  onValueChange={setNewProductCost}
                   className="bg-background border-border text-foreground text-sm"
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <Label className="text-[10px] text-muted-foreground">Precio venta</Label>
-                <Input
-                  type="number"
+                <NumericInput
                   min={0}
                   value={newProductPrice}
-                  onChange={(e) => setNewProductPrice(parseFloat(e.target.value) || 0)}
+                  onValueChange={setNewProductPrice}
                   className="bg-background border-border text-foreground text-sm"
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <Label className="text-[10px] text-muted-foreground">Stock min.</Label>
-                <Input
-                  type="number"
+                <NumericInput
                   min={0}
                   value={newProductMinStock}
-                  onChange={(e) => setNewProductMinStock(parseInt(e.target.value) || 0)}
+                  onValueChange={setNewProductMinStock}
                   className="bg-background border-border text-foreground text-sm"
                 />
               </div>
@@ -172,22 +170,20 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Cantidad</Label>
-          <Input
-            type="number"
+          <NumericInput
             min={1}
             value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+            onValueChange={(val) => setQuantity(Math.max(1, val))}
             className="bg-background border-border text-foreground"
           />
         </div>
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Costo unitario</Label>
-          <Input
-            type="number"
+          <NumericInput
             min={0}
             step={0.01}
             value={unitCost}
-            onChange={(e) => setUnitCost(parseFloat(e.target.value) || 0)}
+            onValueChange={setUnitCost}
             className="bg-background border-border text-foreground"
           />
         </div>

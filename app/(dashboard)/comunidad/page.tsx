@@ -34,11 +34,11 @@ export default function ComunidadPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title || !content) {
-      toast.error("Completa todos los campos")
+      toast.error("Completá todos los campos")
       return
     }
     addPost({
-      author: user?.name || "Anonimo",
+      author: user?.name || "Anónimo",
       title,
       content,
       category,
@@ -126,13 +126,13 @@ export default function ComunidadPage() {
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Titulo del post"
+              placeholder="Título del post"
               className="bg-background border-border text-foreground"
             />
             <Textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Comparte tu experiencia, pregunta o consejo..."
+              placeholder="Compartí tu experiencia, pregunta o consejo..."
               rows={4}
               className="bg-background border-border text-foreground resize-none"
             />

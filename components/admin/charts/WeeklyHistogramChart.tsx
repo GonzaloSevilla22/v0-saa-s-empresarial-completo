@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
+import { chartGradients } from '@/lib/chart-utils'
 
 interface WeeklyHistogramChartProps {
     data: { active_days: number; users_count: number }[]
@@ -17,6 +18,8 @@ export default function WeeklyHistogramChart({ data, width = 600, height = 300 }
 
         const svg = d3.select(svgRef.current)
         svg.selectAll("*").remove()
+
+        svg.append("g").html(chartGradients)
 
         const margin = { top: 20, right: 30, bottom: 40, left: 50 }
         const innerWidth = width - margin.left - margin.right
@@ -74,7 +77,8 @@ export default function WeeklyHistogramChart({ data, width = 600, height = 300 }
             .attr("y", d => y(d.users_count))
             .attr("width", x.bandwidth())
             .attr("height", d => innerHeight - y(d.users_count))
-            .attr("fill", "#8b5cf6") // violet-500
+            .attr("fill", "url(#gradient-purple)")
+            .attr("rx", 4)
             .on("mouseover", (event, d) => {
                 tooltip.style("display", "block").html(`<strong>Activos ${d.active_days} días:</strong> ${d.users_count} usuarios`)
                 d3.select(event.currentTarget).attr("opacity", 0.8)
@@ -96,7 +100,9 @@ export default function WeeklyHistogramChart({ data, width = 600, height = 300 }
             .attr("font-size", "10px")
             .attr("fill", "#374151")
 
-        return () => d3.selectAll('.d3-tooltip').remove()
+        return () => {
+            d3.selectAll('.d3-tooltip').remove()
+        }
     }, [data, width, height])
 
     return (

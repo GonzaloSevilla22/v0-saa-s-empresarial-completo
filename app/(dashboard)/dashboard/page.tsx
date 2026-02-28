@@ -5,6 +5,7 @@ import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
+import { AiAlerts } from "@/components/dashboard/ai-alerts"
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react"
 
 export default function DashboardPage() {
@@ -19,10 +20,10 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight text-balance">
-          Buen dia, Emprendedor
+          Buen día, Emprendedor
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Asi esta tu negocio hoy
+          Así está tu negocio hoy
         </p>
       </div>
 
@@ -60,6 +61,7 @@ export default function DashboardPage() {
         </div>
         <div className="lg:col-span-3 flex flex-col gap-4">
           <AiSummaryCard />
+          <AiAlerts />
           <RecentActivity />
         </div>
       </div>

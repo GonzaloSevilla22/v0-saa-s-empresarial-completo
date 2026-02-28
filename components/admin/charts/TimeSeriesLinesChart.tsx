@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
+import { chartGradients } from '@/lib/chart-utils'
 
 interface TimeSeriesLinesChartProps {
     data: { period: string; activations: number; umv_achieved: number }[]
@@ -17,6 +18,9 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
 
         const svg = d3.select(svgRef.current)
         svg.selectAll("*").remove() // Clear previous renders
+
+        // Add gradients to the SVG
+        svg.append("g").html(chartGradients)
 
         const margin = { top: 20, right: 30, bottom: 30, left: 40 }
         const innerWidth = width - margin.left - margin.right
@@ -51,6 +55,32 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .call(d3.axisLeft(y).ticks(5))
             .attr("color", "#6b7280")
 
+        // Area generators for gradients
+        const areaActivations = d3.area<typeof parsedData[0]>()
+            .x(d => x(d.date))
+            .y0(innerHeight)
+            .y1(d => y(d.activations))
+            .curve(d3.curveMonotoneX)
+
+        const areaUmv = d3.area<typeof parsedData[0]>()
+            .x(d => x(d.date))
+            .y0(innerHeight)
+            .y1(d => y(d.umv_achieved))
+            .curve(d3.curveMonotoneX)
+
+        // Draw Areas first
+        g.append("path")
+            .datum(parsedData)
+            .attr("fill", "url(#gradient-blue)")
+            .attr("stroke", "none")
+            .attr("d", areaActivations)
+
+        g.append("path")
+            .datum(parsedData)
+            .attr("fill", "url(#gradient-emerald)")
+            .attr("stroke", "none")
+            .attr("d", areaUmv)
+
         // Activations Line
         const lineActivations = d3.line<typeof parsedData[0]>()
             .x(d => x(d.date))
@@ -61,7 +91,8 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .datum(parsedData)
             .attr("fill", "none")
             .attr("stroke", "#3b82f6") // blue-500
-            .attr("stroke-width", 2)
+            .attr("stroke-width", 3)
+            .attr("stroke-linecap", "round")
             .attr("d", lineActivations)
 
         // UMV Line
@@ -74,7 +105,8 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .datum(parsedData)
             .attr("fill", "none")
             .attr("stroke", "#10b981") // emerald-500
-            .attr("stroke-width", 2)
+            .attr("stroke-width", 3)
+            .attr("stroke-linecap", "round")
             .attr("d", lineUmv)
 
         // Tooltip logic

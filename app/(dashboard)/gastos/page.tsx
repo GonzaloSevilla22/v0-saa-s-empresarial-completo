@@ -6,6 +6,7 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ExpenseForm } from "@/components/forms/expense-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { formatMoney, formatDate } from "@/lib/format"
 import type { Expense } from "@/lib/types"
 
 const categoryColors: Record<string, string> = {
@@ -22,13 +23,13 @@ const columns: Column<Expense>[] = [
   {
     key: "date",
     header: "Fecha",
-    cell: (row) => new Date(row.date + "T12:00:00").toLocaleDateString("es-AR"),
+    cell: (row) => formatDate(row.date),
     sortable: true,
     sortValue: (row) => row.date,
   },
   {
     key: "category",
-    header: "Categoria",
+    header: "Categoría",
     cell: (row) => (
       <Badge variant="outline" className={`text-xs ${categoryColors[row.category] || categoryColors.Otros}`}>
         {row.category}
@@ -37,13 +38,13 @@ const columns: Column<Expense>[] = [
   },
   {
     key: "description",
-    header: "Descripcion",
+    header: "Descripción",
     cell: (row) => <span className="font-medium">{row.description}</span>,
   },
   {
     key: "amount",
     header: "Monto",
-    cell: (row) => <span className="font-medium text-red-400">${row.amount}</span>,
+    cell: (row) => <span className="font-medium text-red-400">{formatMoney(row.amount)}</span>,
     sortable: true,
     sortValue: (row) => row.amount,
   },
@@ -63,12 +64,29 @@ export default function GastosPage() {
       <DataTable
         data={expenses}
         columns={columns}
-        searchPlaceholder="Buscar por descripcion..."
+        searchPlaceholder="Buscar por descripción..."
         searchKey={(row) => `${row.description} ${row.category}`}
         onAdd={() => setOpen(true)}
         addLabel="Nuevo gasto"
         onDelete={deleteExpense}
         getId={(row) => row.id}
+        dateKey={(row) => row.date}
+        exportColumns={[
+          { key: "date", header: "Fecha" },
+          { key: "category", header: "Categoría" },
+          { key: "description", header: "Descripción" },
+          { key: "amount", header: "Monto" },
+        ]}
+        exportFilename="gastos"
+        importColumnMap={[
+          { csvHeader: "Categoría", key: "category" },
+          { csvHeader: "Descripción", key: "description" },
+          { csvHeader: "Monto", key: "amount" },
+          { csvHeader: "Fecha", key: "date" },
+        ]}
+        onImport={(rows) => {
+          console.log("Importing expenses:", rows)
+        }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
+import { chartGradients } from '@/lib/chart-utils'
 
 interface StackedBarsChartProps {
     data: { period: string; insight_type: string; count: number }[]
@@ -17,6 +18,8 @@ export default function StackedBarsChart({ data, width = 600, height = 300 }: St
 
         const svg = d3.select(svgRef.current)
         svg.selectAll("*").remove()
+
+        svg.append("g").html(chartGradients)
 
         const margin = { top: 20, right: 30, bottom: 40, left: 40 }
         const innerWidth = width - margin.left - margin.right
@@ -81,10 +84,11 @@ export default function StackedBarsChart({ data, width = 600, height = 300 }: St
             .selectAll("rect")
             .data(d => d.map(item => { return { ...item, key: d.key }; }))
             .enter().append("rect")
-            .attr("x", d => x(d.data.period as string) || 0)
+            .attr("x", d => x((d.data.period as unknown) as string) || 0)
             .attr("y", d => y(d[1]))
             .attr("height", d => y(d[0]) - y(d[1]))
             .attr("width", x.bandwidth())
+            .attr("rx", 2)
             .on("mouseover", (event, d) => {
                 tooltip.style("display", "block").html(`<strong>Type:</strong> ${d.key}<br/><strong>Count:</strong> ${d[1] - d[0]}`)
                 d3.select(event.currentTarget).attr("stroke", "black").attr("stroke-width", 1)
@@ -95,7 +99,9 @@ export default function StackedBarsChart({ data, width = 600, height = 300 }: St
                 d3.select(event.currentTarget).attr("stroke", "none")
             })
 
-        return () => d3.selectAll('.d3-tooltip').remove()
+        return () => {
+            d3.selectAll('.d3-tooltip').remove()
+        }
     }, [data, width, height])
 
     return (

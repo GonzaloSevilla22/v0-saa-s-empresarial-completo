@@ -21,7 +21,7 @@ const pageNames: Record<string, string> = {
   "/simulador": "Simulador de Precios",
   "/comunidad": "Comunidad",
   "/cursos": "Cursos",
-  "/configuracion": "Configuracion",
+  "/configuracion": "Configuración",
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

@@ -11,7 +11,7 @@ import { MAX_INSIGHTS_FREE } from "@/lib/constants"
 import type { Insight } from "@/lib/types"
 
 const extraInsights: Insight[] = [
-  { id: "ix1", type: "oportunidad", priority: "alta", message: "Los fines de semana tus ventas bajan un 40%. Considera promociones especiales para sábados.", date: new Date().toISOString().split("T")[0] },
+  { id: "ix1", type: "oportunidad", priority: "alta", message: "Los fines de semana tus ventas bajan un 40%. Considerá promociones especiales para sábados.", date: new Date().toISOString().split("T")[0] },
   { id: "ix2", type: "ahorro", priority: "media", message: "Podrías ahorrar $200/mes comprando Cable HDMI en lotes de 200 unidades. El proveedor ofrece 15% de descuento.", date: new Date().toISOString().split("T")[0] },
   { id: "ix3", type: "clientes", priority: "baja", message: "Valentina Ruiz no compra hace 90 días. Un cupón de descuento podría reactivarla.", date: new Date().toISOString().split("T")[0] },
 ]
@@ -75,7 +75,7 @@ export default function InsightsPage() {
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardContent className="p-4">
             <p className="text-sm text-yellow-400">
-              Alcanzaste el limite de {MAX_INSIGHTS_FREE} insights del plan gratuito. Actualiza a Pro para obtener insights ilimitados.
+              Alcanzaste el límite de {MAX_INSIGHTS_FREE} insights del plan gratuito. Actualizá a Pro para obtener insights ilimitados.
             </p>
           </CardContent>
         </Card>

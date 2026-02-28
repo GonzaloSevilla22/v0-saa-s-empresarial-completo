@@ -7,7 +7,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowUpDown, Search, Plus, Trash2, Download, Upload, CalendarDays, X } from "lucide-react"
+import { ArrowUpDown, Search, Plus, Trash2, Download, Upload, CalendarDays, X, Pencil } from "lucide-react"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -44,6 +44,7 @@ interface DataTableProps<T> {
   searchKey?: (row: T) => string
   onAdd?: () => void
   addLabel?: string
+  onEdit?: (row: T) => void
   onDelete?: (id: string) => void
   getId: (row: T) => string
   // Date filter
@@ -57,7 +58,7 @@ interface DataTableProps<T> {
 
 export function DataTable<T>({
   data, columns, searchPlaceholder = "Buscar...", searchKey,
-  onAdd, addLabel = "Agregar", onDelete, getId,
+  onAdd, addLabel = "Agregar", onEdit, onDelete, getId,
   dateKey, exportColumns, exportFilename, importColumnMap, onImport,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("")
@@ -281,7 +282,7 @@ export function DataTable<T>({
                     )}
                   </TableHead>
                 ))}
-                {onDelete && <TableHead className="w-10" />}
+                {(onDelete || onEdit) && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -302,32 +303,46 @@ export function DataTable<T>({
                         {col.cell(row)}
                       </TableCell>
                     ))}
-                    {onDelete && (
+                    {(onDelete || onEdit) && (
                       <TableCell>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                              <Trash2 className="h-3.5 w-3.5" />
+                        <div className="flex items-center gap-1 justify-end">
+                          {onEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              onClick={() => onEdit(row)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent className="bg-card border-border">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle className="text-card-foreground">Confirmar eliminacion</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Esta accion no se puede deshacer. El registro sera eliminado permanentemente.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel className="border-border text-foreground">Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => onDelete(getId(row))}
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              >
-                                Eliminar
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                          )}
+                          {onDelete && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent className="bg-card border-border">
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle className="text-card-foreground">Confirmar eliminación</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Esta acción no se puede deshacer. El registro será eliminado permanentemente.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel className="border-border text-foreground">Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => onDelete(getId(row))}
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  >
+                                    Eliminar
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>

@@ -19,12 +19,7 @@ serve(async (req) => {
     )
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
-    if (userError || !user) throw new Error('Unauthorized')
-
-    const { data: profile } = await supabaseClient.from('profiles').select('*').eq('id', user.id).single()
-    if (profile?.plan === 'free' && profile.insights_used >= 5) {
-      throw new Error('Limit reached: MAX_INSIGHTS_MONTH is 5 for free plan')
-    }
+    if (userError || !user) throw new Error('Unauthorized | 401')
 
     const { days_ahead } = await req.json()
     
@@ -46,23 +41,27 @@ serve(async (req) => {
     const aiData = await response.json()
     const content = aiData.choices?.[0]?.message?.content || 'Predicción generada.'
 
-    // Persist
-    const { data: insight, error: insightError } = await supabaseClient
-      .from('insights')
-      .insert({ user_id: user.id, type: 'prediction', content: content, actionable: 'Preparar stock' })
-      .select().single()
-
-    if (insightError) throw insightError
-
-    // Fire Analytics Event (Dashboard tracking)
-    await supabaseClient.from('analytics_events').insert({
-      user_id: user.id,
-      event_name: 'insight_generated',
-      event_data: { type: 'prediction', source_function: 'ai-prediccion', insight_id: insight.id }
+    // Atomic Postgres RPC handles limits, locking, telemetry and insertion securely
+    const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
+      p_user_id: user.id,
+      p_type: 'prediction',
+      p_content: content,
+      p_source_function: 'ai-prediccion'
     })
+
+    if (rpcError) {
+      if (rpcError.code === 'insufficient_privilege') throw new Error(`${rpcError.message} | 403`)
+      if (rpcError.code === 'no_data_found') throw new Error(`${rpcError.message} | 404`)
+      throw new Error(`${rpcError.message} | 500`)
+    }
 
     return new Response(JSON.stringify(insight), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 })
+    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
+    const parts = errorMsg.split(' | ')
+    const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
+    const msg = parts[0]
+
+    return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
   }
 })

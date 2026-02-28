@@ -89,7 +89,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         price: Number(p.price),
         margin: p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0,
         stock: p.stock,
-        minStock: p.min_stock || 0
+        minStock: p.min_stock || 0,
+        barcode: p.barcode,
+        parentId: p.parent_id
       })))
 
       if (salesData) setSales(salesData.map(s => ({
@@ -129,8 +131,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         email: c.email || "",
         phone: c.phone || "",
         status: c.status || "activo",
-        lastPurchase: "-", // Could be computed
-        totalSpent: 0 // Could be computed
+        lastPurchase: "-",
+        totalSpent: 0,
+        category: c.category
       })))
 
       if (insightsData) setInsights(insightsData.map(i => ({
@@ -198,7 +201,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       price: p.price,
       cost: p.cost,
       stock: p.stock,
-      min_stock: p.minStock
+      min_stock: p.minStock,
+      barcode: p.barcode,
+      parent_id: p.parentId
     }])
   }, [supabase])
 
@@ -209,7 +214,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       price: p.price,
       cost: p.cost,
       stock: p.stock,
-      min_stock: p.minStock
+      min_stock: p.minStock,
+      barcode: p.barcode,
+      parent_id: p.parentId
     }).eq('id', p.id)
   }, [supabase])
 
@@ -277,7 +284,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       name: c.name,
       email: c.email,
       phone: c.phone,
-      status: c.status
+      status: c.status,
+      category: c.category
     }).eq('id', c.id)
   }, [supabase])
 

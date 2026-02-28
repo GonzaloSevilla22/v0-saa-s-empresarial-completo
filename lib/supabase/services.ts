@@ -3,7 +3,14 @@ import type { Sale, Purchase, Insight } from '@/lib/types'
 
 const supabase = createClient()
 
+export const getProfile = async (id: string) => {
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single()
+  if (error) return null
+  return data
+}
+
 export const services = {
+  getProfile,
   // Sales
   async createSale(sale: Omit<Sale, 'id'>) {
     const { data, error } = await supabase.functions.invoke('create-sale', {

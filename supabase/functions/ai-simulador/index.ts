@@ -54,6 +54,13 @@ serve(async (req) => {
 
     if (insightError) throw insightError
 
+    // Fire Analytics Event (Dashboard tracking)
+    await supabaseClient.from('analytics_events').insert({
+      user_id: user.id,
+      event_name: 'insight_generated',
+      event_data: { type: 'simulation', source_function: 'ai-simulador', insight_id: insight.id }
+    })
+
     return new Response(JSON.stringify(insight), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 })
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 })

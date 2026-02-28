@@ -65,9 +65,26 @@ serve(async (req) => {
     // Fire AARRR Analytics Event
     await supabaseClient.from('analytics_events').insert({
       user_id: user.id,
-      event_name: 'first_operation_created',
+      event_name: 'operation_created',
       event_data: { type: 'sale', sale_id: sale.id }
     })
+
+    // Check if it's the first operation
+    const { data: existingFirstOp } = await supabaseClient
+      .from('analytics_events')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('event_name', 'first_operation')
+      .limit(1)
+      .maybeSingle()
+
+    if (!existingFirstOp) {
+      await supabaseClient.from('analytics_events').insert({
+        user_id: user.id,
+        event_name: 'first_operation',
+        event_data: { type: 'sale', sale_id: sale.id }
+      })
+    }
 
     return new Response(JSON.stringify(sale), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

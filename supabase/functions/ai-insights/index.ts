@@ -98,6 +98,13 @@ serve(async (req) => {
       event_data: { type: 'insight_generated', insight_id: insight.id }
     })
 
+    // Fire Analytics Event (Dashboard tracking)
+    await supabaseClient.from('analytics_events').insert({
+      user_id: user.id,
+      event_name: 'insight_generated',
+      event_data: { type: 'general', source_function: 'ai-insights', insight_id: insight.id }
+    })
+
     return new Response(JSON.stringify(insight), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,

@@ -88,10 +88,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, router, refreshSession])
 
   const loginAsAdmin = useCallback(async () => {
-    // Attempting login via conventional admin credentials for demo
     const { error } = await supabase.auth.signInWithPassword({
       email: "admin@eie.com",
-      password: "password123", // Assuming user creates an admin account with this or seed creates it.
+      password: "password1234",
     })
     if (error) throw error
     await refreshSession()
@@ -100,13 +99,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(async (name: string, email: string, password: string) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: {
-          name,
-        }
+        data: { name },
+        emailRedirectTo: `${siteUrl}/auth/callback`,
       }
     })
     if (error) throw error

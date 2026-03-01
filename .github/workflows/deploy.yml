@@ -47,6 +47,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
       - name: Link project
         run: supabase link --project-ref "${SUPABASE_PROJECT_REF}" -p "${SUPABASE_DB_PASSWORD}"
 

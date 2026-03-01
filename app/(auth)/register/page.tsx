@@ -8,19 +8,65 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Zap } from "lucide-react"
+import { Zap, Eye, EyeOff, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react"
 
 export default function RegisterPage() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const { register } = useAuth()
   const router = useRouter()
 
-  function handleSubmit(e: React.FormEvent) {
+  const [isLoading, setIsLoading] = useState(false)
+
+  const passwordRequirements = [
+    { label: "Mínimo 8 caracteres", test: (p: string) => p.length >= 8 },
+    { label: "Al menos 1 número", test: (p: string) => /\d/.test(p) },
+    { label: "Al menos 1 letra", test: (p: string) => /[a-zA-Z]/.test(p) },
+    { label: "Al menos 1 mayúscula", test: (p: string) => /[A-Z]/.test(p) },
+    { label: "Al menos 1 símbolo", test: (p: string) => /[!@#$%^&*(),.?":{}|<>]/.test(p) },
+  ]
+
+  const isPasswordSecure = passwordRequirements.every(req => req.test(password))
+  const passwordsMatch = password === confirmPassword && confirmPassword !== ""
+
+  const generateSecurePassword = () => {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
+    let newPass = ""
+    // Ensure at least one of each
+    newPass += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[Math.floor(Math.random() * 26)]
+    newPass += "0123456789"[Math.floor(Math.random() * 10)]
+    newPass += "!@#$%^&*()"[Math.floor(Math.random() * 10)]
+    for (let i = 0; i < 9; i++) newPass += chars[Math.floor(Math.random() * chars.length)]
+    // shuffle
+    newPass = newPass.split('').sort(() => 0.5 - Math.random()).join('')
+    setPassword(newPass)
+    setConfirmPassword(newPass)
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    register(name || "Emprendedor", email || "emprendedor@eie.com", password)
-    router.push("/dashboard")
+    if (!isPasswordSecure) {
+      alert("La contraseña no cumple con los requisitos de seguridad")
+      return
+    }
+    if (!passwordsMatch) {
+      alert("Las contraseñas no coinciden")
+      return
+    }
+    setIsLoading(true)
+    try {
+      await register(name || "Emprendedor", email || "emprendedor@eie.com", password)
+      router.push("/dashboard")
+    } catch (error: any) {
+      console.error(error)
+      alert(error.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -63,15 +109,80 @@ export default function RegisterPage() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="password" className="text-foreground">Contrasena</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Tu contrasena"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="bg-background border-border text-foreground"
-                />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Contraseña</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[10px] gap-1 px-2"
+                    onClick={generateSecurePassword}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Generar segura
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Mínimo 8 caracteres"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="bg-background border-border text-foreground pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+
+                {/* Strength Checklist */}
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-1">
+                  {passwordRequirements.map((req, i) => {
+                    const met = req.test(password)
+                    return (
+                      <div key={i} className="flex items-center gap-1.5">
+                        {met ? (
+                          <ShieldCheck className="h-3 w-3 text-emerald-500" />
+                        ) : (
+                          <div className="h-1.5 w-1.5 rounded-full bg-slate-700" />
+                        )}
+                        <span className={`text-[10px] ${met ? "text-emerald-500 font-medium" : "text-muted-foreground"}`}>
+                          {req.label}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    placeholder="Repetí tu contraseña"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className={`bg-background text-foreground pr-10 ${confirmPassword && !passwordsMatch ? "border-red-500" : "border-border"
+                      }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {confirmPassword && !passwordsMatch && (
+                  <p className="text-[10px] text-red-500 font-medium">Las contraseñas no coinciden</p>
+                )}
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
@@ -79,9 +190,9 @@ export default function RegisterPage() {
                 Crear cuenta
               </Button>
               <p className="text-sm text-muted-foreground">
-                {"Ya tenes cuenta? "}
+                {"¿Ya tenés cuenta? "}
                 <Link href="/login" className="text-primary underline-offset-4 hover:underline">
-                  Inicia sesion
+                  Iniciá sesión
                 </Link>
               </p>
             </CardFooter>

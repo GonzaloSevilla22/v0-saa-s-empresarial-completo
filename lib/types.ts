@@ -19,6 +19,8 @@ export interface Product {
   margin: number
   stock: number
   minStock: number
+  barcode?: string
+  parentId?: string // For variants
 }
 
 export interface Sale {
@@ -42,6 +44,7 @@ export interface Purchase {
   quantity: number
   unitCost: number
   total: number
+  description?: string
 }
 
 export interface Expense {
@@ -62,6 +65,7 @@ export interface Client {
   status: ClientStatus
   lastPurchase: string
   totalSpent: number
+  category?: string
 }
 
 export type InsightPriority = "alta" | "media" | "baja"

@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Crown, Star, Users, Lock, BookOpen } from "lucide-react"
 
 const levelColors: Record<string, string> = {
-  basico: "border-emerald-500/30 text-emerald-400",
+  básico: "border-emerald-500/30 text-emerald-400",
   intermedio: "border-yellow-500/30 text-yellow-400",
   avanzado: "border-red-500/30 text-red-400",
 }
@@ -25,11 +25,11 @@ export default function CursosPage() {
 
   const filtered = filter === "todos"
     ? courses
-    : filter === "basicos"
-    ? courses.filter((c) => !c.isPro)
-    : filter === "pro"
-    ? courses.filter((c) => c.isPro)
-    : courses
+    : filter === "básicos"
+      ? courses.filter((c) => !c.isPro)
+      : filter === "pro"
+        ? courses.filter((c) => c.isPro)
+        : courses
 
   return (
     <div className="flex flex-col gap-6">
@@ -41,7 +41,7 @@ export default function CursosPage() {
       <Tabs value={filter} onValueChange={setFilter}>
         <TabsList className="bg-secondary border border-border">
           <TabsTrigger value="todos" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Todos</TabsTrigger>
-          <TabsTrigger value="basicos" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Gratuitos</TabsTrigger>
+          <TabsTrigger value="básicos" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Gratuitos</TabsTrigger>
           <TabsTrigger value="pro" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Pro</TabsTrigger>
         </TabsList>
       </Tabs>
@@ -90,7 +90,7 @@ export default function CursosPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <BookOpen className="h-3 w-3" />
-                    {course.modules.length} modulos
+                    {course.modules.length} módulos
                   </div>
                 </div>
                 {isLocked ? (

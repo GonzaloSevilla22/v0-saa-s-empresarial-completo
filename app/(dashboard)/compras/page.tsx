@@ -5,13 +5,19 @@ import { useData } from "@/contexts/data-context"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { formatMoney, formatDate } from "@/lib/format"
+import { Button } from "@/components/ui/button"
+import { useAuth } from "@/contexts/auth-context"
+import { BarChart3 } from "lucide-react"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
+import Link from "next/link"
 import type { Purchase } from "@/lib/types"
 
 const columns: Column<Purchase>[] = [
   {
     key: "date",
     header: "Fecha",
-    cell: (row) => new Date(row.date + "T12:00:00").toLocaleDateString("es-AR"),
+    cell: (row) => formatDate(row.date),
     sortable: true,
     sortValue: (row) => row.date,
   },
@@ -30,12 +36,12 @@ const columns: Column<Purchase>[] = [
   {
     key: "unitCost",
     header: "Costo unit.",
-    cell: (row) => `$${row.unitCost}`,
+    cell: (row) => formatMoney(row.unitCost),
   },
   {
     key: "total",
     header: "Total",
-    cell: (row) => <span className="font-medium text-cyan-400">${row.total}</span>,
+    cell: (row) => <span className="font-medium text-cyan-400">{formatMoney(row.total)}</span>,
     sortable: true,
     sortValue: (row) => row.total,
   },
@@ -44,13 +50,24 @@ const columns: Column<Purchase>[] = [
 export default function ComprasPage() {
   const { purchases, deletePurchase } = useData()
   const [open, setOpen] = useState(false)
+  const { isAdmin } = useAuth()
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
-        <p className="text-sm text-muted-foreground mt-1">Gestion de compras a proveedores</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
+          <p className="text-sm text-muted-foreground mt-1">Gestión de compras a proveedores</p>
+        </div>
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="compras"
+          title="Analíticas de Compras"
+          subtitle="Seguimiento de abastecimiento y costos"
+        />
+      )}
 
       <DataTable
         data={purchases}
@@ -61,6 +78,24 @@ export default function ComprasPage() {
         addLabel="Nueva compra"
         onDelete={deletePurchase}
         getId={(row) => row.id}
+        dateKey={(row) => row.date}
+        exportColumns={[
+          { key: "date", header: "Fecha" },
+          { key: "productName", header: "Producto" },
+          { key: "quantity", header: "Cantidad" },
+          { key: "unitCost", header: "Costo Unitario" },
+          { key: "total", header: "Total" },
+        ]}
+        exportFilename="compras"
+        importColumnMap={[
+          { csvHeader: "Producto", key: "productName" },
+          { csvHeader: "Cantidad", key: "quantity" },
+          { csvHeader: "Costo Unitario", key: "unitCost" },
+          { csvHeader: "Fecha", key: "date" },
+        ]}
+        onImport={(rows) => {
+          console.log("Importing purchases:", rows)
+        }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -71,6 +106,6 @@ export default function ComprasPage() {
           <PurchaseForm onSuccess={() => setOpen(false)} />
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   )
 }

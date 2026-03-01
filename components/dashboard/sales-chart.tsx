@@ -17,7 +17,7 @@ export function SalesChart() {
     <Card className="border-border bg-card">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-card-foreground">
-          Ventas ultimos 7 dias
+          Ventas últimos 7 días
         </CardTitle>
       </CardHeader>
       <CardContent className="pb-4">

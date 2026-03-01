@@ -11,37 +11,41 @@ import { MAX_INSIGHTS_FREE } from "@/lib/constants"
 import type { Insight } from "@/lib/types"
 
 const extraInsights: Insight[] = [
-  { id: "ix1", type: "oportunidad", priority: "alta", message: "Los fines de semana tus ventas bajan un 40%. Considera promociones especiales para sábados.", date: new Date().toISOString().split("T")[0] },
+  { id: "ix1", type: "oportunidad", priority: "alta", message: "Los fines de semana tus ventas bajan un 40%. Considerá promociones especiales para sábados.", date: new Date().toISOString().split("T")[0] },
   { id: "ix2", type: "ahorro", priority: "media", message: "Podrías ahorrar $200/mes comprando Cable HDMI en lotes de 200 unidades. El proveedor ofrece 15% de descuento.", date: new Date().toISOString().split("T")[0] },
   { id: "ix3", type: "clientes", priority: "baja", message: "Valentina Ruiz no compra hace 90 días. Un cupón de descuento podría reactivarla.", date: new Date().toISOString().split("T")[0] },
 ]
 
+import { services } from "@/lib/supabase/services"
+
 export default function InsightsPage() {
-  const { insights, addInsight } = useData()
+  const { insights, refreshData } = useData()
   const { user } = useAuth()
   const [isGenerating, setIsGenerating] = useState(false)
-  const [generated, setGenerated] = useState(0)
 
   const isFree = user?.plan === "free"
   const usedInsights = insights.length
-  const atLimit = isFree && generated >= MAX_INSIGHTS_FREE
+  const atLimit = isFree && usedInsights >= MAX_INSIGHTS_FREE
 
-  function handleGenerate() {
+  async function handleGenerate() {
     if (atLimit) return
     setIsGenerating(true)
-    setTimeout(() => {
-      const newInsight = extraInsights[generated % extraInsights.length]
-      addInsight({ ...newInsight, id: `ig${Date.now()}` })
-      setGenerated((prev) => prev + 1)
+    try {
+      await services.getAIInsights()
+      await refreshData()
+    } catch (error: any) {
+      console.error(error)
+      alert(error.message || "Error al generar insights")
+    } finally {
       setIsGenerating(false)
-    }, 1500)
+    }
   }
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Insights AI</h1>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Consejos AI</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Recomendaciones inteligentes basadas en tus datos
           </p>
@@ -49,7 +53,7 @@ export default function InsightsPage() {
         <div className="flex items-center gap-3">
           {isFree && (
             <span className="text-xs text-muted-foreground">
-              {generated}/{MAX_INSIGHTS_FREE} generados
+              {usedInsights}/{MAX_INSIGHTS_FREE} generados
             </span>
           )}
           <Button
@@ -62,7 +66,7 @@ export default function InsightsPage() {
             ) : (
               <Sparkles className="h-4 w-4 mr-1" />
             )}
-            Generar insights
+            Generar consejos
           </Button>
         </div>
       </div>
@@ -71,7 +75,7 @@ export default function InsightsPage() {
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardContent className="p-4">
             <p className="text-sm text-yellow-400">
-              Alcanzaste el limite de {MAX_INSIGHTS_FREE} insights del plan gratuito. Actualiza a Pro para obtener insights ilimitados.
+              Alcanzaste el límite de {MAX_INSIGHTS_FREE} consejos del plan gratuito. Actualizá a Pro para obtener consejos ilimitados.
             </p>
           </CardContent>
         </Card>

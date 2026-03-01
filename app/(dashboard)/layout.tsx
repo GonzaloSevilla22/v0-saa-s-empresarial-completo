@@ -10,18 +10,18 @@ import {
 import { usePathname } from "next/navigation"
 
 const pageNames: Record<string, string> = {
-  "/dashboard": "Dashboard",
+  "/dashboard": "Tablero",
   "/ventas": "Ventas",
   "/compras": "Compras",
   "/gastos": "Gastos",
   "/productos": "Productos",
   "/stock": "Stock",
   "/clientes": "Clientes",
-  "/insights": "Insights AI",
+  "/insights": "Consejos AI",
   "/simulador": "Simulador de Precios",
   "/comunidad": "Comunidad",
   "/cursos": "Cursos",
-  "/configuracion": "Configuracion",
+  "/configuracion": "Configuración",
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

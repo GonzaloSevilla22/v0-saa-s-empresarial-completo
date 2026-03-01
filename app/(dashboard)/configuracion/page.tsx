@@ -12,12 +12,12 @@ import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/co
 const features = [
   { name: "Productos", free: `Hasta ${MAX_PRODUCTS_FREE}`, pro: "Ilimitados" },
   { name: "Clientes", free: `Hasta ${MAX_CLIENTS_FREE}`, pro: "Ilimitados" },
-  { name: "Insights AI", free: `${MAX_INSIGHTS_FREE} por sesion`, pro: "Ilimitados" },
+  { name: "Consejos AI", free: `${MAX_INSIGHTS_FREE} por sesión`, pro: "Ilimitados" },
   { name: "Simulador AI", free: "Limitado", pro: "Completo" },
   { name: "Comunidad", free: "Solo lectura", pro: "Completo" },
-  { name: "Cursos", free: "Basicos", pro: "Todos" },
-  { name: "Prediccion de stock", free: false, pro: true },
-  { name: "Exportacion de datos", free: false, pro: true },
+  { name: "Cursos", free: "Básicos", pro: "Todos" },
+  { name: "Predicción de stock", free: false, pro: true },
+  { name: "Exportación de datos", free: false, pro: true },
   { name: "Soporte prioritario", free: false, pro: true },
 ]
 
@@ -29,8 +29,8 @@ export default function ConfiguracionPage() {
   return (
     <div className="flex flex-col gap-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Configuracion</h1>
-        <p className="text-sm text-muted-foreground mt-1">Gestiona tu cuenta y plan</p>
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">Configuración</h1>
+        <p className="text-sm text-muted-foreground mt-1">Gestioná tu cuenta y plan</p>
       </div>
 
       <Card className="border-border bg-card">
@@ -68,7 +68,7 @@ export default function ConfiguracionPage() {
         <CardContent className="flex flex-col gap-3">
           <UsageStat icon={Package} label="Productos" current={products.length} max={isPro ? Infinity : MAX_PRODUCTS_FREE} />
           <UsageStat icon={Users} label="Clientes" current={clients.length} max={isPro ? Infinity : MAX_CLIENTS_FREE} />
-          <UsageStat icon={Sparkles} label="Insights" current={5} max={isPro ? Infinity : MAX_INSIGHTS_FREE} />
+          <UsageStat icon={Sparkles} label="Consejos" current={5} max={isPro ? Infinity : MAX_INSIGHTS_FREE} />
         </CardContent>
       </Card>
 

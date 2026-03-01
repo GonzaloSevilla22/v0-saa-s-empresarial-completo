@@ -3,7 +3,11 @@
 import { useData } from "@/contexts/data-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
-import { AlertTriangle } from "lucide-react"
+import { useAuth } from "@/contexts/auth-context"
+import { BarChart3, AlertTriangle } from "lucide-react"
+import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import type { Product } from "@/lib/types"
 
@@ -15,7 +19,7 @@ const columns: Column<Product>[] = [
   },
   {
     key: "category",
-    header: "Categoria",
+    header: "Categoría",
     cell: (row) => <span className="text-muted-foreground">{row.category}</span>,
   },
   {
@@ -58,13 +62,24 @@ const columns: Column<Product>[] = [
 export default function StockPage() {
   const { products, getLowStockProducts } = useData()
   const lowStock = getLowStockProducts()
+  const { isAdmin } = useAuth()
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Stock</h1>
-        <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposicion</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Stock</h1>
+          <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposicion</p>
+        </div>
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="stock"
+          title="Analíticas de Stock"
+          subtitle="Control de inventario y valuación"
+        />
+      )}
 
       {lowStock.length > 0 && (
         <Card className="border-red-500/30 bg-red-500/5">

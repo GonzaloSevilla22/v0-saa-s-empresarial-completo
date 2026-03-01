@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData } from "@/contexts/data-context"
@@ -19,29 +20,35 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState(0)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!category || !description) {
-      toast.error("Completa todos los campos")
+      toast.error("Completá todos los campos")
       return
     }
-    addExpense({
-      date: new Date().toISOString().split("T")[0],
-      category,
-      description,
-      amount,
-    })
-    toast.success("Gasto registrado")
-    onSuccess()
+    try {
+      await addExpense({
+        date: new Date().toISOString().split("T")[0],
+        category,
+        description,
+        amount,
+      })
+      toast.success("Gasto registrado")
+      onSuccess()
+    } catch (error: any) {
+      console.error("Expense creation error:", error)
+      const errorMsg = error.message || (typeof error === 'string' ? error : "Error desconocido")
+      toast.error(`Error al registrar gasto: ${errorMsg}`)
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <Label className="text-foreground">Categoria</Label>
+        <Label className="text-foreground">Categoría</Label>
         <Select value={category} onValueChange={setCategory}>
           <SelectTrigger className="bg-background border-border text-foreground">
-            <SelectValue placeholder="Seleccionar categoria" />
+            <SelectValue placeholder="Seleccionar categoría" />
           </SelectTrigger>
           <SelectContent className="bg-popover border-border">
             {EXPENSE_CATEGORIES.map((c) => (
@@ -52,7 +59,7 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label className="text-foreground">Descripcion</Label>
+        <Label className="text-foreground">Descripción</Label>
         <Input
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -63,12 +70,11 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
 
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Monto</Label>
-        <Input
-          type="number"
+        <NumericInput
           min={0}
           step={0.01}
           value={amount}
-          onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+          onValueChange={setAmount}
           className="bg-background border-border text-foreground"
         />
       </div>

@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData } from "@/contexts/data-context"
@@ -59,7 +60,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!selectedProduct || !selectedClient) {
-      toast.error("Selecciona producto y cliente")
+      toast.error("Seleccioná producto y cliente")
       return
     }
     addSale({
@@ -128,7 +129,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
               <Input
                 value={newClientPhone}
                 onChange={(e) => setNewClientPhone(e.target.value)}
-                placeholder="Telefono (opcional)"
+                placeholder="Teléfono (opcional)"
                 className="bg-background border-border text-foreground text-sm"
               />
             </div>
@@ -156,12 +157,11 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Cantidad</Label>
-          <Input
-            type="number"
+          <NumericInput
             min={1}
             max={selectedProduct?.stock || 999}
             value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+            onValueChange={(val) => setQuantity(Math.max(1, val))}
             className="bg-background border-border text-foreground"
           />
         </div>

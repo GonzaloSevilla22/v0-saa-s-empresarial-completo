@@ -7,7 +7,7 @@ export const EXPENSE_CATEGORIES = [
   "Alquiler",
   "Servicios",
   "Marketing",
-  "Logistica",
+  "Logística",
   "Personal",
   "Impuestos",
   "Otros",
@@ -37,7 +37,7 @@ export const PLAN_FEATURES = {
     maxHistoryMonths: MAX_HISTORY_MONTHS_FREE,
     maxInsights: MAX_INSIGHTS_FREE,
     community: "solo lectura",
-    courses: "basicos",
+    courses: "básicos",
     aiSimulator: "limitado",
   },
   pro: {

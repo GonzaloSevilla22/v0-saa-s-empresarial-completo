@@ -1,32 +1,51 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 
 const summaries = [
-  "Hoy tus ventas crecieron un 15% comparado con ayer. Los Auriculares Bluetooth siguen siendo tu producto estrella. Tenes 2 productos por debajo del stock minimo que necesitan reposicion urgente.",
-  "Excelente dia de ventas con $151 facturados. Tu margen promedio es del 67%. Recomendamos revisar el stock de Zapatillas Running y Power Bank antes del fin de semana.",
-  "Las ventas de esta semana muestran una tendencia positiva. Ana Martinez y Lucas Romero fueron tus clientes mas activos. Considera una promocion en productos de Electrónica para mantener el impulso.",
+  "Hoy tus ventas crecieron un 15% comparado con ayer. Los Auriculares Bluetooth siguen siendo tu producto estrella. Tenés 2 productos por debajo del stock mínimo que necesitan reposición urgente.",
+  "Excelente día de ventas con $151 facturados. Tu margen promedio es del 67%. Recomendamos revisar el stock de Zapatillas Running y Power Bank antes del fin de semana.",
+  "Las ventas de esta semana muestran una tendencia positiva. Ana Martínez y Lucas Romero fueron tus clientes más activos. Considerá una promoción en productos de Electrónica para mantener el impulso.",
 ]
+
+import { services } from "@/lib/supabase/services"
 
 export function AiSummaryCard() {
   const { getTodaySales, getLowStockProducts } = useData()
-  const [summaryIndex, setSummaryIndex] = useState(0)
+  const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)
 
   const todaySales = getTodaySales()
   const lowStock = getLowStockProducts()
 
-  function handleRegenerate() {
+  async function handleRegenerate() {
     setIsLoading(true)
-    setTimeout(() => {
-      setSummaryIndex((prev) => (prev + 1) % summaries.length)
+    const supabase = createClient()
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-resumen', {
+        body: { type: 'ventas', period: 'hoy' },
+      })
+      if (error) {
+        throw error
+      }
+      setSummary(data.content || "No se pudo generar el resumen en este momento.")
+    } catch (error) {
+      console.error(error)
+      setSummary("Error al conectar con la IA de EIE. Reintenta en unos minutos.")
+    } finally {
       setIsLoading(false)
-    }, 1200)
+    }
   }
+
+  // Initial load
+  useEffect(() => {
+    handleRegenerate()
+  }, [])
 
   return (
     <Card className="border-primary/20 bg-card relative overflow-hidden">
@@ -37,7 +56,7 @@ export function AiSummaryCard() {
             <Sparkles className="h-4 w-4 text-primary" />
           </div>
           <CardTitle className="text-sm font-medium text-card-foreground">
-            Resumen AI del dia
+            Resumen AI del día
           </CardTitle>
         </div>
         <Button
@@ -53,7 +72,7 @@ export function AiSummaryCard() {
       </CardHeader>
       <CardContent className="relative">
         <p className="text-sm text-muted-foreground leading-relaxed">
-          {summaries[summaryIndex]}
+          {summary}
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
           <span>Ventas hoy: <span className="text-primary font-medium">${todaySales}</span></span>

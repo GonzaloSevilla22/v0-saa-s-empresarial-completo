@@ -3,9 +3,15 @@
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { DataTable, type Column } from "@/components/data-table/data-table"
-import { ExpenseForm } from "@/components/forms/expense-form"
+import { ExpenseForm } from "@/components/forms/expense-form-v2"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { useAuth } from "@/contexts/auth-context"
+import { BarChart3 } from "lucide-react"
+import Link from "next/link"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { Badge } from "@/components/ui/badge"
+import { formatMoney, formatDate } from "@/lib/format"
 import type { Expense } from "@/lib/types"
 
 const categoryColors: Record<string, string> = {
@@ -22,13 +28,13 @@ const columns: Column<Expense>[] = [
   {
     key: "date",
     header: "Fecha",
-    cell: (row) => new Date(row.date + "T12:00:00").toLocaleDateString("es-AR"),
+    cell: (row) => formatDate(row.date),
     sortable: true,
     sortValue: (row) => row.date,
   },
   {
     key: "category",
-    header: "Categoria",
+    header: "Categoría",
     cell: (row) => (
       <Badge variant="outline" className={`text-xs ${categoryColors[row.category] || categoryColors.Otros}`}>
         {row.category}
@@ -37,13 +43,13 @@ const columns: Column<Expense>[] = [
   },
   {
     key: "description",
-    header: "Descripcion",
+    header: "Descripción",
     cell: (row) => <span className="font-medium">{row.description}</span>,
   },
   {
     key: "amount",
     header: "Monto",
-    cell: (row) => <span className="font-medium text-red-400">${row.amount}</span>,
+    cell: (row) => <span className="font-medium text-red-400">{formatMoney(row.amount)}</span>,
     sortable: true,
     sortValue: (row) => row.amount,
   },
@@ -52,23 +58,51 @@ const columns: Column<Expense>[] = [
 export default function GastosPage() {
   const { expenses, deleteExpense } = useData()
   const [open, setOpen] = useState(false)
+  const { isAdmin } = useAuth()
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
-        <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
+          <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
+        </div>
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="gastos"
+          title="Analíticas de Gastos"
+          subtitle="Control de egresos operativos"
+        />
+      )}
 
       <DataTable
         data={expenses}
         columns={columns}
-        searchPlaceholder="Buscar por descripcion..."
+        searchPlaceholder="Buscar por descripción..."
         searchKey={(row) => `${row.description} ${row.category}`}
         onAdd={() => setOpen(true)}
         addLabel="Nuevo gasto"
         onDelete={deleteExpense}
         getId={(row) => row.id}
+        dateKey={(row) => row.date}
+        exportColumns={[
+          { key: "date", header: "Fecha" },
+          { key: "category", header: "Categoría" },
+          { key: "description", header: "Descripción" },
+          { key: "amount", header: "Monto" },
+        ]}
+        exportFilename="gastos"
+        importColumnMap={[
+          { csvHeader: "Categoría", key: "category" },
+          { csvHeader: "Descripción", key: "description" },
+          { csvHeader: "Monto", key: "amount" },
+          { csvHeader: "Fecha", key: "date" },
+        ]}
+        onImport={(rows) => {
+          console.log("Importing expenses:", rows)
+        }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

@@ -17,7 +17,7 @@ import {
 import TimeSeriesLinesChart from '@/components/admin/charts/TimeSeriesLinesChart'
 import WeeklyHistogramChart from '@/components/admin/charts/WeeklyHistogramChart'
 
-export const dynamic = 'force-dynamic'
+// export const dynamic = 'force-dynamic'
 
 export default async function AdminMetricasPage() {
     const supabase = createClient()

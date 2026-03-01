@@ -214,7 +214,7 @@ El MVP está diseñado para **aprender primero y escalar después**.
 
 ## 6. Anexo: Enlaces y Evidencias
 
-- **URL del producto desplegado:** [Link del producto desplegado en el readme.md del repo.](https://GonzaloSevilla22.github.io/v0-saa-s-empresarial-completo/)  
+- **URL del producto desplegado:** [Link del producto desplegado en el readme.md del repo.](https://v0-saa-s-empresarial-completo-eie.vercel.app/)  
 - **Repositorio:** [\[link a repo\]](https://github.com/GonzaloSevilla22/v0-saa-s-empresarial-completo/tree/Prueba1)
 - **Slides - Estrategias de Distribucion (punto 4):** [\[link a  slides\]](https://docs.google.com/presentation/d/1r9s9fe2ZOvat7VNVWF1TEO_mLo3zzo-B/edit?usp=sharing&ouid=114501808713988604223&rtpof=true&sd=true)  
 - **Credenciales de prueba (si es necesario o creamos uno):** Se puede generar una para cada usuario. Para administrador: email: admin@admineie.com contraseña: admin1234

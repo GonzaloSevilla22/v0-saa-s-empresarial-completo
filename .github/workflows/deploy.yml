@@ -3,7 +3,8 @@ name: Build and Deploy
 on:
   push:
     branches:
-      - Prueba1 # Cambiar a 'main' o 'master' si es necesario
+      - main
+      - Prueba1
 
 jobs:
   build-frontend:

@@ -100,7 +100,7 @@ export default function CursosPage() {
                   </Button>
                 ) : (
                   <Button asChild size="sm" variant="outline" className="w-full border-primary/30 text-primary hover:bg-primary/10 hover:text-primary">
-                    <Link href={`/cursos/${course.id}`}>
+                    <Link href={`/cursos/detail?id=${course.id}`}>
                       {progress > 0 ? "Continuar" : "Empezar"}
                     </Link>
                   </Button>

@@ -25,7 +25,7 @@ import CohortRetentionChart from '@/components/admin/charts/CohortRetentionChart
 import WeeklyHistogramChart from '@/components/admin/charts/WeeklyHistogramChart'
 import StackedBarsChart from '@/components/admin/charts/StackedBarsChart'
 
-// export const dynamic = 'force-dynamic' // Ensure fresh analytics data
+export const dynamic = 'force-dynamic' // Ensure fresh analytics data
 
 export default async function AdminAnalyticsPage() {
     const supabase = createClient()

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - Prueba1
+  workflow_dispatch:
 
 jobs:
   build-frontend:

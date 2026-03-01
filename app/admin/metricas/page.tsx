@@ -1,36 +1,37 @@
-import React from 'react'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { getProfile } from '@/lib/supabase/services'
+"use client"
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { fetchBusinessKpis } from '@/lib/adminAnalytics'
 import {
-    Users,
-    Crown,
-    MessageSquare,
-    Sparkles,
-    TrendingUp,
-    ArrowUpRight,
-    Activity
+    Users, Crown, MessageSquare, Sparkles, TrendingUp, Activity
 } from 'lucide-react'
-
-// Existing Chart Components
 import TimeSeriesLinesChart from '@/components/admin/charts/TimeSeriesLinesChart'
 import WeeklyHistogramChart from '@/components/admin/charts/WeeklyHistogramChart'
 
-export const dynamic = 'force-dynamic'
+export default function AdminMetricasPage() {
+    const [kpis, setKpis] = useState<any>(null)
+    const [loading, setLoading] = useState(true)
 
-export default async function AdminMetricasPage() {
-    const supabase = createClient()
+    useEffect(() => {
+        async function load() {
+            const supabase = createClient()
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) { window.location.href = '/auth'; return }
+            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+            if (!profile || profile.role !== 'admin') { window.location.href = '/dashboard'; return }
+            const data = await fetchBusinessKpis()
+            setKpis(data)
+            setLoading(false)
+        }
+        load().catch(() => setLoading(false))
+    }, [])
 
-    // 1. Security check
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) redirect('/auth')
-
-    const profile = await getProfile(user.id, supabase)
-    if (!profile || profile.role !== 'admin') redirect('/dashboard')
-
-    // 2. Fetch Data
-    const kpis = await fetchBusinessKpis(undefined, undefined, supabase)
+    if (loading || !kpis) return (
+        <div className="flex items-center justify-center py-20">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+        </div>
+    )
 
     return (
         <div className="container mx-auto p-6 max-w-7xl animate-in fade-in duration-700 pb-20">
@@ -39,59 +40,23 @@ export default async function AdminMetricasPage() {
                 <p className="text-slate-400">Panel de control de KPIs del Ecosistema (MVP).</p>
             </header>
 
-            {/* KPI Cards Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-                {/* Adoption */}
-                <KpiSummaryCard
-                    title="Adopción (Total)"
-                    value={kpis.adoption.total_users}
-                    subtext={`${kpis.adoption.mau} Usuarios Activos (MAU)`}
-                    icon={Users}
-                    badge={`${kpis.adoption.activation_rate}% Activación`}
-                />
-                {/* Freemium */}
-                <KpiSummaryCard
-                    title="Ingresos (MRR)"
-                    value={`$${kpis.freemium.mrr}`}
-                    subtext={`${kpis.freemium.pro_users} Usuarios Pro`}
-                    icon={Crown}
-                    badge={`${kpis.freemium.conversion_rate}% Conv.`}
-                    iconColor="text-yellow-500"
-                />
-                {/* Community */}
-                <KpiSummaryCard
-                    title="Comunidad"
-                    value={kpis.community.total_activity}
-                    subtext="Interacciones 30d"
-                    icon={MessageSquare}
-                    badge={`${kpis.community.active_pools} Pools`}
-                    iconColor="text-blue-500"
-                />
-                {/* AI */}
-                <KpiSummaryCard
-                    title="IA Servida"
-                    value={kpis.ai.total_insights}
-                    subtext="Consejos generados"
-                    icon={Sparkles}
-                    badge={`${kpis.ai.alerts_triggered} Alertas`}
-                    iconColor="text-purple-500"
-                />
+                <KpiSummaryCard title="Adopción (Total)" value={kpis.adoption?.total_users} subtext={`${kpis.adoption?.mau} Usuarios Activos (MAU)`} icon={Users} badge={`${kpis.adoption?.activation_rate}% Activación`} />
+                <KpiSummaryCard title="Ingresos (MRR)" value={`$${kpis.freemium?.mrr}`} subtext={`${kpis.freemium?.pro_users} Usuarios Pro`} icon={Crown} badge={`${kpis.freemium?.conversion_rate}% Conv.`} iconColor="text-yellow-500" />
+                <KpiSummaryCard title="Comunidad" value={kpis.community?.total_activity} subtext="Interacciones 30d" icon={MessageSquare} badge={`${kpis.community?.active_pools} Pools`} iconColor="text-blue-500" />
+                <KpiSummaryCard title="IA Servida" value={kpis.ai?.total_insights} subtext="Consejos generados" icon={Sparkles} badge={`${kpis.ai?.alerts_triggered} Alertas`} iconColor="text-purple-500" />
             </div>
 
-            {/* Detailed Sections */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <section className="bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
                     <div className="flex items-center gap-2 mb-6">
                         <TrendingUp className="w-5 h-5 text-emerald-500" />
                         <h2 className="text-xl font-bold text-slate-100">Crecimiento de Usuarios</h2>
                     </div>
-                    {/* We reuse the TimeSeriesLinesChart if it were ready for this data, 
-              but for now it's a structural placeholder for the D3 integration */}
                     <div className="aspect-video w-full flex items-center justify-center text-slate-500 border border-dashed border-slate-800 rounded-xl">
                         [Gráfico de Tendencia D3]
                     </div>
                 </section>
-
                 <section className="bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
                     <div className="flex items-center gap-2 mb-6">
                         <Activity className="w-5 h-5 text-blue-500" />

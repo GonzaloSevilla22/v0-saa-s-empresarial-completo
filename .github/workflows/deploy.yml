@@ -41,6 +41,8 @@ jobs:
     needs: build-frontend
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -50,11 +52,10 @@ jobs:
         with:
           version: latest
 
-      - name: Link project
-        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} -p "${{ secrets.SUPABASE_DB_PASSWORD }}"
-
       - name: Deploy Database Migrations
-        run: supabase db push --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} --password "${{ secrets.SUPABASE_DB_PASSWORD }}"
+        run: |
+          supabase db push --db-url "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${SUPABASE_PROJECT_REF}.supabase.co:5432/postgres"
 
       - name: Deploy Edge Functions
-        run: supabase functions deploy --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }} # --all si quieres desplegar todas
+        run: |
+          supabase functions deploy --no-verify-jwt --project-ref "${SUPABASE_PROJECT_REF}"

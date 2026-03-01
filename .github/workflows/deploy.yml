@@ -47,15 +47,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Link project
+        run: supabase link --project-ref "${SUPABASE_PROJECT_REF}" -p "${SUPABASE_DB_PASSWORD}"
 
       - name: Deploy Database Migrations
-        run: |
-          supabase db push --project-ref "${SUPABASE_PROJECT_REF}" --password "${SUPABASE_DB_PASSWORD}" --debug
+        run: supabase db push --password "${SUPABASE_DB_PASSWORD}"
 
       - name: Deploy Edge Functions
-        run: |
-          supabase functions deploy --no-verify-jwt --project-ref "${SUPABASE_PROJECT_REF}" --debug
+        run: supabase functions deploy --no-verify-jwt --project-ref "${SUPABASE_PROJECT_REF}"

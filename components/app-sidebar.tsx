@@ -205,12 +205,12 @@ export function AppSidebar() {
             </span>
             <Badge
               variant="outline"
-              className={`w-fit text-[10px] px-1.5 py-0 ${user?.plan === "pro"
-                ? "border-yellow-500/50 text-yellow-500"
+              className={`w-fit text-[10px] px-1.5 py-0 ${user?.role === "admin"
+                ? "border-emerald-500/50 text-emerald-500"
                 : "border-sidebar-border text-sidebar-foreground/60"
                 }`}
             >
-              {user?.plan === "pro" ? "PRO" : "FREE"}
+              {user?.role === "admin" ? "Administrador" : "Usuario"}
             </Badge>
           </div>
         </div>

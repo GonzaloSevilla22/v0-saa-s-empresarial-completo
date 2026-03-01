@@ -17,13 +17,13 @@ export default async function AdminVentasAnalytics() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect('/auth')
 
-    const profile = await getProfile(user.id)
+    const profile = await getProfile(user.id, supabase)
     if (!profile || profile.role !== 'admin') redirect('/dashboard')
 
     // 2. Data
     const dateTo = new Date().toISOString()
     const dateFrom = new Date(new Date().setDate(new Date().getDate() - 30)).toISOString()
-    const stats = await fetchModuleStats('ventas', dateFrom, dateTo)
+    const stats = await fetchModuleStats('ventas', dateFrom, dateTo, supabase)
 
     return (
         <div className="container mx-auto p-6 max-w-7xl">

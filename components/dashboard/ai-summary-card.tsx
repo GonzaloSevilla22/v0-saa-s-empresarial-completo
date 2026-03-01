@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 
 const summaries = [
   "Hoy tus ventas crecieron un 15% comparado con ayer. Los Auriculares Bluetooth siguen siendo tu producto estrella. Tenés 2 productos por debajo del stock mínimo que necesitan reposición urgente.",
@@ -24,9 +25,15 @@ export function AiSummaryCard() {
 
   async function handleRegenerate() {
     setIsLoading(true)
+    const supabase = createClient()
     try {
-      const result = await services.getAISummary('daily')
-      setSummary(result.content || "No se pudo generar el resumen en este momento.")
+      const { data, error } = await supabase.functions.invoke('ai-resumen', {
+        body: { type: 'ventas', period: 'hoy' },
+      })
+      if (error) {
+        throw error
+      }
+      setSummary(data.content || "No se pudo generar el resumen en este momento.")
     } catch (error) {
       console.error(error)
       setSummary("Error al conectar con la IA de EIE. Reintenta en unos minutos.")
@@ -36,9 +43,9 @@ export function AiSummaryCard() {
   }
 
   // Initial load
-  useState(() => {
+  useEffect(() => {
     handleRegenerate()
-  })
+  }, [])
 
   return (
     <Card className="border-primary/20 bg-card relative overflow-hidden">

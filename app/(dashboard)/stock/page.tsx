@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { BarChart3, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import type { Product } from "@/lib/types"
 
@@ -70,15 +71,15 @@ export default function StockPage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Stock</h1>
           <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposicion</p>
         </div>
-        {isAdmin && (
-          <Button asChild variant="outline" className="border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10">
-            <Link href="/admin/metricas/stock">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Ver Analíticas Globales
-            </Link>
-          </Button>
-        )}
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="stock"
+          title="Analíticas de Stock"
+          subtitle="Control de inventario y valuación"
+        />
+      )}
 
       {lowStock.length > 0 && (
         <Card className="border-red-500/30 bg-red-500/5">

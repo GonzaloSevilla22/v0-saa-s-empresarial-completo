@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
 import { BarChart3 } from "lucide-react"
 import Link from "next/link"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/format"
 import type { Client } from "@/lib/types"
@@ -95,15 +96,15 @@ export default function ClientesPage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Clientes</h1>
           <p className="text-sm text-muted-foreground mt-1">{clients.length} clientes registrados</p>
         </div>
-        {isAdmin && (
-          <Button asChild variant="outline" className="border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10">
-            <Link href="/admin/metricas/clientes">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Ver Analíticas Globales
-            </Link>
-          </Button>
-        )}
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="clientes"
+          title="Analíticas de Clientes"
+          subtitle="Segmentación y retención"
+        />
+      )}
 
       <DataTable
         data={clients}

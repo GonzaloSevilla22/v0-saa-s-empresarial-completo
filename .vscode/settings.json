@@ -20,5 +20,6 @@
     "net"
   ],
   "typescript.validate.enable": false,
-  "javascript.validate.enable": false
+  "javascript.validate.enable": false,
+  "css.lint.unknownAtRules": "ignore"
 }

@@ -17,11 +17,11 @@ export default async function AdminStockAnalytics() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect('/auth')
 
-    const profile = await getProfile(user.id)
+    const profile = await getProfile(user.id, supabase)
     if (!profile || profile.role !== 'admin') redirect('/dashboard')
 
     // 2. Data
-    const stats = await fetchModuleStats('stock', '', '') // Stock doesn't need date range in current RPC
+    const stats = await fetchModuleStats('stock', '', '', supabase) // Stock doesn't need date range in current RPC
 
     return (
         <div className="container mx-auto p-6 max-w-7xl">

@@ -9,6 +9,7 @@ import { formatMoney, formatDate } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
 import { BarChart3 } from "lucide-react"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import Link from "next/link"
 import type { Sale } from "@/lib/types"
 
@@ -63,15 +64,15 @@ export default function VentasPage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Ventas</h1>
           <p className="text-sm text-muted-foreground mt-1">Gestión de todas tus ventas</p>
         </div>
-        {isAdmin && (
-          <Button asChild variant="outline" className="border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10">
-            <Link href="/admin/metricas/ventas">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Ver Analíticas Globales
-            </Link>
-          </Button>
-        )}
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="ventas"
+          title="Analíticas de Ventas"
+          subtitle="Rendimiento comercial global"
+        />
+      )}
 
       <DataTable
         data={sales}
@@ -113,6 +114,6 @@ export default function VentasPage() {
           <SaleForm onSuccess={() => setOpen(false)} />
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   )
 }

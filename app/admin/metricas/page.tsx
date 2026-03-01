@@ -26,11 +26,11 @@ export default async function AdminMetricasPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) redirect('/auth')
 
-    const profile = await getProfile(user.id)
+    const profile = await getProfile(user.id, supabase)
     if (!profile || profile.role !== 'admin') redirect('/dashboard')
 
     // 2. Fetch Data
-    const kpis = await fetchBusinessKpis()
+    const kpis = await fetchBusinessKpis(undefined, undefined, supabase)
 
     return (
         <div className="container mx-auto p-6 max-w-7xl animate-in fade-in duration-700 pb-20">

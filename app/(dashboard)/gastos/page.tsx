@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
 import { BarChart3 } from "lucide-react"
 import Link from "next/link"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney, formatDate } from "@/lib/format"
 import type { Expense } from "@/lib/types"
@@ -66,15 +67,15 @@ export default function GastosPage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
           <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
         </div>
-        {isAdmin && (
-          <Button asChild variant="outline" className="border-red-500/20 text-red-400 hover:bg-red-500/10">
-            <Link href="/admin/metricas/gastos">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Ver Analíticas Globales
-            </Link>
-          </Button>
-        )}
       </div>
+
+      {isAdmin && (
+        <ModuleMetricsWrapper
+          moduleType="gastos"
+          title="Analíticas de Gastos"
+          subtitle="Control de egresos operativos"
+        />
+      )}
 
       <DataTable
         data={expenses}

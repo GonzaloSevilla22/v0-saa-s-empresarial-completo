@@ -3,8 +3,9 @@ import type { Sale, Purchase, Insight } from '@/lib/types'
 
 const supabase = createClient()
 
-export const getProfile = async (id: string) => {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single()
+export const getProfile = async (id: string, client?: any) => {
+  const supabaseClient = client || supabase
+  const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', id).single()
   if (error) return null
   return data
 }

@@ -2,6 +2,7 @@
 const nextConfig = {
   output: 'export',
   basePath: '/v0-saa-s-empresarial-completo',
+  trailingSlash: true,
   images: {
     unoptimized: true,
   },

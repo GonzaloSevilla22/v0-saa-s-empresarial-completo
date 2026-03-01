@@ -53,8 +53,12 @@ export default function AdminMetricasPage() {
                         <TrendingUp className="w-5 h-5 text-emerald-500" />
                         <h2 className="text-xl font-bold text-slate-100">Crecimiento de Usuarios</h2>
                     </div>
-                    <div className="aspect-video w-full flex items-center justify-center text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                        [Gráfico de Tendencia D3]
+                    <div className="aspect-video w-full flex items-center justify-center p-4">
+                        {kpis?.time_series && kpis.time_series.length > 0 ? (
+                            <TimeSeriesLinesChart data={kpis.time_series} width={600} height={300} />
+                        ) : (
+                            <span className="text-slate-500">Datos insuficientes para el gráfico</span>
+                        )}
                     </div>
                 </section>
                 <section className="bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
@@ -62,8 +66,12 @@ export default function AdminMetricasPage() {
                         <Activity className="w-5 h-5 text-blue-500" />
                         <h2 className="text-xl font-bold text-slate-100">Actividad Semanal</h2>
                     </div>
-                    <div className="aspect-video w-full flex items-center justify-center text-slate-500 border border-dashed border-slate-800 rounded-xl">
-                        [Histograma de Hábitos D3]
+                    <div className="aspect-video w-full flex items-center justify-center p-4">
+                        {kpis?.habit_histogram && kpis.habit_histogram.length > 0 ? (
+                            <WeeklyHistogramChart data={kpis.habit_histogram} width={600} height={300} />
+                        ) : (
+                            <span className="text-slate-500">Datos insuficientes para el gráfico</span>
+                        )}
                     </div>
                 </section>
             </div>

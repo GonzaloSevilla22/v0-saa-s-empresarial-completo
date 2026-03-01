@@ -14,7 +14,6 @@ export const services = {
   getProfile,
   // Sales
   async createSale(sale: Omit<Sale, 'id'>) {
-    console.log("--- DEBUG: Invoking create-sale ---")
     const { data, error } = await supabase.functions.invoke('create-sale', {
       body: {
         client_id: sale.clientId,
@@ -26,20 +25,12 @@ export const services = {
     })
 
     if (error) {
-      console.error("--- EDGE FUNCTION ERROR (create-sale) ---")
-      try {
-        console.error("Full Error:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
-      } catch (e) {
-        console.error("Full Error Object (fallback):", error)
-      }
-
       let detailedMsg = "Error en la venta"
 
       try {
         const context = (error as any).context
         if (context && context.response) {
           const bodyText = await context.response.text()
-          console.log("DEBUG: Raw Response Body:", bodyText)
           try {
             const parsed = JSON.parse(bodyText)
             detailedMsg = parsed.error || bodyText
@@ -50,11 +41,9 @@ export const services = {
           detailedMsg = error.message
         }
       } catch (e) {
-        console.warn("Could not parse detailed error body:", e)
         if (error instanceof Error) detailedMsg = error.message
       }
 
-      console.log("FINAL ERROR MSG TO USER:", detailedMsg)
       throw new Error(detailedMsg)
     }
     return data
@@ -62,7 +51,6 @@ export const services = {
 
   // Purchases
   async createPurchase(purchase: Omit<Purchase, 'id'>) {
-    console.log("--- DEBUG: Invoking create-purchase ---")
     const { data, error } = await supabase.functions.invoke('create-purchase', {
       body: {
         product_id: purchase.productId,
@@ -73,20 +61,12 @@ export const services = {
     })
 
     if (error) {
-      console.error("--- EDGE FUNCTION ERROR (create-purchase) ---")
-      try {
-        console.error("Full Error:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2))
-      } catch (e) {
-        console.error("Full Error Object (fallback):", error)
-      }
-
       let detailedMsg = "Error en la compra"
 
       try {
         const context = (error as any).context
         if (context && context.response) {
           const bodyText = await context.response.text()
-          console.log("DEBUG: Raw Response Body:", bodyText)
           try {
             const parsed = JSON.parse(bodyText)
             detailedMsg = parsed.error || bodyText
@@ -97,11 +77,9 @@ export const services = {
           detailedMsg = error.message
         }
       } catch (e) {
-        console.warn("Could not parse detailed error body:", e)
         if (error instanceof Error) detailedMsg = error.message
       }
 
-      console.log("FINAL ERROR MSG TO USER:", detailedMsg)
       throw new Error(detailedMsg)
     }
 
@@ -112,7 +90,6 @@ export const services = {
   async getAIInsights() {
     const { data, error } = await supabase.functions.invoke('ai-insights')
     if (error) {
-      console.error("AI Insights Error:", error)
       return [] // Return empty instead of crashing for non-critical fallback
     }
     return data
@@ -124,7 +101,6 @@ export const services = {
       body: { period },
     })
     if (error) {
-      console.error("AI Summary Error:", error)
       return { content: "Resumen no disponible. Verificá tu conexión." }
     }
     return data

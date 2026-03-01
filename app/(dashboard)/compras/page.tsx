@@ -94,7 +94,7 @@ export default function ComprasPage() {
           { csvHeader: "Fecha", key: "date" },
         ]}
         onImport={(rows) => {
-          console.log("Importing purchases:", rows)
+          // Here we would call a bulk create service
         }}
       />
 

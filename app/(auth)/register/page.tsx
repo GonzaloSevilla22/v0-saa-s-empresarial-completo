@@ -62,7 +62,6 @@ export default function RegisterPage() {
       await register(name || "Emprendedor", email || "emprendedor@eie.com", password)
       router.push("/dashboard")
     } catch (error: any) {
-      console.error(error)
       alert(error.message)
     } finally {
       setIsLoading(false)

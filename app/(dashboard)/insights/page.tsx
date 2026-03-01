@@ -34,7 +34,6 @@ export default function InsightsPage() {
       await services.getAIInsights()
       await refreshData()
     } catch (error: any) {
-      console.error(error)
       alert(error.message || "Error al generar insights")
     } finally {
       setIsGenerating(false)

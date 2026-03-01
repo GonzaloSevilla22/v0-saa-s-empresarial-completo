@@ -100,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(async (name: string, email: string, password: string) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ||
-      (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
+      (typeof window !== 'undefined' ? window.location.origin : '')
     const { error } = await supabase.auth.signUp({
       email,
       password,

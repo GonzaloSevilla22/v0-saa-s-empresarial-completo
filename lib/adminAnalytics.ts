@@ -10,7 +10,6 @@ export const fetchKpiOverview = async (dateFrom: string, dateTo: string, granula
   })
 
   if (error) {
-    console.error('Error fetching KPI overview:', error)
     throw error
   }
 
@@ -27,7 +26,6 @@ export const fetchRetention = async (dateFrom: string, dateTo: string, cohortGra
   })
 
   if (error) {
-    console.error('Error fetching retention:', error)
     throw error
   }
 
@@ -43,7 +41,6 @@ export const fetchWeeklyUsageDistribution = async (dateFrom: string, dateTo: str
   })
 
   if (error) {
-    console.error('Error fetching weekly usage distribution:', error)
     throw error
   }
 
@@ -59,7 +56,6 @@ export const fetchBusinessKpis = async (dateFrom?: string, dateTo?: string, clie
   })
 
   if (error) {
-    console.error('Error fetching business KPIs:', error)
     throw error
   }
 
@@ -76,7 +72,6 @@ export const fetchModuleStats = async (moduleType: string, dateFrom: string, dat
   })
 
   if (error) {
-    console.error(`Error fetching stats for module ${moduleType}:`, error)
     throw error
   }
 

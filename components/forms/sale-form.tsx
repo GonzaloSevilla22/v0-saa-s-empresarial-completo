@@ -21,6 +21,8 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
   const [clientId, setClientId] = useState("")
   const [quantity, setQuantity] = useState(1)
   const [currency, setCurrency] = useState<Currency>("ARS")
+  const [discount, setDiscount] = useState(0) // Percentage
+  const [manualTotal, setManualTotal] = useState<number | null>(null)
 
   // Inline new client
   const [showNewClient, setShowNewClient] = useState(false)
@@ -30,7 +32,20 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
 
   const selectedProduct = useMemo(() => products.find((p) => p.id === productId), [products, productId])
   const selectedClient = useMemo(() => clients.find((c) => c.id === clientId), [clients, clientId])
-  const total = selectedProduct ? selectedProduct.price * quantity : 0
+
+  // Reset manual values when product changes
+  useEffect(() => {
+    setManualTotal(null)
+    setDiscount(0)
+  }, [productId])
+
+  const calculatedTotal = useMemo(() => {
+    if (!selectedProduct) return 0
+    const base = selectedProduct.price * quantity
+    return base * (1 - discount / 100)
+  }, [selectedProduct, quantity, discount])
+
+  const currentTotal = manualTotal ?? calculatedTotal
 
   function handleCreateClient() {
     if (!newClientName.trim()) {
@@ -68,8 +83,8 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
       clientId: selectedClient.id,
       clientName: selectedClient.name,
       quantity,
-      unitPrice: selectedProduct.price,
-      total,
+      unitPrice: currentTotal / quantity,
+      total: currentTotal,
       currency,
     })
     toast.success("Venta registrada")
@@ -159,10 +174,30 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
             min={1}
             max={selectedProduct?.stock || 999}
             value={quantity}
-            onValueChange={(val) => setQuantity(Math.max(1, val))}
+            onValueChange={(val) => {
+              setQuantity(Math.max(1, val))
+              setManualTotal(null)
+            }}
             className="bg-background border-border text-foreground"
           />
         </div>
+        <div className="flex flex-col gap-2">
+          <Label className="text-foreground">Descuento (%)</Label>
+          <NumericInput
+            min={0}
+            max={100}
+            value={discount}
+            onValueChange={(val) => {
+              setDiscount(val)
+              setManualTotal(null)
+            }}
+            placeholder="0"
+            className="bg-background border-border text-foreground"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Moneda</Label>
           <Select value={currency} onValueChange={(v) => setCurrency(v as Currency)}>
@@ -178,12 +213,21 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
             </SelectContent>
           </Select>
         </div>
+        <div className="flex flex-col gap-2">
+          <Label className="text-foreground">Total Final</Label>
+          <NumericInput
+            min={0}
+            value={Math.round(currentTotal)}
+            onValueChange={(val) => setManualTotal(val)}
+            className="bg-background border-emerald-500/30 text-emerald-400 font-bold"
+          />
+        </div>
       </div>
 
       <div className="rounded-lg border border-border bg-accent/50 p-3">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Total</span>
-          <span className="text-lg font-bold text-primary">{formatMoney(total, currency)}</span>
+          <span className="text-muted-foreground">Total a registrar</span>
+          <span className="text-lg font-bold text-primary">{formatMoney(currentTotal, currency)}</span>
         </div>
       </div>
 

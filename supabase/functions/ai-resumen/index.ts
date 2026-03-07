@@ -22,17 +22,29 @@ serve(async (req) => {
     if (userError || !user) throw new Error('Unauthorized | 401')
 
     const { period } = await req.json()
-    
+
+    // 3. Fetch Data based on Period
+    const now = new Date()
+    let startDate = new Date()
+    if (period === 'weekly') startDate.setDate(now.getDate() - 7)
+    else if (period === 'monthly') startDate.setMonth(now.getMonth() - 1)
+    else startDate.setDate(now.getDate() - 1) // daily default
+
+    const [salesResult, expensesResult] = await Promise.all([
+      supabaseClient.from('sales').select('amount').gte('date', startDate.toISOString()),
+      supabaseClient.from('expenses').select('amount').gte('date', startDate.toISOString())
+    ])
+
+    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
+    const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
+    const balance = totalSales - totalExpenses
+
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     let content = ''
 
     if (!openAiKey) {
-      const mocks = [
-        "Resumen del día: Ventas estables con un ligero incremento en la tarde. El stock de insumos básicos está en niveles saludables.",
-        "Resumen semanal: Gran desempeño en la categoría calzado. Se recomienda monitorear gastos operativos fijos.",
-        "Resumen mensual: Cierre de mes con balance positivo. El margen neto se mantuvo por encima del 25%."
-      ]
-      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+      // Data-driven fallback instead of random mock
+      content = `Resumen del periodo (${period}): Ventas totales de $${totalSales}, Gastos totales de $${totalExpenses}. Balance neto: $${balance}. ${balance >= 0 ? 'Buen desempeño.' : 'Se recomienda revisar los gastos.'}`
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -42,7 +54,10 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'system', content: 'Eres un asistente financiero. Resume el periodo financiero de forma profesional.' }, { role: 'user', content: `Genera un resumen para el periodo ${period}` }]
+          messages: [
+            { role: 'system', content: 'Eres un asistente financiero profesional. Resume el periodo financiero basándote en los números provistos. Sé breve y directo.' },
+            { role: 'user', content: `Resumen para el periodo ${period}: Ventas totales $${totalSales}, Gastos totales $${totalExpenses}, Balance neto $${balance}.` }
+          ]
         }),
       })
 

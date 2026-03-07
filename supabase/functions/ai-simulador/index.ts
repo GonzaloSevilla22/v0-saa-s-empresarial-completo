@@ -22,17 +22,25 @@ serve(async (req) => {
     if (userError || !user) throw new Error('Unauthorized | 401')
 
     const { scenario } = await req.json()
-    
+
+    // 3. Fetch Context (Current Month)
+    const firstDayOfMonth = new Date()
+    firstDayOfMonth.setDate(1)
+    firstDayOfMonth.setHours(0, 0, 0, 0)
+
+    const [salesResult, expensesResult] = await Promise.all([
+      supabaseClient.from('sales').select('amount').gte('date', firstDayOfMonth.toISOString()),
+      supabaseClient.from('expenses').select('amount').gte('date', firstDayOfMonth.toISOString())
+    ])
+
+    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
+    const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
+
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     let content = ''
 
     if (!openAiKey) {
-      const mocks = [
-        `Simulación exitosa: El escenario '${scenario}' muestra un retorno de inversión estimado del 15% en 3 meses.`,
-        `Análisis de riesgo: La propuesta '${scenario}' tiene un riesgo moderado debido a la volatilidad del mercado actual.`,
-        `Optimización: Implementar '${scenario}' podría reducir tus costos operativos en un 10%.`
-      ]
-      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+      content = `Simulación: El escenario '${scenario}' se analiza sobre tu base actual de $${totalSales} en ventas este mes. Se estima un impacto proporcional.`
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -42,7 +50,10 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'system', content: 'Eres un simulador de estrategias para negocios. Analiza el impacto del escenario propuesto.' }, { role: 'user', content: `Simula el impacto de: ${scenario}` }]
+          messages: [
+            { role: 'system', content: 'Eres un simulador de estrategias de negocio. Analiza el impacto del escenario propuesto basándote en los números actuales del usuario.' },
+            { role: 'user', content: `Escenario: ${scenario}. Datos actuales del mes: Ventas $${totalSales}, Gastos $${totalExpenses}.` }
+          ]
         }),
       })
 

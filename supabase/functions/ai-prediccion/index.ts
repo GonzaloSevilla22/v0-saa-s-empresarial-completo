@@ -22,17 +22,26 @@ serve(async (req) => {
     if (userError || !user) throw new Error('Unauthorized | 401')
 
     const { days_ahead } = await req.json()
-    
+
+    // 3. Fetch Historical Data (Last 30 days)
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+    const { data: sales, error: salesError } = await supabaseClient
+      .from('sales')
+      .select('amount, date')
+      .gte('date', thirtyDaysAgo.toISOString())
+      .order('date', { ascending: true })
+
+    const totalSales = (sales || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
+    const avgDailySales = sales && sales.length > 0 ? totalSales / 30 : 0
+
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     let content = ''
 
     if (!openAiKey) {
-      const mocks = [
-        `Predicción a ${days_ahead} días: Se espera un pico de demanda el próximo miércoles. Aseguráte de tener stock suficiente.`,
-        `Pronóstico financiero: Estabilidad en el flujo de caja. Buen momento para realizar inversiones menores en marketing.`,
-        `Alerta de tendencia: Crecimiento proyectado del 5% en productos de temporada.`
-      ]
-      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+      const prediction = (avgDailySales * days_ahead).toFixed(2)
+      content = `Predicción a ${days_ahead} días: Basado en tu promedio diario de $${avgDailySales.toFixed(2)}, se estima una venta total de $${prediction}.`
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -42,7 +51,10 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'system', content: 'Predice ventas futuras basadas en histórico.' }, { role: 'user', content: `Predice para los próximos ${days_ahead} días.` }]
+          messages: [
+            { role: 'system', content: 'Eres un experto en predicción de ventas. Analiza el historial provisto y predice la tendencia para los próximos días.' },
+            { role: 'user', content: `Historial de ventas (30 días): ${JSON.stringify(sales)}. Predice para los próximos ${days_ahead} días.` }
+          ]
         }),
       })
 

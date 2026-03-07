@@ -26,31 +26,39 @@ serve(async (req) => {
     const threeMonthsAgo = new Date()
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
 
-    // 3. Get Data (Sales, Expenses for the last 3 months)
-    const [salesResult, expensesResult] = await Promise.all([
+    // 3. Get Data (Sales, Expenses, Low Stock, Top Clients)
+    const [salesResult, expensesResult, stockResult, clientsResult] = await Promise.all([
       supabaseClient.from('sales').select('amount, date').gte('date', threeMonthsAgo.toISOString()),
-      supabaseClient.from('expenses').select('amount, category, date').gte('date', threeMonthsAgo.toISOString())
+      supabaseClient.from('expenses').select('amount, category, date').gte('date', threeMonthsAgo.toISOString()),
+      supabaseClient.from('products').select('name, stock').lt('stock', 5).limit(5),
+      supabaseClient.from('clients').select('name, id').limit(5)
     ])
 
     const sales = salesResult.data || []
     const expenses = expensesResult.data || []
+    const lowStock = stockResult.data || []
+    const clients = clientsResult.data || []
 
-    const prompt = `Analiza los siguientes datos de los últimos 3 meses y dame 1 insight accionable corto:
-    Ventas: ${JSON.stringify(sales)}
-    Gastos: ${JSON.stringify(expenses)}`
+    const prompt = `Analiza estos datos de mi negocio:
+    - Ventas recientes: ${sales.length} transacciones.
+    - Gastos recientes: ${expenses.length} registros.
+    - Stock bajo (< 5 unidades): ${lowStock.map(p => `${p.name} (${p.stock})`).join(', ') || 'Todo en orden'}.
+    - Clientes principales (muestra): ${clients.map(c => c.name).join(', ')}.
+    
+    Dame 1 insight accionable corto.`
 
-    // 4. Call OpenAI API or Mock Fallback
+    // 4. Call OpenAI API or Data-driven Fallback
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     let content = ''
 
     if (!openAiKey) {
-      // Mock result for local development "wow" factor
-      const mocks = [
-        "Tus ventas han subido un 12% este mes. Considerá aumentar el stock de productos de electrónica.",
-        "Detectamos un gasto inusual en logística. Podrías ahorrar un 5% renegociando con tu proveedor.",
-        "Tus clientes más leales compran cada 15 días. Una promo de fidelidad podría aumentar tu frecuencia de venta."
-      ]
-      content = "[MOCK AI] " + mocks[Math.floor(Math.random() * mocks.length)]
+      if (lowStock.length > 0) {
+        content = `Alerta de Stock: Tenés poco stock de ${lowStock[0].name}. Considerá reponer pronto.`
+      } else if (sales.length > 0) {
+        content = `Tus ventas están activas con ${sales.length} operaciones recientes. ¡Buen trabajo!`
+      } else {
+        content = "Tu negocio está en marcha. Registra más ventas para obtener mejores consejos."
+      }
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -60,7 +68,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          messages: [{ role: 'system', content: 'Eres un analista financiero experto para emprendedores pequeños. Responde con un análisis corto y una acción específica recomendada.' }, { role: 'user', content: prompt }]
+          messages: [{ role: 'system', content: 'Eres un analista financiero experto para emprendedores. Responde con un análisis corto y una acción específica.' }, { role: 'user', content: prompt }]
         }),
       })
 

@@ -12,21 +12,16 @@ import {
     ArrowRight
 } from "lucide-react"
 import { formatMoney } from "@/lib/format"
-import TimeSeriesLinesChart from "./charts/TimeSeriesLinesChart"
+import ModuleSeriesChart from "./charts/ModuleSeriesChart"
 
 interface ModuleAnalyticsProps {
     title: string
     subtitle: string
     stats: {
         summary: {
-            total_amount?: number
+            users_count?: number
             count?: number
-            avg_ticket?: number
-            total_items?: number
-            low_stock_count?: number
-            total_inventory_value?: number
-            total_count?: number
-            active_count?: number
+            avg_per_user?: number
         }
         time_series: any[]
     }
@@ -41,65 +36,27 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
             case 'ventas':
             case 'compras':
             case 'gastos':
-                return (
-                    <>
-                        <KpiCard
-                            title="Total Acumulado"
-                            value={formatMoney(summary.total_amount || 0)}
-                            icon={DollarSign}
-                            color="text-emerald-500"
-                        />
-                        <KpiCard
-                            title="Transacciones"
-                            value={summary.count || 0}
-                            icon={ShoppingBag}
-                            color="text-blue-500"
-                        />
-                        <KpiCard
-                            title="Ticket Promedio"
-                            value={formatMoney(summary.avg_ticket || 0)}
-                            icon={TrendingUp}
-                            color="text-purple-500"
-                        />
-                    </>
-                )
             case 'stock':
-                return (
-                    <>
-                        <KpiCard
-                            title="Items en Stock"
-                            value={summary.total_items || 0}
-                            icon={Package}
-                            color="text-amber-500"
-                        />
-                        <KpiCard
-                            title="Alertas Stock Bajo"
-                            value={summary.low_stock_count || 0}
-                            icon={TrendingDown}
-                            color="text-red-500"
-                        />
-                        <KpiCard
-                            title="Valor Inventario"
-                            value={formatMoney(summary.total_inventory_value || 0)}
-                            icon={DollarSign}
-                            color="text-emerald-500"
-                        />
-                    </>
-                )
             case 'clientes':
                 return (
                     <>
                         <KpiCard
-                            title="Total Clientes"
-                            value={summary.total_count || 0}
+                            title="Usuarios Interactuando"
+                            value={summary.users_count || 0}
                             icon={Users}
                             color="text-emerald-500"
                         />
                         <KpiCard
-                            title="Clientes Activos"
-                            value={summary.active_count || 0}
+                            title="Operaciones Registradas"
+                            value={summary.count || 0}
                             icon={ActivityIcon}
                             color="text-blue-500"
+                        />
+                        <KpiCard
+                            title="Promedio x Usuario"
+                            value={summary.avg_per_user || 0}
+                            icon={TrendingUp}
+                            color="text-purple-500"
                         />
                     </>
                 )
@@ -129,7 +86,7 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
                     </CardHeader>
                     <CardContent>
                         <div className="h-[350px] w-full">
-                            <TimeSeriesLinesChart data={time_series} width={800} height={350} />
+                            <ModuleSeriesChart data={time_series} width={800} height={350} />
                         </div>
                     </CardContent>
                 </Card>

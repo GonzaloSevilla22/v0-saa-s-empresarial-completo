@@ -25,7 +25,7 @@ interface ModuleAnalyticsProps {
         }
         time_series: any[]
     }
-    moduleType: 'ventas' | 'compras' | 'stock' | 'clientes' | 'gastos'
+    moduleType: 'ventas' | 'compras' | 'stock' | 'clientes' | 'gastos' | 'ai' | 'simulador' | 'comunidad' | 'cursos'
 }
 
 export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAnalyticsProps) {
@@ -39,6 +39,10 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
             case 'gastos':
             case 'stock':
             case 'clientes':
+            case 'ai':
+            case 'simulador':
+            case 'comunidad':
+            case 'cursos':
                 return (
                     <>
                         <KpiCard

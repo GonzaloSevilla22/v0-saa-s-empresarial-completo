@@ -17,6 +17,7 @@ import TimeSeriesLinesChart from '@/components/admin/charts/TimeSeriesLinesChart
 import CohortRetentionChart from '@/components/admin/charts/CohortRetentionChart'
 import WeeklyHistogramChart from '@/components/admin/charts/WeeklyHistogramChart'
 import StackedBarsChart from '@/components/admin/charts/StackedBarsChart'
+import CommunitySeriesChart from '@/components/admin/charts/CommunitySeriesChart'
 import {
     fetchKpiOverview,
     fetchRetention,
@@ -71,6 +72,15 @@ export default function AdminAnalyticsPage() {
     const insightsBreakdown = kpiOverview.insights_breakdown || []
     const summary = kpiOverview.summary || {}
 
+    const totalActivations = summary.total_activations_in_range || 0
+    const totalUmv = summary.total_umv_in_range || 0
+    const umvPercentage = totalActivations > 0 ? Math.round((totalUmv / totalActivations) * 100) : 0
+
+    // Insights & Community
+    const totalInsights = insightsBreakdown.reduce((acc: any, curr: any) => acc + curr.count, 0)
+    const communityActivity = kpiOverview.community_engagement || []
+    const totalCommunityUsers = communityActivity.reduce((acc: any, curr: any) => acc + curr.active_users, 0)
+
     const validCohorts = retentionData.filter((c: any) => new Date(c.cohort_start).getTime() < new Date().getTime() - (37 * 24 * 60 * 60 * 1000))
     const latestCohort = validCohorts.length > 0 ? validCohorts[validCohorts.length - 1] : null
     const validWeeks = weeklyUsage.reduce((acc: any, curr: any) => acc + curr.users_count, 0)
@@ -91,11 +101,13 @@ export default function AdminAnalyticsPage() {
                 </div>
             </header>
 
-            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-                <KpiCard title="Activaciones (30d)" value={summary.total_activations_in_range} badge="12%" icon={Users} />
-                <KpiCard title="UMV Reached (30d)" value={summary.total_umv_in_range} badge="High" icon={Zap} />
-                <KpiCard title="30d Retention" value={latestCohort ? `${latestCohort.retention_rate}%` : 'N/A'} badge="Cohort" icon={Activity} iconColor="text-emerald-500" />
-                <KpiCard title="Engagement Avg" value={`${avgActiveDays}`} badge="días/sem" icon={Calendar} iconColor="text-blue-500" />
+            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-12">
+                <KpiCard title="% UMV" value={`${umvPercentage}%`} badge="Umv/Act" icon={Zap} iconColor="text-yellow-500" />
+                <KpiCard title="Activaciones" value={totalActivations} badge="30d" icon={Users} />
+                <KpiCard title="Retención 30d" value={latestCohort ? `${latestCohort.retention_rate}%` : '0%'} badge="Última" icon={Activity} iconColor="text-emerald-500" />
+                <KpiCard title="Frecuencia Semanal" value={`${avgActiveDays}`} badge="días/sem" icon={Calendar} iconColor="text-blue-500" />
+                <KpiCard title="Insights Generados" value={totalInsights} badge="30d" icon={Sparkles} iconColor="text-amber-500" />
+                <KpiCard title="Usuarios Comunidad" value={totalCommunityUsers} badge="Activos" icon={Users} iconColor="text-purple-500" />
             </section>
 
             <section className="mb-12 bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
@@ -130,6 +142,14 @@ export default function AdminAnalyticsPage() {
                     <StackedBarsChart data={insightsBreakdown} width={500} height={300} />
                 </section>
             </div>
+
+            <section className="mb-12 bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
+                <div className="flex items-center space-x-2 mb-6 text-slate-100">
+                    <Users className="w-5 h-5 text-indigo-500" />
+                    <h2 className="text-xl font-bold">Comunidad: Posts vs Replies</h2>
+                </div>
+                <CommunitySeriesChart data={communityActivity} width={1000} height={350} />
+            </section>
         </div>
     )
 }

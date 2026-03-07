@@ -79,39 +79,46 @@ export function AppSidebar() {
       <SidebarSeparator />
 
       <SidebarContent>
-        {navGroups.map((group) => (
-          <SidebarGroup key={group.label}>
-            <SidebarGroupLabel className="text-sidebar-foreground/50 uppercase text-[10px] tracking-wider">
-              {group.label}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {group.items.map((item) => {
-                  const isActive = pathname === item.href
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        tooltip={item.title}
-                      >
-                        <Link href={item.href}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                      {item.pro && user?.plan === "free" && (
-                        <SidebarMenuBadge>
-                          <Crown className="h-3 w-3 text-yellow-500" />
-                        </SidebarMenuBadge>
-                      )}
-                    </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        {navGroups.map((group) => {
+          // Hide operative modules for admins as requested
+          if (isAdmin && (group.label === "Operaciones" || group.label === "Catálogo")) {
+            return null
+          }
+
+          return (
+            <SidebarGroup key={group.label}>
+              <SidebarGroupLabel className="text-sidebar-foreground/50 uppercase text-[10px] tracking-wider">
+                {group.label}
+              </SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {group.items.map((item) => {
+                    const isActive = pathname === item.href
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          tooltip={item.title}
+                        >
+                          <Link href={item.href}>
+                            <item.icon className="h-4 w-4" />
+                            <span>{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                        {item.pro && user?.plan === "free" && (
+                          <SidebarMenuBadge>
+                            <Crown className="h-3 w-3 text-yellow-500" />
+                          </SidebarMenuBadge>
+                        )}
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )
+        })}
 
         {isAdmin && (
           <SidebarGroup>

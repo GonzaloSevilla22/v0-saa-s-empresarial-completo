@@ -305,12 +305,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const addPost = useCallback(async (p: Omit<Post, "id">) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('posts').insert([{
+    const { data, error } = await supabase.from('posts').insert([{
       user_id: user.id,
       title: p.title,
       content: p.content,
       category: p.category
-    }])
+    }]).select().single()
+
+    if (data) {
+      await supabase.from('analytics_events').insert([{
+        user_id: user.id,
+        event_name: 'post_created',
+        event_data: { post_id: data.id }
+      }])
+    }
   }, [supabase])
 
   // Computed

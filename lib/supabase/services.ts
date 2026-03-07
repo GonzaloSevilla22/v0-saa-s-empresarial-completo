@@ -139,6 +139,26 @@ export const services = {
     if (!user) throw new Error("Not authenticated")
     const { data, error } = await supabase.from('expenses').insert([{ ...expense, user_id: user.id }]).select().single()
     if (error) throw error
+
+    // Log analytics operation
+    await supabase.from('analytics_events').insert([{
+      user_id: user.id,
+      event_name: 'operation_created',
+      event_data: { type: 'expense', expense_id: data.id }
+    }])
+
+    // Check if it's the first operation
+    const { data: firstOp } = await supabase.from('analytics_events')
+      .select('id').eq('user_id', user.id).eq('event_name', 'first_operation').limit(1)
+
+    if (!firstOp || firstOp.length === 0) {
+      await supabase.from('analytics_events').insert([{
+        user_id: user.id,
+        event_name: 'first_operation',
+        event_data: { type: 'expense', expense_id: data.id }
+      }])
+    }
+
     return data
   }
 }

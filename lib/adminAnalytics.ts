@@ -1,51 +1,79 @@
-import { createClient } from "@/lib/supabase/client"
+import { createClient } from './supabase/client'
 
-export async function fetchKpiOverview(
-  dateFrom: string,
-  dateTo: string,
-  granularity: "day" | "week" = "day"
-) {
-  const supabase = createClient()
-  const { data, error } = await supabase.rpc("rpc_admin_kpi_overview", {
+export const fetchKpiOverview = async (dateFrom: string, dateTo: string, granularity: 'day' | 'week' = 'day', client?: any) => {
+  const supabase = client || createClient()
+
+  const { data, error } = await supabase.rpc('rpc_admin_kpi_overview', {
     date_from: dateFrom,
     date_to: dateTo,
-    granularity,
+    granularity: granularity
   })
 
   if (error) {
-    console.error("Error fetching KPI overview:", error)
     throw error
   }
+
   return data
 }
 
-export async function fetchRetention(dateFrom: string, dateTo: string) {
-  const supabase = createClient()
-  const { data, error } = await supabase.rpc("rpc_admin_retention_30d", {
-    cohort_granularity: "week",
+export const fetchRetention = async (dateFrom: string, dateTo: string, cohortGranularity: 'week' | 'month' = 'week', client?: any) => {
+  const supabase = client || createClient()
+
+  const { data, error } = await supabase.rpc('rpc_admin_retention_30d', {
+    cohort_granularity: cohortGranularity,
     date_from: dateFrom,
-    date_to: dateTo,
+    date_to: dateTo
   })
 
   if (error) {
-    console.error("Error fetching retention:", error)
     throw error
   }
-  // The RPC returns { cohort_start, cohort_size, retained_30d, retention_rate }
+
   return data
 }
 
-export async function fetchWeeklyUsageDistribution(dateFrom: string, dateTo: string) {
-  const supabase = createClient()
-  const { data, error } = await supabase.rpc("rpc_admin_weekly_usage_distribution", {
+export const fetchWeeklyUsageDistribution = async (dateFrom: string, dateTo: string, client?: any) => {
+  const supabase = client || createClient()
+
+  const { data, error } = await supabase.rpc('rpc_admin_weekly_usage_distribution', {
     date_from: dateFrom,
-    date_to: dateTo,
+    date_to: dateTo
   })
 
   if (error) {
-    console.error("Error fetching weekly usage distribution:", error)
     throw error
   }
-  // Returns { week_start, active_days, users_count }
+
+  return data
+}
+
+export const fetchBusinessKpis = async (dateFrom?: string, dateTo?: string, client?: any) => {
+  const supabase = client || createClient()
+
+  const { data, error } = await supabase.rpc('rpc_admin_business_kpis', {
+    date_from: dateFrom,
+    date_to: dateTo
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return data
+}
+
+export const fetchModuleStats = async (moduleType: string, dateFrom: string, dateTo: string, client?: any) => {
+  const supabase = client || createClient()
+
+  const { data, error } = await supabase.rpc('rpc_admin_module_stats', {
+    p_module_type: moduleType,
+    p_date_from: dateFrom,
+    p_date_to: dateTo
+  })
+
+  if (error) {
+    throw error
+  }
+
   return data
 }

@@ -42,8 +42,6 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
       email: newClientEmail,
       phone: newClientPhone,
       status: "activo",
-      lastPurchase: new Date().toISOString().split("T")[0],
-      totalSpent: 0,
     })
     toast.success(`Cliente "${newClientName}" creado`)
     setShowNewClient(false)

@@ -36,8 +36,6 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       phone: phone.trim() || null,
       status,
       category: category.trim() || null,
-      lastPurchase: initialData?.lastPurchase || new Date().toISOString().split("T")[0],
-      totalSpent: initialData?.totalSpent || 0,
     }
 
     try {

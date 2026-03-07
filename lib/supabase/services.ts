@@ -128,7 +128,14 @@ export const services = {
   async createClient(client: any) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Not authenticated")
-    const { data, error } = await supabase.from('clients').insert([{ ...client, user_id: user.id }]).select().single()
+    const { data, error } = await supabase.from('clients').insert([{
+      user_id: user.id,
+      name: client.name,
+      email: client.email,
+      phone: client.phone,
+      status: client.status || 'activo',
+      category: client.category
+    }]).select().single()
     if (error) throw error
     return data
   },

@@ -29,7 +29,8 @@ interface ModuleAnalyticsProps {
 }
 
 export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAnalyticsProps) {
-    const { summary, time_series } = stats
+    const summary = stats?.summary || {}
+    const time_series = stats?.time_series || []
 
     const renderKPIs = () => {
         switch (moduleType) {
@@ -42,19 +43,19 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
                     <>
                         <KpiCard
                             title="Usuarios Interactuando"
-                            value={summary.users_count || 0}
+                            value={summary?.users_count || 0}
                             icon={Users}
                             color="text-emerald-500"
                         />
                         <KpiCard
                             title="Operaciones Registradas"
-                            value={summary.count || 0}
+                            value={summary?.count || 0}
                             icon={ActivityIcon}
                             color="text-blue-500"
                         />
                         <KpiCard
                             title="Promedio x Usuario"
-                            value={summary.avg_per_user || 0}
+                            value={summary?.avg_per_user || 0}
                             icon={TrendingUp}
                             color="text-purple-500"
                         />

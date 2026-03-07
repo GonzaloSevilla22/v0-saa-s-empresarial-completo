@@ -75,7 +75,32 @@ export default function AdminMetricasPage() {
                     </div>
                 </section>
             </div>
+            <section className="mt-12">
+                <div className="flex items-center gap-2 mb-6">
+                    <Activity className="w-5 h-5 text-emerald-500" />
+                    <h2 className="text-xl font-bold text-slate-100">Detalle por Módulo</h2>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <ModuleLink href="/admin/metricas/ventas" label="Ventas" />
+                    <ModuleLink href="/admin/metricas/compras" label="Compras" />
+                    <ModuleLink href="/admin/metricas/gastos" label="Gastos" />
+                    <ModuleLink href="/admin/metricas/stock" label="Stock" />
+                    <ModuleLink href="/admin/metricas/clientes" label="Clientes" />
+                    <ModuleLink href="/admin/metricas/ai" label="Consejo IA" />
+                    <ModuleLink href="/admin/metricas/simulador" label="Simulador" />
+                    <ModuleLink href="/admin/metricas/comunidad" label="Comunidad" />
+                    <ModuleLink href="/admin/metricas/cursos" label="Cursos" />
+                </div>
+            </section>
         </div>
+    )
+}
+
+function ModuleLink({ href, label }: { href: string, label: string }) {
+    return (
+        <a href={href} className="bg-slate-900/40 backdrop-blur-md p-4 rounded-xl border border-slate-800 text-center text-sm font-medium text-slate-300 hover:border-emerald-500/50 hover:text-emerald-400 transition-all">
+            {label}
+        </a>
     )
 }
 

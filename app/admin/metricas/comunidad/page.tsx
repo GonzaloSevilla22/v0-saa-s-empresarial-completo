@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
-export default function AdminStockAnalytics() {
+export default function AdminComunidadAnalytics() {
     const [stats, setStats] = useState<any>(null)
     const [loading, setLoading] = useState(true)
 
@@ -19,9 +19,10 @@ export default function AdminStockAnalytics() {
             if (!user) { window.location.href = '/auth'; return }
             const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
             if (!profile || profile.role !== 'admin') { window.location.href = '/dashboard'; return }
+
             const dateTo = new Date().toISOString()
             const dateFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-            const data = await fetchModuleStats('stock', dateFrom, dateTo)
+            const data = await fetchModuleStats('comunidad', dateFrom, dateTo)
             setStats(data)
             setLoading(false)
         }
@@ -36,7 +37,12 @@ export default function AdminStockAnalytics() {
                 <Button variant="ghost" asChild className="mb-4 -ml-2 text-slate-400 hover:text-slate-100">
                     <Link href="/admin/metricas"><ArrowLeft className="w-4 h-4 mr-2" />Volver a Métricas</Link>
                 </Button>
-                <ModuleAnalytics title="Estado de Inventario Global" subtitle="Monitoreo de existencias y valorización total" stats={stats} moduleType="stock" />
+                <ModuleAnalytics
+                    title="Actividad de la Comunidad"
+                    subtitle="Interacción en posts y respuestas de emprendedores"
+                    stats={stats}
+                    moduleType="comunidad" as any
+                />
             </div>
         </div>
     )

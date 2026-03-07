@@ -141,13 +141,16 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                {/* Module Analytics Submenu */}
-                <div className="px-4 py-2 flex flex-col gap-1 border-l border-emerald-500/20 ml-4 mt-1">
+                <div className="px-4 py-2 grid grid-cols-2 gap-x-4 gap-y-1 border-l border-emerald-500/20 ml-4 mt-1">
                   <Link href="/admin/metricas/ventas" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Ventas</Link>
                   <Link href="/admin/metricas/compras" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Compras</Link>
+                  <Link href="/admin/metricas/gastos" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Gastos</Link>
                   <Link href="/admin/metricas/stock" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Stock</Link>
                   <Link href="/admin/metricas/clientes" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Clientes</Link>
-                  <Link href="/admin/metricas/gastos" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Gastos</Link>
+                  <Link href="/admin/metricas/ai" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Consejo IA</Link>
+                  <Link href="/admin/metricas/simulador" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Simulador</Link>
+                  <Link href="/admin/metricas/comunidad" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Comunidad</Link>
+                  <Link href="/admin/metricas/cursos" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Cursos</Link>
                 </div>
 
                 <SidebarMenuItem>

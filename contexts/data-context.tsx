@@ -76,7 +76,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         { data: clientsData },
         { data: insightsData },
         { data: postsData },
-        { data: coursesData }
       ] = await Promise.all([
         supabase.from('products').select('*').order('created_at', { ascending: false }),
         supabase.from('sales').select('*, product:products(name), client:clients(name)').order('date', { ascending: false }),

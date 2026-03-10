@@ -3,9 +3,10 @@ import { LandingSectionForm } from "@/components/admin/LandingSectionForm"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { notFound } from "next/navigation"
 
-export default async function EditLandingSectionPage({ params }: { params: { id: string } }) {
+export default async function EditLandingSectionPage({ params }: { params: Promise<{ id: string }> }) {
+    const { id } = await params
     const sections = await getAllLandingSections()
-    const section = sections.find(s => s.id === params.id)
+    const section = sections.find(s => s.id === id)
 
     if (!section) {
         notFound()

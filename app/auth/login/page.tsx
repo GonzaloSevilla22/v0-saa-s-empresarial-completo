@@ -88,7 +88,7 @@ export default function LoginPage() {
               </Button>
               <p className="text-sm text-muted-foreground">
                 {"¿No tenés cuenta? "}
-                <Link href="/register" className="text-primary underline-offset-4 hover:underline">
+                <Link href="/auth/register" className="text-primary underline-offset-4 hover:underline">
                   Registrate
                 </Link>
               </p>

@@ -200,7 +200,7 @@ export function AppSidebar() {
             <SidebarMenuButton
               onClick={() => {
                 logout()
-                window.location.href = "/login"
+                window.location.href = "/auth/login"
               }}
               tooltip="Cerrar sesion"
             >

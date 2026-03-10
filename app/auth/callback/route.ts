@@ -41,5 +41,5 @@ export async function GET(request: NextRequest) {
 
     // If something went wrong, redirect to login with error
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || origin
-    return NextResponse.redirect(`${siteUrl}/login?error=auth_callback_error`)
+    return NextResponse.redirect(`${siteUrl}/auth/login?error=auth_callback_error`)
 }

@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
-    router.push("/login")
+    router.push("/auth/login")
   }, [supabase, router])
 
   const upgradePlan = useCallback(async () => {

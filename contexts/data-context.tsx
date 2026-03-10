@@ -318,8 +318,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         event_name: 'post_created',
         event_data: { post_id: data.id }
       }])
+      await refreshData()
     }
-  }, [supabase])
+  }, [supabase, refreshData])
 
   // Computed
   const getTodaySales = useCallback(() => {

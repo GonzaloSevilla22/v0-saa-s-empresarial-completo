@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { useAuth } from "@/contexts/auth-context"
+import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -68,6 +69,8 @@ const levelColors: Record<string, string> = {
     intermedio: "border-yellow-500/30 text-yellow-400",
     avanzado: "border-red-500/30 text-red-400",
 }
+
+const supabase = createClient()
 
 export default function AdminCursosPage() {
     const { courses, addCourse, updateCourse, deleteCourse } = useData()

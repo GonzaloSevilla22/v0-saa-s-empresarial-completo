@@ -77,7 +77,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('expenses').select('*').order('date', { ascending: false }),
         supabase.from('clients').select('*').order('created_at', { ascending: false }),
         supabase.from('insights').select('*').order('created_at', { ascending: false }),
-        supabase.from('posts').select('*, user:profiles(name)').order('created_at', { ascending: false }),
+        supabase.from('posts').select('*, profiles(name)').order('created_at', { ascending: false }),
         supabase.from('courses').select('*')
       ])
 
@@ -146,7 +146,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       if (postsData) setPosts(postsData.map(po => ({
         id: po.id,
-        author: po.user?.name || "Usuario",
+        author: po.profiles?.name || "Usuario",
         title: po.title,
         content: po.content,
         category: po.category || "General",

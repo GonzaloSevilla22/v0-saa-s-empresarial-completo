@@ -148,18 +148,29 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         date: i.created_at.split('T')[0]
       })))
 
-      if (postsData) setPosts(postsData.map(po => ({
-        id: po.id,
-        userId: po.user_id,
-        author: po.profiles?.name || "Usuario",
-        title: po.title,
-        content: po.content,
-        category: po.category || "General",
-        date: po.created_at.split('T')[0],
-        replies: po.replies_count || 0,
-        likes: po.likes_count || 0,
-        isLiked: po.post_likes?.some((l: any) => l.user_id === user.id) || false
-      })))
+      // Debugging
+      if (postsData && postsData.length > 0) {
+        console.log("Community Posts fetched:", postsData.length)
+      }
+
+      if (postsData) setPosts(postsData.map(po => {
+        // PostgREST returns objects for single joins, but sometimes arrays if ambiguous
+        const profile = Array.isArray(po.author_profile) ? po.author_profile[0] : po.author_profile;
+        const likes = Array.isArray(po.post_likes) ? po.post_likes : [];
+
+        return {
+          id: po.id,
+          userId: po.user_id,
+          author: profile?.name || "Usuario",
+          title: po.title,
+          content: po.content,
+          category: po.category || "General",
+          date: po.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+          replies: po.replies_count || 0,
+          likes: po.likes_count || 0,
+          isLiked: likes.some((l: any) => l.user_id === user.id) || false
+        }
+      }))
 
       if (coursesData) setCourses(coursesData.map(cr => ({
         id: cr.id,
@@ -318,6 +329,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       category: p.category
     }]).select().single()
 
+    if (error) {
+      console.error("Error adding post:", error)
+      throw error
+    }
+
     if (data) {
       await supabase.from('analytics_events').insert([{
         user_id: user.id,
@@ -329,7 +345,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, refreshData])
 
   const deletePost = useCallback(async (id: string) => {
-    await supabase.from('posts').delete().eq('id', id)
+    const { error } = await supabase.from('posts').delete().eq('id', id)
+    if (error) {
+      console.error("Error deleting post:", error)
+      throw error
+    }
     await refreshData()
   }, [supabase, refreshData])
 
@@ -337,17 +357,30 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: existing } = await supabase
+    const { data: existing, error: findError } = await supabase
       .from('post_likes')
-      .select('*')
+      .select('id')
       .eq('post_id', postId)
       .eq('user_id', user.id)
-      .single()
+      .maybeSingle()
+
+    if (findError) {
+      console.error("Error checking like status:", findError)
+      throw findError
+    }
 
     if (existing) {
-      await supabase.from('post_likes').delete().eq('id', existing.id)
+      const { error: deleteError } = await supabase.from('post_likes').delete().eq('id', existing.id)
+      if (deleteError) {
+        console.error("Error removing like:", deleteError)
+        throw deleteError
+      }
     } else {
-      await supabase.from('post_likes').insert([{ post_id: postId, user_id: user.id }])
+      const { error: insertError } = await supabase.from('post_likes').insert([{ post_id: postId, user_id: user.id }])
+      if (insertError) {
+        console.error("Error adding like:", insertError)
+        throw insertError
+      }
     }
     await refreshData()
   }, [supabase, refreshData])
@@ -356,11 +389,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    await supabase.from('replies').insert([{
+    const { error } = await supabase.from('replies').insert([{
       post_id: postId,
       user_id: user.id,
       content
     }])
+
+    if (error) {
+      console.error("Error adding reply:", error)
+      throw error
+    }
     await refreshData()
   }, [supabase, refreshData])
 

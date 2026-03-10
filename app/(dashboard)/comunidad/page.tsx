@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { MessageSquare, Heart, Crown, Plus } from "lucide-react"
+import { MessageSquare, Heart, Crown, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -40,8 +40,9 @@ export default function ComunidadPage() {
   async function handleToggleLike(postId: string) {
     try {
       await toggleLike(postId)
-    } catch (err) {
-      toast.error("Error al dar like")
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err.message || "Error al dar like")
     }
   }
 
@@ -50,8 +51,9 @@ export default function ComunidadPage() {
     try {
       await deletePost(postId)
       toast.success("Post eliminado")
-    } catch (err) {
-      toast.error("Error al eliminar el post")
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err.message || "Error al eliminar el post")
     }
   }
 
@@ -164,7 +166,7 @@ export default function ComunidadPage() {
                       className="h-7 w-7 text-muted-foreground hover:text-destructive"
                       onClick={() => handleDelete(post.id)}
                     >
-                      <Plus className="h-3.5 w-3.5 rotate-45" />
+                      <Trash2 className="h-3.5 w-3.5" />
                     </Button>
                   )}
                 </div>

@@ -36,6 +36,9 @@ interface DataContextType {
   toggleLike: (postId: string) => Promise<void>
   addReply: (postId: string, content: string) => Promise<void>
   getReplies: (postId: string) => Promise<Reply[]>
+  addCourse: (c: Omit<Course, "id" | "modules">) => Promise<void>
+  updateCourse: (c: Omit<Course, "modules">) => Promise<void>
+  deleteCourse: (id: string) => Promise<void>
   // Computed
   getTodaySales: () => number
   getTodayExpenses: () => number
@@ -176,12 +179,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         id: cr.id,
         title: cr.title,
         description: cr.description,
-        level: "basico",
-        isPro: false,
+        level: (cr.level as "basico" | "intermedio" | "avanzado") || "basico",
+        isPro: cr.is_pro ?? false,
         modules: [],
-        category: "General",
-        students: 0,
-        rating: 5
+        category: cr.category || "General",
+        students: cr.students || 0,
+        rating: cr.rating ? Number(cr.rating) : 5
       })))
 
     } catch (err) {
@@ -317,6 +320,51 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const addInsight = useCallback((i: Insight) => {
     setInsights((prev) => [i, ...prev])
   }, [])
+
+  // Courses
+  const addCourse = useCallback(async (c: Omit<Course, "id" | "modules">) => {
+    const { error } = await supabase.from('courses').insert([{
+      title: c.title,
+      description: c.description,
+      is_pro: c.isPro,
+      level: c.level,
+      category: c.category,
+      students: c.students,
+      rating: c.rating,
+      content: ""
+    }])
+    if (error) {
+      console.error("Error adding course:", error)
+      throw error
+    }
+    await refreshData()
+  }, [supabase, refreshData])
+
+  const updateCourse = useCallback(async (c: Omit<Course, "modules">) => {
+    const { error } = await supabase.from('courses').update({
+      title: c.title,
+      description: c.description,
+      is_pro: c.isPro,
+      level: c.level,
+      category: c.category,
+      students: c.students,
+      rating: c.rating
+    }).eq('id', c.id)
+    if (error) {
+      console.error("Error updating course:", error)
+      throw error
+    }
+    await refreshData()
+  }, [supabase, refreshData])
+
+  const deleteCourse = useCallback(async (id: string) => {
+    const { error } = await supabase.from('courses').delete().eq('id', id)
+    if (error) {
+      console.error("Error deleting course:", error)
+      throw error
+    }
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Posts
   const addPost = useCallback(async (p: Omit<Post, "id">) => {
@@ -468,6 +516,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
+      addCourse, updateCourse, deleteCourse,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
       refreshData
     }),
@@ -478,6 +527,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
+      addCourse, updateCourse, deleteCourse,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
       refreshData]
   )

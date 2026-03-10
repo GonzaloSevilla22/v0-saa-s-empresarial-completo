@@ -22,6 +22,10 @@ const pageNames: Record<string, string> = {
   "/comunidad": "Comunidad",
   "/cursos": "Cursos",
   "/configuracion": "Configuración",
+  "/admin/cursos": "Gestión de Cursos",
+  "/admin/metricas": "Métricas Globales",
+  "/admin/analytics": "Panel Técnico",
+  "/admin/landing": "Gestionar Landing",
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

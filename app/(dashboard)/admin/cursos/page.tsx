@@ -83,7 +83,11 @@ export default function AdminCursosPage() {
     if (user?.role !== "admin") {
         return (
             <div className="flex flex-col items-center justify-center gap-4 py-20">
-                <p className="text-muted-foreground">Acceso restringido a administradores.</p>
+                <p className="text-muted-foreground text-lg font-medium">Acceso restringido a administradores.</p>
+                <div className="p-4 bg-secondary/50 border border-border rounded-lg text-xs text-muted-foreground max-w-md text-center">
+                    <p>Tu rol actual: <span className="text-primary font-mono">{user?.role || "no definido"}</span></p>
+                    <p className="mt-2">Si deberías tener acceso, verificá que tu perfil en Supabase tenga el rol <code className="text-primary">'admin'</code>.</p>
+                </div>
             </div>
         )
     }

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PlanGate } from "@/components/shared/plan-gate"
-import { ArrowLeft, CheckCircle2, Circle, Clock, Crown, Star, Users } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Circle, Clock, Crown, Star, Users, Pencil } from "lucide-react"
 
 export default function CourseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -43,6 +43,14 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
                 <Crown className="h-3 w-3 mr-0.5" />
                 Pro
               </Badge>
+            )}
+            {user?.role === "admin" && (
+              <Button asChild variant="outline" size="sm" className="ml-2 border-primary/30 text-primary hover:bg-primary/10 h-7 text-[10px] px-2">
+                <Link href={`/admin/cursos`}>
+                  <Pencil className="h-3 w-3 mr-1" />
+                  Editar
+                </Link>
+              </Button>
             )}
           </div>
           <p className="text-sm text-muted-foreground mt-1">{course.description}</p>

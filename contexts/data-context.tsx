@@ -85,8 +85,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('clients').select('*').order('created_at', { ascending: false }),
         supabase.from('insights').select('*').order('created_at', { ascending: false }),
         supabase.from('posts').select('*, profiles(name), post_likes(user_id)').order('created_at', { ascending: false }),
-        supabase.from('courses').select('*')
       ])
+
+      const { data: coursesData, error: coursesError } = await supabase.from('courses').select('*')
+      if (coursesError) {
+        console.error("Error fetching courses (might be missing columns):", coursesError)
+      }
 
       if (productsData) setProducts(productsData.map(p => ({
         id: p.id,
@@ -175,17 +179,22 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         }
       }))
 
-      if (coursesData) setCourses(coursesData.map(cr => ({
-        id: cr.id,
-        title: cr.title,
-        description: cr.description,
-        level: (cr.level as "basico" | "intermedio" | "avanzado") || "basico",
-        isPro: cr.is_pro ?? false,
-        modules: [],
-        category: cr.category || "General",
-        students: cr.students || 0,
-        rating: cr.rating ? Number(cr.rating) : 5
-      })))
+      if (coursesData) {
+        setCourses(coursesData.map(cr => ({
+          id: cr.id,
+          title: cr.title,
+          description: cr.description,
+          level: (cr.level as "basico" | "intermedio" | "avanzado") || "basico",
+          isPro: cr.is_pro ?? false,
+          modules: [],
+          category: cr.category || "General",
+          students: cr.students || 0,
+          rating: cr.rating ? Number(cr.rating) : 5
+        })))
+      } else {
+        // Fallback or empty if error
+        setCourses([])
+      }
 
     } catch (err) {
       console.error("Error fetching data:", err)

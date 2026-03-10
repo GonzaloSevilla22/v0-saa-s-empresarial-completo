@@ -52,7 +52,6 @@ export function HeroSection({ section }: { section: LandingSection }) {
                     </div>
                 </div>
             )}
-        </div>
-        </section >
+        </section>
     )
 }

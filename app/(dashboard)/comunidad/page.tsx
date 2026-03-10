@@ -22,14 +22,71 @@ const categoryColors: Record<string, string> = {
 }
 
 export default function ComunidadPage() {
-  const { posts, addPost } = useData()
+  const { posts, addPost, deletePost, toggleLike, getReplies, addReply } = useData()
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [category, setCategory] = useState("General")
 
+  // Interactions state
+  const [expandedPost, setExpandedPost] = useState<string | null>(null)
+  const [replies, setReplies] = useState<Record<string, any[]>>({})
+  const [replyContent, setReplyContent] = useState("")
+  const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({})
+
   const isPro = user?.plan === "pro"
+
+  async function handleToggleLike(postId: string) {
+    try {
+      await toggleLike(postId)
+    } catch (err) {
+      toast.error("Error al dar like")
+    }
+  }
+
+  async function handleDelete(postId: string) {
+    if (!confirm("¿Estás seguro de que querés eliminar este post?")) return
+    try {
+      await deletePost(postId)
+      toast.success("Post eliminado")
+    } catch (err) {
+      toast.error("Error al eliminar el post")
+    }
+  }
+
+  async function handleExpandReplies(postId: string) {
+    if (expandedPost === postId) {
+      setExpandedPost(null)
+      return
+    }
+
+    setExpandedPost(postId)
+    if (!replies[postId]) {
+      setLoadingReplies(prev => ({ ...prev, [postId]: true }))
+      try {
+        const data = await getReplies(postId)
+        setReplies(prev => ({ ...prev, [postId]: data }))
+      } catch (err) {
+        toast.error("Error al cargar respuestas")
+      } finally {
+        setLoadingReplies(prev => ({ ...prev, [postId]: false }))
+      }
+    }
+  }
+
+  async function handleSubmitReply(postId: string) {
+    if (!replyContent.trim()) return
+    try {
+      await addReply(postId, replyContent)
+      setReplyContent("")
+      const data = await getReplies(postId)
+      setReplies(prev => ({ ...prev, [postId]: data }))
+      toast.success("Respuesta enviada")
+    } catch (err) {
+      toast.error("Error al enviar respuesta")
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,6 +95,7 @@ export default function ComunidadPage() {
       return
     }
     addPost({
+      userId: user?.id || "",
       author: user?.name || "Anónimo",
       title,
       content,
@@ -95,23 +153,83 @@ export default function ComunidadPage() {
                     </span>
                   </div>
                 </div>
-                <Badge variant="outline" className={`text-[10px] shrink-0 ${categoryColors[post.category] || categoryColors.General}`}>
-                  {post.category}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className={`text-[10px] shrink-0 ${categoryColors[post.category] || categoryColors.General}`}>
+                    {post.category}
+                  </Badge>
+                  {post.userId === user?.id && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(post.id)}
+                    >
+                      <Plus className="h-3.5 w-3.5 rotate-45" />
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">{post.content}</p>
               <div className="mt-3 flex items-center gap-4">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <button
+                  onClick={() => handleExpandReplies(post.id)}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+                >
                   <MessageSquare className="h-3.5 w-3.5" />
                   {post.replies} respuestas
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Heart className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => handleToggleLike(post.id)}
+                  className={`flex items-center gap-1.5 text-xs transition-colors ${post.isLiked ? 'text-red-500 font-medium' : 'text-muted-foreground hover:text-red-500'}`}
+                >
+                  <Heart className={`h-3.5 w-3.5 ${post.isLiked ? 'fill-current' : ''}`} />
                   {post.likes}
-                </div>
+                </button>
               </div>
+
+              {/* Replies Section */}
+              {expandedPost === post.id && (
+                <div className="mt-4 pt-4 border-t border-border flex flex-col gap-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex flex-col gap-3">
+                    {loadingReplies[post.id] ? (
+                      <p className="text-xs text-muted-foreground animate-pulse">Cargando respuestas...</p>
+                    ) : replies[post.id]?.length > 0 ? (
+                      replies[post.id].map((reply) => (
+                        <div key={reply.id} className="bg-muted/30 rounded-lg p-3 flex flex-col gap-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-semibold text-foreground">{reply.author}</span>
+                            <span className="text-[9px] text-muted-foreground">
+                              {new Date(reply.createdAt).toLocaleDateString("es-AR")}
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{reply.content}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-muted-foreground italic text-center py-2">No hay respuestas aún. ¡Sé el primero!</p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 items-end">
+                    <Textarea
+                      placeholder="Escribir una respuesta..."
+                      value={replyContent}
+                      onChange={(e) => setReplyContent(e.target.value)}
+                      className="min-h-[60px] text-xs bg-background"
+                    />
+                    <Button
+                      size="sm"
+                      className="h-8 px-3"
+                      disabled={!replyContent.trim()}
+                      onClick={() => handleSubmitReply(post.id)}
+                    >
+                      Enviar
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}
@@ -136,7 +254,7 @@ export default function ComunidadPage() {
               rows={4}
               className="bg-background border-border text-foreground resize-none"
             />
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               {Object.keys(categoryColors).map((cat) => (
                 <Button
                   key={cat}

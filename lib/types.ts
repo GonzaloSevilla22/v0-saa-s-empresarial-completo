@@ -80,6 +80,7 @@ export interface Insight {
 
 export interface Post {
   id: string
+  userId: string
   author: string
   authorAvatar?: string
   title: string
@@ -88,6 +89,16 @@ export interface Post {
   date: string
   replies: number
   likes: number
+  isLiked?: boolean
+}
+
+export interface Reply {
+  id: string
+  postId: string
+  userId: string
+  author: string
+  content: string
+  createdAt: string
 }
 
 export interface CourseModule {

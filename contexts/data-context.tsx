@@ -32,6 +32,10 @@ interface DataContextType {
   deleteClient: (id: string) => Promise<void>
   addInsight: (i: Insight) => void
   addPost: (p: Omit<Post, "id">) => Promise<void>
+  deletePost: (id: string) => Promise<void>
+  toggleLike: (postId: string) => Promise<void>
+  addReply: (postId: string, content: string) => Promise<void>
+  getReplies: (postId: string) => Promise<Reply[]>
   // Computed
   getTodaySales: () => number
   getTodayExpenses: () => number
@@ -77,7 +81,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('expenses').select('*').order('date', { ascending: false }),
         supabase.from('clients').select('*').order('created_at', { ascending: false }),
         supabase.from('insights').select('*').order('created_at', { ascending: false }),
-        supabase.from('posts').select('*, profiles(name)').order('created_at', { ascending: false }),
+        supabase.from('posts').select('*, profiles(name), post_likes(user_id)').order('created_at', { ascending: false }),
         supabase.from('courses').select('*')
       ])
 
@@ -146,13 +150,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
       if (postsData) setPosts(postsData.map(po => ({
         id: po.id,
+        userId: po.user_id,
         author: po.profiles?.name || "Usuario",
         title: po.title,
         content: po.content,
         category: po.category || "General",
         date: po.created_at.split('T')[0],
-        replies: 0,
-        likes: po.likes_count || 0
+        replies: po.replies_count || 0,
+        likes: po.likes_count || 0,
+        isLiked: po.post_likes?.some((l: any) => l.user_id === user.id) || false
       })))
 
       if (coursesData) setCourses(coursesData.map(cr => ({
@@ -322,6 +328,60 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
   }, [supabase, refreshData])
 
+  const deletePost = useCallback(async (id: string) => {
+    await supabase.from('posts').delete().eq('id', id)
+    await refreshData()
+  }, [supabase, refreshData])
+
+  const toggleLike = useCallback(async (postId: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: existing } = await supabase
+      .from('post_likes')
+      .select('*')
+      .eq('post_id', postId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (existing) {
+      await supabase.from('post_likes').delete().eq('id', existing.id)
+    } else {
+      await supabase.from('post_likes').insert([{ post_id: postId, user_id: user.id }])
+    }
+    await refreshData()
+  }, [supabase, refreshData])
+
+  const addReply = useCallback(async (postId: string, content: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    await supabase.from('replies').insert([{
+      post_id: postId,
+      user_id: user.id,
+      content
+    }])
+    await refreshData()
+  }, [supabase, refreshData])
+
+  const getReplies = useCallback(async (postId: string): Promise<Reply[]> => {
+    const { data } = await supabase
+      .from('replies')
+      .select('*, profiles(name)')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true })
+
+    if (!data) return []
+    return data.map(r => ({
+      id: r.id,
+      postId: r.post_id,
+      userId: r.user_id,
+      author: r.profiles?.name || "Usuario",
+      content: r.content,
+      createdAt: r.created_at
+    }))
+  }, [supabase])
+
   // Computed
   const getTodaySales = useCallback(() => {
     const today = new Date().toISOString().split("T")[0]
@@ -369,7 +429,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addPurchase, updatePurchase, deletePurchase,
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
-      addInsight, addPost,
+      addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
       refreshData
     }),
@@ -379,7 +439,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addPurchase, updatePurchase, deletePurchase,
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
-      addInsight, addPost,
+      addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
       refreshData]
   )

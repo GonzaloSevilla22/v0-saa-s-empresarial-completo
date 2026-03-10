@@ -34,7 +34,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { BookOpen, Crown, Pencil, Plus, Trash2 } from "lucide-react"
+import { BookOpen, Crown, Pencil, Plus, Trash2, ListTree, Video, Save, ChevronRight, ChevronDown, MoveUp, MoveDown } from "lucide-react"
 import type { Course } from "@/lib/types"
 
 type CourseForm = {
@@ -79,6 +79,72 @@ export default function AdminCursosPage() {
     const [saving, setSaving] = useState(false)
     const [deleteTarget, setDeleteTarget] = useState<Course | null>(null)
     const [deleting, setDeleting] = useState(false)
+
+    // Module & Lesson management state
+    const [contentDialogOpen, setContentDialogOpen] = useState(false)
+    const [activeCourse, setActiveCourse] = useState<Course | null>(null)
+    const [modules, setModules] = useState<any[]>([])
+    const [loadingContent, setLoadingContent] = useState(false)
+
+    const openContentManager = async (course: Course) => {
+        setActiveCourse(course)
+        setContentDialogOpen(true)
+        setLoadingContent(true)
+        try {
+            const { data, error } = await supabase.from('course_modules').select('*, lessons:course_lessons(*)').eq('course_id', course.id).order('order_index', { ascending: true })
+            if (error) throw error
+            setModules(data.map(m => ({
+                ...m,
+                lessons: (m.lessons || []).sort((a: any, b: any) => a.order_index - b.order_index)
+            })))
+        } catch (e) {
+            console.error(e)
+        } finally {
+            setLoadingContent(false)
+        }
+    }
+
+    const addModule = async () => {
+        if (!activeCourse) return
+        const newModule = {
+            course_id: activeCourse.id,
+            title: "Nuevo Módulo",
+            order_index: modules.length
+        }
+        const { data, error } = await supabase.from('course_modules').insert([newModule]).select().single()
+        if (error) return console.error(error)
+        setModules([...modules, { ...data, lessons: [] }])
+    }
+
+    const deleteModule = async (moduleId: string) => {
+        const { error } = await supabase.from('course_modules').delete().eq('id', moduleId)
+        if (error) return console.error(error)
+        setModules(modules.filter(m => m.id !== moduleId))
+    }
+
+    const addLesson = async (moduleId: string) => {
+        const mod = modules.find(m => m.id === moduleId)
+        if (!mod) return
+        const newLesson = {
+            module_id: moduleId,
+            title: "Nueva Lección",
+            order_index: mod.lessons.length,
+            duration: "10 min"
+        }
+        const { data, error } = await supabase.from('course_lessons').insert([newLesson]).select().single()
+        if (error) return console.error(error)
+        setModules(modules.map(m => m.id === moduleId ? { ...m, lessons: [...m.lessons, data] } : m))
+    }
+
+    const deleteLesson = async (moduleId: string, lessonId: string) => {
+        const { error } = await supabase.from('course_lessons').delete().eq('id', lessonId)
+        if (error) return console.error(error)
+        setModules(modules.map(m => m.id === moduleId ? { ...m, lessons: m.lessons.filter((l: any) => l.id !== lessonId) } : m))
+    }
+
+    const updateItem = async (table: string, id: string, updates: any) => {
+        await supabase.from(table).update(updates).eq('id', id)
+    }
 
     if (user?.role !== "admin") {
         return (
@@ -248,6 +314,15 @@ export default function AdminCursosPage() {
                                         <Button
                                             size="icon"
                                             variant="ghost"
+                                            className="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                                            onClick={() => openContentManager(course)}
+                                            title="Gestionar Contenido (Módulos y Lecciones)"
+                                        >
+                                            <ListTree className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
                                             className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-secondary"
                                             onClick={() => openEdit(course)}
                                         >
@@ -382,6 +457,90 @@ export default function AdminCursosPage() {
                             {saving ? "Guardando..." : editingCourse ? "Guardar cambios" : "Crear curso"}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Content Management Dialog */}
+            <Dialog open={contentDialogOpen} onOpenChange={setContentDialogOpen}>
+                <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto bg-card border-border text-card-foreground">
+                    <DialogHeader>
+                        <DialogTitle>Gestionar Contenido: {activeCourse?.title}</DialogTitle>
+                        <DialogDescription>
+                            Organiza los módulos y lecciones del curso.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="flex flex-col gap-6 py-4">
+                        {loadingContent ? (
+                            <div className="flex justify-center py-10 text-muted-foreground">Cargando contenido...</div>
+                        ) : (
+                            <div className="flex flex-col gap-4">
+                                {modules.map((mod, modIdx) => (
+                                    <div key={mod.id} className="border border-border rounded-lg bg-secondary/20 overflow-hidden">
+                                        <div className="flex items-center gap-3 p-3 bg-secondary/40 border-b border-border">
+                                            <Input 
+                                                className="h-8 bg-transparent border-none text-sm font-semibold focus-visible:ring-0 p-0" 
+                                                value={mod.title}
+                                                onChange={(e) => {
+                                                    const newTitle = e.target.value
+                                                    setModules(modules.map(m => m.id === mod.id ? { ...m, title: newTitle } : m))
+                                                }}
+                                                onBlur={(e) => updateItem('course_modules', mod.id, { title: e.target.value })}
+                                            />
+                                            <div className="flex items-center gap-1">
+                                                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => deleteModule(mod.id)}>
+                                                    <Trash2 className="h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                        <div className="p-3 flex flex-col gap-2">
+                                            {mod.lessons.map((lesson: any, lessonIdx: number) => (
+                                                <div key={lesson.id} className="flex items-center gap-2 p-2 bg-card border border-border rounded-md group">
+                                                    <Video className="h-3.5 w-3.5 text-muted-foreground" />
+                                                    <Input 
+                                                        className="flex-1 h-7 bg-transparent border-none text-xs focus-visible:ring-0 p-0" 
+                                                        value={lesson.title}
+                                                        onChange={(e) => {
+                                                            const newTitle = e.target.value
+                                                            setModules(modules.map(m => m.id === mod.id ? {
+                                                                ...m,
+                                                                lessons: m.lessons.map((l: any) => l.id === lesson.id ? { ...l, title: newTitle } : l)
+                                                            } : m))
+                                                        }}
+                                                        onBlur={(e) => updateItem('course_lessons', lesson.id, { title: e.target.value })}
+                                                    />
+                                                    <Input 
+                                                        className="w-20 h-7 bg-secondary/50 border-none text-[10px] text-center focus-visible:ring-0" 
+                                                        value={lesson.duration}
+                                                        placeholder="Duración"
+                                                        onChange={(e) => {
+                                                            const newDur = e.target.value
+                                                            setModules(modules.map(m => m.id === mod.id ? {
+                                                                ...m,
+                                                                lessons: m.lessons.map((l: any) => l.id === lesson.id ? { ...l, duration: newDur } : l)
+                                                            } : m))
+                                                        }}
+                                                        onBlur={(e) => updateItem('course_lessons', lesson.id, { duration: e.target.value })}
+                                                    />
+                                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => deleteLesson(mod.id, lesson.id)}>
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                            <Button variant="ghost" size="sm" className="w-fit h-8 text-[10px] text-primary hover:bg-primary/5 gap-1.5" onClick={() => addLesson(mod.id)}>
+                                                <Plus className="h-3 w-3" />
+                                                Añadir Lección
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <Button variant="outline" className="w-full border-dashed border-primary/30 text-primary hover:bg-primary/5 gap-2" onClick={addModule}>
+                                    <Plus className="h-4 w-4" />
+                                    Añadir Módulo
+                                </Button>
+                            </div>
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
 

@@ -2,8 +2,8 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useData } from "@/contexts/data-context"
 import { useAuth } from "@/contexts/auth-context"
+import { courseService } from "@/lib/services/courseService"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,9 +17,24 @@ const levelColors: Record<string, string> = {
 }
 
 export default function CursosPage() {
-  const { courses } = useData()
   const { user } = useAuth()
+  const [courses, setCourses] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState("todos")
+
+  useEffect(() => {
+    async function fetchCourses() {
+      try {
+        const data = await courseService.getVisibleCourses()
+        setCourses(data)
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchCourses()
+  }, [])
 
   const isPro = user?.plan === "pro"
 
@@ -47,10 +62,12 @@ export default function CursosPage() {
       </Tabs>
 
       <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((course) => {
+        {loading ? (
+            <div className="col-span-full py-10 text-center text-muted-foreground">Cargando cursos...</div>
+        ) : filtered.map((course) => {
           const isLocked = course.isPro && !isPro
-          const completedModules = course.modules.filter((m) => m.completed).length
-          const progress = course.modules.length > 0 ? (completedModules / course.modules.length) * 100 : 0
+          const modulesCount = 0 // Will load in detail
+          const progress = 0 // Will load in detail
 
           return (
             <Card key={course.id} className={`border-border bg-card relative overflow-hidden group hover:border-primary/30 transition-colors ${isLocked ? "opacity-80" : ""}`}>
@@ -90,7 +107,7 @@ export default function CursosPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     <BookOpen className="h-3 w-3" />
-                    {course.modules.length} módulos
+                    Módulos disponibles
                   </div>
                 </div>
                 {isLocked ? (

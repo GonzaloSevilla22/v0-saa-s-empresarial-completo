@@ -29,7 +29,7 @@ export function HeroSection({ section }: { section: LandingSection }) {
                 )}
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                     <Button size="lg" className="rounded-full px-8 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold" asChild>
-                        <Link href={section.button_link || "/auth/register"}>
+                        <Link href={section.button_link || "/auth/login"}>
                             {section.button_text || "Comenzar Gratis"}
                         </Link>
                     </Button>

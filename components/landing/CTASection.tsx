@@ -20,7 +20,7 @@ export function CTASection({ section }: { section: LandingSection }) {
                     )}
                     <div className="mt-10 flex justify-center gap-x-6">
                         <Button size="lg" className="bg-white text-emerald-700 hover:bg-emerald-50 rounded-full px-10 font-bold" asChild>
-                            <Link href={section.button_link || "/auth/register"}>
+                            <Link href={section.button_link || "/auth/login"}>
                                 {section.button_text || "Empezar Ahora"}
                             </Link>
                         </Button>

@@ -28,15 +28,18 @@ export default function AdminAnalyticsPage() {
     const [data, setData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [unauthorized, setUnauthorized] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
-    useEffect(() => {
-        async function load() {
+    const loadData = async () => {
+        setLoading(true)
+        setError(null)
+        try {
             const supabase = createClient()
             const { data: { user } } = await supabase.auth.getUser()
             if (!user) { window.location.href = '/auth'; return }
 
             const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-            if (!profile || profile.role !== 'admin') { setUnauthorized(true); return }
+            if (!profile || profile.role !== 'admin') { setUnauthorized(true); setLoading(false); return }
 
             const dateTo = new Date().toISOString()
             const dateFrom = new Date(new Date().setDate(new Date().getDate() - 30)).toISOString()
@@ -49,9 +52,16 @@ export default function AdminAnalyticsPage() {
             ])
 
             setData({ kpiOverview, retentionData, weeklyUsage })
+        } catch (err: any) {
+            console.error("Error loading admin analytics:", err)
+            setError(err.message || "Error al cargar las métricas. Por favor verifica que las funciones RPC existan en la base de datos.")
+        } finally {
             setLoading(false)
         }
-        load().catch(() => setLoading(false))
+    }
+
+    useEffect(() => {
+        loadData()
     }, [])
 
     if (unauthorized) return (
@@ -61,9 +71,28 @@ export default function AdminAnalyticsPage() {
         </div>
     )
 
-    if (loading || !data) return (
-        <div className="flex items-center justify-center py-20">
+    if (loading) return (
+        <div className="flex flex-col items-center justify-center py-32 gap-4">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
+            <p className="text-slate-400 text-sm animate-pulse">Cargando métricas técnicas...</p>
+        </div>
+    )
+
+    if (error || !data) return (
+        <div className="flex flex-col items-center justify-center py-32 gap-6 container max-w-md text-center">
+            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-full">
+                <Activity className="w-8 h-8 text-red-500" />
+            </div>
+            <div className="space-y-2">
+                <h3 className="text-xl font-bold text-slate-100">Error de Carga</h3>
+                <p className="text-slate-400 text-sm">{error || "No se pudieron obtener los datos de analíticas."}</p>
+            </div>
+            <button
+                onClick={loadData}
+                className="px-6 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-lg border border-slate-700 transition-colors"
+            >
+                Reintentar
+            </button>
         </div>
     )
 

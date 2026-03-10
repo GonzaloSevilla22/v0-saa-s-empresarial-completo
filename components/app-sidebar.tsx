@@ -66,8 +66,8 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">
       <SidebarHeader className="p-4">
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary">
-            <Zap className="h-4 w-4 text-primary-foreground" />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg overflow-hidden">
+            <img src="/aliada-logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
             <span className="text-sm font-bold text-sidebar-foreground">ALIADA</span>

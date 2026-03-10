@@ -71,9 +71,9 @@ export default function RegisterPage() {
   return (
     <div className="flex min-h-svh items-center justify-center bg-background p-4">
       <div className="w-full max-w-md">
-        <div className="mb-8 flex flex-col items-center gap-2">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-            <Zap className="h-6 w-6 text-primary-foreground" />
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl overflow-hidden">
+            <img src="/aliada-logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">ALIADA</h1>
           <p className="text-sm text-muted-foreground">Emprender es Inteligente</p>

@@ -8,13 +8,28 @@ import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { AiAlerts } from "@/components/dashboard/ai-alerts"
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react"
 
+import { useEffect } from "react"
+import { aiInsightService } from "@/lib/services/aiInsightService"
+
 export default function DashboardPage() {
-  const { getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts } = useData()
+  const { getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, insights, refreshData } = useData()
 
   const todaySales = getTodaySales()
   const todayExpenses = getTodayExpenses()
   const netProfit = getNetProfit()
   const lowStock = getLowStockProducts()
+
+  // Auto-generate insights if none exist for today
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0]
+    const todaysInsights = insights.filter(i => i.date === today)
+    
+    if (todaysInsights.length === 0) {
+      aiInsightService.generateInsights()
+        .then(() => refreshData())
+        .catch(err => console.error("Error auto-generating insights:", err))
+    }
+  }, [insights, refreshData])
 
   return (
     <div className="flex flex-col gap-6">

@@ -82,7 +82,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         supabase.from('purchases').select('*, product:products(name)').order('date', { ascending: false }),
         supabase.from('expenses').select('*').order('date', { ascending: false }),
         supabase.from('clients').select('*').order('created_at', { ascending: false }),
-        supabase.from('insights').select('*').order('created_at', { ascending: false }),
+        supabase.from('ai_insights').select('*').order('created_at', { ascending: false }),
         supabase.from('posts').select('*, profiles(name), post_likes(user_id)').order('created_at', { ascending: false }),
       ])
 
@@ -149,8 +149,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       if (insightsData) setInsights(insightsData.map(i => ({
         id: i.id,
         type: i.type,
-        priority: "alta",
-        message: i.content,
+        priority: i.priority as any,
+        message: i.message,
         date: i.created_at.split('T')[0]
       })))
 

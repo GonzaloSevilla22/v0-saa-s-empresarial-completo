@@ -86,15 +86,8 @@ export const services = {
     return data
   },
 
-  // AI Insights
-  async getAIInsights() {
-    const { data, error } = await supabase.functions.invoke('ai-insights')
-    if (error) {
-      return [] // Return empty instead of crashing for non-critical fallback
-    }
-    return data
-  },
-
+  // AI Insights - MOVED TO aiInsightService.ts
+  
   // AI Resumen (Financial Summary)
   async getAISummary(period: 'daily' | 'weekly' | 'monthly' = 'daily') {
     const { data, error } = await supabase.functions.invoke('ai-resumen', {

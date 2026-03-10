@@ -16,7 +16,7 @@ const extraInsights: Insight[] = [
   { id: "ix3", type: "clientes", priority: "baja", message: "Valentina Ruiz no compra hace 90 días. Un cupón de descuento podría reactivarla.", date: new Date().toISOString().split("T")[0] },
 ]
 
-import { services } from "@/lib/supabase/services"
+import { aiInsightService } from "@/lib/services/aiInsightService"
 
 export default function InsightsPage() {
   const { insights, refreshData } = useData()
@@ -31,7 +31,7 @@ export default function InsightsPage() {
     if (atLimit) return
     setIsGenerating(true)
     try {
-      await services.getAIInsights()
+      await aiInsightService.generateInsights()
       await refreshData()
     } catch (error: any) {
       alert(error.message || "Error al generar insights")

@@ -70,7 +70,7 @@ export function AppSidebar() {
             <Zap className="h-4 w-4 text-primary-foreground" />
           </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-bold text-sidebar-foreground">EIE</span>
+            <span className="text-sm font-bold text-sidebar-foreground">ALIADA</span>
             <span className="text-[10px] text-sidebar-foreground/60">Emprender es Inteligente</span>
           </div>
         </Link>

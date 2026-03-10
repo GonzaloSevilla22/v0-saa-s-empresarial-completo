@@ -10,7 +10,7 @@ const _geist = Geist({ subsets: ['latin'] })
 const _geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'EIE - Emprender es Inteligente',
+  title: 'ALIADA - Emprender es Inteligente',
   description: 'Plataforma SaaS de gestión empresarial para emprendedores con inteligencia artificial',
 }
 

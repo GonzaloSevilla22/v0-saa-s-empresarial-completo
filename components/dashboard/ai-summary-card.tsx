@@ -36,7 +36,7 @@ export function AiSummaryCard() {
       setSummary(data.content || "No se pudo generar el resumen en este momento.")
     } catch (error) {
       console.error(error)
-      setSummary("Error al conectar con la IA de EIE. Reintenta en unos minutos.")
+      setSummary("Error al conectar con la IA de ALIADA. Reintenta en unos minutos.")
     } finally {
       setIsLoading(false)
     }

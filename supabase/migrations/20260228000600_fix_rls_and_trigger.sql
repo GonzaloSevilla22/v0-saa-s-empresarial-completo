@@ -43,7 +43,7 @@ BEGIN
   -- Queue Welcome Email (if table exists)
   IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'email_logs') THEN
     INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
-    VALUES (new.id, 'welcome', new.email, '¡Bienvenido a EIE!', jsonb_build_object('name', user_name));
+    VALUES (new.id, 'welcome', new.email, '¡Bienvenido a ALIADA!', jsonb_build_object('name', user_name));
   END IF;
 
   RETURN new;

@@ -1,11 +1,20 @@
 import { LandingSection } from "@/lib/landing"
 
 export function BenefitsSection({ section }: { section: LandingSection }) {
-    const benefits = [
-        { title: "Reduce Costos", subtitle: "Hasta un 30% en desperdicio de stock." },
-        { title: "Ahorra Tiempo", subtitle: "Automatizá tareas repetitivas." },
-        { title: "Crece Mejor", subtitle: "Basado en datos, no en suposiciones." },
-    ]
+    let benefits = []
+    try {
+        benefits = section.content ? JSON.parse(section.content) : []
+    } catch (e) {
+        console.error("Error parsing benefits content", e)
+    }
+
+    if (benefits.length === 0) {
+        benefits = [
+            { title: "Reduce Costos", subtitle: "Hasta un 30% en desperdicio de stock." },
+            { title: "Ahorra Tiempo", subtitle: "Automatizá tareas repetitivas." },
+            { title: "Crece con ALIADA", subtitle: "Basado en datos, no en suposiciones." },
+        ]
+    }
 
     return (
         <section className="bg-slate-900 py-24 sm:py-32">

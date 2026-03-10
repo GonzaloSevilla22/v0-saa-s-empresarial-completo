@@ -2,10 +2,19 @@ import { LandingSection } from "@/lib/landing"
 import { Star } from "lucide-react"
 
 export function TestimonialsSection({ section }: { section: LandingSection }) {
-    const testimonials = [
-        { name: "Carlos Rossi", role: "Dueño de 'Tienda Gourmet'", text: "La IA cambió mi forma de ver el negocio. Ahora sé exactamente qué comprar." },
-        { name: "Lucía Méndez", role: "CEO de 'Moda Local'", text: "La comunidad es increíble. Aprendí más aquí que en cualquier curso." },
-    ]
+    let testimonials = []
+    try {
+        testimonials = section.content ? JSON.parse(section.content) : []
+    } catch (e) {
+        console.error("Error parsing testimonials content", e)
+    }
+
+    if (testimonials.length === 0) {
+        testimonials = [
+            { name: "Carlos Rossi", role: "Usuario ALIADA", text: "La IA cambió mi forma de ver el negocio. Ahora sé exactamente qué comprar." },
+            { name: "Lucía Méndez", role: "Emprendedora", text: "La comunidad ALIADA es increíble. Aprendí más aquí que en cualquier curso." },
+        ]
+    }
 
     return (
         <section className="bg-slate-950 py-24 sm:py-32">

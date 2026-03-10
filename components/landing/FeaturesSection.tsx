@@ -11,15 +11,21 @@ const iconMap: Record<string, any> = {
 }
 
 export function FeaturesSection({ section }: { section: LandingSection }) {
-    // We can parse content as JSON if we want complex features, or just use a standard grid
-    const features = [
-        { title: "Gestión Proactiva", desc: "Monitoreá tu stock y ventas en tiempo real.", icon: Zap },
-        { title: "Seguridad Robusta", desc: "Tus datos protegidos con RLS y cifrado.", icon: Shield },
-        { title: "Análisis con IA", desc: "Insights accionables para crecer rápido.", icon: BarChart3 },
-        { title: "Comunidad Unida", desc: "Interactuá con otros emprendedores.", icon: Users },
-        { title: "Acceso Móvil", desc: "Gestioná tu negocio desde cualquier lugar.", icon: Smartphone },
-        { title: "Soporte 24/7", desc: "Estamos para ayudarte en cada paso.", icon: CheckCircle2 },
-    ]
+    let features = []
+    try {
+        features = section.content ? JSON.parse(section.content) : []
+    } catch (e) {
+        console.error("Error parsing features content", e)
+    }
+
+    // Default placeholders if empty
+    if (features.length === 0) {
+        features = [
+            { title: "Gestión Proactiva", desc: "Monitoreá tu stock y ventas en tiempo real.", icon: Zap },
+            { title: "Análisis con IA", desc: "Insights accionables para crecer rápido.", icon: BarChart3 },
+            { title: "Comunidad ALIADA", desc: "Interactuá con otros emprendedores.", icon: Users },
+        ]
+    }
 
     return (
         <section id="features" className="bg-slate-900 py-24 sm:py-32">

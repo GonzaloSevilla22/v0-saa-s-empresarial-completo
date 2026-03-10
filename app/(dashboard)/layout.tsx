@@ -26,7 +26,7 @@ const pageNames: Record<string, string> = {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const currentPageName = pageNames[pathname] || "EIE"
+  const currentPageName = pageNames[pathname] || "ALIADA"
 
   return (
     <DataProvider>

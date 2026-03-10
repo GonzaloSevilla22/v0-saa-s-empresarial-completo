@@ -25,7 +25,7 @@ begin
     new.id,
     'welcome',
     new.email,
-    '¡Bienvenido a EIE Emprendedores!',
+    '¡Bienvenido a ALIADA Emprendedores!',
     jsonb_build_object('name', user_name)
   );
 

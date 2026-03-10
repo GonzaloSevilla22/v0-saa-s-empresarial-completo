@@ -12,7 +12,7 @@ serve(async (req: Request) => {
   try {
     const rawBody = await req.text();
     console.log("Raw Webhook Payload:", rawBody);
-    
+
     let payload;
     try {
       payload = JSON.parse(rawBody);
@@ -36,14 +36,14 @@ serve(async (req: Request) => {
     const { id, event_type, recipient, subject, metadata } = record;
 
     // Template logic
-    let htmlContent = `<h1>Notificación de EIE</h1><p>Has recibido un nuevo aviso: ${event_type}</p>`;
+    let htmlContent = `<h1>Notificación de ALIADA</h1><p>Has recibido un nuevo aviso: ${event_type}</p>`;
 
     if (event_type === "welcome") {
       htmlContent = `
         <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>¡Bienvenido a EIE Emprendedores! 🚀</h2>
+          <h2>¡Bienvenido a ALIADA Emprendedores! 🚀</h2>
           <p>Nos alegra tenerte en nuestra comunidad. Estás a un paso de optimizar la gestión de tu negocio.</p>
-          <a href="https://eie.com/dashboard" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a mi Dashboard</a>
+          <a href="https://aliada.com/dashboard" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a mi Dashboard</a>
         </div>
       `;
     } else if (event_type === "meeting_notice") {
@@ -61,7 +61,7 @@ serve(async (req: Request) => {
           <h2>🛒 Nuevo Pool de Compra Abierto</h2>
           <p>Un nuevo pool de compra está disponible: <strong>${metadata.title}</strong></p>
           <p><strong>Cierra el:</strong> ${new Date(metadata.closes_at).toLocaleDateString()}</p>
-          <a href="https://eie.com/pools/${metadata.pool_id}" style="background-color: #8b5cf6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Pool</a>
+          <a href="https://aliada.com/pools/${metadata.pool_id}" style="background-color: #8b5cf6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Pool</a>
         </div>
       `;
     } else if (event_type === "low_stock_alert") {
@@ -74,7 +74,7 @@ serve(async (req: Request) => {
         </div>
       `;
     } else if (event_type === "low_margin_alert") {
-       htmlContent = `
+      htmlContent = `
         <div style="font-family: Arial, sans-serif; color: #333;">
           <h2>📉 Alerta de Margen Crítico (AI)</h2>
           <p>Se ha registrado una venta con un margen de ganancia inferior al 15%.</p>
@@ -97,7 +97,7 @@ serve(async (req: Request) => {
         toAddresses = usersData.users.map((u: any) => u.email).filter(Boolean) as string[];
       }
       if (toAddresses.length === 0) {
-         toAddresses = ["test@eie.com"]; // Fallback if no users or error
+        toAddresses = ["test@aliada.com"]; // Fallback if no users or error
       }
     } else {
       toAddresses = [recipient];
@@ -105,19 +105,19 @@ serve(async (req: Request) => {
 
     // Dispatch
     console.log(`Sending emails to ${toAddresses.length} recipients for event: ${event_type}`);
-    
+
     // Batch or loop setup (using Promise.all for simple MVP chunking)
-    const emailPromises = toAddresses.map((email) => 
+    const emailPromises = toAddresses.map((email) =>
       resend.emails.send({
-        from: "EIE Emprendedores <onboarding@resend.dev>",
+        from: "ALIADA Emprendedores <onboarding@resend.dev>",
         to: email,
-        subject: subject || "Notificación de EIE",
+        subject: subject || "Notificación de ALIADA",
         html: htmlContent,
       })
     );
-    
+
     const results = await Promise.allSettled(emailPromises);
-    
+
     // Simple eval of success vs failure based on first item
     const firstResult = results[0];
     const isError = firstResult.status === 'rejected' || (firstResult.status === 'fulfilled' && firstResult.value.error);

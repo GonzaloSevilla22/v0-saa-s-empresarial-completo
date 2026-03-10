@@ -17,7 +17,7 @@ export function ImageTextSection({ section }: { section: LandingSection }) {
                             {section.content}
                         </p>
                         <ul className="space-y-4">
-                            {["Alertas Inteligentes", "Predicción de Ventas", "Optimización de Inventario"].map((item, i) => (
+                            {["Alertas Inteligentes ALIADA", "Predicción de Ventas IA", "Optimización de Inventario"].map((item, i) => (
                                 <li key={i} className="flex items-center gap-3 text-slate-300">
                                     <CheckCircle2 className="h-5 w-5 text-emerald-500" />
                                     <span>{item}</span>

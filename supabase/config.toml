@@ -224,7 +224,7 @@ port = 465
 user = "resend"
 pass = "env(RESEND_API_KEY)"
 admin_email = "onboarding@resend.dev"
-sender_name = "EIE Emprendedores"
+sender_name = "ALIADA Emprendedores"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

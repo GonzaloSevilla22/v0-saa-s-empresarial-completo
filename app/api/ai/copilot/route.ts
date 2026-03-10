@@ -12,8 +12,11 @@ export async function POST(req: Request) {
     // 1. Get business data context
     const context = await aiCopilotService.getBusinessDataContext()
 
-    // 2. Prepare the prompt
-    const prompt = `
+    // 2. Analyze if it's a pricing query
+    const pricingAnalysis = aiCopilotService.analyzePricingInQuestion(question)
+
+    // 3. Prepare the prompt
+    let prompt = `
 Eres un experto asesor de negocios para pequeños emprendedores.
 El usuario tiene un pequeño negocio y vende productos.
 Da consejos claros y prácticos. Sé conciso y accionable.
@@ -23,11 +26,25 @@ CONTEXTO DEL NEGOCIO:
 - Ventas totales recientes: ${context.totalSalesRecent}
 - Alerta Stock Bajo: ${context.recentLowStock.join(', ')}
 - Gastos recientes: ${JSON.stringify(context.recentExpenses)}
+`
 
+    if (pricingAnalysis?.suggestions) {
+      prompt += `
+PRICING SUGGESTED (Usa estos datos si la pregunta es sobre precios):
+- Costo detectado: $${pricingAnalysis.cost}
+- Rangos sugeridos:
+  * 30% margen -> $${pricingAnalysis.suggestions.margins[0].price}
+  * 40% margen -> $${pricingAnalysis.suggestions.margins[1].price}
+  * 50% margen -> $${pricingAnalysis.suggestions.margins[2].price}
+- Recomendación: ${pricingAnalysis.suggestions.recommendation}
+`
+    }
+
+    prompt += `
 PREGUNTA DEL USUARIO:
 "${question}"
 
-Responde como un asesor experto. Si la pregunta no es sobre negocios, redirige amablemente al usuario.
+Responde como un asesor experto. Si la pregunta es sobre precios y margins, usa los datos calculados arriba para dar una respuesta precisa y profesional.
 `
 
     // 3. Call OpenAI

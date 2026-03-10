@@ -47,6 +47,7 @@ const navGroups = [
     items: [
       { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true },
       { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false },
+      { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false },
       { title: "Simulador", href: "/simulador", icon: Calculator, pro: false },
     ],
   },

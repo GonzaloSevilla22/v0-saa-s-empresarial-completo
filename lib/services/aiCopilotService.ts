@@ -1,7 +1,33 @@
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { pricingService } from './pricingService'
 
 export const aiCopilotService = {
+  /**
+   * Detects if a question is about pricing and extracts cost if present.
+   */
+  analyzePricingInQuestion(question: string) {
+    const q = question.toLowerCase()
+    const pricingKeywords = ['precio', 'costo', 'costó', 'margen', 'ganancia', 'vender', 'cobra']
+    const isPricingQuery = pricingKeywords.some(key => q.includes(key))
+
+    if (!isPricingQuery) return null
+
+    // Simple regex to extract a number that looks like a cost
+    // Example: "me costó 8000" -> 8000
+    const costMatch = q.match(/(?:costó|costo|costa|de|es)\s*(?:\$)?\s*(\d+(?:\.\d+)?)/i)
+    const cost = costMatch ? Number(costMatch[1]) : null
+
+    if (cost) {
+      return {
+        cost,
+        suggestions: pricingService.suggestPriceRange(cost)
+      }
+    }
+
+    return { isPricingQuery: true }
+  },
+
   /**
    * Fetches relevant business data to provide context for the AI.
    */

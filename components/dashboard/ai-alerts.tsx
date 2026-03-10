@@ -54,16 +54,7 @@ export function AiAlerts() {
         return null
     }).filter(Boolean)
 
-    // 2. Inflation Suggestion (Mock simulation)
-    const inflationAlert = {
-        id: "inflation-suggestion",
-        type: "info",
-        icon: LineChart,
-        title: "Sugerencia Mensual: Ajuste por Inflación",
-        message: "La inflación proyectada es del 4.5%. Recomendamos un ajuste preventivo del 5% en tus productos estrella para proteger tus márgenes.",
-    }
-
-    const allAlerts = [...marginAlerts, ...stagnantAlerts, inflationAlert].slice(0, 4)
+    const allAlerts = [...marginAlerts, ...stagnantAlerts].slice(0, 4)
 
     if (allAlerts.length === 0) return null
 
@@ -79,8 +70,8 @@ export function AiAlerts() {
                 {allAlerts.map((alert: any) => (
                     <div key={alert.id} className="flex gap-3 rounded-lg border border-border p-3 bg-muted/30">
                         <div className={`p-2 rounded-md ${alert.type === 'danger' ? 'bg-red-500/10 text-red-400' :
-                                alert.type === 'warning' ? 'bg-yellow-500/10 text-yellow-400' :
-                                    'bg-blue-500/10 text-blue-400'
+                            alert.type === 'warning' ? 'bg-yellow-500/10 text-yellow-400' :
+                                'bg-blue-500/10 text-blue-400'
                             }`}>
                             <alert.icon className="h-4 w-4" />
                         </div>

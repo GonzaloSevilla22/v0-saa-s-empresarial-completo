@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
-  ShieldCheck, BarChart3,
+  ShieldCheck, BarChart3, LayoutGrid,
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -152,6 +152,19 @@ export function AppSidebar() {
                   <Link href="/admin/metricas/comunidad" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Comunidad</Link>
                   <Link href="/admin/metricas/cursos" className="text-[11px] text-slate-400 hover:text-emerald-400 transition-colors">Cursos</Link>
                 </div>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/landing"}
+                    tooltip="Gestionar Landing Page"
+                  >
+                    <Link href="/admin/landing">
+                      <LayoutGrid className="h-4 w-4" />
+                      <span>Gestionar Landing</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
 
                 <SidebarMenuItem>
                   <SidebarMenuButton

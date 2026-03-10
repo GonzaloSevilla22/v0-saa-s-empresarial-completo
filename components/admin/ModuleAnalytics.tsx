@@ -32,40 +32,31 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
     const summary = stats?.summary || {}
     const time_series = stats?.time_series || []
 
+    const isFinancial = ['ventas', 'compras', 'gastos'].includes(moduleType)
+
     const renderKPIs = () => {
-        switch (moduleType) {
-            case 'ventas':
-            case 'compras':
-            case 'gastos':
-            case 'stock':
-            case 'clientes':
-            case 'ai':
-            case 'simulador':
-            case 'comunidad':
-            case 'cursos':
-                return (
-                    <>
-                        <KpiCard
-                            title="Usuarios Interactuando"
-                            value={summary?.users_count || 0}
-                            icon={Users}
-                            color="text-emerald-500"
-                        />
-                        <KpiCard
-                            title="Operaciones Registradas"
-                            value={summary?.count || 0}
-                            icon={ActivityIcon}
-                            color="text-blue-500"
-                        />
-                        <KpiCard
-                            title="Promedio x Usuario"
-                            value={summary?.avg_per_user || 0}
-                            icon={TrendingUp}
-                            color="text-purple-500"
-                        />
-                    </>
-                )
-        }
+        return (
+            <>
+                <KpiCard
+                    title="Usuarios Interactuando"
+                    value={summary?.users_count || 0}
+                    icon={Users}
+                    color="text-emerald-500"
+                />
+                <KpiCard
+                    title={moduleType === 'clientes' ? "Clientes Nuevos" : "Operaciones Totales"}
+                    value={isFinancial ? formatMoney(summary?.count || 0) : (summary?.count || 0)}
+                    icon={ActivityIcon}
+                    color="text-blue-500"
+                />
+                <KpiCard
+                    title="Promedio x Usuario"
+                    value={isFinancial ? formatMoney(summary?.avg_per_user || 0) : (summary?.avg_per_user || 0)}
+                    icon={TrendingUp}
+                    color="text-purple-500"
+                />
+            </>
+        )
     }
 
     return (
@@ -81,21 +72,28 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
                 {renderKPIs()}
             </div>
 
-            {time_series && time_series.length > 0 && (
-                <Card className="bg-slate-900/40 border-slate-800 backdrop-blur-md">
-                    <CardHeader>
-                        <CardTitle className="text-lg font-semibold text-slate-100 flex items-center gap-2">
-                            <TrendingUp className="w-5 h-5 text-emerald-500" />
-                            Evolución Temporal
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
+            <Card className="bg-slate-900/40 border-slate-800 backdrop-blur-md">
+                <CardHeader>
+                    <CardTitle className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-emerald-500" />
+                        Evolución Temporal
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {time_series && time_series.length > 0 ? (
                         <div className="h-[350px] w-full">
                             <ModuleSeriesChart data={time_series} width={800} height={350} />
                         </div>
-                    </CardContent>
-                </Card>
-            )}
+                    ) : (
+                        <div className="h-[350px] w-full flex flex-col items-center justify-center text-slate-500 gap-4 border-2 border-dashed border-slate-800 rounded-xl">
+                            <div className="p-4 bg-slate-800/50 rounded-full">
+                                <ActivityIcon className="w-8 h-8 opacity-20" />
+                            </div>
+                            <p className="text-sm">No hay datos históricos para este período</p>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     )
 }

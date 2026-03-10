@@ -40,8 +40,7 @@ serve(async (req) => {
     let content = ''
 
     if (!openAiKey) {
-      const prediction = (avgDailySales * days_ahead).toFixed(2)
-      content = `Predicción a ${days_ahead} días: Basado en tu promedio diario de $${avgDailySales.toFixed(2)}, se estima una venta total de $${prediction}.`
+      throw new Error('Configuración incompleta: Falta la clave de API de OpenAI | 500')
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

@@ -131,9 +131,37 @@ export default function ModuleSeriesChart({ data, width = 600, height = 300 }: M
         }
     }, [data, width, height])
 
+    if (!data || data.length === 0) {
+        return (
+            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 gap-2 border border-dashed border-slate-800 rounded-xl bg-slate-900/20">
+                <ActivityIcon className="w-8 h-8 opacity-20" />
+                <p className="text-xs">Sin datos históricos para este período</p>
+            </div>
+        )
+    }
+
     return (
         <div className="w-full overflow-x-auto flex justify-center">
             <svg ref={svgRef} width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="max-w-full" />
         </div>
+    )
+}
+
+function ActivityIcon({ className }: { className?: string }) {
+    return (
+        <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+        >
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+        </svg>
     )
 }

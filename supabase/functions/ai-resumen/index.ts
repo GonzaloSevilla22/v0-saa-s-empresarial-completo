@@ -43,8 +43,7 @@ serve(async (req) => {
     let content = ''
 
     if (!openAiKey) {
-      // Data-driven fallback instead of random mock
-      content = `Resumen del periodo (${period}): Ventas totales de $${totalSales}, Gastos totales de $${totalExpenses}. Balance neto: $${balance}. ${balance >= 0 ? 'Buen desempeño.' : 'Se recomienda revisar los gastos.'}`
+      throw new Error('Configuración incompleta: Falta la clave de API de OpenAI | 500')
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

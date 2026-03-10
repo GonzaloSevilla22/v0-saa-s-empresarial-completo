@@ -52,13 +52,7 @@ serve(async (req) => {
     let content = ''
 
     if (!openAiKey) {
-      if (lowStock.length > 0) {
-        content = `Alerta de Stock: Tenés poco stock de ${lowStock[0].name}. Considerá reponer pronto.`
-      } else if (sales.length > 0) {
-        content = `Tus ventas están activas con ${sales.length} operaciones recientes. ¡Buen trabajo!`
-      } else {
-        content = "Tu negocio está en marcha. Registra más ventas para obtener mejores consejos."
-      }
+      throw new Error('Configuración incompleta: Falta la clave de API de OpenAI | 500')
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

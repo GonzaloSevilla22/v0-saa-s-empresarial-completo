@@ -40,7 +40,7 @@ serve(async (req) => {
     let content = ''
 
     if (!openAiKey) {
-      content = `Simulación: El escenario '${scenario}' se analiza sobre tu base actual de $${totalSales} en ventas este mes. Se estima un impacto proporcional.`
+      throw new Error('Configuración incompleta: Falta la clave de API de OpenAI | 500')
     } else {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',

@@ -64,9 +64,11 @@ export default function VentasPage() {
       .channel('ventas-realtime')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'sales' }, 
-        () => {
-          refreshData()
-        }
+        () => refreshData()
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'sale_items' },
+        () => refreshData()
       )
       .subscribe()
 

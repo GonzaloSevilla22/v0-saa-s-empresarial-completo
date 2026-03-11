@@ -71,10 +71,12 @@ export default function StockPage() {
     const channel = supabase
       .channel('stock-realtime')
       .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'products' }, 
-        () => {
-          refreshData()
-        }
+        { event: '*', schema: 'public', table: 'inventory_stock' }, 
+        () => refreshData()
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'product_variants' },
+        () => refreshData()
       )
       .subscribe()
 

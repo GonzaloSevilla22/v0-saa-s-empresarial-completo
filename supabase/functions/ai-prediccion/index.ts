@@ -21,6 +21,17 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
+    // 2. Resolve Company Context
+    const { data: companyUser, error: coError } = await supabaseClient
+      .from('company_users')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single()
+
+    if (coError || !companyUser) throw new Error('No company context found | 403')
+    const companyId = companyUser.company_id
+
     const { days_ahead } = await req.json()
 
     // 3. Fetch Historical Data (Last 30 days)
@@ -28,13 +39,14 @@ serve(async (req) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
     const { data: sales, error: salesError } = await supabaseClient
-      .from('sales')
-      .select('amount, date')
-      .gte('date', thirtyDaysAgo.toISOString())
-      .order('date', { ascending: true })
+      .from('sale_items')
+      .select('subtotal, sale!inner(date, company_id)')
+      .eq('sale.company_id', companyId)
+      .gte('sale.date', thirtyDaysAgo.toISOString())
+      .order('sale(date)', { ascending: true })
 
-    const totalSales = (sales || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
-    const avgDailySales = sales && sales.length > 0 ? totalSales / 30 : 0
+    const totalSales = (sales || []).reduce((acc: number, s: any) => acc + Number(s.subtotal), 0)
+    const avgDailySales = (sales && sales.length > 0) ? totalSales / 30 : 0
 
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     let content = ''

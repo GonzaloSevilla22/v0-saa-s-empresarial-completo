@@ -13,76 +13,40 @@ export const getProfile = async (id: string, client?: any) => {
 export const services = {
   getProfile,
   // Sales
-  async createSale(sale: Omit<Sale, 'id'>) {
-    const { data, error } = await supabase.functions.invoke('create-sale', {
-      body: {
-        client_id: sale.clientId,
-        product_id: sale.productId,
-        amount: sale.unitPrice,
-        quantity: sale.quantity,
-        currency: sale.currency
-      },
+  async createSale(sale: {
+    company_id: string
+    warehouse_id: string
+    client_id: string
+    items: { variant_id: string; quantity: number; price: number }[]
+    currency: string
+  }) {
+    const { data, error } = await supabase.rpc('rpc_atomic_create_sale', {
+      p_company_id: sale.company_id,
+      p_warehouse_id: sale.warehouse_id,
+      p_client_id: sale.client_id,
+      p_items: sale.items,
+      p_currency: sale.currency
     })
 
-    if (error) {
-      let detailedMsg = "Error en la venta"
-
-      try {
-        const context = (error as any).context
-        if (context && context.response) {
-          const bodyText = await context.response.text()
-          try {
-            const parsed = JSON.parse(bodyText)
-            detailedMsg = parsed.error || bodyText
-          } catch (e) {
-            detailedMsg = bodyText
-          }
-        } else if (error instanceof Error) {
-          detailedMsg = error.message
-        }
-      } catch (e) {
-        if (error instanceof Error) detailedMsg = error.message
-      }
-
-      throw new Error(detailedMsg)
-    }
+    if (error) throw error
     return data
   },
 
   // Purchases
-  async createPurchase(purchase: Omit<Purchase, 'id'>) {
-    const { data, error } = await supabase.functions.invoke('create-purchase', {
-      body: {
-        product_id: purchase.productId,
-        amount: purchase.unitCost,
-        quantity: purchase.quantity,
-        description: purchase.description
-      }
+  async createPurchase(purchase: {
+    company_id: string
+    warehouse_id: string
+    items: { variant_id: string; quantity: number; price: number }[]
+    description?: string
+  }) {
+    const { data, error } = await supabase.rpc('rpc_atomic_create_purchase', {
+      p_company_id: purchase.company_id,
+      p_warehouse_id: purchase.warehouse_id,
+      p_items: purchase.items,
+      p_description: purchase.description
     })
 
-    if (error) {
-      let detailedMsg = "Error en la compra"
-
-      try {
-        const context = (error as any).context
-        if (context && context.response) {
-          const bodyText = await context.response.text()
-          try {
-            const parsed = JSON.parse(bodyText)
-            detailedMsg = parsed.error || bodyText
-          } catch (e) {
-            detailedMsg = bodyText
-          }
-        } else if (error instanceof Error) {
-          detailedMsg = error.message
-        }
-      } catch (e) {
-        if (error instanceof Error) detailedMsg = error.message
-      }
-
-      throw new Error(detailedMsg)
-    }
-
+    if (error) throw error
     return data
   },
 
@@ -123,6 +87,7 @@ export const services = {
     if (!user) throw new Error("Not authenticated")
     const { data, error } = await supabase.from('clients').insert([{
       user_id: user.id,
+      company_id: client.company_id,
       name: client.name,
       email: client.email,
       phone: client.phone,
@@ -134,10 +99,14 @@ export const services = {
   },
 
   // Expenses
-  async createExpense(expense: any) {
+  async createExpense(expense: any, companyId: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Not authenticated")
-    const { data, error } = await supabase.from('expenses').insert([{ ...expense, user_id: user.id }]).select().single()
+    const { data, error } = await supabase.from('expenses').insert([{ 
+      ...expense, 
+      user_id: user.id,
+      company_id: companyId 
+    }]).select().single()
     if (error) throw error
 
     // Log analytics operation

@@ -59,9 +59,11 @@ export default function ComprasPage() {
       .channel('compras-realtime')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'purchases' }, 
-        () => {
-          refreshData()
-        }
+        () => refreshData()
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'purchase_items' },
+        () => refreshData()
       )
       .subscribe()
 

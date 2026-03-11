@@ -21,6 +21,17 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
+    // 2. Resolve Company Context
+    const { data: companyUser, error: coError } = await supabaseClient
+      .from('company_users')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single()
+
+    if (coError || !companyUser) throw new Error('No company context found | 403')
+    const companyId = companyUser.company_id
+
     const { period } = await req.json()
 
     // 3. Fetch Data based on Period
@@ -31,11 +42,18 @@ serve(async (req) => {
     else startDate.setDate(now.getDate() - 1) // daily default
 
     const [salesResult, expensesResult] = await Promise.all([
-      supabaseClient.from('sales').select('amount').gte('date', startDate.toISOString()),
-      supabaseClient.from('expenses').select('amount').gte('date', startDate.toISOString())
+      // Use sale_items for accurate itemized totals within this company
+      supabaseClient.from('sale_items')
+        .select('subtotal, sale!inner(date, company_id)')
+        .eq('sale.company_id', companyId)
+        .gte('sale.date', startDate.toISOString()),
+      supabaseClient.from('expenses')
+        .select('amount')
+        .eq('company_id', companyId)
+        .gte('date', startDate.toISOString())
     ])
 
-    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
+    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.subtotal), 0)
     const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
     const balance = totalSales - totalExpenses
 

@@ -3,7 +3,9 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { services } from "@/lib/supabase/services"
-import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Course } from "@/lib/types"
+import { useCompany } from "./company-context"
+import { useWarehouse } from "./warehouse-context"
+import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Course, Reply } from "@/lib/types"
 
 interface DataContextType {
   products: Product[]
@@ -52,6 +54,8 @@ const DataContext = createContext<DataContextType | null>(null)
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
+  const { companyId } = useCompany()
+  const { activeWarehouseId } = useWarehouse()
   const [products, setProducts] = useState<Product[]>([])
   const [sales, setSales] = useState<Sale[]>([])
   const [purchases, setPurchases] = useState<Purchase[]>([])
@@ -63,94 +67,114 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const refreshData = useCallback(async () => {
+    if (!companyId) return
     try {
+      setLoading(true)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      // Fetch all core user-specific data
+      // Fetch all core user-specific data using Promise.all for performance
       const [
         { data: productsData },
-        { data: salesData },
-        { data: purchasesData },
+        { data: salesItemsData },
+        { data: purchasesItemsData },
         { data: expensesData },
         { data: clientsData },
         { data: insightsData },
         { data: postsData },
+        { data: coursesData },
       ] = await Promise.all([
+        // 1. Products & Variants (with stock filtered by warehouse)
         supabase.from('product_variants').select(`
           id, product_id, price, cost, barcode, sku,
-          product:products!inner(name, category, min_stock, parent_id),
-          inventory_stock(quantity)
-        `).order('created_at', { ascending: false }),
+          product:products!inner(name, category, min_stock, parent_id, company_id),
+          inventory_stock(quantity, warehouse_id)
+        `).eq('product.company_id', companyId),
+
+        // 2. Sale Items (itemized sales)
         supabase.from('sale_items').select(`
           id, quantity, price, subtotal,
-          sale:sales!inner(id, date, currency, client_id, client:clients(name)),
+          sale:sales!inner(id, date, currency, client_id, company_id, client:clients(name)),
           variant:product_variants(id, product_id, product:products(name))
-        `).order('sale(date)', { ascending: true }), // Hack: PostgREST ordering nested doesn't work well sometimes, but we will sort locally if needed.
+        `).eq('sale.company_id', companyId),
+
+        // 3. Purchase Items
         supabase.from('purchase_items').select(`
           id, quantity, price, subtotal,
-          purchase:purchases!inner(id, date),
+          purchase:purchases!inner(id, date, company_id),
           variant:product_variants(id, product_id, product:products(name))
-        `).order('purchase(date)', { ascending: true }),
-        supabase.from('expenses').select('*').order('date', { ascending: false }),
-        supabase.from('clients').select('*').order('created_at', { ascending: false }),
+        `).eq('purchase.company_id', companyId),
+
+        // 4. Expenses
+        supabase.from('expenses').select('*').eq('company_id', companyId).order('date', { ascending: false }),
+
+        // 5. Clients
+        supabase.from('clients').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
+
+        // 6. Insights
         supabase.from('ai_insights').select('*').order('created_at', { ascending: false }),
+
+        // 7. Community Posts (User-specific visibility handled by RLS)
         supabase.from('posts').select('*, profiles(name), post_likes(user_id)').order('created_at', { ascending: false }),
+
+        // 8. Courses
+        supabase.from('courses').select('*')
       ])
 
-      const { data: coursesData, error: coursesError } = await supabase.from('courses').select('*')
-      if (coursesError) {
-        console.error("Error fetching courses (might be missing columns):", coursesError)
-      }
-
       // Map back to legacy UI interfaces for backward compatibility
-      if (productsData) setProducts(productsData.map((v: any) => {
-        const p = v.product;
-        // Sum stock from all warehouses
-        const totalStock = Array.isArray(v.inventory_stock) 
-                           ? v.inventory_stock.reduce((acc: number, cur: any) => acc + (cur.quantity || 0), 0)
-                           : 0;
-        return {
-        id: v.product_id, // Keep the original product_id for backward compatibility
-        name: p?.name || 'Error',
-        category: p?.category || "Otros",
-        cost: Number(v.cost),
-        price: Number(v.price),
-        margin: v.price > 0 ? Math.round(((v.price - v.cost) / v.price) * 100) : 0,
-        stock: totalStock,
-        minStock: p?.min_stock || 0,
-        barcode: v.barcode,
-        parentId: p?.parent_id
-      }}))
+      if (productsData) {
+        setProducts(productsData.map((v: any) => {
+          const p = v.product;
+          
+          // Filter stock by ACTIVE warehouse or sum all if none active
+          const stockRows = Array.isArray(v.inventory_stock) ? v.inventory_stock : [];
+          const relevantStock = activeWarehouseId 
+            ? stockRows.filter((sr: any) => sr.warehouse_id === activeWarehouseId)
+            : stockRows;
+            
+          const totalStock = relevantStock.reduce((acc: number, cur: any) => acc + (cur.quantity || 0), 0);
 
-      if (salesData) {
-        // Sort manually by date descending
-        salesData.sort((a, b) => new Date(b.sale?.date).getTime() - new Date(a.sale?.date).getTime());
-        setSales(salesData.map((si: any) => ({
-        id: si.id, // we map sale_items.id
-        date: si.sale?.date?.split('T')[0] || '',
-        productId: si.variant?.product_id,
-        productName: si.variant?.product?.name || "Eliminado",
-        clientId: si.sale?.client_id,
-        clientName: si.sale?.client?.name || "Consumidor Final",
-        quantity: si.quantity,
-        unitPrice: Number(si.price),
-        total: Number(si.subtotal),
-        currency: si.sale?.currency || 'ARS'
-      })))
+          return {
+            id: v.id, // CRITICAL: Use variant.id as the main identifier (per user request)
+            name: p?.name || 'Producto Sin Nombre',
+            category: p?.category || "Otros",
+            cost: Number(v.cost),
+            price: Number(v.price),
+            margin: v.price > 0 ? Math.round(((v.price - v.cost) / v.price) * 100) : 0,
+            stock: totalStock,
+            minStock: p?.min_stock || 0,
+            barcode: v.barcode,
+            parentId: v.product_id, // Map product_id as parentId
+            company_id: companyId
+          }
+        }))
       }
 
-      if (purchasesData) {
-        purchasesData.sort((a, b) => new Date(b.purchase?.date).getTime() - new Date(a.purchase?.date).getTime());
-        setPurchases(purchasesData.map((pi: any) => ({
-        id: pi.id,
-        date: pi.purchase?.date?.split('T')[0] || '',
-        productId: pi.variant?.product_id,
-        productName: pi.variant?.product?.name || "Eliminado",
-        quantity: pi.quantity,
-        unitCost: Number(pi.price),
-        total: Number(pi.subtotal)
-      })))
+      if (salesItemsData) {
+        setSales(salesItemsData.map((si: any) => ({
+          id: si.id,
+          date: si.sale?.date?.split('T')[0] || '',
+          productId: si.variant_id, // Mapping to variant.id
+          productName: si.variant?.product?.name || "Eliminado",
+          clientId: si.sale?.client_id,
+          clientName: si.sale?.client?.name || "Consumidor Final",
+          quantity: si.quantity,
+          unitPrice: Number(si.price),
+          total: Number(si.subtotal),
+          currency: si.sale?.currency || 'ARS'
+        })))
+      }
+
+      if (purchasesItemsData) {
+        setPurchases(purchasesItemsData.map((pi: any) => ({
+          id: pi.id,
+          date: pi.purchase?.date?.split('T')[0] || '',
+          productId: pi.variant_id,
+          productName: pi.variant?.product?.name || "Eliminado",
+          quantity: pi.quantity,
+          unitCost: Number(pi.price),
+          total: Number(pi.subtotal)
+        })))
       }
 
       if (expensesData) setExpenses(expensesData.map(e => ({
@@ -158,7 +182,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         date: e.date.split('T')[0],
         category: e.category,
         description: e.description || "",
-        amount: Number(e.amount)
+        amount: Number(e.amount),
+        company_id: e.company_id
       })))
 
       if (clientsData) setClients(clientsData.map(c => ({
@@ -169,7 +194,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         status: c.status || "activo",
         lastPurchase: "-",
         totalSpent: 0,
-        category: c.category
+        category: c.category,
+        company_id: c.company_id
       })))
 
       if (insightsData) setInsights(insightsData.map(i => ({
@@ -229,65 +255,133 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   useEffect(() => {
-    refreshData()
-  }, [refreshData])
+    if (companyId) {
+      refreshData()
+    }
+  }, [refreshData, companyId, activeWarehouseId])
 
   // Products
   const addProduct = useCallback(async (p: Omit<Product, "id">) => {
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    await supabase.from('products').insert([{
+    if (!user || !companyId || !activeWarehouseId) return
+
+    // 1. Create the Product (Catalog)
+    const { data: product, error: pError } = await supabase.from('products').insert([{
       user_id: user.id,
+      company_id: companyId,
       name: p.name,
       category: p.category,
+      min_stock: p.minStock
+    }]).select().single()
+
+    if (pError || !product) throw pError
+
+    // 2. Create the Default Variant
+    const { data: variant, error: vError } = await supabase.from('product_variants').insert([{
+      product_id: product.id,
+      sku: `${product.name.substring(0,3).toUpperCase()}-${Date.now().toString().slice(-4)}`,
       price: p.price,
       cost: p.cost,
-      stock: p.stock,
-      min_stock: p.minStock,
-      barcode: p.barcode,
-      parent_id: p.parentId
+      barcode: p.barcode
+    }]).select().single()
+
+    if (vError || !variant) throw vError
+
+    // 3. Create initial inventory row (USER REQUIREMENT 3)
+    const { error: sError } = await supabase.from('inventory_stock').insert([{
+      variant_id: variant.id,
+      warehouse_id: activeWarehouseId,
+      quantity: p.stock || 0
     }])
-  }, [supabase])
+
+    if (sError) throw sError
+
+    // 4. Log initial movement
+    if (p.stock > 0) {
+      await supabase.from('inventory_movements').insert([{
+        variant_id: variant.id,
+        warehouse_id: activeWarehouseId,
+        type: 'ajuste_entrada',
+        quantity: p.stock,
+        reason: 'Stock inicial de producto nuevo'
+      }])
+    }
+
+    await refreshData()
+  }, [supabase, companyId, activeWarehouseId, refreshData])
 
   const updateProduct = useCallback(async (p: Product) => {
-    await supabase.from('products').update({
-      name: p.name,
-      category: p.category,
+    // p.id is variant.id
+    const { error } = await supabase.from('product_variants').update({
       price: p.price,
       cost: p.cost,
-      stock: p.stock,
-      min_stock: p.minStock,
-      barcode: p.barcode,
-      parent_id: p.parentId
+      barcode: p.barcode
     }).eq('id', p.id)
-  }, [supabase])
+    
+    if (error) throw error
+    
+    // Also update product catalog name/category if needed
+    if (p.parentId) {
+       await supabase.from('products').update({
+         name: p.name,
+         category: p.category,
+         min_stock: p.minStock
+       }).eq('id', p.parentId)
+    }
+    
+    await refreshData()
+  }, [supabase, refreshData])
 
   const deleteProduct = useCallback(async (id: string) => {
-    await supabase.from('products').delete().eq('id', id)
-  }, [supabase])
+    // id is variant.id. Note: In a real ERP, we might want to soft-delete or check for sales.
+    // For now, we follow the UI request.
+    const { error } = await supabase.from('product_variants').delete().eq('id', id)
+    if (error) throw error
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Sales (Using Edge Function for Stock Safety and AARRR logging)
+  // Sales (Using Atomic RPC for Multi-tenant Safety)
   const addSale = useCallback(async (s: Omit<Sale, "id">) => {
-    await services.createSale(s)
-  }, [])
+    if (!companyId || !activeWarehouseId) return
+    await services.createSale({
+      company_id: companyId,
+      warehouse_id: activeWarehouseId,
+      client_id: s.clientId,
+      items: [{ variant_id: s.productId, quantity: s.quantity, price: s.unitPrice }],
+      currency: s.currency
+    })
+    await refreshData()
+  }, [companyId, activeWarehouseId, refreshData])
 
   const updateSale = useCallback(async (s: Sale) => {
+    // Note: Items update logic would be more complex, for now we keep backward compatibility 
+    // but warn that ERP items should ideally be updated individually or via headers.
     await supabase.from('sales').update({
       amount: s.total,
-      quantity: s.quantity,
-      currency: s.currency
+      currency: s.currency,
+      date: s.date
     }).eq('id', s.id)
-  }, [supabase])
+    await refreshData()
+  }, [supabase, refreshData])
 
   const deleteSale = useCallback(async (id: string) => {
+    // sale_items will be deleted by ON DELETE CASCADE in the DB
     await supabase.from('sales').delete().eq('id', id)
-  }, [supabase])
-
-  // Purchases (Using Edge Function for Stock Safety)
-  const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
-    await services.createPurchase(p)
     await refreshData()
-  }, [refreshData])
+  }, [supabase, refreshData])
+
+  // Purchases (Using Atomic RPC)
+  const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
+    if (!companyId || !activeWarehouseId) return
+    await services.createPurchase({
+      company_id: companyId,
+      warehouse_id: activeWarehouseId,
+      items: [{ variant_id: p.productId, quantity: p.quantity, price: p.unitCost }],
+      description: p.description
+    })
+    await refreshData()
+  }, [companyId, activeWarehouseId, refreshData])
 
   const updatePurchase = useCallback(async (p: Purchase) => {
     await supabase.from('purchases').update({
@@ -302,9 +396,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // Expenses
   const addExpense = useCallback(async (e: Omit<Expense, "id">) => {
-    await services.createExpense(e)
+    if (!companyId) return
+    await services.createExpense(e, companyId)
     await refreshData()
-  }, [refreshData])
+  }, [companyId, refreshData])
 
   const updateExpense = useCallback(async (e: Expense) => {
     await supabase.from('expenses').update({
@@ -320,9 +415,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // Clients
   const addClient = useCallback(async (c: Omit<Client, "id">) => {
-    await services.createClient(c)
+    if (!companyId) return
+    await services.createClient({ ...c, company_id: companyId })
     await refreshData()
-  }, [refreshData])
+  }, [companyId, refreshData])
 
   const updateClient = useCallback(async (c: Client) => {
     await supabase.from('clients').update({

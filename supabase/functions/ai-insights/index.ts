@@ -22,16 +22,37 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
-    // 2. Setup parameters for AI request context
+    // 2. Resolve Company Context
+    const { data: companyUser, error: coError } = await supabaseClient
+      .from('company_users')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single()
+
+    if (coError || !companyUser) throw new Error('No company context found | 403')
+    const companyId = companyUser.company_id
+
     const threeMonthsAgo = new Date()
     threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3)
 
-    // 3. Get Data (Sales, Products/Inventory, Expenses, Top Clients)
+    // 3. Get Data (Sales Items, Product Variants/Stock, Expenses, Top Clients)
     const [salesResult, productsResult, expensesResult, clientsResult] = await Promise.all([
-      supabaseClient.from('sales').select('amount, quantity, date, product_id').gte('date', threeMonthsAgo.toISOString()),
-      supabaseClient.from('products').select('id, name, stock, cost, price'),
-      supabaseClient.from('expenses').select('amount, category, date').gte('date', threeMonthsAgo.toISOString()),
-      supabaseClient.from('clients').select('name, id').limit(5)
+      supabaseClient.from('sale_items')
+        .select('subtotal, quantity, sale!inner(date, company_id)')
+        .eq('sale.company_id', companyId)
+        .gte('sale.date', threeMonthsAgo.toISOString()),
+      supabaseClient.from('product_variants')
+        .select('id, price, cost, product!inner(name, company_id), inventory_stock(quantity)')
+        .eq('product.company_id', companyId),
+      supabaseClient.from('expenses')
+        .select('amount, category, date')
+        .eq('company_id', companyId)
+        .gte('date', threeMonthsAgo.toISOString()),
+      supabaseClient.from('clients')
+        .select('name, id')
+        .eq('company_id', companyId)
+        .limit(5)
     ])
 
     const sales = salesResult.data || []
@@ -39,9 +60,19 @@ serve(async (req) => {
     const expenses = expensesResult.data || []
     const clients = clientsResult.data || []
 
-    // Calculate some basic stats for the prompt
-    const lowStock = products.filter(p => p.stock < 5)
-    const lowMargin = products.filter(p => p.price > 0 && ((p.price - p.cost) / p.price) < 0.2)
+    // Calculate stats using new schema
+    const insightsProducts = products.map((v: any) => {
+      const stock = (v.inventory_stock || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0)
+      return {
+        name: v.product?.name || 'Producto',
+        stock,
+        cost: v.cost,
+        price: v.price
+      }
+    })
+
+    const lowStock = insightsProducts.filter(p => p.stock < 5)
+    const lowMargin = insightsProducts.filter(p => p.price > 0 && ((p.price - p.cost) / p.price) < 0.2)
 
     const prompt = `Analiza estos datos de mi negocio y genera 3 insights accionables.
     DATOS:

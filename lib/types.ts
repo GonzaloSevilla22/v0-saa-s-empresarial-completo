@@ -10,6 +10,68 @@ export interface User {
   avatar?: string
 }
 
+// --- Multi-tenant ERP Types ---
+
+export interface Company {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface CompanyUser {
+  id: string
+  company_id: string
+  user_id: string
+  role: "admin" | "user" | "owner"
+}
+
+export interface Warehouse {
+  id: string
+  company_id: string
+  name: string
+  location?: string
+  created_at: string
+}
+
+export interface ProductVariant {
+  id: string
+  product_id: string
+  sku: string
+  barcode?: string
+  price: number
+  cost: number
+  created_at: string
+  product?: Product
+}
+
+export interface InventoryStock {
+  id: string
+  variant_id: string
+  warehouse_id: string
+  quantity: number
+  updated_at: string
+}
+
+export interface SaleItem {
+  id: string
+  sale_id: string
+  variant_id: string
+  quantity: number
+  price: number
+  subtotal: number
+}
+
+export interface PurchaseItem {
+  id: string
+  purchase_id: string
+  variant_id: string
+  quantity: number
+  price: number
+  subtotal: number
+}
+
+// --- Legacy & UI Types (Refactored or Adatped) ---
+
 export interface Product {
   id: string
   name: string
@@ -20,7 +82,8 @@ export interface Product {
   stock: number
   minStock: number
   barcode?: string
-  parentId?: string // For variants
+  parentId?: string
+  company_id?: string
 }
 
 export interface Sale {
@@ -53,6 +116,7 @@ export interface Expense {
   category: string
   description: string
   amount: number
+  company_id?: string
 }
 
 export type ClientStatus = "activo" | "inactivo" | "perdido"
@@ -66,6 +130,7 @@ export interface Client {
   lastPurchase: string
   totalSpent: number
   category?: string
+  company_id?: string
 }
 
 export type InsightPriority = "alta" | "media" | "baja"

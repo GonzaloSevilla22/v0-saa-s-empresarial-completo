@@ -28,13 +28,18 @@ const pageNames: Record<string, string> = {
   "/admin/landing": "Gestionar Landing",
 }
 
+import { CompanyProvider } from "@/contexts/company-context"
+import { WarehouseProvider } from "@/contexts/warehouse-context"
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const currentPageName = pageNames[pathname] || "ALIADA"
 
   return (
-    <DataProvider>
-      <SidebarProvider>
+    <CompanyProvider>
+      <WarehouseProvider>
+        <DataProvider>
+          <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
           <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
@@ -55,6 +60,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </SidebarInset>
       </SidebarProvider>
-    </DataProvider>
+        </DataProvider>
+      </WarehouseProvider>
+    </CompanyProvider>
   )
 }

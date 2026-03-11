@@ -22,30 +22,48 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
     if (userError || !user) throw new Error('Unauthorized | 401')
 
-    // 2. Get Data
+    // 2. Resolve Company Context
+    const { data: companyUser, error: coError } = await supabaseClient
+      .from('company_users')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single()
+
+    if (coError || !companyUser) throw new Error('No company context found | 403')
+    const companyId = companyUser.company_id
+
+    // 3. Get Data (Sales Items, Product Variants/Stock)
     const [salesResult, productsResult] = await Promise.all([
-      supabaseClient.from('sales').select('quantity, product_id, date').order('date', { ascending: false }).limit(200),
-      supabaseClient.from('products').select('id, name, stock, cost, price')
+      supabaseClient.from('sale_items')
+        .select('quantity, variant_id, sale!inner(date, company_id)')
+        .eq('sale.company_id', companyId)
+        .order('sale(date)', { ascending: false })
+        .limit(500),
+      supabaseClient.from('product_variants')
+        .select('id, price, cost, product!inner(name, company_id), inventory_stock(quantity)')
+        .eq('product.company_id', companyId)
     ])
 
     const sales = salesResult.data || []
     const products = productsResult.data || []
 
-    // 3. Simple Scoring Logic in Edge (to help AI see trends)
-    const productScores = products.map(p => {
-      const pSales = sales.filter(s => s.product_id === p.id)
-      const salesCount = pSales.reduce((acc, s) => acc + s.quantity, 0)
-      const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0
+    // 4. Scoring Logic using new schema
+    const productScores = products.map((v: any) => {
+      const pSales = sales.filter((s: any) => s.variant_id === v.id)
+      const salesCount = pSales.reduce((acc: number, s: any) => acc + (s.quantity || 0), 0)
+      const stock = (v.inventory_stock || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0)
+      const margin = v.price > 0 ? ((v.price - v.cost) / v.price) * 100 : 0
       
       return {
-        id: p.id,
-        name: p.name,
-        stock: p.stock,
-        cost: p.cost,
-        price: p.price,
+        id: v.id, // variant.id
+        name: v.product?.name || 'Producto',
+        stock,
+        cost: v.cost,
+        price: v.price,
         margin: margin.toFixed(1) + '%',
         salesVolume: salesCount,
-        score: salesCount + (margin / 10) + (p.stock > 0 ? 5 : 0) // Basic scoring
+        score: salesCount + (margin / 10) + (stock > 0 ? 5 : 0)
       }
     }).sort((a, b) => b.score - a.score)
 

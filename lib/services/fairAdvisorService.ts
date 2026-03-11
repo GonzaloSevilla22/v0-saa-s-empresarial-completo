@@ -1,6 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
 
-const supabase = createClient()
 
 export interface FairRecommendation {
   product: string
@@ -14,6 +13,7 @@ export const fairAdvisorService = {
    * Generates a new fair recommendation using the Edge Function.
    */
   async generateFairRecommendation() {
+    const supabase = createClient()
     const { data, error } = await supabase.functions.invoke('fair-advisor')
     if (error) throw error
     return data
@@ -23,6 +23,7 @@ export const fairAdvisorService = {
    * Retrieves the most recent fair recommendation from the database.
    */
   async getLastRecommendation() {
+    const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Not authenticated")
 

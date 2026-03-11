@@ -1,14 +1,13 @@
 import { createClient } from '@/lib/supabase/client'
 import type { Insight } from '@/lib/types'
 
-const supabase = createClient()
-
 export const aiInsightService = {
   /**
    * Generates new insights for the user via Edge Function.
    * New insights are stored in the `ai_insights` table by the function.
    */
   async generateInsights() {
+    const supabase = createClient()
     const { data, error } = await supabase.functions.invoke('ai-insights')
     if (error) throw error
     return data
@@ -18,6 +17,7 @@ export const aiInsightService = {
    * Retrieves stored insights for the user.
    */
   async getUserInsights(): Promise<Insight[]> {
+    const supabase = createClient()
     const { data, error } = await supabase
       .from('ai_insights')
       .select('*')

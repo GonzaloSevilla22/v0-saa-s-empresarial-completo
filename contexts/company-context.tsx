@@ -3,14 +3,21 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "./auth-context"
-import type { Company, CompanyUser } from "@/lib/types"
+import type { Company } from "@/lib/types"
+
+interface CreateCompanyResult {
+  success: boolean
+  error?: string
+}
 
 interface CompanyContextType {
   company: Company | null
   companyId: string | null
   role: string | null
   loading: boolean
+  hasCompany: boolean
   refreshCompany: () => Promise<void>
+  createCompany: (name: string) => Promise<CreateCompanyResult>
 }
 
 const CompanyContext = createContext<CompanyContextType | null>(null)
@@ -42,7 +49,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (cuError || !cuData) {
-        console.error("Error fetching company_user:", cuError)
+        // PGRST116 = no rows found (user has no company yet)
         setCompany(null)
         setRole(null)
         return
@@ -50,7 +57,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
 
       setRole(cuData.role)
 
-      // Step 2: Fetch the company details separately (avoids PostgREST join ambiguity)
+      // Step 2: Fetch the company details separately
       const { data: companyData, error: companyError } = await supabase
         .from('companies')
         .select('*')
@@ -70,6 +77,51 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, supabase])
 
+  const createCompany = useCallback(async (name: string): Promise<CreateCompanyResult> => {
+    if (!user) return { success: false, error: "Usuario no autenticado" }
+
+    try {
+      // 1. Create the company
+      const { data: newCompany, error: companyErr } = await supabase
+        .from('companies')
+        .insert({ name: name.trim() })
+        .select()
+        .single()
+
+      if (companyErr || !newCompany) {
+        return { success: false, error: companyErr?.message || "Error al crear la empresa" }
+      }
+
+      const companyId = newCompany.id
+
+      // 2. Create company_user link with admin role
+      const { error: cuErr } = await supabase
+        .from('company_users')
+        .insert({ company_id: companyId, user_id: user.id, role: 'admin' })
+
+      if (cuErr) {
+        return { success: false, error: cuErr.message }
+      }
+
+      // 3. Create a default warehouse "Principal"
+      const { error: whErr } = await supabase
+        .from('warehouses')
+        .insert({ company_id: companyId, name: 'Principal' })
+
+      if (whErr) {
+        // Non-fatal: company and user are created, warehouse can be added later
+        console.warn("Warning: could not create default warehouse:", whErr.message)
+      }
+
+      // 4. Refresh the company state
+      await refreshCompany()
+
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message || "Error inesperado" }
+    }
+  }, [user, supabase, refreshCompany])
+
   useEffect(() => {
     if (isAuthenticated) {
       refreshCompany()
@@ -87,7 +139,9 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         companyId: company?.id || null,
         role,
         loading,
-        refreshCompany
+        hasCompany: !!company,
+        refreshCompany,
+        createCompany,
       }}
     >
       {children}

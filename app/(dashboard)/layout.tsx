@@ -30,6 +30,7 @@ const pageNames: Record<string, string> = {
 
 import { CompanyProvider } from "@/contexts/company-context"
 import { WarehouseProvider } from "@/contexts/warehouse-context"
+import { CreateCompanyModal } from "@/components/company/create-company-modal"
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -37,6 +38,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <CompanyProvider>
+      {/* Blocks access to the ERP if user has no company yet */}
+      <CreateCompanyModal />
       <WarehouseProvider>
         <DataProvider>
           <SidebarProvider>

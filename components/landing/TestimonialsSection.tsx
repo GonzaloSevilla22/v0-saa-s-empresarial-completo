@@ -2,11 +2,19 @@ import { LandingSection } from "@/lib/landing"
 import { Star } from "lucide-react"
 
 export function TestimonialsSection({ section }: { section: LandingSection }) {
-    let testimonials = []
+    let testimonials: any[] = []
+    let introDescription: string | null = null
+
     try {
-        testimonials = section.content ? JSON.parse(section.content) : []
+        if (section.content) {
+            if (section.content.trim().startsWith('[')) {
+                testimonials = JSON.parse(section.content)
+            } else {
+                introDescription = section.content
+            }
+        }
     } catch (e) {
-        console.error("Error parsing testimonials content", e)
+        introDescription = section.content
     }
 
     if (testimonials.length === 0) {
@@ -19,8 +27,13 @@ export function TestimonialsSection({ section }: { section: LandingSection }) {
     return (
         <section className="bg-slate-950 py-24 sm:py-32">
             <div className="container mx-auto px-4">
-                <div className="text-center mb-16">
+                <div className="text-center mb-16 max-w-2xl mx-auto">
                     <h2 className="text-3xl font-bold text-white mb-4">{section.title || "Lo que dicen nuestros clientes"}</h2>
+                    {introDescription && (
+                        <p className="text-slate-400 text-lg">
+                            {introDescription}
+                        </p>
+                    )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
                     {testimonials.map((t, i) => (

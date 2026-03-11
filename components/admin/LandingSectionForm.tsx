@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { Upload, Save, X, ImageIcon, Loader2 } from "lucide-react"
+import { Upload, Save, X, ImageIcon, Loader2, Info, FileCode } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export function LandingSectionForm({ section }: { section: LandingSection }) {
     const [formData, setFormData] = useState<Partial<LandingSection>>(section)
@@ -30,6 +31,32 @@ export function LandingSectionForm({ section }: { section: LandingSection }) {
             setSaving(false)
         }
     }
+
+    const templates: Record<string, string> = {
+        features: `[
+  { "title": "Gestión Proactiva", "desc": "Monitoreá tu stock y ventas en tiempo real.", "icon": "0" },
+  { "title": "Análisis con IA", "desc": "Insights accionables para crecer rápido.", "icon": "2" },
+  { "title": "Comunidad ALIADA", "desc": "Interactuá con otros emprendedores.", "icon": "3" }
+]`,
+        benefits: `[
+  { "title": "Reduce Costos", "subtitle": "Hasta un 30% en desperdicio de stock." },
+  { "title": "Ahorra Tiempo", "subtitle": "Automatizá tareas repetitivas." },
+  { "title": "Crece con ALIADA", "subtitle": "Basado en datos, no en suposiciones." }
+]`,
+        testimonials: `[
+  { "name": "Carlos Rossi", "role": "Usuario ALIADA", "text": "La IA cambió mi forma de ver el negocio." },
+  { "name": "Lucía Méndez", "role": "Emprendedora", "text": "La comunidad ALIADA es increíble." }
+]`
+    }
+
+    const insertTemplate = (type: string) => {
+        if (templates[type]) {
+            setFormData({ ...formData, content: templates[type] })
+            toast.info(`Plantilla de ${type} insertada`)
+        }
+    }
+
+    const needsJson = ["features", "benefits", "testimonials"].includes(section.type)
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
@@ -71,12 +98,36 @@ export function LandingSectionForm({ section }: { section: LandingSection }) {
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="content">Contenido / Descripción</Label>
+                <div className="flex items-center justify-between">
+                    <Label htmlFor="content">Contenido / Descripción</Label>
+                    {needsJson && (
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => insertTemplate(section.type)}
+                            className="h-7 text-[10px] gap-1 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10"
+                        >
+                            <FileCode className="w-3 h-3" />
+                            Insertar JSON
+                        </Button>
+                    )}
+                </div>
+                {needsJson && (
+                    <Alert className="bg-blue-500/10 border-blue-500/20 mb-2">
+                        <Info className="h-4 w-4 text-blue-400" />
+                        <AlertTitle className="text-xs font-semibold text-blue-300">Formato Estructurado</AlertTitle>
+                        <AlertDescription className="text-[10px] text-blue-400/80">
+                            Esta sección utiliza un formato JSON para mostrar tarjetas. Podés usar la descripción simple, pero se recomienda seguir el formato de la plantilla.
+                        </AlertDescription>
+                    </Alert>
+                )}
                 <Textarea
                     id="content"
                     value={formData.content || ""}
                     onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                    className="bg-slate-800 border-slate-700 min-h-[100px]"
+                    className={`bg-slate-800 border-slate-700 min-h-[150px] font-mono text-sm ${needsJson ? 'border-blue-500/30 ring-blue-500/10' : ''}`}
+                    placeholder={needsJson ? "Pega el JSON aquí..." : "Escribe el contenido de la sección..."}
                 />
             </div>
 

@@ -1,11 +1,19 @@
 import { LandingSection } from "@/lib/landing"
 
 export function BenefitsSection({ section }: { section: LandingSection }) {
-    let benefits = []
+    let benefits: any[] = []
+    let introDescription: string | null = null
+
     try {
-        benefits = section.content ? JSON.parse(section.content) : []
+        if (section.content) {
+            if (section.content.trim().startsWith('[')) {
+                benefits = JSON.parse(section.content)
+            } else {
+                introDescription = section.content
+            }
+        }
     } catch (e) {
-        console.error("Error parsing benefits content", e)
+        introDescription = section.content
     }
 
     if (benefits.length === 0) {
@@ -23,6 +31,11 @@ export function BenefitsSection({ section }: { section: LandingSection }) {
                     <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
                         {section.title || "Beneficios Estratégicos"}
                     </h2>
+                    {introDescription && (
+                        <p className="mt-4 text-lg text-slate-400">
+                            {introDescription}
+                        </p>
+                    )}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
                     {benefits.map((benefit, i) => (

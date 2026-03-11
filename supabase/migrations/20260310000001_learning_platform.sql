@@ -50,27 +50,34 @@ ALTER TABLE public.lesson_progress ENABLE ROW LEVEL SECURITY;
 
 -- Course Modules: Public read for enrolled users or free courses? 
 -- Simplification: Modules are visible to anyone, lessons might be restricted.
+DROP POLICY IF EXISTS "Public read for course modules" ON public.course_modules;
 CREATE POLICY "Public read for course modules" ON public.course_modules
     FOR SELECT USING (true);
 
 -- Course Lessons: Read if enrolled or if the course is not PRO (optional detail)
+DROP POLICY IF EXISTS "Public read for course lessons" ON public.course_lessons;
 CREATE POLICY "Public read for course lessons" ON public.course_lessons
     FOR SELECT USING (true);
 
 -- Course Enrollments: Users can see their own enrollments
+DROP POLICY IF EXISTS "Users can view their own enrollments" ON public.course_enrollments;
 CREATE POLICY "Users can view their own enrollments" ON public.course_enrollments
     FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can enroll themselves" ON public.course_enrollments;
 CREATE POLICY "Users can enroll themselves" ON public.course_enrollments
     FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Lesson Progress: Users can view and update their own progress
+DROP POLICY IF EXISTS "Users can view their own progress" ON public.lesson_progress;
 CREATE POLICY "Users can view their own progress" ON public.lesson_progress
     FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update their own progress" ON public.lesson_progress;
 CREATE POLICY "Users can update their own progress" ON public.lesson_progress
     FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can edit their own progress" ON public.lesson_progress;
 CREATE POLICY "Users can edit their own progress" ON public.lesson_progress
     FOR UPDATE USING (auth.uid() = user_id);
 

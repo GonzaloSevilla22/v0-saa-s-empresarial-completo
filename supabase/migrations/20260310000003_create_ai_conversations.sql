@@ -11,11 +11,13 @@ CREATE TABLE IF NOT EXISTS public.ai_conversations (
 ALTER TABLE public.ai_conversations ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DROP POLICY IF EXISTS "Users can view their own conversations" ON public.ai_conversations;
 CREATE POLICY "Users can view their own conversations"
     ON public.ai_conversations
     FOR SELECT
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert their own conversations" ON public.ai_conversations;
 CREATE POLICY "Users can insert their own conversations"
     ON public.ai_conversations
     FOR INSERT

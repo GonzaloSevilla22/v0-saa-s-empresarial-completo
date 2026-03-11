@@ -11,10 +11,12 @@ CREATE TABLE public.ai_insights (
 -- RLS Policies
 ALTER TABLE public.ai_insights ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view their own insights" ON public.ai_insights;
 CREATE POLICY "Users can view their own insights"
     ON public.ai_insights FOR SELECT
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "System/Functions can insert insights" ON public.ai_insights;
 CREATE POLICY "System/Functions can insert insights"
     ON public.ai_insights FOR INSERT
     WITH CHECK (auth.uid() = user_id);

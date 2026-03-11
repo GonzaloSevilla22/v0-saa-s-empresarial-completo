@@ -11,16 +11,20 @@ DROP POLICY IF EXISTS "Users can view their company_users" ON company_users;
 DROP POLICY IF EXISTS "Users can manage their company_users" ON company_users;
 
 -- Simple non-recursive policy: users can only see their own rows
+DROP POLICY IF EXISTS "cu_select" ON company_users;
 CREATE POLICY "cu_select" ON company_users
   FOR SELECT USING (user_id = auth.uid());
 
 -- Only allow insertions where the user_id matches the authenticated user
+DROP POLICY IF EXISTS "cu_insert" ON company_users;
 CREATE POLICY "cu_insert" ON company_users
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "cu_update" ON company_users;
 CREATE POLICY "cu_update" ON company_users
   FOR UPDATE USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "cu_delete" ON company_users;
 CREATE POLICY "cu_delete" ON company_users
   FOR DELETE USING (user_id = auth.uid());
 

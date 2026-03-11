@@ -15,9 +15,11 @@ CREATE TABLE IF NOT EXISTS seguros (
 ALTER TABLE seguros ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DROP POLICY IF EXISTS "Public items are viewable by everyone" ON seguros;
 CREATE POLICY "Public items are viewable by everyone" ON seguros
     FOR SELECT USING (is_visible = true);
 
+DROP POLICY IF EXISTS "Admins have full access" ON seguros;
 CREATE POLICY "Admins have full access" ON seguros
     FOR ALL USING (
         EXISTS (
@@ -39,6 +41,7 @@ BEGIN
 END;
 $$ language 'plpgsql';
 
+DROP TRIGGER IF EXISTS update_seguros_updated_at ON seguros;
 CREATE TRIGGER update_seguros_updated_at
     BEFORE UPDATE ON seguros
     FOR EACH ROW

@@ -16,7 +16,10 @@ ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS replies_count INTEGER DEFAULT 
 -- 3. Enable RLS for post_likes
 ALTER TABLE public.post_likes ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Anyone can view likes" ON public.post_likes;
 CREATE POLICY "Anyone can view likes" ON public.post_likes FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Users can toggle own likes" ON public.post_likes;
 CREATE POLICY "Users can toggle own likes" ON public.post_likes FOR ALL USING (auth.uid() = user_id);
 
 -- 4. Triggers to maintain counters
@@ -34,6 +37,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_post_like_change ON public.post_likes;
 CREATE TRIGGER on_post_like_change
   AFTER INSERT OR DELETE ON public.post_likes
   FOR EACH ROW EXECUTE PROCEDURE public.update_post_likes_count();
@@ -52,6 +56,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Add trigger for reply counts
+DROP TRIGGER IF EXISTS on_post_reply_change ON public.replies;
 CREATE TRIGGER on_post_reply_change
   AFTER INSERT OR DELETE ON public.replies
   FOR EACH ROW EXECUTE PROCEDURE public.update_post_replies_count();

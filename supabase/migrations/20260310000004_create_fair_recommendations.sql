@@ -10,11 +10,13 @@ CREATE TABLE IF NOT EXISTS public.fair_recommendations (
 ALTER TABLE public.fair_recommendations ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DROP POLICY IF EXISTS "Users can view their own fair recommendations" ON public.fair_recommendations;
 CREATE POLICY "Users can view their own fair recommendations"
     ON public.fair_recommendations
     FOR SELECT
     USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert their own fair recommendations" ON public.fair_recommendations;
 CREATE POLICY "Users can insert their own fair recommendations"
     ON public.fair_recommendations
     FOR INSERT

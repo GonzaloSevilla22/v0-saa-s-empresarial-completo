@@ -32,9 +32,11 @@ ALTER TABLE fair_ai_tools ENABLE ROW LEVEL SECURITY;
 ALTER TABLE copilot_prompts ENABLE ROW LEVEL SECURITY;
 
 -- Policies
+DROP POLICY IF EXISTS "Public tools are viewable by everyone" ON fair_ai_tools;
 CREATE POLICY "Public tools are viewable by everyone" ON fair_ai_tools
     FOR SELECT USING (status = 'active');
 
+DROP POLICY IF EXISTS "Admin full access fair_ai_tools" ON fair_ai_tools;
 CREATE POLICY "Admin full access fair_ai_tools" ON fair_ai_tools
     FOR ALL USING (
         EXISTS (
@@ -44,9 +46,11 @@ CREATE POLICY "Admin full access fair_ai_tools" ON fair_ai_tools
         )
     );
 
+DROP POLICY IF EXISTS "Public prompts are viewable by everyone" ON copilot_prompts;
 CREATE POLICY "Public prompts are viewable by everyone" ON copilot_prompts
     FOR SELECT USING (status = 'active');
 
+DROP POLICY IF EXISTS "Admin full access copilot_prompts" ON copilot_prompts;
 CREATE POLICY "Admin full access copilot_prompts" ON copilot_prompts
     FOR ALL USING (
         EXISTS (
@@ -57,11 +61,13 @@ CREATE POLICY "Admin full access copilot_prompts" ON copilot_prompts
     );
 
 -- Triggers for updated_at
+DROP TRIGGER IF EXISTS update_fair_ai_tools_updated_at ON fair_ai_tools;
 CREATE TRIGGER update_fair_ai_tools_updated_at
     BEFORE UPDATE ON fair_ai_tools
     FOR EACH ROW
     EXECUTE PROCEDURE update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_copilot_prompts_updated_at ON copilot_prompts;
 CREATE TRIGGER update_copilot_prompts_updated_at
     BEFORE UPDATE ON copilot_prompts
     FOR EACH ROW

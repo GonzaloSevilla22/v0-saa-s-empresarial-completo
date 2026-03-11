@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -56,9 +57,26 @@ const columns: Column<Expense>[] = [
 ]
 
 export default function GastosPage() {
-  const { expenses, deleteExpense } = useData()
+  const { expenses, deleteExpense, refreshData } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('gastos-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'expenses' }, 
+        () => {
+          refreshData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, refreshData])
 
   return (
     <div className="flex flex-col gap-6">

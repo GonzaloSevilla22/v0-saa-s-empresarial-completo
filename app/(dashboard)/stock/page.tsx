@@ -1,6 +1,8 @@
 "use client"
 
+import { useEffect } from "react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { useAuth } from "@/contexts/auth-context"
@@ -60,9 +62,26 @@ const columns: Column<Product>[] = [
 ]
 
 export default function StockPage() {
-  const { products, getLowStockProducts } = useData()
+  const { products, getLowStockProducts, refreshData } = useData()
   const lowStock = getLowStockProducts()
   const { isAdmin } = useAuth()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('stock-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'products' }, 
+        () => {
+          refreshData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, refreshData])
 
   return (
     <div className="flex flex-col gap-6">

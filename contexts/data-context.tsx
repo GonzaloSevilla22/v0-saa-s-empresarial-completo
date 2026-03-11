@@ -204,19 +204,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshData()
-
-    // Realtime setup
-    const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-        refreshData()
-      })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [refreshData, supabase])
+  }, [refreshData])
 
   // Products
   const addProduct = useCallback(async (p: Omit<Product, "id">) => {

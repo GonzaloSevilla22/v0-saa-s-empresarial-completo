@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ProductForm } from "@/components/forms/product-form"
@@ -81,10 +82,27 @@ const columns: Column<Product>[] = [
 ]
 
 export default function ProductosPage() {
-  const { products, deleteProduct } = useData()
+  const { products, deleteProduct, refreshData } = useData()
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | undefined>()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('productos-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'products' }, 
+        () => {
+          refreshData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, refreshData])
 
   const isAtLimit = user?.plan === "free" && products.length >= MAX_PRODUCTS_FREE
 

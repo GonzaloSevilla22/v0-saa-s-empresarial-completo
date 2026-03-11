@@ -8,12 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Zap, Eye, EyeOff } from "lucide-react"
+import { Zap, Eye, EyeOff, Mail } from "lucide-react"
+import { MagicLinkForm } from "@/components/auth/MagicLinkForm"
+import { Separator } from "@/components/ui/separator"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
+  const [isMagicLink, setIsMagicLink] = useState(false)
   const { login } = useAuth()
   const router = useRouter()
 
@@ -46,10 +49,17 @@ export default function LoginPage() {
         <Card className="border-border bg-card">
           <CardHeader className="text-center">
             <CardTitle className="text-xl text-card-foreground">Iniciar sesión</CardTitle>
-            <CardDescription>Ingresá tus datos para acceder a tu cuenta</CardDescription>
-          </CardHeader>
-          <form onSubmit={handleSubmit}>
-            <CardContent className="flex flex-col gap-4">
+          <CardDescription>
+            {isMagicLink 
+              ? "Ingresá tu email para recibir un enlace de acceso" 
+              : "Ingresá tus datos para acceder a tu cuenta"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isMagicLink ? (
+            <MagicLinkForm onBack={() => setIsMagicLink(false)} />
+          ) : (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="email" className="text-foreground">Email</Label>
                 <Input
@@ -59,10 +69,16 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="bg-background border-border text-foreground"
+                  required
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="password">Contraseña</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Contraseña</Label>
+                  <Link href="/auth/forgot-password" size="sm" className="text-xs text-muted-foreground hover:text-primary">
+                    ¿Olvidaste tu contraseña?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -71,6 +87,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="bg-background border-border text-foreground pr-10"
+                    required
                   />
                   <button
                     type="button"
@@ -81,19 +98,37 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
-            </CardContent>
-            <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full">
-                Iniciar sesión
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Iniciando sesión..." : "Iniciar sesión"}
               </Button>
-              <p className="text-sm text-muted-foreground">
-                {"¿No tenés cuenta? "}
-                <Link href="/auth/register" className="text-primary underline-offset-4 hover:underline">
-                  Registrate
-                </Link>
-              </p>
-            </CardFooter>
-          </form>
+            </form>
+          )}
+
+          {!isMagicLink && (
+            <>
+              <div className="relative my-6 text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
+                <span className="relative z-10 bg-card px-2 text-muted-foreground">O continuar con</span>
+              </div>
+              
+              <Button 
+                variant="outline" 
+                className="w-full flex items-center justify-center gap-2 border-border"
+                onClick={() => setIsMagicLink(true)}
+              >
+                <Mail className="h-4 w-4" />
+                Entrar con enlace mágico
+              </Button>
+            </>
+          )}
+        </CardContent>
+        <CardFooter className="flex flex-col gap-4 pt-0">
+          <p className="text-sm text-center text-muted-foreground w-full">
+            {"¿No tenés cuenta? "}
+            <Link href="/auth/register" className="text-primary underline-offset-4 hover:underline font-medium">
+              Registrate gratis
+            </Link>
+          </p>
+        </CardFooter>
         </Card>
       </div>
     </div>

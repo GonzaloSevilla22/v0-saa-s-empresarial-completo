@@ -10,6 +10,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   isAdmin: boolean
   login: (email: string, password: string) => Promise<void>
+  loginWithMagicLink: (email: string) => Promise<void>
   loginAsAdmin: () => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
@@ -87,6 +88,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/dashboard")
   }, [supabase, router, refreshSession])
 
+  const loginWithMagicLink = useCallback(async (email: string) => {
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ||
+      (typeof window !== 'undefined' ? window.location.origin : '')
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${siteUrl}/auth/callback`,
+      }
+    })
+    if (error) throw error
+  }, [supabase])
+
   const loginAsAdmin = useCallback(async () => {
     const { error } = await supabase.auth.signInWithPassword({
       email: "admin@eie.com",
@@ -119,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
-    router.push("/auth/login")
+    router.push("/")
   }, [supabase, router])
 
   const upgradePlan = useCallback(async () => {
@@ -148,6 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!user,
         isAdmin: user?.role === "admin",
         login,
+        loginWithMagicLink,
         loginAsAdmin,
         register,
         logout,

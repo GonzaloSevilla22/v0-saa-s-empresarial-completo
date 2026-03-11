@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -48,9 +49,26 @@ const columns: Column<Purchase>[] = [
 ]
 
 export default function ComprasPage() {
-  const { purchases, deletePurchase } = useData()
+  const { purchases, deletePurchase, refreshData } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('compras-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'purchases' }, 
+        () => {
+          refreshData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, refreshData])
 
   return (
     <div className="flex flex-col gap-6">

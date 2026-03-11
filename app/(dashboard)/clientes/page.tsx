@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ClientForm } from "@/components/forms/client-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -74,10 +75,27 @@ const columns: Column<Client>[] = [
 ]
 
 export default function ClientesPage() {
-  const { clients, deleteClient } = useData()
+  const { clients, deleteClient, refreshData } = useData()
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<Client | undefined>()
   const { isAdmin } = useAuth()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('clientes-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'clients' }, 
+        () => {
+          refreshData()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [supabase, refreshData])
 
   const handleEdit = (client: Client) => {
     setEditingClient(client)

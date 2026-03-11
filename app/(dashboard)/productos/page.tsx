@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ProductForm } from "@/components/forms/product-form"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { BarChart3 } from "lucide-react"
@@ -162,6 +162,9 @@ export default function ProductosPage() {
             <DialogTitle className="text-card-foreground">
               {editingProduct ? "Editar producto" : "Nuevo producto"}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Formulario del producto
+            </DialogDescription>
           </DialogHeader>
           <ProductForm
             initialData={editingProduct}

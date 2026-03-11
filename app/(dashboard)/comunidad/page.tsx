@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { MessageSquare, Heart, Crown, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -241,6 +241,7 @@ export default function ComunidadPage() {
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-card-foreground">Nuevo post</DialogTitle>
+            <DialogDescription className="sr-only">Formulario para crear un nuevo post en la comunidad</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <Input

@@ -261,6 +261,7 @@ export default function AdminCopilotIaPage() {
           <form onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle className="text-xl font-bold">{selectedPrompt ? "Editar Prompt" : "Nuevo Prompt de Sistema"}</DialogTitle>
+              <DialogDescription className="sr-only">Formulario para prompt de IA</DialogDescription>
             </DialogHeader>
             <div className="grid gap-5 py-6">
               <div className="grid gap-2">

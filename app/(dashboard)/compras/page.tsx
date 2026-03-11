@@ -5,7 +5,7 @@ import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { PurchaseForm } from "@/components/forms/purchase-form"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { formatMoney, formatDate } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
@@ -122,6 +122,7 @@ export default function ComprasPage() {
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-card-foreground">Nueva compra</DialogTitle>
+            <DialogDescription className="sr-only">Detalles de la compra</DialogDescription>
           </DialogHeader>
           <PurchaseForm onSuccess={() => setOpen(false)} />
         </DialogContent>

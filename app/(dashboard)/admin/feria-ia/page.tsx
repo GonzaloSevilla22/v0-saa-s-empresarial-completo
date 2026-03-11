@@ -261,6 +261,7 @@ export default function AdminFeriaIaPage() {
           <form onSubmit={handleSubmit}>
             <DialogHeader>
               <DialogTitle className="text-xl font-bold">{selectedTool ? "Editar Herramienta" : "Nueva Herramienta IA"}</DialogTitle>
+              <DialogDescription className="sr-only">Formulario para herramienta de IA</DialogDescription>
             </DialogHeader>
             <div className="grid gap-5 py-6">
               <div className="grid gap-2">

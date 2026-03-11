@@ -5,7 +5,7 @@ import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { SaleForm } from "@/components/forms/sale-form"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { formatMoney, formatDate } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
@@ -129,6 +129,7 @@ export default function VentasPage() {
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-card-foreground">Nueva venta</DialogTitle>
+            <DialogDescription className="sr-only">Detalles de la venta</DialogDescription>
           </DialogHeader>
           <SaleForm onSuccess={() => setOpen(false)} />
         </DialogContent>

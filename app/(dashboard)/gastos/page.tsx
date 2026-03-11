@@ -5,7 +5,7 @@ import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
 import { BarChart3 } from "lucide-react"
@@ -127,6 +127,7 @@ export default function GastosPage() {
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-card-foreground">Nuevo gasto</DialogTitle>
+            <DialogDescription className="sr-only">Detalles del gasto</DialogDescription>
           </DialogHeader>
           <ExpenseForm onSuccess={() => setOpen(false)} />
         </DialogContent>

@@ -2,11 +2,12 @@
 
 import { useAuth } from "@/contexts/auth-context"
 import { useData } from "@/contexts/data-context"
+import { useCompany } from "@/contexts/company-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, User, Package, Users, Sparkles } from "lucide-react"
+import { Crown, Check, X, User, Package, Users, Sparkles, Building2 } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 
 const features = [
@@ -24,6 +25,7 @@ const features = [
 export default function ConfiguracionPage() {
   const { user, upgradePlan, downgradePlan } = useAuth()
   const { products, clients } = useData()
+  const { company, role } = useCompany()
   const isPro = user?.plan === "pro"
 
   return (
@@ -56,6 +58,28 @@ export default function ConfiguracionPage() {
             <Badge className={isPro ? "bg-yellow-500/20 text-yellow-500 border-yellow-500/30" : "bg-secondary text-muted-foreground"}>
               {isPro && <Crown className="h-3 w-3 mr-1" />}
               {isPro ? "Pro" : "Gratuito"}
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm text-card-foreground">
+            <Building2 className="h-4 w-4" />
+            Empresa Vinculada
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Nombre de Empresa</span>
+            <span className="text-sm text-foreground font-medium">{company?.name || "No vinculada"}</span>
+          </div>
+          <Separator className="bg-border" />
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Rol en la Empresa</span>
+            <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 capitalize cursor-default">
+              {role || "Cargando..."}
             </Badge>
           </div>
         </CardContent>

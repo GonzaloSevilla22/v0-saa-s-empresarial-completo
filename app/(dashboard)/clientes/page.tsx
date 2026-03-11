@@ -5,7 +5,7 @@ import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ClientForm } from "@/components/forms/client-form"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/contexts/auth-context"
 import { BarChart3 } from "lucide-react"
@@ -142,6 +142,7 @@ export default function ClientesPage() {
             <DialogTitle className="text-card-foreground">
               {editingClient ? "Editar cliente" : "Nuevo cliente"}
             </DialogTitle>
+            <DialogDescription className="sr-only">Formulario para gestionar clientes</DialogDescription>
           </DialogHeader>
           <ClientForm
             initialData={editingClient}

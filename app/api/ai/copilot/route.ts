@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
 import { aiCopilotService } from '@/lib/services/aiCopilotService'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(req: Request) {
   try {
@@ -9,8 +9,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Pregunta es requerida" }, { status: 400 })
     }
 
+    const supabase = createClient()
+
     // 1. Get business data context
-    const context = await aiCopilotService.getBusinessDataContext()
+    const context = await aiCopilotService.getBusinessDataContext(supabase)
 
     // 2. Analyze if it's a pricing query
     const pricingAnalysis = aiCopilotService.analyzePricingInQuestion(question)
@@ -74,7 +76,7 @@ Responde como un asesor experto. Si la pregunta es sobre precios y margins, usa 
     const answer = aiData.choices[0].message.content
 
     // 4. Store conversation
-    await aiCopilotService.saveConversation(question, answer)
+    await aiCopilotService.saveConversation(supabase, question, answer)
 
     return NextResponse.json({ answer })
   } catch (error: any) {

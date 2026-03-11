@@ -1,5 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { pricingService } from './pricingService'
 
 export const aiCopilotService = {
@@ -31,10 +30,7 @@ export const aiCopilotService = {
   /**
    * Fetches relevant business data to provide context for the AI.
    */
-  async getBusinessDataContext() {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
-    
+  async getBusinessDataContext(supabase: SupabaseClient) {
     const [
       { data: products },
       { data: sales },
@@ -68,10 +64,7 @@ export const aiCopilotService = {
   /**
    * Retrieves conversation history for the user.
    */
-  async getConversationHistory() {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
-    
+  async getConversationHistory(supabase: SupabaseClient) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Unauthorized")
 
@@ -88,10 +81,7 @@ export const aiCopilotService = {
   /**
    * Stores a new conversation in the database.
    */
-  async saveConversation(question: string, answer: string) {
-    const cookieStore = cookies()
-    const supabase = createClient(cookieStore)
-    
+  async saveConversation(supabase: SupabaseClient, question: string, answer: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error("Unauthorized")
 

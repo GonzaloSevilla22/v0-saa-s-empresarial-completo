@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { aiCopilotService } from "@/lib/services/aiCopilotService"
+import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -37,7 +38,8 @@ export default function CopilotoPage() {
 
   async function loadHistory() {
     try {
-      const history = await aiCopilotService.getConversationHistory()
+      const supabase = createClient()
+      const history = await aiCopilotService.getConversationHistory(supabase)
       const formatted = history.flatMap((h: any) => [
         { role: 'user' as const, content: h.question, created_at: h.created_at },
         { role: 'assistant' as const, content: h.answer, created_at: h.created_at }

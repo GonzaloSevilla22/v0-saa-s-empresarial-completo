@@ -56,6 +56,7 @@ const navGroups = [
     items: [
       { title: "Comunidad", href: "/comunidad", icon: MessageSquare, pro: false },
       { title: "Cursos", href: "/cursos", icon: GraduationCap, pro: false },
+      { title: "Seguros", href: "/seguros", icon: ShieldCheck, pro: false },
     ],
   },
 ]
@@ -178,6 +179,20 @@ export function AppSidebar() {
                     <Link href="/admin/cursos">
                       <GraduationCap className="h-4 w-4" />
                       <span>Gestionar Cursos</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/seguros"}
+                    tooltip="Gestionar Seguros"
+                    className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Link href="/admin/seguros">
+                      <ShieldCheck className="h-4 w-4" />
+                      <span>Gestionar Seguros</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

@@ -200,6 +200,34 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
+                    isActive={pathname === "/admin/feria-ia"}
+                    tooltip="Gestionar Feria IA"
+                    className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Link href="/admin/feria-ia">
+                      <Sparkles className="h-4 w-4" />
+                      <span>Gestionar Feria IA</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/copilot-ia"}
+                    tooltip="Gestionar Copilot IA"
+                    className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Link href="/admin/copilot-ia">
+                      <Bot className="h-4 w-4" />
+                      <span>Gestionar Copilot IA</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
                     isActive={pathname === "/admin/analytics"}
                     tooltip="Analiticas Técnicas"
                   >

@@ -107,5 +107,46 @@ export const insuranceService = {
       .eq("id", id)
 
     if (error) throw error
+  },
+
+  /**
+   * Increment click count for an insurance
+   */
+  async incrementClicks(id: string) {
+    const { error } = await supabase.rpc("increment_seguros_clicks", { row_id: id })
+    if (error) {
+      // Fallback if RPC doesn't exist yet
+      const { data } = await this.getInsuranceById(id)
+      await supabase.from("seguros").update({ clicks_count: (data?.clicks_count || 0) + 1 }).eq("id", id)
+    }
+  },
+
+  /**
+   * Fetch admin dashboard metrics for seguros
+   */
+  async getAdminStats() {
+    const { data: all } = await supabase.from("seguros").select("is_visible, clicks_count, created_at")
+    
+    const stats = {
+      total: all?.length || 0,
+      visible: all?.filter(i => i.is_visible).length || 0,
+      hidden: all?.filter(i => !i.is_visible).length || 0,
+      totalClicks: all?.reduce((acc, curr) => acc + (curr.clicks_count || 0), 0) || 0,
+      timeSeries: this.processTimeSeries(all || [])
+    }
+    
+    return stats
+  },
+
+  processTimeSeries(data: any[]) {
+    const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+    const series = data.reduce((acc: any, curr: any) => {
+      const date = new Date(curr.created_at)
+      const month = months[date.getMonth()]
+      acc[month] = (acc[month] || 0) + 1
+      return acc
+    }, {})
+
+    return Object.entries(series).map(([name, total]) => ({ name, value: total }))
   }
 }

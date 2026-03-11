@@ -20,7 +20,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   Card,
@@ -29,20 +28,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { Plus, Edit2, Trash2, Shield, Eye, EyeOff, Loader2 } from "lucide-react"
+import { Plus, Edit2, Trash2, Shield, Eye, EyeOff, Loader2, MousePointer2, TrendingUp, ShieldCheck, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
+import TimeSeriesLinesChart from "@/components/admin/charts/TimeSeriesLinesChart"
 
 export default function AdminSegurosPage() {
   const [insurances, setInsurances] = useState<Insurance[]>([])
   const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState<any>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [selectedInsurance, setSelectedInsurance] = useState<Partial<Insurance> | null>(null)
   
-  // Form State
   const [formData, setFormData] = useState<Partial<Insurance>>({
     title: "",
     description: "",
@@ -53,17 +52,21 @@ export default function AdminSegurosPage() {
   })
 
   useEffect(() => {
-    loadInsurances()
+    loadData()
   }, [])
 
-  async function loadInsurances() {
+  async function loadData() {
     try {
       setLoading(true)
-      const data = await insuranceService.getAllInsurances()
-      setInsurances(data)
+      const [list, metrics] = await Promise.all([
+        insuranceService.getAllInsurances(),
+        insuranceService.getAdminStats()
+      ])
+      setInsurances(list)
+      setStats(metrics)
     } catch (error) {
-      console.error("Error loading insurances:", error)
-      toast.error("Error al cargar seguros")
+      console.error("Error loading data:", error)
+      toast.error("Error al cargar datos de seguros")
     } finally {
       setLoading(false)
     }
@@ -98,7 +101,7 @@ export default function AdminSegurosPage() {
         toast.success("Seguro creado correctamente")
       }
       setIsDialogOpen(false)
-      loadInsurances()
+      loadData()
     } catch (error) {
       console.error("Error saving insurance:", error)
       toast.error("Error al guardar seguro")
@@ -111,7 +114,7 @@ export default function AdminSegurosPage() {
       setIsDeleting(true)
       await insuranceService.deleteInsurance(id)
       toast.success("Seguro eliminado")
-      loadInsurances()
+      loadData()
     } catch (error) {
       console.error("Error deleting insurance:", error)
       toast.error("Error al eliminar seguro")
@@ -124,167 +127,238 @@ export default function AdminSegurosPage() {
     try {
       await insuranceService.toggleInsuranceVisibility(id, current)
       toast.success(current ? "Seguro oculto" : "Seguro visible")
-      loadInsurances()
+      loadData()
     } catch (error) {
       console.error("Error toggling visibility:", error)
       toast.error("Error al cambiar visibilidad")
     }
   }
 
+  if (loading && !stats) return (
+    <div className="flex flex-col items-center justify-center py-32 gap-4">
+      <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      <p className="text-slate-400 text-sm animate-pulse">Cargando panel de seguros...</p>
+    </div>
+  )
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+    <div className="container mx-auto p-6 max-w-7xl animate-in fade-in duration-700 pb-20 space-y-8">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Gestionar Seguros</h1>
-          <p className="text-sm text-muted-foreground mt-1">Administra las opciones de seguros para los emprendedores.</p>
+          <h1 className="text-3xl font-bold text-slate-100 tracking-tight flex items-center gap-3">
+             <Shield className="w-8 h-8 text-emerald-500" />
+             Administración de Seguros
+          </h1>
+          <p className="text-slate-400 mt-1">Monitorea y gestiona las ofertas de seguros en la plataforma.</p>
         </div>
-        <Button onClick={() => handleOpenDialog()} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-          <Plus className="h-4 w-4" />
-          Nuevo Seguro
+        <Button onClick={() => handleOpenDialog()} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 h-11 px-6 shadow-lg shadow-emerald-500/20">
+          <Plus className="h-5 w-5" />
+          Crear Seguro
         </Button>
+      </header>
+
+      {/* Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <KpiSummaryCard 
+          title="Total Seguros" 
+          value={stats?.total || 0} 
+          subtext="En el catálogo" 
+          icon={Shield} 
+          badge="General" 
+          iconColor="text-blue-500" 
+        />
+        <KpiSummaryCard 
+          title="Visibles" 
+          value={stats?.visible || 0} 
+          subtext="En la página pública" 
+          icon={ShieldCheck} 
+          badge="Activos" 
+          iconColor="text-emerald-500" 
+        />
+        <KpiSummaryCard 
+          title="Ocultos" 
+          value={stats?.hidden || 0} 
+          subtext="No visibles" 
+          icon={ShieldAlert} 
+          badge="Borradores" 
+          iconColor="text-amber-500" 
+        />
+        <KpiSummaryCard 
+          title="Clicks Totales" 
+          value={stats?.totalClicks || 0} 
+          subtext="Interés de usuarios" 
+          icon={MousePointer2} 
+          badge="Interacción" 
+          iconColor="text-purple-500" 
+        />
       </div>
 
-      <Card className="border-border">
-        <CardHeader className="pb-0">
-          <CardTitle className="text-lg">Listado de Seguros</CardTitle>
-          <CardDescription>Visualiza y edita los seguros disponibles en la plataforma.</CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-            </div>
+      {/* Chart Section */}
+      <section className="bg-slate-900/40 backdrop-blur-md p-8 rounded-2xl shadow-xl border border-slate-800">
+        <div className="flex items-center gap-2 mb-6">
+          <TrendingUp className="w-5 h-5 text-emerald-500" />
+          <h2 className="text-xl font-bold text-slate-100">Evolución temporal</h2>
+        </div>
+        <div className="aspect-[21/9] w-full flex items-center justify-center p-4">
+          {stats?.timeSeries && stats.timeSeries.length > 0 ? (
+            <TimeSeriesLinesChart data={stats.timeSeries} width={1000} height={350} />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Título</TableHead>
-                  <TableHead>Cobertura</TableHead>
-                  <TableHead>Precio</TableHead>
-                  <TableHead className="text-center">Visibilidad</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
+            <span className="text-slate-500">Datos insuficientes para el gráfico (Se requieren datos históricos)</span>
+          )}
+        </div>
+      </section>
+
+      {/* Table Section */}
+      <Card className="border-slate-800 bg-slate-900/40 backdrop-blur-md overflow-hidden rounded-2xl">
+        <CardHeader>
+          <CardTitle className="text-lg">Listado Detallado</CardTitle>
+          <CardDescription className="text-slate-400">Gestiona cada entrada del catálogo de seguros.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader className="bg-slate-800/50">
+              <TableRow className="border-slate-800 hover:bg-transparent">
+                <TableHead className="text-slate-300">Título</TableHead>
+                <TableHead className="text-slate-300">Cobertura</TableHead>
+                <TableHead className="text-slate-300">Precio</TableHead>
+                <TableHead className="text-slate-300 text-center">Visibilidad</TableHead>
+                <TableHead className="text-slate-300">Creado</TableHead>
+                <TableHead className="text-slate-300 text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {insurances.length === 0 ? (
+                <TableRow className="border-slate-800">
+                  <TableCell colSpan={6} className="text-center py-10 text-slate-500">
+                    No hay seguros registrados. Procede a crear uno nuevo.
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {insurances.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                      No hay seguros registrados.
+              ) : (
+                insurances.map((item) => (
+                  <TableRow key={item.id} className="border-slate-800 hover:bg-slate-800/30 transition-colors">
+                    <TableCell className="font-medium text-slate-200">
+                      <div className="flex flex-col">
+                        <span>{item.title}</span>
+                        <span className="text-[10px] text-slate-500 font-normal">{item.id}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="max-w-[200px] truncate text-slate-400 text-xs italic">{item.coverage}</TableCell>
+                    <TableCell className="text-slate-300 font-semibold">{item.price}</TableCell>
+                    <TableCell className="text-center">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleVisibility(item.id, item.is_visible)}
+                        className={item.is_visible ? "text-emerald-500 hover:bg-emerald-500/10" : "text-amber-500 hover:bg-amber-500/10"}
+                      >
+                        {item.is_visible ? (
+                          <div className="flex items-center gap-1.5 justify-center w-full">
+                            <Eye className="h-4 w-4" />
+                            <span className="text-xs">Visible</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 justify-center w-full">
+                            <EyeOff className="h-4 w-4" />
+                            <span className="text-xs">Oculto</span>
+                          </div>
+                        )}
+                      </Button>
+                    </TableCell>
+                    <TableCell className="text-slate-500 text-xs">
+                      {new Date(item.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="icon" className="h-8 w-8 border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-300" onClick={() => handleOpenDialog(item)}>
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="outline" size="icon" className="h-8 w-8 text-red-400 hover:text-red-500 hover:bg-red-500/10 border-slate-700 bg-slate-800/50" onClick={() => handleDelete(item.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  insurances.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.title}</TableCell>
-                      <TableCell className="max-w-[200px] truncate">{item.coverage}</TableCell>
-                      <TableCell>{item.price}</TableCell>
-                      <TableCell className="text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleToggleVisibility(item.id, item.is_visible)}
-                          className={item.is_visible ? "text-emerald-500" : "text-amber-500"}
-                        >
-                          {item.is_visible ? (
-                            <div className="flex items-center gap-1.5 justify-center w-full">
-                              <Eye className="h-4 w-4" />
-                              <span className="text-xs">Visible</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1.5 justify-center w-full">
-                              <EyeOff className="h-4 w-4" />
-                              <span className="text-xs">Oculto</span>
-                            </div>
-                          )}
-                        </Button>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="icon" className="h-8 w-8 border-border" onClick={() => handleOpenDialog(item)}>
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button variant="outline" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 border-border" onClick={() => handleDelete(item.id)}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          )}
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-slate-100">
           <form onSubmit={handleSubmit}>
             <DialogHeader>
-              <DialogTitle>{selectedInsurance ? "Editar Seguro" : "Nuevo Seguro"}</DialogTitle>
-              <DialogDescription>Completa la información del seguro para los emprendedores.</DialogDescription>
+              <DialogTitle className="text-xl font-bold">{selectedInsurance ? "Editar Seguro" : "Nuevo Seguro"}</DialogTitle>
+              <DialogDescription className="text-slate-400">Completa la información técnica del seguro.</DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
+            <div className="grid gap-5 py-6">
               <div className="grid gap-2">
-                <Label htmlFor="title">Título del Seguro</Label>
+                <Label htmlFor="title" className="text-slate-300">Título del Seguro</Label>
                 <Input
                   id="title"
                   placeholder="Ej: Seguro contra Incendio"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="bg-slate-800 border-slate-700 text-slate-100"
                   required
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="description">Descripción Corta</Label>
+                <Label htmlFor="description" className="text-slate-300">Descripción Estratégica</Label>
                 <Textarea
                   id="description"
-                  placeholder="Describe brevemente de qué trata el seguro..."
+                  placeholder="Describe brevemente el valor para el emprendedor..."
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={2}
+                  className="bg-slate-800 border-slate-700 text-slate-100 min-h-[80px]"
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="coverage">Detalle de Cobertura</Label>
+                <Label htmlFor="coverage" className="text-slate-300">Detalle de Cobertura</Label>
                 <Textarea
                   id="coverage"
-                  placeholder="Qué incluye este seguro..."
+                  placeholder="Qué incluye técnicamente..."
                   value={formData.coverage}
                   onChange={(e) => setFormData({ ...formData, coverage: e.target.value })}
-                  rows={2}
+                  className="bg-slate-800 border-slate-700 text-slate-100 min-h-[60px]"
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="price">Precio Estimado / Rango</Label>
+                <Label htmlFor="price" className="text-slate-300">Pricing / Rango</Label>
                 <Input
                   id="price"
-                  placeholder="Ej: Desde $1.500 / mes"
+                  placeholder="Ej: $1.500 / mes"
                   value={formData.price}
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                  className="bg-slate-800 border-slate-700 text-slate-100"
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="contact_url">Link de Contacto / Más info</Label>
+                <Label htmlFor="contact_url" className="text-slate-300">URL del Partner (Más info)</Label>
                 <Input
                   id="contact_url"
                   placeholder="https://..."
                   value={formData.contact_url}
                   onChange={(e) => setFormData({ ...formData, contact_url: e.target.value })}
+                  className="bg-slate-800 border-slate-700 text-slate-100"
                 />
               </div>
-              <div className="flex items-center space-x-2 pt-2">
+              <div className="flex items-center justify-between p-3 rounded-lg bg-slate-800/50 border border-slate-700 mt-2">
+                <div className="space-y-0.5">
+                  <Label htmlFor="is_visible" className="text-sm font-medium cursor-pointer">Visibilidad Pública</Label>
+                  <p className="text-[10px] text-slate-500 italic">Determina si aparecerá en la web principal.</p>
+                </div>
                 <Switch
                   id="is_visible"
                   checked={formData.is_visible}
                   onCheckedChange={(checked) => setFormData({ ...formData, is_visible: checked })}
                 />
-                <Label htmlFor="is_visible" className="cursor-pointer font-normal">Hacer visible en la lista pública</Label>
               </div>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} className="border-slate-700 text-slate-400 hover:bg-slate-800">Cancelar</Button>
+              <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white min-w-[120px]">
                 {selectedInsurance ? "Guardar Cambios" : "Crear Seguro"}
               </Button>
             </DialogFooter>
@@ -293,4 +367,27 @@ export default function AdminSegurosPage() {
       </Dialog>
     </div>
   )
+}
+
+function KpiSummaryCard({ title, value, subtext, icon: Icon, badge, iconColor = "text-emerald-500" }: any) {
+    return (
+        <div className="bg-slate-900/40 backdrop-blur-md p-6 rounded-2xl shadow-xl border border-slate-800 relative overflow-hidden group">
+            <div className={`absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity ${iconColor}`}>
+                <Icon className="w-12 h-12" />
+            </div>
+            <div className="flex items-center space-x-2 text-slate-400 mb-2">
+                <Icon className={`w-4 h-4 ${iconColor}`} />
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{title}</p>
+            </div>
+            <div className="flex items-end justify-between">
+                <div>
+                    <p className="text-3xl font-bold text-slate-100">{value}</p>
+                    <p className="text-xs text-slate-500 mt-1">{subtext}</p>
+                </div>
+                <span className={`flex items-center text-[10px] font-bold px-2 py-0.5 rounded uppercase ${iconColor} bg-current/10 border border-current/20`}>
+                    {badge}
+                </span>
+            </div>
+        </div>
+    )
 }

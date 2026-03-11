@@ -7,7 +7,7 @@ import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
-  ShieldCheck, BarChart3, LayoutGrid,
+  ShieldCheck, BarChart3, LayoutGrid, Bot
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,

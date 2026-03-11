@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { Badge } from "@/components/ui/badge"
 import { Plus, Edit2, Trash2, Sparkles, Activity, Loader2, MousePointer2, TrendingUp, CheckCircle, XCircle } from "lucide-react"
 import { toast } from "sonner"
 import TimeSeriesLinesChart from "@/components/admin/charts/TimeSeriesLinesChart"

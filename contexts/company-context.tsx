@@ -32,21 +32,36 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
 
     try {
       setLoading(true)
-      // Fetch the primary company for the user
-      const { data, error } = await supabase
+
+      // Step 1: Get the user's role and company_id from the junction table
+      const { data: cuData, error: cuError } = await supabase
         .from('company_users')
-        .select('role, company:companies(*)')
+        .select('role, company_id')
         .eq('user_id', user.id)
         .limit(1)
         .single()
 
-      if (error) {
-        console.error("Error fetching company:", error)
+      if (cuError || !cuData) {
+        console.error("Error fetching company_user:", cuError)
         setCompany(null)
         setRole(null)
-      } else if (data) {
-        setCompany(data.company as unknown as Company)
-        setRole(data.role)
+        return
+      }
+
+      setRole(cuData.role)
+
+      // Step 2: Fetch the company details separately (avoids PostgREST join ambiguity)
+      const { data: companyData, error: companyError } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', cuData.company_id)
+        .single()
+
+      if (companyError) {
+        console.error("Error fetching company:", companyError)
+        setCompany(null)
+      } else {
+        setCompany(companyData as Company)
       }
     } catch (e) {
       console.error("Unexpected error in CompanyProvider:", e)

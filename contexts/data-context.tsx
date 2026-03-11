@@ -77,9 +77,21 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         { data: insightsData },
         { data: postsData },
       ] = await Promise.all([
-        supabase.from('products').select('*').order('created_at', { ascending: false }),
-        supabase.from('sales').select('*, product:products(name), client:clients(name)').order('date', { ascending: false }),
-        supabase.from('purchases').select('*, product:products(name)').order('date', { ascending: false }),
+        supabase.from('product_variants').select(`
+          id, product_id, price, cost, barcode, sku,
+          product:products!inner(name, category, min_stock, parent_id),
+          inventory_stock(quantity)
+        `).order('created_at', { ascending: false }),
+        supabase.from('sale_items').select(`
+          id, quantity, price, subtotal,
+          sale:sales!inner(id, date, currency, client_id, client:clients(name)),
+          variant:product_variants(id, product_id, product:products(name))
+        `).order('sale(date)', { ascending: true }), // Hack: PostgREST ordering nested doesn't work well sometimes, but we will sort locally if needed.
+        supabase.from('purchase_items').select(`
+          id, quantity, price, subtotal,
+          purchase:purchases!inner(id, date),
+          variant:product_variants(id, product_id, product:products(name))
+        `).order('purchase(date)', { ascending: true }),
         supabase.from('expenses').select('*').order('date', { ascending: false }),
         supabase.from('clients').select('*').order('created_at', { ascending: false }),
         supabase.from('ai_insights').select('*').order('created_at', { ascending: false }),
@@ -91,41 +103,55 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         console.error("Error fetching courses (might be missing columns):", coursesError)
       }
 
-      if (productsData) setProducts(productsData.map(p => ({
-        id: p.id,
-        name: p.name,
-        category: p.category || "Otros",
-        cost: Number(p.cost),
-        price: Number(p.price),
-        margin: p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0,
-        stock: p.stock,
-        minStock: p.min_stock || 0,
-        barcode: p.barcode,
-        parentId: p.parent_id
-      })))
+      // Map back to legacy UI interfaces for backward compatibility
+      if (productsData) setProducts(productsData.map((v: any) => {
+        const p = v.product;
+        // Sum stock from all warehouses
+        const totalStock = Array.isArray(v.inventory_stock) 
+                           ? v.inventory_stock.reduce((acc: number, cur: any) => acc + (cur.quantity || 0), 0)
+                           : 0;
+        return {
+        id: v.product_id, // Keep the original product_id for backward compatibility
+        name: p?.name || 'Error',
+        category: p?.category || "Otros",
+        cost: Number(v.cost),
+        price: Number(v.price),
+        margin: v.price > 0 ? Math.round(((v.price - v.cost) / v.price) * 100) : 0,
+        stock: totalStock,
+        minStock: p?.min_stock || 0,
+        barcode: v.barcode,
+        parentId: p?.parent_id
+      }}))
 
-      if (salesData) setSales(salesData.map(s => ({
-        id: s.id,
-        date: s.date.split('T')[0],
-        productId: s.product_id,
-        productName: s.product?.name || "Eliminado",
-        clientId: s.client_id,
-        clientName: s.client?.name || "Consumidor Final",
-        quantity: s.quantity,
-        unitPrice: Number(s.amount) / s.quantity,
-        total: Number(s.amount),
-        currency: s.currency as any
+      if (salesData) {
+        // Sort manually by date descending
+        salesData.sort((a, b) => new Date(b.sale?.date).getTime() - new Date(a.sale?.date).getTime());
+        setSales(salesData.map((si: any) => ({
+        id: si.id, // we map sale_items.id
+        date: si.sale?.date?.split('T')[0] || '',
+        productId: si.variant?.product_id,
+        productName: si.variant?.product?.name || "Eliminado",
+        clientId: si.sale?.client_id,
+        clientName: si.sale?.client?.name || "Consumidor Final",
+        quantity: si.quantity,
+        unitPrice: Number(si.price),
+        total: Number(si.subtotal),
+        currency: si.sale?.currency || 'ARS'
       })))
+      }
 
-      if (purchasesData) setPurchases(purchasesData.map(pr => ({
-        id: pr.id,
-        date: pr.date.split('T')[0],
-        productId: pr.product_id,
-        productName: pr.product?.name || "Eliminado",
-        quantity: pr.quantity,
-        unitCost: Number(pr.amount) / pr.quantity,
-        total: Number(pr.amount)
+      if (purchasesData) {
+        purchasesData.sort((a, b) => new Date(b.purchase?.date).getTime() - new Date(a.purchase?.date).getTime());
+        setPurchases(purchasesData.map((pi: any) => ({
+        id: pi.id,
+        date: pi.purchase?.date?.split('T')[0] || '',
+        productId: pi.variant?.product_id,
+        productName: pi.variant?.product?.name || "Eliminado",
+        quantity: pi.quantity,
+        unitCost: Number(pi.price),
+        total: Number(pi.subtotal)
       })))
+      }
 
       if (expensesData) setExpenses(expensesData.map(e => ({
         id: e.id,

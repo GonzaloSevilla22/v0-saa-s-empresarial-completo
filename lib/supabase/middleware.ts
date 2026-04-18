@@ -45,7 +45,13 @@ export async function updateSession(request: NextRequest) {
   }
 
   const isAuthRoute = request.nextUrl.pathname.startsWith('/auth/login') || request.nextUrl.pathname.startsWith('/auth/register');
-  const isProtected = request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/admin')
+
+  const protectedRoutes = [
+    '/dashboard', '/ventas', '/compras', '/productos', '/stock',
+    '/clientes', '/gastos', '/insights', '/simulador', '/comunidad',
+    '/cursos', '/configuracion', '/copiloto-ia', '/ferias', '/seguros', '/admin',
+  ]
+  const isProtected = protectedRoutes.some(r => request.nextUrl.pathname.startsWith(r))
 
   if (isProtected && !user) {
     // Zero Trust: No user on protected route

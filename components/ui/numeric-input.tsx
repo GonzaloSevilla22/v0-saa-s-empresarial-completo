@@ -11,7 +11,6 @@ export interface NumericInputProps
 
 const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
     ({ className, value, onValueChange, onChange, ...props }, ref) => {
-        const [clickCount, setClickCount] = React.useState(0)
         const inputRef = React.useRef<HTMLInputElement>(null)
 
         // Sync external ref with internal ref
@@ -22,8 +21,12 @@ const NumericInput = React.forwardRef<HTMLInputElement, NumericInputProps>(
         }
 
         const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-            const val = e.target.value === "" ? 0 : parseFloat(e.target.value)
-            if (onValueChange) onValueChange(val)
+            const raw = e.target.value
+            // Treat empty string as 0; guard against NaN (e.g. input of 'e', '--')
+            const val = raw === "" ? 0 : parseFloat(raw)
+            if (!isNaN(val)) {
+                if (onValueChange) onValueChange(val)
+            }
             if (onChange) onChange(e)
         }
 

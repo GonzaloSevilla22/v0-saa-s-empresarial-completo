@@ -25,6 +25,12 @@ serve(async (req) => {
       { global: { headers: { Authorization: authHeader! } } }
     )
 
+    // Admin client — used only to persist operation_id (bypasses RLS safely)
+    const adminClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
+
     // 1. Validate Session
     console.log('3. Validating session...')
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
@@ -37,7 +43,7 @@ serve(async (req) => {
     }
     console.log('4. User ID:', user.id)
 
-    const { client_id, product_id, amount, quantity, currency } = payload
+    const { client_id, product_id, amount, quantity, currency, operation_id } = payload
 
     if (!product_id || amount === undefined || amount === null) {
       console.warn('5. Validation failed: missing product_id or amount')
@@ -75,6 +81,18 @@ serve(async (req) => {
         status: status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
+    }
+
+    // 8. Persist operation_id (cart grouping tag) — non-fatal if it fails
+    if (operation_id && sale?.id) {
+      console.log(`8a. Tagging sale ${sale.id} with operation_id ${operation_id}`)
+      const { error: tagError } = await adminClient
+        .from('sales')
+        .update({ operation_id })
+        .eq('id', sale.id)
+      if (tagError) {
+        console.warn('8a. Failed to tag operation_id (non-fatal):', tagError.message)
+      }
     }
 
     console.log('8. SUCCESS: Sale ID', sale.id)

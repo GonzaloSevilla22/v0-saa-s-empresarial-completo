@@ -127,7 +127,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         quantity: s.quantity,
         unitPrice: Number(s.amount) / s.quantity,
         total: Number(s.amount),
-        currency: s.currency as any
+        currency: s.currency as any,
+        operationId: s.operation_id ?? undefined,
       })))
 
       if (purchasesData) setPurchases(purchasesData.map(pr => ({
@@ -137,7 +138,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         productName: pr.product?.name || "Eliminado",
         quantity: pr.quantity,
         unitCost: Number(pr.amount) / pr.quantity,
-        total: Number(pr.amount)
+        total: Number(pr.amount),
+        operationId: pr.operation_id ?? undefined,
       })))
 
       if (expensesData) setExpenses(expensesData.map(e => ({
@@ -323,8 +325,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Purchases (Using Edge Function for Stock Safety)
   const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
     await services.createPurchase(p)
-    await refreshData()
-  }, [refreshData])
+    // Note: refreshData is called once by the form after all cart items are processed.
+    // The compras page also has a realtime subscription for live updates.
+  }, [])
 
   const updatePurchase = useCallback(async (p: Purchase) => {
     await supabase.from('purchases').update({

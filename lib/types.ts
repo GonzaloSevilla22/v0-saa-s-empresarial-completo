@@ -34,6 +34,8 @@ export interface Sale {
   unitPrice: number
   total: number
   currency: "ARS" | "USD" | "EUR" | "BRL"
+  /** UUID shared by all items submitted from the same cart operation. */
+  operationId?: string
 }
 
 export interface Purchase {
@@ -45,6 +47,8 @@ export interface Purchase {
   unitCost: number
   total: number
   description?: string
+  /** UUID shared by all items submitted from the same cart operation. */
+  operationId?: string
 }
 
 export interface Expense {

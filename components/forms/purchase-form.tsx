@@ -7,10 +7,17 @@ import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchableSelect } from "@/components/ui/searchable-select"
+import { CartItemList } from "@/components/shared/cart-item-list"
 import { useData } from "@/contexts/data-context"
 import { formatMoney } from "@/lib/format"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
-import { Plus, PackagePlus } from "lucide-react"
+import {
+  generateOperationId,
+  calcPurchaseSubtotal,
+  calcCartTotal,
+  type PurchaseCartItem,
+} from "@/lib/cart-utils"
+import { Plus, PackagePlus, ShoppingCart } from "lucide-react"
 import { toast } from "sonner"
 
 interface PurchaseFormProps {
@@ -18,12 +25,20 @@ interface PurchaseFormProps {
 }
 
 export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
-  const { products, addPurchase, addProduct } = useData()
-  const [productId, setProductId] = useState("")
-  const [quantity, setQuantity] = useState(1)
-  const [unitCost, setUnitCost] = useState(0)
+  const { products, addPurchase, addProduct, refreshData } = useData()
 
-  // Inline new product
+  // ── Cart state ──────────────────────────────────────────────────────────────
+  const [cartItems, setCartItems] = useState<PurchaseCartItem[]>([])
+
+  // ── Current item being staged ───────────────────────────────────────────────
+  const [productId, setProductId] = useState("")
+  const [unitCost, setUnitCost] = useState(0)
+  const [quantity, setQuantity] = useState(1)
+
+  // ── Global description (one note per operation) ─────────────────────────────
+  const [description, setDescription] = useState("")
+
+  // ── Inline new product ──────────────────────────────────────────────────────
   const [showNewProduct, setShowNewProduct] = useState(false)
   const [newProductName, setNewProductName] = useState("")
   const [newProductCategory, setNewProductCategory] = useState("")
@@ -31,18 +46,97 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const [newProductPrice, setNewProductPrice] = useState(0)
   const [newProductMinStock, setNewProductMinStock] = useState(10)
 
-  const [description, setDescription] = useState("")
+  // ── Submission state ────────────────────────────────────────────────────────
+  const [submitting, setSubmitting] = useState(false)
 
-  const selectedProduct = useMemo(() => products.find((p) => p.id === productId), [products, productId])
-  const total = unitCost * quantity
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  const selectedProduct = useMemo(
+    () => products.find((p) => p.id === productId),
+    [products, productId],
+  )
+  const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
+  const stagedSubtotal = useMemo(
+    () => calcPurchaseSubtotal(unitCost, quantity),
+    [unitCost, quantity],
+  )
+
+  // ── Option list ─────────────────────────────────────────────────────────────
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: p.id,
+        label: `${p.name} (Costo: ${formatMoney(p.cost)})`,
+      })),
+    [products],
+  )
+
+  // ── Handlers ────────────────────────────────────────────────────────────────
 
   function handleProductChange(id: string) {
     setProductId(id)
     const p = products.find((x) => x.id === id)
-    if (p) {
-      setUnitCost(p.cost)
-      setDescription("") // Reset or leave? Leave for now or set to "Compra de [product]"
+    if (p) setUnitCost(p.cost)
+    setQuantity(1)
+  }
+
+  function handleAddToCart() {
+    if (!selectedProduct) {
+      toast.error("Seleccioná un producto")
+      return
     }
+    if (unitCost <= 0) {
+      toast.error("El costo unitario debe ser mayor a 0")
+      return
+    }
+
+    const existing = cartItems.find((item) => item.productId === productId)
+    if (existing) {
+      const newQty = existing.quantity + quantity
+      setCartItems((prev) =>
+        prev.map((item) =>
+          item.productId === productId
+            ? {
+                ...item,
+                quantity: newQty,
+                unitCost,
+                subtotal: calcPurchaseSubtotal(unitCost, newQty),
+              }
+            : item,
+        ),
+      )
+      toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
+    } else {
+      setCartItems((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          productId: selectedProduct.id,
+          productName: selectedProduct.name,
+          unitCost,
+          quantity,
+          subtotal: stagedSubtotal,
+        },
+      ])
+      toast.success(`${selectedProduct.name} agregado`)
+    }
+    // Reset staged item
+    setProductId("")
+    setUnitCost(0)
+    setQuantity(1)
+  }
+
+  function handleRemoveItem(id: string) {
+    setCartItems((prev) => prev.filter((item) => item.id !== id))
+  }
+
+  function handleUpdateQty(id: string, qty: number) {
+    setCartItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const newQty = Math.max(1, qty)
+        return { ...item, quantity: newQty, subtotal: calcPurchaseSubtotal(item.unitCost, newQty) }
+      }),
+    )
   }
 
   function handleCreateProduct() {
@@ -50,7 +144,10 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       toast.error("Nombre y categoría son obligatorios")
       return
     }
-    const margin = newProductPrice > 0 ? Math.round(((newProductPrice - newProductCost) / newProductPrice) * 100) : 0
+    const margin =
+      newProductPrice > 0
+        ? Math.round(((newProductPrice - newProductCost) / newProductPrice) * 100)
+        : 0
     addProduct({
       name: newProductName,
       category: newProductCategory,
@@ -72,44 +169,75 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!selectedProduct) {
-      toast.error("Seleccioná un producto")
+    if (cartItems.length === 0) {
+      toast.error("Agregá al menos un producto al carrito")
       return
     }
-    try {
-      await addPurchase({
-        date: new Date().toISOString().split("T")[0],
-        productId: selectedProduct.id,
-        productName: selectedProduct.name,
-        quantity,
-        unitCost,
-        total,
-        description: description || `Compra de ${selectedProduct.name}`,
-      })
-      toast.success("Compra registrada")
+
+    setSubmitting(true)
+    const operationId = generateOperationId()
+    const date = new Date().toISOString().split("T")[0]
+
+    type Result = { success: boolean; productName: string; error?: string }
+    const results: Result[] = []
+
+    for (const item of cartItems) {
+      try {
+        await addPurchase({
+          date,
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitCost: item.unitCost,
+          total: item.subtotal,
+          description: description || `Compra de ${item.productName}`,
+          operationId,
+        })
+        results.push({ success: true, productName: item.productName })
+      } catch (err: any) {
+        results.push({
+          success: false,
+          productName: item.productName,
+          error: err.message || "Error desconocido",
+        })
+      }
+    }
+
+    const successful = results.filter((r) => r.success)
+    const failed = results.filter((r) => !r.success)
+
+    setSubmitting(false)
+
+    if (failed.length === 0) {
+      toast.success(`✅ ${successful.length} producto(s) registrado(s) correctamente`)
+      await refreshData()
       onSuccess()
-    } catch (error: any) {
-      console.error("Purchase creation error:", error)
-      const errorMsg = error.message || (typeof error === 'string' ? error : "Error desconocido")
-      toast.error(`Error al registrar compra: ${errorMsg}`)
+    } else if (successful.length > 0) {
+      // Partial success — keep dialog open, remove done items from cart
+      toast.warning(`⚠️ ${successful.length} registrado(s), ${failed.length} con error`)
+      failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
+      await refreshData()
+      const successNames = new Set(successful.map((s) => s.productName))
+      setCartItems((prev) => prev.filter((item) => !successNames.has(item.productName)))
+    } else {
+      toast.error("No se pudo registrar ningún producto")
+      failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
     }
   }
 
-  // Memoised option list for SearchableSelect — derived from in-memory data
-  const productOptions = useMemo(
-    () =>
-      products.map((p) => ({
-        value: p.id,
-        label: `${p.name} (Costo: ${formatMoney(p.cost)})`,
-      })),
-    [products]
-  )
-
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-4 max-h-[80vh] overflow-y-auto pr-1"
+    >
+      {/* ── Product Adder ───────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3">
         <div className="flex items-center justify-between">
-          <Label className="text-foreground">Producto</Label>
+          <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <PackagePlus className="h-3.5 w-3.5" />
+            Agregar producto
+          </Label>
           <Button
             type="button"
             variant="ghost"
@@ -117,7 +245,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             className="h-6 text-xs text-primary"
             onClick={() => setShowNewProduct(!showNewProduct)}
           >
-            <PackagePlus className="h-3 w-3 mr-1" />
+            <Plus className="h-3 w-3 mr-1" />
             {showNewProduct ? "Cancelar" : "Nuevo producto"}
           </Button>
         </div>
@@ -136,7 +264,9 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">
                 {PRODUCT_CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                  <SelectItem key={c} value={c}>
+                    {c}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -160,7 +290,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Stock min.</Label>
+                <Label className="text-[10px] text-muted-foreground">Stock mín.</Label>
                 <NumericInput
                   min={0}
                   value={newProductMinStock}
@@ -169,7 +299,13 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
                 />
               </div>
             </div>
-            <Button type="button" size="sm" variant="secondary" onClick={handleCreateProduct} className="w-full">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={handleCreateProduct}
+              className="w-full"
+            >
               <Plus className="h-3 w-3 mr-1" />
               Crear y seleccionar
             </Button>
@@ -184,32 +320,83 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             emptyMessage="No se encontraron productos."
           />
         )}
+
+        {selectedProduct && !showNewProduct && (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
+              <NumericInput
+                min={1}
+                value={quantity}
+                onValueChange={(val) => setQuantity(Math.max(1, val))}
+                className="bg-background border-border text-foreground"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] text-muted-foreground">Costo unitario</Label>
+              <NumericInput
+                min={0}
+                step={0.01}
+                value={unitCost}
+                onValueChange={setUnitCost}
+                className="bg-background border-border text-foreground"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
+              <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-cyan-400 tabular-nums">
+                {formatMoney(stagedSubtotal)}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={handleAddToCart}
+          disabled={!selectedProduct || showNewProduct}
+          className="w-full gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Agregar al carrito
+        </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Cantidad</Label>
-          <NumericInput
-            min={1}
-            value={quantity}
-            onValueChange={(val) => setQuantity(Math.max(1, val))}
-            className="bg-background border-border text-foreground"
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Costo unitario</Label>
-          <NumericInput
-            min={0}
-            step={0.01}
-            value={unitCost}
-            onValueChange={setUnitCost}
-            className="bg-background border-border text-foreground"
-          />
-        </div>
-      </div>
+      {/* ── Cart Items ──────────────────────────────────────────────────── */}
+      {cartItems.length > 0 && (
+        <CartItemList
+          items={cartItems.map((item) => ({
+            id: item.id,
+            productName: item.productName,
+            quantity: item.quantity,
+            unitValue: item.unitCost,
+            subtotal: item.subtotal,
+          }))}
+          onRemove={handleRemoveItem}
+          onUpdateQty={handleUpdateQty}
+          unitLabel="Costo unit."
+        />
+      )}
 
+      {/* ── Total ───────────────────────────────────────────────────────── */}
+      {cartItems.length > 0 && (
+        <div className="rounded-lg border border-border bg-accent/50 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground flex items-center gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              Total — {cartItems.length} ítem{cartItems.length !== 1 ? "s" : ""}
+            </span>
+            <span className="text-xl font-bold text-primary tabular-nums">
+              {formatMoney(cartTotal)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Notes ───────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-2">
-        <Label className="text-foreground">Notas / Descripción (Opcional)</Label>
+        <Label className="text-foreground">Notas / Descripción (opcional)</Label>
         <Input
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -218,15 +405,17 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
         />
       </div>
 
-      <div className="rounded-lg border border-border bg-accent/50 p-3">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">Total</span>
-          <span className="text-lg font-bold text-primary">{formatMoney(total)}</span>
-        </div>
-      </div>
-
-      <Button type="submit" className="w-full">
-        Registrar compra
+      {/* ── Submit ──────────────────────────────────────────────────────── */}
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={submitting || cartItems.length === 0}
+      >
+        {submitting
+          ? "Registrando..."
+          : cartItems.length > 1
+          ? `Confirmar compra (${cartItems.length} ítems)`
+          : "Confirmar compra"}
       </Button>
     </form>
   )

@@ -20,7 +20,8 @@ export const services = {
         product_id: sale.productId,
         amount: sale.unitPrice,
         quantity: sale.quantity,
-        currency: sale.currency
+        currency: sale.currency,
+        operation_id: sale.operationId ?? null,
       },
     })
 
@@ -56,7 +57,8 @@ export const services = {
         product_id: purchase.productId,
         amount: purchase.unitCost,
         quantity: purchase.quantity,
-        description: purchase.description
+        description: purchase.description,
+        operation_id: purchase.operationId ?? null,
       }
     })
 

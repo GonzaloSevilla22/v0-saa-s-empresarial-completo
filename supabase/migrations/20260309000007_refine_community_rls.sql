@@ -8,9 +8,11 @@ DROP POLICY IF EXISTS "Anyone can view likes" ON public.post_likes;
 CREATE POLICY "Anyone can view likes" ON public.post_likes 
 FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users can insert own likes" ON public.post_likes;
 CREATE POLICY "Users can insert own likes" ON public.post_likes 
 FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own likes" ON public.post_likes;
 CREATE POLICY "Users can delete own likes" ON public.post_likes 
 FOR DELETE USING (auth.uid() = user_id);
 

@@ -253,36 +253,42 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, refreshData])
 
   const deleteProduct = useCallback(async (id: string) => {
-    // Delegate to the delete-product Edge Function.
-    // It runs rpc_safe_delete_product as SECURITY DEFINER (single transaction):
-    //   1. UPDATE sales   SET product_id = NULL WHERE product_id = id
-    //   2. UPDATE purchases SET product_id = NULL WHERE product_id = id
-    //   3. UPDATE products SET parent_id  = NULL WHERE parent_id  = id
-    //   4. DELETE FROM products WHERE id = id
-    // This bypasses any FK RESTRICT constraint in production without data loss.
-    const { data, error } = await supabase.functions.invoke('delete-product', {
-      body: { product_id: id }
-    })
+    // ── BYPASS: direct SDK (no Edge Function dependency) ─────────────────────
+    // Each step is logged to the browser console so failures are immediately visible.
+    console.log('[deleteProduct] Starting delete for id:', id)
 
-    if (error) {
-      // Try to extract the error message from the Edge Function response body
-      let msg = 'Error al eliminar el producto'
-      try {
-        const context = (error as any).context
-        if (context?.response) {
-          const bodyText = await context.response.text()
-          const parsed = JSON.parse(bodyText)
-          msg = parsed.error || msg
-        } else if (error instanceof Error) {
-          msg = error.message
-        }
-      } catch {
-        if (error instanceof Error) msg = error.message
-      }
-      throw new Error(msg)
-    }
+    // Step 1 — nullify sales references (user owns these rows → RLS allows UPDATE)
+    const { error: e1 } = await supabase
+      .from('sales')
+      .update({ product_id: null })
+      .eq('product_id', id)
+    console.log('[deleteProduct] sales nullify →', e1 ? `ERROR: ${e1.code} ${e1.message}` : 'OK')
 
-    if (data?.error) throw new Error(data.error)
+    // Step 2 — nullify purchases references
+    const { error: e2 } = await supabase
+      .from('purchases')
+      .update({ product_id: null })
+      .eq('product_id', id)
+    console.log('[deleteProduct] purchases nullify →', e2 ? `ERROR: ${e2.code} ${e2.message}` : 'OK')
+
+    // Step 3 — detach variant products (self-referential FK on parent_id)
+    const { error: e3 } = await supabase
+      .from('products')
+      .update({ parent_id: null })
+      .eq('parent_id', id)
+    console.log('[deleteProduct] variants nullify →', e3 ? `ERROR: ${e3.code} ${e3.message}` : 'OK')
+
+    // Step 4 — delete the product
+    const { error: delErr } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', id)
+
+    console.log('[deleteProduct] delete →', delErr
+      ? `ERROR: code=${delErr.code} msg=${delErr.message} details=${delErr.details}`
+      : 'OK — deleted successfully')
+
+    if (delErr) throw new Error(translateDbError(delErr))
     await refreshData()
   }, [supabase, refreshData])
 

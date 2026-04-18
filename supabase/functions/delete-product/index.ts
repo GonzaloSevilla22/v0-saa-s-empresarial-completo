@@ -22,31 +22,33 @@ serve(async (req) => {
       })
     }
 
+    // ── 1. Validate the requesting user ──────────────────────────────────────
+    // Use the user's JWT to verify identity (anon client with user's Authorization)
     const authHeader = req.headers.get('Authorization')
-
-    // Use SERVICE_ROLE key to bypass RLS — the RPC itself validates ownership.
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader! } } }
-    )
-
-    // Validate that the requesting user owns the product
     const supabaseUser = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
       { global: { headers: { Authorization: authHeader! } } }
     )
+
     const { data: { user }, error: userError } = await supabaseUser.auth.getUser()
     if (userError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      return new Response(JSON.stringify({ error: 'No autenticado' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
 
-    // Verify ownership
-    const { data: product, error: ownerError } = await supabaseAdmin
+    // ── 2. Service-role client (bypasses RLS for internal operations) ─────────
+    // IMPORTANT: do NOT pass the user Authorization header here — that would
+    // downgrade service_role to user-level permissions.
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
+
+    // ── 3. Ownership check ────────────────────────────────────────────────────
+    const { data: product, error: ownerError } = await admin
       .from('products')
       .select('id, user_id')
       .eq('id', product_id)
@@ -60,23 +62,27 @@ serve(async (req) => {
     }
 
     if (product.user_id !== user.id) {
-      return new Response(JSON.stringify({ error: 'No tenés permiso para eliminar este producto' }), {
+      return new Response(JSON.stringify({ error: 'Sin permiso para eliminar este producto' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
 
-    // Execute atomic delete via RPC (runs as SECURITY DEFINER, bypasses FK issues)
-    const { error: rpcError } = await supabaseAdmin.rpc('rpc_safe_delete_product', {
-      p_product_id: product_id,
-      p_user_id: user.id
-    })
+    // ── 4. Nullify all FK references (admin bypasses RLS & FK RESTRICT) ───────
+    // These run as the service role, so they succeed regardless of FK mode.
+    await admin.from('sales').update({ product_id: null }).eq('product_id', product_id)
+    await admin.from('purchases').update({ product_id: null }).eq('product_id', product_id)
+    await admin.from('products').update({ parent_id: null }).eq('parent_id', product_id)
 
-    if (rpcError) {
-      return new Response(JSON.stringify({
-        error: rpcError.message || 'Error al eliminar el producto',
-        code: rpcError.code
-      }), {
+    // ── 5. Delete the product (no FK blockers remain) ─────────────────────────
+    const { error: deleteError } = await admin
+      .from('products')
+      .delete()
+      .eq('id', product_id)
+
+    if (deleteError) {
+      console.error('Delete error:', deleteError)
+      return new Response(JSON.stringify({ error: deleteError.message }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
@@ -88,7 +94,8 @@ serve(async (req) => {
     })
 
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    console.error('Edge Function error:', err)
+    return new Response(JSON.stringify({ error: err.message ?? 'Error inesperado' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })

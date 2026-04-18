@@ -253,6 +253,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, refreshData])
 
   const deleteProduct = useCallback(async (id: string) => {
+    // Nullify FK references first to bypass any FK constraint in production
+    // that may not have ON DELETE SET NULL applied yet.
+    // Sales and purchases are preserved – the product column just shows "Eliminado".
+    await supabase.from('sales').update({ product_id: null }).eq('product_id', id)
+    await supabase.from('purchases').update({ product_id: null }).eq('product_id', id)
+    // Detach any variant products that reference this as parent
+    await supabase.from('products').update({ parent_id: null }).eq('parent_id', id)
+
     const { error } = await supabase.from('products').delete().eq('id', id)
     if (error) throw new Error(translateDbError(error))
     await refreshData()

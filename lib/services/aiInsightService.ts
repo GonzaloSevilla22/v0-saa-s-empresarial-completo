@@ -10,7 +10,16 @@ export const aiInsightService = {
    */
   async generateInsights() {
     const { data, error } = await supabase.functions.invoke('ai-insights')
-    if (error) throw error
+    if (error) {
+      // Attempt to surface the real server-side message instead of the opaque SDK error
+      const detail = (error as any)?.context?.error ?? error.message
+      throw new Error(detail || 'Error al generar consejos')
+    }
+    if (data?.fallback) {
+      // Graceful fallback: return empty so the UI can show its own message
+      console.warn('[aiInsightService] Fallback response:', data.message)
+      return null
+    }
     return data
   },
 

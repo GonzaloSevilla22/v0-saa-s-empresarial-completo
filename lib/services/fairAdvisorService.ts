@@ -15,8 +15,21 @@ export const fairAdvisorService = {
    */
   async generateFairRecommendation() {
     const { data, error } = await supabase.functions.invoke('fair-advisor')
-    if (error) throw error
-    return data
+    if (error) {
+      const detail = (error as any)?.context?.error ?? error.message
+      throw new Error(detail || 'Error al generar recomendación')
+    }
+    // Heavy payload: async processing underway
+    if (data?.processing) {
+      console.log('[fairAdvisorService] Heavy payload detected, processing async')
+      return null
+    }
+    // Graceful AI fallback
+    if (data?.fallback) {
+      console.warn('[fairAdvisorService] Fallback:', data.message)
+      return null
+    }
+    return (data?.data ?? data) as FairRecommendation[]
   },
 
   /**

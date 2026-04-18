@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Sparkles, RefreshCw } from "lucide-react"
 import { MAX_INSIGHTS_FREE } from "@/lib/constants"
+import { aiInsightService } from "@/lib/services/aiInsightService"
+import { toast } from "sonner"
 import type { Insight } from "@/lib/types"
 
 const extraInsights: Insight[] = [
@@ -15,8 +17,6 @@ const extraInsights: Insight[] = [
   { id: "ix2", type: "ahorro", priority: "media", message: "Podrías ahorrar $200/mes comprando Cable HDMI en lotes de 200 unidades. El proveedor ofrece 15% de descuento.", date: new Date().toISOString().split("T")[0] },
   { id: "ix3", type: "clientes", priority: "baja", message: "Valentina Ruiz no compra hace 90 días. Un cupón de descuento podría reactivarla.", date: new Date().toISOString().split("T")[0] },
 ]
-
-import { aiInsightService } from "@/lib/services/aiInsightService"
 
 export default function InsightsPage() {
   const { insights, refreshData } = useData()
@@ -31,10 +31,17 @@ export default function InsightsPage() {
     if (atLimit) return
     setIsGenerating(true)
     try {
-      await aiInsightService.generateInsights()
+      const result = await aiInsightService.generateInsights()
+      if (result === null) {
+        // Fallback or key not configured – show friendly message, don't crash UI
+        toast.warning("El asistente no está disponible en este momento. Intentalo más tarde.")
+        return
+      }
       await refreshData()
+      toast.success("Consejos generados correctamente")
     } catch (error: any) {
-      alert(error.message || "Error al generar insights")
+      console.error('[Insights] Generate failed:', error.message)
+      toast.error(error.message || "Error al generar consejos")
     } finally {
       setIsGenerating(false)
     }

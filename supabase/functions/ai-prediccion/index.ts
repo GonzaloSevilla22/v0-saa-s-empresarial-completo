@@ -6,6 +6,41 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+const AI_TIMEOUT_MS = 8000
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    status,
+  })
+}
+
+function extractErrorMessage(err: unknown): string {
+  if (typeof err === 'string') return err
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>
+    if (typeof e['message'] === 'string') return e['message']
+    if (typeof e['details'] === 'string') return e['details']
+    if (typeof e['code'] === 'string') return `DB error: ${e['code']}`
+  }
+  return 'Unknown error'
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit, retries = 2): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    clearTimeout(timer)
+    return res
+  } catch (err: unknown) {
+    clearTimeout(timer)
+    const isAbort = err instanceof DOMException && err.name === 'AbortError'
+    if (retries > 0 && !isAbort) return fetchWithTimeout(url, options, retries - 1)
+    throw err
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -19,9 +54,21 @@ serve(async (req) => {
     )
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser()
-    if (userError || !user) throw new Error('Unauthorized | 401')
+    if (userError || !user) {
+      console.error('[ai-prediccion] Auth failed:', userError?.message)
+      return jsonResponse({ ok: false, error: 'No autorizado' }, 401)
+    }
 
-    const { days_ahead } = await req.json()
+    console.log('[ai-prediccion] Auth OK')
+
+    const openAiKey = Deno.env.get('OPENAI_API_KEY')
+    if (!openAiKey) {
+      console.error('[ai-prediccion] OPENAI_API_KEY not set')
+      return jsonResponse({ ok: true, fallback: true, message: 'El asistente no está configurado.' })
+    }
+
+    const body = await req.json().catch(() => ({}))
+    const { days_ahead } = body
 
     // 3. Fetch Historical Data (Last 30 days)
     const thirtyDaysAgo = new Date()
@@ -36,29 +83,34 @@ serve(async (req) => {
     const totalSales = (sales || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
     const avgDailySales = sales && sales.length > 0 ? totalSales / 30 : 0
 
-    const openAiKey = Deno.env.get('OPENAI_API_KEY')
     let content = ''
-
-    if (!openAiKey) {
-      throw new Error('Configuración incompleta: Falta la clave de API de OpenAI | 500')
-    } else {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${openAiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: 'Eres un experto en predicción de ventas. Analiza el historial provisto y predice la tendencia para los próximos días.' },
-            { role: 'user', content: `Historial de ventas (30 días): ${JSON.stringify(sales)}. Predice para los próximos ${days_ahead} días.` }
-          ]
-        }),
-      })
-
+    try {
+      const response = await fetchWithTimeout(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${openAiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: 'Eres un experto en predicción de ventas. Analiza el historial provisto y predice la tendencia para los próximos días.' },
+              { role: 'user', content: `Historial de ventas (últimos 30 días, ${sales?.length ?? 0} registros). Promedio diario: $${avgDailySales.toFixed(2)}. Predice para los próximos ${days_ahead ?? 7} días.` }
+            ],
+            max_tokens: 400,
+          }),
+        }
+      )
+      console.log('[ai-prediccion] OpenAI status:', response.status)
+      if (!response.ok) {
+        console.error('[ai-prediccion] OpenAI rejected, status:', response.status)
+        return jsonResponse({ ok: true, fallback: true, message: 'No se pudo generar la predicción.' })
+      }
       const aiData = await response.json()
-      content = aiData.choices?.[0]?.message?.content || 'Predicción generada.'
+      content = aiData?.choices?.[0]?.message?.content || 'Predicción generada.'
+    } catch (aiErr: unknown) {
+      const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
+      console.error('[ai-prediccion] AI error:', isTimeout ? 'TIMEOUT' : extractErrorMessage(aiErr))
+      return jsonResponse({ ok: true, fallback: true, message: 'No se pudo generar la predicción en este momento.' })
     }
 
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
@@ -69,15 +121,16 @@ serve(async (req) => {
     })
 
     if (rpcError) {
-      if (rpcError.code === 'insufficient_privilege') throw new Error(`${rpcError.message} | 403`)
-      throw new Error(`${rpcError.message} | 500`)
+      console.error('[ai-prediccion] RPC error:', extractErrorMessage(rpcError))
+      // Return the prediction text even if logging failed
+      return jsonResponse({ ok: true, data: content })
     }
 
-    return new Response(JSON.stringify(insight), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 })
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-    const parts = errorMsg.split(' | ')
-    const status = parts.length > 1 ? parseInt(parts[1], 10) : 400
-    return new Response(JSON.stringify({ error: parts[0] }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: status })
+    console.log('[ai-prediccion] Success')
+    return jsonResponse({ ok: true, data: insight })
+
+  } catch (err: unknown) {
+    console.error('[ai-prediccion] Unhandled error:', extractErrorMessage(err))
+    return jsonResponse({ ok: false, error: 'Error interno del servidor' }, 500)
   }
 })

@@ -68,12 +68,30 @@ export default function CopilotoPage() {
       })
 
       const data = await res.json()
-      if (data.error) throw new Error(data.error)
+
+      // Handle non-ok HTTP status
+      if (!res.ok) {
+        console.error('[Copilot UI] HTTP error:', res.status, data?.error)
+        setMessages(prev => [...prev, { role: 'assistant', content: data?.error || 'Hubo un error al procesar tu consulta.' }])
+        return
+      }
+
+      // Handle normalized response { ok, fallback?, answer }
+      if (data?.fallback) {
+        setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No se pudo generar respuesta en este momento. Intentá de nuevo.' }])
+        return
+      }
+
+      if (!data?.answer) {
+        console.error('[Copilot UI] Unexpected response shape:', Object.keys(data))
+        setMessages(prev => [...prev, { role: 'assistant', content: 'El asistente no pudo procesar tu solicitud. Intentá de nuevo.' }])
+        return
+      }
 
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer }])
     } catch (error: any) {
-      console.error("Chat error:", error)
-      setMessages(prev => [...prev, { role: 'assistant', content: "Lo siento, hubo un error al procesar tu consulta. Por favor intenta de nuevo." }])
+      console.error('[Copilot UI] Network or parse error:', error.message)
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Error de conexión. Verificá tu internet e intentá de nuevo.' }])
     } finally {
       setIsLoading(false)
     }

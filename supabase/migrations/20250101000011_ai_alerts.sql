@@ -1,69 +1,68 @@
 -- Trigger for Low Stock Alerts with 24h cooldown
-create or replace function public.check_low_stock()
-returns trigger as $$
-declare
+CREATE OR REPLACE FUNCTION public.check_low_stock()
+RETURNS TRIGGER AS $$
+DECLARE
   recent_alert boolean;
-begin
-  if NEW.stock <= 5 and (TG_OP = 'INSERT' or OLD.stock > 5) then
-    -- Check cooldown
-    select exists (
-      select 1 from public.email_logs 
-      where event_type = 'low_stock_alert' 
-      and metadata->>'product_id' = NEW.id::text 
-      and created_at > now() - interval '24 hours'
-    ) into recent_alert;
+BEGIN
+  IF NEW.stock <= 5 AND (TG_OP = 'INSERT' OR OLD.stock > 5) THEN
+    SELECT EXISTS (
+      SELECT 1 FROM public.email_logs 
+      WHERE event_type = 'low_stock_alert' 
+      AND metadata->>'product_id' = NEW.id::text 
+      AND created_at > now() - INTERVAL '24 hours'
+    ) INTO recent_alert;
 
-    if not recent_alert then
-      insert into public.email_logs (user_id, event_type, recipient, subject, metadata)
-      select NEW.user_id, 'low_stock_alert', u.email, 'Alerta de Stock Bajo: ' || NEW.name, 
+    IF NOT recent_alert THEN
+      INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+      SELECT NEW.user_id, 'low_stock_alert', u.email, 'Alerta de Stock Bajo: ' || NEW.name, 
         jsonb_build_object('product_id', NEW.id, 'product_name', NEW.name, 'current_stock', NEW.stock)
-      from auth.users u where u.id = NEW.user_id;
-    end if;
-  end if;
-  return NEW;
-end;
-$$ language plpgsql security definer;
+      FROM auth.users u WHERE u.id = NEW.user_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-create trigger on_product_stock_update
-  after insert or update of stock on public.products
-  for each row execute procedure public.check_low_stock();
+DROP TRIGGER IF EXISTS on_product_stock_update ON public.products;
+CREATE TRIGGER on_product_stock_update
+  AFTER INSERT OR UPDATE OF stock ON public.products
+  FOR EACH ROW EXECUTE PROCEDURE public.check_low_stock();
 
 -- Trigger for Low Margin Alert on Sales
-create or replace function public.check_low_margin()
-returns trigger as $$
-declare
+CREATE OR REPLACE FUNCTION public.check_low_margin()
+RETURNS TRIGGER AS $$
+DECLARE
   prod_cost numeric;
   prod_name text;
   sale_margin numeric;
   user_email text;
-begin
-  if NEW.product_id is not null and NEW.amount > 0 then
-    select cost, name into prod_cost, prod_name from public.products where id = NEW.product_id;
+BEGIN
+  IF NEW.product_id IS NOT NULL AND NEW.amount > 0 THEN
+    SELECT cost, name INTO prod_cost, prod_name FROM public.products WHERE id = NEW.product_id;
     
-    if prod_cost is not null then
-      -- Calculate margin %
+    IF prod_cost IS NOT NULL THEN
       sale_margin := ((NEW.amount - (prod_cost * NEW.quantity)) / NEW.amount) * 100;
       
-      -- If margin < 15%, send alert
-      if sale_margin < 15 then
-        select email into user_email from auth.users where id = NEW.user_id;
+      IF sale_margin < 15 THEN
+        SELECT email INTO user_email FROM auth.users WHERE id = NEW.user_id;
         
-        insert into public.email_logs (user_id, event_type, recipient, subject, metadata)
-        values (
+        INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+        VALUES (
           NEW.user_id, 
           'low_margin_alert', 
           user_email, 
           'Alerta de Margen Bajo: ' || prod_name, 
           jsonb_build_object('sale_id', NEW.id, 'product_name', prod_name, 'margin_percentage', round(sale_margin, 2), 'amount', NEW.amount, 'cost_basis', prod_cost * NEW.quantity)
         );
-      end if;
-    end if;
-  end if;
+      END IF;
+    END IF;
+  END IF;
 
-  return NEW;
-end;
-$$ language plpgsql security definer;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-create trigger on_sale_insert_margin_check
-  after insert on public.sales
-  for each row execute procedure public.check_low_margin();
+DROP TRIGGER IF EXISTS on_sale_insert_margin_check ON public.sales;
+CREATE TRIGGER on_sale_insert_margin_check
+  AFTER INSERT ON public.sales
+  FOR EACH ROW EXECUTE PROCEDURE public.check_low_margin();

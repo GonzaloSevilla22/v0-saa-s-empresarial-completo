@@ -108,14 +108,15 @@ create table public.analytics_events (
   created_at timestamp with time zone default now() not null
 );
 
-create index idx_products_user on products(user_id);
-create index idx_clients_user on clients(user_id);
-create index idx_sales_user on sales(user_id);
-create index idx_purchases_user on purchases(user_id);
-create index idx_expenses_user on expenses(user_id);
-create index idx_insights_user on insights(user_id);
-create index idx_posts_user on posts(user_id);
-create index idx_replies_user on replies(user_id);
-create index idx_course_progress_user on course_progress(user_id);
-create index idx_analytics_events_user on analytics_events(user_id);
-create index idx_analytics_events_name on analytics_events(event_name);
+CREATE INDEX IF NOT EXISTS idx_products_user ON products(user_id);
+CREATE INDEX IF NOT EXISTS idx_clients_user ON clients(user_id);
+CREATE INDEX IF NOT EXISTS idx_sales_user ON sales(user_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_user ON purchases(user_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id);
+CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id);
+CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);
+CREATE INDEX IF NOT EXISTS idx_replies_user ON replies(user_id);
+CREATE INDEX IF NOT EXISTS idx_course_progress_user ON course_progress(user_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_user ON analytics_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events(event_name);
+

@@ -1,14 +1,22 @@
-create type user_role as enum ('user', 'admin');
-create type user_plan as enum ('free', 'pro');
+-- Idempotent: create enums only if they don't exist
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('user', 'admin');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-create table public.profiles (
-  id uuid references auth.users(id) on delete cascade not null primary key,
-  role user_role default 'user'::user_role not null,
-  plan user_plan default 'free'::user_plan not null,
-  insights_used integer default 0 not null,
-  insights_reset_at timestamp with time zone default now() not null,
-  created_at timestamp with time zone default now() not null,
-  updated_at timestamp with time zone default now() not null
+DO $$ BEGIN
+  CREATE TYPE user_plan AS ENUM ('free', 'pro');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL PRIMARY KEY,
+  role user_role DEFAULT 'user'::user_role NOT NULL,
+  plan user_plan DEFAULT 'free'::user_plan NOT NULL,
+  insights_used integer DEFAULT 0 NOT NULL,
+  insights_reset_at timestamp with time zone DEFAULT now() NOT NULL,
+  created_at timestamp with time zone DEFAULT now() NOT NULL,
+  updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-alter table public.profiles enable row level security;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;

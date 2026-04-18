@@ -34,5 +34,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 4. Adjust RLS to allow viewing names of other users
 -- This is critical for the community module to display author names
+DROP POLICY IF EXISTS "Profiles are viewable by everyone" ON public.profiles;
 CREATE POLICY "Profiles are viewable by everyone" ON public.profiles
   FOR SELECT USING (true);

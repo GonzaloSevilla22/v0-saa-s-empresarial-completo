@@ -1,6 +1,6 @@
--- Create seguros table
-CREATE TABLE IF NOT EXISTS seguros (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+-- Create seguros table (idempotent)
+CREATE TABLE IF NOT EXISTS public.seguros (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title TEXT NOT NULL,
     description TEXT,
     coverage TEXT,
@@ -12,34 +12,37 @@ CREATE TABLE IF NOT EXISTS seguros (
 );
 
 -- Enable RLS
-ALTER TABLE seguros ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.seguros ENABLE ROW LEVEL SECURITY;
 
 -- Policies
-CREATE POLICY "Public items are viewable by everyone" ON seguros
+DROP POLICY IF EXISTS "Public items are viewable by everyone" ON public.seguros;
+CREATE POLICY "Public items are viewable by everyone" ON public.seguros
     FOR SELECT USING (is_visible = true);
 
-CREATE POLICY "Admins have full access" ON seguros
+DROP POLICY IF EXISTS "Admins have full access" ON public.seguros;
+CREATE POLICY "Admins have full access" ON public.seguros
     FOR ALL USING (
         EXISTS (
-            SELECT 1 FROM profiles
+            SELECT 1 FROM public.profiles
             WHERE profiles.id = auth.uid()
             AND profiles.role = 'admin'
         )
     );
 
--- Index for visibility
-CREATE INDEX IF NOT EXISTS idx_seguros_visibility ON seguros(is_visible);
+-- Index for visibility (idempotent)
+CREATE INDEX IF NOT EXISTS idx_seguros_visibility ON public.seguros(is_visible);
 
--- Trigger for updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+-- Function for updated_at (idempotent via CREATE OR REPLACE)
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = now();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_seguros_updated_at ON public.seguros;
 CREATE TRIGGER update_seguros_updated_at
-    BEFORE UPDATE ON seguros
+    BEFORE UPDATE ON public.seguros
     FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
+    EXECUTE PROCEDURE public.update_updated_at_column();

@@ -1,4 +1,4 @@
--- Create landing_sections table
+-- Create landing_sections table (idempotent)
 CREATE TABLE IF NOT EXISTS public.landing_sections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug TEXT UNIQUE NOT NULL,
@@ -19,45 +19,49 @@ CREATE TABLE IF NOT EXISTS public.landing_sections (
 ALTER TABLE public.landing_sections ENABLE ROW LEVEL SECURITY;
 
 -- Allow public read access
+DROP POLICY IF EXISTS "Allow public read access for landing sections" ON public.landing_sections;
 CREATE POLICY "Allow public read access for landing sections"
 ON public.landing_sections FOR SELECT
 USING (active = true);
 
--- Allow admin write access (using service_role or authenticated with admin check)
--- For the purpose of this implementation, we'll allow authenticated users for now
--- but ideally this should be restricted to a specific 'admin' role if available.
+-- Allow admin write access
+DROP POLICY IF EXISTS "Allow admin write access for landing sections" ON public.landing_sections;
 CREATE POLICY "Allow admin write access for landing sections"
 ON public.landing_sections FOR ALL
 USING (auth.role() = 'authenticated');
 
--- Create storage bucket for landing images
+-- Create storage bucket for landing images (idempotent)
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('landing', 'landing', true)
 ON CONFLICT (id) DO NOTHING;
 
--- Storage policies for landing bucket
+-- Storage policies for landing bucket (idempotent)
+DROP POLICY IF EXISTS "Public Access" ON storage.objects;
 CREATE POLICY "Public Access"
 ON storage.objects FOR SELECT
 USING ( bucket_id = 'landing' );
 
+DROP POLICY IF EXISTS "Admin Upload" ON storage.objects;
 CREATE POLICY "Admin Upload"
 ON storage.objects FOR INSERT
 WITH CHECK ( bucket_id = 'landing' AND auth.role() = 'authenticated' );
 
+DROP POLICY IF EXISTS "Admin Update/Delete" ON storage.objects;
 CREATE POLICY "Admin Update/Delete"
 ON storage.objects FOR ALL
 USING ( bucket_id = 'landing' AND auth.role() = 'authenticated' );
 
--- Trigger for updated_at
-CREATE OR REPLACE FUNCTION update_updated_at_column()
+-- Function for updated_at (idempotent via CREATE OR REPLACE)
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = now();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS update_landing_sections_updated_at ON public.landing_sections;
 CREATE TRIGGER update_landing_sections_updated_at
-    BEFORE UPDATE ON landing_sections
+    BEFORE UPDATE ON public.landing_sections
     FOR EACH ROW
-    EXECUTE PROCEDURE update_updated_at_column();
+    EXECUTE PROCEDURE public.update_updated_at_column();

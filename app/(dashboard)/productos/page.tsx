@@ -154,6 +154,28 @@ export default function ProductosPage() {
         onEdit={handleEdit}
         onDelete={deleteProduct}
         getId={(row) => row.id}
+        exportColumns={[
+          { key: "name",     header: "Producto"  },
+          { key: "barcode",  header: "Código"    },
+          { key: "category", header: "Categoría" },
+          { key: "price",    header: "Precio"    },
+          { key: "cost",     header: "Costo"     },
+          { key: "margin",   header: "Margen %"  },
+          { key: "stock",    header: "Stock"     },
+          { key: "minStock", header: "Stock mínimo" },
+        ]}
+        exportFilename="productos"
+        importColumnMap={[
+          { csvHeader: "Producto",  key: "name"     },
+          { csvHeader: "Código",    key: "barcode"  },
+          { csvHeader: "Categoría", key: "category" },
+          { csvHeader: "Precio",    key: "price"    },
+          { csvHeader: "Costo",     key: "cost"     },
+          { csvHeader: "Stock",     key: "stock"    },
+        ]}
+        onImport={(rows) => {
+          console.log("Importando productos:", rows)
+        }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

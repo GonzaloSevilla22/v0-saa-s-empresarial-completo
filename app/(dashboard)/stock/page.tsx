@@ -128,6 +128,22 @@ export default function StockPage() {
         searchPlaceholder="Buscar productos..."
         searchKey={(row) => `${row.name} ${row.category}`}
         getId={(row) => row.id}
+        exportColumns={[
+          { key: "name",     header: "Producto"      },
+          { key: "category", header: "Categoría"     },
+          { key: "stock",    header: "Stock actual"  },
+          { key: "minStock", header: "Stock mínimo"  },
+        ]}
+        exportFilename="stock"
+        importColumnMap={[
+          { csvHeader: "Producto",     key: "name"     },
+          { csvHeader: "Categoría",    key: "category" },
+          { csvHeader: "Stock actual", key: "stock"    },
+          { csvHeader: "Stock mínimo", key: "minStock" },
+        ]}
+        onImport={(rows) => {
+          console.log("Importando stock:", rows)
+        }}
       />
     </div>
   )

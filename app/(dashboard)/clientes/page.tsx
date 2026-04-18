@@ -134,6 +134,25 @@ export default function ClientesPage() {
         onEdit={handleEdit}
         onDelete={deleteClient}
         getId={(row) => row.id}
+        exportColumns={[
+          { key: "name",        header: "Nombre"         },
+          { key: "email",       header: "Email"          },
+          { key: "phone",       header: "Teléfono"       },
+          { key: "status",      header: "Estado"         },
+          { key: "category",   header: "Categoría"      },
+          { key: "totalSpent",  header: "Total gastado"  },
+          { key: "lastPurchase",header: "Última compra"  },
+        ]}
+        exportFilename="clientes"
+        importColumnMap={[
+          { csvHeader: "Nombre",   key: "name"   },
+          { csvHeader: "Email",    key: "email"  },
+          { csvHeader: "Teléfono", key: "phone"  },
+          { csvHeader: "Estado",   key: "status" },
+        ]}
+        onImport={(rows) => {
+          console.log("Importando clientes:", rows)
+        }}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>

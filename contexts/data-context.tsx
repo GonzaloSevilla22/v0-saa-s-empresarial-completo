@@ -253,40 +253,47 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, refreshData])
 
   const deleteProduct = useCallback(async (id: string) => {
-    // ── BYPASS: direct SDK (no Edge Function dependency) ─────────────────────
-    // Each step is logged to the browser console so failures are immediately visible.
+    // ── SDK bypass with full FK cleanup ───────────────────────────────────────
+    // Confirmed FK chain (from browser console diagnosis):
+    //   products → product_variants (ON DELETE CASCADE)
+    //            → inventory_movements.variant_id (RESTRICT) ← this was blocking
     console.log('[deleteProduct] Starting delete for id:', id)
 
-    // Step 1 — nullify sales references (user owns these rows → RLS allows UPDATE)
-    const { error: e1 } = await supabase
-      .from('sales')
-      .update({ product_id: null })
-      .eq('product_id', id)
-    console.log('[deleteProduct] sales nullify →', e1 ? `ERROR: ${e1.code} ${e1.message}` : 'OK')
+    // Step 1 — nullify sales references
+    const { error: e1 } = await supabase.from('sales').update({ product_id: null }).eq('product_id', id)
+    console.log('[deleteProduct] sales nullify →', e1 ? `WARN: ${e1.message}` : 'OK')
 
     // Step 2 — nullify purchases references
-    const { error: e2 } = await supabase
-      .from('purchases')
-      .update({ product_id: null })
+    const { error: e2 } = await supabase.from('purchases').update({ product_id: null }).eq('product_id', id)
+    console.log('[deleteProduct] purchases nullify →', e2 ? `WARN: ${e2.message}` : 'OK')
+
+    // Step 3 — detach variant products (self-referential parent_id)
+    const { error: e3 } = await supabase.from('products').update({ parent_id: null }).eq('parent_id', id)
+    console.log('[deleteProduct] parent_id nullify →', e3 ? `WARN: ${e3.message}` : 'OK')
+
+    // Step 4 — get this product's variants so we can clean inventory_movements
+    const { data: variants, error: e4 } = await supabase
+      .from('product_variants')
+      .select('id')
       .eq('product_id', id)
-    console.log('[deleteProduct] purchases nullify →', e2 ? `ERROR: ${e2.code} ${e2.message}` : 'OK')
+    console.log('[deleteProduct] variants found →', variants?.length ?? 0, e4 ? `WARN: ${e4.message}` : '')
 
-    // Step 3 — detach variant products (self-referential FK on parent_id)
-    const { error: e3 } = await supabase
-      .from('products')
-      .update({ parent_id: null })
-      .eq('parent_id', id)
-    console.log('[deleteProduct] variants nullify →', e3 ? `ERROR: ${e3.code} ${e3.message}` : 'OK')
+    // Step 5 — nullify inventory_movements.variant_id for those variants
+    //          (this was the actual blocking FK: inventory_movements_variant_id_fkey)
+    if (variants && variants.length > 0) {
+      const variantIds = variants.map((v: { id: string }) => v.id)
+      const { error: e5 } = await supabase
+        .from('inventory_movements')
+        .update({ variant_id: null })
+        .in('variant_id', variantIds)
+      console.log('[deleteProduct] inventory_movements nullify →', e5 ? `WARN: ${e5.message}` : 'OK')
+    }
 
-    // Step 4 — delete the product
-    const { error: delErr } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', id)
-
+    // Step 6 — delete the product (cascade handles product_variants)
+    const { error: delErr } = await supabase.from('products').delete().eq('id', id)
     console.log('[deleteProduct] delete →', delErr
       ? `ERROR: code=${delErr.code} msg=${delErr.message} details=${delErr.details}`
-      : 'OK — deleted successfully')
+      : 'OK — deleted')
 
     if (delErr) throw new Error(translateDbError(delErr))
     await refreshData()

@@ -87,11 +87,11 @@ serve(async (req) => {
 
     console.log('[ai-insights] Auth OK, userId hash present:', !!user.id)
 
-    // 2. Validate OpenAI key early – fail fast with a clear message
+    // 2. Validate OpenAI key early – fail fast with a REAL error (not a fallback)
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openAiKey) {
-      console.error('[ai-insights] OPENAI_API_KEY secret not set')
-      return fallbackResponse('El asistente IA no está configurado. Contactá al administrador.')
+      console.error('[ai-insights] OPENAI_API_KEY secret not set in Supabase')
+      return errorResponse('Missing OPENAI_API_KEY — set it via: supabase secrets set OPENAI_API_KEY=sk-...', 500)
     }
 
     // 3. Fetch business data
@@ -159,9 +159,11 @@ INSTRUCCIONES:
       console.log('[ai-insights] OpenAI status:', response.status)
 
       if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}))
-        console.error('[ai-insights] OpenAI rejected with status:', response.status, 'type:', (errBody as Record<string, unknown>)?.error)
-        return fallbackResponse()
+        const errRaw = await response.text().catch(() => '')
+        console.error('[ai-insights] OpenAI error FULL body:', errRaw)
+        let errParsed: any = {}
+        try { errParsed = JSON.parse(errRaw) } catch (_) {}
+        return errorResponse(`OpenAI error ${response.status}: ${errParsed?.error?.message || errRaw}`, 502)
       }
 
       const aiData = await response.json()
@@ -180,8 +182,8 @@ INSTRUCCIONES:
 
     } catch (aiErr: unknown) {
       const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
-      console.error('[ai-insights] AI call failed:', isTimeout ? 'TIMEOUT' : extractErrorMessage(aiErr))
-      return fallbackResponse()
+      console.error('[ai-insights] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
+      return errorResponse(isTimeout ? 'OpenAI timeout (>8s)' : extractErrorMessage(aiErr), 502)
     }
 
     // 5. Persist to DB
@@ -208,7 +210,7 @@ INSTRUCCIONES:
     return jsonResponse({ ok: true, count: insightsData.length, data: insightsData })
 
   } catch (err: unknown) {
-    console.error('[ai-insights] Unhandled error:', extractErrorMessage(err))
-    return errorResponse('Error interno del servidor', 500)
+    console.error('[ai-insights] Unhandled error FULL:', err)
+    return errorResponse(extractErrorMessage(err) || 'Unknown error', 500)
   }
 })

@@ -93,8 +93,8 @@ serve(async (req) => {
     // 2. Validate OpenAI key
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openAiKey) {
-      console.error('[fair-advisor] OPENAI_API_KEY not set')
-      return fallbackResponse('El asistente de feria no está configurado. Contactá al administrador.')
+      console.error('[fair-advisor] OPENAI_API_KEY not set in Supabase secrets')
+      return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY — set it via: supabase secrets set OPENAI_API_KEY=sk-...' }, 500)
     }
 
     // 3. Fetch business data
@@ -163,8 +163,11 @@ INSTRUCCIONES:
       console.log('[fair-advisor] OpenAI status:', response.status)
 
       if (!response.ok) {
-        console.error('[fair-advisor] OpenAI error status:', response.status)
-        return fallbackResponse()
+        const errRaw = await response.text().catch(() => '')
+        console.error('[fair-advisor] OpenAI error FULL body:', errRaw)
+        let errParsed: any = {}
+        try { errParsed = JSON.parse(errRaw) } catch (_) {}
+        return jsonResponse({ ok: false, error: `OpenAI error ${response.status}: ${errParsed?.error?.message || errRaw}` }, 502)
       }
 
       const aiData = await response.json()
@@ -176,8 +179,8 @@ INSTRUCCIONES:
 
     } catch (aiErr: unknown) {
       const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
-      console.error('[fair-advisor] AI call failed:', isTimeout ? 'TIMEOUT' : extractErrorMessage(aiErr))
-      return fallbackResponse()
+      console.error('[fair-advisor] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
+      return jsonResponse({ ok: false, error: isTimeout ? 'OpenAI timeout (>8s)' : extractErrorMessage(aiErr) }, 502)
     }
 
     // 6. Persist to DB (error doesn't block the response)
@@ -194,7 +197,7 @@ INSTRUCCIONES:
     return jsonResponse({ ok: true, data: recommendations })
 
   } catch (err: unknown) {
-    console.error('[fair-advisor] Unhandled error:', extractErrorMessage(err))
-    return jsonResponse({ ok: false, error: 'Error interno del servidor' }, 500)
+    console.error('[fair-advisor] Unhandled error FULL:', err)
+    return jsonResponse({ ok: false, error: extractErrorMessage(err) || 'Unknown error' }, 500)
   }
 })

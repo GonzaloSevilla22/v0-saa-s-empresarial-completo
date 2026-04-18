@@ -60,6 +60,8 @@ export default function CopilotoPage() {
     setMessages(prev => [...prev, { role: 'user', content: userQuestion }])
     setIsLoading(true)
 
+    console.log('[Copilot UI] Request started')
+
     try {
       const res = await fetch('/api/ai/copilot', {
         method: 'POST',
@@ -67,16 +69,28 @@ export default function CopilotoPage() {
         body: JSON.stringify({ question: userQuestion })
       })
 
-      const data = await res.json()
+      // Task 4: read raw body first to expose full server error text
+      const rawText = await res.text()
+      console.log('[Copilot UI] Response status:', res.status, 'body preview:', rawText.slice(0, 200))
 
-      // Handle non-ok HTTP status
-      if (!res.ok) {
-        console.error('[Copilot UI] HTTP error:', res.status, data?.error)
-        setMessages(prev => [...prev, { role: 'assistant', content: data?.error || 'Hubo un error al procesar tu consulta.' }])
+      let data: any = {}
+      try {
+        data = JSON.parse(rawText)
+      } catch {
+        console.error('[Copilot UI] Non-JSON response body:', rawText)
+        setMessages(prev => [...prev, { role: 'assistant', content: `Error del servidor (respuesta inválida). Ver consola para detalles.` }])
         return
       }
 
-      // Handle normalized response { ok, fallback?, answer }
+      // Non-ok HTTP → show real server error message in chat
+      if (!res.ok) {
+        const reason = data?.error || rawText || `HTTP ${res.status}`
+        console.error('[Copilot UI] HTTP error FULL:', res.status, reason)
+        setMessages(prev => [...prev, { role: 'assistant', content: `Error (${res.status}): ${reason}` }])
+        return
+      }
+
+      // Fallback response (ok:true but AI unavailable)
       if (data?.fallback) {
         setMessages(prev => [...prev, { role: 'assistant', content: data.answer || 'No se pudo generar respuesta en este momento. Intentá de nuevo.' }])
         return
@@ -84,14 +98,14 @@ export default function CopilotoPage() {
 
       if (!data?.answer) {
         console.error('[Copilot UI] Unexpected response shape:', Object.keys(data))
-        setMessages(prev => [...prev, { role: 'assistant', content: 'El asistente no pudo procesar tu solicitud. Intentá de nuevo.' }])
+        setMessages(prev => [...prev, { role: 'assistant', content: `Respuesta inesperada del servidor. Ver consola para detalles.` }])
         return
       }
 
       setMessages(prev => [...prev, { role: 'assistant', content: data.answer }])
     } catch (error: any) {
-      console.error('[Copilot UI] Network or parse error:', error.message)
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error de conexión. Verificá tu internet e intentá de nuevo.' }])
+      console.error('[Copilot UI] Network or parse error FULL:', error)
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error de conexión: ${error.message || 'sin detalles'}. Verificá tu internet.` }])
     } finally {
       setIsLoading(false)
     }

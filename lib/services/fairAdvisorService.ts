@@ -14,17 +14,24 @@ export const fairAdvisorService = {
    * Generates a new fair recommendation using the Edge Function.
    */
   async generateFairRecommendation() {
+    console.log('[fairAdvisorService] Request started')
     const { data, error } = await supabase.functions.invoke('fair-advisor')
     if (error) {
-      const detail = (error as any)?.context?.error ?? error.message
-      throw new Error(detail || 'Error al generar recomendación')
+      console.error('[fairAdvisorService] SDK error FULL:', error)
+      let details: string | null = null
+      if (error.context?.body) {
+        try { details = await error.context.body.text() } catch (_) {}
+      }
+      console.error('[fairAdvisorService] Edge body:', details)
+      let parsed: any = null
+      try { parsed = details ? JSON.parse(details) : null } catch (_) {}
+      throw new Error(parsed?.error || details || error.message || 'Error al generar recomendación')
     }
-    // Heavy payload: async processing underway
+    console.log('[fairAdvisorService] Response received:', JSON.stringify(data).slice(0, 120))
     if (data?.processing) {
       console.log('[fairAdvisorService] Heavy payload detected, processing async')
       return null
     }
-    // Graceful AI fallback
     if (data?.fallback) {
       console.warn('[fairAdvisorService] Fallback:', data.message)
       return null

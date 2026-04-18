@@ -9,14 +9,22 @@ export const aiInsightService = {
    * New insights are stored in the `ai_insights` table by the function.
    */
   async generateInsights() {
+    console.log('[aiInsightService] Request started')
     const { data, error } = await supabase.functions.invoke('ai-insights')
     if (error) {
-      // Attempt to surface the real server-side message instead of the opaque SDK error
-      const detail = (error as any)?.context?.error ?? error.message
-      throw new Error(detail || 'Error al generar consejos')
+      console.error('[aiInsightService] SDK error FULL:', error)
+      // Read the real body from the edge function response
+      let details: string | null = null
+      if (error.context?.body) {
+        try { details = await error.context.body.text() } catch (_) {}
+      }
+      console.error('[aiInsightService] Edge body:', details)
+      let parsed: any = null
+      try { parsed = details ? JSON.parse(details) : null } catch (_) {}
+      throw new Error(parsed?.error || details || error.message || 'Error al generar consejos')
     }
+    console.log('[aiInsightService] Response received:', JSON.stringify(data).slice(0, 120))
     if (data?.fallback) {
-      // Graceful fallback: return empty so the UI can show its own message
       console.warn('[aiInsightService] Fallback response:', data.message)
       return null
     }

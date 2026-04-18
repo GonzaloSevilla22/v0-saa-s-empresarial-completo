@@ -63,8 +63,8 @@ serve(async (req) => {
 
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openAiKey) {
-      console.error('[ai-simulador] OPENAI_API_KEY not set')
-      return jsonResponse({ ok: true, fallback: true, message: 'El asistente no está configurado.' })
+      console.error('[ai-simulador] OPENAI_API_KEY not set in Supabase secrets')
+      return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY — set it via: supabase secrets set OPENAI_API_KEY=sk-...' }, 500)
     }
 
     const body = await req.json().catch(() => ({}))
@@ -106,15 +106,18 @@ serve(async (req) => {
       )
       console.log('[ai-simulador] OpenAI status:', response.status)
       if (!response.ok) {
-        console.error('[ai-simulador] OpenAI rejected, status:', response.status)
-        return jsonResponse({ ok: true, fallback: true, message: 'No se pudo simular el escenario.' })
+        const errRaw = await response.text().catch(() => '')
+        console.error('[ai-simulador] OpenAI error FULL body:', errRaw)
+        let errParsed: any = {}
+        try { errParsed = JSON.parse(errRaw) } catch (_) {}
+        return jsonResponse({ ok: false, error: `OpenAI error ${response.status}: ${errParsed?.error?.message || errRaw}` }, 502)
       }
       const aiData = await response.json()
       content = aiData?.choices?.[0]?.message?.content || 'Simulación generada.'
     } catch (aiErr: unknown) {
       const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
-      console.error('[ai-simulador] AI error:', isTimeout ? 'TIMEOUT' : extractErrorMessage(aiErr))
-      return jsonResponse({ ok: true, fallback: true, message: 'No se pudo simular el escenario en este momento.' })
+      console.error('[ai-simulador] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
+      return jsonResponse({ ok: false, error: isTimeout ? 'OpenAI timeout (>8s)' : extractErrorMessage(aiErr) }, 502)
     }
 
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
@@ -133,7 +136,7 @@ serve(async (req) => {
     return jsonResponse({ ok: true, data: insight })
 
   } catch (err: unknown) {
-    console.error('[ai-simulador] Unhandled error:', extractErrorMessage(err))
-    return jsonResponse({ ok: false, error: 'Error interno del servidor' }, 500)
+    console.error('[ai-simulador] Unhandled error FULL:', err)
+    return jsonResponse({ ok: false, error: extractErrorMessage(err) || 'Unknown error' }, 500)
   }
 })

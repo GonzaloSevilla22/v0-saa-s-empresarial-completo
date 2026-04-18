@@ -89,12 +89,13 @@ PRICING SUGGESTED:
     prompt += `\nPREGUNTA DEL USUARIO:\n"${sanitizedQuestion}"\n\nResponde como un asesor experto, breve y accionable.`
 
     // 4. OpenAI call with timeout + retry
+    console.log('[Copilot] Calling OpenAI...')
     const openAiKey = process.env.OPENAI_API_KEY
     if (!openAiKey) {
-      console.error('[Copilot] OPENAI_API_KEY not configured')
+      console.error('[Copilot] OPENAI_API_KEY is not set in environment')
       return NextResponse.json(
-        { ok: true, fallback: true, answer: 'El asistente no está disponible en este momento. Verificá la configuración del servidor.' },
-        { status: 200 }
+        { ok: false, error: 'Missing OPENAI_API_KEY — configure it in Vercel environment variables' },
+        { status: 500 }
       )
     }
 
@@ -125,11 +126,10 @@ PRICING SUGGESTED:
 
       if (!response.ok) {
         const errBody = await response.json().catch(() => ({}))
-        console.error('[Copilot] OpenAI error code:', response.status, 'type:', errBody?.error?.type)
-        // Graceful fallback – don't crash the whole request
+        console.error('[Copilot] OpenAI error FULL:', JSON.stringify(errBody))
         return NextResponse.json(
-          { ok: true, fallback: true, answer: 'No se pudo generar respuesta en este momento. Intentá de nuevo en unos segundos.' },
-          { status: 200 }
+          { ok: false, error: `OpenAI error ${response.status}: ${errBody?.error?.message || errBody?.error?.code || JSON.stringify(errBody)}` },
+          { status: 502 }
         )
       }
 
@@ -141,10 +141,10 @@ PRICING SUGGESTED:
       }
     } catch (aiErr: any) {
       const isTimeout = aiErr.name === 'AbortError'
-      console.error('[Copilot] AI call failed:', isTimeout ? 'TIMEOUT' : aiErr.message)
+      console.error('[Copilot] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
       return NextResponse.json(
-        { ok: true, fallback: true, answer: 'No se pudo generar respuesta en este momento. Por favor intentá de nuevo.' },
-        { status: 200 }
+        { ok: false, error: isTimeout ? 'OpenAI timeout (>8s)' : (aiErr.message || String(aiErr)) },
+        { status: 502 }
       )
     }
 
@@ -157,9 +157,9 @@ PRICING SUGGESTED:
     return NextResponse.json({ ok: true, answer })
 
   } catch (error: any) {
-    console.error('[Copilot] Unhandled error:', error.message)
+    console.error('[Copilot] Unhandled error FULL:', error)
     return NextResponse.json(
-      { ok: false, error: 'Error interno del servidor' },
+      { ok: false, error: error?.message || JSON.stringify(error) || 'Unknown error' },
       { status: 500 }
     )
   }

@@ -41,7 +41,7 @@ export default function AdminCursosAnalytics() {
                     title="Progreso Académico"
                     subtitle="Adopción y avance en los cursos de capacitación"
                     stats={stats}
-                    moduleType="cursos" as any
+                    moduleType="cursos"
                 />
             </div>
         </div>

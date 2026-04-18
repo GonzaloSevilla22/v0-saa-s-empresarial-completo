@@ -72,8 +72,8 @@ export function SearchableSelect({
       <PopoverContent
         className="p-0 w-[var(--radix-popover-trigger-width)]"
         align="start"
-        // modal=false mirrors the fix applied to SelectContent:
-        // avoids focus-trap conflict when inside a Radix Dialog.
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-expect-error modal prop exists at runtime but is missing from Radix types
         modal={false}
       >
         <Command>

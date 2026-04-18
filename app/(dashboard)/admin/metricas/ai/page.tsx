@@ -41,7 +41,7 @@ export default function AdminAiAnalytics() {
                     title="Uso de Inteligencia Artificial"
                     subtitle="Monitoreo de generación de insights y predicciones"
                     stats={stats}
-                    moduleType="ai" as any
+                    moduleType="ai"
                 />
             </div>
         </div>

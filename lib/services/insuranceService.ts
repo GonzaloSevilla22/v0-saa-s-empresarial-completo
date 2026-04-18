@@ -116,8 +116,8 @@ export const insuranceService = {
     const { error } = await supabase.rpc("increment_seguros_clicks", { row_id: id })
     if (error) {
       // Fallback if RPC doesn't exist yet
-      const { data } = await this.getInsuranceById(id)
-      await supabase.from("seguros").update({ clicks_count: (data?.clicks_count || 0) + 1 }).eq("id", id)
+      const insurance = await this.getInsuranceById(id)
+      await supabase.from("seguros").update({ clicks_count: ((insurance as any)?.clicks_count || 0) + 1 }).eq("id", id)
     }
   },
 

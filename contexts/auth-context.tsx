@@ -77,20 +77,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshSession, supabase.auth])
 
+  // Función helper para obtener la URL dinámica robusta
+  const getSiteUrl = () => {
+    if (typeof window !== 'undefined') {
+      return window.location.origin
+    }
+    let url = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_VERCEL_URL ?? 'http://localhost:3000'
+    url = url.includes('http') ? url : `https://${url}`
+    return url.replace(/\/$/, '')
+  }
+
   const login = useCallback(async (email: string, password: string) => {
+    console.log("[Auth] Iniciando flujo de login tradicional para:", email)
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
-    if (error) throw error
+    if (error) {
+      console.error("[Auth] Error en login:", error.message)
+      throw error
+    }
     await refreshSession()
     router.push("/dashboard")
   }, [supabase, router, refreshSession])
 
   const loginWithMagicLink = useCallback(async (email: string) => {
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ||
-      (typeof window !== 'undefined' ? window.location.origin : '')
+    const siteUrl = getSiteUrl()
+    console.log("[Auth] Iniciando flujo Magic Link. URL callback configurada a:", `${siteUrl}/auth/callback`)
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -98,7 +112,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emailRedirectTo: `${siteUrl}/auth/callback`,
       }
     })
-    if (error) throw error
+    if (error) {
+      console.error("[Auth] Error enviando email de Magic Link:", error.message)
+      throw error
+    }
+    console.log("[Auth] Email de magic link enviado correctamente a:", email)
   }, [supabase])
 
   const loginAsAdmin = useCallback(async () => {
@@ -113,8 +131,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(async (name: string, email: string, password: string) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ||
-      (typeof window !== 'undefined' ? window.location.origin : '')
+    const siteUrl = getSiteUrl()
+    console.log("[Auth] Iniciando registro. URL callback configurada a:", `${siteUrl}/auth/callback`)
+    
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -123,7 +142,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         emailRedirectTo: `${siteUrl}/auth/callback`,
       }
     })
-    if (error) throw error
+    if (error) {
+      console.error("[Auth] Error en registro:", error.message)
+      throw error
+    }
+    console.log("[Auth] Registro iniciado. Correo de confirmación enviado a:", email)
+    
     // Introduce a tiny delay so the postgres trigger can complete the profile insert
     await new Promise((resolve) => setTimeout(resolve, 500))
     await refreshSession()

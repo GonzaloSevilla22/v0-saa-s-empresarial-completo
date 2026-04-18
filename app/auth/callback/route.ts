@@ -33,13 +33,23 @@ export async function GET(request: NextRequest) {
 
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (!error) {
-            // Use NEXT_PUBLIC_SITE_URL for the redirect to ensure we stay on the right domain
-            const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || origin
+            console.log(`[Auth Callback] Sesión intercambiada con éxito. Redirigiendo a: ${origin}${next}`)
+            // Usamos primariamente el origin request actual. Evitamos quemar el redirect local 
+            // de `.env.local` usando NEXT_PUBLIC_SITE_URL que podría pisar producción.
+            const siteUrl = origin.includes('localhost') 
+                ? (process.env.NEXT_PUBLIC_SITE_URL || origin) 
+                : origin
+
             return NextResponse.redirect(`${siteUrl}${next}`)
+        } else {
+            console.error(`[Auth Callback] Error intercambiando sesión:`, error.message)
         }
     }
 
+    console.log(`[Auth Callback] Redirigiendo con error auth_callback_error a: ${origin}/auth/login`)
     // If something went wrong, redirect to login with error
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || origin
-    return NextResponse.redirect(`${siteUrl}/auth/login?error=auth_callback_error`)
+    const fallbackUrl = origin.includes('localhost') 
+        ? (process.env.NEXT_PUBLIC_SITE_URL || origin) 
+        : origin
+    return NextResponse.redirect(`${fallbackUrl}/auth/login?error=auth_callback_error`)
 }

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import { useData } from "@/contexts/data-context"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
 import { Plus, UserPlus } from "lucide-react"
@@ -91,22 +92,33 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
     onSuccess()
   }
 
+  // Memoised option lists for SearchableSelect — derived from in-memory data
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: p.id,
+        label: `${p.name} - ${formatMoney(p.price)} (Stock: ${p.stock})`,
+      })),
+    [products]
+  )
+
+  const clientOptions = useMemo(
+    () => clients.map((c) => ({ value: c.id, label: c.name })),
+    [clients]
+  )
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Producto</Label>
-        <Select value={productId} onValueChange={setProductId}>
-          <SelectTrigger className="bg-background border-border text-foreground">
-            <SelectValue placeholder="Seleccionar producto" />
-          </SelectTrigger>
-          <SelectContent className="bg-popover border-border">
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name} - {formatMoney(p.price)} (Stock: {p.stock})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          options={productOptions}
+          value={productId}
+          onValueChange={setProductId}
+          placeholder="Seleccionar producto"
+          searchPlaceholder="Buscar producto..."
+          emptyMessage="No se encontraron productos."
+        />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -152,18 +164,14 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
             </Button>
           </div>
         ) : (
-          <Select value={clientId} onValueChange={setClientId}>
-            <SelectTrigger className="bg-background border-border text-foreground">
-              <SelectValue placeholder="Seleccionar cliente" />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
-              {clients.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            options={clientOptions}
+            value={clientId}
+            onValueChange={setClientId}
+            placeholder="Seleccionar cliente"
+            searchPlaceholder="Buscar cliente..."
+            emptyMessage="No se encontraron clientes."
+          />
         )}
       </div>
 

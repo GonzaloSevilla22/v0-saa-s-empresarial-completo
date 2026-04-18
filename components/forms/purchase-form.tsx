@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import { useData } from "@/contexts/data-context"
 import { formatMoney } from "@/lib/format"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
@@ -94,6 +95,16 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     }
   }
 
+  // Memoised option list for SearchableSelect — derived from in-memory data
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        value: p.id,
+        label: `${p.name} (Costo: ${formatMoney(p.cost)})`,
+      })),
+    [products]
+  )
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
@@ -164,18 +175,14 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             </Button>
           </div>
         ) : (
-          <Select value={productId} onValueChange={handleProductChange}>
-            <SelectTrigger className="bg-background border-border text-foreground">
-              <SelectValue placeholder="Seleccionar producto" />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
-              {products.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name} (Costo: {formatMoney(p.cost)})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            options={productOptions}
+            value={productId}
+            onValueChange={handleProductChange}
+            placeholder="Seleccionar producto"
+            searchPlaceholder="Buscar producto..."
+            emptyMessage="No se encontraron productos."
+          />
         )}
       </div>
 

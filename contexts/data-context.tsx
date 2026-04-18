@@ -253,16 +253,36 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, refreshData])
 
   const deleteProduct = useCallback(async (id: string) => {
-    // Nullify FK references first to bypass any FK constraint in production
-    // that may not have ON DELETE SET NULL applied yet.
-    // Sales and purchases are preserved – the product column just shows "Eliminado".
-    await supabase.from('sales').update({ product_id: null }).eq('product_id', id)
-    await supabase.from('purchases').update({ product_id: null }).eq('product_id', id)
-    // Detach any variant products that reference this as parent
-    await supabase.from('products').update({ parent_id: null }).eq('parent_id', id)
+    // Delegate to the delete-product Edge Function.
+    // It runs rpc_safe_delete_product as SECURITY DEFINER (single transaction):
+    //   1. UPDATE sales   SET product_id = NULL WHERE product_id = id
+    //   2. UPDATE purchases SET product_id = NULL WHERE product_id = id
+    //   3. UPDATE products SET parent_id  = NULL WHERE parent_id  = id
+    //   4. DELETE FROM products WHERE id = id
+    // This bypasses any FK RESTRICT constraint in production without data loss.
+    const { data, error } = await supabase.functions.invoke('delete-product', {
+      body: { product_id: id }
+    })
 
-    const { error } = await supabase.from('products').delete().eq('id', id)
-    if (error) throw new Error(translateDbError(error))
+    if (error) {
+      // Try to extract the error message from the Edge Function response body
+      let msg = 'Error al eliminar el producto'
+      try {
+        const context = (error as any).context
+        if (context?.response) {
+          const bodyText = await context.response.text()
+          const parsed = JSON.parse(bodyText)
+          msg = parsed.error || msg
+        } else if (error instanceof Error) {
+          msg = error.message
+        }
+      } catch {
+        if (error instanceof Error) msg = error.message
+      }
+      throw new Error(msg)
+    }
+
+    if (data?.error) throw new Error(data.error)
     await refreshData()
   }, [supabase, refreshData])
 

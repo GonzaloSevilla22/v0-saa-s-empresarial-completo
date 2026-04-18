@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { services } from "@/lib/supabase/services"
-import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Course } from "@/lib/types"
+import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Course, Reply } from "@/lib/types"
 
 interface DataContextType {
   products: Product[]

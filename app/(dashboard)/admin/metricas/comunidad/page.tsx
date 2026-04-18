@@ -75,7 +75,7 @@ export default function AdminComunidadAnalytics() {
                     title="Actividad de la Comunidad"
                     subtitle="Interacción en posts y respuestas de emprendedores"
                     stats={stats}
-                    moduleType="comunidad" as any
+                    moduleType="comunidad"
                 />
             </div>
         </div>

@@ -105,6 +105,14 @@ export interface Reply {
   createdAt: string
 }
 
+export interface CourseLesson {
+  id: string
+  moduleId: string
+  title: string
+  duration: string
+  completed: boolean
+}
+
 export interface CourseModule {
   id: string
   title: string

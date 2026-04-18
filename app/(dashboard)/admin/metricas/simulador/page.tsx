@@ -41,7 +41,7 @@ export default function AdminSimuladorAnalytics() {
                     title="Uso del Simulador de Negocios"
                     subtitle="Frecuencia de simulaciones estratégicas realizadas"
                     stats={stats}
-                    moduleType="simulador" as any
+                    moduleType="simulador"
                 />
             </div>
         </div>

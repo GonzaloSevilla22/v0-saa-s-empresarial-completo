@@ -50,6 +50,19 @@ interface DataContextType {
 
 const DataContext = createContext<DataContextType | null>(null)
 
+/** Translates raw Postgres / Supabase error objects into clear Spanish messages. */
+function translateDbError(error: { code?: string; message?: string } | null): string {
+  if (!error) return "Error desconocido"
+  switch (error.code) {
+    case "23503": return "No se puede eliminar: el registro está siendo usado en otros datos del sistema."
+    case "23505": return "Ya existe un registro con esos datos. Revisá los campos duplicados."
+    case "42501": return "No tenés permisos para realizar esta acción."
+    case "PGRST116": return "No se encontró el registro."
+    default:
+      return error.message || "Ocurrió un error inesperado. Intentá nuevamente."
+  }
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
   const [products, setProducts] = useState<Product[]>([])
@@ -206,11 +219,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     refreshData()
   }, [refreshData])
 
-  // Products
   const addProduct = useCallback(async (p: Omit<Product, "id">) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('products').insert([{
+    const { error } = await supabase.from('products').insert([{
       user_id: user.id,
       name: p.name,
       category: p.category,
@@ -221,10 +233,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       barcode: p.barcode,
       parent_id: p.parentId
     }])
-  }, [supabase])
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   const updateProduct = useCallback(async (p: Product) => {
-    await supabase.from('products').update({
+    const { error } = await supabase.from('products').update({
       name: p.name,
       category: p.category,
       price: p.price,
@@ -234,11 +248,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       barcode: p.barcode,
       parent_id: p.parentId
     }).eq('id', p.id)
-  }, [supabase])
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   const deleteProduct = useCallback(async (id: string) => {
-    await supabase.from('products').delete().eq('id', id)
-  }, [supabase])
+    const { error } = await supabase.from('products').delete().eq('id', id)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Sales (Using Edge Function for Stock Safety and AARRR logging)
   const addSale = useCallback(async (s: Omit<Sale, "id">) => {
@@ -254,8 +272,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const deleteSale = useCallback(async (id: string) => {
-    await supabase.from('sales').delete().eq('id', id)
-  }, [supabase])
+    const { error } = await supabase.from('sales').delete().eq('id', id)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Purchases (Using Edge Function for Stock Safety)
   const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
@@ -271,8 +291,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const deletePurchase = useCallback(async (id: string) => {
-    await supabase.from('purchases').delete().eq('id', id)
-  }, [supabase])
+    const { error } = await supabase.from('purchases').delete().eq('id', id)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Expenses
   const addExpense = useCallback(async (e: Omit<Expense, "id">) => {
@@ -289,8 +311,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const deleteExpense = useCallback(async (id: string) => {
-    await supabase.from('expenses').delete().eq('id', id)
-  }, [supabase])
+    const { error } = await supabase.from('expenses').delete().eq('id', id)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Clients
   const addClient = useCallback(async (c: Omit<Client, "id">) => {
@@ -309,8 +333,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const deleteClient = useCallback(async (id: string) => {
-    await supabase.from('clients').delete().eq('id', id)
-  }, [supabase])
+    const { error } = await supabase.from('clients').delete().eq('id', id)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
 
   // Insights
   const addInsight = useCallback((i: Insight) => {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useRef } from "react"
+import { useState, useMemo, useRef, useCallback } from "react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -67,6 +67,7 @@ export function DataTable<T>({
   const [page, setPage] = useState(0)
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 10
 
@@ -116,6 +117,19 @@ export function DataTable<T>({
       setSortDir("desc")
     }
   }
+
+  const handleDelete = useCallback(async (id: string) => {
+    if (!onDelete) return
+    setDeletingId(id)
+    try {
+      await onDelete(id)
+    } catch (err: any) {
+      const msg = err?.message || "Error al eliminar el registro. Intentá nuevamente."
+      toast.error(msg)
+    } finally {
+      setDeletingId(null)
+    }
+  }, [onDelete])
 
   function handleExport() {
     if (!exportColumns || !exportFilename) return
@@ -319,7 +333,12 @@ export function DataTable<T>({
                           {onDelete && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  disabled={deletingId === getId(row)}
+                                >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </AlertDialogTrigger>
@@ -333,10 +352,11 @@ export function DataTable<T>({
                                 <AlertDialogFooter>
                                   <AlertDialogCancel className="border-border text-foreground">Cancelar</AlertDialogCancel>
                                   <AlertDialogAction
-                                    onClick={() => onDelete(getId(row))}
+                                    onClick={() => handleDelete(getId(row))}
+                                    disabled={deletingId === getId(row)}
                                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                   >
-                                    Eliminar
+                                    {deletingId === getId(row) ? "Eliminando..." : "Eliminar"}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>

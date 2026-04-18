@@ -1,82 +1,52 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
-import { DataTable, type Column } from "@/components/data-table/data-table"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { formatMoney, formatDate } from "@/lib/format"
-import { Button } from "@/components/ui/button"
+import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
 import { useAuth } from "@/contexts/auth-context"
-import { BarChart3 } from "lucide-react"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
-import Link from "next/link"
-import type { Purchase } from "@/lib/types"
-
-const columns: Column<Purchase>[] = [
-  {
-    key: "date",
-    header: "Fecha",
-    cell: (row) => formatDate(row.date),
-    sortable: true,
-    sortValue: (row) => row.date,
-  },
-  {
-    key: "product",
-    header: "Producto",
-    cell: (row) => <span className="font-medium">{row.productName}</span>,
-  },
-  {
-    key: "quantity",
-    header: "Cantidad",
-    cell: (row) => row.quantity,
-    sortable: true,
-    sortValue: (row) => row.quantity,
-  },
-  {
-    key: "unitCost",
-    header: "Costo unit.",
-    cell: (row) => formatMoney(row.unitCost),
-  },
-  {
-    key: "total",
-    header: "Total",
-    cell: (row) => <span className="font-medium text-cyan-400">{formatMoney(row.total)}</span>,
-    sortable: true,
-    sortValue: (row) => row.total,
-  },
-]
+import type { PurchaseOperation } from "@/lib/group-operations"
 
 export default function ComprasPage() {
-  const { purchases, deletePurchase, refreshData } = useData()
+  const { purchases, deletePurchase, deletePurchasesByOperation, refreshData } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
   const supabase = createClient()
 
+  // Realtime subscription
   useEffect(() => {
     const channel = supabase
-      .channel('compras-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'purchases' }, 
-        () => {
-          refreshData()
-        }
+      .channel("compras-realtime")
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "purchases" },
+        () => { refreshData() },
       )
       .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [supabase, refreshData])
+
+  // Delete handler — 1 DB call for grouped ops, 1 for historical
+  const handleDeleteOperation = useCallback(
+    async (op: PurchaseOperation) => {
+      if (op.operationId) {
+        await deletePurchasesByOperation(op.operationId)
+      } else {
+        await deletePurchase(op.items[0].id)
+      }
+    },
+    [deletePurchase, deletePurchasesByOperation],
+  )
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
-          <p className="text-sm text-muted-foreground mt-1">Gestión de compras a proveedores</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Gestión de compras a proveedores
+        </p>
       </div>
 
       {isAdmin && (
@@ -87,33 +57,10 @@ export default function ComprasPage() {
         />
       )}
 
-      <DataTable
-        data={purchases}
-        columns={columns}
-        searchPlaceholder="Buscar por producto..."
-        searchKey={(row) => row.productName}
+      <PurchaseOperationsList
+        purchases={purchases}
         onAdd={() => setOpen(true)}
-        addLabel="Nueva compra"
-        onDelete={deletePurchase}
-        getId={(row) => row.id}
-        dateKey={(row) => row.date}
-        exportColumns={[
-          { key: "date", header: "Fecha" },
-          { key: "productName", header: "Producto" },
-          { key: "quantity", header: "Cantidad" },
-          { key: "unitCost", header: "Costo Unitario" },
-          { key: "total", header: "Total" },
-        ]}
-        exportFilename="compras"
-        importColumnMap={[
-          { csvHeader: "Producto", key: "productName" },
-          { csvHeader: "Cantidad", key: "quantity" },
-          { csvHeader: "Costo Unitario", key: "unitCost" },
-          { csvHeader: "Fecha", key: "date" },
-        ]}
-        onImport={(rows) => {
-          // Here we would call a bulk create service
-        }}
+        onDeleteOperation={handleDeleteOperation}
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -124,6 +71,6 @@ export default function ComprasPage() {
           <PurchaseForm onSuccess={() => setOpen(false)} />
         </DialogContent>
       </Dialog>
-    </div >
+    </div>
   )
 }

@@ -21,9 +21,13 @@ interface DataContextType {
   addSale: (s: Omit<Sale, "id">) => Promise<void>
   updateSale: (s: Sale) => Promise<void>
   deleteSale: (id: string) => Promise<void>
+  /** Deletes ALL sales rows that share the given operation_id (one DB call). */
+  deleteSalesByOperation: (operationId: string) => Promise<void>
   addPurchase: (p: Omit<Purchase, "id">) => Promise<void>
   updatePurchase: (p: Purchase) => Promise<void>
   deletePurchase: (id: string) => Promise<void>
+  /** Deletes ALL purchases rows that share the given operation_id (one DB call). */
+  deletePurchasesByOperation: (operationId: string) => Promise<void>
   addExpense: (e: Omit<Expense, "id">) => Promise<void>
   updateExpense: (e: Expense) => Promise<void>
   deleteExpense: (id: string) => Promise<void>
@@ -322,6 +326,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await refreshData()
   }, [supabase, refreshData])
 
+  const deleteSalesByOperation = useCallback(async (operationId: string) => {
+    const { error } = await supabase.from('sales').delete().eq('operation_id', operationId)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
+
   // Purchases (Using Edge Function for Stock Safety)
   const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
     await services.createPurchase(p)
@@ -338,6 +348,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const deletePurchase = useCallback(async (id: string) => {
     const { error } = await supabase.from('purchases').delete().eq('id', id)
+    if (error) throw new Error(translateDbError(error))
+    await refreshData()
+  }, [supabase, refreshData])
+
+  const deletePurchasesByOperation = useCallback(async (operationId: string) => {
+    const { error } = await supabase.from('purchases').delete().eq('operation_id', operationId)
     if (error) throw new Error(translateDbError(error))
     await refreshData()
   }, [supabase, refreshData])
@@ -579,8 +595,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     () => ({
       products, sales, purchases, expenses, clients, insights, posts, courses, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, updateSale, deleteSale,
-      addPurchase, updatePurchase, deletePurchase,
+      addSale, updateSale, deleteSale, deleteSalesByOperation,
+      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation,
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
@@ -590,8 +606,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }),
     [products, sales, purchases, expenses, clients, insights, posts, courses, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, updateSale, deleteSale,
-      addPurchase, updatePurchase, deletePurchase,
+      addSale, updateSale, deleteSale, deleteSalesByOperation,
+      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation,
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,

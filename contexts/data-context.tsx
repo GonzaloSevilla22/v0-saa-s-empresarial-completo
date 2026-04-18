@@ -278,15 +278,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       .eq('product_id', id)
     console.log('[deleteProduct] variants found →', variants?.length ?? 0, e4 ? `WARN: ${e4.message}` : '')
 
-    // Step 5 — nullify inventory_movements.variant_id for those variants
-    //          (this was the actual blocking FK: inventory_movements_variant_id_fkey)
+    // Step 5 — DELETE inventory_movements for those variants
+    //   variant_id is NOT NULL → cannot nullify, must delete the movement rows.
+    //   These movements belong to variants of the product being deleted,
+    //   so removing them is correct (they're orphaned once variants go away).
     if (variants && variants.length > 0) {
       const variantIds = variants.map((v: { id: string }) => v.id)
       const { error: e5 } = await supabase
         .from('inventory_movements')
-        .update({ variant_id: null })
+        .delete()
         .in('variant_id', variantIds)
-      console.log('[deleteProduct] inventory_movements nullify →', e5 ? `WARN: ${e5.message}` : 'OK')
+      console.log('[deleteProduct] inventory_movements delete →', e5 ? `WARN: ${e5.message}` : 'OK')
     }
 
     // Step 6 — delete the product (cascade handles product_variants)

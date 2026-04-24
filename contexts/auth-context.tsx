@@ -11,7 +11,6 @@ interface AuthContextType {
   isAdmin: boolean
   login: (email: string, password: string) => Promise<void>
   loginWithMagicLink: (email: string) => Promise<void>
-  loginAsAdmin: () => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   upgradePlan: () => Promise<void>
@@ -119,16 +118,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     console.log("[Auth] Email de magic link enviado correctamente a:", email)
   }, [supabase])
 
-  const loginAsAdmin = useCallback(async () => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: "admin@eie.com",
-      password: "password1234",
-    })
-    if (error) throw error
-    await refreshSession()
-    router.push("/dashboard")
-  }, [supabase, router, refreshSession])
-
   const register = useCallback(async (name: string, email: string, password: string) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
     const siteUrl = getSiteUrl()
@@ -187,7 +176,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAdmin: user?.role === "admin",
         login,
         loginWithMagicLink,
-        loginAsAdmin,
         register,
         logout,
         upgradePlan,

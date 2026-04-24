@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Zap, Eye, EyeOff, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react"
+import { toast } from "sonner"
 
 export default function RegisterPage() {
   const [name, setName] = useState("")
@@ -34,15 +35,21 @@ export default function RegisterPage() {
   const passwordsMatch = password === confirmPassword && confirmPassword !== ""
 
   const generateSecurePassword = () => {
-    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
-    let newPass = ""
-    // Ensure at least one of each
-    newPass += "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[Math.floor(Math.random() * 26)]
-    newPass += "0123456789"[Math.floor(Math.random() * 10)]
-    newPass += "!@#$%^&*()"[Math.floor(Math.random() * 10)]
-    for (let i = 0; i < 9; i++) newPass += chars[Math.floor(Math.random() * chars.length)]
-    // shuffle
-    newPass = newPass.split('').sort(() => 0.5 - Math.random()).join('')
+    const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    const digits = "0123456789"
+    const symbols = "!@#$%^&*()"
+    const all = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
+    const rand = (str: string) => str[crypto.getRandomValues(new Uint32Array(1))[0] % str.length]
+    const randAll = () => Array.from(crypto.getRandomValues(new Uint8Array(9))).map(b => all[b % all.length]).join("")
+    // Ensure at least one of each required character type, then fill the rest
+    const parts = [rand(upper), rand(digits), rand(symbols), ...randAll()]
+    // Shuffle using Fisher-Yates with crypto random
+    const arr = parts
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = crypto.getRandomValues(new Uint32Array(1))[0] % (i + 1);
+      [arr[i], arr[j]] = [arr[j], arr[i]]
+    }
+    const newPass = arr.join("")
     setPassword(newPass)
     setConfirmPassword(newPass)
   }
@@ -50,19 +57,19 @@ export default function RegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!isPasswordSecure) {
-      alert("La contraseña no cumple con los requisitos de seguridad")
+      toast.error("La contraseña no cumple con los requisitos de seguridad")
       return
     }
     if (!passwordsMatch) {
-      alert("Las contraseñas no coinciden")
+      toast.error("Las contraseñas no coinciden")
       return
     }
     setIsLoading(true)
     try {
-      await register(name || "Emprendedor", email || "emprendedor@eie.com", password)
+      await register(name || "Emprendedor", email, password)
       router.push("/dashboard")
     } catch (error: any) {
-      alert(error.message)
+      toast.error(error.message)
     } finally {
       setIsLoading(false)
     }

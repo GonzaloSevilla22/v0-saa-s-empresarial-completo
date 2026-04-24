@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Zap, Eye, EyeOff, Mail } from "lucide-react"
+import { toast } from "sonner"
 import { MagicLinkForm } from "@/components/auth/MagicLinkForm"
 import { Separator } from "@/components/ui/separator"
 
@@ -26,10 +27,10 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
     try {
-      await login(email || "emprendedor@eie.com", password)
+      await login(email, password)
       router.push("/dashboard")
     } catch (error: any) {
-      alert(error.message)
+      toast.error(error.message)
     } finally {
       setIsLoading(false)
     }

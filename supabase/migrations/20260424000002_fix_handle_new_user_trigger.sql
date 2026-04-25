@@ -1,4 +1,4 @@
--- Fix handle_new_user: stop hardcoding plan='free' so new signups
+﻿-- Fix handle_new_user: stop hardcoding plan='free' so new signups
 -- inherit the column DEFAULT (currently 'pro' for the beta phase).
 -- email_logs already exists (migration 20250101000008), no changes needed there.
 
@@ -25,7 +25,7 @@ BEGIN
     new.id,
     'welcome',
     new.email,
-    '¡Bienvenido a ALIADA Emprendedores!',
+    '¡Bienvenido a ALIADATA Emprendedores!',
     jsonb_build_object('name', user_name)
   );
 

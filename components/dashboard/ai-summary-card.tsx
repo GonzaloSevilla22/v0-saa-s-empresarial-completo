@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,7 +35,7 @@ export function AiSummaryCard() {
       setSummary(text)
     } catch (err) {
       console.error('[AiSummaryCard] Error:', err)
-      setSummary("Error al conectar con la IA de ALIADA. Reintentá en unos minutos.")
+      setSummary("Error al conectar con la IA de ALIADATA. Reintentá en unos minutos.")
     } finally {
       setIsLoading(false)
     }

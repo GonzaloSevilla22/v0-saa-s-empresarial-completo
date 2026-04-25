@@ -1,4 +1,4 @@
-import { LandingSection } from "@/lib/landing"
+﻿import { LandingSection } from "@/lib/landing"
 import { CheckCircle2, Zap, Shield, BarChart3, Users, Smartphone } from "lucide-react"
 
 const iconMap: Record<string, any> = {
@@ -39,7 +39,7 @@ export function FeaturesSection({ section }: { section: LandingSection }) {
         features = [
             { title: "Gestión Proactiva", desc: "Monitoreá tu stock y ventas en tiempo real.", icon: Zap },
             { title: "Análisis con IA", desc: "Insights accionables para crecer rápido.", icon: BarChart3 },
-            { title: "Comunidad ALIADA", desc: "Interactuá con otros emprendedores.", icon: Users },
+            { title: "Comunidad ALIADATA", desc: "Interactuá con otros emprendedores.", icon: Users },
         ]
     }
 

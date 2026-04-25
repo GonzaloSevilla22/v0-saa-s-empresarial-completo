@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useRef } from "react"
 import { aiCopilotService } from "@/lib/services/aiCopilotService"
@@ -133,7 +133,7 @@ export default function CopilotoPage() {
               <Bot className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-lg">Chat con ALIADA Copilot</CardTitle>
+              <CardTitle className="text-lg">Chat con ALIADATA Copilot</CardTitle>
               <CardDescription>Basado en los datos reales de tu negocio</CardDescription>
             </div>
           </div>

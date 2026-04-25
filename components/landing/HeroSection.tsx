@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button"
+﻿import { Button } from "@/components/ui/button"
 import { LandingSection } from "@/lib/landing"
 import Link from "next/link"
 
@@ -13,8 +13,8 @@ export function HeroSection({ section }: { section: LandingSection }) {
 
             <div className="container relative z-10 mx-auto px-4 text-center">
                 <div className="flex items-center justify-center gap-4 mb-8">
-                    <img src="/aliada-logo.png" alt="ALIADA Logo" className="h-20 w-20 object-contain" />
-                    <span className="text-3xl font-bold text-white tracking-widest uppercase">ALIADA</span>
+                    <img src="/aliadata-logo.png" alt="ALIADATA Logo" className="h-20 w-20 object-contain" />
+                    <span className="text-3xl font-bold text-white tracking-widest uppercase">ALIADATA</span>
                 </div>
                 <h1 className="mb-6 text-4xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl">
                     {section.title}

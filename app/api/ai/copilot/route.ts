@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { aiCopilotService } from '@/lib/services/aiCopilotService'
 import { createClient } from '@/lib/supabase/server'
 
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     const pricingAnalysis = aiCopilotService.analyzePricingInQuestion(sanitizedQuestion)
 
     // ── System prompt with rich ERP context ─────────────────────────────────
-    const systemPrompt = `Eres ALIADA Copilot, el asesor de negocios de un pequeño emprendedor argentino.
+    const systemPrompt = `Eres ALIADATA Copilot, el asesor de negocios de un pequeño emprendedor argentino.
 Tu trabajo es dar consejos claros, concretos y accionables basados EXCLUSIVAMENTE en los datos reales del negocio.
 No inventes datos. Si no tenés información suficiente, decilo y pedí que el usuario te aporte más contexto.
 Respondé siempre en español rioplatense, de forma directa y sin relleno.`

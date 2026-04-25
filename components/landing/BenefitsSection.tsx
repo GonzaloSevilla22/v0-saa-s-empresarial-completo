@@ -1,4 +1,4 @@
-import { LandingSection } from "@/lib/landing"
+﻿import { LandingSection } from "@/lib/landing"
 
 export function BenefitsSection({ section }: { section: LandingSection }) {
     let benefits: any[] = []
@@ -20,7 +20,7 @@ export function BenefitsSection({ section }: { section: LandingSection }) {
         benefits = [
             { title: "Reduce Costos", subtitle: "Hasta un 30% en desperdicio de stock." },
             { title: "Ahorra Tiempo", subtitle: "Automatizá tareas repetitivas." },
-            { title: "Crece con ALIADA", subtitle: "Basado en datos, no en suposiciones." },
+            { title: "Crece con ALIADATA", subtitle: "Basado en datos, no en suposiciones." },
         ]
     }
 

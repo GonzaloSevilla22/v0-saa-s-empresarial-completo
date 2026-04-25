@@ -1,4 +1,4 @@
-import { Resend } from "npm:resend";
+﻿import { Resend } from "npm:resend";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
@@ -35,14 +35,14 @@ Deno.serve(async (req: Request) => {
     const { id, event_type, recipient, subject, metadata } = record;
 
     // Template logic
-    let htmlContent = `<h1>Notificación de ALIADA</h1><p>Has recibido un nuevo aviso: ${event_type}</p>`;
+    let htmlContent = `<h1>Notificación de ALIADATA</h1><p>Has recibido un nuevo aviso: ${event_type}</p>`;
 
     if (event_type === "welcome") {
       htmlContent = `
         <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>¡Bienvenido a ALIADA Emprendedores! 🚀</h2>
+          <h2>¡Bienvenido a ALIADATA Emprendedores! 🚀</h2>
           <p>Nos alegra tenerte en nuestra comunidad. Estás a un paso de optimizar la gestión de tu negocio.</p>
-          <a href="https://aliada.com/dashboard" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a mi Dashboard</a>
+          <a href="https://aliadata.com/dashboard" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a mi Dashboard</a>
         </div>
       `;
     } else if (event_type === "meeting_notice") {
@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
           <h2>🛒 Nuevo Pool de Compra Abierto</h2>
           <p>Un nuevo pool de compra está disponible: <strong>${metadata.title}</strong></p>
           <p><strong>Cierra el:</strong> ${new Date(metadata.closes_at).toLocaleDateString()}</p>
-          <a href="https://aliada.com/pools/${metadata.pool_id}" style="background-color: #8b5cf6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Pool</a>
+          <a href="https://aliadata.com/pools/${metadata.pool_id}" style="background-color: #8b5cf6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Pool</a>
         </div>
       `;
     } else if (event_type === "low_stock_alert") {
@@ -96,7 +96,7 @@ Deno.serve(async (req: Request) => {
         toAddresses = usersData.users.map((u: any) => u.email).filter(Boolean) as string[];
       }
       if (toAddresses.length === 0) {
-        toAddresses = ["test@aliada.com"]; // Fallback if no users or error
+        toAddresses = ["test@aliadata.com"]; // Fallback if no users or error
       }
     } else {
       toAddresses = [recipient];
@@ -108,9 +108,9 @@ Deno.serve(async (req: Request) => {
     // Batch or loop setup (using Promise.all for simple MVP chunking)
     const emailPromises = toAddresses.map((email) =>
       resend.emails.send({
-        from: "ALIADA Emprendedores <onboarding@resend.dev>",
+        from: "ALIADATA Emprendedores <onboarding@resend.dev>",
         to: email,
-        subject: subject || "Notificación de ALIADA",
+        subject: subject || "Notificación de ALIADATA",
         html: htmlContent,
       })
     );

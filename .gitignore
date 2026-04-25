@@ -8,3 +8,21 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Debug / local scripts (never commit)
+sync_env.js
+get_keys.js
+keys_raw.json
+status.json
+status.txt
+status_final.json
+status_utf8.json
+supabase_status.json
+edge_logs.txt
+start_error.txt
+
+# IDE
+.idx/

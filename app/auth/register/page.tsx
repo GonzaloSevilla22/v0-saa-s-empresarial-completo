@@ -80,7 +80,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-xl overflow-hidden">
-            <img src="/aliada-logo.png" alt="Logo" className="h-full w-full object-contain" />
+            <img src="/aliadata-logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">ALIADATA</h1>
           <p className="text-sm text-muted-foreground">Emprender es Inteligente</p>

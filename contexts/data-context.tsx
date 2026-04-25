@@ -179,8 +179,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (postsData) setPosts(postsData.map(po => {
-        // PostgREST returns objects for single joins, but sometimes arrays if ambiguous
-        const profile = Array.isArray(po.author_profile) ? po.author_profile[0] : po.author_profile;
+        // PostgREST returns the joined table under the key matching the table name ('profiles')
+        const profile = Array.isArray(po.profiles) ? po.profiles[0] : po.profiles;
         const likes = Array.isArray(po.post_likes) ? po.post_likes : [];
 
         return {

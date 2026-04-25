@@ -61,13 +61,39 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   )
 
   // ── Option list ─────────────────────────────────────────────────────────────
+
+  // IDs of products that are "parent catalogue entries" (have at least one variant child).
+  // These must NOT appear in the purchase dropdown — users must pick a specific variant.
+  const parentProductIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const p of products) {
+      if (p.parentId) ids.add(p.parentId)
+    }
+    return ids
+  }, [products])
+
+  // Quick lookup by id for parent-name prefix in variant labels
+  const productById = useMemo(
+    () => new Map(products.map((p) => [p.id, p])),
+    [products],
+  )
+
   const productOptions = useMemo(
     () =>
-      products.map((p) => ({
-        value: p.id,
-        label: `${p.name} (Costo: ${formatMoney(p.cost)})`,
-      })),
-    [products],
+      products
+        .filter((p) => !parentProductIds.has(p.id)) // exclude parent catalogue entries
+        .map((p) => {
+          const parent = p.parentId ? productById.get(p.parentId) : undefined
+          const displayName =
+            parent && !p.name.toLowerCase().startsWith(parent.name.toLowerCase())
+              ? `${parent.name} › ${p.name}`
+              : p.name
+          return {
+            value: p.id,
+            label: `${displayName} (Costo: ${formatMoney(p.cost)})`,
+          }
+        }),
+    [products, parentProductIds, productById],
   )
 
   // ── Handlers ────────────────────────────────────────────────────────────────

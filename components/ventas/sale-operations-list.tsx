@@ -307,65 +307,110 @@ export function SaleOperationsList({
           const isExpanded = expandedKey === op.key
           return (
             <div key={op.key} className="border-t border-border/50 first:border-t-0">
-              {/* Main row */}
+              {/* Main row — click target wraps both mobile card and desktop grid */}
               <div
                 role="button"
                 tabIndex={0}
                 onClick={() => toggleExpand(op.key)}
                 onKeyDown={(e) => e.key === "Enter" && toggleExpand(op.key)}
-                className="grid grid-cols-[120px_1fr_180px_80px_120px_48px] gap-3 px-4 py-3 items-center cursor-pointer hover:bg-accent/20 transition-colors group"
+                className="cursor-pointer hover:bg-accent/20 transition-colors group"
                 aria-expanded={isExpanded}
               >
-                <span className="text-sm text-muted-foreground tabular-nums">
-                  {formatDate(op.date)}
-                </span>
-                <div className="flex items-center gap-2 min-w-0">
-                  {isExpanded
-                    ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />}
-                  <span className="text-sm font-medium text-foreground truncate">
-                    {op.items.map((i) => i.productName).join(" · ")}
+                {/* ── Mobile card layout (< sm) ── */}
+                <div className="sm:hidden flex flex-col gap-1.5 px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {formatDate(op.date)}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {op.isGrouped && (
+                        <Badge variant="secondary" className="text-[10px] bg-emerald-500/15 text-emerald-400 border-emerald-500/25 border font-semibold">
+                          <ShoppingCart className="h-2.5 w-2.5 mr-1" />
+                          {op.items.length}
+                        </Badge>
+                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => handleDelete(e, op)}
+                        disabled={deletingKey === op.key}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label="Eliminar operación"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isExpanded
+                      ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />}
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {op.items.map((i) => i.productName).join(" · ")}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
+                    <span className="text-sm font-bold text-emerald-400 tabular-nums">
+                      {formatMoney(op.total, op.currency)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ── Desktop grid layout (sm+) ── */}
+                <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px] gap-3 px-4 py-3 items-center">
+                  <span className="text-sm text-muted-foreground tabular-nums">
+                    {formatDate(op.date)}
                   </span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isExpanded
+                      ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground transition-colors" />}
+                    <span className="text-sm font-medium text-foreground truncate">
+                      {op.items.map((i) => i.productName).join(" · ")}
+                    </span>
+                  </div>
+                  <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
+                  <div className="flex justify-center">
+                    {op.isGrouped ? (
+                      <Badge variant="secondary" className="text-[10px] bg-emerald-500/15 text-emerald-400 border-emerald-500/25 border font-semibold">
+                        <ShoppingCart className="h-2.5 w-2.5 mr-1" />
+                        {op.items.length}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">1</span>
+                    )}
+                  </div>
+                  <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">
+                    {formatMoney(op.total, op.currency)}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => handleDelete(e, op)}
+                    disabled={deletingKey === op.key}
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    aria-label="Eliminar operación"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
-                <div className="flex justify-center">
-                  {op.isGrouped ? (
-                    <Badge variant="secondary" className="text-[10px] bg-emerald-500/15 text-emerald-400 border-emerald-500/25 border font-semibold">
-                      <ShoppingCart className="h-2.5 w-2.5 mr-1" />
-                      {op.items.length}
-                    </Badge>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">1</span>
-                  )}
-                </div>
-                <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">
-                  {formatMoney(op.total, op.currency)}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => handleDelete(e, op)}
-                  disabled={deletingKey === op.key}
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                  aria-label="Eliminar operación"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
               </div>
 
               {/* Expanded detail */}
               {isExpanded && (
                 <div className="px-4 pb-4 pt-1 bg-accent/10 border-t border-dashed border-border/50">
-                  <div className="rounded-lg border border-border/60 overflow-hidden mt-2">
-                    <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2 bg-accent/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  <div className="rounded-lg border border-border/60 overflow-x-auto mt-2">
+                    <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2 bg-accent/30 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[320px]">
                       <span>Producto</span>
                       <span className="text-center">Cant.</span>
                       <span className="text-right">Precio unit.</span>
                       <span className="text-right">Subtotal</span>
                     </div>
                     {op.items.map((item) => (
-                      <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 transition-colors">
+                      <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 transition-colors min-w-[320px]">
                         <span className="font-medium text-foreground">{item.productName}</span>
                         <span className="text-center text-muted-foreground tabular-nums">{item.quantity}</span>
                         <span className="text-right text-muted-foreground tabular-nums">{formatMoney(item.unitPrice, op.currency)}</span>
@@ -373,7 +418,7 @@ export function SaleOperationsList({
                       </div>
                     ))}
                     {op.isGrouped && (
-                      <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border bg-accent/20 text-sm">
+                      <div className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border bg-accent/20 text-sm min-w-[320px]">
                         <span className="col-span-3 text-right font-medium text-muted-foreground pr-2">Total operación</span>
                         <span className="text-right font-bold text-base text-primary tabular-nums">{formatMoney(op.total, op.currency)}</span>
                       </div>

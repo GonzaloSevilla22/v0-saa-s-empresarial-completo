@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import {
@@ -13,7 +14,7 @@ import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
   SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
   SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem,
-  SidebarSeparator,
+  SidebarSeparator, useSidebar,
 } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -64,6 +65,14 @@ const navGroups = [
 export function AppSidebar() {
   const pathname = usePathname()
   const { user, logout, isAdmin } = useAuth()
+  const { isMobile, setOpenMobile } = useSidebar()
+
+  // Close the mobile drawer whenever the user navigates to a new route
+  useEffect(() => {
+    if (isMobile) {
+      setOpenMobile(false)
+    }
+  }, [pathname, isMobile, setOpenMobile])
 
   return (
     <Sidebar collapsible="icon" className="border-r border-sidebar-border">

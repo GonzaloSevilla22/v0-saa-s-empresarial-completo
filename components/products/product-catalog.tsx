@@ -327,8 +327,197 @@ export function ProductCatalog({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg border border-border overflow-hidden">
+      {/* ── Mobile card list (sm:hidden) ─────────────────────────────────── */}
+      <div className="sm:hidden flex flex-col gap-2">
+        {filteredGroups.length === 0 && filteredStandalones.length === 0 ? (
+          <div className="rounded-lg border border-border bg-card h-24 flex items-center justify-center text-muted-foreground text-sm">
+            {search ? "No se encontraron productos con ese criterio" : "No hay productos. Creá el primero."}
+          </div>
+        ) : (
+          <>
+            {/* Product groups */}
+            {filteredGroups.map((g) => {
+              const expanded = isExpanded(g.parent.id)
+              const stock = groupStock(g)
+              const minStock = groupMinStock(g)
+
+              return (
+                <div key={g.parent.id} className="flex flex-col gap-1">
+                  {/* Parent card */}
+                  <div className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
+                    {/* Top row: name + semaphore */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => toggleExpand(g.parent.id)}
+                            className="text-muted-foreground hover:text-foreground"
+                          >
+                            {expanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </button>
+                          <span className="font-semibold text-sm text-foreground truncate">{g.parent.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 pl-5">
+                          <GitBranch className="h-3 w-3 text-primary" />
+                          <span className="text-[11px] text-primary font-medium">
+                            {g.children.length} {g.children.length === 1 ? "variante" : "variantes"}
+                          </span>
+                        </div>
+                      </div>
+                      <StockSemaphore stock={stock} minStock={minStock} size="sm" />
+                    </div>
+
+                    {/* Middle row: category + price + stock count */}
+                    <div className="flex items-center justify-between gap-2 pl-5">
+                      <Badge variant="outline" className="text-xs border-border text-muted-foreground">
+                        {g.parent.category}
+                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{groupPriceLabel(g)}</span>
+                        <span className="text-xs text-muted-foreground">{stock} uds</span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                        onClick={() => onAddVariant(g.parent)}
+                      >
+                        <Plus className="h-3 w-3 mr-0.5" />
+                        Variante
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        onClick={() => onEdit(g.parent)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <DeleteDialog
+                        id={g.parent.id}
+                        label={g.parent.name}
+                        childCount={g.children.length}
+                        onConfirm={handleDelete}
+                        isDeleting={deletingId === g.parent.id}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Variant cards (expanded) */}
+                  {expanded && g.children.map((child) => (
+                    <div
+                      key={child.id}
+                      className="rounded-lg border border-border bg-accent/10 p-3 ml-4 flex flex-col gap-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="text-sm text-foreground font-medium truncate block">{child.name}</span>
+                          {child.barcode && (
+                            <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{child.barcode}</code>
+                          )}
+                        </div>
+                        <StockSemaphore stock={child.stock} minStock={child.minStock} size="sm" />
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-emerald-400 font-medium">{formatMoney(child.price)}</span>
+                        <span className={cn(
+                          "font-medium",
+                          child.margin >= 50 ? "text-emerald-400" : child.margin >= 30 ? "text-yellow-400" : "text-red-400"
+                        )}>
+                          {child.margin}% margen
+                        </span>
+                        <span className="text-muted-foreground">{child.stock} uds</span>
+                      </div>
+                      <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          onClick={() => onEdit(child)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <DeleteDialog
+                          id={child.id}
+                          label={child.name}
+                          onConfirm={handleDelete}
+                          isDeleting={deletingId === child.id}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+
+            {/* Standalone products */}
+            {filteredStandalones.map((p) => (
+              <div key={p.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="font-medium text-sm text-foreground truncate block">{p.name}</span>
+                    {p.barcode && (
+                      <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{p.barcode}</code>
+                    )}
+                  </div>
+                  <StockSemaphore stock={p.stock} minStock={p.minStock} size="sm" />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <Badge variant="outline" className="text-xs border-border text-muted-foreground">
+                    {p.category}
+                  </Badge>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-emerald-400 font-medium">{formatMoney(p.price)}</span>
+                    <span className={cn(
+                      "font-medium",
+                      p.margin >= 50 ? "text-emerald-400" : p.margin >= 30 ? "text-yellow-400" : "text-red-400"
+                    )}>
+                      {p.margin}%
+                    </span>
+                    <span className="text-muted-foreground">{p.stock} uds</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground hover:text-primary hover:bg-primary/10"
+                    onClick={() => onAddVariant(p)}
+                  >
+                    <Plus className="h-3 w-3 mr-0.5" />
+                    Variante
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:text-primary"
+                    onClick={() => onEdit(p)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <DeleteDialog
+                    id={p.id}
+                    label={p.name}
+                    onConfirm={handleDelete}
+                    isDeleting={deletingId === p.id}
+                  />
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* ── Desktop table (hidden on mobile) ─────────────────────────────── */}
+      <div className="hidden sm:block rounded-lg border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>

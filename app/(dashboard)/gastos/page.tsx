@@ -105,6 +105,18 @@ export default function GastosPage() {
         onDelete={deleteExpense}
         getId={(row) => row.id}
         dateKey={(row) => row.date}
+        mobileCard={(row) => (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <Badge variant="outline" className={`text-xs shrink-0 ${categoryColors[row.category] || categoryColors.Otros}`}>
+                {row.category}
+              </Badge>
+              <span className="font-semibold text-sm text-red-400">{formatMoney(row.amount)}</span>
+            </div>
+            <p className="font-medium text-sm text-foreground">{row.description}</p>
+            <p className="text-xs text-muted-foreground">{formatDate(row.date)}</p>
+          </div>
+        )}
         exportColumns={[
           { key: "date", header: "Fecha" },
           { key: "category", header: "Categoría" },

@@ -45,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: session.user.id,
           name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
           email: session.user.email || "",
-          plan: 'pro', // MVP: Force PRO plan
+          plan: (profile.plan as Plan) ?? 'free',
           role: profile.role as UserRole,
         })
       } else {
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           id: session.user.id,
           name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
           email: session.user.email || "",
-          plan: 'pro', // MVP: Force PRO plan
+          plan: 'free',
           role: 'user',
         })
       }

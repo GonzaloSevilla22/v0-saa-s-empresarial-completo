@@ -22,7 +22,13 @@ export interface Product {
   stock: number
   minStock: number
   barcode?: string
-  parentId?: string // For variants
+  /** FK to products.id — set when this product is a variant of a parent */
+  parentId?: string
+  /**
+   * true  → SKU variant (always paired with parentId)
+   * false → root product: either a parent catalogue entry or a standalone product
+   */
+  isVariant: boolean
 }
 
 export interface Sale {

@@ -117,35 +117,58 @@ Deno.serve(async (req: Request) => {
 
     const results = await Promise.allSettled(emailPromises);
 
-    // Simple eval of success vs failure based on first item
-    const firstResult = results[0];
-    const isError = firstResult.status === 'rejected' || (firstResult.status === 'fulfilled' && firstResult.value.error);
-    const errorDetails = isError ? (firstResult as any).reason || (firstResult as any).value?.error : null;
+    // Evaluate ALL results, not just the first one
+    const successful = results.filter(
+      (r): r is PromiseFulfilledResult<any> =>
+        r.status === "fulfilled" && !r.value?.error
+    );
+    const failed = results.filter(
+      (r) =>
+        r.status === "rejected" ||
+        (r.status === "fulfilled" && (r as PromiseFulfilledResult<any>).value?.error)
+    );
 
-    if (isError) {
-      console.error("Resend Error on first item:", errorDetails);
+    const errorMessages = failed.map((r) => {
+      if (r.status === "rejected") {
+        return (r as PromiseRejectedResult).reason?.message ?? String((r as PromiseRejectedResult).reason);
+      }
+      return (r as PromiseFulfilledResult<any>).value?.error?.message ??
+        JSON.stringify((r as PromiseFulfilledResult<any>).value?.error);
+    });
+
+    console.log(`Email batch result — sent: ${successful.length}, failed: ${failed.length}, total: ${toAddresses.length}`);
+
+    const allFailed = successful.length === 0;
+    const partialFailed = failed.length > 0 && successful.length > 0;
+    const firstSuccessId = successful[0]?.value?.data?.id ?? "batch-sent";
+
+    if (allFailed) {
+      console.error("All emails failed:", errorMessages);
       await supabase.from("email_logs").update({
         status: "failed",
-        error_details: JSON.stringify(errorDetails),
+        error_details: JSON.stringify({ errors: errorMessages, sent: 0, total: toAddresses.length }),
       }).eq("id", id);
 
-      return new Response(JSON.stringify({ error: errorDetails }), {
+      return new Response(JSON.stringify({ error: "All emails failed", details: errorMessages }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // Success Update
+    // Partial or full success
     await supabase.from("email_logs").update({
-      status: "sent",
-      provider_id: (firstResult as any).value?.data?.id || "batch-sent",
+      status: partialFailed ? "partial" : "sent",
+      provider_id: firstSuccessId,
       sent_at: new Date().toISOString(),
+      error_details: partialFailed
+        ? JSON.stringify({ errors: errorMessages, sent: successful.length, total: toAddresses.length })
+        : null,
     }).eq("id", id);
 
-    return new Response(JSON.stringify({ success: true, count: toAddresses.length }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ success: true, sent: successful.length, failed: failed.length, total: toAddresses.length }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (error: any) {
     console.error("Function Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {

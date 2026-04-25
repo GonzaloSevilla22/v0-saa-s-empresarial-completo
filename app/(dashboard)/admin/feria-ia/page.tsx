@@ -22,6 +22,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Card,
   CardContent,
   CardDescription,
@@ -41,6 +51,8 @@ export default function AdminFeriaIaPage() {
   const [stats, setStats] = useState<any>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedTool, setSelectedTool] = useState<Partial<FairAiTool> | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<FairAiTool | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   
   const [formData, setFormData] = useState<Partial<FairAiTool>>({
     name: "",
@@ -106,14 +118,18 @@ export default function AdminFeriaIaPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("¿Eliminar esta herramienta?")) return
+  async function handleDelete() {
+    if (!deleteTarget) return
     try {
-      await fairAiToolsService.deleteTool(id)
-      toast.success("Eliminado")
+      setIsDeleting(true)
+      await fairAiToolsService.deleteTool(deleteTarget.id)
+      toast.success("Herramienta eliminada")
+      setDeleteTarget(null)
       loadData()
     } catch (error) {
       toast.error("Error al eliminar")
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -243,7 +259,7 @@ export default function AdminFeriaIaPage() {
                         <Button variant="outline" size="icon" className="h-8 w-8 border-slate-700" onClick={() => handleOpenDialog(item)}>
                           <Edit2 className="h-3.5 w-3.5" />
                         </Button>
-                        <Button variant="outline" size="icon" className="h-8 w-8 text-red-400 border-slate-700" onClick={() => handleDelete(item.id)}>
+                        <Button variant="outline" size="icon" className="h-8 w-8 text-red-400 border-slate-700" onClick={() => setDeleteTarget(item)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -255,6 +271,25 @@ export default function AdminFeriaIaPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent className="bg-slate-900 border-slate-800 text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar herramienta?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              Estás a punto de eliminar <strong className="text-slate-200">"{deleteTarget?.name}"</strong>. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-700 text-slate-400 hover:bg-slate-800 bg-transparent" disabled={isDeleting}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-red-600 hover:bg-red-700 text-white">
+              {isDeleting ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-md bg-slate-900 border-slate-800 text-slate-100">

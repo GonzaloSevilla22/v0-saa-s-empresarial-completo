@@ -1,9 +1,9 @@
-import { getAllLandingSections } from "@/lib/landing"
+import { getAllLandingSectionsAction } from "@/app/actions/landing"
 import { LandingManager } from "@/components/admin/LandingManager"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 
 export default async function AdminLandingPage() {
-    const sections = await getAllLandingSections()
+    const sections = await getAllLandingSectionsAction()
 
     return (
         <div className="flex-1 space-y-4 p-8 pt-6">

@@ -6,6 +6,7 @@ import { fetchBusinessKpis } from '@/lib/adminAnalytics'
 import {
     Users, Crown, MessageSquare, Sparkles, TrendingUp, Activity
 } from 'lucide-react'
+import Link from 'next/link'
 import TimeSeriesLinesChart from '@/components/admin/charts/TimeSeriesLinesChart'
 import WeeklyHistogramChart from '@/components/admin/charts/WeeklyHistogramChart'
 
@@ -129,9 +130,9 @@ export default function AdminMetricasPage() {
 
 function ModuleLink({ href, label }: { href: string, label: string }) {
     return (
-        <a href={href} className="bg-slate-900/40 backdrop-blur-md p-4 rounded-xl border border-slate-800 text-center text-sm font-medium text-slate-300 hover:border-emerald-500/50 hover:text-emerald-400 transition-all">
+        <Link href={href} className="bg-slate-900/40 backdrop-blur-md p-4 rounded-xl border border-slate-800 text-center text-sm font-medium text-slate-300 hover:border-emerald-500/50 hover:text-emerald-400 transition-all">
             {label}
-        </a>
+        </Link>
     )
 }
 

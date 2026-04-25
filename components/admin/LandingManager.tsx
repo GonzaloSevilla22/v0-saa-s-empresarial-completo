@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { LandingSection, updateLandingSection } from "@/lib/landing"
+import { LandingSection } from "@/lib/landing"
+import { updateLandingSectionActionAction } from "@/app/actions/landing"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowUp, ArrowDown, Edit2, Eye, EyeOff, LayoutGrid } from "lucide-react"
@@ -13,7 +14,7 @@ export function LandingManager({ initialSections }: { initialSections: LandingSe
 
     const handleToggleActive = async (section: LandingSection) => {
         try {
-            const updated = await updateLandingSection(section.id, { active: !section.active })
+            const updated = await updateLandingSectionAction(section.id, { active: !section.active })
             setSections(sections.map(s => s.id === section.id ? updated : s))
             toast.success(updated.active ? "Sección activada" : "Sección desactivada")
         } catch (error) {
@@ -38,8 +39,8 @@ export function LandingManager({ initialSections }: { initialSections: LandingSe
         // Ideally we should have a bulk update RPC, but we'll do individual updates for now
         try {
             await Promise.all([
-                updateLandingSection(reordered[index].id, { position: index + 1 }),
-                updateLandingSection(reordered[newIndex].id, { position: newIndex + 1 })
+                updateLandingSectionAction(reordered[index].id, { position: index + 1 }),
+                updateLandingSectionAction(reordered[newIndex].id, { position: newIndex + 1 })
             ])
             toast.success("Orden actualizado")
         } catch (error) {

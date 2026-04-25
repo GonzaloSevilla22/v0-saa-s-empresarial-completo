@@ -1,7 +1,8 @@
 ﻿"use client"
 
 import { useState } from "react"
-import { LandingSection, updateLandingSection, uploadLandingImage } from "@/lib/landing"
+import { LandingSection, uploadLandingImage } from "@/lib/landing"
+import { updateLandingSectionAction } from "@/app/actions/landing"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -21,10 +22,9 @@ export function LandingSectionForm({ section }: { section: LandingSection }) {
         e.preventDefault()
         setSaving(true)
         try {
-            await updateLandingSection(section.id, formData)
+            await updateLandingSectionAction(section.id, formData)
             toast.success("Sección guardada correctamente")
             router.push('/admin/landing')
-            router.refresh()
         } catch (error) {
             toast.error("Error al guardar la sección")
         } finally {

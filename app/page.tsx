@@ -1,9 +1,11 @@
-﻿import { getLandingSections } from "@/lib/landing"
+﻿import { getLandingSectionsAction } from "@/app/actions/landing"
 import { LandingRenderer } from "@/components/landing/LandingRenderer"
 import { Metadata } from "next"
 
+export const dynamic = 'force-dynamic'
+
 export async function generateMetadata(): Promise<Metadata> {
-  const sections = await getLandingSections()
+  const sections = await getLandingSectionsAction()
   const hero = sections.find(s => s.type === 'hero')
 
   return {
@@ -18,7 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function HomePage() {
-  const sections = await getLandingSections()
+  const sections = await getLandingSectionsAction()
 
   return <LandingRenderer sections={sections} />
 }

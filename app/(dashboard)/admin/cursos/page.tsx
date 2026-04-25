@@ -36,6 +36,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { BookOpen, Crown, Pencil, Plus, Trash2, ListTree, Video, Save, ChevronRight, ChevronDown, MoveUp, MoveDown } from "lucide-react"
+import { toast } from "sonner"
 import type { Course } from "@/lib/types"
 
 type CourseForm = {
@@ -70,11 +71,10 @@ const levelColors: Record<string, string> = {
     avanzado: "border-red-500/30 text-red-400",
 }
 
-const supabase = createClient()
-
 export default function AdminCursosPage() {
     const { courses, addCourse, updateCourse, deleteCourse } = useData()
     const { user } = useAuth()
+    const supabase = createClient()
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editingCourse, setEditingCourse] = useState<Course | null>(null)
@@ -115,14 +115,24 @@ export default function AdminCursosPage() {
             order_index: modules.length
         }
         const { data, error } = await supabase.from('course_modules').insert([newModule]).select().single()
-        if (error) return console.error(error)
+        if (error) {
+            console.error(error)
+            toast.error("Error al agregar módulo")
+            return
+        }
         setModules([...modules, { ...data, lessons: [] }])
+        toast.success("Módulo agregado")
     }
 
     const deleteModule = async (moduleId: string) => {
         const { error } = await supabase.from('course_modules').delete().eq('id', moduleId)
-        if (error) return console.error(error)
+        if (error) {
+            console.error(error)
+            toast.error("Error al eliminar módulo")
+            return
+        }
         setModules(modules.filter(m => m.id !== moduleId))
+        toast.success("Módulo eliminado")
     }
 
     const addLesson = async (moduleId: string) => {
@@ -135,14 +145,24 @@ export default function AdminCursosPage() {
             duration: "10 min"
         }
         const { data, error } = await supabase.from('course_lessons').insert([newLesson]).select().single()
-        if (error) return console.error(error)
+        if (error) {
+            console.error(error)
+            toast.error("Error al agregar lección")
+            return
+        }
         setModules(modules.map(m => m.id === moduleId ? { ...m, lessons: [...m.lessons, data] } : m))
+        toast.success("Lección agregada")
     }
 
     const deleteLesson = async (moduleId: string, lessonId: string) => {
         const { error } = await supabase.from('course_lessons').delete().eq('id', lessonId)
-        if (error) return console.error(error)
+        if (error) {
+            console.error(error)
+            toast.error("Error al eliminar lección")
+            return
+        }
         setModules(modules.map(m => m.id === moduleId ? { ...m, lessons: m.lessons.filter((l: any) => l.id !== lessonId) } : m))
+        toast.success("Lección eliminada")
     }
 
     const updateItem = async (table: string, id: string, updates: any) => {

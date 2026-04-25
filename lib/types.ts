@@ -136,7 +136,7 @@ export type ExpenseCategory =
   | "Alquiler"
   | "Servicios"
   | "Marketing"
-  | "Logistica"
+  | "Logística"
   | "Personal"
   | "Impuestos"
   | "Otros"

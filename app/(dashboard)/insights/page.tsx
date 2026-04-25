@@ -10,13 +10,6 @@ import { Sparkles, RefreshCw } from "lucide-react"
 import { MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { aiInsightService } from "@/lib/services/aiInsightService"
 import { toast } from "sonner"
-import type { Insight } from "@/lib/types"
-
-const extraInsights: Insight[] = [
-  { id: "ix1", type: "oportunidad", priority: "alta", message: "Los fines de semana tus ventas bajan un 40%. Considerá promociones especiales para sábados.", date: new Date().toISOString().split("T")[0] },
-  { id: "ix2", type: "ahorro", priority: "media", message: "Podrías ahorrar $200/mes comprando Cable HDMI en lotes de 200 unidades. El proveedor ofrece 15% de descuento.", date: new Date().toISOString().split("T")[0] },
-  { id: "ix3", type: "clientes", priority: "baja", message: "Valentina Ruiz no compra hace 90 días. Un cupón de descuento podría reactivarla.", date: new Date().toISOString().split("T")[0] },
-]
 
 export default function InsightsPage() {
   const { insights, refreshData } = useData()

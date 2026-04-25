@@ -7,14 +7,6 @@ import { Sparkles, RefreshCw } from "lucide-react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 
-const summaries = [
-  "Hoy tus ventas crecieron un 15% comparado con ayer. Los Auriculares Bluetooth siguen siendo tu producto estrella. Tenés 2 productos por debajo del stock mínimo que necesitan reposición urgente.",
-  "Excelente día de ventas con $151 facturados. Tu margen promedio es del 67%. Recomendamos revisar el stock de Zapatillas Running y Power Bank antes del fin de semana.",
-  "Las ventas de esta semana muestran una tendencia positiva. Ana Martínez y Lucas Romero fueron tus clientes más activos. Considerá una promoción en productos de Electrónica para mantener el impulso.",
-]
-
-import { services } from "@/lib/supabase/services"
-
 export function AiSummaryCard() {
   const { getTodaySales, getLowStockProducts } = useData()
   const [summary, setSummary] = useState("Cargando resumen inteligente...")
@@ -28,23 +20,31 @@ export function AiSummaryCard() {
     const supabase = createClient()
     try {
       const { data, error } = await supabase.functions.invoke('ai-resumen', {
-        body: { type: 'ventas', period: 'hoy' },
+        body: { period: 'daily' },
       })
-      if (error) {
-        throw error
-      }
-      setSummary(data.content || "No se pudo generar el resumen en este momento.")
-    } catch (error) {
-      console.error(error)
-      setSummary("Error al conectar con la IA de ALIADA. Reintenta en unos minutos.")
+
+      if (error) throw error
+
+      // ai-resumen returns { ok, data } where data is either:
+      //   - an insights DB row  { content, type, ... }  (when RPC succeeds)
+      //   - a raw OpenAI string                          (when RPC fails gracefully)
+      const text: string =
+        (typeof data?.data === 'string' ? data.data : data?.data?.content) ??
+        "No se pudo generar el resumen en este momento."
+
+      setSummary(text)
+    } catch (err) {
+      console.error('[AiSummaryCard] Error:', err)
+      setSummary("Error al conectar con la IA de ALIADA. Reintentá en unos minutos.")
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Initial load
+  // Initial load on mount
   useEffect(() => {
     handleRegenerate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (

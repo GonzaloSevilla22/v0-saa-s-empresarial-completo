@@ -288,7 +288,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
                 placeholder="Nombre del cliente"
                 className="bg-background border-border text-foreground text-sm"
               />
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Input
                   value={newClientEmail}
                   onChange={(e) => setNewClientEmail(e.target.value)}

@@ -55,7 +55,7 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Nombre</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" className="bg-background border-border text-foreground" />

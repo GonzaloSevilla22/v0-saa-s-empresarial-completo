@@ -88,7 +88,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Producto Padre (Variante)</Label>
           <Select value={parentId} onValueChange={setParentId}>
@@ -136,7 +136,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Costo</Label>
           <NumericInput min={0} step={0.01} value={cost} onValueChange={setCost} className="bg-background border-border text-foreground" />
@@ -156,7 +156,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Stock inicial</Label>
           <NumericInput min={0} value={stock} onValueChange={setStock} className="bg-background border-border text-foreground" />

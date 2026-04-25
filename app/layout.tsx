@@ -12,6 +12,23 @@ const _geistMono = Geist_Mono({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'ALIADATA - Emprender es Inteligente',
   description: 'Plataforma SaaS de gestión empresarial para emprendedores con inteligencia artificial',
+  applicationName: 'Aliadata',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Aliadata',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: [
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+    shortcut: '/icons/icon-192.png',
+  },
 }
 
 export const viewport: Viewport = {

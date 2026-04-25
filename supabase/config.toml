@@ -1,4 +1,4 @@
-# For detailed configuration reference documentation, visit:
+﻿# For detailed configuration reference documentation, visit:
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
@@ -224,7 +224,7 @@ port = 465
 user = "resend"
 pass = "env(RESEND_API_KEY)"
 admin_email = "onboarding@resend.dev"
-sender_name = "ALIADA Emprendedores"
+sender_name = "ALIADATA Emprendedores"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

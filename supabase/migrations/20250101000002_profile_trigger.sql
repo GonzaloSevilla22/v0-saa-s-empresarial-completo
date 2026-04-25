@@ -1,4 +1,4 @@
--- Drop the existing trigger and function to recreate them with email logic
+﻿-- Drop the existing trigger and function to recreate them with email logic
 drop trigger if exists on_auth_user_created on auth.users;
 drop function if exists public.handle_new_user();
 
@@ -25,7 +25,7 @@ begin
     new.id,
     'welcome',
     new.email,
-    '¡Bienvenido a ALIADA Emprendedores!',
+    '¡Bienvenido a ALIADATA Emprendedores!',
     jsonb_build_object('name', user_name)
   );
 

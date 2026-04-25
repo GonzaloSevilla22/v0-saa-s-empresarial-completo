@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button"
+﻿import { Button } from "@/components/ui/button"
 import { LandingSection } from "@/lib/landing"
 import Link from "next/link"
 
@@ -11,7 +11,7 @@ export function CTASection({ section }: { section: LandingSection }) {
                         {section.title}
                     </h2>
                     <p className="mx-auto mt-6 max-w-xl text-center text-lg leading-8 text-emerald-100">
-                        {section.subtitle || "Unite a los cientos de emprendedores que ya confían en ALIADA."}
+                        {section.subtitle || "Unite a los cientos de emprendedores que ya confían en ALIADATA."}
                     </p>
                     {section.content && (
                         <p className="mx-auto mt-4 max-w-lg text-center text-sm text-emerald-200/80">

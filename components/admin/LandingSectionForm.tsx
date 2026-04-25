@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { LandingSection, updateLandingSection, uploadLandingImage } from "@/lib/landing"
@@ -36,16 +36,16 @@ export function LandingSectionForm({ section }: { section: LandingSection }) {
         features: `[
   { "title": "Gestión Proactiva", "desc": "Monitoreá tu stock y ventas en tiempo real.", "icon": "0" },
   { "title": "Análisis con IA", "desc": "Insights accionables para crecer rápido.", "icon": "2" },
-  { "title": "Comunidad ALIADA", "desc": "Interactuá con otros emprendedores.", "icon": "3" }
+  { "title": "Comunidad ALIADATA", "desc": "Interactuá con otros emprendedores.", "icon": "3" }
 ]`,
         benefits: `[
   { "title": "Reduce Costos", "subtitle": "Hasta un 30% en desperdicio de stock." },
   { "title": "Ahorra Tiempo", "subtitle": "Automatizá tareas repetitivas." },
-  { "title": "Crece con ALIADA", "subtitle": "Basado en datos, no en suposiciones." }
+  { "title": "Crece con ALIADATA", "subtitle": "Basado en datos, no en suposiciones." }
 ]`,
         testimonials: `[
-  { "name": "Carlos Rossi", "role": "Usuario ALIADA", "text": "La IA cambió mi forma de ver el negocio." },
-  { "name": "Lucía Méndez", "role": "Emprendedora", "text": "La comunidad ALIADA es increíble." }
+  { "name": "Carlos Rossi", "role": "Usuario ALIADATA", "text": "La IA cambió mi forma de ver el negocio." },
+  { "name": "Lucía Méndez", "role": "Emprendedora", "text": "La comunidad ALIADATA es increíble." }
 ]`
     }
 

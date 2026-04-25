@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import Link from "next/link"
 import { useEffect } from "react"
@@ -82,7 +82,7 @@ export function AppSidebar() {
             <img src="/aliada-logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
-            <span className="text-sm font-bold text-sidebar-foreground">ALIADA</span>
+            <span className="text-sm font-bold text-sidebar-foreground">ALIADATA</span>
             <span className="text-[10px] text-sidebar-foreground/60">Emprender es Inteligente</span>
           </div>
         </Link>

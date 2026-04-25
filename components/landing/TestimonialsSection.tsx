@@ -1,4 +1,4 @@
-import { LandingSection } from "@/lib/landing"
+﻿import { LandingSection } from "@/lib/landing"
 import { Star } from "lucide-react"
 
 export function TestimonialsSection({ section }: { section: LandingSection }) {
@@ -19,8 +19,8 @@ export function TestimonialsSection({ section }: { section: LandingSection }) {
 
     if (testimonials.length === 0) {
         testimonials = [
-            { name: "Carlos Rossi", role: "Usuario ALIADA", text: "La IA cambió mi forma de ver el negocio. Ahora sé exactamente qué comprar." },
-            { name: "Lucía Méndez", role: "Emprendedora", text: "La comunidad ALIADA es increíble. Aprendí más aquí que en cualquier curso." },
+            { name: "Carlos Rossi", role: "Usuario ALIADATA", text: "La IA cambió mi forma de ver el negocio. Ahora sé exactamente qué comprar." },
+            { name: "Lucía Méndez", role: "Emprendedora", text: "La comunidad ALIADATA es increíble. Aprendí más aquí que en cualquier curso." },
         ]
     }
 

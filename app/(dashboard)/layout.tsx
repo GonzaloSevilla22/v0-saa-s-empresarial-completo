@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { DataProvider } from "@/contexts/data-context"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
@@ -30,7 +30,7 @@ const pageNames: Record<string, string> = {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const currentPageName = pageNames[pathname] || "ALIADA"
+  const currentPageName = pageNames[pathname] || "ALIADATA"
 
   return (
     <DataProvider>

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
@@ -43,7 +43,7 @@ export default function LoginPage() {
           <div className="flex h-16 w-16 items-center justify-center rounded-xl overflow-hidden">
             <img src="/aliada-logo.png" alt="Logo" className="h-full w-full object-contain" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">ALIADA</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">ALIADATA</h1>
           <p className="text-sm text-muted-foreground">Emprender es Inteligente</p>
         </div>
 

@@ -54,12 +54,16 @@ interface DataTableProps<T> {
   exportFilename?: string
   importColumnMap?: ImportColumnMap[]
   onImport?: (rows: Record<string, string>[]) => void
+  // Mobile card renderer — when provided, desktop table is hidden on mobile
+  // and a card list is shown instead
+  mobileCard?: (row: T) => React.ReactNode
 }
 
 export function DataTable<T>({
   data, columns, searchPlaceholder = "Buscar...", searchKey,
   onAdd, addLabel = "Agregar", onEdit, onDelete, getId,
   dateKey, exportColumns, exportFilename, importColumnMap, onImport,
+  mobileCard,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("")
   const [sortKey, setSortKey] = useState<string | null>(null)
@@ -163,6 +167,43 @@ export function DataTable<T>({
   }
 
   const isDateFilterActive = dateFrom || dateTo
+
+  // Reusable delete dialog for mobile cards
+  function MobileDeleteDialog({ row }: { row: T }) {
+    const id = getId(row)
+    return (
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-destructive"
+            disabled={deletingId === id}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-card-foreground">Confirmar eliminación</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. El registro será eliminado permanentemente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-foreground">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => handleDelete(id)}
+              disabled={deletingId === id}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingId === id ? "Eliminando..." : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -275,8 +316,46 @@ export function DataTable<T>({
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg border border-border overflow-hidden">
+      {/* ── Mobile card list (sm:hidden) ─────────────────────────────────── */}
+      {mobileCard && (
+        <div className="sm:hidden flex flex-col gap-2">
+          {paginated.length === 0 ? (
+            <div className="rounded-lg border border-border bg-card h-24 flex items-center justify-center text-muted-foreground text-sm">
+              No se encontraron resultados
+            </div>
+          ) : (
+            paginated.map((row) => (
+              <div
+                key={getId(row)}
+                className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2"
+              >
+                {/* Content provided by caller */}
+                {mobileCard(row)}
+
+                {/* Action row */}
+                {(onEdit || onDelete) && (
+                  <div className="flex items-center justify-end gap-1 pt-2 border-t border-border">
+                    {onEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        onClick={() => onEdit(row)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {onDelete && <MobileDeleteDialog row={row} />}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── Desktop table (hidden on mobile when mobileCard provided) ──── */}
+      <div className={`rounded-lg border border-border overflow-hidden ${mobileCard ? "hidden sm:block" : ""}`}>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>

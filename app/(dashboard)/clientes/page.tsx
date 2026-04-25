@@ -134,6 +134,26 @@ export default function ClientesPage() {
         onEdit={handleEdit}
         onDelete={deleteClient}
         getId={(row) => row.id}
+        mobileCard={(row) => (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-medium text-sm text-foreground truncate">{row.name}</p>
+                <p className="text-xs text-muted-foreground truncate">{row.email}</p>
+              </div>
+              <Badge variant="outline" className={`text-xs capitalize shrink-0 ${statusColors[row.status]}`}>
+                {row.status}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground italic">{row.category || "Sin categoría"}</span>
+              <span className="text-sm font-semibold text-primary">{formatMoney(row.totalSpent)}</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Última compra: {new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR")}
+            </p>
+          </div>
+        )}
         exportColumns={[
           { key: "name",        header: "Nombre"         },
           { key: "email",       header: "Email"          },

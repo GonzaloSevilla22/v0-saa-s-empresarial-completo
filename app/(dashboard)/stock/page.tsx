@@ -128,6 +128,24 @@ export default function StockPage() {
         searchPlaceholder="Buscar productos..."
         searchKey={(row) => `${row.name} ${row.category}`}
         getId={(row) => row.id}
+        mobileCard={(row) => {
+          const toOrder = row.stock <= row.minStock ? row.minStock * 2 - row.stock : 0
+          return (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex flex-col gap-0.5">
+                <span className="font-medium text-sm text-foreground truncate">{row.name}</span>
+                <span className="text-xs text-muted-foreground">{row.category}</span>
+                {toOrder > 0 && (
+                  <span className="text-xs text-primary font-medium">Reponer: {toOrder} uds</span>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
+                <span className="text-xs text-muted-foreground">{row.stock} / {row.minStock} uds</span>
+              </div>
+            </div>
+          )
+        }}
         exportColumns={[
           { key: "name",     header: "Producto"      },
           { key: "category", header: "Categoría"     },

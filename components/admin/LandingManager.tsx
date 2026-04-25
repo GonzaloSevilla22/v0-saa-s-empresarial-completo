@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { LandingSection } from "@/lib/landing"
-import { updateLandingSectionActionAction } from "@/app/actions/landing"
+import { updateLandingSectionAction } from "@/app/actions/landing"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ArrowUp, ArrowDown, Edit2, Eye, EyeOff, LayoutGrid } from "lucide-react"

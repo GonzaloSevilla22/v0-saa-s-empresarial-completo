@@ -44,7 +44,9 @@ export async function updateSession(request: NextRequest) {
     return response
   }
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith('/auth/login') || request.nextUrl.pathname.startsWith('/auth/register');
+  const isAuthRoute =
+    request.nextUrl.pathname.startsWith('/auth/login') ||
+    request.nextUrl.pathname.startsWith('/auth/register')
 
   const protectedRoutes = [
     '/dashboard', '/ventas', '/compras', '/productos', '/stock',
@@ -53,15 +55,24 @@ export async function updateSession(request: NextRequest) {
   ]
   const isProtected = protectedRoutes.some(r => request.nextUrl.pathname.startsWith(r))
 
+  // ── Zero Trust: no session → login ────────────────────────────────────────
   if (isProtected && !user) {
-    // Zero Trust: No user on protected route
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
 
-  if (isAuthRoute && user) {
-    // User already authenticated, redirect to dashboard
+  // ── Email not confirmed → verify-email ───────────────────────────────────
+  // Supabase can issue a JWT even before email confirmation (email_confirmed_at = null).
+  // Block those users from protected routes until they verify.
+  if (isProtected && user && !user.email_confirmed_at) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/verify-email'
+    return NextResponse.redirect(url)
+  }
+
+  // ── Already authenticated + verified → skip login/register ───────────────
+  if (isAuthRoute && user && user.email_confirmed_at) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)

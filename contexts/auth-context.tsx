@@ -122,26 +122,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
     const siteUrl = getSiteUrl()
     console.log("[Auth] Iniciando registro. URL callback configurada a:", `${siteUrl}/auth/callback`)
-    
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { name },
+        // After email verification, the magic link lands here and creates the session
         emailRedirectTo: `${siteUrl}/auth/callback`,
-      }
+      },
     })
     if (error) {
       console.error("[Auth] Error en registro:", error.message)
       throw error
     }
-    console.log("[Auth] Registro iniciado. Correo de confirmación enviado a:", email)
-    
-    // Introduce a tiny delay so the postgres trigger can complete the profile insert
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    await refreshSession()
-    router.push("/dashboard")
-  }, [supabase, router, refreshSession])
+    console.log("[Auth] Registro iniciado. Email de confirmación enviado a:", email)
+
+    // Redirect to the verification waiting screen.
+    // We intentionally do NOT call refreshSession() or push("/dashboard") here:
+    // with "Confirm email" ON, Supabase may return session = null.
+    // The verify-email page owns the session polling and final redirect.
+    router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
+  }, [supabase, router])
 
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut()

@@ -45,16 +45,21 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       return
     }
 
+    const resolvedParentId = parentId === "none" ? undefined : parentId
     const productData = {
       name,
-      category: parentId !== "none" ? (products.find(p => p.id === parentId)?.category || category) : category,
+      category: resolvedParentId
+        ? (products.find(p => p.id === resolvedParentId)?.category || category)
+        : category,
       cost,
       price,
       margin,
       stock,
       minStock,
       barcode,
-      parentId: parentId === "none" ? undefined : parentId
+      parentId: resolvedParentId,
+      // is_variant is derived from whether a parent is assigned
+      isVariant: resolvedParentId !== undefined,
     }
 
     try {

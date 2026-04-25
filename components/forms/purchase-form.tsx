@@ -156,6 +156,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       margin,
       stock: 0,
       minStock: newProductMinStock,
+      isVariant: false, // quick-created products are always standalone
     })
     toast.success(`Producto "${newProductName}" creado`)
     setUnitCost(newProductCost)

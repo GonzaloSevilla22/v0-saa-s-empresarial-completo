@@ -118,7 +118,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         stock: p.stock,
         minStock: p.min_stock || 0,
         barcode: p.barcode,
-        parentId: p.parent_id
+        parentId: p.parent_id ?? undefined,
+        isVariant: p.is_variant ?? false,
       })))
 
       if (salesData) setSales(salesData.map(s => ({
@@ -237,7 +238,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       stock: p.stock,
       min_stock: p.minStock,
       barcode: p.barcode,
-      parent_id: p.parentId
+      parent_id: p.parentId ?? null,
+      is_variant: p.isVariant,
     }])
     if (error) throw new Error(translateDbError(error))
     await refreshData()
@@ -252,7 +254,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       stock: p.stock,
       min_stock: p.minStock,
       barcode: p.barcode,
-      parent_id: p.parentId
+      parent_id: p.parentId ?? null,
+      is_variant: p.isVariant,
     }).eq('id', p.id)
     if (error) throw new Error(translateDbError(error))
     await refreshData()
@@ -274,7 +277,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     console.log('[deleteProduct] purchases nullify →', e2 ? `WARN: ${e2.message}` : 'OK')
 
     // Step 3 — detach variant products (self-referential parent_id)
-    const { error: e3 } = await supabase.from('products').update({ parent_id: null }).eq('parent_id', id)
+    // Also reset is_variant so orphaned children become proper standalone products
+    const { error: e3 } = await supabase.from('products')
+      .update({ parent_id: null, is_variant: false })
+      .eq('parent_id', id)
     console.log('[deleteProduct] parent_id nullify →', e3 ? `WARN: ${e3.message}` : 'OK')
 
     // Step 4 — get this product's variants so we can clean inventory_movements

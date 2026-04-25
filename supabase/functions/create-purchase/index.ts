@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
       p_product_id: product_id,
       p_amount: amount,
       p_quantity: Math.max(1, quantity || 1),
-      p_user_id: user.id,
+      // p_user_id removed: RPC now uses auth.uid() internally (security hardening)
       p_description: description || null
     })
 

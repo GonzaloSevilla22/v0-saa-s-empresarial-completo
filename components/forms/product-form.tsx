@@ -16,9 +16,11 @@ import { Barcode, Fingerprint } from "lucide-react"
 interface ProductFormProps {
   onSuccess: () => void
   initialData?: Product
+  /** Pre-select a parent when creating a new variant (does not trigger edit mode) */
+  defaultParentId?: string
 }
 
-export function ProductForm({ onSuccess, initialData }: ProductFormProps) {
+export function ProductForm({ onSuccess, initialData, defaultParentId }: ProductFormProps) {
   const { addProduct, updateProduct, products } = useData()
   const [name, setName] = useState(initialData?.name || "")
   const [category, setCategory] = useState(initialData?.category || "")
@@ -27,7 +29,7 @@ export function ProductForm({ onSuccess, initialData }: ProductFormProps) {
   const [stock, setStock] = useState(initialData?.stock || 0)
   const [minStock, setMinStock] = useState(initialData?.minStock || 10)
   const [barcode, setBarcode] = useState(initialData?.barcode || "")
-  const [parentId, setParentId] = useState(initialData?.parentId || "none")
+  const [parentId, setParentId] = useState(initialData?.parentId || defaultParentId || "none")
 
   const margin = price > 0 ? Math.round(((price - cost) / price) * 100) : 0
 

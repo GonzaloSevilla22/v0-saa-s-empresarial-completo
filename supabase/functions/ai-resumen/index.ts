@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
     }
 
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
-      p_user_id: user.id,
+      // p_user_id removed: RPC uses auth.uid() internally (security hardening)
       p_type: 'general',
       p_content: content,
       p_source_function: 'ai-resumen'

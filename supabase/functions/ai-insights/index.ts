@@ -111,6 +111,39 @@ Deno.serve(async (req) => {
 
     console.log('[ai-insights] Data fetched – sales:', sales.length, 'products:', products.length)
 
+    // ── Compute real business metrics for the prompt ───────────────────────
+    const totalRevenue = sales.reduce((acc: number, s: Record<string, unknown>) => acc + Number(s.amount), 0)
+    const totalExpenses = expenses.reduce((acc: number, e: Record<string, unknown>) => acc + Number(e.amount), 0)
+    const netProfit = totalRevenue - totalExpenses
+
+    // Top 5 products by revenue
+    const revenueByProduct = new Map<string, { name: string; units: number; revenue: number }>()
+    for (const s of sales) {
+      const pid = String(s.product_id)
+      const product = products.find((p: Record<string, unknown>) => String(p.id) === pid)
+      const name = product ? String(product.name) : 'Desconocido'
+      const existing = revenueByProduct.get(pid) ?? { name, units: 0, revenue: 0 }
+      revenueByProduct.set(pid, {
+        name,
+        units: existing.units + Number(s.quantity),
+        revenue: existing.revenue + Number(s.amount),
+      })
+    }
+    const topProducts = [...revenueByProduct.values()]
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5)
+
+    // Expense breakdown by category
+    const expenseByCategory = new Map<string, number>()
+    for (const e of expenses) {
+      const cat = String(e.category ?? 'Sin categoría')
+      expenseByCategory.set(cat, (expenseByCategory.get(cat) ?? 0) + Number(e.amount))
+    }
+    const topExpenseCategories = [...expenseByCategory.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([cat, amt]) => `${cat}: $${amt.toLocaleString()}`)
+
     const lowStock = products.filter((p: Record<string, unknown>) => Number(p.stock) < 5)
     const lowMargin = products.filter((p: Record<string, unknown>) => {
       const price = Number(p.price)
@@ -118,19 +151,30 @@ Deno.serve(async (req) => {
       return price > 0 && ((price - cost) / price) < 0.2
     })
 
-    const prompt = `Analiza estos datos de mi negocio y genera 3 insights accionables.
-DATOS:
-- Ventas recientes: ${sales.length} transacciones.
-- Gastos recientes: ${expenses.length} registros.
-- Inventario Total: ${products.length} productos.
-- Stock bajo (< 5 unidades): ${lowStock.map((p: Record<string, unknown>) => `${p.name} (${p.stock})`).join(', ') || 'Todo en orden'}.
-- Margen bajo (< 20%): ${lowMargin.map((p: Record<string, unknown>) => p.name).join(', ') || 'Todo en orden'}.
-- Clientes principales: ${clients.map((c: Record<string, unknown>) => c.name).join(', ') || 'Sin datos'}.
+    const prompt = `Analizá los siguientes datos reales de un negocio de emprendedor argentino y generá 3 insights accionables y específicos.
+
+DATOS REALES (últimos 3 meses):
+- Facturación total: $${totalRevenue.toLocaleString()} en ${sales.length} ventas
+- Gastos totales: $${totalExpenses.toLocaleString()} en ${expenses.length} registros
+- Resultado neto: $${netProfit.toLocaleString()} (${netProfit >= 0 ? 'ganancia' : 'pérdida'})
+
+TOP PRODUCTOS POR FACTURACIÓN:
+${topProducts.length > 0 ? topProducts.map(p => `  • ${p.name}: ${p.units} uds — $${p.revenue.toLocaleString()}`).join('\n') : '  Sin datos de ventas'}
+
+GASTOS POR CATEGORÍA:
+${topExpenseCategories.length > 0 ? topExpenseCategories.join('\n') : '  Sin gastos registrados'}
+
+ALERTAS DE STOCK (< 5 uds): ${lowStock.map((p: Record<string, unknown>) => `${p.name} (${p.stock})`).join(', ') || 'Todo en orden'}
+PRODUCTOS CON MARGEN BAJO (< 20%): ${lowMargin.map((p: Record<string, unknown>) => p.name).join(', ') || 'Todo en orden'}
+CLIENTES REGISTRADOS: ${clients.map((c: Record<string, unknown>) => c.name).join(', ') || 'Sin datos'}
+TOTAL PRODUCTOS EN CATÁLOGO: ${products.length}
 
 INSTRUCCIONES:
-- Devuelve un JSON con la clave "insights" que contenga un array de objetos.
-- Cada objeto debe tener: type ("ventas"|"stock"|"margen"|"producto"|"marketing"), priority ("alta"|"media"|"baja"), message (consejo accionable en español).
-- Devuelve SOLO el JSON, sin texto adicional.`
+- Usá los números reales para hacer los insights específicos (no genéricos).
+- Mencioná productos o categorías por nombre cuando sea relevante.
+- Devolvé un JSON con la clave "insights" que sea un array de objetos.
+- Cada objeto debe tener: type ("ventas"|"stock"|"margen"|"producto"|"marketing"), priority ("alta"|"media"|"baja"), message (consejo accionable en español rioplatense, 1-2 oraciones concretas).
+- Devolvé SOLO el JSON, sin texto adicional.`
 
     // 4. Call OpenAI with timeout + retry
     let insightsData: unknown[] = []

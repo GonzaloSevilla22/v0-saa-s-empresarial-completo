@@ -4,8 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-const AI_TIMEOUT_MS = 8000
+const AI_TIMEOUT_MS = 12000   // bumped from 8s — richer context query takes longer
 const MAX_QUESTION_LENGTH = 1000
+const MAX_HISTORY_TURNS = 6   // last 3 exchanges (user + assistant pairs)
 
 /** Fetch wrapper with abort-based timeout and up to `retries` retries. */
 async function fetchWithTimeout(
@@ -36,9 +37,9 @@ export async function POST(req: Request) {
   console.log('[Copilot] Request received')
 
   try {
-    // Phase 7 – Input validation
+    // ── Input validation ─────────────────────────────────────────────────────
     const body = await req.json().catch(() => ({}))
-    const { question } = body
+    const { question, history } = body
 
     if (!question || typeof question !== 'string' || question.trim().length === 0) {
       return NextResponse.json({ ok: false, error: 'Pregunta es requerida' }, { status: 400 })
@@ -56,43 +57,80 @@ export async function POST(req: Request) {
 
     const supabase = createClient()
 
-    // 1. Business context
-    const context = await aiCopilotService.getBusinessDataContext(supabase)
-    console.log('[Copilot] Business context loaded, products:', context.topProducts.length)
+    // ── Business context ─────────────────────────────────────────────────────
+    const ctx = await aiCopilotService.getBusinessDataContext(supabase)
+    console.log('[Copilot] Business context loaded, topProducts:', ctx.topProducts.length)
 
-    // 2. Pricing analysis (pure local logic – no external call)
+    // ── Pricing analysis (pure local logic – no external call) ───────────────
     const pricingAnalysis = aiCopilotService.analyzePricingInQuestion(sanitizedQuestion)
 
-    // 3. Build prompt
-    let prompt = `Eres un experto asesor de negocios para pequeños emprendedores.
-El usuario tiene un pequeño negocio y vende productos.
-Da consejos claros y prácticos. Sé conciso y accionable.
+    // ── System prompt with rich ERP context ─────────────────────────────────
+    const systemPrompt = `Eres ALIADA Copilot, el asesor de negocios de un pequeño emprendedor argentino.
+Tu trabajo es dar consejos claros, concretos y accionables basados EXCLUSIVAMENTE en los datos reales del negocio.
+No inventes datos. Si no tenés información suficiente, decilo y pedí que el usuario te aporte más contexto.
+Respondé siempre en español rioplatense, de forma directa y sin relleno.`
 
-CONTEXTO DEL NEGOCIO:
-- Productos destacados (Top 5): ${JSON.stringify(context.topProducts)}
-- Ventas totales recientes: ${context.totalSalesRecent}
-- Alerta Stock Bajo: ${context.recentLowStock.join(', ') || 'Ninguna'}
-- Gastos recientes: ${context.recentExpenses.length} registros
-`
+    const contextBlock = `
+DATOS REALES DEL NEGOCIO (${ctx.period}):
+- Ingresos por ventas: $${ctx.totalRevenue.toLocaleString()}
+- Gastos operativos: $${ctx.totalExpenses.toLocaleString()}
+- Compras / Abastecimiento: $${ctx.totalPurchases.toLocaleString()}
+- Resultado neto: $${ctx.netProfit.toLocaleString()} (${ctx.netProfit >= 0 ? 'ganancia' : 'pérdida'})
 
-    if (pricingAnalysis?.suggestions) {
-      prompt += `
-PRICING SUGGESTED:
-- Costo detectado: $${pricingAnalysis.cost}
-- 30% margen -> $${pricingAnalysis.suggestions.margins[0].price}
-- 40% margen -> $${pricingAnalysis.suggestions.margins[1].price}
-- 50% margen -> $${pricingAnalysis.suggestions.margins[2].price}
-- Recomendación: ${pricingAnalysis.suggestions.recommendation}
-`
+TOP PRODUCTOS POR FACTURACIÓN:
+${ctx.topProducts.length > 0
+  ? ctx.topProducts.map(p => `  • ${p.name}: ${p.units} uds — $${p.revenue.toLocaleString()}`).join('\n')
+  : '  Sin datos de ventas en el período'}
+
+GASTOS POR CATEGORÍA:
+${ctx.topExpenseCategories.length > 0 ? ctx.topExpenseCategories.map(c => `  • ${c}`).join('\n') : '  Sin gastos registrados'}
+
+ALERTAS DE STOCK:
+${ctx.lowStockProducts.length > 0 ? ctx.lowStockProducts.map(p => `  • ${p}`).join('\n') : '  Todo el stock está en orden'}
+
+PRODUCTOS CON ALTO MARGEN (oportunidad):
+${ctx.highMarginProducts.length > 0 ? ctx.highMarginProducts.map(p => `  • ${p}`).join('\n') : '  Sin productos de alto margen detectados'}
+
+Catálogo total: ${ctx.totalProductCount} productos`
+
+    // ── Optional pricing context ─────────────────────────────────────────────
+    const pricingBlock = pricingAnalysis?.suggestions
+      ? `
+ANÁLISIS DE PRECIOS DETECTADO:
+- Costo informado: $${pricingAnalysis.cost}
+- Precio con margen 30%: $${pricingAnalysis.suggestions.margins[0].price}
+- Precio con margen 40%: $${pricingAnalysis.suggestions.margins[1].price}
+- Precio con margen 50%: $${pricingAnalysis.suggestions.margins[2].price}
+- Consejo: ${pricingAnalysis.suggestions.recommendation}`
+      : ''
+
+    const userPrompt = `${contextBlock}${pricingBlock}
+
+PREGUNTA DEL USUARIO:
+"${sanitizedQuestion}"
+
+Respondé de forma directa, breve y accionable. Si podés dar un número o acción concreta, dalo.`
+
+    // ── Conversation history (last N turns for memory) ───────────────────────
+    // history is an array of { role: 'user'|'assistant', content: string }
+    const validHistory: Array<{ role: 'user' | 'assistant'; content: string }> = []
+    if (Array.isArray(history)) {
+      for (const msg of history.slice(-MAX_HISTORY_TURNS)) {
+        if (
+          msg &&
+          typeof msg.content === 'string' &&
+          (msg.role === 'user' || msg.role === 'assistant')
+        ) {
+          validHistory.push({ role: msg.role, content: msg.content.slice(0, 500) })
+        }
+      }
     }
 
-    prompt += `\nPREGUNTA DEL USUARIO:\n"${sanitizedQuestion}"\n\nResponde como un asesor experto, breve y accionable.`
-
-    // 4. OpenAI call with timeout + retry
-    console.log('[Copilot] Calling OpenAI...')
+    // ── OpenAI call ──────────────────────────────────────────────────────────
+    console.log('[Copilot] Calling OpenAI, history turns:', validHistory.length)
     const openAiKey = process.env.OPENAI_API_KEY
     if (!openAiKey) {
-      console.error('[Copilot] OPENAI_API_KEY is not set in environment')
+      console.error('[Copilot] OPENAI_API_KEY is not set')
       return NextResponse.json(
         { ok: false, error: 'Missing OPENAI_API_KEY — configure it in Vercel environment variables' },
         { status: 500 }
@@ -113,11 +151,13 @@ PRICING SUGGESTED:
           body: JSON.stringify({
             model: 'gpt-4o-mini',
             messages: [
-              { role: 'system', content: 'Eres un asesor de negocios experto.' },
-              { role: 'user', content: prompt }
+              { role: 'system', content: systemPrompt },
+              // Include recent conversation turns for memory
+              ...validHistory,
+              { role: 'user', content: userPrompt },
             ],
-            temperature: 0.7,
-            max_tokens: 500,
+            temperature: 0.6,   // slightly lower for more consistent/factual answers
+            max_tokens: 600,    // bumped from 500 — context is richer
           }),
         }
       )
@@ -126,7 +166,7 @@ PRICING SUGGESTED:
 
       if (!response.ok) {
         const errBody = await response.json().catch(() => ({}))
-        console.error('[Copilot] OpenAI error FULL:', JSON.stringify(errBody))
+        console.error('[Copilot] OpenAI error:', JSON.stringify(errBody))
         return NextResponse.json(
           { ok: false, error: `OpenAI error ${response.status}: ${errBody?.error?.message || errBody?.error?.code || JSON.stringify(errBody)}` },
           { status: 502 }
@@ -136,28 +176,27 @@ PRICING SUGGESTED:
       const aiData = await response.json()
       answer = aiData.choices?.[0]?.message?.content ?? ''
 
-      if (!answer) {
-        throw new Error('Empty AI response')
-      }
+      if (!answer) throw new Error('Empty AI response')
+
     } catch (aiErr: any) {
       const isTimeout = aiErr.name === 'AbortError'
-      console.error('[Copilot] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
+      console.error('[Copilot] AI call failed:', isTimeout ? 'TIMEOUT' : aiErr)
       return NextResponse.json(
-        { ok: false, error: isTimeout ? 'OpenAI timeout (>8s)' : (aiErr.message || String(aiErr)) },
+        { ok: false, error: isTimeout ? 'OpenAI timeout (>12s)' : (aiErr.message || String(aiErr)) },
         { status: 502 }
       )
     }
 
-    // 5. Persist conversation (non-blocking – failure doesn't affect response)
-    aiCopilotService.saveConversation(supabase, sanitizedQuestion, answer).catch((saveErr: any) => {
-      console.error('[Copilot] Failed to save conversation:', saveErr.message)
+    // ── Persist conversation (non-blocking) ──────────────────────────────────
+    aiCopilotService.saveConversation(supabase, sanitizedQuestion, answer).catch((err: any) => {
+      console.error('[Copilot] Failed to save conversation:', err.message)
     })
 
     console.log('[Copilot] Success, answer length:', answer.length)
     return NextResponse.json({ ok: true, answer })
 
   } catch (error: any) {
-    console.error('[Copilot] Unhandled error FULL:', error)
+    console.error('[Copilot] Unhandled error:', error)
     return NextResponse.json(
       { ok: false, error: error?.message || JSON.stringify(error) || 'Unknown error' },
       { status: 500 }

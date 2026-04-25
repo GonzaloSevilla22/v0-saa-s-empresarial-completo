@@ -2,12 +2,13 @@
 
 import { useState, useMemo } from "react"
 import { useData } from "@/contexts/data-context"
+import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
-import { Sparkles, TrendingUp, DollarSign, Percent } from "lucide-react"
+import { Sparkles, TrendingUp, DollarSign, Percent, Loader2 } from "lucide-react"
 
 export default function SimuladorPage() {
   const { products, sales } = useData()
@@ -43,23 +44,55 @@ export default function SimuladorPage() {
     setSuggestion(null)
   }
 
-  function handleSuggest() {
+  /**
+   * Calls the real ai-simulador edge function with actual product data and
+   * the proposed price change as the scenario. Replaces the previous fake
+   * setTimeout + hardcoded cost*2.2 formula.
+   */
+  async function handleSuggest() {
+    if (!selectedProduct) return
     setIsLoading(true)
-    setTimeout(() => {
-      if (!selectedProduct) return
-      const optimalPrice = Math.round(selectedProduct.cost * 2.2)
-      setSuggestion(
-        `Basado en tus datos de ventas y el costo de $${selectedProduct.cost}, el precio óptimo sugerido es $${optimalPrice}. Esto te daría un margen del ${Math.round(((optimalPrice - selectedProduct.cost) / optimalPrice) * 100)}% manteniendo competitividad.`
-      )
+    setSuggestion(null)
+
+    const scenario =
+      `Producto: "${selectedProduct.name}". ` +
+      `Costo: $${cost}. ` +
+      `Precio actual: $${currentPrice} (margen ${currentMargin.toFixed(0)}%). ` +
+      `Precio propuesto: $${effectivePrice} (margen proyectado ${newMargin.toFixed(0)}%). ` +
+      `Historial: ${productSales.length} ventas registradas, promedio ${avgQtyPerSale.toFixed(1)} unidades por venta. ` +
+      `Ingreso mensual actual estimado: $${currentRevenue.toFixed(0)}. ` +
+      `Proyección con nuevo precio: $${projectedRevenue.toFixed(0)}. ` +
+      `¿Vale la pena este cambio de precio? ¿Cuál sería el precio óptimo y por qué? Sé concreto.`
+
+    try {
+      const supabase = createClient()
+      const { data, error } = await supabase.functions.invoke('ai-simulador', {
+        body: { scenario },
+      })
+
+      if (error) throw error
+
+      // ai-simulador returns { ok, data } where data is either:
+      //   - an insights DB row { content, ... }  (when RPC succeeds)
+      //   - a raw OpenAI string                  (when RPC fails gracefully)
+      const text: string =
+        (typeof data?.data === 'string' ? data.data : data?.data?.content) ??
+        "No se pudo generar la sugerencia en este momento."
+
+      setSuggestion(text)
+    } catch (err: any) {
+      console.error('[Simulador] AI error:', err)
+      setSuggestion(`Error al consultar la IA: ${err.message ?? 'sin detalles'}. Intentá nuevamente.`)
+    } finally {
       setIsLoading(false)
-    }, 1500)
+    }
   }
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Simulador de Precios</h1>
-        <p className="text-sm text-muted-foreground mt-1">Experimenta con precios y ve el impacto en tu margen</p>
+        <p className="text-sm text-muted-foreground mt-1">Experimentá con precios y consultá a la IA el impacto real en tu margen</p>
       </div>
 
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
@@ -106,14 +139,28 @@ export default function SimuladorPage() {
                     </div>
                   </div>
 
-                  <Button onClick={handleSuggest} disabled={isLoading} variant="outline" className="border-primary/30 text-primary hover:bg-primary/10 hover:text-primary">
-                    <Sparkles className={`h-4 w-4 mr-1 ${isLoading ? "animate-spin" : ""}`} />
-                    Pedir sugerencia AI
+                  <Button
+                    onClick={handleSuggest}
+                    disabled={isLoading}
+                    variant="outline"
+                    className="border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        Analizando con IA...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-1" />
+                        Pedir análisis IA
+                      </>
+                    )}
                   </Button>
 
                   {suggestion && (
                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-                      <p className="text-sm text-foreground leading-relaxed">{suggestion}</p>
+                      <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{suggestion}</p>
                     </div>
                   )}
                 </>

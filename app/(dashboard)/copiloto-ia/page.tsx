@@ -63,10 +63,16 @@ export default function CopilotoPage() {
     console.log('[Copilot UI] Request started')
 
     try {
+      // Send last 6 messages (3 exchanges) so the model has short-term memory
+      const recentHistory = messages.slice(-6).map(m => ({
+        role: m.role,
+        content: m.content,
+      }))
+
       const res = await fetch('/api/ai/copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userQuestion })
+        body: JSON.stringify({ question: userQuestion, history: recentHistory })
       })
 
       // Task 4: read raw body first to expose full server error text

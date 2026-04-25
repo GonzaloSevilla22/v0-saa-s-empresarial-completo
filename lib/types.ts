@@ -1,3 +1,5 @@
+import type { Currency } from "@/lib/format"
+export type { Currency }
 export type Plan = "free" | "pro"
 export type UserRole = "user" | "admin"
 
@@ -33,7 +35,7 @@ export interface Sale {
   quantity: number
   unitPrice: number
   total: number
-  currency: "ARS" | "USD" | "EUR" | "BRL"
+  currency: Currency
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
 }

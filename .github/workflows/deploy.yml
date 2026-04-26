@@ -55,6 +55,12 @@ jobs:
       - name: Link project
         run: supabase link --project-ref "${SUPABASE_PROJECT_REF}" -p "${SUPABASE_DB_PASSWORD}"
 
+      - name: Test DB connection (diagnostic)
+        run: |
+          PGPASSWORD="${SUPABASE_DB_PASSWORD}" psql \
+            "postgresql://postgres.${SUPABASE_PROJECT_REF}@aws-0-us-west-2.pooler.supabase.com:5432/postgres" \
+            -c "SELECT version()" && echo "✅ Connection OK" || echo "❌ Connection FAILED"
+
       - name: Deploy Database Migrations
         run: supabase db push
 

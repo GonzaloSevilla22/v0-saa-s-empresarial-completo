@@ -6,15 +6,14 @@
 --   Migration 20260425000001_security_hardening.sql used CREATE OR REPLACE
 --   to fix RPCs by removing p_user_id and adding a new parameter. However,
 --   PostgreSQL's CREATE OR REPLACE can only replace a function with the
---   *exact same* signature. When the 5th argument type changed (uuid → text),
+--   exact same signature. When the 5th argument type changed (uuid to text),
 --   Postgres created a NEW overload instead of replacing the old one.
 --
---   As a result, the old vulnerable versions still exist and are callable by
---   any authenticated user:
---
---   rpc_atomic_create_sale(uuid, uuid, numeric, integer, UUID)   ← p_user_id
---   rpc_atomic_create_purchase(uuid, numeric, integer, UUID)     ← p_user_id
---   rpc_atomic_log_ai_insight(UUID, text, text, text)            ← p_user_id as 1st arg
+--   The old vulnerable versions still exist and are callable by any
+--   authenticated user:
+--     rpc_atomic_create_sale(uuid, uuid, numeric, integer, uuid)
+--     rpc_atomic_create_purchase(uuid, numeric, integer, uuid)
+--     rpc_atomic_log_ai_insight(uuid, text, text, text)
 --
 -- ATTACK VECTOR:
 --   An authenticated user calls the old overload with another user's UUID as
@@ -23,56 +22,17 @@
 --
 -- FIX: Explicitly DROP the old signatures. The secure versions from the
 --      hardening migration remain active.
+--
+-- NOTE: Inline comments inside DROP FUNCTION argument lists are intentionally
+--       omitted — they trigger "multiple commands in prepared statement" errors
+--       in the Supabase CLI migration runner.
 -- =============================================================================
 
--- ── rpc_atomic_create_sale (old: 5th arg was p_user_id uuid) ─────────────────
-DROP FUNCTION IF EXISTS public.rpc_atomic_create_sale(
-  uuid,      -- p_client_id
-  uuid,      -- p_product_id
-  numeric,   -- p_amount
-  integer,   -- p_quantity
-  uuid       -- p_user_id  ← the vulnerable argument
-);
+-- rpc_atomic_create_sale — old 5th arg was p_user_id uuid (now p_currency text)
+DROP FUNCTION IF EXISTS public.rpc_atomic_create_sale(uuid, uuid, numeric, integer, uuid);
 
--- ── rpc_atomic_create_purchase (old: 4th arg was p_user_id uuid) ─────────────
-DROP FUNCTION IF EXISTS public.rpc_atomic_create_purchase(
-  uuid,      -- p_product_id
-  numeric,   -- p_amount
-  integer,   -- p_quantity
-  uuid       -- p_user_id  ← the vulnerable argument
-);
+-- rpc_atomic_create_purchase — old 4th arg was p_user_id uuid (now p_description text)
+DROP FUNCTION IF EXISTS public.rpc_atomic_create_purchase(uuid, numeric, integer, uuid);
 
--- ── rpc_atomic_log_ai_insight (old: 1st arg was p_user_id uuid) ──────────────
-DROP FUNCTION IF EXISTS public.rpc_atomic_log_ai_insight(
-  uuid,      -- p_user_id  ← the vulnerable argument
-  text,      -- p_type
-  text,      -- p_content
-  text       -- p_source_function
-);
-
--- =============================================================================
--- VERIFICATION QUERIES (run manually after applying)
--- =============================================================================
---
--- Confirm only the secure (no p_user_id) versions remain:
---
---   SELECT proname, pg_get_function_arguments(oid) AS args
---   FROM pg_proc
---   WHERE proname IN (
---     'rpc_atomic_create_sale',
---     'rpc_atomic_create_purchase',
---     'rpc_atomic_log_ai_insight'
---   )
---   AND pronamespace = 'public'::regnamespace;
---
--- Expected output (3 rows, no uuid as first/last arg):
---   rpc_atomic_create_sale      | p_client_id uuid, p_product_id uuid, p_amount numeric, p_quantity integer, p_currency text
---   rpc_atomic_create_purchase  | p_product_id uuid, p_amount numeric, p_quantity integer, p_description text
---   rpc_atomic_log_ai_insight   | p_type text, p_content text, p_source_function text
---
--- Confirm attempting to call old signatures fails:
---   SELECT rpc_atomic_create_sale(
---     gen_random_uuid(), gen_random_uuid(), 100, 1, gen_random_uuid()
---   );
---   → Expected: ERROR: function rpc_atomic_create_sale(...uuid) does not exist
--- =============================================================================
+-- rpc_atomic_log_ai_insight — old 1st arg was p_user_id uuid (now removed entirely)
+DROP FUNCTION IF EXISTS public.rpc_atomic_log_ai_insight(uuid, text, text, text);

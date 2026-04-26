@@ -54,6 +54,7 @@ export async function updateSession(request: NextRequest) {
     '/cursos', '/configuracion', '/copiloto-ia', '/ferias', '/seguros', '/admin',
   ]
   const isProtected = protectedRoutes.some(r => request.nextUrl.pathname.startsWith(r))
+  const isAdminRoute = request.nextUrl.pathname.startsWith('/admin')
 
   // ── Zero Trust: no session → login ────────────────────────────────────────
   if (isProtected && !user) {
@@ -69,6 +70,24 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/verify-email'
     return NextResponse.redirect(url)
+  }
+
+  // ── Admin routes: server-side role check ─────────────────────────────────
+  // Defense-in-depth: don't rely solely on client-side role check in admin pages.
+  // The profiles SELECT policy allows each user to see their own row, so this
+  // query is always permitted without RLS recursion.
+  if (isAdminRoute && user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile || profile.role !== 'admin') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
   }
 
   // ── Already authenticated + verified → skip login/register ───────────────

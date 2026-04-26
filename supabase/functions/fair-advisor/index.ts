@@ -113,22 +113,25 @@ Deno.serve(async (req) => {
       const price = Number(p.price)
       const cost = Number(p.cost)
       const margin = price > 0 ? ((price - cost) / price) * 100 : 0
+      const score = salesCount + (margin / 10) + (Number(p.stock) > 0 ? 5 : 0)
       return {
-        id: p.id,
         name: p.name,
         stock: p.stock,
         cost: p.cost,
         price: p.price,
         margin: margin.toFixed(1) + '%',
-        salesVolume: salesCount,
-        score: salesCount + (margin / 10) + (Number(p.stock) > 0 ? 5 : 0),
+        units: salesCount,
+        score, // kept for sort, stripped before prompt
       }
     }).sort((a, b) => b.score - a.score)
+
+    // Strip internal `score` field before sending to OpenAI
+    const promptProducts = productScores.slice(0, 15).map(({ score: _s, ...rest }) => rest)
 
     const prompt = `Analiza los siguientes productos y genera recomendaciones para una feria de emprendedores.
 
 PRODUCTOS (ordenados por relevancia):
-${JSON.stringify(productScores.slice(0, 15), null, 2)}
+${JSON.stringify(promptProducts)}
 
 INSTRUCCIONES:
 - Selecciona entre 3 y 5 productos ideales para la feria.

@@ -51,7 +51,8 @@ export const aiCopilotService = {
       supabase
         .from('products')
         .select('id, name, price, cost, stock, min_stock')
-        .order('price', { ascending: false }),    // High-value products first
+        .order('price', { ascending: false })     // High-value products first
+        .limit(30),                               // cap to avoid bloating context
       supabase
         .from('sales')
         .select('amount, quantity, date, product_id, products(name)')

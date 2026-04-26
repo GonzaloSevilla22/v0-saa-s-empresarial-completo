@@ -56,7 +56,7 @@ jobs:
         run: supabase link --project-ref "${SUPABASE_PROJECT_REF}" -p "${SUPABASE_DB_PASSWORD}"
 
       - name: Deploy Database Migrations
-        run: supabase db push --password "${SUPABASE_DB_PASSWORD}"
+        run: supabase db push --db-url "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${SUPABASE_PROJECT_REF}.supabase.co:5432/postgres"
 
       - name: Deploy Edge Functions
         run: supabase functions deploy --no-verify-jwt --project-ref "${SUPABASE_PROJECT_REF}"

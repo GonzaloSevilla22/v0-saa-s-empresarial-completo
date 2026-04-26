@@ -43,7 +43,7 @@ UPDATE public.landing_sections
 SET
   title     = REPLACE(title,    'ALIADA', 'ALIADATA'),
   subtitle  = REPLACE(subtitle, 'ALIADA', 'ALIADATA'),
-  body      = REPLACE(body,     'ALIADA', 'ALIADATA')
+  content   = REPLACE(content,  'ALIADA', 'ALIADATA')
 WHERE title    LIKE '%ALIADA%'
    OR subtitle LIKE '%ALIADA%'
-   OR body     LIKE '%ALIADA%';
+   OR content  LIKE '%ALIADA%';

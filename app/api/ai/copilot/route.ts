@@ -70,6 +70,16 @@ export async function POST(req: Request) {
 
     const supabase = createClient()
 
+    // ── Auth guard — must be before any OpenAI call ───────────────────────────
+    // /api/ai/copilot is intentionally excluded from Next.js middleware
+    // protectedRoutes (API routes don't need redirect logic), so we enforce
+    // authentication here server-side to prevent unauthenticated OpenAI usage.
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      console.warn('[Copilot] Unauthenticated request blocked')
+      return NextResponse.json({ ok: false, error: 'No autorizado' }, { status: 401 })
+    }
+
     // ── Snapshot de negocio (pre-calcula métricas server-side) ───────────────
     const snapshot = await buildBusinessSnapshot(supabase)
     console.log('[Copilot] Snapshot built, top products:', snapshot.productos.top_rentables.length)

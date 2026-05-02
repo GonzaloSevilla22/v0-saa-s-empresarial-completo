@@ -8,16 +8,61 @@ import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { AiAlerts } from "@/components/dashboard/ai-alerts"
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { aiInsightService } from "@/lib/services/aiInsightService"
+import { createClient } from "@/lib/supabase/client"
 
 export default function DashboardPage() {
-  const { getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, insights, refreshData } = useData()
+  const { insights, refreshData } = useData()
 
-  const todaySales = getTodaySales()
-  const todayExpenses = getTodayExpenses()
-  const netProfit = getNetProfit()
-  const lowStock = getLowStockProducts()
+  const [kpis, setKpis] = useState({
+    todaySales: 0,
+    todayExpenses: 0,
+    netProfit: 0,
+    lowStockCount: 0,
+  })
+  const [loadingKpis, setLoadingKpis] = useState(true)
+
+  useEffect(() => {
+    const fetchKpis = async () => {
+      setLoadingKpis(true)
+      try {
+        const supabase = createClient()
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        const today = new Date()
+        const dateFrom = new Date(today.setHours(0, 0, 0, 0)).toISOString()
+        const dateTo = new Date(today.setHours(23, 59, 59, 999)).toISOString()
+
+        const [financialsRes, stockRes] = await Promise.all([
+          supabase.rpc('get_dashboard_financials', {
+            p_user_id: user.id,
+            p_date_from: dateFrom,
+            p_date_to: dateTo
+          }),
+          supabase.rpc('get_dashboard_critical_stock', {
+            p_user_id: user.id
+          })
+        ])
+
+        const financials = financialsRes.data?.[0] || { total_income: 0, total_expenses: 0, net_profit: 0 }
+        
+        setKpis({
+          todaySales: Number(financials.total_income || 0),
+          todayExpenses: Number(financials.total_expenses || 0),
+          netProfit: Number(financials.net_profit || 0),
+          lowStockCount: Number(stockRes.data || 0)
+        })
+      } catch (err) {
+        console.error("Error fetching dashboard KPIs:", err)
+      } finally {
+        setLoadingKpis(false)
+      }
+    }
+
+    fetchKpis()
+  }, [])
 
   // Auto-generate insights if none exist for today
   useEffect(() => {
@@ -45,26 +90,26 @@ export default function DashboardPage() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title="Ventas hoy"
-          value={`$${todaySales.toLocaleString()}`}
+          value={`$${kpis.todaySales.toLocaleString()}`}
           change={15}
           icon={DollarSign}
         />
         <KpiCard
           title="Gastos hoy"
-          value={`$${todayExpenses.toLocaleString()}`}
+          value={`$${kpis.todayExpenses.toLocaleString()}`}
           change={-8}
           icon={TrendingDown}
           iconColor="text-red-400"
         />
         <KpiCard
           title="Ganancia neta"
-          value={`$${netProfit.toLocaleString()}`}
+          value={`$${kpis.netProfit.toLocaleString()}`}
           change={12}
           icon={TrendingUp}
         />
         <KpiCard
           title="Productos en alerta"
-          value={lowStock.length.toString()}
+          value={kpis.lowStockCount.toString()}
           icon={AlertTriangle}
           iconColor="text-yellow-400"
         />
@@ -75,7 +120,7 @@ export default function DashboardPage() {
           <SalesChart />
         </div>
         <div className="lg:col-span-3 flex flex-col gap-4">
-          <AiSummaryCard />
+          <AiSummaryCard todaySales={kpis.todaySales} lowStockCount={kpis.lowStockCount} />
           <AiAlerts />
           <RecentActivity />
         </div>

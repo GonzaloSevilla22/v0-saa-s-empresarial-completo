@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -62,10 +62,22 @@ const columns: Column<Product>[] = [
 ]
 
 export default function StockPage() {
-  const { products, getLowStockProducts, refreshData } = useData()
-  const lowStock = getLowStockProducts()
+  const { products, refreshData } = useData()
   const { isAdmin } = useAuth()
   const supabase = createClient()
+  
+  const [criticalStockCount, setCriticalStockCount] = useState<number>(0)
+  const lowStockVisualList = products.filter(p => p.stock <= p.minStock)
+
+  useEffect(() => {
+    async function fetchStockKpi() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.rpc('get_dashboard_critical_stock', { p_user_id: user.id })
+      setCriticalStockCount(Number(data || 0))
+    }
+    fetchStockKpi()
+  }, [supabase, products])
 
   useEffect(() => {
     const channel = supabase
@@ -100,17 +112,17 @@ export default function StockPage() {
         />
       )}
 
-      {lowStock.length > 0 && (
+      {criticalStockCount > 0 && (
         <Card className="border-red-500/30 bg-red-500/5">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm text-red-400">
               <AlertTriangle className="h-4 w-4" />
-              Productos en alerta ({lowStock.length})
+              Productos en alerta ({criticalStockCount})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {lowStock.map((p) => (
+              {lowStockVisualList.map((p) => (
                 <div key={p.id} className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-1.5">
                   <div className="h-2 w-2 rounded-full bg-red-500" />
                   <span className="text-xs text-red-300">{p.name}</span>

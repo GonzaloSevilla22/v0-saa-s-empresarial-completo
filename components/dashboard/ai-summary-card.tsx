@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,13 +7,14 @@ import { Sparkles, RefreshCw } from "lucide-react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 
-export function AiSummaryCard() {
-  const { getTodaySales, getLowStockProducts } = useData()
+interface AiSummaryCardProps {
+  todaySales: number;
+  lowStockCount: number;
+}
+
+export function AiSummaryCard({ todaySales, lowStockCount }: AiSummaryCardProps) {
   const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)
-
-  const todaySales = getTodaySales()
-  const lowStock = getLowStockProducts()
 
   async function handleRegenerate() {
     setIsLoading(true)
@@ -75,8 +76,8 @@ export function AiSummaryCard() {
           {summary}
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
-          <span>Ventas hoy: <span className="text-primary font-medium">${todaySales}</span></span>
-          <span>Stock bajo: <span className={`font-medium ${lowStock.length > 0 ? "text-red-400" : "text-emerald-400"}`}>{lowStock.length} productos</span></span>
+          <span>Ventas hoy: <span className="text-primary font-medium">${todaySales.toLocaleString()}</span></span>
+          <span>Stock bajo: <span className={`font-medium ${lowStockCount > 0 ? "text-red-400" : "text-emerald-400"}`}>{lowStockCount} productos</span></span>
         </div>
       </CardContent>
     </Card>

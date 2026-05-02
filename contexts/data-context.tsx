@@ -44,10 +44,6 @@ interface DataContextType {
   updateCourse: (c: Omit<Course, "modules">) => Promise<void>
   deleteCourse: (id: string) => Promise<void>
   // Computed
-  getTodaySales: () => number
-  getTodayExpenses: () => number
-  getNetProfit: () => number
-  getLowStockProducts: () => Product[]
   getSalesByDay: (days: number) => { date: string; total: number }[]
   refreshData: () => Promise<void>
 }
@@ -559,26 +555,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   // Computed
-  const getTodaySales = useCallback(() => {
-    const today = new Date().toISOString().split("T")[0]
-    return sales.filter((s) => s.date === today).reduce((acc, s) => acc + s.total, 0)
-  }, [sales])
 
-  const getTodayExpenses = useCallback(() => {
-    const today = new Date().toISOString().split("T")[0]
-    return expenses.filter((e) => e.date === today).reduce((acc, e) => acc + e.amount, 0)
-  }, [expenses])
-
-  const getNetProfit = useCallback(() => {
-    const totalSales = sales.reduce((acc, s) => acc + s.total, 0)
-    const totalCost = purchases.reduce((acc, p) => acc + p.total, 0)
-    const totalExpenses = expenses.reduce((acc, e) => acc + e.amount, 0)
-    return totalSales - totalCost - totalExpenses
-  }, [sales, purchases, expenses])
-
-  const getLowStockProducts = useCallback(() => {
-    return products.filter((p) => p.stock <= p.minStock)
-  }, [products])
 
   const getSalesByDay = useCallback(
     (days: number) => {
@@ -607,7 +584,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       addCourse, updateCourse, deleteCourse,
-      getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
+      getSalesByDay,
       refreshData
     }),
     [products, sales, purchases, expenses, clients, insights, posts, courses, loading,
@@ -618,7 +595,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       addCourse, updateCourse, deleteCourse,
-      getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
+      getSalesByDay,
       refreshData]
   )
 

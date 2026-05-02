@@ -1,4 +1,4 @@
-﻿-- Migration: 20260228000600_fix_rls_and_trigger.sql
+-- Migration: 20260228000600_fix_rls_and_trigger.sql
 -- Description: Fixes RLS recursion on profiles and ensures auth trigger exists
 
 -- 1. Helper function for non-recursive admin check

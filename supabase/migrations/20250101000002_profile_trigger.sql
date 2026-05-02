@@ -1,4 +1,4 @@
-﻿-- Drop the existing trigger and function to recreate them with email logic
+-- Drop the existing trigger and function to recreate them with email logic
 drop trigger if exists on_auth_user_created on auth.users;
 drop function if exists public.handle_new_user();
 

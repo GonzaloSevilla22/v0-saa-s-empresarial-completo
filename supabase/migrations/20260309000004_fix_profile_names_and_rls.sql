@@ -1,4 +1,4 @@
-﻿-- Fix profile names and community visibility
+-- Fix profile names and community visibility
 
 -- 1. Add name column to profiles
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS name text;

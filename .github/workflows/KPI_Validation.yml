@@ -1,0 +1,33 @@
+name: KPI Validation
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-kpis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check hidden BOM characters
+        run: |
+          if grep -rIl $'\xEF\xBB\xBF' supabase/migrations supabase/tests; then
+            echo "BOM detected in SQL files"
+            exit 1
+          fi
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase
+        run: supabase start
+
+      - name: Run deterministic KPI tests
+        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis.sql
+
+      - name: Run edge case KPI tests
+        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis_edge_cases.sql

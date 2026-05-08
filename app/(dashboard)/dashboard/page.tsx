@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
@@ -71,7 +71,14 @@ export default function DashboardPage() {
   }, [])  // intentionally runs once on mount; data is for "today" which doesn't change mid-session
 
   // ── Auto-generate AI insights if none exist for today ────────────────────────
+  // Guard ref prevents double-execution (StrictMode) and error-retry loops.
+  // Without it: generate → refreshData → insights changes → effect fires again → loop.
+  const generateAttempted = useRef(false)
+
   useEffect(() => {
+    if (generateAttempted.current) return
+    generateAttempted.current = true
+
     const today = new Date().toISOString().split('T')[0]
     const todaysInsights = insights.filter(i => i.date === today)
 
@@ -80,7 +87,8 @@ export default function DashboardPage() {
         .then(() => refreshData())
         .catch(err => console.error("Error auto-generating insights:", err))
     }
-  }, [insights, refreshData])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])  // intentionally empty — one-time check on mount after initial data load
 
   // ── Derived display values ───────────────────────────────────────────────────
   const todaySales    = financials?.total_income   ?? 0

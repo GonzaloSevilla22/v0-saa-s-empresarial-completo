@@ -574,12 +574,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (data) {
-      // Fire analytics in background — don't block post creation
-      supabase.from("analytics_events").insert([{
+      // Fire analytics in background — don't block post creation.
+      // `void` discards the PromiseLike (Supabase returns PromiseLike, not Promise,
+      // so .catch() is unavailable — void is the correct fire-and-forget pattern).
+      void supabase.from("analytics_events").insert([{
         user_id:    user.id,
         event_name: "post_created",
         event_data: { post_id: data.id },
-      }]).then().catch()
+      }])
     }
 
     await refreshPosts()

@@ -280,6 +280,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
         {showNewProduct ? (
           <div className="rounded-lg border border-border bg-accent/30 p-3 flex flex-col gap-2">
             <Input
+              selectOnFocus
               value={newProductName}
               onChange={(e) => setNewProductName(e.target.value)}
               placeholder="Nombre del producto"
@@ -425,6 +426,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Notas / Descripción (opcional)</Label>
         <Input
+          selectOnFocus
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Ej: Lote vencimiento Dic 2026"

@@ -81,6 +81,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Nombre</Label>
         <Input
+          selectOnFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ej: Remera AFA - Talle S"
@@ -108,6 +109,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
           <Label className="text-foreground">Código de Barras</Label>
           <div className="flex gap-2">
             <Input
+              selectOnFocus
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
               placeholder="Código"

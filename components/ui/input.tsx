@@ -2,8 +2,34 @@ import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
-const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
-  ({ className, type, ...props }, ref) => {
+export interface InputProps extends React.ComponentProps<'input'> {
+  /**
+   * ERP-style "overwrite mode": when true, all text is selected on focus so
+   * the first keystroke replaces the existing value instead of appending to it.
+   *
+   * Double-clicking still lets the user do partial edits (the browser's native
+   * word-selection overrides the select-all after the dblclick event fires).
+   *
+   * Uses requestAnimationFrame to avoid the browser's default click-to-position
+   * handler overriding the selection before our select() call completes.
+   *
+   * Safe on empty fields — select() with no content is a no-op.
+   */
+  selectOnFocus?: boolean
+}
+
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, selectOnFocus, onFocus, ...props }, ref) => {
+    const handleFocus = selectOnFocus
+      ? (e: React.FocusEvent<HTMLInputElement>) => {
+          const target = e.target
+          // rAF runs after the browser positions the cursor from the click event,
+          // so our select() always wins on single-click focus.
+          requestAnimationFrame(() => target.select())
+          onFocus?.(e)
+        }
+      : onFocus
+
     return (
       <input
         type={type}
@@ -12,6 +38,7 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
           className,
         )}
         ref={ref}
+        onFocus={handleFocus}
         {...props}
       />
     )

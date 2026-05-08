@@ -58,20 +58,20 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Nombre</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" className="bg-background border-border text-foreground" />
+          <Input selectOnFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" className="bg-background border-border text-foreground" />
         </div>
         <div className="flex flex-col gap-2">
           <Label className="text-foreground">Categoría (Opcional)</Label>
-          <Input value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Ej: Mayorista" className="bg-background border-border text-foreground" />
+          <Input selectOnFocus value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Ej: Mayorista" className="bg-background border-border text-foreground" />
         </div>
       </div>
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Email</Label>
-        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@ejemplo.com" className="bg-background border-border text-foreground" />
+        <Input selectOnFocus type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@ejemplo.com" className="bg-background border-border text-foreground" />
       </div>
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Teléfono</Label>
-        <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+54 11 5555-1234" className="bg-background border-border text-foreground" />
+        <Input selectOnFocus value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+54 11 5555-1234" className="bg-background border-border text-foreground" />
       </div>
       {initialData && (
         <div className="flex flex-col gap-2">

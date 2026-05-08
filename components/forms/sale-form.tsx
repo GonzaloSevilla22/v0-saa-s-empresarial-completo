@@ -283,6 +283,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
           {showNewClient ? (
             <div className="rounded-lg border border-border bg-accent/30 p-3 flex flex-col gap-2">
               <Input
+                selectOnFocus
                 value={newClientName}
                 onChange={(e) => setNewClientName(e.target.value)}
                 placeholder="Nombre del cliente"
@@ -290,12 +291,14 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Input
+                  selectOnFocus
                   value={newClientEmail}
                   onChange={(e) => setNewClientEmail(e.target.value)}
                   placeholder="Email (opcional)"
                   className="bg-background border-border text-foreground text-sm"
                 />
                 <Input
+                  selectOnFocus
                   value={newClientPhone}
                   onChange={(e) => setNewClientPhone(e.target.value)}
                   placeholder="Teléfono (opcional)"

@@ -61,6 +61,7 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
       <div className="flex flex-col gap-2">
         <Label className="text-foreground">Descripción</Label>
         <Input
+          selectOnFocus
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Detalle del gasto"

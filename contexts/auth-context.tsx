@@ -128,7 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: {
         data: { name },
-        // After email verification, the magic link lands here and creates the session
+        // After email confirmation the link lands here and the session is created.
         emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     })
@@ -137,13 +137,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw error
     }
     console.log("[Auth] Registro iniciado. Email de confirmación enviado a:", email)
-
-    // Redirect to the verification waiting screen.
-    // We intentionally do NOT call refreshSession() or push("/dashboard") here:
-    // with "Confirm email" ON, Supabase may return session = null.
-    // The verify-email page owns the session polling and final redirect.
-    router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
-  }, [supabase, router])
+    // Navigation is handled by the caller (register/page.tsx) so this function
+    // remains a pure auth operation, reusable from any context without side-effects.
+  }, [supabase])
 
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut()

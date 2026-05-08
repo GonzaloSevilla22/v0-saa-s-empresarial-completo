@@ -67,7 +67,9 @@ export default function RegisterPage() {
     setIsLoading(true)
     try {
       await register(name || "Emprendedor", email, password)
-      router.push("/dashboard")
+      // Go directly to the verification screen — no intermediate /dashboard hop.
+      // The middleware would catch it anyway, but going direct avoids the extra redirect.
+      router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
     } catch (error: any) {
       toast.error(error.message)
     } finally {

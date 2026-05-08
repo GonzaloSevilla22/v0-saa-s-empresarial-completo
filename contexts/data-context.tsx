@@ -79,6 +79,8 @@ function mapProduct(p: any): Product {
 }
 
 function mapSale(s: any): Sale {
+  // DB schema: `amount` = unit price per item; `total` = amount × quantity (computed by RPC).
+  // Do NOT divide amount by quantity — amount already IS the unit price.
   return {
     id:          s.id,
     date:        s.date.split("T")[0],
@@ -87,22 +89,24 @@ function mapSale(s: any): Sale {
     clientId:    s.client_id,
     clientName:  s.client?.name || "Consumidor Final",
     quantity:    s.quantity,
-    unitPrice:   Number(s.amount) / s.quantity,
-    total:       Number(s.amount),
+    unitPrice:   Number(s.amount),
+    total:       Number(s.total ?? s.amount),
     currency:    s.currency as any,
     operationId: s.operation_id ?? undefined,
   }
 }
 
 function mapPurchase(pr: any): Purchase {
+  // DB schema: `amount` = unit cost per item; `total` = amount × quantity (computed by RPC).
+  // Do NOT divide amount by quantity — amount already IS the unit cost per item.
   return {
     id:          pr.id,
     date:        pr.date.split("T")[0],
     productId:   pr.product_id,
     productName: pr.product?.name || "Eliminado",
     quantity:    pr.quantity,
-    unitCost:    Number(pr.amount) / pr.quantity,
-    total:       Number(pr.amount),
+    unitCost:    Number(pr.amount),
+    total:       Number(pr.total ?? pr.amount),
     operationId: pr.operation_id ?? undefined,
   }
 }
@@ -452,8 +456,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [refreshSales])
 
   const updateSale = useCallback(async (s: Sale) => {
+    // amount = unit price per item; total = unit price × quantity
     const { error } = await supabase.from("sales").update({
-      amount:   s.total,
+      amount:   s.unitPrice,
+      total:    s.unitPrice * s.quantity,
       quantity: s.quantity,
       currency: s.currency,
     }).eq("id", s.id)
@@ -482,8 +488,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [refreshPurchases])
 
   const updatePurchase = useCallback(async (p: Purchase) => {
+    // amount = unit cost per item; total = unit cost × quantity
     const { error } = await supabase.from("purchases").update({
-      amount:   p.total,
+      amount:   p.unitCost,
+      total:    p.unitCost * p.quantity,
       quantity: p.quantity,
     }).eq("id", p.id)
     if (error) throw new Error(translateDbError(error))

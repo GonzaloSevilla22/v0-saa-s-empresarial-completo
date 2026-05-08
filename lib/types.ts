@@ -4,12 +4,24 @@ export type Plan = "free" | "pro"
 export type UserRole = "user" | "admin"
 
 export interface User {
+  // ── Auth identity (from auth.users) ───────────────────────────────────────
   id: string
-  name: string
   email: string
+  // ── System-managed (read-only for the user) ───────────────────────────────
   plan: Plan
   role: UserRole
-  avatar?: string
+  // ── Personal profile (editable) ───────────────────────────────────────────
+  name: string
+  lastName?: string
+  avatar?: string          // URL from storage bucket
+  businessName?: string
+  phone?: string
+  bio?: string
+  // ── System preferences (editable) ─────────────────────────────────────────
+  currency: string         // 'ARS' | 'USD' | 'EUR' | 'BRL' | 'CLP'
+  timezone: string         // IANA timezone, e.g. 'America/Argentina/Buenos_Aires'
+  dateFormat: string       // 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
+  language: string         // 'es' (others prepared for future)
 }
 
 export interface Product {

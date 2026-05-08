@@ -5,6 +5,22 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole } from "@/lib/types"
 
+export interface ProfileUpdateData {
+  name?: string
+  lastName?: string
+  businessName?: string
+  phone?: string
+  bio?: string
+  avatarUrl?: string
+}
+
+export interface PreferencesUpdateData {
+  currency?: string
+  timezone?: string
+  dateFormat?: string
+  language?: string
+}
+
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
@@ -15,6 +31,16 @@ interface AuthContextType {
   logout: () => Promise<void>
   upgradePlan: () => Promise<void>
   downgradePlan: () => Promise<void>
+  /** Update editable profile fields (name, avatar, business info, etc.) */
+  updateProfile: (data: ProfileUpdateData) => Promise<void>
+  /** Update system preferences (currency, timezone, date format) */
+  updatePreferences: (data: PreferencesUpdateData) => Promise<void>
+  /** Change the authenticated user's password via Supabase Auth */
+  changePassword: (newPassword: string) => Promise<void>
+  /** Request an email change — Supabase sends a confirmation to the new address */
+  changeEmail: (newEmail: string) => Promise<void>
+  /** Sign out from ALL devices (including the current one) and redirect to login */
+  closeAllSessions: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -42,19 +68,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (profile) {
         setUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
-          email: session.user.email || "",
-          plan: (profile.plan as Plan) ?? 'free',
-          role: profile.role as UserRole,
+          id:           session.user.id,
+          email:        session.user.email || "",
+          plan:         (profile.plan as Plan) ?? 'free',
+          role:         profile.role as UserRole,
+          // Personal profile
+          name:         profile.name || session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
+          lastName:     profile.last_name     ?? undefined,
+          avatar:       profile.avatar_url    ?? undefined,
+          businessName: profile.business_name ?? undefined,
+          phone:        profile.phone         ?? undefined,
+          bio:          profile.bio           ?? undefined,
+          // System preferences (use DB value or sensible defaults)
+          currency:     profile.currency    ?? 'ARS',
+          timezone:     profile.timezone    ?? 'America/Argentina/Buenos_Aires',
+          dateFormat:   profile.date_format ?? 'DD/MM/YYYY',
+          language:     profile.language    ?? 'es',
         })
       } else {
         setUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
-          email: session.user.email || "",
-          plan: 'free',
-          role: 'user',
+          id:         session.user.id,
+          email:      session.user.email || "",
+          plan:       'free',
+          role:       'user',
+          name:       session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
+          currency:   'ARS',
+          timezone:   'America/Argentina/Buenos_Aires',
+          dateFormat: 'DD/MM/YYYY',
+          language:   'es',
         })
       }
     } catch (e) {
@@ -147,6 +188,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/")
   }, [supabase, router])
 
+  const updateProfile = useCallback(async (data: ProfileUpdateData) => {
+    if (!user) throw new Error("No hay sesión activa")
+    const { error } = await supabase.from('profiles').update({
+      name:          data.name         ?? undefined,
+      last_name:     data.lastName     ?? undefined,
+      business_name: data.businessName ?? undefined,
+      phone:         data.phone        ?? undefined,
+      bio:           data.bio          ?? undefined,
+      avatar_url:    data.avatarUrl    ?? undefined,
+    }).eq('id', user.id)
+    if (error) throw error
+    await refreshSession()
+  }, [supabase, user, refreshSession])
+
+  const updatePreferences = useCallback(async (data: PreferencesUpdateData) => {
+    if (!user) throw new Error("No hay sesión activa")
+    const { error } = await supabase.from('profiles').update({
+      currency:    data.currency    ?? undefined,
+      timezone:    data.timezone    ?? undefined,
+      date_format: data.dateFormat  ?? undefined,
+      language:    data.language    ?? undefined,
+    }).eq('id', user.id)
+    if (error) throw error
+    await refreshSession()
+  }, [supabase, user, refreshSession])
+
+  const changePassword = useCallback(async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+  }, [supabase])
+
+  const changeEmail = useCallback(async (newEmail: string) => {
+    const siteUrl = getSiteUrl()
+    const { error } = await supabase.auth.updateUser(
+      { email: newEmail },
+      { emailRedirectTo: `${siteUrl}/auth/callback` }
+    )
+    if (error) throw error
+    // Session remains valid. User must click the link sent to newEmail to confirm.
+  }, [supabase])
+
+  const closeAllSessions = useCallback(async () => {
+    // scope: 'global' revokes all refresh tokens including the current device.
+    // The user will be redirected to login by the auth state change listener.
+    const { error } = await supabase.auth.signOut({ scope: 'global' })
+    if (error) throw error
+    router.push("/auth/login")
+  }, [supabase, router])
+
   const upgradePlan = useCallback(async () => {
     if (!user) return
     const { error } = await supabase.from('profiles').update({ plan: 'pro' }).eq('id', user.id)
@@ -178,6 +268,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         upgradePlan,
         downgradePlan,
+        updateProfile,
+        updatePreferences,
+        changePassword,
+        changeEmail,
+        closeAllSessions,
       }}
     >
       {children}

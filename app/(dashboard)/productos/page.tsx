@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useData } from "@/contexts/data-context"
-import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { ProductCatalog } from "@/components/products/product-catalog"
 import { ProductForm } from "@/components/forms/product-form"
@@ -12,7 +11,7 @@ import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
 
 export default function ProductosPage() {
-  const { products, deleteProduct, refreshData } = useData()
+  const { products, deleteProduct } = useData()
   const { user } = useAuth()
 
   const [open, setOpen] = useState(false)
@@ -20,21 +19,7 @@ export default function ProductosPage() {
   /** When set, the form opens in "new variant" mode pre-filling this parent id */
   const [defaultParentId, setDefaultParentId] = useState<string | undefined>()
 
-  const supabase = createClient()
-
-  // Real-time subscription: refresh when products table changes
-  useEffect(() => {
-    const channel = supabase
-      .channel("productos-realtime")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "products" },
-        () => refreshData(),
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, refreshData])
+  // Realtime subscription for products is handled centrally in DataProvider.
 
   const isAtLimit = user?.plan === "free" && products.length >= MAX_PRODUCTS_FREE
 

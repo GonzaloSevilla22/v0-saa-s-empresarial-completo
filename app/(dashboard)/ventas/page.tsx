@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback } from "react"
 import { useData } from "@/contexts/data-context"
-import { createClient } from "@/lib/supabase/client"
 import { SaleForm } from "@/components/forms/sale-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
@@ -11,22 +10,10 @@ import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import type { SaleOperation } from "@/lib/group-operations"
 
 export default function VentasPage() {
-  const { sales, deleteSale, deleteSalesByOperation, refreshData } = useData()
+  // Realtime subscription for sales is handled centrally in DataProvider.
+  const { sales, deleteSale, deleteSalesByOperation } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
-  const supabase = createClient()
-
-  // Realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("ventas-realtime")
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "sales" },
-        () => { refreshData() },
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, refreshData])
 
   // Delete handler — 1 DB call for grouped ops, 1 for historical
   const handleDeleteOperation = useCallback(

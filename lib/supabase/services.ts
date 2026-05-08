@@ -142,24 +142,36 @@ export const services = {
     const { data, error } = await supabase.from('expenses').insert([{ ...expense, user_id: user.id }]).select().single()
     if (error) throw error
 
-    // Log analytics operation
-    await supabase.from('analytics_events').insert([{
-      user_id: user.id,
-      event_name: 'operation_created',
-      event_data: { type: 'expense', expense_id: data.id }
-    }])
+    // Fire analytics in background — don't block the expense creation response.
+    // Previously these ran as 3-4 sequential awaits, adding ~300-600 ms of latency.
+    ;(async () => {
+      try {
+        // Parallelise: log the operation_created event + check first_operation at the same time
+        const [, firstOpResult] = await Promise.all([
+          supabase.from('analytics_events').insert([{
+            user_id: user.id,
+            event_name: 'operation_created',
+            event_data: { type: 'expense', expense_id: data.id },
+          }]),
+          supabase.from('analytics_events')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('event_name', 'first_operation')
+            .limit(1),
+        ])
 
-    // Check if it's the first operation
-    const { data: firstOp } = await supabase.from('analytics_events')
-      .select('id').eq('user_id', user.id).eq('event_name', 'first_operation').limit(1)
-
-    if (!firstOp || firstOp.length === 0) {
-      await supabase.from('analytics_events').insert([{
-        user_id: user.id,
-        event_name: 'first_operation',
-        event_data: { type: 'expense', expense_id: data.id }
-      }])
-    }
+        if (!firstOpResult.data || firstOpResult.data.length === 0) {
+          await supabase.from('analytics_events').insert([{
+            user_id: user.id,
+            event_name: 'first_operation',
+            event_data: { type: 'expense', expense_id: data.id },
+          }])
+        }
+      } catch (e) {
+        // Analytics failures must never surface to the user
+        console.warn('[analytics] createExpense analytics failed:', e)
+      }
+    })()
 
     return data
   }

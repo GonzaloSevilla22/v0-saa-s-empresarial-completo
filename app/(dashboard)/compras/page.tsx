@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback } from "react"
 import { useData } from "@/contexts/data-context"
-import { createClient } from "@/lib/supabase/client"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
@@ -11,22 +10,10 @@ import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import type { PurchaseOperation } from "@/lib/group-operations"
 
 export default function ComprasPage() {
-  const { purchases, deletePurchase, deletePurchasesByOperation, refreshData } = useData()
+  // Realtime subscription for purchases is handled centrally in DataProvider.
+  const { purchases, deletePurchase, deletePurchasesByOperation } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
-  const supabase = createClient()
-
-  // Realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("compras-realtime")
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "purchases" },
-        () => { refreshData() },
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, refreshData])
 
   // Delete handler — 1 DB call for grouped ops, 1 for historical
   const handleDeleteOperation = useCallback(

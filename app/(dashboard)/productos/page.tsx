@@ -8,10 +8,12 @@ import { ProductForm } from "@/components/forms/product-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { MAX_PRODUCTS_FREE } from "@/lib/constants"
+import { parseAmount } from "@/lib/excel"
+import { toast } from "sonner"
 import type { Product } from "@/lib/types"
 
 export default function ProductosPage() {
-  const { products, deleteProduct } = useData()
+  const { products, deleteProduct, addProduct } = useData()
   const { user } = useAuth()
 
   const [open, setOpen] = useState(false)
@@ -47,6 +49,66 @@ export default function ProductosPage() {
     setOpen(false)
     setEditingProduct(undefined)
     setDefaultParentId(undefined)
+  }
+
+  // ── CSV import handler ─────────────────────────────────────────────────────
+  // Called by ProductCatalog after parsing + filtering the CSV rows.
+  // `rows` keys match the csvHeader→key map defined in ProductCatalog:
+  //   nombre, precio, costo, categoria, stock, stock_minimo, codigo
+
+  async function handleImport(rows: Record<string, string>[]) {
+    const VALID_CATEGORIES = new Set([
+      "Electrónica", "Ropa", "Alimentos", "Hogar",
+      "Salud", "Accesorios", "Otros",
+    ])
+    let success = 0
+    const errors: string[] = []
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+
+      if (!row.nombre?.trim()) {
+        errors.push(`Fila ${i + 2}: nombre requerido`)
+        continue
+      }
+
+      const price = parseAmount(row.precio)
+      if (isNaN(price) || price < 0) {
+        errors.push(`Fila ${i + 2}: precio inválido ("${row.precio ?? ""}")`)
+        continue
+      }
+
+      const cost     = parseAmount(row.costo)      >= 0 ? parseAmount(row.costo)      : 0
+      const stock    = parseInt(row.stock    ?? "0", 10)
+      const minStock = parseInt(row.stock_minimo ?? "0", 10)
+      const category = VALID_CATEGORIES.has(row.categoria?.trim())
+        ? row.categoria!.trim()
+        : "Otros"
+
+      try {
+        await addProduct({
+          name:      row.nombre.trim(),
+          category,
+          price,
+          cost:      isNaN(cost) ? 0 : cost,
+          stock:     isNaN(stock)    ? 0 : stock,
+          minStock:  isNaN(minStock) ? 0 : minStock,
+          barcode:   row.codigo?.trim() || undefined,
+          margin:    price > 0 ? Math.round(((price - cost) / price) * 100) : 0,
+          isVariant: false,
+        })
+        success++
+      } catch (err: any) {
+        errors.push(`Fila ${i + 2}: ${err?.message ?? "error desconocido"}`)
+      }
+    }
+
+    if (success > 0)
+      toast.success(`✅ ${success} producto${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""} correctamente`)
+    if (errors.length > 0) {
+      toast.error(`❌ ${errors.length} fila${errors.length !== 1 ? "s" : ""} con error`)
+      errors.slice(0, 3).forEach((e) => toast.error(e))
+    }
   }
 
   // Derive dialog title
@@ -93,6 +155,7 @@ export default function ProductosPage() {
         onAddVariant={handleAddVariant}
         onDelete={deleteProduct}
         isAtLimit={isAtLimit}
+        onImport={handleImport}
       />
 
       {/* ── Create / Edit dialog ── */}

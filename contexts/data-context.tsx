@@ -412,42 +412,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, refreshProducts])
 
   const deleteProduct = useCallback(async (id: string) => {
-    console.log("[deleteProduct] Starting delete for id:", id)
+    // Delegates entirely to the atomic RPC which handles in a single transaction:
+    //   1. Ownership check via auth.uid() (no p_user_id injection possible)
+    //   2. Nullify sales.product_id for historical records (shows "Eliminado" in UI)
+    //   3. Nullify purchases.product_id for historical records
+    //   4. Nullify products.parent_id for variant children (they become standalone)
+    //   5. DELETE the product row
+    const { error } = await supabase.rpc('rpc_safe_delete_product', { p_product_id: id })
+    if (error) throw new Error(translateDbError(error))
 
-    const { error: e1 } = await supabase.from("sales").update({ product_id: null }).eq("product_id", id)
-    console.log("[deleteProduct] sales nullify →", e1 ? `WARN: ${e1.message}` : "OK")
-
-    const { error: e2 } = await supabase.from("purchases").update({ product_id: null }).eq("product_id", id)
-    console.log("[deleteProduct] purchases nullify →", e2 ? `WARN: ${e2.message}` : "OK")
-
-    const { error: e3 } = await supabase.from("products")
-      .update({ parent_id: null, is_variant: false })
-      .eq("parent_id", id)
-    console.log("[deleteProduct] parent_id nullify →", e3 ? `WARN: ${e3.message}` : "OK")
-
-    const { data: variants, error: e4 } = await supabase
-      .from("product_variants")
-      .select("id")
-      .eq("product_id", id)
-    console.log("[deleteProduct] variants found →", variants?.length ?? 0, e4 ? `WARN: ${e4.message}` : "")
-
-    if (variants && variants.length > 0) {
-      const variantIds = variants.map((v: { id: string }) => v.id)
-      const { error: e5 } = await supabase
-        .from("inventory_movements")
-        .delete()
-        .in("variant_id", variantIds)
-      console.log("[deleteProduct] inventory_movements delete →", e5 ? `WARN: ${e5.message}` : "OK")
-    }
-
-    const { error: delErr } = await supabase.from("products").delete().eq("id", id)
-    console.log("[deleteProduct] delete →", delErr
-      ? `ERROR: code=${delErr.code} msg=${delErr.message}`
-      : "OK — deleted")
-
-    if (delErr) throw new Error(translateDbError(delErr))
-
-    // Refresh products + related tables that had references nullified
+    // Refresh products + related tables that had FK references nullified
     await Promise.all([refreshProducts(), refreshSales(), refreshPurchases()])
   }, [supabase, refreshProducts, refreshSales, refreshPurchases])
 

@@ -51,7 +51,7 @@ export interface Product {
    * 'untracked'    → service/digital, stock never changes
    * 'variant_only' → parent catalogue entry, stock lives in variant children
    */
-  stockControlType: StockControlType
+  stockControlType?: StockControlType
 }
 
 export interface Sale {

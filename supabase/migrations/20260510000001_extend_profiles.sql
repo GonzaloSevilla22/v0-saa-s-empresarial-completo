@@ -105,3 +105,45 @@ CREATE INDEX IF NOT EXISTS idx_profiles_business_name
 
 CREATE INDEX IF NOT EXISTS idx_profiles_currency
   ON public.profiles (currency);
+
+-- ── 7. Fix check_low_stock trigger — SECURITY DEFINER ─────────────────────────
+-- Root cause: function was SECURITY INVOKER. When stock ≤ 5 on INSERT, the
+-- trigger tried to SELECT from auth.users which the authenticated role cannot
+-- access, causing a permission-denied error and a 403 on the product INSERT.
+-- Fix: SECURITY DEFINER + SET search_path = public (prevents path hijacking).
+CREATE OR REPLACE FUNCTION public.check_low_stock()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  recent_alert boolean;
+BEGIN
+  IF NEW.stock <= 5 AND (TG_OP = 'INSERT' OR OLD.stock > 5) THEN
+    SELECT EXISTS (
+      SELECT 1 FROM public.email_logs
+      WHERE event_type = 'low_stock_alert'
+        AND metadata->>'product_id' = NEW.id::text
+        AND created_at > now() - INTERVAL '24 hours'
+    ) INTO recent_alert;
+
+    IF NOT recent_alert THEN
+      INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+      SELECT
+        NEW.user_id,
+        'low_stock_alert',
+        u.email,
+        'Alerta de Stock Bajo: ' || NEW.name,
+        jsonb_build_object(
+          'product_id',    NEW.id,
+          'product_name',  NEW.name,
+          'current_stock', NEW.stock
+        )
+      FROM auth.users u
+      WHERE u.id = NEW.user_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;

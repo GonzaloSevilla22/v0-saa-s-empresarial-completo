@@ -31,6 +31,13 @@ export interface SaleCartItem {
   discount: number
   /** Pre-computed: unitPrice × qty × (1 − discount/100). */
   subtotal: number
+  // ── Unit of measure (Etapa 4+) ──────────────────────────────────────────────
+  /** UUID of the selected unit of measure; undefined/null = base unit (factor 1). */
+  unitId?: string
+  /** Display symbol shown in the cart and on the receipt (e.g. "kg", "doc"). */
+  unitSymbol?: string
+  /** Conversion factor to base unit — used for server-side stock accounting. */
+  unitFactor?: number
 }
 
 export function calcSaleSubtotal(
@@ -52,6 +59,13 @@ export interface PurchaseCartItem {
   quantity: number
   /** Pre-computed: unitCost × qty. */
   subtotal: number
+  // ── Unit of measure (Etapa 4+) ──────────────────────────────────────────────
+  /** UUID of the selected unit of measure; undefined/null = base unit (factor 1). */
+  unitId?: string
+  /** Display symbol shown in the cart (e.g. "kg", "doc"). */
+  unitSymbol?: string
+  /** Conversion factor to base unit — used for server-side stock accounting. */
+  unitFactor?: number
 }
 
 export function calcPurchaseSubtotal(unitCost: number, qty: number): number {

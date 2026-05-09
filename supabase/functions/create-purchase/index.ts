@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     }
     console.log('4. User ID:', user.id)
 
-    const { product_id, amount, quantity, description, operation_id, date } = payload
+    const { product_id, amount, quantity, unit_id, description, operation_id, date } = payload
     if (!product_id || amount === undefined || amount === null) {
       console.warn('5. Validation failed: missing product_id or amount')
       return new Response(JSON.stringify({ error: 'Faltan campos obligatorios' }), {
@@ -62,7 +62,8 @@ Deno.serve(async (req) => {
     const { data: purchase, error: rpcError } = await supabaseClient.rpc('rpc_atomic_create_purchase', {
       p_product_id: product_id,
       p_amount: amount,
-      p_quantity: Math.max(1, quantity || 1),
+      p_quantity: Math.max(0.0001, quantity || 1),
+      p_unit_id: unit_id || null,
       // p_user_id removed: RPC now uses auth.uid() internally (security hardening)
       p_description: description || null,
       p_date: date || new Date().toISOString().split('T')[0],

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { useData } from "@/contexts/data-context"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
 import {
@@ -17,7 +18,7 @@ import {
   calcCartTotal,
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
-import { Plus, PackagePlus, ShoppingCart, CalendarIcon } from "lucide-react"
+import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
 interface PurchaseFormProps {
@@ -26,6 +27,7 @@ interface PurchaseFormProps {
 
 export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const { products, addPurchase, addProduct, refreshData } = useData()
+  const { units } = useUnitsOfMeasure()
 
   // ── Cart state ──────────────────────────────────────────────────────────────
   const [cartItems, setCartItems] = useState<PurchaseCartItem[]>([])
@@ -34,6 +36,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const [productId, setProductId] = useState("")
   const [unitCost, setUnitCost] = useState(0)
   const [quantity, setQuantity] = useState(1)
+  const [unitId, setUnitId] = useState("")
 
   // ── Global description (one note per operation) ─────────────────────────────
   const [description, setDescription] = useState("")
@@ -56,6 +59,10 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === productId),
     [products, productId],
+  )
+  const selectedUnit = useMemo(
+    () => units.find((u) => u.id === unitId),
+    [units, unitId],
   )
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
   const stagedSubtotal = useMemo(
@@ -106,6 +113,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     const p = products.find((x) => x.id === id)
     if (p) setUnitCost(p.cost)
     setQuantity(1)
+    setUnitId("")
   }
 
   function handleAddToCart() {
@@ -118,12 +126,15 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       return
     }
 
-    const existing = cartItems.find((item) => item.productId === productId)
+    // Existing cart item with the SAME product AND same unit → accumulate quantities
+    const existing = cartItems.find(
+      (item) => item.productId === productId && (item.unitId ?? "") === unitId,
+    )
     if (existing) {
       const newQty = existing.quantity + quantity
       setCartItems((prev) =>
         prev.map((item) =>
-          item.productId === productId
+          item.id === existing.id
             ? {
                 ...item,
                 quantity: newQty,
@@ -144,6 +155,9 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
           unitCost,
           quantity,
           subtotal: stagedSubtotal,
+          unitId: unitId || undefined,
+          unitSymbol: selectedUnit?.symbol,
+          unitFactor: selectedUnit?.factor,
         },
       ])
       toast.success(`${selectedProduct.name} agregado`)
@@ -152,6 +166,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     setProductId("")
     setUnitCost(0)
     setQuantity(1)
+    setUnitId("")
   }
 
   function handleRemoveItem(id: string) {
@@ -220,6 +235,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
           unitCost: item.unitCost,
           total: item.subtotal,
           description: description || `Compra de ${item.productName}`,
+          unitId: item.unitId,
           operationId,
         })
         results.push({ success: true, productName: item.productName })
@@ -352,30 +368,56 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
         )}
 
         {selectedProduct && !showNewProduct && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
-              <NumericInput
-                min={1}
-                value={quantity}
-                onValueChange={(val) => setQuantity(Math.max(1, val))}
-                className="bg-background border-border text-foreground"
-              />
+          <div className="flex flex-col gap-2">
+            {/* Row 1: Cantidad + Unidad */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
+                <NumericInput
+                  min={0.0001}
+                  step={1}
+                  value={quantity}
+                  onValueChange={(val) => setQuantity(Math.max(0.0001, val))}
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Ruler className="h-3 w-3" />
+                  Unidad
+                </Label>
+                <Select value={unitId} onValueChange={setUnitId}>
+                  <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
+                    <SelectValue placeholder="Base (×1)" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border">
+                    <SelectItem value="">Sin unidad (base)</SelectItem>
+                    {units.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.symbol} — {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] text-muted-foreground">Costo unitario</Label>
-              <NumericInput
-                min={0}
-                step={0.01}
-                value={unitCost}
-                onValueChange={setUnitCost}
-                className="bg-background border-border text-foreground"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
-              <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-cyan-400 tabular-nums">
-                {formatMoney(stagedSubtotal)}
+            {/* Row 2: Costo unitario + Subtotal */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground">Costo unitario</Label>
+                <NumericInput
+                  min={0}
+                  step={0.01}
+                  value={unitCost}
+                  onValueChange={setUnitCost}
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
+                <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-cyan-400 tabular-nums">
+                  {formatMoney(stagedSubtotal)}
+                </div>
               </div>
             </div>
           </div>
@@ -402,6 +444,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             quantity: item.quantity,
             unitValue: item.unitCost,
             subtotal: item.subtotal,
+            badge: item.unitSymbol ?? undefined,
           }))}
           onRemove={handleRemoveItem}
           onUpdateQty={handleUpdateQty}

@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { useData } from "@/contexts/data-context"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
 import {
   generateOperationId,
@@ -16,7 +17,7 @@ import {
   calcCartTotal,
   type SaleCartItem,
 } from "@/lib/cart-utils"
-import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon } from "lucide-react"
+import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
 interface SaleFormProps {
@@ -25,6 +26,7 @@ interface SaleFormProps {
 
 export function SaleForm({ onSuccess }: SaleFormProps) {
   const { products, clients, addSale, addClient, refreshData } = useData()
+  const { units } = useUnitsOfMeasure()
 
   // ── Cart state ──────────────────────────────────────────────────────────────
   const [cartItems, setCartItems] = useState<SaleCartItem[]>([])
@@ -33,6 +35,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
   const [productId, setProductId] = useState("")
   const [quantity, setQuantity] = useState(1)
   const [discount, setDiscount] = useState(0)
+  const [unitId, setUnitId] = useState("")
 
   // ── Header fields (apply to all items) ─────────────────────────────────────
   const [clientId, setClientId] = useState("")
@@ -57,10 +60,19 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
     () => clients.find((c) => c.id === clientId),
     [clients, clientId],
   )
+  const selectedUnit = useMemo(
+    () => units.find((u) => u.id === unitId),
+    [units, unitId],
+  )
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
   const stagedSubtotal = useMemo(
     () => (selectedProduct ? calcSaleSubtotal(selectedProduct.price, quantity, discount) : 0),
     [selectedProduct, quantity, discount],
+  )
+  // Quantity converted to base unit — used for stock validation
+  const stagedQuantityNormalized = useMemo(
+    () => quantity * (selectedUnit?.factor ?? 1),
+    [quantity, selectedUnit],
   )
 
   // ── Option lists ────────────────────────────────────────────────────────────
@@ -110,16 +122,22 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
       toast.error("Seleccioná un producto")
       return
     }
-    const existing = cartItems.find((item) => item.productId === productId)
+
+    // Existing cart item with the SAME product AND same unit → accumulate quantities
+    const existing = cartItems.find(
+      (item) => item.productId === productId && (item.unitId ?? "") === unitId,
+    )
+
     if (existing) {
       const newQty = existing.quantity + quantity
-      if (newQty > selectedProduct.stock) {
+      const newNormalized = newQty * (selectedUnit?.factor ?? 1)
+      if (newNormalized > selectedProduct.stock) {
         toast.error(`Stock insuficiente (disponible: ${selectedProduct.stock})`)
         return
       }
       setCartItems((prev) =>
         prev.map((item) =>
-          item.productId === productId
+          item.id === existing.id
             ? {
                 ...item,
                 quantity: newQty,
@@ -130,7 +148,8 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
       )
       toast.success(`Cantidad actualizada: ${selectedProduct.name}`)
     } else {
-      if (quantity > selectedProduct.stock) {
+      // New cart entry (different product or different unit)
+      if (stagedQuantityNormalized > selectedProduct.stock) {
         toast.error(`Stock insuficiente (disponible: ${selectedProduct.stock})`)
         return
       }
@@ -144,6 +163,9 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
           quantity,
           discount,
           subtotal: stagedSubtotal,
+          unitId: unitId || undefined,
+          unitSymbol: selectedUnit?.symbol,
+          unitFactor: selectedUnit?.factor,
         },
       ])
       toast.success(`${selectedProduct.name} agregado`)
@@ -152,6 +174,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
     setProductId("")
     setQuantity(1)
     setDiscount(0)
+    setUnitId("")
   }
 
   function handleRemoveItem(id: string) {
@@ -222,6 +245,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
           unitPrice: effectiveUnitPrice,
           total: item.subtotal,
           currency,
+          unitId: item.unitId,
           operationId,
         })
         results.push({ success: true, productName: item.productName })
@@ -377,6 +401,7 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
             setProductId(id)
             setQuantity(1)
             setDiscount(0)
+            setUnitId("")
           }}
           placeholder="Seleccionar producto"
           searchPlaceholder="Buscar producto..."
@@ -384,32 +409,57 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
         />
 
         {selectedProduct && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
-              <NumericInput
-                min={1}
-                max={selectedProduct.stock || 9999}
-                value={quantity}
-                onValueChange={(val) => setQuantity(Math.max(1, val))}
-                className="bg-background border-border text-foreground"
-              />
+          <div className="flex flex-col gap-2">
+            {/* Row 1: Cantidad + Unidad */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
+                <NumericInput
+                  min={0.0001}
+                  step={1}
+                  value={quantity}
+                  onValueChange={(val) => setQuantity(Math.max(0.0001, val))}
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Ruler className="h-3 w-3" />
+                  Unidad
+                </Label>
+                <Select value={unitId} onValueChange={setUnitId}>
+                  <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
+                    <SelectValue placeholder="Base (×1)" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border">
+                    <SelectItem value="">Sin unidad (base)</SelectItem>
+                    {units.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {u.symbol} — {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] text-muted-foreground">Descuento (%)</Label>
-              <NumericInput
-                min={0}
-                max={100}
-                value={discount}
-                onValueChange={setDiscount}
-                placeholder="0"
-                className="bg-background border-border text-foreground"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
-              <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-emerald-400 tabular-nums">
-                {formatMoney(stagedSubtotal, currency)}
+            {/* Row 2: Descuento + Subtotal */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground">Descuento (%)</Label>
+                <NumericInput
+                  min={0}
+                  max={100}
+                  value={discount}
+                  onValueChange={setDiscount}
+                  placeholder="0"
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
+                <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-emerald-400 tabular-nums">
+                  {formatMoney(stagedSubtotal, currency)}
+                </div>
               </div>
             </div>
           </div>
@@ -436,7 +486,12 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
             quantity: item.quantity,
             unitValue: item.unitPrice,
             subtotal: item.subtotal,
-            badge: item.discount > 0 ? `${item.discount}% desc.` : undefined,
+            badge: [
+              item.unitSymbol ?? null,
+              item.discount > 0 ? `${item.discount}% desc.` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined,
           }))}
           onRemove={handleRemoveItem}
           onUpdateQty={handleUpdateQty}

@@ -54,6 +54,8 @@ export interface Sale {
   unitPrice: number
   total: number
   currency: Currency
+  /** UUID of the unit of measure used for this sale (Etapa 3+). */
+  unitId?: string
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
 }
@@ -67,8 +69,21 @@ export interface Purchase {
   unitCost: number
   total: number
   description?: string
+  /** UUID of the unit of measure used for this purchase (Etapa 3+). */
+  unitId?: string
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
+}
+
+export interface UnitOfMeasure {
+  id: string
+  name: string
+  symbol: string
+  type: 'unit' | 'weight' | 'volume' | 'length' | 'custom'
+  /** Conversion factor relative to the base unit of this type. */
+  factor: number
+  baseUnitId?: string
+  isSystem: boolean
 }
 
 export interface Expense {

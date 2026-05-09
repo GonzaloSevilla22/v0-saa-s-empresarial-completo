@@ -4,7 +4,7 @@
  * PurchaseOperationsList
  *
  * Renders purchases grouped by operation_id — identical UX to SaleOperationsList.
- * Includes: date filter, CSV export, CSV import (same utilities as DataTable / Gastos).
+ * Includes: date filter, CSV export.
  */
 
 import { useState, useMemo, useCallback } from "react"
@@ -26,7 +26,6 @@ import {
   Search,
   PackageOpen,
   Download,
-  Upload,
   CalendarDays,
   X,
 } from "lucide-react"
@@ -202,24 +201,6 @@ export function PurchaseOperationsList({
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
             {filtered.length} operación{filtered.length !== 1 ? "es" : ""}
           </span>
-
-          {/* Import */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".csv,.txt"
-            className="hidden"
-            onChange={handleImport}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-border text-foreground"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="h-4 w-4 mr-1" />
-            Importar
-          </Button>
 
           {/* Export */}
           <Button

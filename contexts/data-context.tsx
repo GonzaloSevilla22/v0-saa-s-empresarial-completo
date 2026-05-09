@@ -64,17 +64,19 @@ const DataContext = createContext<DataContextType | null>(null)
 
 function mapProduct(p: any): Product {
   return {
-    id:          p.id,
-    name:        p.name,
-    category:    p.category || "Otros",
-    cost:        Number(p.cost),
-    price:       Number(p.price),
-    margin:      p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0,
-    stock:       p.stock,
-    minStock:    p.min_stock || 0,
-    barcode:     p.barcode,
-    parentId:    p.parent_id  ?? undefined,
-    isVariant:   p.is_variant ?? false,
+    id:               p.id,
+    name:             p.name,
+    category:         p.category || "Otros",
+    cost:             Number(p.cost),
+    price:            Number(p.price),
+    margin:           p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0,
+    stock:            p.stock,
+    minStock:         p.min_stock || 0,
+    barcode:          p.barcode,
+    parentId:         p.parent_id  ?? undefined,
+    isVariant:        p.is_variant ?? false,
+    baseUnitId:       p.base_unit_id   ?? undefined,
+    stockControlType: p.stock_control_type ?? 'tracked',
   }
 }
 
@@ -380,16 +382,18 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const { error } = await supabase.from("products").insert([{
-      user_id:    user.id,
-      name:       p.name,
-      category:   p.category,
-      price:      p.price,
-      cost:       p.cost,
-      stock:      p.stock,
-      min_stock:  p.minStock,
-      barcode:    p.barcode,
-      parent_id:  p.parentId  ?? null,
-      is_variant: p.isVariant,
+      user_id:            user.id,
+      name:               p.name,
+      category:           p.category,
+      price:              p.price,
+      cost:               p.cost,
+      stock:              p.stock,
+      min_stock:          p.minStock,
+      barcode:            p.barcode,
+      parent_id:          p.parentId          ?? null,
+      is_variant:         p.isVariant,
+      base_unit_id:       p.baseUnitId        ?? null,
+      stock_control_type: p.stockControlType  ?? 'tracked',
     }])
     if (error) throw new Error(translateDbError(error))
     await refreshProducts()
@@ -397,15 +401,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const updateProduct = useCallback(async (p: Product) => {
     const { error } = await supabase.from("products").update({
-      name:       p.name,
-      category:   p.category,
-      price:      p.price,
-      cost:       p.cost,
-      stock:      p.stock,
-      min_stock:  p.minStock,
-      barcode:    p.barcode,
-      parent_id:  p.parentId  ?? null,
-      is_variant: p.isVariant,
+      name:               p.name,
+      category:           p.category,
+      price:              p.price,
+      cost:               p.cost,
+      stock:              p.stock,
+      min_stock:          p.minStock,
+      barcode:            p.barcode,
+      parent_id:          p.parentId          ?? null,
+      is_variant:         p.isVariant,
+      base_unit_id:       p.baseUnitId        ?? null,
+      stock_control_type: p.stockControlType  ?? 'tracked',
     }).eq("id", p.id)
     if (error) throw new Error(translateDbError(error))
     await refreshProducts()

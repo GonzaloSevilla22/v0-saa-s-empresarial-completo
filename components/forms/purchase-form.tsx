@@ -113,7 +113,8 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     const p = products.find((x) => x.id === id)
     if (p) setUnitCost(p.cost)
     setQuantity(1)
-    setUnitId("")
+    // Pre-select the product's default unit (set in Etapa 5 backfill)
+    setUnitId(p?.baseUnitId ?? "")
   }
 
   function handleAddToCart() {

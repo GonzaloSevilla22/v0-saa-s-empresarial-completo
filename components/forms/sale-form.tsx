@@ -401,7 +401,9 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
             setProductId(id)
             setQuantity(1)
             setDiscount(0)
-            setUnitId("")
+            // Pre-select the product's default unit (set in Etapa 5 backfill)
+            const p = products.find((x) => x.id === id)
+            setUnitId(p?.baseUnitId ?? "")
           }}
           placeholder="Seleccionar producto"
           searchPlaceholder="Buscar producto..."

@@ -387,12 +387,15 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
                   <Ruler className="h-3 w-3" />
                   Unidad
                 </Label>
-                <Select value={unitId} onValueChange={setUnitId}>
+                <Select
+                  value={unitId || "__none__"}
+                  onValueChange={(v) => setUnitId(v === "__none__" ? "" : v)}
+                >
                   <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
                     <SelectValue placeholder="Base (×1)" />
                   </SelectTrigger>
                   <SelectContent className="bg-popover border-border">
-                    <SelectItem value="">Sin unidad (base)</SelectItem>
+                    <SelectItem value="__none__">Sin unidad (base)</SelectItem>
                     {units.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         {u.symbol} — {u.name}

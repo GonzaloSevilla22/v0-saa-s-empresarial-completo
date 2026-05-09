@@ -12,6 +12,9 @@ import Link from "next/link"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney, formatDate } from "@/lib/format"
+import { parseAmount, parseDate } from "@/lib/excel"
+import { EXPENSE_CATEGORIES } from "@/lib/constants"
+import { toast } from "sonner"
 import type { Expense } from "@/lib/types"
 
 const categoryColors: Record<string, string> = {
@@ -57,7 +60,7 @@ const columns: Column<Expense>[] = [
 
 export default function GastosPage() {
   // Realtime subscription for expenses is handled centrally in DataProvider.
-  const { expenses, deleteExpense } = useData()
+  const { expenses, deleteExpense, addExpense } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
 
@@ -108,13 +111,49 @@ export default function GastosPage() {
         ]}
         exportFilename="gastos"
         importColumnMap={[
-          { csvHeader: "Categoría", key: "category" },
-          { csvHeader: "Descripción", key: "description" },
-          { csvHeader: "Monto", key: "amount" },
-          { csvHeader: "Fecha", key: "date" },
+          { csvHeader: "Categoría",   key: "category"     },
+          { csvHeader: "Descripción", key: "description"  },
+          { csvHeader: "Monto",       key: "amount"       },
+          { csvHeader: "Fecha",       key: "date"         },
         ]}
-        onImport={(rows) => {
-          console.log("Importing expenses:", rows)
+        onImport={async (rows) => {
+          const validCategories = new Set<string>(EXPENSE_CATEGORIES)
+          let success = 0
+          const errors: string[] = []
+
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i]
+
+            if (!row.description?.trim()) {
+              errors.push(`Fila ${i + 2}: descripción requerida`)
+              continue
+            }
+
+            const amount = parseAmount(row.amount)
+            if (isNaN(amount) || amount <= 0) {
+              errors.push(`Fila ${i + 2}: monto inválido ("${row.amount ?? ""}")`)
+              continue
+            }
+
+            const category = validCategories.has(row.category?.trim())
+              ? row.category!.trim()
+              : "Otros"
+            const date = parseDate(row.date)
+
+            try {
+              await addExpense({ date, category, description: row.description.trim(), amount })
+              success++
+            } catch (err: any) {
+              errors.push(`Fila ${i + 2}: ${err?.message ?? "error desconocido"}`)
+            }
+          }
+
+          if (success > 0)
+            toast.success(`✅ ${success} gasto${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""} correctamente`)
+          if (errors.length > 0) {
+            toast.error(`❌ ${errors.length} fila${errors.length !== 1 ? "s" : ""} con error`)
+            errors.slice(0, 3).forEach((e) => toast.error(e))
+          }
         }}
       />
 

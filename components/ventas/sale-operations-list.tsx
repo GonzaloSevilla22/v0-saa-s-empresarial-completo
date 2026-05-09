@@ -19,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operations"
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate, type Currency } from "@/lib/format"
+import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
 import type { Sale } from "@/lib/types"
 import {
   Plus,
@@ -379,6 +380,11 @@ export function SaleOperationsList({
                         <span className="text-right font-bold text-base text-primary tabular-nums">{formatMoney(op.total, op.currency)}</span>
                       </div>
                     )}
+                  </div>
+
+                  {/* Receipt action bar */}
+                  <div className="flex justify-end mt-3" onClick={(e) => e.stopPropagation()}>
+                    <SaleReceiptButton op={op} />
                   </div>
                 </div>
               )}

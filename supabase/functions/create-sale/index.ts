@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
     }
     console.log('4. User ID:', user.id)
 
-    const { client_id, product_id, amount, quantity, currency, operation_id } = payload
+    const { client_id, product_id, amount, quantity, currency, operation_id, date } = payload
 
     if (!product_id || amount === undefined || amount === null) {
       console.warn('5. Validation failed: missing product_id or amount')
@@ -60,7 +60,8 @@ Deno.serve(async (req) => {
       p_amount: amount,
       p_quantity: Math.max(1, quantity || 1),
       // p_user_id removed: RPC now uses auth.uid() internally (security hardening)
-      p_currency: currency || 'ARS'
+      p_currency: currency || 'ARS',
+      p_date: date || new Date().toISOString().split('T')[0],
     })
 
     if (rpcError) {

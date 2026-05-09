@@ -17,7 +17,7 @@ import {
   calcCartTotal,
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
-import { Plus, PackagePlus, ShoppingCart } from "lucide-react"
+import { Plus, PackagePlus, ShoppingCart, CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
 
 interface PurchaseFormProps {
@@ -45,6 +45,9 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const [newProductCost, setNewProductCost] = useState(0)
   const [newProductPrice, setNewProductPrice] = useState(0)
   const [newProductMinStock, setNewProductMinStock] = useState(10)
+
+  // ── Operation date ──────────────────────────────────────────────────────────
+  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -203,7 +206,6 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
 
     setSubmitting(true)
     const operationId = generateOperationId()
-    const date = new Date().toISOString().split("T")[0]
 
     type Result = { success: boolean; productName: string; error?: string }
     const results: Result[] = []
@@ -422,16 +424,32 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
         </div>
       )}
 
-      {/* ── Notes ───────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-2">
-        <Label className="text-foreground">Notas / Descripción (opcional)</Label>
-        <Input
-          selectOnFocus
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Ej: Lote vencimiento Dic 2026"
-          className="bg-background border-border text-foreground"
-        />
+      {/* ── Date + Notes ────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-2">
+          <Label className="text-foreground flex items-center gap-1.5">
+            <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            Fecha
+          </Label>
+          <input
+            type="date"
+            value={date}
+            max={new Date().toISOString().split("T")[0]}
+            onChange={(e) => setDate(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label className="text-foreground">Notas (opcional)</Label>
+          <Input
+            selectOnFocus
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Ej: Lote Dic 2026"
+            className="bg-background border-border text-foreground"
+          />
+        </div>
       </div>
 
       {/* ── Submit ──────────────────────────────────────────────────────── */}

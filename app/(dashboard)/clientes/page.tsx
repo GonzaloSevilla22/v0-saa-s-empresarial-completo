@@ -61,8 +61,13 @@ const columns: Column<Client>[] = [
   {
     key: "lastPurchase",
     header: "Ultima compra",
-    cell: (row) => new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR"),
+    cell: (row) =>
+      row.lastPurchase === "-"
+        ? <span className="text-muted-foreground">-</span>
+        : new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR"),
     sortable: true,
+    // "-" sorts before any ISO date string (lexicographic). Clients with no
+    // purchases will appear first on ascending sort (oldest), last on descending.
     sortValue: (row) => row.lastPurchase,
   },
   {
@@ -134,7 +139,10 @@ export default function ClientesPage() {
               <span className="text-sm font-semibold text-primary">{formatMoney(row.totalSpent)}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Última compra: {new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR")}
+              Última compra:{" "}
+              {row.lastPurchase === "-"
+                ? "-"
+                : new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR")}
             </p>
           </div>
         )}

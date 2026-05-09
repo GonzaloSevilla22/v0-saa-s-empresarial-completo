@@ -1,9 +1,9 @@
 "use client"
 
-import { Fragment, useState, useMemo, useCallback, useRef } from "react"
+import { Fragment, useState, useMemo, useCallback, useRef, type ReactNode } from "react"
 import {
   ChevronRight, ChevronDown, Plus, Search, Download, Upload,
-  Pencil, Trash2, Package, GitBranch,
+  Pencil, Trash2, Package, GitBranch, Wrench,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,6 +17,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
 import { exportToCSV, readFileAsText, validateImportColumns, parseCSV, parseAmount } from "@/lib/excel"
 import type { Product } from "@/lib/types"
@@ -129,6 +130,52 @@ export function ProductCatalog({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Unit-of-measure resolution ─────────────────────────────────────────────
+  const { units } = useUnitsOfMeasure()
+  const unitsById = useMemo(
+    () => new Map(units.map((u) => [u.id, u])),
+    [units],
+  )
+
+  /** Returns the unit symbol for a product, or "uds" as fallback. */
+  function unitSymbol(baseUnitId?: string): string {
+    if (!baseUnitId) return "uds"
+    return unitsById.get(baseUnitId)?.symbol ?? "uds"
+  }
+
+  /** Stock cell content for a single tracked product. */
+  function stockLabel(p: Product): ReactNode {
+    if (p.stockControlType === "untracked") {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Wrench className="h-3 w-3" />
+          Servicio
+        </span>
+      )
+    }
+    const sym = unitSymbol(p.baseUnitId)
+    return (
+      <>
+        <span className="font-bold text-foreground">{p.stock}</span>
+        <span className="text-muted-foreground text-xs ml-1">{sym}</span>
+      </>
+    )
+  }
+
+  /** Aggregated stock label for a variant group. */
+  function groupStockLabel(g: ProductGroup): ReactNode {
+    const total = groupStock(g)
+    // Use the symbol from the first child that has one
+    const firstWithUnit = g.children.find((c) => c.baseUnitId)
+    const sym = firstWithUnit ? unitSymbol(firstWithUnit.baseUnitId) : "uds"
+    return (
+      <>
+        <span className="font-bold text-foreground">{total}</span>
+        <span className="text-muted-foreground text-xs ml-1">{sym}</span>
+      </>
+    )
+  }
 
   // ── Group products ─────────────────────────────────────────────────────────
   const { groups, standalones } = useMemo(() => {
@@ -461,7 +508,7 @@ export function ProductCatalog({
                       </Badge>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">{groupPriceLabel(g)}</span>
-                        <span className="text-xs text-muted-foreground">{stock} uds</span>
+                        <span className="text-xs text-muted-foreground">{groupStockLabel(g)}</span>
                       </div>
                     </div>
 
@@ -507,7 +554,9 @@ export function ProductCatalog({
                             <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{child.barcode}</code>
                           )}
                         </div>
-                        <StockSemaphore stock={child.stock} minStock={child.minStock} size="sm" />
+                        {child.stockControlType !== "untracked" && (
+                          <StockSemaphore stock={child.stock} minStock={child.minStock} size="sm" />
+                        )}
                       </div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-emerald-400 font-medium">{formatMoney(child.price)}</span>
@@ -517,7 +566,7 @@ export function ProductCatalog({
                         )}>
                           {child.margin}% margen
                         </span>
-                        <span className="text-muted-foreground">{child.stock} uds</span>
+                        <span className="text-muted-foreground text-xs">{stockLabel(child)}</span>
                       </div>
                       <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
                         <Button
@@ -551,7 +600,9 @@ export function ProductCatalog({
                       <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{p.barcode}</code>
                     )}
                   </div>
-                  <StockSemaphore stock={p.stock} minStock={p.minStock} size="sm" />
+                  {p.stockControlType !== "untracked" && (
+                    <StockSemaphore stock={p.stock} minStock={p.minStock} size="sm" />
+                  )}
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <Badge variant="outline" className="text-xs border-border text-muted-foreground">
@@ -565,7 +616,7 @@ export function ProductCatalog({
                     )}>
                       {p.margin}%
                     </span>
-                    <span className="text-muted-foreground">{p.stock} uds</span>
+                    <span className="text-muted-foreground text-xs">{stockLabel(p)}</span>
                   </div>
                 </div>
                 <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
@@ -714,8 +765,7 @@ export function ProductCatalog({
 
                       {/* Aggregated stock */}
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <span className="font-bold text-foreground">{stock}</span>
-                        <span className="text-muted-foreground text-xs ml-1">uds</span>
+                        {groupStockLabel(g)}
                       </TableCell>
 
                       {/* Semaphore */}
@@ -825,16 +875,18 @@ export function ProductCatalog({
 
                             {/* Stock */}
                             <TableCell>
-                              <span className="text-sm">{child.stock}</span>
+                              {stockLabel(child)}
                             </TableCell>
 
                             {/* Semaphore */}
                             <TableCell>
-                              <StockSemaphore
-                                stock={child.stock}
-                                minStock={child.minStock}
-                                size="sm"
-                              />
+                              {child.stockControlType !== "untracked" && (
+                                <StockSemaphore
+                                  stock={child.stock}
+                                  minStock={child.minStock}
+                                  size="sm"
+                                />
+                              )}
                             </TableCell>
 
                             {/* Actions */}
@@ -923,16 +975,18 @@ export function ProductCatalog({
 
                   {/* Stock */}
                   <TableCell>
-                    <span className="text-sm">{p.stock}</span>
+                    {stockLabel(p)}
                   </TableCell>
 
                   {/* Semaphore */}
                   <TableCell>
-                    <StockSemaphore
-                      stock={p.stock}
-                      minStock={p.minStock}
-                      size="sm"
-                    />
+                    {p.stockControlType !== "untracked" && (
+                      <StockSemaphore
+                        stock={p.stock}
+                        minStock={p.minStock}
+                        size="sm"
+                      />
+                    )}
                   </TableCell>
 
                   {/* Actions */}

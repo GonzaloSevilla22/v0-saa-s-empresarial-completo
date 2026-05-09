@@ -1,27 +1,5 @@
--- =============================================================================
--- MIGRATION: 20260430000007_fix_kpi_rpc_security.sql
--- DESCRIPTION: Security corrections for KPI RPCs introduced in the
---              KPI Engine Refactor (migrations 20260430000000-20260430000006).
---
--- PROBLEMS FIXED:
---
---  [CRITICAL] get_dashboard_financials(p_user_id uuid, ...) and
---             get_dashboard_critical_stock(p_user_id uuid) accepted user_id
---             from the caller. Any authenticated user could pass another
---             tenant's UUID to read their financial data.
---             Fix: Remove p_user_id parameter; use auth.uid() internally.
---             Drop old signatures to prevent overload bypass.
---
---  [HIGH]     get_admin_* functions had no access control. Any authenticated
---             user could call them to read aggregate platform analytics.
---             Fix: Add is_admin() check at the start of each function.
---
---  [MEDIUM]   Missing GRANT EXECUTE on all new RPCs.
---             Fix: Explicit grants added for each function.
--- =============================================================================
+-- Applied directly via MCP on 2026-04-30. Stub recovered from supabase_migrations.schema_migrations.
 
--- ── Drop old vulnerable signatures (created by PR #31 migrations) ─────────────
--- IF NOT EXISTS variants ensure this is safe whether PR #31 was merged or not.
 DO $$
 BEGIN
   DROP FUNCTION IF EXISTS public.get_dashboard_financials(uuid, timestamptz, timestamptz);
@@ -29,285 +7,84 @@ BEGIN
 END;
 $$;
 
--- =============================================================================
--- SECTION 1 — Tenant-isolated dashboard KPIs (no p_user_id)
--- =============================================================================
-
--- ── get_dashboard_financials ──────────────────────────────────────────────────
--- Income, expenses, purchases and net profit for the authenticated user
--- within a given date range.
-CREATE OR REPLACE FUNCTION public.get_dashboard_financials(
-  p_date_from timestamptz,
-  p_date_to   timestamptz
-)
-RETURNS TABLE (
-  total_income    numeric,
-  total_expenses  numeric,
-  total_purchases numeric,
-  net_profit      numeric
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_uid uuid := auth.uid();
+CREATE OR REPLACE FUNCTION public.get_dashboard_financials(p_date_from timestamptz, p_date_to timestamptz)
+RETURNS TABLE (total_income numeric, total_expenses numeric, total_purchases numeric, net_profit numeric)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_uid uuid := auth.uid();
 BEGIN
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  -- Inverted date range: return zeroes rather than crashing
-  IF p_date_from > p_date_to THEN
-    RETURN QUERY SELECT 0::numeric, 0::numeric, 0::numeric, 0::numeric;
-    RETURN;
-  END IF;
-
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF p_date_from > p_date_to THEN RETURN QUERY SELECT 0::numeric, 0::numeric, 0::numeric, 0::numeric; RETURN; END IF;
   RETURN QUERY
-  WITH ingresos AS (
-    SELECT COALESCE(SUM(amount), 0) AS total
-    FROM public.sales
-    WHERE user_id = v_uid
-      AND date >= p_date_from
-      AND date <= p_date_to
-  ),
-  gastos AS (
-    SELECT COALESCE(SUM(amount), 0) AS total
-    FROM public.expenses
-    WHERE user_id = v_uid
-      AND date >= p_date_from
-      AND date <= p_date_to
-  ),
-  compras AS (
-    SELECT COALESCE(SUM(amount), 0) AS total
-    FROM public.purchases
-    WHERE user_id = v_uid
-      AND date >= p_date_from
-      AND date <= p_date_to
-  )
-  SELECT
-    i.total                        AS total_income,
-    g.total                        AS total_expenses,
-    c.total                        AS total_purchases,
-    (i.total - (g.total + c.total)) AS net_profit
-  FROM ingresos i
-  CROSS JOIN gastos g
-  CROSS JOIN compras c;
-END;
-$$;
+  WITH ingresos AS (SELECT COALESCE(SUM(amount), 0) AS total FROM public.sales WHERE user_id = v_uid AND date >= p_date_from AND date <= p_date_to),
+  gastos AS (SELECT COALESCE(SUM(amount), 0) AS total FROM public.expenses WHERE user_id = v_uid AND date >= p_date_from AND date <= p_date_to),
+  compras AS (SELECT COALESCE(SUM(amount), 0) AS total FROM public.purchases WHERE user_id = v_uid AND date >= p_date_from AND date <= p_date_to)
+  SELECT i.total, g.total, c.total, (i.total - (g.total + c.total)) FROM ingresos i CROSS JOIN gastos g CROSS JOIN compras c;
+END; $$;
 
--- ── get_dashboard_critical_stock ──────────────────────────────────────────────
--- Count of products below min_stock for the authenticated user.
 CREATE OR REPLACE FUNCTION public.get_dashboard_critical_stock()
-RETURNS bigint
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_uid   uuid := auth.uid();
-  v_count bigint;
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_uid uuid := auth.uid(); v_count bigint;
 BEGIN
-  IF v_uid IS NULL THEN
-    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  SELECT COUNT(id) INTO v_count
-  FROM public.products
-  WHERE user_id = v_uid
-    AND stock <= min_stock;
-
+  IF v_uid IS NULL THEN RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege'; END IF;
+  SELECT COUNT(id) INTO v_count FROM public.products WHERE user_id = v_uid AND stock <= min_stock;
   RETURN COALESCE(v_count, 0);
-END;
-$$;
+END; $$;
 
--- =============================================================================
--- SECTION 2 — Admin KPIs (guarded by is_admin())
--- =============================================================================
-
--- ── get_admin_activation_rate ─────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_admin_activation_rate(
-  p_date_from timestamptz,
-  p_date_to   timestamptz
-)
-RETURNS numeric
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_rate numeric;
+CREATE OR REPLACE FUNCTION public.get_admin_activation_rate(p_date_from timestamptz, p_date_to timestamptz)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_rate numeric;
 BEGIN
-  IF NOT public.is_admin() THEN
-    RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  IF p_date_from > p_date_to THEN
-    RETURN 0::numeric;
-  END IF;
-
-  WITH cohort_users AS (
-    SELECT id FROM public.profiles
-    WHERE created_at >= p_date_from AND created_at <= p_date_to
-  ),
-  activated AS (
-    SELECT COUNT(DISTINCT ae.user_id) AS cnt
-    FROM public.analytics_events ae
-    INNER JOIN cohort_users cu ON ae.user_id = cu.id
-    WHERE ae.event_name = 'first_operation'
-  )
-  SELECT COALESCE(
-    ROUND(
-      (a.cnt::numeric / NULLIF((SELECT COUNT(*) FROM cohort_users), 0)) * 100,
-      2
-    ), 0
-  ) INTO v_rate
-  FROM activated a;
-
+  IF NOT public.is_admin() THEN RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF p_date_from > p_date_to THEN RETURN 0::numeric; END IF;
+  WITH cohort_users AS (SELECT id FROM public.profiles WHERE created_at >= p_date_from AND created_at <= p_date_to),
+  activated AS (SELECT COUNT(DISTINCT ae.user_id) AS cnt FROM public.analytics_events ae INNER JOIN cohort_users cu ON ae.user_id = cu.id WHERE ae.event_name = 'first_operation')
+  SELECT COALESCE(ROUND((a.cnt::numeric / NULLIF((SELECT COUNT(*) FROM cohort_users), 0)) * 100, 2), 0) INTO v_rate FROM activated a;
   RETURN v_rate;
-END;
-$$;
+END; $$;
 
--- ── get_admin_umv_rate ────────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_admin_umv_rate(
-  p_date_from timestamptz,
-  p_date_to   timestamptz
-)
-RETURNS numeric
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_rate numeric;
+CREATE OR REPLACE FUNCTION public.get_admin_umv_rate(p_date_from timestamptz, p_date_to timestamptz)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_rate numeric;
 BEGIN
-  IF NOT public.is_admin() THEN
-    RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  IF p_date_from > p_date_to THEN
-    RETURN 0::numeric;
-  END IF;
-
-  WITH activated AS (
-    SELECT DISTINCT user_id FROM public.analytics_events
-    WHERE event_name = 'first_operation'
-      AND created_at >= p_date_from AND created_at <= p_date_to
-  ),
-  umv AS (
-    SELECT DISTINCT ae.user_id
-    FROM public.analytics_events ae
-    INNER JOIN activated a ON ae.user_id = a.user_id
-    WHERE ae.event_name = 'insight_generated'
-      AND ae.created_at >= p_date_from AND ae.created_at <= p_date_to
-  )
-  SELECT COALESCE(
-    ROUND(
-      ((SELECT COUNT(*) FROM umv)::numeric / NULLIF((SELECT COUNT(*) FROM activated), 0)) * 100,
-      2
-    ), 0
-  ) INTO v_rate;
-
+  IF NOT public.is_admin() THEN RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF p_date_from > p_date_to THEN RETURN 0::numeric; END IF;
+  WITH activated AS (SELECT DISTINCT user_id FROM public.analytics_events WHERE event_name = 'first_operation' AND created_at >= p_date_from AND created_at <= p_date_to),
+  umv AS (SELECT DISTINCT ae.user_id FROM public.analytics_events ae INNER JOIN activated a ON ae.user_id = a.user_id WHERE ae.event_name = 'insight_generated' AND ae.created_at >= p_date_from AND ae.created_at <= p_date_to)
+  SELECT COALESCE(ROUND(((SELECT COUNT(*) FROM umv)::numeric / NULLIF((SELECT COUNT(*) FROM activated), 0)) * 100, 2), 0) INTO v_rate;
   RETURN v_rate;
-END;
-$$;
+END; $$;
 
--- ── get_admin_paid_conversion_rate ────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.get_admin_paid_conversion_rate()
-RETURNS numeric
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_rate numeric;
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_rate numeric;
 BEGIN
-  IF NOT public.is_admin() THEN
-    RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  SELECT COALESCE(
-    ROUND(
-      (COUNT(*) FILTER (WHERE plan = 'pro')::numeric / NULLIF(COUNT(*), 0)) * 100,
-      2
-    ), 0
-  ) INTO v_rate
-  FROM public.profiles;
-
+  IF NOT public.is_admin() THEN RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege'; END IF;
+  SELECT COALESCE(ROUND((COUNT(*) FILTER (WHERE plan = 'pro')::numeric / NULLIF(COUNT(*), 0)) * 100, 2), 0) INTO v_rate FROM public.profiles;
   RETURN v_rate;
-END;
-$$;
+END; $$;
 
--- ── get_admin_community_interactions ─────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_admin_community_interactions(
-  p_date_from timestamptz,
-  p_date_to   timestamptz
-)
-RETURNS bigint
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_total bigint;
+CREATE OR REPLACE FUNCTION public.get_admin_community_interactions(p_date_from timestamptz, p_date_to timestamptz)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_total bigint;
 BEGIN
-  IF NOT public.is_admin() THEN
-    RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege';
-  END IF;
-
-  IF p_date_from > p_date_to THEN
-    RETURN 0::bigint;
-  END IF;
-
-  SELECT
-    COALESCE((SELECT COUNT(*) FROM public.posts  WHERE created_at >= p_date_from AND created_at <= p_date_to), 0) +
-    COALESCE((SELECT COUNT(*) FROM public.replies WHERE created_at >= p_date_from AND created_at <= p_date_to), 0)
-  INTO v_total;
-
+  IF NOT public.is_admin() THEN RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF p_date_from > p_date_to THEN RETURN 0::bigint; END IF;
+  SELECT COALESCE((SELECT COUNT(*) FROM public.posts WHERE created_at >= p_date_from AND created_at <= p_date_to), 0) + COALESCE((SELECT COUNT(*) FROM public.replies WHERE created_at >= p_date_from AND created_at <= p_date_to), 0) INTO v_total;
   RETURN v_total;
-END;
-$$;
+END; $$;
 
--- ── get_admin_insights_breakdown ──────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_admin_insights_breakdown(
-  p_date_from timestamptz,
-  p_date_to   timestamptz
-)
-RETURNS TABLE (insight_type text, total bigint)
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.get_admin_insights_breakdown(p_date_from timestamptz, p_date_to timestamptz)
+RETURNS TABLE (insight_type text, total bigint) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  IF NOT public.is_admin() THEN
-    RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege';
-  END IF;
+  IF NOT public.is_admin() THEN RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege'; END IF;
+  IF p_date_from > p_date_to THEN RETURN; END IF;
+  RETURN QUERY SELECT LOWER(COALESCE(event_data->>'type', 'uncategorized')), COUNT(*) FROM public.analytics_events WHERE event_name = 'insight_generated' AND created_at >= p_date_from AND created_at <= p_date_to GROUP BY 1 ORDER BY 2 DESC;
+END; $$;
 
-  IF p_date_from > p_date_to THEN
-    RETURN;
-  END IF;
-
-  RETURN QUERY
-  SELECT
-    LOWER(COALESCE(event_data->>'type', 'uncategorized')) AS insight_type,
-    COUNT(*) AS total
-  FROM public.analytics_events
-  WHERE event_name = 'insight_generated'
-    AND created_at >= p_date_from
-    AND created_at <= p_date_to
-  GROUP BY LOWER(COALESCE(event_data->>'type', 'uncategorized'))
-  ORDER BY total DESC;
-END;
-$$;
-
--- =============================================================================
--- SECTION 3 — Explicit GRANT EXECUTE (defense against future permission changes)
--- =============================================================================
-
-GRANT EXECUTE ON FUNCTION public.get_dashboard_financials(timestamptz, timestamptz)    TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_dashboard_critical_stock()                         TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_activation_rate(timestamptz, timestamptz)   TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_umv_rate(timestamptz, timestamptz)          TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_paid_conversion_rate()                      TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_dashboard_financials(timestamptz, timestamptz)          TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_dashboard_critical_stock()                              TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_activation_rate(timestamptz, timestamptz)        TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_umv_rate(timestamptz, timestamptz)               TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_paid_conversion_rate()                           TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_admin_community_interactions(timestamptz, timestamptz) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_insights_breakdown(timestamptz, timestamptz) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_insights_breakdown(timestamptz, timestamptz)     TO authenticated;

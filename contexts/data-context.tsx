@@ -122,6 +122,10 @@ function mapExpense(e: any): Expense {
 }
 
 function mapClient(c: any): Client {
+  // NOTE: `lastPurchase` and `totalSpent` are intentionally left at sentinel
+  // values here. The DataProvider derives them via `clientsWithMetrics` useMemo
+  // by aggregating the already-loaded `sales` state. This avoids an extra DB
+  // join and stays reactive to realtime sale events automatically.
   return {
     id:           c.id,
     name:         c.name,
@@ -766,11 +770,65 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     return result
   }, [sales])
 
+  // ── Client metrics — derived from sales (no extra DB call) ──────────────────
+  // Computes `lastPurchase` (latest sale date) and `totalSpent` (sum of sale
+  // totals) per client by joining the already-loaded `sales` state.
+  //
+  // Why here, not in mapClient?
+  //   mapClient receives only the raw clients row — it has no access to sales.
+  //   The clients DB table stores no aggregated metrics (no last_purchase /
+  //   total_spent columns), so they must be derived in-memory.
+  //
+  // Reactivity: whenever `sales` changes (new sale, delete, realtime event),
+  //   this memo recomputes and the context consumers re-render automatically —
+  //   no additional subscription or refresh call needed.
+  //
+  // Performance: O(n_sales + m_clients). For typical ERP datasets (< 50 k rows)
+  //   this is negligible. Replace with a server-side aggregation view if the
+  //   sales table grows beyond ~100 k rows per tenant.
+
+  const clientsWithMetrics = useMemo<Client[]>(() => {
+    // Build a per-client metrics map in a single pass over sales.
+    const metricsMap = new Map<string, { lastDate: string; totalSpent: number }>()
+
+    for (const sale of sales) {
+      // Skip sales with no associated client ("Consumidor Final").
+      // sale.clientId maps to sales.client_id which is nullable in the DB.
+      if (!sale.clientId) continue
+
+      const existing = metricsMap.get(sale.clientId)
+      if (!existing) {
+        metricsMap.set(sale.clientId, {
+          lastDate:   sale.date,
+          totalSpent: sale.total,
+        })
+      } else {
+        metricsMap.set(sale.clientId, {
+          // ISO dates (YYYY-MM-DD) sort correctly with string comparison.
+          lastDate:   sale.date > existing.lastDate ? sale.date : existing.lastDate,
+          totalSpent: existing.totalSpent + sale.total,
+        })
+      }
+    }
+
+    return clients.map(client => {
+      const m = metricsMap.get(client.id)
+      return {
+        ...client,
+        lastPurchase: m?.lastDate   ?? "-",
+        totalSpent:   m?.totalSpent ?? 0,
+      }
+    })
+  }, [clients, sales])
+
   // ── Context value (memoized to prevent unnecessary re-renders) ─────────────
 
   const value = useMemo(
     () => ({
-      products, sales, purchases, expenses, clients, insights, posts, courses, loading,
+      products, sales, purchases, expenses,
+      // Expose enriched clients (with computed lastPurchase + totalSpent).
+      clients: clientsWithMetrics,
+      insights, posts, courses, loading,
       addProduct, updateProduct, deleteProduct,
       addSale, updateSale, deleteSale, deleteSalesByOperation,
       addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation,
@@ -782,7 +840,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       refreshData,
     }),
     [
-      products, sales, purchases, expenses, clients, insights, posts, courses, loading,
+      products, sales, purchases, expenses,
+      clientsWithMetrics,  // replaces raw `clients` — already encapsulates both clients + sales
+      insights, posts, courses, loading,
       addProduct, updateProduct, deleteProduct,
       addSale, updateSale, deleteSale, deleteSalesByOperation,
       addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation,

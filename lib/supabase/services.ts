@@ -22,6 +22,7 @@ export const services = {
         quantity: sale.quantity,
         currency: sale.currency,
         operation_id: sale.operationId ?? null,
+        date: sale.date,
       },
     })
 
@@ -59,6 +60,7 @@ export const services = {
         quantity: purchase.quantity,
         description: purchase.description,
         operation_id: purchase.operationId ?? null,
+        date: purchase.date,
       }
     })
 

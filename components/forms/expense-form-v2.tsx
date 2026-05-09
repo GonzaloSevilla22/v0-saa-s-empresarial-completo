@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useData } from "@/contexts/data-context"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
+import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
 
 interface ExpenseFormProps {
@@ -19,6 +20,7 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
   const [category, setCategory] = useState("")
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState(0)
+  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -28,7 +30,7 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
     }
     try {
       await addExpense({
-        date: new Date().toISOString().split("T")[0],
+        date,
         category,
         description,
         amount,
@@ -69,15 +71,31 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
         />
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label className="text-foreground">Monto</Label>
-        <NumericInput
-          min={0}
-          step={0.01}
-          value={amount}
-          onValueChange={setAmount}
-          className="bg-background border-border text-foreground"
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-2">
+          <Label className="text-foreground">Monto</Label>
+          <NumericInput
+            min={0}
+            step={0.01}
+            value={amount}
+            onValueChange={setAmount}
+            className="bg-background border-border text-foreground"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label className="text-foreground flex items-center gap-1.5">
+            <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+            Fecha
+          </Label>
+          <input
+            type="date"
+            value={date}
+            max={new Date().toISOString().split("T")[0]}
+            onChange={(e) => setDate(e.target.value)}
+            className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
+        </div>
       </div>
 
       <Button type="submit" className="w-full">

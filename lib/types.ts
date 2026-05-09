@@ -24,6 +24,8 @@ export interface User {
   language: string         // 'es' (others prepared for future)
 }
 
+export type StockControlType = 'tracked' | 'untracked' | 'variant_only'
+
 export interface Product {
   id: string
   name: string
@@ -41,6 +43,15 @@ export interface Product {
    * false → root product: either a parent catalogue entry or a standalone product
    */
   isVariant: boolean
+  // ── Etapa 5+ ──────────────────────────────────────────────────────────────
+  /** FK to units_of_measure.id — the unit this product's stock is measured in. */
+  baseUnitId?: string
+  /**
+   * 'tracked'      → physical stock counted and decremented on each sale
+   * 'untracked'    → service/digital, stock never changes
+   * 'variant_only' → parent catalogue entry, stock lives in variant children
+   */
+  stockControlType?: StockControlType
 }
 
 export interface Sale {

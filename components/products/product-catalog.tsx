@@ -1,8 +1,8 @@
 "use client"
 
-import { Fragment, useState, useMemo, useCallback } from "react"
+import { Fragment, useState, useMemo, useCallback, useRef } from "react"
 import {
-  ChevronRight, ChevronDown, Plus, Search, Download,
+  ChevronRight, ChevronDown, Plus, Search, Download, Upload,
   Pencil, Trash2, Package, GitBranch,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { formatMoney } from "@/lib/format"
-import { exportToCSV } from "@/lib/excel"
+import { exportToCSV, readFileAsText, validateImportColumns, parseCSV, parseAmount } from "@/lib/excel"
 import type { Product } from "@/lib/types"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -38,6 +38,10 @@ interface ProductCatalogProps {
   onEdit: (product: Product) => void
   onDelete: (id: string) => Promise<void>
   isAtLimit: boolean
+  /** Called with parsed CSV rows. Handler is responsible for creating products
+   *  and showing toasts. Only standalone products (Tipo = "Producto" or absent)
+   *  are passed — parent/variant rows are skipped with a warning. */
+  onImport?: (rows: Record<string, string>[]) => Promise<void>
 }
 
 // ─── Standalone sub-component (outside ProductCatalog to avoid re-mounts) ────
@@ -118,10 +122,13 @@ export function ProductCatalog({
   onEdit,
   onDelete,
   isAtLimit,
+  onImport,
 }: ProductCatalogProps) {
   const [search, setSearch] = useState("")
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Group products ─────────────────────────────────────────────────────────
   const { groups, standalones } = useMemo(() => {
@@ -223,6 +230,60 @@ export function ProductCatalog({
     [onDelete],
   )
 
+  // ── Import from CSV ───────────────────────────────────────────────────────
+  const IMPORT_COLUMNS = [
+    { csvHeader: "Nombre",       key: "nombre"       },
+    { csvHeader: "Precio",       key: "precio"        },
+    { csvHeader: "Costo",        key: "costo"         },
+    { csvHeader: "Categoría",    key: "categoria"     },
+    { csvHeader: "Stock",        key: "stock"         },
+    { csvHeader: "Stock mínimo", key: "stock_minimo"  },
+    { csvHeader: "Código",       key: "codigo"        },
+    { csvHeader: "Tipo",         key: "tipo"          },
+  ]
+  const REQUIRED_HEADERS = ["Nombre", "Precio"]
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !onImport) return
+    setImporting(true)
+    try {
+      const text = await readFileAsText(file)
+      const validation = validateImportColumns(text, REQUIRED_HEADERS)
+      if (!validation.ok) {
+        toast.error(`Columnas faltantes en el archivo: ${validation.missing.join(", ")}`)
+        return
+      }
+      const allRows = parseCSV(text, IMPORT_COLUMNS)
+      if (allRows.length === 0) {
+        toast.error("El archivo no contiene datos válidos.")
+        return
+      }
+      // Skip parent/variant rows — only standalone products are importable.
+      const skipped = allRows.filter(
+        (r) => r.tipo === "Padre" || r.tipo === "Variante",
+      ).length
+      const rows = allRows.filter(
+        (r) => !r.tipo || r.tipo === "Producto",
+      )
+      if (skipped > 0) {
+        toast.warning(
+          `${skipped} fila${skipped !== 1 ? "s" : ""} de tipo "Padre" o "Variante" omitida${skipped !== 1 ? "s" : ""} — solo se importan productos independientes.`,
+        )
+      }
+      if (rows.length === 0) {
+        toast.error("No hay filas de productos independientes para importar.")
+        return
+      }
+      await onImport(rows)
+    } catch (err: any) {
+      toast.error(err?.message || "Error al leer el archivo.")
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
   // ── Export to CSV ─────────────────────────────────────────────────────────
   function handleExport() {
     const rows: Record<string, unknown>[] = []
@@ -308,6 +369,28 @@ export function ProductCatalog({
         </div>
 
         <div className="flex items-center gap-2">
+          {onImport && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={handleImport}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-border text-foreground"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                {importing ? "Importando…" : "Importar CSV"}
+              </Button>
+            </>
+          )}
+
           <Button
             variant="outline"
             size="sm"

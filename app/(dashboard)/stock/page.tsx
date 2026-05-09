@@ -9,6 +9,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { DataTable, type Column } from "@/components/data-table/data-table"
+import { toast } from "sonner"
 import type { Product } from "@/lib/types"
 
 const columns: Column<Product>[] = [
@@ -137,12 +138,14 @@ export default function StockPage() {
         exportFilename="stock"
         importColumnMap={[
           { csvHeader: "Producto",     key: "name"     },
-          { csvHeader: "Categoría",    key: "category" },
           { csvHeader: "Stock actual", key: "stock"    },
-          { csvHeader: "Stock mínimo", key: "minStock" },
         ]}
-        onImport={(rows) => {
-          console.log("Importando stock:", rows)
+        onImport={() => {
+          toast.info(
+            "El stock se actualiza automáticamente al registrar compras y ventas. " +
+            "Para ajustar el inventario usá el módulo de Compras.",
+            { duration: 6000 },
+          )
         }}
       />
     </div>

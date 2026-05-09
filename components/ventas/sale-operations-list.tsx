@@ -10,14 +10,14 @@
  * - Date filter, export (CSV) and import reuse the same utilities as DataTable/Gastos.
  */
 
-import { useState, useMemo, useCallback, useRef } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operations"
-import { exportToCSV, parseCSV, readFileAsText } from "@/lib/excel"
+import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate, type Currency } from "@/lib/format"
 import type { Sale } from "@/lib/types"
 import {
@@ -29,7 +29,6 @@ import {
   Search,
   PackageOpen,
   Download,
-  Upload,
   CalendarDays,
   X,
 } from "lucide-react"
@@ -51,7 +50,6 @@ export function SaleOperationsList({
   const [dateTo, setDateTo] = useState("")
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const isDateFilterActive = dateFrom || dateTo
 
@@ -110,30 +108,6 @@ export function SaleOperationsList({
     toast.success(`Exportadas ${rows.length} filas`)
   }
 
-  // ── Import — same pattern as DataTable / Gastos ─────────────────────────────
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    try {
-      const text = await readFileAsText(file)
-      const rows = parseCSV(text, [
-        { csvHeader: "Fecha",        key: "date"        },
-        { csvHeader: "Cliente",      key: "clientName"  },
-        { csvHeader: "Producto",     key: "productName" },
-        { csvHeader: "Cantidad",     key: "quantity"    },
-        { csvHeader: "Precio unit.", key: "unitPrice"   },
-      ])
-      if (rows.length === 0) {
-        toast.error("No se encontraron datos en el archivo")
-        return
-      }
-      toast.success(`Importadas ${rows.length} filas — revisá y confirmá antes de guardar`)
-      console.log("Importando ventas:", rows)
-    } catch {
-      toast.error("Error al leer el archivo")
-    }
-    if (fileInputRef.current) fileInputRef.current.value = ""
-  }
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const handleDelete = useCallback(
@@ -234,24 +208,6 @@ export function SaleOperationsList({
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
             {filtered.length} operación{filtered.length !== 1 ? "es" : ""}
           </span>
-
-          {/* Import */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".csv,.txt"
-            className="hidden"
-            onChange={handleImport}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="border-border text-foreground"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="h-4 w-4 mr-1" />
-            Importar
-          </Button>
 
           {/* Export */}
           <Button

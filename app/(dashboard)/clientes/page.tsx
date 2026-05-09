@@ -12,6 +12,7 @@ import Link from "next/link"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { Badge } from "@/components/ui/badge"
 import { formatMoney } from "@/lib/format"
+import { toast } from "sonner"
 import type { Client } from "@/lib/types"
 
 const statusColors: Record<string, string> = {
@@ -75,7 +76,7 @@ const columns: Column<Client>[] = [
 
 export default function ClientesPage() {
   // Realtime subscription for clients is handled centrally in DataProvider.
-  const { clients, deleteClient } = useData()
+  const { clients, deleteClient, addClient } = useData()
   const [open, setOpen] = useState(false)
   const [editingClient, setEditingClient] = useState<Client | undefined>()
   const { isAdmin } = useAuth()
@@ -153,8 +154,39 @@ export default function ClientesPage() {
           { csvHeader: "Teléfono", key: "phone"  },
           { csvHeader: "Estado",   key: "status" },
         ]}
-        onImport={(rows) => {
-          console.log("Importando clientes:", rows)
+        onImport={async (rows) => {
+          const validStatuses = new Set(["activo", "inactivo", "perdido"])
+          let success = 0
+          const errors: string[] = []
+
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i]
+            if (!row.name?.trim()) {
+              errors.push(`Fila ${i + 2}: nombre requerido`)
+              continue
+            }
+            const status = row.status?.toLowerCase().trim() ?? ""
+            try {
+              await addClient({
+                name:        row.name.trim(),
+                email:       row.email?.trim()  || "",
+                phone:       row.phone?.trim()  || "",
+                status:      validStatuses.has(status) ? (status as "activo" | "inactivo" | "perdido") : "activo",
+                lastPurchase: "-",
+                totalSpent:  0,
+              })
+              success++
+            } catch (err: any) {
+              errors.push(`Fila ${i + 2}: ${err?.message ?? "error desconocido"}`)
+            }
+          }
+
+          if (success > 0)
+            toast.success(`✅ ${success} cliente${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""} correctamente`)
+          if (errors.length > 0) {
+            toast.error(`❌ ${errors.length} fila${errors.length !== 1 ? "s" : ""} con error`)
+            errors.slice(0, 3).forEach((e) => toast.error(e))
+          }
         }}
       />
 

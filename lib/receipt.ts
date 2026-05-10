@@ -454,36 +454,65 @@ export function generateReceiptHTML(
 
 // ── Text summary (for WhatsApp / clipboard sharing) ──────────────────────────
 
+export interface ReceiptTextOptions extends ReceiptOptions {
+  /**
+   * First name of the client, used for the personalised greeting.
+   * If omitted or the sale has no named client, the greeting is generic.
+   */
+  clientFirstName?: string
+}
+
 export function generateReceiptText(
   op: SaleOperation,
-  opts: ReceiptOptions,
+  opts: ReceiptTextOptions,
 ): string {
-  const biz = opts.businessName || "Mi Negocio"
-  const num = receiptNumber(op)
-  const date = capitalise(longDate(op.date))
+  const biz   = opts.businessName || "Mi Negocio"
+  const num   = receiptNumber(op)
+  const date  = capitalise(longDate(op.date))
   const lines: string[] = []
 
-  lines.push(`🧾 *Comprobante de Venta — ${biz}*`)
-  lines.push(`N° ${num} · ${date}`)
-  lines.push("")
-  if (op.clientName && op.clientName !== "Consumidor Final") {
-    lines.push(`👤 Cliente: ${op.clientName}`)
+  // ── Personalised greeting ──────────────────────────────────────────────────
+  const firstName = opts.clientFirstName?.split(" ")[0].trim()
+  const hasClient = op.clientName && op.clientName !== "Consumidor Final"
+
+  if (firstName) {
+    lines.push(`Hola ${firstName} 👋`)
     lines.push("")
+    lines.push(`Te enviamos el comprobante de tu compra en *${biz}*.`)
+  } else {
+    lines.push(`🧾 *Comprobante de Venta — ${biz}*`)
   }
-  lines.push("*Detalle:*")
+
+  lines.push("")
+  lines.push(`📋 *Comprobante N° ${num}*`)
+  lines.push(`📅 ${date}`)
+
+  if (hasClient && !firstName) {
+    lines.push(`👤 ${op.clientName}`)
+  }
+
+  // ── Items detail ──────────────────────────────────────────────────────────
+  lines.push("")
+  lines.push("*Detalle de la compra:*")
   for (const item of op.items) {
     const sub = formatMoney(item.total, op.currency as Currency)
     lines.push(`  • ${item.productName} x${item.quantity} → ${sub}`)
   }
-  lines.push("")
-  lines.push(`*TOTAL: ${formatMoney(op.total, op.currency as Currency)}*`)
 
+  // ── Total ─────────────────────────────────────────────────────────────────
+  lines.push("")
+  lines.push(`💰 *TOTAL: ${formatMoney(op.total, op.currency as Currency)}*`)
+
+  // ── Business contact ──────────────────────────────────────────────────────
   if (opts.businessPhone || opts.businessEmail) {
     lines.push("")
     lines.push("📞 Contacto:")
     if (opts.businessPhone) lines.push(`  ${opts.businessPhone}`)
     if (opts.businessEmail) lines.push(`  ${opts.businessEmail}`)
   }
+
+  lines.push("")
+  lines.push("¡Gracias por tu compra! 🙌")
 
   return lines.join("\n")
 }

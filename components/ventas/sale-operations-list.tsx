@@ -20,7 +20,7 @@ import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operation
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate, type Currency } from "@/lib/format"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
-import type { Sale } from "@/lib/types"
+import type { Sale, Client } from "@/lib/types"
 import {
   Plus,
   Trash2,
@@ -37,15 +37,22 @@ import { toast } from "sonner"
 
 interface SaleOperationsListProps {
   sales: Sale[]
+  clients: Client[]
   onAdd: () => void
   onDeleteOperation: (op: SaleOperation) => Promise<void>
 }
 
 export function SaleOperationsList({
   sales,
+  clients,
   onAdd,
   onDeleteOperation,
 }: SaleOperationsListProps) {
+  // Build a quick lookup map: clientId → Client (for phone / name resolution)
+  const clientMap = useMemo(
+    () => new Map(clients.map((c) => [c.id, c])),
+    [clients],
+  )
   const [search, setSearch] = useState("")
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
@@ -384,7 +391,11 @@ export function SaleOperationsList({
 
                   {/* Receipt action bar */}
                   <div className="flex justify-end mt-3" onClick={(e) => e.stopPropagation()}>
-                    <SaleReceiptButton op={op} />
+                    <SaleReceiptButton
+                      op={op}
+                      clientPhone={clientMap.get(op.clientId ?? "")?.phone}
+                      clientFirstName={clientMap.get(op.clientId ?? "")?.name}
+                    />
                   </div>
                 </div>
               )}

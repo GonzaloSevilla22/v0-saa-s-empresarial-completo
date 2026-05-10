@@ -11,7 +11,7 @@ import type { SaleOperation } from "@/lib/group-operations"
 
 export default function VentasPage() {
   // Realtime subscription for sales is handled centrally in DataProvider.
-  const { sales, deleteSale, deleteSalesByOperation } = useData()
+  const { sales, clients, deleteSale, deleteSalesByOperation } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
 
@@ -45,6 +45,7 @@ export default function VentasPage() {
 
       <SaleOperationsList
         sales={sales}
+        clients={clients}
         onAdd={() => setOpen(true)}
         onDeleteOperation={handleDeleteOperation}
       />

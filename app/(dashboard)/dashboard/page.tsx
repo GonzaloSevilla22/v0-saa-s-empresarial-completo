@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useData } from "@/contexts/data-context"
+import { useGreeting } from "@/hooks/use-greeting"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
@@ -24,6 +25,7 @@ interface DashboardFinancials {
 
 export default function DashboardPage() {
   const { getLowStockProducts, insights, refreshData } = useData()
+  const { greeting } = useGreeting()
   const lowStock = getLowStockProducts()
 
   const [financials, setFinancials]     = useState<DashboardFinancials | null>(null)
@@ -99,7 +101,7 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight text-balance">
-          Buen día, Emprendedor
+          {greeting}
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Así está tu negocio hoy

@@ -5,7 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// GPT-4o vision can take up to 40s on a high-res invoice image.
+// Model selection: override with INVOICE_AI_MODEL env var.
+// gpt-4o-mini (default): vision support since Aug 2024, ~10x cheaper than gpt-4o.
+// gpt-4o: better accuracy on low-quality / handwritten invoices.
+const AI_MODEL     = Deno.env.get('INVOICE_AI_MODEL') ?? 'gpt-4o-mini'
 const AI_TIMEOUT_MS = 55_000
 
 function jsonResponse(body: unknown, status = 200) {
@@ -177,7 +180,7 @@ Deno.serve(async (req) => {
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: AI_MODEL,
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             {
@@ -251,7 +254,7 @@ Deno.serve(async (req) => {
       .from('invoice_documents')
       .update({
         status:           'completed',
-        ai_model:         'gpt-4o',
+        ai_model:         AI_MODEL,
         ai_raw_response:  parsed,
         ai_confidence:    typeof parsed.confidence === 'number' ? Math.min(1, Math.max(0, parsed.confidence)) : null,
         ai_warnings:      Array.isArray(parsed.warnings) ? parsed.warnings : [],

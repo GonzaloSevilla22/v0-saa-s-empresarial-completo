@@ -7,6 +7,7 @@ import {
   CheckCircle2, ArrowRight, MessageCircle, Clock, Star, Menu, X, Shield,
 } from "lucide-react"
 import { useState } from "react"
+import type { LandingSection } from "@/lib/landing"
 
 function Navbar() {
   const [open, setOpen] = useState(false)
@@ -54,7 +55,12 @@ function Navbar() {
   )
 }
 
-function Hero() {
+function Hero({ section }: { section?: LandingSection }) {
+  const title = section?.title ?? "Todo lo que necesitas para ordenar tu negocio"
+  const subtitle = section?.subtitle ?? "Controla ventas, stock, compras e informes desde un solo lugar. Rapido, simple e intuitivo con IA que trabaja por vos."
+  const buttonText = section?.button_text ?? "Empezar Gratis"
+  const buttonLink = section?.button_link ?? "/auth/login"
+
   return (
     <section className="relative overflow-hidden bg-slate-950 pt-32 pb-24 sm:pt-40 sm:pb-32">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -68,18 +74,23 @@ function Hero() {
           Inteligencia Artificial incluida en todos los planes
         </div>
         <h1 className="mx-auto mb-6 max-w-4xl text-4xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl">
-          Todo lo que necesitas para{" "}
-          <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
-            ordenar tu negocio
-          </span>
+          {title.includes("ordenar") ? (
+            <>
+              {title.split("ordenar")[0]}
+              <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
+                ordenar{title.split("ordenar")[1]}
+              </span>
+            </>
+          ) : (
+            <span className="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">{title}</span>
+          )}
         </h1>
         <p className="mx-auto mb-10 max-w-2xl text-lg leading-8 text-slate-400 sm:text-xl">
-          Controla ventas, stock, compras e informes desde un solo lugar.
-          Rapido, simple e intuitivo con IA que trabaja por vos.
+          {subtitle}
         </p>
         <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Button size="lg" className="rounded-full bg-emerald-600 px-10 font-bold text-white hover:bg-emerald-500 shadow-lg shadow-emerald-900/40" asChild>
-            <Link href="/auth/login">Empezar Gratis <ArrowRight className="ml-2 h-4 w-4" /></Link>
+            <Link href={buttonLink}>{buttonText} <ArrowRight className="ml-2 h-4 w-4" /></Link>
           </Button>
           <Button variant="outline" size="lg" className="rounded-full border-slate-700 px-10 text-slate-300 hover:bg-slate-800 hover:text-white" asChild>
             <a href="#features">Ver Funcionalidades</a>
@@ -161,22 +172,51 @@ function StatsStrip() {
   )
 }
 
-function Features() {
-  const modules = [
-    { icon: LayoutDashboard, title: "Panel de Control", desc: "Visualiza todas tus metricas clave en tiempo real. Ventas, stock, compras y rentabilidad en un solo dashboard.", color: "bg-emerald-500/10 ring-emerald-500/20 text-emerald-400" },
-    { icon: TrendingUp,      title: "Ventas",           desc: "Registra tus ventas al instante, asignales un cliente y segui tu historial de ingresos con filtros avanzados.", color: "bg-blue-500/10 ring-blue-500/20 text-blue-400" },
-    { icon: ShoppingCart,    title: "Compras",          desc: "Controla cada compra de mercaderia. Actualiza tu stock automaticamente con cada nueva entrada.", color: "bg-violet-500/10 ring-violet-500/20 text-violet-400" },
-    { icon: Package,         title: "Stock",            desc: "Inventario inteligente con soporte para unidades de medida (kg, litros, metros). Alertas de stock bajo.", color: "bg-amber-500/10 ring-amber-500/20 text-amber-400" },
-    { icon: BarChart3,       title: "Informes",         desc: "Reportes detallados de rentabilidad, evolucion de ventas y comportamiento de clientes para mejores decisiones.", color: "bg-pink-500/10 ring-pink-500/20 text-pink-400" },
-    { icon: Sparkles,        title: "Inteligencia Artificial", desc: "Insights automaticos, prediccion de demanda y recomendaciones de precios generadas por IA.", color: "bg-teal-500/10 ring-teal-500/20 text-teal-400" },
-  ]
+const DEFAULT_MODULES = [
+  { icon: LayoutDashboard, title: "Panel de Control", desc: "Visualiza todas tus metricas clave en tiempo real. Ventas, stock, compras y rentabilidad en un solo dashboard.", color: "bg-emerald-500/10 ring-emerald-500/20 text-emerald-400" },
+  { icon: TrendingUp,      title: "Ventas",           desc: "Registra tus ventas al instante, asignales un cliente y segui tu historial de ingresos con filtros avanzados.", color: "bg-blue-500/10 ring-blue-500/20 text-blue-400" },
+  { icon: ShoppingCart,    title: "Compras",          desc: "Controla cada compra de mercaderia. Actualiza tu stock automaticamente con cada nueva entrada.", color: "bg-violet-500/10 ring-violet-500/20 text-violet-400" },
+  { icon: Package,         title: "Stock",            desc: "Inventario inteligente con soporte para unidades de medida (kg, litros, metros). Alertas de stock bajo.", color: "bg-amber-500/10 ring-amber-500/20 text-amber-400" },
+  { icon: BarChart3,       title: "Informes",         desc: "Reportes detallados de rentabilidad, evolucion de ventas y comportamiento de clientes para mejores decisiones.", color: "bg-pink-500/10 ring-pink-500/20 text-pink-400" },
+  { icon: Sparkles,        title: "Inteligencia Artificial", desc: "Insights automaticos, prediccion de demanda y recomendaciones de precios generadas por IA.", color: "bg-teal-500/10 ring-teal-500/20 text-teal-400" },
+]
+
+const COLORS = [
+  "bg-emerald-500/10 ring-emerald-500/20 text-emerald-400",
+  "bg-blue-500/10 ring-blue-500/20 text-blue-400",
+  "bg-violet-500/10 ring-violet-500/20 text-violet-400",
+  "bg-amber-500/10 ring-amber-500/20 text-amber-400",
+  "bg-pink-500/10 ring-pink-500/20 text-pink-400",
+  "bg-teal-500/10 ring-teal-500/20 text-teal-400",
+]
+
+const ICON_LIST = [LayoutDashboard, TrendingUp, ShoppingCart, Package, BarChart3, Sparkles]
+
+function Features({ section }: { section?: LandingSection }) {
+  let modules = DEFAULT_MODULES
+  try {
+    if (section?.content?.trim().startsWith("[")) {
+      const parsed = JSON.parse(section.content)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        modules = parsed.map((f: any, i: number) => ({
+          icon: ICON_LIST[i % ICON_LIST.length],
+          title: f.title ?? f.name ?? `Modulo ${i + 1}`,
+          desc: f.desc ?? f.description ?? "",
+          color: COLORS[i % COLORS.length],
+        }))
+      }
+    }
+  } catch {}
+
+  const sectionTitle = section?.title ?? "Una plataforma. Todo lo que necesitas."
+  const sectionSubtitle = section?.subtitle ?? "Cada modulo fue disenado para pymes y emprendedores que quieren crecer sin complicarse."
   return (
     <section id="features" className="bg-slate-950 py-24 sm:py-32">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-2xl text-center mb-16">
           <span className="text-sm font-semibold text-emerald-400 uppercase tracking-widest">Funcionalidades</span>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Una plataforma. Todo lo que necesitas.</h2>
-          <p className="mt-4 text-lg text-slate-400">Cada modulo fue disenado para pymes y emprendedores que quieren crecer sin complicarse.</p>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{sectionTitle}</h2>
+          <p className="mt-4 text-lg text-slate-400">{sectionSubtitle}</p>
         </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {modules.map((m) => (
@@ -355,19 +395,35 @@ function Pricing() {
   )
 }
 
-function Testimonials() {
-  const testimonials = [
-    { text: "Desde que uso ALIADATA deje de perder ventas por no saber que tenia en stock. El panel de control me cambio la forma de trabajar.", name: "Martina Lopez", role: "Duena de tienda de ropa, Cordoba" },
-    { text: "La IA me aviso que un producto se estaba agotando antes de que yo me diera cuenta. Eso solo ya justifica el plan Pro.", name: "Rodrigo Fernandez", role: "Ferreteria, Buenos Aires" },
-    { text: "Llevo el control de mi negocio de catering desde el celular. Antes usaba hojas de calculo y siempre habia errores.", name: "Valeria Sanchez", role: "Emprendedora gastronómica, Rosario" },
-    { text: "ALIADATA es util, funcional y super necesario para cualquier pyme que quiera crecer de manera ordenada.", name: "Diego Morales", role: "Distribuidora, Mendoza" },
-  ]
+const DEFAULT_TESTIMONIALS = [
+  { text: "Desde que uso ALIADATA deje de perder ventas por no saber que tenia en stock. El panel de control me cambio la forma de trabajar.", name: "Martina Lopez", role: "Duena de tienda de ropa, Cordoba" },
+  { text: "La IA me aviso que un producto se estaba agotando antes de que yo me diera cuenta. Eso solo ya justifica el plan Pro.", name: "Rodrigo Fernandez", role: "Ferreteria, Buenos Aires" },
+  { text: "Llevo el control de mi negocio de catering desde el celular. Antes usaba hojas de calculo y siempre habia errores.", name: "Valeria Sanchez", role: "Emprendedora gastronómica, Rosario" },
+  { text: "ALIADATA es util, funcional y super necesario para cualquier pyme que quiera crecer de manera ordenada.", name: "Diego Morales", role: "Distribuidora, Mendoza" },
+]
+
+function Testimonials({ section }: { section?: LandingSection }) {
+  let testimonials = DEFAULT_TESTIMONIALS
+  try {
+    if (section?.content?.trim().startsWith("[")) {
+      const parsed = JSON.parse(section.content)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        testimonials = parsed.map((t: any) => ({
+          text: t.text ?? t.quote ?? "",
+          name: t.name ?? t.author ?? "",
+          role: t.role ?? t.position ?? "",
+        }))
+      }
+    }
+  } catch {}
+
+  const sectionTitle = section?.title ?? "Lo que dicen nuestros clientes"
   return (
     <section id="testimonials" className="bg-slate-950 py-24 sm:py-32">
       <div className="container mx-auto px-4">
         <div className="mx-auto max-w-2xl text-center mb-16">
           <span className="text-sm font-semibold text-emerald-400 uppercase tracking-widest">Testimonios</span>
-          <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Lo que dicen nuestros clientes</h2>
+          <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{sectionTitle}</h2>
         </div>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 max-w-5xl mx-auto">
           {testimonials.map((t) => (
@@ -418,20 +474,25 @@ function Support() {
   )
 }
 
-function FinalCTA() {
+function FinalCTA({ section }: { section?: LandingSection }) {
+  const title = section?.title ?? "Empieza a ordenar tu negocio hoy mismo"
+  const subtitle = section?.subtitle ?? "Unite a mas de 500 negocios que ya usan ALIADATA para crecer con datos, no con suposiciones."
+  const buttonText = section?.button_text ?? "Empezar Gratis"
+  const buttonLink = section?.button_link ?? "/auth/login"
+
   return (
     <section className="bg-slate-950 py-16 sm:py-24">
       <div className="container mx-auto px-4">
         <div className="relative isolate overflow-hidden rounded-3xl bg-emerald-700 px-6 py-24 text-center shadow-2xl sm:px-24 xl:py-32">
           <h2 className="mx-auto max-w-2xl text-3xl font-bold tracking-tight text-white sm:text-4xl">
-            Empieza a ordenar tu negocio hoy mismo
+            {title}
           </h2>
           <p className="mx-auto mt-6 max-w-xl text-lg leading-8 text-emerald-100">
-            Unite a mas de 500 negocios que ya usan ALIADATA para crecer con datos, no con suposiciones.
+            {subtitle}
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Button size="lg" className="rounded-full bg-white px-10 font-bold text-emerald-700 hover:bg-emerald-50 shadow-lg" asChild>
-              <Link href="/auth/login">Empezar Gratis <ArrowRight className="ml-2 h-4 w-4" /></Link>
+              <Link href={buttonLink}>{buttonText} <ArrowRight className="ml-2 h-4 w-4" /></Link>
             </Button>
           </div>
           <p className="mt-5 text-sm text-emerald-200/70">Sin tarjeta de credito · Cancela cuando quieras</p>
@@ -494,19 +555,29 @@ function Footer() {
   )
 }
 
-export function LandingPageFull() {
+// ─────────────────────────────────────────────
+// MAIN EXPORT — receives DB sections from server component
+// Admin-editable: hero, features, testimonials, cta
+// Hardcoded: Navbar, Stats, HowItWorks, AI, Pricing, Support, Footer
+// ─────────────────────────────────────────────
+export function LandingPageFull({ sections = [] }: { sections?: LandingSection[] }) {
+  const heroSection        = sections.find(s => s.type === "hero")
+  const featuresSection    = sections.find(s => s.type === "features")
+  const testimonialsSection = sections.find(s => s.type === "testimonials")
+  const ctaSection         = sections.find(s => s.type === "cta")
+
   return (
     <div className="bg-slate-950">
       <Navbar />
-      <Hero />
+      <Hero section={heroSection} />
       <StatsStrip />
-      <Features />
+      <Features section={featuresSection} />
       <HowItWorks />
       <AISection />
       <Pricing />
-      <Testimonials />
+      <Testimonials section={testimonialsSection} />
       <Support />
-      <FinalCTA />
+      <FinalCTA section={ctaSection} />
       <Footer />
     </div>
   )

@@ -11,6 +11,13 @@ import { CartItemList } from "@/components/shared/cart-item-list"
 import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
+import { formatPricePerUnit, formatStock } from "@/lib/format-unit"
+import {
+  unitInputStep,
+  unitInputMin,
+  toBaseQuantity,
+  resolveUnit,
+} from "@/lib/unit-utils"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
 import {
   generateOperationId,
@@ -27,7 +34,7 @@ interface PurchaseFormProps {
 
 export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const { products, addPurchase, addProduct, refreshData } = useData()
-  const { units } = useUnitsOfMeasure()
+  const { units, unitsById } = useUnitsOfMeasure()
 
   // ── Cart state ──────────────────────────────────────────────────────────────
   const [cartItems, setCartItems] = useState<PurchaseCartItem[]>([])
@@ -60,10 +67,17 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     () => products.find((p) => p.id === productId),
     [products, productId],
   )
+
+  // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(
-    () => units.find((u) => u.id === unitId),
-    [units, unitId],
+    () => resolveUnit(unitId, unitsById),
+    [unitId, unitsById],
   )
+
+  // Input constraints for the staged quantity — driven by selected unit type
+  const stagedStep = useMemo(() => unitInputStep(selectedUnit), [selectedUnit])
+  const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
+
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
   const stagedSubtotal = useMemo(
     () => calcPurchaseSubtotal(unitCost, quantity),
@@ -72,8 +86,8 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
 
   // ── Option list ─────────────────────────────────────────────────────────────
 
-  // IDs of products that are "parent catalogue entries" (have at least one variant child).
-  // These must NOT appear in the purchase dropdown — users must pick a specific variant.
+  // IDs of parent catalogue entries (have at least one variant child).
+  // Must NOT appear in the purchase dropdown — users must pick a specific variant.
   const parentProductIds = useMemo(() => {
     const ids = new Set<string>()
     for (const p of products) {
@@ -82,7 +96,6 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     return ids
   }, [products])
 
-  // Quick lookup by id for parent-name prefix in variant labels
   const productById = useMemo(
     () => new Map(products.map((p) => [p.id, p])),
     [products],
@@ -91,19 +104,25 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const productOptions = useMemo(
     () =>
       products
-        .filter((p) => !parentProductIds.has(p.id)) // exclude parent catalogue entries
+        .filter((p) => !parentProductIds.has(p.id))
         .map((p) => {
           const parent = p.parentId ? productById.get(p.parentId) : undefined
           const displayName =
             parent && !p.name.toLowerCase().startsWith(parent.name.toLowerCase())
               ? `${parent.name} › ${p.name}`
               : p.name
+
+          // Resolve base unit for unit-aware cost and stock labels
+          const baseUnit   = resolveUnit(p.baseUnitId, unitsById)
+          const costLabel  = formatPricePerUnit(p.cost, baseUnit?.symbol)
+          const stockLabel = formatStock(p.stock, baseUnit?.symbol)
+
           return {
             value: p.id,
-            label: `${displayName} (Costo: ${formatMoney(p.cost)})`,
+            label: `${displayName} (Costo: ${costLabel} · Stock: ${stockLabel})`,
           }
         }),
-    [products, parentProductIds, productById],
+    [products, parentProductIds, productById, unitsById],
   )
 
   // ── Handlers ────────────────────────────────────────────────────────────────
@@ -112,9 +131,11 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     setProductId(id)
     const p = products.find((x) => x.id === id)
     if (p) setUnitCost(p.cost)
-    setQuantity(1)
-    // Pre-select the product's default unit (set in Etapa 5 backfill)
-    setUnitId(p?.baseUnitId ?? "")
+    // Pre-select the product's base unit so step/min are immediately correct
+    const nextUnitId = p?.baseUnitId ?? ""
+    setUnitId(nextUnitId)
+    const nextUnit = resolveUnit(nextUnitId, unitsById)
+    setQuantity(unitInputMin(nextUnit))
   }
 
   function handleAddToCart() {
@@ -127,7 +148,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       return
     }
 
-    // Existing cart item with the SAME product AND same unit → accumulate quantities
+    // Existing cart item with same product AND same unit → accumulate quantities
     const existing = cartItems.find(
       (item) => item.productId === productId && (item.unitId ?? "") === unitId,
     )
@@ -138,9 +159,10 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
           item.id === existing.id
             ? {
                 ...item,
-                quantity: newQty,
+                quantity:     newQty,
+                quantityBase: toBaseQuantity(newQty, selectedUnit),
                 unitCost,
-                subtotal: calcPurchaseSubtotal(unitCost, newQty),
+                subtotal:     calcPurchaseSubtotal(unitCost, newQty),
               }
             : item,
         ),
@@ -150,15 +172,18 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       setCartItems((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
-          productId: selectedProduct.id,
-          productName: selectedProduct.name,
+          id:           crypto.randomUUID(),
+          productId:    selectedProduct.id,
+          productName:  selectedProduct.name,
           unitCost,
           quantity,
-          subtotal: stagedSubtotal,
-          unitId: unitId || undefined,
-          unitSymbol: selectedUnit?.symbol,
-          unitFactor: selectedUnit?.factor,
+          subtotal:     stagedSubtotal,
+          unitId:       unitId || undefined,
+          unitSymbol:   selectedUnit?.symbol,
+          unitFactor:   selectedUnit?.factor,
+          quantityBase: toBaseQuantity(quantity, selectedUnit),
+          step:         stagedStep,
+          minQty:       stagedMin,
         },
       ])
       toast.success(`${selectedProduct.name} agregado`)
@@ -178,8 +203,14 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
     setCartItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item
-        const newQty = Math.max(1, qty)
-        return { ...item, quantity: newQty, subtotal: calcPurchaseSubtotal(item.unitCost, newQty) }
+        // Use the item's own minQty — not a global 1 — so medibles can go below 1
+        const newQty = Math.max(item.minQty ?? 1, qty)
+        return {
+          ...item,
+          quantity:     newQty,
+          quantityBase: toBaseQuantity(newQty, resolveUnit(item.unitId, unitsById)),
+          subtotal:     calcPurchaseSubtotal(item.unitCost, newQty),
+        }
       }),
     )
   }
@@ -194,14 +225,15 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
         ? Math.round(((newProductPrice - newProductCost) / newProductPrice) * 100)
         : 0
     addProduct({
-      name: newProductName,
-      category: newProductCategory,
-      cost: newProductCost,
-      price: newProductPrice,
+      name:             newProductName,
+      category:         newProductCategory,
+      cost:             newProductCost,
+      price:            newProductPrice,
       margin,
-      stock: 0,
-      minStock: newProductMinStock,
-      isVariant: false, // quick-created products are always standalone
+      stock:            0,
+      minStock:         newProductMinStock,
+      isVariant:        false,
+      stockControlType: "tracked",  // explicit default — never undefined
     })
     toast.success(`Producto "${newProductName}" creado`)
     setUnitCost(newProductCost)
@@ -230,27 +262,27 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       try {
         await addPurchase({
           date,
-          productId: item.productId,
+          productId:   item.productId,
           productName: item.productName,
-          quantity: item.quantity,
-          unitCost: item.unitCost,
-          total: item.subtotal,
+          quantity:    item.quantity,
+          unitCost:    item.unitCost,
+          total:       item.subtotal,
           description: description || `Compra de ${item.productName}`,
-          unitId: item.unitId,
+          unitId:      item.unitId,
           operationId,
         })
         results.push({ success: true, productName: item.productName })
       } catch (err: any) {
         results.push({
-          success: false,
+          success:     false,
           productName: item.productName,
-          error: err.message || "Error desconocido",
+          error:       err.message || "Error desconocido",
         })
       }
     }
 
     const successful = results.filter((r) => r.success)
-    const failed = results.filter((r) => !r.success)
+    const failed     = results.filter((r) => !r.success)
 
     setSubmitting(false)
 
@@ -259,7 +291,6 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       await refreshData()
       onSuccess()
     } else if (successful.length > 0) {
-      // Partial success — keep dialog open, remove done items from cart
       toast.warning(`⚠️ ${successful.length} registrado(s), ${failed.length} con error`)
       failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
       await refreshData()
@@ -270,6 +301,11 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
     }
   }
+
+  // ── Dynamic label for the quantity field ─────────────────────────────────────
+  const quantityLabel = selectedUnit
+    ? `Cantidad (${selectedUnit.symbol})`
+    : "Cantidad"
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -373,12 +409,15 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             {/* Row 1: Cantidad + Unidad */}
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
+                {/* Dynamic label shows unit symbol when a unit is selected */}
+                <Label className="text-[10px] text-muted-foreground">
+                  {quantityLabel}
+                </Label>
                 <NumericInput
-                  min={0.0001}
-                  step={1}
+                  min={stagedMin}
+                  step={stagedStep}
                   value={quantity}
-                  onValueChange={(val) => setQuantity(Math.max(0.0001, val))}
+                  onValueChange={(val) => setQuantity(Math.max(stagedMin, val))}
                   className="bg-background border-border text-foreground"
                 />
               </div>
@@ -389,7 +428,13 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
                 </Label>
                 <Select
                   value={unitId || "__none__"}
-                  onValueChange={(v) => setUnitId(v === "__none__" ? "" : v)}
+                  onValueChange={(v) => {
+                    const next = v === "__none__" ? "" : v
+                    setUnitId(next)
+                    // Reset quantity to min when unit type changes
+                    const nextUnit = next ? unitsById.get(next) : undefined
+                    setQuantity(unitInputMin(nextUnit))
+                  }}
                 >
                   <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
                     <SelectValue placeholder="Base (×1)" />
@@ -443,12 +488,14 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       {cartItems.length > 0 && (
         <CartItemList
           items={cartItems.map((item) => ({
-            id: item.id,
+            id:          item.id,
             productName: item.productName,
-            quantity: item.quantity,
-            unitValue: item.unitCost,
-            subtotal: item.subtotal,
-            badge: item.unitSymbol ?? undefined,
+            quantity:    item.quantity,
+            unitValue:   item.unitCost,
+            subtotal:    item.subtotal,
+            step:        item.step,
+            minQty:      item.minQty,
+            badge:       item.unitSymbol ?? undefined,
           }))}
           onRemove={handleRemoveItem}
           onUpdateQty={handleUpdateQty}

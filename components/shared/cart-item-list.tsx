@@ -10,11 +10,23 @@ import { formatMoney, type Currency } from "@/lib/format"
 export interface CartDisplayItem {
   id: string
   productName: string
+  /** Visual quantity in the selected unit (may be fractional for medibles). */
   quantity: number
   /** Unit price (sales) or unit cost (purchases). */
   unitValue: number
   subtotal: number
-  /** Optional badge text, e.g. "10% desc." */
+  /**
+   * HTML input step for the quantity editor.
+   * 1 = discrete product (unitarios), 0.001 = measurable (medibles).
+   * Defaults to 1 when omitted.
+   */
+  step?: number
+  /**
+   * Minimum allowed quantity for the quantity editor.
+   * Should mirror `step`. Defaults to 1 when omitted.
+   */
+  minQty?: number
+  /** Optional badge text, e.g. "kg · 10% desc." */
   badge?: string
 }
 
@@ -78,9 +90,10 @@ export function CartItemList({
             </div>
           </div>
 
-          {/* Quantity editor */}
+          {/* Quantity editor — step and min driven by unit type, not hardcoded */}
           <NumericInput
-            min={1}
+            min={item.minQty ?? 1}
+            step={item.step ?? 1}
             max={maxQtyMap?.[item.id]}
             value={item.quantity}
             onValueChange={(val) => onUpdateQty(item.id, val)}

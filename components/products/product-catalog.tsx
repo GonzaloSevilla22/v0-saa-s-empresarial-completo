@@ -19,6 +19,8 @@ import {
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
+import { formatStock } from "@/lib/format-unit"
+import { resolveUnit } from "@/lib/unit-utils"
 import { exportToCSV, readFileAsText, validateImportColumns, parseCSV, parseAmount } from "@/lib/excel"
 import type { Product } from "@/lib/types"
 import { toast } from "sonner"
@@ -132,17 +134,8 @@ export function ProductCatalog({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Unit-of-measure resolution ─────────────────────────────────────────────
-  const { units } = useUnitsOfMeasure()
-  const unitsById = useMemo(
-    () => new Map(units.map((u) => [u.id, u])),
-    [units],
-  )
-
-  /** Returns the unit symbol for a product, or "uds" as fallback. */
-  function unitSymbol(baseUnitId?: string): string {
-    if (!baseUnitId) return "uds"
-    return unitsById.get(baseUnitId)?.symbol ?? "uds"
-  }
+  // unitsById comes pre-built from the hook — no local useMemo needed
+  const { unitsById } = useUnitsOfMeasure()
 
   /** Stock cell content for a single tracked product. */
   function stockLabel(p: Product): ReactNode {
@@ -154,26 +147,24 @@ export function ProductCatalog({
         </span>
       )
     }
-    const sym = unitSymbol(p.baseUnitId)
+    const sym = resolveUnit(p.baseUnitId, unitsById)?.symbol
     return (
-      <>
-        <span className="font-bold text-foreground">{p.stock}</span>
-        <span className="text-muted-foreground text-xs ml-1">{sym}</span>
-      </>
+      <span className="font-bold text-foreground tabular-nums">
+        {formatStock(p.stock, sym)}
+      </span>
     )
   }
 
   /** Aggregated stock label for a variant group. */
   function groupStockLabel(g: ProductGroup): ReactNode {
     const total = groupStock(g)
-    // Use the symbol from the first child that has one
+    // Use the symbol from the first child that has a unit assigned
     const firstWithUnit = g.children.find((c) => c.baseUnitId)
-    const sym = firstWithUnit ? unitSymbol(firstWithUnit.baseUnitId) : "uds"
+    const sym = resolveUnit(firstWithUnit?.baseUnitId, unitsById)?.symbol
     return (
-      <>
-        <span className="font-bold text-foreground">{total}</span>
-        <span className="text-muted-foreground text-xs ml-1">{sym}</span>
-      </>
+      <span className="font-bold text-foreground tabular-nums">
+        {formatStock(total, sym)}
+      </span>
     )
   }
 

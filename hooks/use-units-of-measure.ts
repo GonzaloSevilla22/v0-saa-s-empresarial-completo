@@ -6,6 +6,8 @@ import type { UnitOfMeasure } from "@/lib/types"
 
 interface UseUnitsOfMeasureResult {
   units: UnitOfMeasure[]
+  /** Pre-built Map<id, UnitOfMeasure> — use instead of Array.find() in hot paths. */
+  unitsById: Map<string, UnitOfMeasure>
   loading: boolean
   error: string | null
 }
@@ -22,6 +24,11 @@ export function useUnitsOfMeasure(): UseUnitsOfMeasureResult {
   const [units, setUnits] = useState<UnitOfMeasure[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const unitsById = useMemo(
+    () => new Map(units.map((u) => [u.id, u])),
+    [units],
+  )
 
   // Stable client instance — recreated only on mount (same pattern as data-context)
   const supabase = useMemo(() => createClient(), [])
@@ -64,5 +71,5 @@ export function useUnitsOfMeasure(): UseUnitsOfMeasureResult {
     }
   }, [supabase])
 
-  return { units, loading, error }
+  return { units, unitsById, loading, error }
 }

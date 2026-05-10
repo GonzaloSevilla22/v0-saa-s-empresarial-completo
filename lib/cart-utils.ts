@@ -1,17 +1,22 @@
 /**
- * Cart utilities shared between sale-form and purchase-form.
+ * lib/cart-utils.ts
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Cart types and pure math utilities shared between sale-form and purchase-form.
  *
- * ⚠️  Pure logic only — no persistence, no Supabase calls.
- *     Each form manages its own independent cart state and
- *     calls the appropriate service upon submission.
+ * ⚠️  Pure logic only — no persistence, no Supabase calls, no React.
+ *     Each form manages its own independent cart state and calls the
+ *     appropriate service upon submission.
+ *
+ * Precision contract
+ * - All subtotals are rounded to 4 decimal places (matches NUMERIC(15,4) in DB)
+ * - toFixed(4) via _round4 prevents floating-point drift (1.1 * 3 ≠ 3.3000…03)
  */
 
 // ─── Operation ID ─────────────────────────────────────────────────────────────
 
 /**
- * Generates a UUID v4 to logically group all items submitted
- * from the same cart operation. Stored in `sales.operation_id`
- * and `purchases.operation_id` for future analytics / migration.
+ * Generates a UUID v4 to logically group all items submitted from the same
+ * cart operation. Stored in sales.operation_id / purchases.operation_id.
  */
 export function generateOperationId(): string {
   return crypto.randomUUID()
@@ -24,20 +29,28 @@ export interface SaleCartItem {
   id: string
   productId: string
   productName: string
-  /** Base unit price from the product catalogue. */
+  /** Catalogue unit price (before discount). */
   unitPrice: number
+  /** Visual quantity — in the selected unit (may be fractional for medibles). */
   quantity: number
   /** Discount percentage applied to this item (0–100). */
   discount: number
-  /** Pre-computed: unitPrice × qty × (1 − discount/100). */
+  /** Pre-computed: unitPrice × qty × (1 − discount/100), rounded to 4dp. */
   subtotal: number
-  // ── Unit of measure (Etapa 4+) ──────────────────────────────────────────────
-  /** UUID of the selected unit of measure; undefined/null = base unit (factor 1). */
+  // ── Unit of measure ────────────────────────────────────────────────────────
+  /** UUID of the selected unit; undefined = base unit (factor 1). */
   unitId?: string
-  /** Display symbol shown in the cart and on the receipt (e.g. "kg", "doc"). */
+  /** Symbol shown in cart and on receipt (e.g. "kg", "doc"). */
   unitSymbol?: string
   /** Conversion factor to base unit — used for server-side stock accounting. */
   unitFactor?: number
+  /** Visual qty × unitFactor — pre-normalized for local stock validation. */
+  quantityBase?: number
+  // ── Input constraints (driven by unit type) ────────────────────────────────
+  /** HTML input step: 1 for unitarios, 0.001 for medibles. */
+  step?: number
+  /** Minimum quantity: mirrors step. */
+  minQty?: number
 }
 
 export function calcSaleSubtotal(
@@ -45,7 +58,7 @@ export function calcSaleSubtotal(
   qty: number,
   discount: number,
 ): number {
-  return unitPrice * qty * (1 - discount / 100)
+  return _round4(unitPrice * qty * (1 - discount / 100))
 }
 
 // ─── Purchase Cart ────────────────────────────────────────────────────────────
@@ -56,24 +69,39 @@ export interface PurchaseCartItem {
   productId: string
   productName: string
   unitCost: number
+  /** Visual quantity — in the selected unit (may be fractional for medibles). */
   quantity: number
-  /** Pre-computed: unitCost × qty. */
+  /** Pre-computed: unitCost × qty, rounded to 4dp. */
   subtotal: number
-  // ── Unit of measure (Etapa 4+) ──────────────────────────────────────────────
-  /** UUID of the selected unit of measure; undefined/null = base unit (factor 1). */
+  // ── Unit of measure ────────────────────────────────────────────────────────
+  /** UUID of the selected unit; undefined = base unit (factor 1). */
   unitId?: string
-  /** Display symbol shown in the cart (e.g. "kg", "doc"). */
+  /** Symbol shown in cart (e.g. "kg", "doc"). */
   unitSymbol?: string
-  /** Conversion factor to base unit — used for server-side stock accounting. */
+  /** Conversion factor to base unit. */
   unitFactor?: number
+  /** Visual qty × unitFactor — pre-normalized for local validation. */
+  quantityBase?: number
+  // ── Input constraints (driven by unit type) ────────────────────────────────
+  /** HTML input step: 1 for unitarios, 0.001 for medibles. */
+  step?: number
+  /** Minimum quantity: mirrors step. */
+  minQty?: number
 }
 
 export function calcPurchaseSubtotal(unitCost: number, qty: number): number {
-  return unitCost * qty
+  return _round4(unitCost * qty)
 }
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
 
 export function calcCartTotal(items: { subtotal: number }[]): number {
-  return items.reduce((sum, item) => sum + item.subtotal, 0)
+  return _round4(items.reduce((sum, item) => sum + item.subtotal, 0))
+}
+
+// ─── Internal ─────────────────────────────────────────────────────────────────
+
+/** Rounds to 4 decimal places — matches NUMERIC(15,4) precision in the DB. */
+function _round4(n: number): number {
+  return Math.round(n * 10_000) / 10_000
 }

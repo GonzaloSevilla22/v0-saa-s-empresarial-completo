@@ -1,26 +1,24 @@
-﻿import { getLandingSectionsAction } from "@/app/actions/landing"
-import { LandingRenderer } from "@/components/landing/LandingRenderer"
+import { getLandingSectionsAction } from "@/app/actions/landing"
+import { LandingPageFull } from "@/components/landing/LandingPageFull"
 import { Metadata } from "next"
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic"
 
 export async function generateMetadata(): Promise<Metadata> {
   const sections = await getLandingSectionsAction()
-  const hero = sections.find(s => s.type === 'hero')
-
+  const hero = sections.find(s => s.type === "hero")
   return {
-    title: hero?.title || "ALIADATA - Gestión Inteligente",
-    description: hero?.subtitle || "La plataforma integral que escala con tu negocio.",
+    title: hero?.title ?? "ALIADATA - Gestion Inteligente para tu Negocio",
+    description: hero?.subtitle ?? "Controla ventas, stock, compras e informes desde un solo lugar. Con IA incluida.",
     openGraph: {
-      title: hero?.title || "ALIADATA - Gestión Inteligente",
-      description: hero?.subtitle || "La plataforma integral que escala con tu negocio.",
+      title: hero?.title ?? "ALIADATA - Gestion Inteligente para tu Negocio",
+      description: hero?.subtitle ?? "Controla ventas, stock, compras e informes desde un solo lugar. Con IA incluida.",
       images: hero?.image_url ? [hero.image_url] : [],
-    }
+    },
   }
 }
 
 export default async function HomePage() {
   const sections = await getLandingSectionsAction()
-
-  return <LandingRenderer sections={sections} />
+  return <LandingPageFull sections={sections} />
 }

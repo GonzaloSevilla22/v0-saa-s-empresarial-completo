@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import { CartItemList } from "@/components/shared/cart-item-list"
+import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
@@ -126,6 +127,73 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   )
 
   // ── Handlers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Called by the barcode scanner on each successful scan.
+   * Looks up the product by its barcode and directly adds qty 1 to the cart,
+   * bypassing the staged-item flow so the user can scan multiple items
+   * without clicking "Agregar".
+   */
+  const handleBarcodeScan = useCallback((barcode: string) => {
+    const product = products.find(
+      (p) =>
+        p.barcode &&
+        p.barcode.toUpperCase() === barcode.toUpperCase() &&
+        !parentProductIds.has(p.id),
+    )
+
+    if (!product) {
+      toast.error(`Código "${barcode}" no encontrado`)
+      return
+    }
+
+    const baseUnit = resolveUnit(product.baseUnitId, unitsById)
+    const qty      = unitInputMin(baseUnit)
+    const step     = unitInputStep(baseUnit)
+
+    setCartItems((prev) => {
+      const existing = prev.find(
+        (item) =>
+          item.productId === product.id &&
+          (item.unitId ?? "") === (product.baseUnitId ?? ""),
+      )
+
+      if (existing) {
+        const newQty = existing.quantity + qty
+        toast.success(`+${qty} ${product.name}`)
+        return prev.map((item) =>
+          item.id === existing.id
+            ? {
+                ...item,
+                quantity:     newQty,
+                quantityBase: toBaseQuantity(newQty, baseUnit),
+                unitCost:     item.unitCost,
+                subtotal:     calcPurchaseSubtotal(item.unitCost, newQty),
+              }
+            : item,
+        )
+      } else {
+        toast.success(`✓ ${product.name}`)
+        return [
+          ...prev,
+          {
+            id:           crypto.randomUUID(),
+            productId:    product.id,
+            productName:  product.name,
+            unitCost:     product.cost,
+            quantity:     qty,
+            subtotal:     calcPurchaseSubtotal(product.cost, qty),
+            unitId:       product.baseUnitId || undefined,
+            unitSymbol:   baseUnit?.symbol,
+            unitFactor:   baseUnit?.factor,
+            quantityBase: toBaseQuantity(qty, baseUnit),
+            step,
+            minQty:       qty,
+          },
+        ]
+      }
+    })
+  }, [products, parentProductIds, unitsById])
 
   function handleProductChange(id: string) {
     setProductId(id)
@@ -320,16 +388,19 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
             <PackagePlus className="h-3.5 w-3.5" />
             Agregar producto
           </Label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 text-xs text-primary"
-            onClick={() => setShowNewProduct(!showNewProduct)}
-          >
-            <Plus className="h-3 w-3 mr-1" />
-            {showNewProduct ? "Cancelar" : "Nuevo producto"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <BarcodeScannerInput onScan={handleBarcodeScan} />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-primary"
+              onClick={() => setShowNewProduct(!showNewProduct)}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              {showNewProduct ? "Cancelar" : "Nuevo producto"}
+            </Button>
+          </div>
         </div>
 
         {showNewProduct ? (

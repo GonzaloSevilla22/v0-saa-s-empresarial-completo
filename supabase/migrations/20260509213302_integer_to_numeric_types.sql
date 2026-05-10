@@ -1,10 +1,10 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- MIGRATION: 20260509213302_integer_to_numeric_types.sql
 -- DESCRIPTION: Update rpc_atomic_create_sale to accept p_unit_id (uuid DEFAULT
 --              NULL) and p_quantity as NUMERIC (was INTEGER). Resolves unit
 --              factor internally and normalises quantity for stock decrement.
 --
 -- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509213302
--- This file is a documentation stub — the migration was already applied.
+-- This file is a documentation stub -- the migration was already applied.
 -- DO NOT re-execute: the DDL is already live on the remote database.
 -- =============================================================================

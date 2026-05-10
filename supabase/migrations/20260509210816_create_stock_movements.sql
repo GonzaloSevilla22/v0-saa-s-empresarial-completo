@@ -1,10 +1,10 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- MIGRATION: 20260509210816_create_stock_movements.sql
 -- DESCRIPTION: Create stock_movements audit table and change products.stock
 --              column type from INTEGER to NUMERIC(15,4) to support fractional
 --              quantities (weight, volume, length units).
 --
 -- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509210816
--- This file is a documentation stub — the migration was already applied.
+-- This file is a documentation stub -- the migration was already applied.
 -- DO NOT re-execute: the DDL is already live on the remote database.
 -- =============================================================================

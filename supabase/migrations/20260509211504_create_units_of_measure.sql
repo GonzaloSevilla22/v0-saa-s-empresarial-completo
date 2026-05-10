@@ -1,4 +1,4 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- MIGRATION: 20260509211504_create_units_of_measure.sql
 -- DESCRIPTION: Create units_of_measure table with RLS policies and seed
 --              system units (Unidad, Docena, Ciento, Gramo, Kilogramo,
@@ -6,6 +6,6 @@
 --              Adds base_unit_id FK on products table.
 --
 -- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509211504
--- This file is a documentation stub — the migration was already applied.
+-- This file is a documentation stub -- the migration was already applied.
 -- DO NOT re-execute: the DDL is already live on the remote database.
 -- =============================================================================

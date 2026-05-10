@@ -1,10 +1,10 @@
-﻿-- =============================================================================
+-- =============================================================================
 -- MIGRATION: 20260509153624_add_date_param_to_rpcs.sql
 -- DESCRIPTION: Add p_date parameter to rpc_atomic_create_sale and
 --              rpc_atomic_create_purchase, defaulting to CURRENT_DATE.
 --              Allows clients to record operations with a custom date.
 --
 -- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509153624
--- This file is a documentation stub — the migration was already applied.
+-- This file is a documentation stub -- the migration was already applied.
 -- DO NOT re-execute: the DDL is already live on the remote database.
 -- =============================================================================

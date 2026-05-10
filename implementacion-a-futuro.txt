@@ -1,0 +1,141 @@
+IMPLEMENTACIONES A FUTURO — Aliadata ERP
+========================================
+Fecha: Mayo 2026
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. WHATSAPP BUSINESS API (Etapa 2)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Idea:
+  Envío automático del comprobante de venta por WhatsApp sin intervención
+  del vendedor. Al confirmar la venta, el sistema manda el mensaje solo.
+
+Cómo funciona hoy (Etapa 1 implementada):
+  El vendedor hace click en "Enviar por WhatsApp" → se abre WhatsApp con
+  el mensaje pre-cargado → el vendedor presiona Enviar.
+
+Qué agrega la Etapa 2:
+  - Envío 100% automático al confirmar la venta (sin clicks del vendedor)
+  - Confirmaciones de entrega y lectura ("doble tilde azul")
+  - Historial de mensajes enviados en la tabla sale_notifications
+  - Reenvíos automáticos si falla la primera entrega
+  - Notificaciones de cobranza (recordatorios de pago)
+  - Campañas masivas a clientes
+
+Qué hay que hacer:
+  1. Elegir proveedor: Twilio, WATI, 360dialog o Meta Cloud API directo
+  2. Crear cuenta en Meta Business Suite y verificar el negocio
+  3. Registrar un número de teléfono dedicado para el negocio
+  4. Crear templates de mensaje y esperar aprobación de Meta (días/semanas)
+  5. Obtener las credenciales API del proveedor
+
+Qué código falta (ya preparado para recibirlo):
+  - Edge Function: supabase/functions/send-whatsapp/index.ts
+  - Tabla: sale_notifications (ya existe, lista para Etapa 2)
+  - Webhook para recibir confirmaciones de entrega/lectura
+
+Costo estimado:
+  - USD 0.01 a 0.05 por conversación (varía según proveedor y país)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. NÚMERO DE FACTURA SECUENCIAL REAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Idea:
+  Reemplazar el número de comprobante actual (derivado del UUID, ej: "A3F9C2B1")
+  por un número secuencial real por usuario (ej: 0001-00001234).
+
+Por qué importa:
+  - Los comprobantes actuales no son auditables ni legalmente válidos
+  - Un número secuencial permite llevar un registro contable ordenado
+  - Necesario si en el futuro se integra con AFIP (facturación electrónica)
+
+Cómo implementarlo:
+  - Agregar una secuencia por user_id en la DB (PostgreSQL SEQUENCE o contador)
+  - Asignar el número al momento de confirmar la venta
+  - Formato sugerido: XXXX-XXXXXXXX (punto de venta + número)
+
+Nota: para facturación AFIP real se necesita integración con ARCA/AFIP
+      (complejidad alta, requiere certificados digitales y habilitación fiscal)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. PDF REAL (server-side)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Idea:
+  Generar un PDF binario real del comprobante en el servidor (Edge Function),
+  subirlo a Supabase Storage y obtener una URL firmada temporal para compartir.
+
+Por qué importa:
+  - El sistema actual usa HTML + print del browser (el vendedor guarda como PDF)
+  - Un PDF server-side permite: adjuntarlo en emails, mandarlo por WhatsApp API,
+    almacenarlo permanentemente, acceder desde cualquier dispositivo
+
+Cómo implementarlo:
+  - Edge Function: generar PDF con jsPDF o similar (compatible con Deno)
+  - Bucket de Storage: "sale-receipts" (privado, RLS por user_id)
+  - Signed URLs con expiración de 24-48hs para compartir de forma segura
+  - Reutilización: si el PDF ya existe para esa operación, no regenerar
+
+Dependencias:
+  - Librería PDF compatible con Deno runtime de Supabase Edge Functions
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. BRANDING PERSONALIZADO POR EMPRESA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Idea:
+  Permitir que cada negocio configure su identidad visual en los comprobantes
+  y mensajes de WhatsApp.
+
+Qué incluye:
+  - Logo del negocio en el comprobante (hoy usa la foto de perfil)
+  - Color principal personalizable
+  - Firma del mensaje WhatsApp configurable
+  - CUIT/CUIL del negocio en el comprobante
+  - Dirección y datos de contacto completos
+  - Tono del mensaje (formal / amigable / neutro)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. RECORDATORIOS Y COBRANZAS AUTOMÁTICAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Idea:
+  Enviar mensajes automáticos de seguimiento post-venta y recordatorios
+  de pago para cuentas corrientes o cuotas pendientes.
+
+Requiere:
+  - Etapa 2 de WhatsApp (API automática)
+  - Sistema de cuenta corriente / crédito por cliente (no implementado)
+  - Scheduler de tareas (Supabase Cron o similar)
+
+Casos de uso:
+  - "Hola, te recordamos que tenés un saldo pendiente de $X"
+  - "Tu pedido está listo para retirar"
+  - "Gracias por tu compra, ¿cómo fue tu experiencia?"
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. FACTURACIÓN ELECTRÓNICA AFIP (ARCA)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Idea:
+  Integración con AFIP/ARCA para emitir facturas electrónicas reales
+  (Tipo A, B, C) directamente desde el ERP.
+
+Por qué es complejo:
+  - Requiere certificados digitales propios de cada contribuyente
+  - Cada usuario debe autorizar la app en AFIP
+  - El proceso de homologación con AFIP lleva semanas
+  - Las facturas tienen validez legal y no se pueden modificar ni eliminar
+
+Alcance cuando se implemente:
+  - CAE (Código de Autorización Electrónico) por factura
+  - QR oficial AFIP en el PDF
+  - Numeración correlativa obligatoria
+  - Registro automático en el libro IVA

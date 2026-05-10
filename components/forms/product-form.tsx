@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
@@ -9,10 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
+import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
+import { generateEAN13 } from "@/lib/barcode-utils"
+import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 
 import type { Product, StockControlType } from "@/lib/types"
-import { Barcode, Package, Wrench } from "lucide-react"
+import { Barcode, Package, Wrench, ScanLine, X } from "lucide-react"
 
 interface ProductFormProps {
   onSuccess: () => void
@@ -41,9 +44,20 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   )
   const [baseUnitId, setBaseUnitId] = useState(initialData?.baseUnitId ?? "")
 
+  const [isScanning, setIsScanning] = useState(false)
+
   const margin = price > 0 ? Math.round(((price - cost) / price) * 100) : 0
 
   const isVariant = parentId !== "none"
+
+  // ── Scanner integration ──────────────────────────────────────────────────────
+  const handleScanComplete = useCallback((code: string) => {
+    setBarcode(code)
+    setIsScanning(false)
+    toast.success(`Código escaneado: ${code}`)
+  }, [])
+
+  useBarcodeScanner({ onScan: handleScanComplete, enabled: isScanning })
 
   // ── Units grouped by type for the selector ──────────────────────────────────
   const unitGroups = useMemo(() => {
@@ -65,8 +79,7 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   }
 
   const generateBarcode = () => {
-    const code = Math.floor(Math.random() * 9000000000000) + 1000000000000
-    setBarcode(code.toString())
+    setBarcode(generateEAN13())
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -151,13 +164,30 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
               selectOnFocus
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
-              placeholder="Código"
-              className="bg-background border-border text-foreground flex-1"
+              placeholder={isScanning ? "Escanee el código..." : "Código"}
+              className={cn(
+                "bg-background border-border text-foreground flex-1",
+                isScanning && "ring-2 ring-primary border-primary animate-pulse",
+              )}
             />
-            <Button type="button" variant="outline" size="icon" onClick={generateBarcode} title="Generar código">
+            <Button
+              type="button"
+              variant={isScanning ? "default" : "outline"}
+              size="icon"
+              onClick={() => setIsScanning((s) => !s)}
+              title={isScanning ? "Cancelar escaneo" : "Escanear con lector"}
+            >
+              {isScanning ? <X className="h-4 w-4" /> : <ScanLine className="h-4 w-4" />}
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={generateBarcode} title="Generar EAN-13 válido">
               <Barcode className="h-4 w-4" />
             </Button>
           </div>
+          {isScanning && (
+            <p className="text-[11px] text-primary animate-pulse">
+              Apunte el lector al código de barras...
+            </p>
+          )}
         </div>
       </div>
 

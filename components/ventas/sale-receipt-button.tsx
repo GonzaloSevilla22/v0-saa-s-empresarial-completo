@@ -4,47 +4,61 @@
  * SaleReceiptButton
  *
  * Renders a compact action group for a SaleOperation:
- *  - "Comprobante" → generates a self-contained HTML receipt, opens it in a
- *    new tab, and auto-triggers the browser's print/Save-as-PDF dialog.
- *  - "Compartir" → opens WhatsApp (or native Share API on mobile) with a
- *    pre-formatted text summary of the operation.
+ *  - "Comprobante" → dropdown with "Descargar / Imprimir" and "Copiar texto"
+ *  - "Enviar por WhatsApp" → direct deep-link to the client's number (wa.me/<phone>?text=…).
+ *    Falls back to WhatsApp contact picker if no phone is available.
  *
  * Zero external PDF library — uses the browser's native print pipeline.
  */
 
 import { useState, useCallback } from "react"
-import { FileText, Share2, Loader2 } from "lucide-react"
+import { FileText, Copy, Check, Loader2, MessageCircle, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
 import { generateReceiptHTML, generateReceiptText } from "@/lib/receipt"
+import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
 import type { SaleOperation } from "@/lib/group-operations"
 
 interface SaleReceiptButtonProps {
   op: SaleOperation
+  /** Raw phone string from the client record — normalised internally before use */
+  clientPhone?: string | null
+  /** Client's first name for the personalised WhatsApp greeting */
+  clientFirstName?: string | null
 }
 
-export function SaleReceiptButton({ op }: SaleReceiptButtonProps) {
+export function SaleReceiptButton({
+  op,
+  clientPhone,
+  clientFirstName,
+}: SaleReceiptButtonProps) {
   const { user } = useAuth()
-  const [loading, setLoading] = useState(false)
+  const [loadingPrint, setLoadingPrint] = useState(false)
+  const [copied, setCopied]             = useState(false)
 
   // ── Receipt options derived from user profile ────────────────────────────
   const receiptOpts = {
-    businessName:  user?.businessName || user?.name || "Mi Negocio",
-    businessPhone: user?.phone,
-    businessEmail: user?.email,
-    logoUrl:       user?.avatar,
+    businessName:    user?.businessName || user?.name || "Mi Negocio",
+    businessPhone:   user?.phone,
+    businessEmail:   user?.email,
+    logoUrl:         user?.avatar,
+    clientFirstName: clientFirstName ?? undefined,
   }
+
+  // Does the client have a valid WhatsApp-capable phone number?
+  const hasValidPhone = !!normalizeWhatsAppPhone(clientPhone)
 
   // ── Download / print ─────────────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
-    setLoading(true)
+    setLoadingPrint(true)
     try {
       const html = generateReceiptHTML(op, receiptOpts)
       const blob = new Blob([html], { type: "text/html;charset=utf-8" })
@@ -67,66 +81,104 @@ export function SaleReceiptButton({ op }: SaleReceiptButtonProps) {
     } catch (err: any) {
       toast.error(err?.message || "No se pudo generar el comprobante.")
     } finally {
-      setLoading(false)
+      setLoadingPrint(false)
     }
   }, [op, receiptOpts])
 
-  // ── Share ────────────────────────────────────────────────────────────────
-  const handleShare = useCallback(async () => {
+  // ── Copy text to clipboard ───────────────────────────────────────────────
+  const handleCopy = useCallback(async () => {
     const text = generateReceiptText(op, receiptOpts)
-
-    // Use native Web Share API if available (iOS Safari, Android Chrome)
-    if (typeof navigator !== "undefined" && navigator.share) {
-      try {
-        await navigator.share({ title: "Comprobante de venta", text })
-        return
-      } catch {
-        // User dismissed — fall through to WhatsApp
-      }
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      toast.success("Texto copiado al portapapeles")
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error("No se pudo copiar el texto")
     }
-
-    // Desktop fallback: open WhatsApp web
-    const encoded = encodeURIComponent(text)
-    window.open(`https://wa.me/?text=${encoded}`, "_blank", "noopener,noreferrer")
   }, [op, receiptOpts])
+
+  // ── Send via WhatsApp ────────────────────────────────────────────────────
+  const handleWhatsApp = useCallback(() => {
+    const text = generateReceiptText(op, receiptOpts)
+    const url  = buildWhatsAppUrl(clientPhone, text)
+    window.open(url, "_blank", "noopener,noreferrer")
+
+    if (!hasValidPhone) {
+      toast.info(
+        "No hay número de WhatsApp registrado para este cliente. Seleccioná el contacto en WhatsApp.",
+        { duration: 4000 },
+      )
+    }
+  }, [op, receiptOpts, clientPhone, hasValidPhone])
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1.5 border-border text-foreground text-xs px-2.5"
-          disabled={loading}
+    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+
+      {/* ── Comprobante dropdown ─────────────────────────────────────────── */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 border-border text-foreground text-xs px-2.5"
+            disabled={loadingPrint}
+          >
+            {loadingPrint
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <FileText className="h-3.5 w-3.5" />}
+            Comprobante
+            <ChevronDown className="h-3 w-3 text-muted-foreground" />
+          </Button>
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent
+          align="end"
+          className="w-48 bg-popover border-border"
           onClick={(e) => e.stopPropagation()}
         >
-          {loading
-            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            : <FileText className="h-3.5 w-3.5" />}
-          Comprobante
-        </Button>
-      </DropdownMenuTrigger>
+          <DropdownMenuItem
+            className="gap-2 cursor-pointer"
+            onSelect={handleDownload}
+          >
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <span>Descargar / Imprimir</span>
+          </DropdownMenuItem>
 
-      <DropdownMenuContent
-        align="end"
-        className="w-48 bg-popover border-border"
-        onClick={(e) => e.stopPropagation()}
+          <DropdownMenuSeparator />
+
+          <DropdownMenuItem
+            className="gap-2 cursor-pointer"
+            onSelect={handleCopy}
+          >
+            {copied
+              ? <Check className="h-4 w-4 text-emerald-500" />
+              : <Copy className="h-4 w-4 text-muted-foreground" />}
+            <span>{copied ? "¡Copiado!" : "Copiar texto"}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* ── WhatsApp direct button ───────────────────────────────────────── */}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleWhatsApp}
+        className={[
+          "h-7 gap-1.5 text-xs px-2.5 transition-colors",
+          hasValidPhone
+            ? "border-[#25D366]/40 text-[#25D366] hover:bg-[#25D366]/10 hover:border-[#25D366]/60"
+            : "border-border text-muted-foreground hover:text-foreground",
+        ].join(" ")}
+        title={
+          hasValidPhone
+            ? "Enviar comprobante por WhatsApp al cliente"
+            : "Enviar por WhatsApp (sin número de cliente registrado)"
+        }
       >
-        <DropdownMenuItem
-          className="gap-2 cursor-pointer"
-          onSelect={handleDownload}
-        >
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          <span>Descargar / Imprimir</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          className="gap-2 cursor-pointer"
-          onSelect={handleShare}
-        >
-          <Share2 className="h-4 w-4 text-muted-foreground" />
-          <span>Compartir</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <MessageCircle className="h-3.5 w-3.5" />
+        {hasValidPhone ? "Enviar por WhatsApp" : "WhatsApp"}
+      </Button>
+    </div>
   )
 }

@@ -5,13 +5,14 @@ import { useData } from "@/contexts/data-context"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
+import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import type { PurchaseOperation } from "@/lib/group-operations"
 
 export default function ComprasPage() {
   // Realtime subscription for purchases is handled centrally in DataProvider.
-  const { purchases, deletePurchase, deletePurchasesByOperation } = useData()
+  const { purchases, deletePurchase, deletePurchasesByOperation, refreshData } = useData()
   const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
 
@@ -29,11 +30,15 @@ export default function ComprasPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gestión de compras a proveedores
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Gestión de compras a proveedores
+          </p>
+        </div>
+        {/* Invoice AI scanner — floats in the page header so it's always visible */}
+        <InvoiceAIButton onPurchasesCreated={refreshData} />
       </div>
 
       {isAdmin && (

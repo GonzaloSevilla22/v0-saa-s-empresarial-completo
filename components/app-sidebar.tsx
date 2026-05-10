@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ModeToggle } from "@/components/mode-toggle"
+import { getFirstName, capitalizeName } from "@/lib/helpers/user-helpers"
 
 const navGroups = [
   {
@@ -287,12 +288,12 @@ export function AppSidebar() {
         <div className="flex items-center gap-3 p-2 group-data-[collapsible=icon]:justify-center">
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarFallback className="bg-primary/20 text-primary text-xs">
-              {user?.name?.charAt(0)?.toUpperCase() || "E"}
+              {getFirstName(user?.name, "U").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col group-data-[collapsible=icon]:hidden">
             <span className="text-xs font-medium text-sidebar-foreground truncate max-w-[120px]">
-              {user?.name || "Usuario"}
+              {capitalizeName(user?.name ?? "") || "Usuario"}
             </span>
             <Badge
               variant="outline"

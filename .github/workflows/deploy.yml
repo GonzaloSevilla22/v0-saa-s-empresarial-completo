@@ -56,7 +56,7 @@ jobs:
         run: supabase link --project-ref "${SUPABASE_PROJECT_REF}" -p "${SUPABASE_DB_PASSWORD}"
 
       - name: Deploy Database Migrations
-        run: supabase db push
+        run: supabase db push --include-all
 
       - name: Deploy Edge Functions
         run: supabase functions deploy --no-verify-jwt --project-ref "${SUPABASE_PROJECT_REF}"

@@ -5,7 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const AI_TIMEOUT_MS = 8000
+// OpenAI gpt-4o-mini can take 6–15 s under load. 25 s gives ample room
+// while staying well within Supabase Edge Function's 60 s hard limit.
+const AI_TIMEOUT_MS = 25_000
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -100,6 +102,7 @@ Deno.serve(async (req) => {
               { role: 'user', content: `Escenario: ${scenario.trim()}. Datos actuales del mes: Ventas $${totalSales}, Gastos $${totalExpenses}.` }
             ],
             max_tokens: 400,
+            temperature: 0.7,
           }),
         }
       )
@@ -116,7 +119,7 @@ Deno.serve(async (req) => {
     } catch (aiErr: unknown) {
       const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
       console.error('[ai-simulador] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
-      return jsonResponse({ ok: false, error: isTimeout ? 'OpenAI timeout (>8s)' : extractErrorMessage(aiErr) }, 502)
+      return jsonResponse({ ok: false, error: isTimeout ? 'OpenAI tardó demasiado — intentá nuevamente en unos segundos' : extractErrorMessage(aiErr) }, 502)
     }
 
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {

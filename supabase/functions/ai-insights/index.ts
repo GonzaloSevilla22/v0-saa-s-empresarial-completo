@@ -5,7 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const AI_TIMEOUT_MS = 10_000
+// OpenAI gpt-4o-mini can take 6–15 s under load. 25 s gives ample room
+// while staying well within Supabase Edge Function's 60 s hard limit.
+// Previous value of 10_000 ms caused 502s visible in production logs.
+const AI_TIMEOUT_MS = 25_000
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

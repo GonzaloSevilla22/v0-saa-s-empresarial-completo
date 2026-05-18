@@ -9,6 +9,13 @@
 -- live DB schema to allow CI to replay migrations on a fresh database.
 -- =============================================================================
 
+-- ── 0. Drop blocking trigger before column type change ───────────────────────
+-- Migration 20250101000011_ai_alerts created on_product_stock_update with
+-- "AFTER INSERT OR UPDATE OF stock", which registers a column-level dependency.
+-- PostgreSQL refuses to ALTER COLUMN TYPE while that dependency exists.
+-- We drop the trigger here and recreate it (improved) at the end of this file.
+DROP TRIGGER IF EXISTS on_product_stock_update ON public.products;
+
 -- ── 1. Change products.stock from INTEGER → NUMERIC(15,4) ────────────────────
 -- Supports fractional quantities: weight (kg), volume (L), length (m), etc.
 ALTER TABLE public.products

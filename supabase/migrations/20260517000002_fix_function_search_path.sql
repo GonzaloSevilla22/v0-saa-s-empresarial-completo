@@ -270,14 +270,26 @@ REVOKE EXECUTE ON FUNCTION public.is_admin(uuid)                                
 REVOKE EXECUTE ON FUNCTION public.notify_meeting_created()                                                               FROM anon;
 REVOKE EXECUTE ON FUNCTION public.notify_pool_created()                                                                  FROM anon;
 REVOKE EXECUTE ON FUNCTION public.prevent_profile_privilege_escalation()                                                 FROM anon;
-REVOKE EXECUTE ON FUNCTION public.rls_auto_enable()                                                                      FROM anon;
+-- rls_auto_enable: created on live DB via MCP only — no committed migration.
+-- Wrap in DO block so CI (fresh DB) skips gracefully; live DB REVOKE still lands.
+DO $$ BEGIN
+  REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM anon;
+EXCEPTION WHEN undefined_function OR undefined_object THEN NULL;
+END $$;
 REVOKE EXECUTE ON FUNCTION public.rpc_admin_business_kpis(timestamptz, timestamptz)                                      FROM anon;
 REVOKE EXECUTE ON FUNCTION public.rpc_admin_kpi_overview(timestamptz, timestamptz, text)                                 FROM anon;
 REVOKE EXECUTE ON FUNCTION public.rpc_admin_module_stats(text, timestamptz, timestamptz)                                 FROM anon;
 REVOKE EXECUTE ON FUNCTION public.rpc_admin_retention_30d(text, timestamptz, timestamptz)                               FROM anon;
 REVOKE EXECUTE ON FUNCTION public.rpc_admin_weekly_usage_distribution(timestamptz, timestamptz)                          FROM anon;
-REVOKE EXECUTE ON FUNCTION public.rpc_atomic_create_purchase(uuid, numeric, numeric, uuid, text, date)                   FROM anon;
-REVOKE EXECUTE ON FUNCTION public.rpc_atomic_create_sale(uuid, uuid, numeric, numeric, uuid, text, date)                 FROM anon;
+-- 6/7-param RPC signatures added by stub migrations (not present in CI fresh DB).
+DO $$ BEGIN
+  REVOKE EXECUTE ON FUNCTION public.rpc_atomic_create_purchase(uuid, numeric, numeric, uuid, text, date) FROM anon;
+EXCEPTION WHEN undefined_function OR undefined_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  REVOKE EXECUTE ON FUNCTION public.rpc_atomic_create_sale(uuid, uuid, numeric, numeric, uuid, text, date) FROM anon;
+EXCEPTION WHEN undefined_function OR undefined_object THEN NULL;
+END $$;
 REVOKE EXECUTE ON FUNCTION public.rpc_atomic_log_ai_insight(text, text, text)                                            FROM anon;
 REVOKE EXECUTE ON FUNCTION public.rpc_safe_delete_product(uuid)                                                          FROM anon;
 REVOKE EXECUTE ON FUNCTION public.rpc_safe_delete_product(uuid, uuid)                                                    FROM anon;
@@ -295,6 +307,9 @@ REVOKE EXECUTE ON FUNCTION public.handle_new_user()                       FROM a
 REVOKE EXECUTE ON FUNCTION public.notify_meeting_created()                FROM authenticated;
 REVOKE EXECUTE ON FUNCTION public.notify_pool_created()                   FROM authenticated;
 REVOKE EXECUTE ON FUNCTION public.prevent_profile_privilege_escalation()  FROM authenticated;
-REVOKE EXECUTE ON FUNCTION public.rls_auto_enable()                       FROM authenticated;
+DO $$ BEGIN
+  REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM authenticated;
+EXCEPTION WHEN undefined_function OR undefined_object THEN NULL;
+END $$;
 REVOKE EXECUTE ON FUNCTION public.update_post_likes_count()               FROM authenticated;
 REVOKE EXECUTE ON FUNCTION public.update_post_replies_count()             FROM authenticated;

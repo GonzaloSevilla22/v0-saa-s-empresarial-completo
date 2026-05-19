@@ -27,6 +27,7 @@ import {
   calcCartTotal,
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
+import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
@@ -410,260 +411,265 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-4 max-h-[80vh] overflow-y-auto pr-1"
-    >
-      {/* ── Product Adder ───────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3">
-        <div className="flex items-center justify-between">
-          <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-            <PackagePlus className="h-3.5 w-3.5" />
-            Agregar producto
-          </Label>
-          <div className="flex items-center gap-2">
-            <BarcodeScannerInput onScan={handleBarcodeScan} />
+    <form onSubmit={handleSubmit}>
+      <ScrollableCartShell
+        hasItems={cartItems.length > 0}
+
+        // ── Scrollable cart list ─────────────────────────────────────────
+        listContent={
+          <CartItemList
+            items={cartItems.map((item) => ({
+              id:          item.id,
+              productName: item.productName,
+              quantity:    item.quantity,
+              unitValue:   item.unitCost,
+              subtotal:    item.subtotal,
+              step:        item.step,
+              minQty:      item.minQty,
+              badge:       item.unitSymbol ?? undefined,
+            }))}
+            onRemove={handleRemoveItem}
+            onUpdateQty={handleUpdateQty}
+            unitLabel="Costo unit."
+          />
+        }
+
+        // ── Sticky footer: total + submit ────────────────────────────────
+        footerContent={
+          <>
+            {cartItems.length > 0 && (
+              <div className="rounded-lg border border-border bg-accent/50 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4" />
+                    Total — {cartItems.length} ítem{cartItems.length !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-xl font-bold text-primary tabular-nums">
+                    {formatMoney(cartTotal)}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs text-primary"
-              onClick={() => setShowNewProduct(!showNewProduct)}
+              type="submit"
+              className="w-full"
+              disabled={submitting || cartItems.length === 0}
             >
-              <Plus className="h-3 w-3 mr-1" />
-              {showNewProduct ? "Cancelar" : "Nuevo producto"}
+              {submitting
+                ? isEdit ? "Guardando..." : "Registrando..."
+                : isEdit
+                ? `Guardar cambios (${cartItems.length} ítem${cartItems.length !== 1 ? "s" : ""})`
+                : cartItems.length > 1
+                ? `Confirmar compra (${cartItems.length} ítems)`
+                : "Confirmar compra"}
             </Button>
+          </>
+        }
+      >
+        {/* ── HEADER: Fecha + Notas ────────────────────────────────────── */}
+        {/* Moved to top so meta-info is set before adding items (UX parity with SaleForm) */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-2">
+            <Label className="text-foreground flex items-center gap-1.5">
+              <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
+              Fecha
+            </Label>
+            <input
+              type="date"
+              value={date}
+              max={new Date().toISOString().split("T")[0]}
+              onChange={(e) => setDate(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label className="text-foreground">Notas (opcional)</Label>
+            <Input
+              selectOnFocus
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Ej: Lote Dic 2026"
+              className="bg-background border-border text-foreground"
+            />
           </div>
         </div>
 
-        {showNewProduct ? (
-          <div className="rounded-lg border border-border bg-accent/30 p-3 flex flex-col gap-2">
-            <Input
-              selectOnFocus
-              value={newProductName}
-              onChange={(e) => setNewProductName(e.target.value)}
-              placeholder="Nombre del producto"
-              className="bg-background border-border text-foreground text-sm"
-            />
-            <Select value={newProductCategory} onValueChange={setNewProductCategory}>
-              <SelectTrigger className="bg-background border-border text-foreground text-sm">
-                <SelectValue placeholder="Categoría" />
-              </SelectTrigger>
-              <SelectContent className="bg-popover border-border">
-                {PRODUCT_CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Costo</Label>
-                <NumericInput
-                  min={0}
-                  value={newProductCost}
-                  onValueChange={setNewProductCost}
-                  className="bg-background border-border text-foreground text-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Precio venta</Label>
-                <NumericInput
-                  min={0}
-                  value={newProductPrice}
-                  onValueChange={setNewProductPrice}
-                  className="bg-background border-border text-foreground text-sm"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Stock mín.</Label>
-                <NumericInput
-                  min={0}
-                  value={newProductMinStock}
-                  onValueChange={setNewProductMinStock}
-                  className="bg-background border-border text-foreground text-sm"
-                />
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={handleCreateProduct}
-              className="w-full"
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Crear y seleccionar
-            </Button>
-          </div>
-        ) : (
-          <SearchableSelect
-            options={productOptions}
-            value={productId}
-            onValueChange={handleProductChange}
-            placeholder="Seleccionar producto"
-            searchPlaceholder="Buscar producto..."
-            emptyMessage="No se encontraron productos."
-          />
-        )}
+        <div className="border-t border-border" />
 
-        {selectedProduct && !showNewProduct && (
-          <div className="flex flex-col gap-2">
-            {/* Row 1: Cantidad + Unidad */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                {/* Dynamic label shows unit symbol when a unit is selected */}
-                <Label className="text-[10px] text-muted-foreground">
-                  {quantityLabel}
-                </Label>
-                <NumericInput
-                  min={stagedMin}
-                  step={stagedStep}
-                  value={quantity}
-                  onValueChange={(val) => setQuantity(Math.max(stagedMin, val))}
-                  className="bg-background border-border text-foreground"
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                  <Ruler className="h-3 w-3" />
-                  Unidad
-                </Label>
-                <Select
-                  value={unitId || "__none__"}
-                  onValueChange={(v) => {
-                    const next = v === "__none__" ? "" : v
-                    setUnitId(next)
-                    // Reset quantity to min when unit type changes
-                    const nextUnit = next ? unitsById.get(next) : undefined
-                    setQuantity(unitInputMin(nextUnit))
-                  }}
-                >
-                  <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
-                    <SelectValue placeholder="Base (×1)" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-popover border-border">
-                    <SelectItem value="__none__">Sin unidad (base)</SelectItem>
-                    {units.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.symbol} — {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+        {/* ── HEADER: Product Adder ────────────────────────────────────── */}
+        <div className="flex flex-col gap-3 rounded-lg border border-dashed border-border bg-accent/15 p-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <PackagePlus className="h-3.5 w-3.5" />
+              Agregar producto
+            </Label>
+            <div className="flex items-center gap-2">
+              <BarcodeScannerInput onScan={handleBarcodeScan} />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs text-primary"
+                onClick={() => setShowNewProduct(!showNewProduct)}
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                {showNewProduct ? "Cancelar" : "Nuevo producto"}
+              </Button>
             </div>
-            {/* Row 2: Costo unitario + Subtotal */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Costo unitario</Label>
-                <NumericInput
-                  min={0}
-                  step={0.01}
-                  value={unitCost}
-                  onValueChange={setUnitCost}
-                  className="bg-background border-border text-foreground"
-                />
+          </div>
+
+          {showNewProduct ? (
+            <div className="rounded-lg border border-border bg-accent/30 p-3 flex flex-col gap-2">
+              <Input
+                selectOnFocus
+                value={newProductName}
+                onChange={(e) => setNewProductName(e.target.value)}
+                placeholder="Nombre del producto"
+                className="bg-background border-border text-foreground text-sm"
+              />
+              <Select value={newProductCategory} onValueChange={setNewProductCategory}>
+                <SelectTrigger className="bg-background border-border text-foreground text-sm">
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border">
+                  {PRODUCT_CATEGORIES.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground">Costo</Label>
+                  <NumericInput
+                    min={0}
+                    value={newProductCost}
+                    onValueChange={setNewProductCost}
+                    className="bg-background border-border text-foreground text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground">Precio venta</Label>
+                  <NumericInput
+                    min={0}
+                    value={newProductPrice}
+                    onValueChange={setNewProductPrice}
+                    className="bg-background border-border text-foreground text-sm"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground">Stock mín.</Label>
+                  <NumericInput
+                    min={0}
+                    value={newProductMinStock}
+                    onValueChange={setNewProductMinStock}
+                    className="bg-background border-border text-foreground text-sm"
+                  />
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
-                <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-cyan-400 tabular-nums">
-                  {formatMoney(stagedSubtotal)}
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={handleCreateProduct}
+                className="w-full"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Crear y seleccionar
+              </Button>
+            </div>
+          ) : (
+            <SearchableSelect
+              options={productOptions}
+              value={productId}
+              onValueChange={handleProductChange}
+              placeholder="Seleccionar producto"
+              searchPlaceholder="Buscar producto..."
+              emptyMessage="No se encontraron productos."
+            />
+          )}
+
+          {selectedProduct && !showNewProduct && (
+            <div className="flex flex-col gap-2">
+              {/* Row 1: Cantidad + Unidad */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground">
+                    {quantityLabel}
+                  </Label>
+                  <NumericInput
+                    min={stagedMin}
+                    step={stagedStep}
+                    value={quantity}
+                    onValueChange={(val) => setQuantity(Math.max(stagedMin, val))}
+                    className="bg-background border-border text-foreground"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Ruler className="h-3 w-3" />
+                    Unidad
+                  </Label>
+                  <Select
+                    value={unitId || "__none__"}
+                    onValueChange={(v) => {
+                      const next = v === "__none__" ? "" : v
+                      setUnitId(next)
+                      const nextUnit = next ? unitsById.get(next) : undefined
+                      setQuantity(unitInputMin(nextUnit))
+                    }}
+                  >
+                    <SelectTrigger className="bg-background border-border text-foreground h-10 text-sm">
+                      <SelectValue placeholder="Base (×1)" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      <SelectItem value="__none__">Sin unidad (base)</SelectItem>
+                      {units.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.symbol} — {u.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {/* Row 2: Costo unitario + Subtotal */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground">Costo unitario</Label>
+                  <NumericInput
+                    min={0}
+                    step={0.01}
+                    value={unitCost}
+                    onValueChange={setUnitCost}
+                    className="bg-background border-border text-foreground"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
+                  <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-cyan-400 tabular-nums">
+                    {formatMoney(stagedSubtotal)}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleAddToCart}
-          disabled={!selectedProduct || showNewProduct}
-          className="w-full gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Agregar al carrito
-        </Button>
-      </div>
-
-      {/* ── Cart Items ──────────────────────────────────────────────────── */}
-      {cartItems.length > 0 && (
-        <CartItemList
-          items={cartItems.map((item) => ({
-            id:          item.id,
-            productName: item.productName,
-            quantity:    item.quantity,
-            unitValue:   item.unitCost,
-            subtotal:    item.subtotal,
-            step:        item.step,
-            minQty:      item.minQty,
-            badge:       item.unitSymbol ?? undefined,
-          }))}
-          onRemove={handleRemoveItem}
-          onUpdateQty={handleUpdateQty}
-          unitLabel="Costo unit."
-        />
-      )}
-
-      {/* ── Total ───────────────────────────────────────────────────────── */}
-      {cartItems.length > 0 && (
-        <div className="rounded-lg border border-border bg-accent/50 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground flex items-center gap-2">
-              <ShoppingCart className="h-4 w-4" />
-              Total — {cartItems.length} ítem{cartItems.length !== 1 ? "s" : ""}
-            </span>
-            <span className="text-xl font-bold text-primary tabular-nums">
-              {formatMoney(cartTotal)}
-            </span>
-          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleAddToCart}
+            disabled={!selectedProduct || showNewProduct}
+            className="w-full gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Agregar al carrito
+          </Button>
         </div>
-      )}
-
-      {/* ── Date + Notes ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-2">
-          <Label className="text-foreground flex items-center gap-1.5">
-            <CalendarIcon className="h-3.5 w-3.5 text-muted-foreground" />
-            Fecha
-          </Label>
-          <input
-            type="date"
-            value={date}
-            max={new Date().toISOString().split("T")[0]}
-            onChange={(e) => setDate(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Notas (opcional)</Label>
-          <Input
-            selectOnFocus
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Ej: Lote Dic 2026"
-            className="bg-background border-border text-foreground"
-          />
-        </div>
-      </div>
-
-      {/* ── Submit ──────────────────────────────────────────────────────── */}
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={submitting || cartItems.length === 0}
-      >
-        {submitting
-          ? isEdit ? "Guardando..." : "Registrando..."
-          : isEdit
-          ? `Guardar cambios (${cartItems.length} ítem${cartItems.length !== 1 ? "s" : ""})`
-          : cartItems.length > 1
-          ? `Confirmar compra (${cartItems.length} ítems)`
-          : "Confirmar compra"}
-      </Button>
+      </ScrollableCartShell>
     </form>
   )
 }

@@ -20,6 +20,7 @@ import type { Purchase } from "@/lib/types"
 import {
   Plus,
   Trash2,
+  Pencil,
   ChevronDown,
   ChevronRight,
   ShoppingCart,
@@ -35,12 +36,14 @@ interface PurchaseOperationsListProps {
   purchases: Purchase[]
   onAdd: () => void
   onDeleteOperation: (op: PurchaseOperation) => Promise<void>
+  onEditOperation?: (op: PurchaseOperation) => void
 }
 
 export function PurchaseOperationsList({
   purchases,
   onAdd,
   onDeleteOperation,
+  onEditOperation,
 }: PurchaseOperationsListProps) {
   const [search, setSearch] = useState("")
   const [dateFrom, setDateFrom] = useState("")
@@ -224,11 +227,12 @@ export function PurchaseOperationsList({
       {/* Table */}
       <div className="rounded-xl border border-border overflow-hidden">
         {/* Header row */}
-        <div className="hidden sm:grid grid-cols-[120px_1fr_80px_120px_48px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        <div className="hidden sm:grid grid-cols-[120px_1fr_80px_120px_48px_48px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           <span>Fecha</span>
           <span>Productos</span>
           <span className="text-center">Ítems</span>
           <span className="text-right">Total</span>
+          <span />
           <span />
         </div>
 
@@ -277,6 +281,18 @@ export function PurchaseOperationsList({
                           {op.items.length}
                         </Badge>
                       )}
+                      {onEditOperation && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                          aria-label="Editar operación"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -306,7 +322,7 @@ export function PurchaseOperationsList({
                 </div>
 
                 {/* ── Desktop grid layout (sm+) ── */}
-                <div className="hidden sm:grid grid-cols-[120px_1fr_80px_120px_48px] gap-3 px-4 py-3 items-center">
+                <div className="hidden sm:grid grid-cols-[120px_1fr_80px_120px_48px_48px] gap-3 px-4 py-3 items-center">
                   <span className="text-sm text-muted-foreground tabular-nums">
                     {formatDate(op.date)}
                   </span>
@@ -331,6 +347,18 @@ export function PurchaseOperationsList({
                   <span className="text-right text-sm font-bold text-cyan-400 tabular-nums">
                     {formatMoney(op.total)}
                   </span>
+                  {onEditOperation ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                      className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      aria-label="Editar operación"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : <span />}
                   <Button
                     type="button"
                     variant="ghost"

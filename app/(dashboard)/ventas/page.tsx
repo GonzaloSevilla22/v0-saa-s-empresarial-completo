@@ -12,8 +12,27 @@ import type { SaleOperation } from "@/lib/group-operations"
 export default function VentasPage() {
   // Realtime subscription for sales is handled centrally in DataProvider.
   const { sales, clients, deleteSale, deleteSalesByOperation } = useData()
-  const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
+
+  // ── Dialog state ────────────────────────────────────────────────────────────
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingOperation, setEditingOperation] = useState<SaleOperation | null>(null)
+
+  function handleAdd() {
+    setEditingOperation(null)
+    setDialogOpen(true)
+  }
+
+  function handleEdit(op: SaleOperation) {
+    setEditingOperation(op)
+    setDialogOpen(true)
+  }
+
+  function handleDialogClose() {
+    setDialogOpen(false)
+    // Clear editing state after animation completes (avoids flicker)
+    setTimeout(() => setEditingOperation(null), 300)
+  }
 
   // Delete handler — 1 DB call for grouped ops, 1 for historical
   const handleDeleteOperation = useCallback(
@@ -46,16 +65,24 @@ export default function VentasPage() {
       <SaleOperationsList
         sales={sales}
         clients={clients}
-        onAdd={() => setOpen(true)}
+        onAdd={handleAdd}
         onDeleteOperation={handleDeleteOperation}
+        onEditOperation={handleEdit}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>
-            <DialogTitle className="text-card-foreground">Nueva venta</DialogTitle>
+            <DialogTitle className="text-card-foreground">
+              {editingOperation ? "Editar venta" : "Nueva venta"}
+            </DialogTitle>
           </DialogHeader>
-          <SaleForm onSuccess={() => setOpen(false)} />
+          {/* key forces a fresh form instance on each open — avoids stale state */}
+          <SaleForm
+            key={editingOperation ? editingOperation.key : "new-sale"}
+            editingOperation={editingOperation ?? undefined}
+            onSuccess={handleDialogClose}
+          />
         </DialogContent>
       </Dialog>
     </div>

@@ -12,6 +12,7 @@ import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
+import type { SaleOperation } from "@/lib/group-operations"
 import { formatPricePerUnit, formatStock } from "@/lib/format-unit"
 import {
   unitInputStep,
@@ -30,14 +31,31 @@ import { toast } from "sonner"
 
 interface SaleFormProps {
   onSuccess: () => void
+  /** When provided, the form opens in edit mode pre-filled with this operation. */
+  editingOperation?: SaleOperation
 }
 
-export function SaleForm({ onSuccess }: SaleFormProps) {
-  const { products, clients, addSale, addClient, refreshData } = useData()
+export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
+  const { products, clients, addSale, addClient, refreshData, updateSaleOperation } = useData()
   const { units, unitsById } = useUnitsOfMeasure()
+  const isEdit = !!editingOperation
 
   // ── Cart state ──────────────────────────────────────────────────────────────
-  const [cartItems, setCartItems] = useState<SaleCartItem[]>([])
+  // In edit mode: pre-populate cart from the existing operation's items.
+  // unitPrice = stored amount (already the effective / post-discount price).
+  // discount = 0 (not stored separately in DB).
+  const [cartItems, setCartItems] = useState<SaleCartItem[]>(() => {
+    if (!editingOperation) return []
+    return editingOperation.items.map(item => ({
+      id:          crypto.randomUUID(),
+      productId:   item.productId,
+      productName: item.productName,
+      unitPrice:   item.unitPrice,
+      quantity:    item.quantity,
+      discount:    0,
+      subtotal:    Math.round(item.unitPrice * item.quantity * 10_000) / 10_000,
+    }))
+  })
 
   // ── Current item being staged ───────────────────────────────────────────────
   const [productId, setProductId] = useState("")
@@ -46,9 +64,9 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
   const [unitId, setUnitId] = useState("")
 
   // ── Header fields (apply to all items) ─────────────────────────────────────
-  const [clientId, setClientId] = useState("")
-  const [currency, setCurrency] = useState<Currency>("ARS")
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [clientId, setClientId] = useState(() => editingOperation?.clientId ?? "")
+  const [currency, setCurrency] = useState<Currency>(() => (editingOperation?.currency as Currency) ?? "ARS")
+  const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
 
   // ── Inline new client ───────────────────────────────────────────────────────
   const [showNewClient, setShowNewClient] = useState(false)
@@ -324,12 +342,38 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!selectedClient) {
-      toast.error("Seleccioná un cliente")
-      return
-    }
     if (cartItems.length === 0) {
       toast.error("Agregá al menos un producto al carrito")
+      return
+    }
+
+    // ── Edit mode ─────────────────────────────────────────────────────────────
+    if (isEdit && editingOperation) {
+      if (!clientId && !editingOperation.clientId) {
+        // Allow null client (Consumidor Final) — do not block edit
+      }
+      setSubmitting(true)
+      try {
+        const saleIds = editingOperation.items.map(i => i.id)
+        await updateSaleOperation(saleIds, cartItems, {
+          clientId: clientId || null,
+          date,
+          currency,
+        })
+        toast.success("✅ Venta actualizada correctamente")
+        await refreshData()
+        onSuccess()
+      } catch (err: any) {
+        toast.error(`Error al actualizar: ${err.message || "Error desconocido"}`)
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    // ── Create mode ───────────────────────────────────────────────────────────
+    if (!selectedClient) {
+      toast.error("Seleccioná un cliente")
       return
     }
 
@@ -644,7 +688,9 @@ export function SaleForm({ onSuccess }: SaleFormProps) {
         disabled={submitting || cartItems.length === 0}
       >
         {submitting
-          ? "Registrando..."
+          ? isEdit ? "Guardando..." : "Registrando..."
+          : isEdit
+          ? `Guardar cambios (${cartItems.length} ítem${cartItems.length !== 1 ? "s" : ""})`
           : cartItems.length > 1
           ? `Confirmar venta (${cartItems.length} ítems)`
           : "Confirmar venta"}

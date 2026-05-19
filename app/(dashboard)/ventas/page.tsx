@@ -71,7 +71,7 @@ export default function VentasPage() {
       />
 
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
-        <DialogContent className="bg-card border-border">
+        <DialogContent className="bg-card border-border overflow-hidden">
           <DialogHeader>
             <DialogTitle className="text-card-foreground">
               {editingOperation ? "Editar venta" : "Nueva venta"}

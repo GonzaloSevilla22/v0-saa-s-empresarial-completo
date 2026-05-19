@@ -1,0 +1,4 @@
+-- Stub: this migration was applied directly via Supabase MCP on 2026-05-19.
+-- The full implementation lives in 20260520000001_rpc_atomic_update_sale_operation.sql
+-- which re-runs the same CREATE OR REPLACE (idempotent).
+-- This file exists solely to satisfy the CLI migration history check.

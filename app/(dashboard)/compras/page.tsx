@@ -13,8 +13,27 @@ import type { PurchaseOperation } from "@/lib/group-operations"
 export default function ComprasPage() {
   // Realtime subscription for purchases is handled centrally in DataProvider.
   const { purchases, deletePurchase, deletePurchasesByOperation, refreshData } = useData()
-  const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
+
+  // ── Dialog state ────────────────────────────────────────────────────────────
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingOperation, setEditingOperation] = useState<PurchaseOperation | null>(null)
+
+  function handleAdd() {
+    setEditingOperation(null)
+    setDialogOpen(true)
+  }
+
+  function handleEdit(op: PurchaseOperation) {
+    setEditingOperation(op)
+    setDialogOpen(true)
+  }
+
+  function handleDialogClose() {
+    setDialogOpen(false)
+    // Clear editing state after animation completes (avoids flicker)
+    setTimeout(() => setEditingOperation(null), 300)
+  }
 
   // Delete handler — 1 DB call for grouped ops, 1 for historical
   const handleDeleteOperation = useCallback(
@@ -22,6 +41,7 @@ export default function ComprasPage() {
       if (op.operationId) {
         await deletePurchasesByOperation(op.operationId)
       } else {
+        // Historical record (no operationId) — always a single item
         await deletePurchase(op.items[0].id)
       }
     },
@@ -51,16 +71,24 @@ export default function ComprasPage() {
 
       <PurchaseOperationsList
         purchases={purchases}
-        onAdd={() => setOpen(true)}
+        onAdd={handleAdd}
         onDeleteOperation={handleDeleteOperation}
+        onEditOperation={handleEdit}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>
-            <DialogTitle className="text-card-foreground">Nueva compra</DialogTitle>
+            <DialogTitle className="text-card-foreground">
+              {editingOperation ? "Editar compra" : "Nueva compra"}
+            </DialogTitle>
           </DialogHeader>
-          <PurchaseForm onSuccess={() => setOpen(false)} />
+          {/* key forces a fresh form instance on each open — avoids stale state */}
+          <PurchaseForm
+            key={editingOperation ? editingOperation.key : "new-purchase"}
+            editingOperation={editingOperation ?? undefined}
+            onSuccess={handleDialogClose}
+          />
         </DialogContent>
       </Dialog>
     </div>

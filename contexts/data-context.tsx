@@ -7,6 +7,7 @@ import React, {
 import { createClient } from "@/lib/supabase/client"
 import { services } from "@/lib/supabase/services"
 import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Course, Reply } from "@/lib/types"
+import type { SaleCartItem, PurchaseCartItem } from "@/lib/cart-utils"
 
 // ── Context interface ──────────────────────────────────────────────────────────
 
@@ -28,11 +29,31 @@ interface DataContextType {
   deleteSale: (id: string) => Promise<void>
   /** Deletes ALL sales rows that share the given operation_id (one DB call). */
   deleteSalesByOperation: (operationId: string) => Promise<void>
+  /**
+   * Atomically replaces an entire sale operation (1 or more rows).
+   * Reverses original stock, deletes old rows, inserts new rows with stock deduction.
+   * All in one PostgreSQL transaction — automatic rollback on any failure.
+   */
+  updateSaleOperation: (
+    saleIds: string[],
+    newItems: SaleCartItem[],
+    meta: { clientId: string | null; date: string; currency: string }
+  ) => Promise<void>
   addPurchase:    (p: Omit<Purchase, "id">) => Promise<void>
   updatePurchase: (p: Purchase) => Promise<void>
   deletePurchase: (id: string) => Promise<void>
   /** Deletes ALL purchases rows that share the given operation_id (one DB call). */
   deletePurchasesByOperation: (operationId: string) => Promise<void>
+  /**
+   * Atomically replaces an entire purchase operation (1 or more rows).
+   * Reverses original stock addition, deletes old rows, inserts new rows with stock addition.
+   * All in one PostgreSQL transaction — automatic rollback on any failure.
+   */
+  updatePurchaseOperation: (
+    purchaseIds: string[],
+    newItems: PurchaseCartItem[],
+    meta: { date: string; description: string }
+  ) => Promise<void>
   addExpense:    (e: Omit<Expense, "id">) => Promise<void>
   updateExpense: (e: Expense) => Promise<void>
   deleteExpense: (id: string) => Promise<void>
@@ -463,6 +484,30 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await refreshSales()
   }, [supabase, refreshSales])
 
+  const updateSaleOperation = useCallback(async (
+    saleIds: string[],
+    newItems: SaleCartItem[],
+    meta: { clientId: string | null; date: string; currency: string }
+  ) => {
+    // Build items payload: amount = effective unit price (post-discount), quantity = visual qty
+    const items = newItems.map(item => ({
+      product_id: item.productId,
+      amount:     item.unitPrice * (1 - item.discount / 100),
+      quantity:   item.quantity,
+    }))
+
+    const { error } = await supabase.rpc("rpc_atomic_update_sale_operation", {
+      p_sale_ids:  saleIds,
+      p_client_id: meta.clientId ?? null,
+      p_date:      meta.date,
+      p_currency:  meta.currency,
+      p_items:     items,
+    })
+    if (error) throw new Error(translateDbError(error))
+    // Refresh both sales (rows changed) and products (stock changed)
+    await Promise.all([refreshSales(), refreshProducts()])
+  }, [supabase, refreshSales, refreshProducts])
+
   // ── Purchases ──────────────────────────────────────────────────────────────
 
   const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
@@ -493,6 +538,27 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(translateDbError(error))
     await refreshPurchases()
   }, [supabase, refreshPurchases])
+
+  const updatePurchaseOperation = useCallback(async (
+    purchaseIds: string[],
+    newItems: PurchaseCartItem[],
+    meta: { date: string; description: string }
+  ) => {
+    const items = newItems.map(item => ({
+      product_id: item.productId,
+      amount:     item.unitCost,
+      quantity:   item.quantity,
+    }))
+
+    const { error } = await supabase.rpc("rpc_atomic_update_purchase_operation", {
+      p_purchase_ids: purchaseIds,
+      p_date:         meta.date,
+      p_description:  meta.description || null,
+      p_items:        items,
+    })
+    if (error) throw new Error(translateDbError(error))
+    await Promise.all([refreshPurchases(), refreshProducts()])
+  }, [supabase, refreshPurchases, refreshProducts])
 
   // ── Expenses ───────────────────────────────────────────────────────────────
 
@@ -810,8 +876,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clients: clientsWithMetrics,
       insights, posts, courses, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, updateSale, deleteSale, deleteSalesByOperation,
-      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation,
+      addSale, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
+      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
@@ -824,8 +890,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clientsWithMetrics,  // replaces raw `clients` — already encapsulates both clients + sales
       insights, posts, courses, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, updateSale, deleteSale, deleteSalesByOperation,
-      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation,
+      addSale, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
+      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
       addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,

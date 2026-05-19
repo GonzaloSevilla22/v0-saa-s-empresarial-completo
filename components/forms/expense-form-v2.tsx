@@ -10,17 +10,22 @@ import { useData } from "@/contexts/data-context"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
 import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
+import type { Expense } from "@/lib/types"
 
 interface ExpenseFormProps {
   onSuccess: () => void
+  /** When provided, the form opens in edit mode pre-filled with these values. */
+  initialData?: Expense
 }
 
-export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
-  const { addExpense } = useData()
-  const [category, setCategory] = useState("")
-  const [description, setDescription] = useState("")
-  const [amount, setAmount] = useState(0)
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
+  const { addExpense, updateExpense } = useData()
+  const isEdit = !!initialData
+
+  const [category,    setCategory]    = useState(initialData?.category    ?? "")
+  const [description, setDescription] = useState(initialData?.description ?? "")
+  const [amount,      setAmount]      = useState(initialData?.amount       ?? 0)
+  const [date,        setDate]        = useState(initialData?.date         ?? new Date().toISOString().split("T")[0])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -29,18 +34,18 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
       return
     }
     try {
-      await addExpense({
-        date,
-        category,
-        description,
-        amount,
-      })
-      toast.success("Gasto registrado")
+      if (isEdit && initialData) {
+        await updateExpense({ ...initialData, category, description, amount, date })
+        toast.success("Gasto actualizado")
+      } else {
+        await addExpense({ date, category, description, amount })
+        toast.success("Gasto registrado")
+      }
       onSuccess()
     } catch (error: any) {
-      console.error("Expense creation error:", error)
-      const errorMsg = error.message || (typeof error === 'string' ? error : "Error desconocido")
-      toast.error(`Error al registrar gasto: ${errorMsg}`)
+      console.error("Expense form error:", error)
+      const errorMsg = error.message || (typeof error === "string" ? error : "Error desconocido")
+      toast.error(`Error al ${isEdit ? "actualizar" : "registrar"} gasto: ${errorMsg}`)
     }
   }
 
@@ -99,7 +104,7 @@ export function ExpenseForm({ onSuccess }: ExpenseFormProps) {
       </div>
 
       <Button type="submit" className="w-full">
-        Registrar gasto
+        {isEdit ? "Guardar cambios" : "Registrar gasto"}
       </Button>
     </form>
   )

@@ -24,6 +24,7 @@ import type { Sale, Client } from "@/lib/types"
 import {
   Plus,
   Trash2,
+  Pencil,
   ChevronDown,
   ChevronRight,
   ShoppingCart,
@@ -40,6 +41,7 @@ interface SaleOperationsListProps {
   clients: Client[]
   onAdd: () => void
   onDeleteOperation: (op: SaleOperation) => Promise<void>
+  onEditOperation?: (op: SaleOperation) => void
 }
 
 export function SaleOperationsList({
@@ -47,6 +49,7 @@ export function SaleOperationsList({
   clients,
   onAdd,
   onDeleteOperation,
+  onEditOperation,
 }: SaleOperationsListProps) {
   // Build a quick lookup map: clientId → Client (for phone / name resolution)
   const clientMap = useMemo(
@@ -239,12 +242,13 @@ export function SaleOperationsList({
       {/* Table */}
       <div className="rounded-xl border border-border overflow-hidden">
         {/* Header row */}
-        <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px_48px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           <span>Fecha</span>
           <span>Productos</span>
           <span>Cliente</span>
           <span className="text-center">Ítems</span>
           <span className="text-right">Total</span>
+          <span />
           <span />
         </div>
 
@@ -293,6 +297,18 @@ export function SaleOperationsList({
                           {op.items.length}
                         </Badge>
                       )}
+                      {onEditOperation && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                          aria-label="Editar operación"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -323,7 +339,7 @@ export function SaleOperationsList({
                 </div>
 
                 {/* ── Desktop grid layout (sm+) ── */}
-                <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px] gap-3 px-4 py-3 items-center">
+                <div className="hidden sm:grid grid-cols-[120px_1fr_180px_80px_120px_48px_48px] gap-3 px-4 py-3 items-center">
                   <span className="text-sm text-muted-foreground tabular-nums">
                     {formatDate(op.date)}
                   </span>
@@ -349,6 +365,18 @@ export function SaleOperationsList({
                   <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">
                     {formatMoney(op.total, op.currency)}
                   </span>
+                  {onEditOperation ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                      className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      aria-label="Editar operación"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : <span />}
                   <Button
                     type="button"
                     variant="ghost"

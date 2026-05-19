@@ -12,6 +12,7 @@ import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
+import type { PurchaseOperation } from "@/lib/group-operations"
 import { formatPricePerUnit, formatStock } from "@/lib/format-unit"
 import {
   unitInputStep,
@@ -31,14 +32,28 @@ import { toast } from "sonner"
 
 interface PurchaseFormProps {
   onSuccess: () => void
+  /** When provided, the form opens in edit mode pre-filled with this operation. */
+  editingOperation?: PurchaseOperation
 }
 
-export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
-  const { products, addPurchase, addProduct, refreshData } = useData()
+export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps) {
+  const { products, addPurchase, addProduct, refreshData, updatePurchaseOperation } = useData()
   const { units, unitsById } = useUnitsOfMeasure()
+  const isEdit = !!editingOperation
 
   // ── Cart state ──────────────────────────────────────────────────────────────
-  const [cartItems, setCartItems] = useState<PurchaseCartItem[]>([])
+  // In edit mode: pre-populate from the existing operation's items.
+  const [cartItems, setCartItems] = useState<PurchaseCartItem[]>(() => {
+    if (!editingOperation) return []
+    return editingOperation.items.map(item => ({
+      id:          crypto.randomUUID(),
+      productId:   item.productId,
+      productName: item.productName,
+      unitCost:    item.unitCost,
+      quantity:    item.quantity,
+      subtotal:    Math.round(item.unitCost * item.quantity * 10_000) / 10_000,
+    }))
+  })
 
   // ── Current item being staged ───────────────────────────────────────────────
   const [productId, setProductId] = useState("")
@@ -47,7 +62,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const [unitId, setUnitId] = useState("")
 
   // ── Global description (one note per operation) ─────────────────────────────
-  const [description, setDescription] = useState("")
+  const [description, setDescription] = useState(() => editingOperation?.description ?? "")
 
   // ── Inline new product ──────────────────────────────────────────────────────
   const [showNewProduct, setShowNewProduct] = useState(false)
@@ -58,7 +73,7 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
   const [newProductMinStock, setNewProductMinStock] = useState(10)
 
   // ── Operation date ──────────────────────────────────────────────────────────
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -320,6 +335,24 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
       return
     }
 
+    // ── Edit mode ─────────────────────────────────────────────────────────────
+    if (isEdit && editingOperation) {
+      setSubmitting(true)
+      try {
+        const purchaseIds = editingOperation.items.map(i => i.id)
+        await updatePurchaseOperation(purchaseIds, cartItems, { date, description })
+        toast.success("✅ Compra actualizada correctamente")
+        await refreshData()
+        onSuccess()
+      } catch (err: any) {
+        toast.error(`Error al actualizar: ${err.message || "Error desconocido"}`)
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+
+    // ── Create mode ───────────────────────────────────────────────────────────
     setSubmitting(true)
     const operationId = generateOperationId()
 
@@ -624,7 +657,9 @@ export function PurchaseForm({ onSuccess }: PurchaseFormProps) {
         disabled={submitting || cartItems.length === 0}
       >
         {submitting
-          ? "Registrando..."
+          ? isEdit ? "Guardando..." : "Registrando..."
+          : isEdit
+          ? `Guardar cambios (${cartItems.length} ítem${cartItems.length !== 1 ? "s" : ""})`
           : cartItems.length > 1
           ? `Confirmar compra (${cartItems.length} ítems)`
           : "Confirmar compra"}

@@ -61,8 +61,19 @@ const columns: Column<Expense>[] = [
 export default function GastosPage() {
   // Realtime subscription for expenses is handled centrally in DataProvider.
   const { expenses, deleteExpense, addExpense } = useData()
-  const [open, setOpen] = useState(false)
   const { isAdmin } = useAuth()
+
+  // ── Dialog state ────────────────────────────────────────────────────────────
+  const [addOpen, setAddOpen] = useState(false)
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+
+  function handleEditExpense(expense: Expense) {
+    setEditingExpense(expense)
+  }
+
+  function handleEditClose() {
+    setEditingExpense(null)
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -86,9 +97,10 @@ export default function GastosPage() {
         columns={columns}
         searchPlaceholder="Buscar por descripción..."
         searchKey={(row) => `${row.description} ${row.category}`}
-        onAdd={() => setOpen(true)}
+        onAdd={() => setAddOpen(true)}
         addLabel="Nuevo gasto"
         onDelete={deleteExpense}
+        onEdit={handleEditExpense}
         getId={(row) => row.id}
         dateKey={(row) => row.date}
         mobileCard={(row) => (
@@ -157,12 +169,28 @@ export default function GastosPage() {
         }}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* ── Add dialog ── */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-card-foreground">Nuevo gasto</DialogTitle>
           </DialogHeader>
-          <ExpenseForm onSuccess={() => setOpen(false)} />
+          <ExpenseForm onSuccess={() => setAddOpen(false)} />
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit dialog ── */}
+      <Dialog open={!!editingExpense} onOpenChange={(open) => { if (!open) handleEditClose() }}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="text-card-foreground">Editar gasto</DialogTitle>
+          </DialogHeader>
+          {/* key forces a fresh form per expense — avoids stale state */}
+          <ExpenseForm
+            key={editingExpense?.id ?? "edit-expense"}
+            initialData={editingExpense ?? undefined}
+            onSuccess={handleEditClose}
+          />
         </DialogContent>
       </Dialog>
     </div>

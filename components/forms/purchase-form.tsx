@@ -541,7 +541,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                   ))}
                 </SelectContent>
               </Select>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <Label className="text-[10px] text-muted-foreground">Costo</Label>
                   <NumericInput
@@ -595,7 +595,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           {selectedProduct && !showNewProduct && (
             <div className="flex flex-col gap-2">
               {/* Row 1: Cantidad + Unidad */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <Label className="text-[10px] text-muted-foreground">
                     {quantityLabel}
@@ -637,7 +637,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                 </div>
               </div>
               {/* Row 2: Costo unitario + Subtotal */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">
                   <Label className="text-[10px] text-muted-foreground">Costo unitario</Label>
                   <NumericInput

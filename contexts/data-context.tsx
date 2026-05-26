@@ -834,7 +834,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [sales, purchases, expenses])
 
   const getLowStockProducts = useCallback(() => {
-    return products.filter(p => p.stock <= p.minStock)
+    return products.filter(p =>
+      // Exclude services — stock is never tracked
+      p.stockControlType !== "untracked" &&
+      // Exclude parent catalogue entries — their stock lives in variant children
+      p.stockControlType !== "variant_only" &&
+      // Only alert when a minimum threshold has been configured
+      p.minStock > 0 &&
+      // Stock is at or below the minimum
+      p.stock <= p.minStock
+    )
   }, [products])
 
   const getSalesByDay = useCallback((days: number) => {

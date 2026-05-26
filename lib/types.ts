@@ -26,6 +26,14 @@ export interface User {
 
 export type StockControlType = 'tracked' | 'untracked' | 'variant_only'
 
+export interface ProductAttribute {
+  id:         string
+  productId:  string
+  key:        string    // e.g. "color", "talle"
+  value:      string    // e.g. "Rojo", "XL"
+  sortOrder:  number
+}
+
 export interface Product {
   id: string
   name: string
@@ -36,6 +44,8 @@ export interface Product {
   stock: number
   minStock: number
   barcode?: string
+  /** Human-readable SKU — unique per user. Used as stable key for CSV upserts. */
+  sku?: string
   /** FK to products.id — set when this product is a variant of a parent */
   parentId?: string
   /**
@@ -43,6 +53,8 @@ export interface Product {
    * false → root product: either a parent catalogue entry or a standalone product
    */
   isVariant: boolean
+  /** Dynamic attributes loaded on demand (color, talle, etc.) */
+  attributes?: ProductAttribute[]
   // ── Etapa 5+ ──────────────────────────────────────────────────────────────
   /** FK to units_of_measure.id — the unit this product's stock is measured in. */
   baseUnitId?: string

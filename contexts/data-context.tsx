@@ -94,6 +94,7 @@ function mapProduct(p: any): Product {
     stock:            p.stock,
     minStock:         p.min_stock || 0,
     barcode:          p.barcode,
+    sku:              p.sku ?? undefined,
     parentId:         p.parent_id  ?? undefined,
     isVariant:        p.is_variant ?? false,
     baseUnitId:       p.base_unit_id   ?? undefined,

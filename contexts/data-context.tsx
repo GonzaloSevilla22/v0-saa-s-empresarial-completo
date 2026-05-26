@@ -243,6 +243,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       .from("products")
       .select("*")
       .order("created_at", { ascending: false })
+      .limit(10000)
     if (data) setProducts(data.map(mapProduct))
   }, [supabase])
 

@@ -248,34 +248,53 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const refreshSales = useCallback(async () => {
+    // Scoped to the last 365 days for dashboard metrics.
+    // The paginated ventas page fetches its own data via usePaginatedQuery.
+    const since = new Date(); since.setFullYear(since.getFullYear() - 1)
+    const sinceStr = since.toISOString().split("T")[0]
     const { data } = await supabase
       .from("sales")
       .select("*, product:products(name), client:clients(name)")
+      .gte("date", sinceStr)
       .order("date", { ascending: false })
+      .limit(5000)
     if (data) setSales(data.map(mapSale))
   }, [supabase])
 
   const refreshPurchases = useCallback(async () => {
+    // Scoped to the last 365 days for dashboard metrics.
+    const since = new Date(); since.setFullYear(since.getFullYear() - 1)
+    const sinceStr = since.toISOString().split("T")[0]
     const { data } = await supabase
       .from("purchases")
       .select("*, product:products(name)")
+      .gte("date", sinceStr)
       .order("date", { ascending: false })
+      .limit(5000)
     if (data) setPurchases(data.map(mapPurchase))
   }, [supabase])
 
   const refreshExpenses = useCallback(async () => {
+    // Scoped to the last 365 days for dashboard metrics.
+    const since = new Date(); since.setFullYear(since.getFullYear() - 1)
+    const sinceStr = since.toISOString().split("T")[0]
     const { data } = await supabase
       .from("expenses")
       .select("*")
+      .gte("date", sinceStr)
       .order("date", { ascending: false })
+      .limit(5000)
     if (data) setExpenses(data.map(mapExpense))
   }, [supabase])
 
   const refreshClients = useCallback(async () => {
+    // Full list — clients are needed in sale/purchase form dropdowns.
+    // Bounded by tenant size; typical ERP has < 5 000 clients.
     const { data } = await supabase
       .from("clients")
       .select("*")
-      .order("created_at", { ascending: false })
+      .order("name", { ascending: true })
+      .limit(5000)
     if (data) setClients(data.map(mapClient))
   }, [supabase])
 

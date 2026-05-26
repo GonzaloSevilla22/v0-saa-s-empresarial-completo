@@ -1,201 +1,286 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useData } from "@/contexts/data-context"
-import { DataTable, type Column } from "@/components/data-table/data-table"
 import { ClientForm } from "@/components/forms/client-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { useAuth } from "@/contexts/auth-context"
-import { BarChart3 } from "lucide-react"
-import Link from "next/link"
-import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { PaginationBar } from "@/components/ui/pagination-bar"
+import { usePaginatedQuery } from "@/hooks/use-paginated-query"
+import { useAuth } from "@/contexts/auth-context"
+import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { formatMoney } from "@/lib/format"
+import { exportToCSV } from "@/lib/excel"
+import {
+  Plus, Trash2, Pencil, Search, PackageOpen, Download, Upload, Loader2,
+} from "lucide-react"
 import { toast } from "sonner"
 import type { Client } from "@/lib/types"
+import { useRef } from "react"
 
 const statusColors: Record<string, string> = {
-  activo: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  activo:   "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   inactivo: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  perdido: "bg-red-500/20 text-red-400 border-red-500/30",
+  perdido:  "bg-red-500/20 text-red-400 border-red-500/30",
 }
 
-const columns: Column<Client>[] = [
-  {
-    key: "name",
-    header: "Nombre",
-    cell: (row) => (
-      <div className="flex flex-col">
-        <span className="font-medium">{row.name}</span>
-        <span className="text-[10px] text-muted-foreground">{row.email}</span>
-      </div>
-    ),
-  },
-  {
-    key: "category",
-    header: "Categoría",
-    cell: (row) => (
-      <span className="text-xs text-muted-foreground italic">{row.category || "-"}</span>
-    ),
-  },
-  {
-    key: "email",
-    header: "Email",
-    cell: (row) => <span className="text-muted-foreground">{row.email}</span>,
-  },
-  {
-    key: "phone",
-    header: "Teléfono",
-    cell: (row) => <span className="text-muted-foreground">{row.phone}</span>,
-  },
-  {
-    key: "status",
-    header: "Estado",
-    cell: (row) => (
-      <Badge variant="outline" className={`text-xs capitalize ${statusColors[row.status]}`}>
-        {row.status}
-      </Badge>
-    ),
-  },
-  {
-    key: "lastPurchase",
-    header: "Ultima compra",
-    cell: (row) =>
-      row.lastPurchase === "-"
-        ? <span className="text-muted-foreground">-</span>
-        : new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR"),
-    sortable: true,
-    // "-" sorts before any ISO date string (lexicographic). Clients with no
-    // purchases will appear first on ascending sort (oldest), last on descending.
-    sortValue: (row) => row.lastPurchase,
-  },
-  {
-    key: "totalSpent",
-    header: "Total gastado",
-    cell: (row) => <span className="font-medium text-primary">{formatMoney(row.totalSpent)}</span>,
-    sortable: true,
-    sortValue: (row) => row.totalSpent,
-  },
-]
+function mapRow(r: any): Client {
+  return {
+    id:           r.id,
+    name:         r.name,
+    email:        r.email || "",
+    phone:        r.phone || "",
+    status:       r.status || "activo",
+    category:     r.category,
+    lastPurchase: "-",   // computed separately; not needed in the list page
+    totalSpent:   0,
+  }
+}
 
 export default function ClientesPage() {
-  // Realtime subscription for clients is handled centrally in DataProvider.
-  const { clients, deleteClient, addClient } = useData()
-  const [open, setOpen] = useState(false)
-  const [editingClient, setEditingClient] = useState<Client | undefined>()
+  const { deleteClient, addClient } = useData()
   const { isAdmin } = useAuth()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importing,   setImporting]   = useState(false)
+  const [open,        setOpen]        = useState(false)
+  const [editingClient, setEditingClient] = useState<Client | undefined>()
+  const [deletingId,  setDeletingId]  = useState<string | null>(null)
 
-  const handleEdit = (client: Client) => {
-    setEditingClient(client)
-    setOpen(true)
+  // ── Paginated query — name/email search server-side ──────────────────────
+  const pq = usePaginatedQuery<any>({
+    table: "clients",
+    applyFilters: (base, { search }) => {
+      if (!search) return base
+      // OR filter: name OR email
+      return base.or(`name.ilike.%${search}%,email.ilike.%${search}%`)
+    },
+    defaultSortKey:  "name",
+    defaultSortDir:  "asc",
+    defaultPageSize: 25,
+  })
+
+  const clients = pq.data.map(mapRow)
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const handleDelete = useCallback(async (id: string) => {
+    setDeletingId(id)
+    try {
+      await deleteClient(id)
+      toast.success("Cliente eliminado")
+      pq.refetch()
+    } catch (err: any) {
+      toast.error(err?.message || "Error al eliminar")
+    } finally {
+      setDeletingId(null)
+    }
+  }, [deleteClient, pq])
+
+  function handleExport() {
+    exportToCSV(clients as any[], [
+      { key: "name",        header: "Nombre"         },
+      { key: "email",       header: "Email"          },
+      { key: "phone",       header: "Teléfono"       },
+      { key: "status",      header: "Estado"         },
+      { key: "category",    header: "Categoría"      },
+    ], "clientes")
+    toast.success(`Exportados ${clients.length} clientes`)
   }
 
-  const handleAdd = () => {
-    setEditingClient(undefined)
-    setOpen(true)
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    try {
+      const { parseCSV, readFileAsText, validateImportColumns } = await import("@/lib/excel")
+      const text = await readFileAsText(file)
+      const headers = [{ csvHeader: "Nombre", key: "name" }, { csvHeader: "Email", key: "email" },
+                       { csvHeader: "Teléfono", key: "phone" }, { csvHeader: "Estado", key: "status" }]
+      const val = validateImportColumns(text, ["Nombre"])
+      if (!val.ok) { toast.error(`Columna requerida faltante: Nombre`); return }
+
+      const rows = parseCSV(text, headers)
+      const validStatuses = new Set(["activo", "inactivo", "perdido"])
+      let success = 0; const errors: string[] = []
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        if (!row.name?.trim()) { errors.push(`Fila ${i + 2}: nombre requerido`); continue }
+        const status = row.status?.toLowerCase().trim() ?? ""
+        try {
+          await addClient({
+            name:  row.name.trim(), email: row.email?.trim() || "",
+            phone: row.phone?.trim() || "",
+            status: validStatuses.has(status) ? (status as any) : "activo",
+            lastPurchase: "-", totalSpent: 0,
+          })
+          success++
+        } catch (err: any) {
+          errors.push(`Fila ${i + 2}: ${err?.message ?? "error"}`)
+        }
+      }
+      if (success > 0) { toast.success(`${success} cliente${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""}`); pq.refetch() }
+      if (errors.length > 0) errors.slice(0, 3).forEach((e) => toast.error(e))
+    } catch (err: any) {
+      toast.error(err?.message || "Error al leer el archivo.")
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">Clientes</h1>
-          <p className="text-sm text-muted-foreground mt-1">{clients.length} clientes registrados</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground tracking-tight">Clientes</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {pq.meta.totalCount > 0 ? `${pq.meta.totalCount} clientes registrados` : ""}
+        </p>
       </div>
 
       {isAdmin && (
-        <ModuleMetricsWrapper
-          moduleType="clientes"
-          title="Analíticas de Clientes"
-          subtitle="Segmentación y retención"
-        />
+        <ModuleMetricsWrapper moduleType="clientes" title="Analíticas de Clientes" subtitle="Segmentación y retención" />
       )}
 
-      <DataTable
-        data={clients}
-        columns={columns}
-        searchPlaceholder="Buscar clientes..."
-        searchKey={(row) => `${row.name} ${row.email}`}
-        onAdd={handleAdd}
-        addLabel="Nuevo cliente"
-        onEdit={handleEdit}
-        onDelete={deleteClient}
-        getId={(row) => row.id}
-        mobileCard={(row) => (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="font-medium text-sm text-foreground truncate">{row.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{row.email}</p>
+      {/* Controls */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={pq.search}
+            onChange={(e) => pq.setSearch(e.target.value)}
+            placeholder="Buscar por nombre o email..."
+            className="pl-9 bg-background border-border text-foreground"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
+            {pq.loading
+              ? <span className="flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Cargando...</span>
+              : `${pq.meta.totalCount} cliente${pq.meta.totalCount !== 1 ? "s" : ""}`
+            }
+          </span>
+          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImport} />
+          <Button variant="outline" size="sm" disabled={importing} className="border-border text-foreground"
+            onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-4 w-4 mr-1" />{importing ? "Importando..." : "Importar CSV"}
+          </Button>
+          <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-1" />Exportar
+          </Button>
+          <Button onClick={() => { setEditingClient(undefined); setOpen(true) }} size="sm">
+            <Plus className="h-4 w-4 mr-1" />Nuevo cliente
+          </Button>
+        </div>
+      </div>
+
+      {pq.error && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {pq.error}
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="rounded-lg border border-border overflow-hidden">
+        <div className="hidden sm:grid grid-cols-[1fr_140px_160px_100px_80px_72px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          <span>Nombre</span><span>Categoría</span><span>Email</span>
+          <span>Teléfono</span><span>Estado</span><span />
+        </div>
+
+        {/* Skeleton */}
+        {pq.loading && clients.length === 0 && (
+          <div className="flex flex-col">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
+                <div className="hidden sm:grid grid-cols-[1fr_140px_160px_100px_80px_72px] gap-3 items-center">
+                  {Array.from({ length: 5 }).map((_, j) => (
+                    <div key={j} className="h-3.5 rounded bg-accent animate-pulse" />
+                  ))}
+                  <div />
+                </div>
+                <div className="sm:hidden h-20 rounded bg-accent animate-pulse" />
               </div>
-              <Badge variant="outline" className={`text-xs capitalize shrink-0 ${statusColors[row.status]}`}>
-                {row.status}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground italic">{row.category || "Sin categoría"}</span>
-              <span className="text-sm font-semibold text-primary">{formatMoney(row.totalSpent)}</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Última compra:{" "}
-              {row.lastPurchase === "-"
-                ? "-"
-                : new Date(row.lastPurchase + "T12:00:00").toLocaleDateString("es-AR")}
-            </p>
+            ))}
           </div>
         )}
-        exportColumns={[
-          { key: "name",        header: "Nombre"         },
-          { key: "email",       header: "Email"          },
-          { key: "phone",       header: "Teléfono"       },
-          { key: "status",      header: "Estado"         },
-          { key: "category",   header: "Categoría"      },
-          { key: "totalSpent",  header: "Total gastado"  },
-          { key: "lastPurchase",header: "Última compra"  },
-        ]}
-        exportFilename="clientes"
-        importColumnMap={[
-          { csvHeader: "Nombre",   key: "name"   },
-          { csvHeader: "Email",    key: "email"  },
-          { csvHeader: "Teléfono", key: "phone"  },
-          { csvHeader: "Estado",   key: "status" },
-        ]}
-        onImport={async (rows) => {
-          const validStatuses = new Set(["activo", "inactivo", "perdido"])
-          let success = 0
-          const errors: string[] = []
 
-          for (let i = 0; i < rows.length; i++) {
-            const row = rows[i]
-            if (!row.name?.trim()) {
-              errors.push(`Fila ${i + 2}: nombre requerido`)
-              continue
-            }
-            const status = row.status?.toLowerCase().trim() ?? ""
-            try {
-              await addClient({
-                name:        row.name.trim(),
-                email:       row.email?.trim()  || "",
-                phone:       row.phone?.trim()  || "",
-                status:      validStatuses.has(status) ? (status as "activo" | "inactivo" | "perdido") : "activo",
-                lastPurchase: "-",
-                totalSpent:  0,
-              })
-              success++
-            } catch (err: any) {
-              errors.push(`Fila ${i + 2}: ${err?.message ?? "error desconocido"}`)
-            }
-          }
+        {!pq.loading && clients.length === 0 && (
+          <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+            <PackageOpen className="h-10 w-10 opacity-30" />
+            <p className="text-sm">
+              {pq.search ? "Sin resultados para esa búsqueda" : "No hay clientes registrados"}
+            </p>
+            {!pq.search && (
+              <Button variant="outline" size="sm" onClick={() => { setEditingClient(undefined); setOpen(true) }}>
+                <Plus className="h-4 w-4 mr-1" />Agregar primer cliente
+              </Button>
+            )}
+          </div>
+        )}
 
-          if (success > 0)
-            toast.success(`✅ ${success} cliente${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""} correctamente`)
-          if (errors.length > 0) {
-            toast.error(`❌ ${errors.length} fila${errors.length !== 1 ? "s" : ""} con error`)
-            errors.slice(0, 3).forEach((e) => toast.error(e))
-          }
-        }}
+        {clients.map((row) => (
+          <div key={row.id} className="border-t border-border/50 first:border-t-0 hover:bg-accent/20 transition-colors">
+            {/* Mobile */}
+            <div className="sm:hidden flex flex-col gap-2 px-4 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm text-foreground truncate">{row.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{row.email}</p>
+                </div>
+                <Badge variant="outline" className={`text-xs capitalize shrink-0 ${statusColors[row.status]}`}>
+                  {row.status}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground italic">{row.category || "Sin categoría"}</span>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={() => { setEditingClient(row); setOpen(true) }}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    disabled={deletingId === row.id} onClick={() => handleDelete(row.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Desktop */}
+            <div className="hidden sm:grid grid-cols-[1fr_140px_160px_100px_80px_72px] gap-3 px-4 py-3 items-center">
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-medium text-foreground truncate">{row.name}</span>
+                <span className="text-[10px] text-muted-foreground truncate">{row.email}</span>
+              </div>
+              <span className="text-xs text-muted-foreground italic truncate">{row.category || "-"}</span>
+              <span className="text-sm text-muted-foreground truncate">{row.email}</span>
+              <span className="text-sm text-muted-foreground">{row.phone}</span>
+              <Badge variant="outline" className={`text-xs capitalize w-fit ${statusColors[row.status]}`}>
+                {row.status}
+              </Badge>
+              <div className="flex items-center gap-1 justify-end">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                  onClick={() => { setEditingClient(row); setOpen(true) }}>
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  disabled={deletingId === row.id} onClick={() => handleDelete(row.id)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <PaginationBar
+        meta={pq.meta}
+        onPageChange={pq.setPage}
+        onSizeChange={pq.setPageSize}
+        loading={pq.loading}
+        label="clientes"
       />
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -207,10 +292,7 @@ export default function ClientesPage() {
           </DialogHeader>
           <ClientForm
             initialData={editingClient}
-            onSuccess={() => {
-              setOpen(false)
-              setEditingClient(undefined)
-            }}
+            onSuccess={() => { setOpen(false); setEditingClient(undefined); pq.refetch() }}
           />
         </DialogContent>
       </Dialog>

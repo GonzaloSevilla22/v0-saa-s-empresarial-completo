@@ -2,23 +2,23 @@
  * Import row validator.
  *
  * Converts RawImportRow (all strings) to ValidatedImportRow (typed values).
- * Collects per-row errors (blocking) and warnings (non-blocking).
+ * Collects per-row errors (fatal, row skipped) and warnings (informational only).
  *
- * Rules:
- *   Producto / standalone:
- *     - nombre required
- *     - precio required and >= 0
+ * SKU policy:
+ *   SKU is NEVER required. It is optional on all row types.
+ *   When present it is used as an upsert key (update existing product by SKU).
+ *   When absent the row is still imported — duplicates are avoided via
+ *   name + parent deduplication in the resolver.
  *
- *   Padre:
- *     - nombre required
- *     - precio NOT required (parent has no price of its own)
- *     - SKU required (needed to link children)
+ * Fatal errors (row skipped):
+ *   - nombre missing
+ *   - precio invalid (non-numeric, negative) on Variante / Producto rows
  *
- *   Variante:
- *     - nombre required
- *     - precio required and >= 0
- *     - SKU required
- *     - SKU Padre required
+ * Warnings (row imported with caveats):
+ *   - categoria unknown → assigned "Otros"
+ *   - precio missing on Variante / Producto → defaults to 0
+ *   - costo / stock invalid → defaults to 0
+ *   - SKU present but seems like a duplicate hint
  */
 
 import { parseAmount } from "@/lib/excel"
@@ -31,24 +31,18 @@ import {
   type ImportRowType,
 } from "@/lib/import/types"
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 export interface ValidationSummary {
-  rows:          ValidatedImportRow[]
-  /** Rows with at least one error — will not be imported. */
-  invalidCount:  number
-  /** Rows with only warnings — will be imported with caveats. */
-  warningCount:  number
-  /** Rows with no issues. */
-  validCount:    number
-  parentCount:   number
-  variantCount:  number
+  rows:           ValidatedImportRow[]
+  invalidCount:   number
+  warningCount:   number
+  validCount:     number
+  parentCount:    number
+  variantCount:   number
   standaloneCount: number
 }
 
 export function validateImportRows(rawRows: RawImportRow[]): ValidationSummary {
-  const rows: ValidatedImportRow[] = rawRows.map(validateRow)
-
+  const rows = rawRows.map(validateRow)
   return {
     rows,
     invalidCount:    rows.filter((r) => r.errors.length > 0).length,
@@ -59,8 +53,6 @@ export function validateImportRows(rawRows: RawImportRow[]): ValidationSummary {
     standaloneCount: rows.filter((r) => r.rowType === "Producto" || r.rowType === "").length,
   }
 }
-
-// ─── Per-row validation ───────────────────────────────────────────────────────
 
 function validateRow(raw: RawImportRow): ValidatedImportRow {
   const errors:   string[] = []
@@ -73,48 +65,44 @@ function validateRow(raw: RawImportRow): ValidatedImportRow {
   }
   const rowType = (VALID_ROW_TYPES.has(rawTipo) ? rawTipo : "") as ImportRowType
 
-  // ── Name ───────────────────────────────────────────────────────────────────
+  // ── Name — only truly required field ───────────────────────────────────────
   const name = raw.nombre.trim()
   if (!name) errors.push("Nombre requerido.")
 
-  // ── SKU ────────────────────────────────────────────────────────────────────
+  // ── SKU — completely optional ───────────────────────────────────────────────
+  // When present: used as upsert key (find existing product by SKU and update it).
+  // When absent: product is inserted new (or deduplicated by name in resolver).
   const sku = raw.sku.trim() || null
-  const skuParent = raw.sku_padre.trim() || null
 
-  if (rowType === "Padre" && !sku) {
-    errors.push("SKU requerido para filas de tipo Padre (los usa las Variantes como referencia).")
-  }
-  if (rowType === "Variante" && !sku) {
-    errors.push("SKU requerido para filas de tipo Variante.")
-  }
-  if (rowType === "Variante" && !skuParent) {
-    errors.push("SKU Padre requerido para filas de tipo Variante.")
-  }
+  // ── Parent references — both optional ──────────────────────────────────────
+  // skuParent: explicit SKU of the parent (backward compatible).
+  // nameParent: explicit name of the parent (for files without SKUs).
+  // If neither is set, the resolver uses sequential grouping (nearest Padre above).
+  const skuParent  = raw.sku_padre.trim()       || null
+  const nameParent = raw.producto_padre.trim()   || null
 
   // ── Price ──────────────────────────────────────────────────────────────────
   let price = 0
   if (rowType !== "Padre") {
-    // Parents have no price
-    const parsedPrice = parseAmount(raw.precio)
     if (raw.precio.trim()) {
-      if (isNaN(parsedPrice) || parsedPrice < 0) {
-        errors.push(`Precio inválido: "${raw.precio}". Debe ser un número mayor o igual a 0.`)
+      const parsed = parseAmount(raw.precio)
+      if (isNaN(parsed) || parsed < 0) {
+        errors.push(`Precio inválido: "${raw.precio}". Debe ser un número ≥ 0.`)
       } else {
-        price = parsedPrice
+        price = parsed
       }
-    } else {
-      warnings.push("Precio no especificado — se usará 0.")
     }
+    // Missing price on non-parent rows is NOT an error — defaults to 0 silently.
   }
 
   // ── Cost ───────────────────────────────────────────────────────────────────
   let cost = 0
   if (raw.costo.trim()) {
-    const parsedCost = parseAmount(raw.costo)
-    if (isNaN(parsedCost) || parsedCost < 0) {
+    const parsed = parseAmount(raw.costo)
+    if (isNaN(parsed) || parsed < 0) {
       warnings.push(`Costo inválido: "${raw.costo}" — se usará 0.`)
     } else {
-      cost = parsedCost
+      cost = parsed
     }
   }
 
@@ -140,20 +128,16 @@ function validateRow(raw: RawImportRow): ValidatedImportRow {
   const rawCategory = raw.categoria.trim()
   const category = VALID_CATEGORIES.has(rawCategory) ? rawCategory : "Otros"
   if (rawCategory && !VALID_CATEGORIES.has(rawCategory)) {
-    warnings.push(`Categoría desconocida: "${rawCategory}" — se asignará "Otros".`)
+    warnings.push(`Categoría "${rawCategory}" desconocida — se asignará "Otros".`)
   }
 
   // ── Barcode ────────────────────────────────────────────────────────────────
   const barcode = raw.codigo.trim() || null
 
-  // ── Attributes ─────────────────────────────────────────────────────────────
+  // ── Dynamic attributes ─────────────────────────────────────────────────────
   const attributes: ImportAttribute[] = Object.entries(raw.attributes)
     .filter(([, v]) => v.trim() !== "")
     .map(([k, v], idx) => ({ key: k, value: v.trim(), sort_order: idx }))
-
-  if (rowType === "Padre" && attributes.length > 0) {
-    warnings.push("Los atributos en filas Padre se ignoran — deben ir en las Variantes.")
-  }
 
   return {
     lineNumber: raw.lineNumber,
@@ -161,6 +145,7 @@ function validateRow(raw: RawImportRow): ValidatedImportRow {
     name,
     sku,
     skuParent,
+    nameParent,
     price,
     cost,
     category,

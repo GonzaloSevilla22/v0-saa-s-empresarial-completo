@@ -3,15 +3,9 @@
  *
  * Wires together: parser → validator → resolver → bulk upsert RPC.
  *
- * Usage:
- *   const result = await importProductsFromFile(file, userId)
- *   // result: ImportResult
- *
- * Architecture:
- *   - Parsing and validation happen client-side (fast, no network).
- *   - DB writes go through rpc_bulk_upsert_products in chunks of IMPORT_BATCH_SIZE.
- *   - The RPC runs in a single PL/pgSQL transaction per batch.
- *   - Progress callbacks allow the UI to show a progress bar.
+ * SKU is optional throughout the pipeline.
+ * Parent→Variant relationships are resolved by sequential grouping when
+ * no explicit SKU Padre or Producto Padre is provided.
  */
 
 import { createClient } from "@/lib/supabase/client"
@@ -26,8 +20,6 @@ import {
   type ResolvedImportRow,
 } from "@/lib/import/types"
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 export type ImportProgressCallback = (params: {
   phase: "parsing" | "validating" | "resolving" | "uploading"
   done:  number
@@ -35,39 +27,31 @@ export type ImportProgressCallback = (params: {
 }) => void
 
 export interface ImportProductsOptions {
-  file:       File
-  userId:     string
+  file:        File
+  userId:      string
   onProgress?: ImportProgressCallback
 }
 
-/**
- * Full import pipeline: file → DB.
- * Returns an ImportResult summary regardless of partial failures.
- */
 export async function importProductsFromFile({
   file,
   userId,
   onProgress,
 }: ImportProductsOptions): Promise<ImportResult> {
   const result: ImportResult = {
-    inserted:         0,
-    updated:          0,
-    parents:          0,
-    variants:         0,
-    standalone:       0,
-    validationErrors: [],
-    dbErrors:         [],
+    inserted: 0, updated: 0,
+    parents: 0, variants: 0, standalone: 0,
+    validationErrors: [], dbErrors: [],
   }
 
-  // ── Phase 1: Parse ─────────────────────────────────────────────────────────
+  // Phase 1: Parse
   onProgress?.({ phase: "parsing", done: 0, total: 1 })
   const parsed = await parseImportFile(file)
   if (!parsed.ok) throw new Error(parsed.error)
   onProgress?.({ phase: "parsing", done: 1, total: 1 })
 
-  // ── Phase 2: Validate ──────────────────────────────────────────────────────
+  // Phase 2: Validate
   onProgress?.({ phase: "validating", done: 0, total: parsed.rows.length })
-  const { rows: validatedRows, invalidCount } = validateImportRows(parsed.rows)
+  const { rows: validatedRows } = validateImportRows(parsed.rows)
 
   const invalidRows = validatedRows.filter((r) => r.errors.length > 0)
   const validRows   = validatedRows.filter((r) => r.errors.length === 0)
@@ -84,26 +68,14 @@ export async function importProductsFromFile({
 
   if (validRows.length === 0) return result
 
-  // ── Phase 3: Resolve hierarchy ─────────────────────────────────────────────
+  // Phase 3: Resolve hierarchy
   onProgress?.({ phase: "resolving", done: 0, total: validRows.length })
   const { rows: resolvedRows } = await resolveHierarchy(validRows, userId)
-
-  // Move newly orphaned rows to errors
-  const importable = resolvedRows.filter((r) => r.errors.length === 0)
-  const newOrphans  = resolvedRows.filter((r) => r.errors.length > 0)
-  for (const row of newOrphans) {
-    result.validationErrors.push({
-      lineNumber: row.lineNumber,
-      sku:        row.sku,
-      name:       row.name,
-      message:    row.errors.join(" | "),
-    })
-  }
   onProgress?.({ phase: "resolving", done: resolvedRows.length, total: resolvedRows.length })
 
-  if (importable.length === 0) return result
+  const importable = resolvedRows  // all resolved rows are importable (orphans → standalone)
 
-  // ── Phase 4: Batch upsert ──────────────────────────────────────────────────
+  // Phase 4: Batch upsert
   const supabase = createClient()
   const chunks   = chunkArray(importable, IMPORT_BATCH_SIZE)
   let uploaded   = 0
@@ -119,7 +91,6 @@ export async function importProductsFromFile({
     })
 
     if (error) {
-      // Entire batch failed — attribute all rows in this chunk to errors
       for (const row of chunk) {
         result.dbErrors.push({
           lineNumber: row.lineNumber,
@@ -145,11 +116,10 @@ export async function importProductsFromFile({
     uploaded += chunk.length
   }
 
-  // ── Tally type counts ──────────────────────────────────────────────────────
   for (const row of importable) {
-    if (row.rowType === "Padre")    result.parents++
-    else if (row.isVariant)         result.variants++
-    else                            result.standalone++
+    if (row.rowType === "Padre") result.parents++
+    else if (row.isVariant)      result.variants++
+    else                         result.standalone++
   }
 
   return result
@@ -158,7 +128,7 @@ export async function importProductsFromFile({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toPayload(row: ResolvedImportRow): ProductUpsertPayload {
-  return {
+  const payload: ProductUpsertPayload = {
     name:               row.name,
     sku:                row.sku,
     category:           row.category,
@@ -168,22 +138,25 @@ function toPayload(row: ResolvedImportRow): ProductUpsertPayload {
     min_stock:          row.minStock,
     barcode:            row.barcode,
     parent_id:          row.resolvedParentId,
-    // For variants whose parent is in the same batch: pass sku_parent so the
-    // RPC can resolve the parent_id after inserting the parent in the same call.
-    // We embed it as an extra field the RPC understands.
-    ...(row.isVariant && !row.resolvedParentId && row.skuParent
-      ? { sku_parent: row.skuParent }
-      : {}),
     is_variant:         row.isVariant,
     stock_control_type: row.stockControlType,
     attributes:         row.isVariant ? row.attributes : [],
   }
+
+  if (row.isVariant && !row.resolvedParentId) {
+    // Parent is in the same batch — RPC resolves by SKU or by name
+    if (row.skuParent) {
+      payload.sku_parent = row.skuParent
+    } else if (row.resolvedParentName) {
+      payload.parent_name = row.resolvedParentName
+    }
+  }
+
+  return payload
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = []
-  for (let i = 0; i < arr.length; i += size) {
-    chunks.push(arr.slice(i, i + size))
-  }
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size))
   return chunks
 }

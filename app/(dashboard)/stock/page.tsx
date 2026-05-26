@@ -1,14 +1,14 @@
 "use client"
 
+import { useState } from "react"
 import { useData } from "@/contexts/data-context"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
+import { LowStockAlert } from "@/components/stock/low-stock-alert"
 import { useAuth } from "@/contexts/auth-context"
-import { BarChart3, AlertTriangle } from "lucide-react"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { DataTable, type Column } from "@/components/data-table/data-table"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ProductForm } from "@/components/forms/product-form"
 import { toast } from "sonner"
 import type { Product } from "@/lib/types"
 
@@ -26,14 +26,14 @@ const columns: Column<Product>[] = [
   {
     key: "stock",
     header: "Stock actual",
-    cell: (row) => <span className="font-medium">{row.stock}</span>,
+    cell: (row) => <span className="font-medium tabular-nums">{row.stock}</span>,
     sortable: true,
     sortValue: (row) => row.stock,
   },
   {
     key: "minStock",
-    header: "Stock minimo",
-    cell: (row) => row.minStock,
+    header: "Stock mínimo",
+    cell: (row) => <span className="tabular-nums text-muted-foreground">{row.minStock}</span>,
   },
   {
     key: "status",
@@ -52,26 +52,28 @@ const columns: Column<Product>[] = [
     cell: (row) => {
       const toOrder = row.stock <= row.minStock ? row.minStock * 2 - row.stock : 0
       return toOrder > 0 ? (
-        <span className="text-primary font-medium">{toOrder} unidades</span>
+        <span className="text-primary font-medium tabular-nums">{toOrder} unidades</span>
       ) : (
-        <span className="text-muted-foreground">-</span>
+        <span className="text-muted-foreground">—</span>
       )
     },
   },
 ]
 
 export default function StockPage() {
-  // Realtime subscription for products is handled centrally in DataProvider.
-  const { products, getLowStockProducts } = useData()
+  const { products, getLowStockProducts, updateProduct } = useData()
   const lowStock = getLowStockProducts()
   const { isAdmin } = useAuth()
+
+  // Quick-edit dialog (opened from alert panel "edit" button)
+  const [editingProduct, setEditingProduct] = useState<Product | undefined>()
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Stock</h1>
-          <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposicion</p>
+          <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposición</p>
         </div>
       </div>
 
@@ -83,28 +85,13 @@ export default function StockPage() {
         />
       )}
 
-      {lowStock.length > 0 && (
-        <Card className="border-red-500/30 bg-red-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm text-red-400">
-              <AlertTriangle className="h-4 w-4" />
-              Productos en alerta ({lowStock.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {lowStock.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-1.5">
-                  <div className="h-2 w-2 rounded-full bg-red-500" />
-                  <span className="text-xs text-red-300">{p.name}</span>
-                  <span className="text-xs text-red-400 font-medium">({p.stock}/{p.minStock})</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Professional alert panel — replaces the broken flat badge map */}
+      <LowStockAlert
+        products={lowStock}
+        onEdit={setEditingProduct}
+      />
 
+      {/* Full inventory table */}
       <DataTable
         data={products}
         columns={columns}
@@ -124,7 +111,7 @@ export default function StockPage() {
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
                 <StockSemaphore stock={row.stock} minStock={row.minStock} size="sm" />
-                <span className="text-xs text-muted-foreground">{row.stock} / {row.minStock} uds</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{row.stock} / {row.minStock} uds</span>
               </div>
             </div>
           )
@@ -148,6 +135,22 @@ export default function StockPage() {
           )
         }}
       />
+
+      {/* Quick-edit dialog (from alert panel) */}
+      <Dialog
+        open={!!editingProduct}
+        onOpenChange={(v) => { if (!v) setEditingProduct(undefined) }}
+      >
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="text-card-foreground">Editar producto</DialogTitle>
+          </DialogHeader>
+          <ProductForm
+            initialData={editingProduct}
+            onSuccess={() => setEditingProduct(undefined)}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

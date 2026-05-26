@@ -2,13 +2,17 @@
 
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
+import { useAuth } from "@/contexts/auth-context"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { LowStockAlert } from "@/components/stock/low-stock-alert"
-import { useAuth } from "@/contexts/auth-context"
+import { StockAdjustmentModal } from "@/components/stock/stock-adjustment-modal"
+import { StockMovementsPanel } from "@/components/stock/stock-movements-panel"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ProductForm } from "@/components/forms/product-form"
+import { Button } from "@/components/ui/button"
+import { SlidersHorizontal } from "lucide-react"
 import { toast } from "sonner"
 import type { Product } from "@/lib/types"
 
@@ -58,7 +62,41 @@ const columns: Column<Product>[] = [
       )
     },
   },
+  {
+    key: "adjust",
+    header: "",
+    cell: (row) => <AdjustButton product={row} />,
+  },
 ]
+
+/** Inline adjust button rendered per row — declared outside so columns is stable */
+function AdjustButton({ product }: { product: Product }) {
+  const [open, setOpen] = useState(false)
+  if (
+    product.stockControlType === "variant_only" ||
+    product.stockControlType === "untracked"
+  ) {
+    return null
+  }
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={(e) => { e.stopPropagation(); setOpen(true) }}
+        title="Ajustar stock"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+      </Button>
+      <StockAdjustmentModal
+        open={open}
+        onOpenChange={setOpen}
+        product={product}
+      />
+    </>
+  )
+}
 
 export default function StockPage() {
   const { products, getLowStockProducts } = useData()
@@ -66,17 +104,31 @@ export default function StockPage() {
   const { isAdmin } = useAuth()
 
   // Quick-edit dialog triggered from the alert panel
-  const [editingProduct, setEditingProduct] = useState<Product | undefined>()
+  const [editingProduct,   setEditingProduct]   = useState<Product | undefined>()
+  // Global adjustment modal (from header button — no pre-selected product)
+  const [adjustModalOpen,  setAdjustModalOpen]  = useState(false)
 
   return (
     <div className="flex flex-col gap-6">
+      {/* ── Page header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Stock</h1>
           <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposición</p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setAdjustModalOpen(true)}
+          className="gap-2"
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          <span className="hidden sm:inline">Ajustar stock</span>
+          <span className="sm:hidden">Ajustar</span>
+        </Button>
       </div>
 
+      {/* ── Admin analytics ───────────────────────────────────────────────── */}
       {isAdmin && (
         <ModuleMetricsWrapper
           moduleType="stock"
@@ -85,13 +137,13 @@ export default function StockPage() {
         />
       )}
 
-      {/* Collapsible alert panel — handles 10 000+ products without freezing */}
+      {/* ── Low-stock alert panel ─────────────────────────────────────────── */}
       <LowStockAlert
         products={lowStock}
         onEdit={setEditingProduct}
       />
 
-      {/* Full inventory table */}
+      {/* ── Full inventory table ──────────────────────────────────────────── */}
       <DataTable
         data={products}
         columns={columns}
@@ -130,13 +182,22 @@ export default function StockPage() {
         onImport={() => {
           toast.info(
             "El stock se actualiza automáticamente al registrar compras y ventas. " +
-            "Para ajustar el inventario usá el módulo de Compras.",
+            "Para ajustar el inventario usá el botón \"Ajustar stock\".",
             { duration: 6000 },
           )
         }}
       />
 
-      {/* Quick-edit dialog (opened from alert panel) */}
+      {/* ── Movements audit log ───────────────────────────────────────────── */}
+      <StockMovementsPanel />
+
+      {/* ── Global adjustment modal (no pre-selected product) ────────────── */}
+      <StockAdjustmentModal
+        open={adjustModalOpen}
+        onOpenChange={setAdjustModalOpen}
+      />
+
+      {/* ── Quick-edit dialog (opened from alert panel) ───────────────────── */}
       <Dialog
         open={!!editingProduct}
         onOpenChange={(v) => { if (!v) setEditingProduct(undefined) }}

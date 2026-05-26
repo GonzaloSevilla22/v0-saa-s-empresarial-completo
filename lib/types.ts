@@ -190,6 +190,41 @@ export interface Course {
   rating: number
 }
 
+// ── Inventory Movements ───────────────────────────────────────────────────────
+
+export type MovementType =
+  | 'purchase'
+  | 'sale'
+  | 'adjustment'
+  | 'return'
+  | 'initial'
+  | 'sale_return'
+  | 'purchase_return'
+  | 'physical_count'
+  | 'loss'
+  | 'damage'
+  | 'expiry'
+  | 'transfer_in'
+  | 'transfer_out'
+
+export interface StockMovement {
+  id:             string
+  userId:         string
+  productId:      string
+  productName?:   string   // joined from products.name
+  type:           MovementType
+  quantityDelta:  number
+  quantityBefore?: number
+  quantityAfter?:  number
+  reason?:        string
+  notes?:         string
+  referenceId?:   string
+  referenceType?: string
+  performedBy?:   string
+  metadata?:      Record<string, unknown>
+  createdAt:      string
+}
+
 export type ExpenseCategory =
   | "Alquiler"
   | "Servicios"

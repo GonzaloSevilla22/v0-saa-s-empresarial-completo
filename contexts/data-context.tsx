@@ -239,12 +239,24 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // Stable references (only depend on memoized supabase).
 
   const refreshProducts = useCallback(async () => {
-    const { data } = await supabase
-      .from("products")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(10000)
-    if (data) setProducts(data.map(mapProduct))
+    // PostgREST caps responses at max_rows (default 1000) even with .limit().
+    // Paginate to ensure ALL products are loaded — critical for parent→variant
+    // grouping: a partial list produces parents with no children (flat catalog).
+    const BATCH = 1000
+    const allRows: any[] = []
+    let from = 0
+    for (;;) {
+      const { data, error } = await supabase
+        .from("products")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(from, from + BATCH - 1)
+      if (error || !data || data.length === 0) break
+      allRows.push(...data)
+      if (data.length < BATCH) break  // last page
+      from += BATCH
+    }
+    setProducts(allRows.map(mapProduct))
   }, [supabase])
 
   const refreshSales = useCallback(async () => {

@@ -80,9 +80,20 @@ CREATE INDEX IF NOT EXISTS idx_products_parent_id
   WHERE parent_id IS NOT NULL;
 
 -- stock_control_type filter (dashboard low-stock query)
-CREATE INDEX IF NOT EXISTS idx_products_user_stock
-  ON products (user_id, stock)
-  WHERE stock_control_type = 'tracked';
+-- Guarded: column was added via MCP in prod and may not exist in CI test DB yet.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'products' AND column_name = 'stock_control_type'
+  ) THEN
+    EXECUTE $idx$
+      CREATE INDEX IF NOT EXISTS idx_products_user_stock
+        ON products (user_id, stock)
+        WHERE stock_control_type = 'tracked'
+    $idx$;
+  END IF;
+END $$;
 
 -- ─── stock_movements (future module) ─────────────────────────────────────────
 

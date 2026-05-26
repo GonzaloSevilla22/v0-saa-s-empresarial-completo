@@ -229,8 +229,9 @@ function UploadStep({
       {/* Template download hint */}
       <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
         <p className="font-medium text-foreground">Formato del archivo</p>
-        <p>Columnas soportadas: <code>Tipo, Nombre, SKU, SKU Padre, Precio, Costo, Categoría, Stock, Stock mínimo, Código, Atributo: Color, Atributo: Talle…</code></p>
-        <p><strong>Tipo</strong>: <code>Padre</code> (agrupa variantes) · <code>Variante</code> (requiere SKU y SKU Padre) · <code>Producto</code> o vacío (standalone)</p>
+        <p>Columnas soportadas: <code>Tipo, Nombre, Precio, Costo, Categoría, Stock, Código, SKU, SKU Padre, Producto Padre, Atributo: Color…</code></p>
+        <p><strong>Solo el Nombre es obligatorio.</strong> SKU es opcional en todos los tipos.</p>
+        <p><strong>Tipo</strong>: <code>Padre</code> · <code>Variante</code> · <code>Producto</code> o vacío. Las variantes se asocian automáticamente al Padre más cercano en el archivo.</p>
       </div>
     </div>
   )

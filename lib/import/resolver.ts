@@ -1,138 +1,219 @@
 /**
  * Hierarchy resolver.
  *
- * Takes validated rows and resolves parent→child relationships:
+ * Resolves the Padre→Variante relationship using three strategies in cascade:
  *
- *   1. Collects all "Padre" rows by their SKU → builds a lookup map.
- *   2. For each "Variante" row, finds its parent by skuParent.
- *   3. Checks if the parent already exists in the database (for upserts where
- *      the parent was created in a previous import).
- *   4. Orders the output: parents first, then variants, then standalone.
- *      This guarantees INSERT order correctness for the bulk upsert RPC.
+ *   Strategy 1 — SKU Padre (explicit, backward compatible)
+ *     Variant has `skuParent` set → look up parent by SKU in batch, then DB.
  *
- * Orphan detection:
- *   A variant whose skuParent is not found in the current batch AND not in the
- *   DB is flagged as an error (orphan).  A variant whose parent IS in the DB
- *   but not in the current batch is still valid — it gets resolvedParentId set
- *   from the DB lookup result.
+ *   Strategy 2 — Producto Padre (explicit name reference)
+ *     Variant has `nameParent` set → look up parent by name in batch, then DB.
+ *
+ *   Strategy 3 — Sequential grouping (implicit, professional default)
+ *     Neither reference is set → assign to the nearest Padre row with a lower
+ *     line number. This is how Shopify, Tienda Nube and WooCommerce work.
+ *     Example: a Padre on line 2 automatically owns Variante rows on lines 3–8
+ *     until the next Padre row appears.
+ *
+ * Output ordering: parents first → variants → standalone.
+ * This guarantees correct INSERT order in the bulk upsert RPC
+ * (parent must exist before its variants are inserted).
+ *
+ * Orphan policy:
+ *   A Variante that cannot be linked to any parent (none found in batch or DB,
+ *   and no Padre row precedes it in the file) is imported as a standalone product
+ *   with a warning rather than being blocked.
  */
 
 import { createClient } from "@/lib/supabase/client"
 import type { ValidatedImportRow, ResolvedImportRow } from "@/lib/import/types"
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 export interface ResolveResult {
-  rows:          ResolvedImportRow[]
-  /** Variants whose parent could not be found in the batch or in the DB. */
-  orphanCount:   number
+  rows:        ResolvedImportRow[]
+  orphanCount: number
 }
 
-/**
- * Resolves parent→child relationships for a set of validated rows.
- *
- * @param validRows  Rows that passed validation (no errors).
- * @param userId     Authenticated user's UUID (for DB lookups).
- */
 export async function resolveHierarchy(
   validRows: ValidatedImportRow[],
   userId: string,
 ): Promise<ResolveResult> {
-  // ── Step 1: build SKU lookup from this batch ──────────────────────────────
-  const batchParentSkus = new Map<string, string | null>()
-  // Value: resolved UUID (null = not yet persisted, will be assigned by DB)
+
+  // ── Build batch-level parent lookup maps ────────────────────────────────────
+  // Key: parent SKU (for strategy 1) or parent name (for strategy 2 & 3)
+  // Value: index into validRows (to keep insertion order)
+  const batchParentBySku  = new Map<string, ValidatedImportRow>()
+  const batchParentByName = new Map<string, ValidatedImportRow>()
+
   for (const row of validRows) {
-    if (row.rowType === "Padre" && row.sku) {
-      batchParentSkus.set(row.sku, null)  // ID unknown until insert
+    if (row.rowType !== "Padre") continue
+    if (row.sku)  batchParentBySku.set(row.sku, row)
+    // Always index by name for strategy 2 & 3 (name is always present)
+    batchParentByName.set(row.name.trim().toLowerCase(), row)
+  }
+
+  // ── Collect SKUs / names that need a DB lookup ──────────────────────────────
+  // Only look up parents NOT already in this batch.
+  const skusToQuery:  string[] = []
+  const namesToQuery: string[] = []
+
+  for (const row of validRows) {
+    if (row.rowType !== "Variante") continue
+    if (row.skuParent && !batchParentBySku.has(row.skuParent)) {
+      skusToQuery.push(row.skuParent)
+    }
+    if (row.nameParent && !batchParentByName.has(row.nameParent.trim().toLowerCase())) {
+      namesToQuery.push(row.nameParent)
     }
   }
 
-  // ── Step 2: fetch existing products by SKU from DB ────────────────────────
-  const variantParentSkus = new Set<string>()
-  for (const row of validRows) {
-    if (row.rowType === "Variante" && row.skuParent) {
-      variantParentSkus.add(row.skuParent)
-    }
-  }
+  // ── DB lookup for out-of-batch parents ─────────────────────────────────────
+  const dbParentIdBySku  = new Map<string, string>()
+  const dbParentIdByName = new Map<string, string>()
 
-  // Only query SKUs that are NOT in the current batch
-  const skusToQuery = [...variantParentSkus].filter(
-    (sku) => !batchParentSkus.has(sku)
-  )
-
-  const dbParentIdBySku = new Map<string, string>()
-  if (skusToQuery.length > 0) {
+  if (skusToQuery.length > 0 || namesToQuery.length > 0) {
     const supabase = createClient()
-    const { data } = await supabase
-      .from("products")
-      .select("id, sku")
-      .eq("user_id", userId)
-      .in("sku", skusToQuery)
-    for (const p of data ?? []) {
-      if (p.sku) dbParentIdBySku.set(p.sku, p.id)
-    }
-  }
 
-  // ── Step 3: resolve each row ──────────────────────────────────────────────
-  const resolved: ResolvedImportRow[] = []
-  let orphanCount = 0
-
-  // Ordering: parents first → variants → standalone
-  const parents    = validRows.filter((r) => r.rowType === "Padre")
-  const variants   = validRows.filter((r) => r.rowType === "Variante")
-  const standalone = validRows.filter((r) => r.rowType !== "Padre" && r.rowType !== "Variante")
-
-  // Parents
-  for (const row of parents) {
-    resolved.push({
-      ...row,
-      resolvedParentId: null,
-      isVariant:        false,
-      stockControlType: "variant_only",
-    })
-  }
-
-  // Variants
-  for (const row of variants) {
-    const parentSku = row.skuParent
-    let resolvedParentId: string | null = null
-    let isOrphan = false
-
-    if (parentSku) {
-      if (batchParentSkus.has(parentSku)) {
-        // Parent is in this batch — resolvedParentId will be filled by DB
-        // We use a sentinel value so the RPC knows to look up the parent by SKU
-        resolvedParentId = null  // RPC handles resolution
-      } else if (dbParentIdBySku.has(parentSku)) {
-        resolvedParentId = dbParentIdBySku.get(parentSku)!
-      } else {
-        isOrphan = true
-        orphanCount++
+    if (skusToQuery.length > 0) {
+      const { data } = await supabase
+        .from("products")
+        .select("id, sku")
+        .eq("user_id", userId)
+        .eq("is_variant", false)
+        .in("sku", [...new Set(skusToQuery)])
+      for (const p of data ?? []) {
+        if (p.sku) dbParentIdBySku.set(p.sku, p.id)
       }
     }
 
-    resolved.push({
+    if (namesToQuery.length > 0) {
+      const { data } = await supabase
+        .from("products")
+        .select("id, name")
+        .eq("user_id", userId)
+        .eq("is_variant", false)
+        .in("name", [...new Set(namesToQuery)])
+      for (const p of data ?? []) {
+        if (p.name) dbParentIdByName.set(p.name.trim().toLowerCase(), p.id)
+      }
+    }
+  }
+
+  // ── Sequential grouping — build "nearest parent" map by line number ─────────
+  // Walk rows in file order; track the most recent Padre seen.
+  const sequentialParentByLine = new Map<number, ValidatedImportRow>()
+  let currentSequentialParent: ValidatedImportRow | null = null
+
+  const sorted = [...validRows].sort((a, b) => a.lineNumber - b.lineNumber)
+  for (const row of sorted) {
+    if (row.rowType === "Padre") {
+      currentSequentialParent = row
+    } else if (row.rowType === "Variante") {
+      if (currentSequentialParent) {
+        sequentialParentByLine.set(row.lineNumber, currentSequentialParent)
+      }
+    }
+  }
+
+  // ── Resolve each row ────────────────────────────────────────────────────────
+  const parents:    ResolvedImportRow[] = []
+  const variants:   ResolvedImportRow[] = []
+  const standalone: ResolvedImportRow[] = []
+  let orphanCount = 0
+
+  for (const row of validRows) {
+    if (row.rowType === "Padre") {
+      parents.push({
+        ...row,
+        resolvedParentId:   null,
+        resolvedParentName: null,
+        isVariant:          false,
+        stockControlType:   "variant_only",
+      })
+      continue
+    }
+
+    if (row.rowType !== "Variante") {
+      standalone.push({
+        ...row,
+        resolvedParentId:   null,
+        resolvedParentName: null,
+        isVariant:          false,
+        stockControlType:   "tracked",
+      })
+      continue
+    }
+
+    // ── Variant: resolve parent ───────────────────────────────────────────────
+    let resolvedParentId:   string | null = null
+    let resolvedParentName: string | null = null  // used when parent has no SKU
+
+    // Strategy 1: explicit SKU Padre
+    if (row.skuParent) {
+      if (batchParentBySku.has(row.skuParent)) {
+        const batchParent = batchParentBySku.get(row.skuParent)!
+        if (batchParent.sku) {
+          resolvedParentName = null
+          // Parent in same batch — RPC resolves by sku_parent
+        } else {
+          resolvedParentName = batchParent.name
+        }
+      } else if (dbParentIdBySku.has(row.skuParent)) {
+        resolvedParentId = dbParentIdBySku.get(row.skuParent)!
+      }
+      // If not found anywhere: fall through to next strategy
+    }
+
+    // Strategy 2: explicit Producto Padre (name)
+    if (!resolvedParentId && !row.skuParent && row.nameParent) {
+      const key = row.nameParent.trim().toLowerCase()
+      if (batchParentByName.has(key)) {
+        resolvedParentName = batchParentByName.get(key)!.name
+      } else if (dbParentIdByName.has(key)) {
+        resolvedParentId = dbParentIdByName.get(key)!
+      }
+    }
+
+    // Strategy 3: sequential grouping
+    let seqSkuParent: string | null = null
+    if (!resolvedParentId && !resolvedParentName && !row.skuParent && !row.nameParent) {
+      const seqParent = sequentialParentByLine.get(row.lineNumber)
+      if (seqParent) {
+        if (seqParent.sku) {
+          seqSkuParent = seqParent.sku
+        } else {
+          resolvedParentName = seqParent.name
+        }
+      } else {
+        // No parent found by any strategy — import as standalone with warning
+        orphanCount++
+        standalone.push({
+          ...row,
+          resolvedParentId:   null,
+          resolvedParentName: null,
+          isVariant:          false,
+          stockControlType:   "tracked",
+          warnings: [
+            ...row.warnings,
+            "No se encontró un producto Padre para esta variante — se importará como producto independiente.",
+          ],
+        })
+        continue
+      }
+    }
+
+    variants.push({
       ...row,
+      skuParent:        seqSkuParent ?? row.skuParent,
       resolvedParentId,
-      // Store the skuParent for the RPC to resolve if resolvedParentId is null
-      // (the RPC will look it up from the already-inserted parent in the same batch)
+      resolvedParentName,
       isVariant:        true,
       stockControlType: "tracked",
-      errors: isOrphan
-        ? [...row.errors, `SKU Padre "${parentSku}" no encontrado en el archivo ni en la base de datos.`]
-        : row.errors,
     })
   }
 
-  // Standalone
-  for (const row of standalone) {
-    resolved.push({
-      ...row,
-      resolvedParentId: null,
-      isVariant:        false,
-      stockControlType: "tracked",
-    })
+  // Parents first → variants → standalone (correct DB insert order)
+  return {
+    rows: [...parents, ...variants, ...standalone],
+    orphanCount,
   }
-
-  return { rows: resolved, orphanCount }
 }

@@ -10,7 +10,6 @@
  * Does NOT validate types or business rules — that is the validator's job.
  */
 
-import { parseCSV as parseCSVBase } from "@/lib/excel"
 import {
   IMPORT_COLUMN_MAP,
   ATTRIBUTE_PREFIX,
@@ -101,17 +100,18 @@ export function parseImportText(text: string): ParseResult {
       }
 
       rows.push({
-        lineNumber:   i + 1,  // +1 because header is line 1
-        tipo:         tipo,
-        nombre:       nombre,
-        sku:          get("sku"),
-        sku_padre:    get("sku_padre"),
-        precio:       get("precio"),
-        costo:        get("costo"),
-        categoria:    get("categoria"),
-        stock:        get("stock"),
-        stock_minimo: get("stock_minimo"),
-        codigo:       get("codigo"),
+        lineNumber:      i + 1,
+        tipo:            tipo,
+        nombre:          nombre,
+        sku:             get("sku"),
+        sku_padre:       get("sku_padre"),
+        producto_padre:  get("producto_padre"),
+        precio:          get("precio"),
+        costo:           get("costo"),
+        categoria:       get("categoria"),
+        stock:           get("stock"),
+        stock_minimo:    get("stock_minimo"),
+        codigo:          get("codigo"),
         attributes,
       })
     }

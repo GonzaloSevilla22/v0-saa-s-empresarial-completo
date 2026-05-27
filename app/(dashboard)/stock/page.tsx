@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef } from "react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -62,38 +62,32 @@ const columns: Column<Product>[] = [
 ]
 
 export default function StockPage() {
-  const { products, refreshData } = useData()
+  const { products, getLowStockProducts, refreshData } = useData()
+  const lowStock = getLowStockProducts()
   const { isAdmin } = useAuth()
-  const supabase = createClient()
-  
-  const [criticalStockCount, setCriticalStockCount] = useState<number>(0)
-  const lowStockVisualList = products.filter(p => p.stock <= p.minStock)
 
-  useEffect(() => {
-    async function fetchStockKpi() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-      const { data } = await supabase.rpc('get_dashboard_critical_stock', { p_user_id: user.id })
-      setCriticalStockCount(Number(data || 0))
-    }
-    fetchStockKpi()
-  }, [supabase, products])
+  // Keep a stable ref to refreshData so the realtime handler always calls the
+  // latest version without adding it to the effect's dependency array (which
+  // would recreate the subscription on every DataContext render).
+  const refreshDataRef = useRef(refreshData)
+  useEffect(() => { refreshDataRef.current = refreshData }, [refreshData])
 
+  // Subscribe to product changes once on mount. createClient() is scoped
+  // inside the effect so it is never part of the dependency array.
   useEffect(() => {
+    const supabase = createClient()
     const channel = supabase
       .channel('stock-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'products' }, 
-        () => {
-          refreshData()
-        }
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => { refreshDataRef.current() }
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase, refreshData])
+  }, []) // intentionally empty — subscription is created once on mount
 
   return (
     <div className="flex flex-col gap-6">
@@ -112,17 +106,17 @@ export default function StockPage() {
         />
       )}
 
-      {criticalStockCount > 0 && (
+      {lowStock.length > 0 && (
         <Card className="border-red-500/30 bg-red-500/5">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm text-red-400">
               <AlertTriangle className="h-4 w-4" />
-              Productos en alerta ({criticalStockCount})
+              Productos en alerta ({lowStock.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
-              {lowStockVisualList.map((p) => (
+              {lowStock.map((p) => (
                 <div key={p.id} className="flex items-center gap-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-1.5">
                   <div className="h-2 w-2 rounded-full bg-red-500" />
                   <span className="text-xs text-red-300">{p.name}</span>

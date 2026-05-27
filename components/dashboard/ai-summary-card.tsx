@@ -7,12 +7,21 @@ import { Sparkles, RefreshCw } from "lucide-react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
 interface AiSummaryCardProps {
-  todaySales: number;
-  lowStockCount: number;
+  /** Today's total sales income — supplied by the parent dashboard page
+   *  (fetched via get_dashboard_financials RPC). Defaults to 0. */
+  todaySales?: number
 }
 
-export function AiSummaryCard({ todaySales, lowStockCount }: AiSummaryCardProps) {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
+  // Low stock still sourced from the real-time context (consistent with stock page)
+  const { getLowStockProducts } = useData()
+  const lowStock = getLowStockProducts()
+
   const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)
 
@@ -77,7 +86,7 @@ export function AiSummaryCard({ todaySales, lowStockCount }: AiSummaryCardProps)
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
           <span>Ventas hoy: <span className="text-primary font-medium">${todaySales.toLocaleString()}</span></span>
-          <span>Stock bajo: <span className={`font-medium ${lowStockCount > 0 ? "text-red-400" : "text-emerald-400"}`}>{lowStockCount} productos</span></span>
+          <span>Stock bajo: <span className={`font-medium ${lowStock.length > 0 ? "text-red-400" : "text-emerald-400"}`}>{lowStock.length} productos</span></span>
         </div>
       </CardContent>
     </Card>

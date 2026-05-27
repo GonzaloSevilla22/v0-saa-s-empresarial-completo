@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
@@ -7,74 +8,94 @@ import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { AiAlerts } from "@/components/dashboard/ai-alerts"
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react"
-
-import { useEffect, useState } from "react"
 import { aiInsightService } from "@/lib/services/aiInsightService"
 import { createClient } from "@/lib/supabase/client"
 
-export default function DashboardPage() {
-  const { insights, refreshData } = useData()
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-  const [kpis, setKpis] = useState({
-    todaySales: 0,
-    todayExpenses: 0,
-    netProfit: 0,
-    lowStockCount: 0,
-  })
+interface DashboardFinancials {
+  total_income:    number
+  total_expenses:  number
+  total_purchases: number
+  net_profit:      number
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function DashboardPage() {
+  const { getLowStockProducts, insights, refreshData } = useData()
+  const lowStock = getLowStockProducts()
+
+  const [financials, setFinancials]   = useState<DashboardFinancials | null>(null)
   const [loadingKpis, setLoadingKpis] = useState(true)
 
+  // Stable refs so the auto-generate effect doesn't need unstable DataContext
+  // values in its dependency array, preventing spurious re-runs.
+  const refreshDataRef        = useRef(refreshData)
+  const insightGenAttempted   = useRef(false)
+  useEffect(() => { refreshDataRef.current = refreshData }, [refreshData])
+
+  // ── Server-side financial KPIs (no p_user_id — uses auth.uid() internally) ──
   useEffect(() => {
-    const fetchKpis = async () => {
+    const supabase = createClient()
+
+    async function fetchFinancials() {
       setLoadingKpis(true)
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
+        // Today's window in local ISO strings
+        const now      = new Date()
+        const dateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString()
+        const dateTo   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString()
 
-        const today = new Date()
-        const dateFrom = new Date(today.setHours(0, 0, 0, 0)).toISOString()
-        const dateTo = new Date(today.setHours(23, 59, 59, 999)).toISOString()
-
-        const [financialsRes, stockRes] = await Promise.all([
-          supabase.rpc('get_dashboard_financials', {
-            p_user_id: user.id,
-            p_date_from: dateFrom,
-            p_date_to: dateTo
-          }),
-          supabase.rpc('get_dashboard_critical_stock', {
-            p_user_id: user.id
-          })
-        ])
-
-        const financials = financialsRes.data?.[0] || { total_income: 0, total_expenses: 0, net_profit: 0 }
-        
-        setKpis({
-          todaySales: Number(financials.total_income || 0),
-          todayExpenses: Number(financials.total_expenses || 0),
-          netProfit: Number(financials.net_profit || 0),
-          lowStockCount: Number(stockRes.data || 0)
+        const { data, error } = await supabase.rpc('get_dashboard_financials', {
+          p_date_from: dateFrom,
+          p_date_to:   dateTo,
         })
+
+        if (error) {
+          console.error('[Dashboard] get_dashboard_financials error:', error.message)
+        } else if (Array.isArray(data) && data.length > 0) {
+          const row = data[0]
+          setFinancials({
+            total_income:    Number(row.total_income    ?? 0),
+            total_expenses:  Number(row.total_expenses  ?? 0),
+            total_purchases: Number(row.total_purchases ?? 0),
+            net_profit:      Number(row.net_profit      ?? 0),
+          })
+        } else {
+          // RPC returned empty (no data for today yet) — show zeros
+          setFinancials({ total_income: 0, total_expenses: 0, total_purchases: 0, net_profit: 0 })
+        }
       } catch (err) {
-        console.error("Error fetching dashboard KPIs:", err)
+        console.error('[Dashboard] Unexpected KPI fetch error:', err)
       } finally {
         setLoadingKpis(false)
       }
     }
 
-    fetchKpis()
-  }, [])
+    fetchFinancials()
+  }, [])  // intentionally runs once on mount; data is for "today" which doesn't change mid-session
 
-  // Auto-generate insights if none exist for today
+  // ── Auto-generate AI insights if none exist for today ────────────────────────
+  // Uses insightGenAttempted ref to ensure generation fires at most once per
+  // page load, even if DataContext re-renders and changes `insights` reference.
   useEffect(() => {
+    if (insightGenAttempted.current) return
+
     const today = new Date().toISOString().split('T')[0]
     const todaysInsights = insights.filter(i => i.date === today)
-    
-    if (todaysInsights.length === 0) {
-      aiInsightService.generateInsights()
-        .then(() => refreshData())
-        .catch(err => console.error("Error auto-generating insights:", err))
-    }
-  }, [insights, refreshData])
+    if (todaysInsights.length > 0) return
+
+    insightGenAttempted.current = true
+    aiInsightService.generateInsights()
+      .then(() => refreshDataRef.current())
+      .catch(err => console.error("Error auto-generating insights:", err))
+  }, [insights])
+
+  // ── Derived display values ───────────────────────────────────────────────────
+  const todaySales    = financials?.total_income   ?? 0
+  const todayExpenses = financials?.total_expenses ?? 0
+  const netProfit     = financials?.net_profit     ?? 0
 
   return (
     <div className="flex flex-col gap-6">
@@ -90,26 +111,23 @@ export default function DashboardPage() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title="Ventas hoy"
-          value={`$${kpis.todaySales.toLocaleString()}`}
-          change={15}
+          value={loadingKpis ? "—" : `$${todaySales.toLocaleString()}`}
           icon={DollarSign}
         />
         <KpiCard
           title="Gastos hoy"
-          value={`$${kpis.todayExpenses.toLocaleString()}`}
-          change={-8}
+          value={loadingKpis ? "—" : `$${todayExpenses.toLocaleString()}`}
           icon={TrendingDown}
           iconColor="text-red-400"
         />
         <KpiCard
           title="Ganancia neta"
-          value={`$${kpis.netProfit.toLocaleString()}`}
-          change={12}
+          value={loadingKpis ? "—" : `$${netProfit.toLocaleString()}`}
           icon={TrendingUp}
         />
         <KpiCard
           title="Productos en alerta"
-          value={kpis.lowStockCount.toString()}
+          value={lowStock.length.toString()}
           icon={AlertTriangle}
           iconColor="text-yellow-400"
         />
@@ -120,7 +138,7 @@ export default function DashboardPage() {
           <SalesChart />
         </div>
         <div className="lg:col-span-3 flex flex-col gap-4">
-          <AiSummaryCard todaySales={kpis.todaySales} lowStockCount={kpis.lowStockCount} />
+          <AiSummaryCard todaySales={todaySales} />
           <AiAlerts />
           <RecentActivity />
         </div>

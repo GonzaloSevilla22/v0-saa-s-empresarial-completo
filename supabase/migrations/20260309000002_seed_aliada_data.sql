@@ -1,4 +1,4 @@
-﻿-- Seed initial landing data for ALIADATA
+-- Seed initial landing data for ALIADATA
 DELETE FROM public.landing_sections;
 
 INSERT INTO public.landing_sections (slug, type, title, subtitle, content, position, active)

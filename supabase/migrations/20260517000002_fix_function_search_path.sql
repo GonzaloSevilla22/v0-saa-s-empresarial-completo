@@ -260,7 +260,7 @@ REVOKE EXECUTE ON FUNCTION public.check_low_stock()                             
 REVOKE EXECUTE ON FUNCTION public.get_admin_activation_rate(timestamptz, timestamptz)                                    FROM anon;
 REVOKE EXECUTE ON FUNCTION public.get_admin_community_interactions(timestamptz, timestamptz)                             FROM anon;
 REVOKE EXECUTE ON FUNCTION public.get_admin_insights_breakdown(timestamptz, timestamptz)                                 FROM anon;
-REVOKE EXECUTE ON FUNCTION public.get_admin_paid_conversion_rate()                                                       FROM anon;
+REVOKE EXECUTE ON FUNCTION public.get_admin_paid_conversion_rate(timestamptz, timestamptz)                              FROM anon;
 REVOKE EXECUTE ON FUNCTION public.get_admin_umv_rate(timestamptz, timestamptz)                                           FROM anon;
 REVOKE EXECUTE ON FUNCTION public.get_dashboard_critical_stock()                                                         FROM anon;
 REVOKE EXECUTE ON FUNCTION public.get_dashboard_financials(timestamptz, timestamptz)                                     FROM anon;

@@ -112,11 +112,25 @@ export const fetchUmvRate = async (dateFrom: string, dateTo: string, client?: an
   return Number(data ?? 0)
 }
 
-/** Platform-wide paid (pro) conversion rate as a percentage. */
-export const fetchPaidConversionRate = async (client?: any): Promise<number> => {
+/**
+ * Paid (pro) conversion rate as a percentage.
+ *
+ * When `dateFrom`/`dateTo` are provided the rate is scoped to profiles
+ * registered within that cohort window (consistent with other period KPIs).
+ * When omitted the all-time snapshot is returned (original behaviour).
+ */
+export const fetchPaidConversionRate = async (
+  dateFrom?: string,
+  dateTo?:   string,
+  client?:   any,
+): Promise<number> => {
   const supabase = client || createClient()
 
-  const { data, error } = await supabase.rpc('get_admin_paid_conversion_rate')
+  const params = dateFrom && dateTo
+    ? { p_date_from: dateFrom, p_date_to: dateTo }
+    : {}
+
+  const { data, error } = await supabase.rpc('get_admin_paid_conversion_rate', params)
 
   if (error) throw error
   return Number(data ?? 0)

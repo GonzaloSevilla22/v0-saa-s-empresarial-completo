@@ -211,7 +211,7 @@ export interface StockMovement {
   id:             string
   userId:         string
   productId:      string
-  productName?:   string   // joined from products.name
+  productName?:   string   // denormalised column (migration 000005); falls back to JOIN
   type:           MovementType
   quantityDelta:  number
   quantityBefore?: number
@@ -222,6 +222,10 @@ export interface StockMovement {
   referenceType?: string
   performedBy?:   string
   metadata?:      Record<string, unknown>
+  /** UUID shared by all movements created by the same logical operation (item 8). */
+  operationGroupId?: string
+  /** Global sequential counter for fiscal compliance and gap detection (item 9). */
+  movementNumber?:   number
   createdAt:      string
 }
 

@@ -11,11 +11,19 @@
  *   - Collapsible header with summary stats (total movements, last 30 d)
  *   - Filter by movement type (all / inbound / outbound / adjustments)
  *   - Per-product filter (optional product selector)
- *   - Incremental rendering — "Ver más" loads 20 rows at a time
+ *   - Incremental rendering — "Ver más" loads 30 rows at a time
  *   - Export to CSV
+ *
+ * Sprint improvements applied:
+ *   - Item 10: type filter pushed to DB (.in() on Supabase query) so
+ *              filtering works across ALL records, not just the loaded page.
+ *   - Item 12: stale-closure bug fixed — fetchPage uses a pageRef instead of
+ *              capturing `page` state, eliminating double-fetch in Strict Mode.
+ *   - Item  7: mapMovement prefers the denormalised product_name column
+ *              (available after migration 000005) with fallback to the JOIN.
  */
 
-import { useState, useEffect, useCallback, useMemo, memo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react"
 import { createClient } from "@/lib/supabase/client"
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -37,9 +45,9 @@ import { es } from "date-fns/locale"
 interface MovementMeta {
   label:  string
   icon:   React.ReactNode
-  color:  string  // text-* class
-  bg:     string  // bg-*/border-* classes for badge
-  inbound: boolean | null  // true = inbound, false = outbound, null = neutral
+  color:  string
+  bg:     string
+  inbound: boolean | null
 }
 
 const MOVEMENT_META: Record<MovementType, MovementMeta> = {
@@ -67,31 +75,35 @@ const OUTBOUND_TYPES:    MovementType[] = ["sale", "purchase_return", "loss", "d
 const ADJUSTMENT_TYPES:  MovementType[] = ["adjustment", "physical_count"]
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
+// Item 7: prefer the denormalised product_name column (migration 000005),
+// fall back to the products JOIN result, then to a placeholder for deleted products.
 
 function mapMovement(row: any): StockMovement {
   return {
-    id:             row.id,
-    userId:         row.user_id,
-    productId:      row.product_id,
-    productName:    row.products?.name ?? "Producto eliminado",
-    type:           row.type as MovementType,
-    quantityDelta:  Number(row.quantity_delta),
-    quantityBefore: row.quantity_before != null ? Number(row.quantity_before) : undefined,
-    quantityAfter:  row.quantity_after  != null ? Number(row.quantity_after)  : undefined,
-    reason:         row.reason  ?? undefined,
-    notes:          row.notes   ?? undefined,
-    referenceId:    row.reference_id   ?? undefined,
-    referenceType:  row.reference_type ?? undefined,
-    performedBy:    row.performed_by   ?? undefined,
-    metadata:       row.metadata       ?? undefined,
-    createdAt:      row.created_at,
+    id:              row.id,
+    userId:          row.user_id,
+    productId:       row.product_id,
+    productName:     row.product_name ?? row.products?.name ?? "Producto eliminado",
+    type:            row.type as MovementType,
+    quantityDelta:   Number(row.quantity_delta),
+    quantityBefore:  row.quantity_before != null ? Number(row.quantity_before) : undefined,
+    quantityAfter:   row.quantity_after  != null ? Number(row.quantity_after)  : undefined,
+    reason:          row.reason  ?? undefined,
+    notes:           row.notes   ?? undefined,
+    referenceId:     row.reference_id    ?? undefined,
+    referenceType:   row.reference_type  ?? undefined,
+    performedBy:     row.performed_by    ?? undefined,
+    metadata:        row.metadata        ?? undefined,
+    operationGroupId: row.operation_group_id ?? undefined,
+    movementNumber:  row.movement_number != null ? Number(row.movement_number) : undefined,
+    createdAt:       row.created_at,
   }
 }
 
 // ── Single row ────────────────────────────────────────────────────────────────
 
 const MovementRow = memo(function MovementRow({ m }: { m: StockMovement }) {
-  const meta = MOVEMENT_META[m.type] ?? MOVEMENT_META.adjustment
+  const meta  = MOVEMENT_META[m.type] ?? MOVEMENT_META.adjustment
   const delta = m.quantityDelta
   const isPos = delta > 0
 
@@ -151,8 +163,9 @@ const MovementRow = memo(function MovementRow({ m }: { m: StockMovement }) {
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 function exportCsv(movements: StockMovement[]) {
-  const header = ["Fecha", "Hora", "Tipo", "Producto", "Delta", "Antes", "Después", "Motivo", "Notas"]
+  const header = ["N°", "Fecha", "Hora", "Tipo", "Producto", "Delta", "Antes", "Después", "Motivo", "Notas", "Grupo operación"]
   const rows = movements.map((m) => [
+    m.movementNumber ?? "",
     format(parseISO(m.createdAt), "dd/MM/yyyy"),
     format(parseISO(m.createdAt), "HH:mm"),
     MOVEMENT_META[m.type]?.label ?? m.type,
@@ -162,6 +175,7 @@ function exportCsv(movements: StockMovement[]) {
     m.quantityAfter  ?? "",
     m.reason ?? "",
     m.notes  ?? "",
+    m.operationGroupId ?? "",
   ])
   const csv = [header, ...rows]
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
@@ -180,27 +194,50 @@ function exportCsv(movements: StockMovement[]) {
 const PAGE_SIZE = 30
 
 interface StockMovementsPanelProps {
-  /** Restrict display to movements for a specific product. */
   productId?: string
 }
 
 export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
   const supabase = createClient()
 
-  const [open,       setOpen]       = useState(false)
-  const [movements,  setMovements]  = useState<StockMovement[]>([])
-  const [loading,    setLoading]    = useState(false)
-  const [hasMore,    setHasMore]    = useState(true)
-  const [page,       setPage]       = useState(0)
-  const [filter,     setFilter]     = useState<FilterTab>("all")
-  const [search,     setSearch]     = useState("")
+  const [open,      setOpen]      = useState(false)
+  const [movements, setMovements] = useState<StockMovement[]>([])
+  const [loading,   setLoading]   = useState(false)
+  const [hasMore,   setHasMore]   = useState(true)
+  const [filter,    setFilter]    = useState<FilterTab>("all")
+  const [search,    setSearch]    = useState("")
 
-  // ── Fetch page ────────────────────────────────────────────────────────────
-  const fetchPage = useCallback(async (reset: boolean) => {
+  /**
+   * Item 12 — stale-closure fix.
+   * We track the current page in a ref instead of state so that fetchPage
+   * does NOT need to capture `page` from its closure. This makes fetchPage
+   * stable (only supabase + productId as deps) and prevents double-fetches
+   * in React Strict Mode.
+   */
+  const pageRef = useRef(0)
+
+  /**
+   * Fetch one page of movements.
+   *
+   * @param reset       – true  → start from page 0, replace the list
+   *                      false → load the next page, append to the list
+   * @param activeFilter – the filter tab to push to the DB query (item 10)
+   *
+   * Item 10: type filtering is pushed to the Supabase query (.in()) so
+   * the server only returns matching rows. Previously this was done client-
+   * side on the loaded page, meaning "filter by Pérdidas" showed no results
+   * even if there were 200 loss records on other pages.
+   */
+  const fetchPage = useCallback(async (reset: boolean, activeFilter: FilterTab) => {
     setLoading(true)
-    const from = reset ? 0 : page * PAGE_SIZE
+
+    const currentPage = reset ? 0 : pageRef.current
+    const from = currentPage * PAGE_SIZE
     const to   = from + PAGE_SIZE - 1
 
+    // Keep the products JOIN as fallback for rows that predate migration 000005
+    // (before product_name was denormalised). After all rows are backfilled
+    // (migration does this on deploy) this JOIN becomes a no-op overhead.
     let query = supabase
       .from("stock_movements")
       .select("*, products(name)")
@@ -211,55 +248,55 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
       query = query.eq("product_id", productId)
     }
 
+    // Item 10: server-side type filter
+    if (activeFilter === "inbound")     query = query.in("type", INBOUND_TYPES)
+    if (activeFilter === "outbound")    query = query.in("type", OUTBOUND_TYPES)
+    if (activeFilter === "adjustments") query = query.in("type", ADJUSTMENT_TYPES)
+
     const { data, error } = await query
 
     if (!error && data) {
       const mapped = data.map(mapMovement)
       setMovements((prev) => reset ? mapped : [...prev, ...mapped])
       setHasMore(data.length === PAGE_SIZE)
-      if (!reset) setPage((p) => p + 1)
-      else setPage(1)
+      // Update the ref (not state) — avoids triggering extra renders / closures
+      pageRef.current = reset ? 1 : currentPage + 1
     }
+
     setLoading(false)
-  }, [supabase, page, productId])
+  }, [supabase, productId]) // note: no `page` or `filter` in deps — both passed explicitly
 
-  // ── Fetch on open ────────────────────────────────────────────────────────
+  /**
+   * Fetch (or re-fetch) whenever the panel opens OR the filter changes.
+   * Always resets to page 0 so the list is consistent with the active filter.
+   */
   useEffect(() => {
-    if (open && movements.length === 0) {
-      fetchPage(true)
+    if (open) {
+      fetchPage(true, filter)
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, filter]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Client-side filter + search ──────────────────────────────────────────
+  // ── Client-side search over loaded movements ─────────────────────────────
+  // Note: search still operates on the loaded pages only. For full-dataset
+  // search, pass `search` to fetchPage and add .ilike() to the query.
   const filtered = useMemo(() => {
-    let list = movements
+    if (!search.trim()) return movements
+    const q = search.trim().toLowerCase()
+    return movements.filter(
+      (m) =>
+        (m.productName ?? "").toLowerCase().includes(q) ||
+        (m.reason      ?? "").toLowerCase().includes(q) ||
+        (m.notes       ?? "").toLowerCase().includes(q),
+    )
+  }, [movements, search])
 
-    if (filter === "inbound")     list = list.filter((m) => INBOUND_TYPES.includes(m.type))
-    if (filter === "outbound")    list = list.filter((m) => OUTBOUND_TYPES.includes(m.type))
-    if (filter === "adjustments") list = list.filter((m) => ADJUSTMENT_TYPES.includes(m.type))
-
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      list = list.filter(
-        (m) =>
-          (m.productName ?? "").toLowerCase().includes(q) ||
-          (m.reason      ?? "").toLowerCase().includes(q) ||
-          (m.notes       ?? "").toLowerCase().includes(q),
-      )
-    }
-
-    return list
-  }, [movements, filter, search])
-
-  // ── Summary stats ─────────────────────────────────────────────────────────
+  // ── Summary stats (computed over loaded movements) ────────────────────────
   const since30d = useMemo(() => {
     const cutoff = subDays(new Date(), 30).toISOString()
     return movements.filter((m) => m.createdAt >= cutoff)
   }, [movements])
 
-  const adjustmentCount = since30d.filter((m) =>
-    ADJUSTMENT_TYPES.includes(m.type),
-  ).length
+  const adjustmentCount = since30d.filter((m) => ADJUSTMENT_TYPES.includes(m.type)).length
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -282,20 +319,27 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
               </span>
             )}
           </div>
-          {/* Summary chips — desktop only */}
+
           {!open && since30d.length > 0 && (
             <div className="hidden sm:flex items-center gap-2 shrink-0">
               <Badge variant="outline" className="text-xs tabular-nums">
-                {movements.filter((m) => INBOUND_TYPES.includes(m.type) && m.createdAt >= subDays(new Date(), 30).toISOString()).length} entradas
+                {movements.filter(
+                  (m) => INBOUND_TYPES.includes(m.type) &&
+                         m.createdAt >= subDays(new Date(), 30).toISOString(),
+                ).length} entradas
               </Badge>
               <Badge variant="outline" className="text-xs tabular-nums">
-                {movements.filter((m) => OUTBOUND_TYPES.includes(m.type) && m.createdAt >= subDays(new Date(), 30).toISOString()).length} salidas
+                {movements.filter(
+                  (m) => OUTBOUND_TYPES.includes(m.type) &&
+                         m.createdAt >= subDays(new Date(), 30).toISOString(),
+                ).length} salidas
               </Badge>
             </div>
           )}
+
           <span className="text-muted-foreground">
             {open
-              ? <ChevronDown className="h-4 w-4" />
+              ? <ChevronDown  className="h-4 w-4" />
               : <ChevronRight className="h-4 w-4" />
             }
           </span>
@@ -320,16 +364,11 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
                     : "bg-background border-border text-muted-foreground hover:text-foreground",
                 )}
               >
-                {{
-                  all:         "Todos",
-                  inbound:     "Entradas",
-                  outbound:    "Salidas",
-                  adjustments: "Ajustes",
-                }[f]}
+                {{ all: "Todos", inbound: "Entradas", outbound: "Salidas", adjustments: "Ajustes" }[f]}
               </button>
             ))}
 
-            {/* Spacer */}
+            {/* Search */}
             <div className="flex-1 min-w-[120px]">
               <Input
                 placeholder="Buscar…"
@@ -344,7 +383,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
               variant="ghost"
               size="sm"
               className="h-7 px-2"
-              onClick={() => fetchPage(true)}
+              onClick={() => fetchPage(true, filter)}
               disabled={loading}
               title="Actualizar"
             >
@@ -367,9 +406,9 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
 
           {/* Table header */}
           <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-muted/10">
-            <span className="w-[84px] text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Fecha</span>
+            <span className="w-[84px]  text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Fecha</span>
             <span className="w-[120px] text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Tipo</span>
-            <span className="flex-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Producto</span>
+            <span className="flex-1    text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Producto</span>
             <span className="hidden sm:block w-[80px] text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Antes → Después</span>
             <span className="w-16 text-right text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Δ</span>
           </div>
@@ -397,13 +436,13 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
             </div>
           </ScrollArea>
 
-          {/* Load more */}
-          {hasMore && !search && filter === "all" && (
+          {/* Load more — visible for any active filter (item 10: server filters correctly) */}
+          {hasMore && !search && (
             <div className="flex items-center justify-center px-4 py-3 border-t border-border">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => fetchPage(false)}
+                onClick={() => fetchPage(false, filter)}
                 disabled={loading}
                 className="text-xs text-muted-foreground hover:text-foreground"
               >

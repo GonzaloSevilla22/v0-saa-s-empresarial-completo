@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from "react"
 import { useData } from "@/contexts/data-context"
 import { PurchaseForm } from "@/components/forms/purchase-form"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
 import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
@@ -102,20 +102,17 @@ export default function ComprasPage() {
         onRefetch={pq.refetch}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
-        <DialogContent className="bg-card border-border overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="text-card-foreground">
-              {editingOperation ? "Editar compra" : "Nueva compra"}
-            </DialogTitle>
-          </DialogHeader>
-          <PurchaseForm
-            key={editingOperation ? editingOperation.key : "new-purchase"}
-            editingOperation={editingOperation ?? undefined}
-            onSuccess={() => { handleDialogClose(); pq.refetch() }}
-          />
-        </DialogContent>
-      </Dialog>
+      <ResponsiveModal
+        open={dialogOpen}
+        onOpenChange={(open) => { if (!open) handleDialogClose() }}
+        title={editingOperation ? "Editar compra" : "Nueva compra"}
+      >
+        <PurchaseForm
+          key={editingOperation ? editingOperation.key : "new-purchase"}
+          editingOperation={editingOperation ?? undefined}
+          onSuccess={() => { handleDialogClose(); pq.refetch() }}
+        />
+      </ResponsiveModal>
     </div>
   )
 }

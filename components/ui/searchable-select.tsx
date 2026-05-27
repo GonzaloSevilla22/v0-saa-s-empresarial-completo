@@ -36,9 +36,14 @@ interface SearchableSelectProps {
   /**
    * Custom renderer for each dropdown option row.
    * When provided, replaces the default label + sublabel rendering.
-   * The trigger button always uses opt.label regardless.
    */
   renderOption?: (opt: SearchableSelectOption, isSelected: boolean) => React.ReactNode
+  /**
+   * Custom renderer for the trigger button's selected state.
+   * When provided, replaces the single-line label span.
+   * The button height expands to fit multi-line content automatically.
+   */
+  renderTrigger?: (opt: SearchableSelectOption) => React.ReactNode
 }
 
 export function SearchableSelect({
@@ -51,10 +56,12 @@ export function SearchableSelect({
   className,
   disabled = false,
   renderOption,
+  renderTrigger,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false)
 
-  const selectedLabel = options.find((opt) => opt.value === value)?.label
+  const selectedOption = options.find((opt) => opt.value === value)
+  const selectedLabel  = selectedOption?.label
 
   function handleSelect(optionValue: string) {
     // Toggle off if same value selected again (optional, keeps parity with Select)
@@ -73,11 +80,15 @@ export function SearchableSelect({
           disabled={disabled}
           className={cn(
             "w-full justify-between font-normal bg-background border-border text-foreground",
+            renderTrigger && selectedOption ? "h-auto min-h-11 md:min-h-10 py-2" : "",
             !selectedLabel && "text-muted-foreground",
             className
           )}
         >
-          <span className="truncate">{selectedLabel ?? placeholder}</span>
+          {renderTrigger && selectedOption
+            ? renderTrigger(selectedOption)
+            : <span className="truncate">{selectedLabel ?? placeholder}</span>
+          }
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>

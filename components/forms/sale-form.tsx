@@ -13,7 +13,7 @@ import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
 import type { SaleOperation } from "@/lib/group-operations"
-import { formatPricePerUnit, formatStock } from "@/lib/format-unit"
+import { formatStock } from "@/lib/format-unit"
 import {
   unitInputStep,
   unitInputMin,
@@ -27,8 +27,8 @@ import {
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
-import { getDisplayName, getCanonicalLabel } from "@/lib/product-labels"
-import { ProductDisplay, type ProductOptionData } from "@/components/shared/product-display"
+import { getCanonicalLabel } from "@/lib/product-labels"
+import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
@@ -129,32 +129,6 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const productById = useMemo(
     () => new Map(products.map((p) => [p.id, p])),
     [products],
-  )
-
-  const productOptions = useMemo(
-    () =>
-      products
-        .filter((p) => !parentProductIds.has(p.id))
-        .map((p) => {
-          const parent   = p.parentId ? productById.get(p.parentId) : undefined
-          const baseUnit = resolveUnit(p.baseUnitId, unitsById)
-          const priceLabel  = formatPricePerUnit(p.price, baseUnit?.symbol, currency)
-          const stockLabel  = formatStock(p.stock, baseUnit?.symbol)
-
-          return {
-            value: p.id,
-            label: getDisplayName(p, parent),
-            data: {
-              name:       p.name,
-              parentName: parent?.name,
-              price:      p.price,
-              stock:      p.stock,
-              unitSymbol: baseUnit?.symbol,
-            } satisfies ProductOptionData,
-          }
-        }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [products, parentProductIds, productById, unitsById, currency],
   )
 
   const clientOptions = useMemo(
@@ -616,27 +590,13 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             <BarcodeScannerInput onScan={handleBarcodeScan} />
           </div>
 
-          <SearchableSelect
-            options={productOptions}
+          <ProductPicker
+            products={products}
+            productById={productById}
+            unitsById={unitsById}
             value={productId}
             onValueChange={handleProductChange}
-            placeholder="Seleccionar producto"
-            searchPlaceholder="Buscar producto..."
-            emptyMessage="No se encontraron productos."
-            renderOption={(opt) => {
-              const d = opt.data as ProductOptionData
-              return (
-                <ProductDisplay
-                  mode="option"
-                  name={d.name}
-                  parentName={d.parentName}
-                  price={d.price}
-                  stock={d.stock}
-                  unitSymbol={d.unitSymbol}
-                  currency={currency}
-                />
-              )
-            }}
+            currency={currency}
           />
 
           {selectedProduct && (

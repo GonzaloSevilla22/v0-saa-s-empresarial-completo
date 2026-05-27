@@ -28,6 +28,7 @@ import {
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
+import { getDisplayName, getCanonicalLabel } from "@/lib/product-labels"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
@@ -123,20 +124,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
       products
         .filter((p) => !parentProductIds.has(p.id))
         .map((p) => {
-          const parent = p.parentId ? productById.get(p.parentId) : undefined
-          const displayName =
-            parent && !p.name.toLowerCase().startsWith(parent.name.toLowerCase())
-              ? `${parent.name} › ${p.name}`
-              : p.name
-
-          // Resolve base unit for unit-aware cost and stock labels
-          const baseUnit   = resolveUnit(p.baseUnitId, unitsById)
+          const parent   = p.parentId ? productById.get(p.parentId) : undefined
+          const baseUnit = resolveUnit(p.baseUnitId, unitsById)
           const costLabel  = formatPricePerUnit(p.cost, baseUnit?.symbol)
           const stockLabel = formatStock(p.stock, baseUnit?.symbol)
 
           return {
-            value: p.id,
-            label: `${displayName} (Costo: ${costLabel} · Stock: ${stockLabel})`,
+            value:    p.id,
+            label:    getDisplayName(p, parent),
+            sublabel: `Costo: ${costLabel} · Stock: ${stockLabel}`,
           }
         }),
     [products, parentProductIds, productById, unitsById],
@@ -195,7 +191,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           {
             id:           crypto.randomUUID(),
             productId:    product.id,
-            productName:  product.name,
+            productName:  getCanonicalLabel(product, product.parentId ? productById.get(product.parentId) : undefined),
             unitCost:     product.cost,
             quantity:     qty,
             subtotal:     calcPurchaseSubtotal(product.cost, qty),
@@ -209,7 +205,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         ]
       }
     })
-  }, [products, parentProductIds, unitsById])
+  }, [products, parentProductIds, unitsById, productById])
 
   function handleProductChange(id: string) {
     setProductId(id)
@@ -258,7 +254,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         {
           id:           crypto.randomUUID(),
           productId:    selectedProduct.id,
-          productName:  selectedProduct.name,
+          productName:  getCanonicalLabel(selectedProduct, selectedProduct.parentId ? productById.get(selectedProduct.parentId) : undefined),
           unitCost,
           quantity,
           subtotal:     stagedSubtotal,

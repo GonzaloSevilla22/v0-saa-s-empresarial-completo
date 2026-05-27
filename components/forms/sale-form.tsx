@@ -27,6 +27,7 @@ import {
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
+import { getDisplayName, getCanonicalLabel } from "@/lib/product-labels"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
@@ -60,6 +61,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
   // ── Current item being staged ───────────────────────────────────────────────
   const [productId, setProductId] = useState("")
+  const [unitPrice, setUnitPrice] = useState(0)
   const [quantity, setQuantity] = useState(1)
   const [discount, setDiscount] = useState(0)
   const [unitId, setUnitId] = useState("")
@@ -101,8 +103,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
   const stagedSubtotal = useMemo(
-    () => (selectedProduct ? calcSaleSubtotal(selectedProduct.price, quantity, discount) : 0),
-    [selectedProduct, quantity, discount],
+    () => (selectedProduct ? calcSaleSubtotal(unitPrice, quantity, discount) : 0),
+    [selectedProduct, unitPrice, quantity, discount],
   )
 
   // Quantity converted to base unit — used for local stock validation
@@ -133,20 +135,15 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       products
         .filter((p) => !parentProductIds.has(p.id))
         .map((p) => {
-          const parent = p.parentId ? productById.get(p.parentId) : undefined
-          const displayName =
-            parent && !p.name.toLowerCase().startsWith(parent.name.toLowerCase())
-              ? `${parent.name} › ${p.name}`
-              : p.name
-
-          // Resolve base unit for this product to show unit-aware price and stock
+          const parent   = p.parentId ? productById.get(p.parentId) : undefined
           const baseUnit = resolveUnit(p.baseUnitId, unitsById)
           const priceLabel  = formatPricePerUnit(p.price, baseUnit?.symbol, currency)
           const stockLabel  = formatStock(p.stock, baseUnit?.symbol)
 
           return {
-            value: p.id,
-            label: `${displayName} — ${priceLabel} (Stock: ${stockLabel})`,
+            value:    p.id,
+            label:    getDisplayName(p, parent),
+            sublabel: `${priceLabel} · Stock: ${stockLabel}`,
           }
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,7 +207,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           {
             id:           crypto.randomUUID(),
             productId:    product.id,
-            productName:  product.name,
+            productName:  getCanonicalLabel(product, product.parentId ? productById.get(product.parentId) : undefined),
             unitPrice:    product.price,
             quantity:     qty,
             discount:     0,
@@ -225,7 +222,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         ]
       }
     })
-  }, [products, parentProductIds, unitsById])
+  }, [products, parentProductIds, unitsById, productById])
 
   function handleProductChange(id: string) {
     setProductId(id)
@@ -234,6 +231,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     // Pre-select the product's base unit so step/min are immediately correct
     const p = products.find((x) => x.id === id)
     setUnitId(p?.baseUnitId ?? "")
+    setUnitPrice(p?.price ?? 0)
   }
 
   function handleAddToCart() {
@@ -261,7 +259,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                 ...item,
                 quantity:      newQty,
                 quantityBase:  newNormalized,
-                subtotal:      calcSaleSubtotal(selectedProduct.price, newQty, item.discount),
+                subtotal:      calcSaleSubtotal(item.unitPrice, newQty, item.discount),
               }
             : item,
         ),
@@ -278,8 +276,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         {
           id:            crypto.randomUUID(),
           productId:     selectedProduct.id,
-          productName:   selectedProduct.name,
-          unitPrice:     selectedProduct.price,
+          productName:   getCanonicalLabel(selectedProduct, selectedProduct.parentId ? productById.get(selectedProduct.parentId) : undefined),
+          unitPrice:     unitPrice,
           quantity,
           discount,
           subtotal:      stagedSubtotal,
@@ -296,6 +294,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
     // Reset staged item
     setProductId("")
+    setUnitPrice(0)
     setQuantity(1)
     setDiscount(0)
     setUnitId("")
@@ -621,6 +620,24 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
           {selectedProduct && (
             <div className="flex flex-col gap-2">
+              {/* Row 0: Precio unitario */}
+              <div className="flex flex-col gap-1">
+                <Label className="text-[10px] text-muted-foreground flex items-center justify-between">
+                  Precio unit.
+                  {unitPrice !== selectedProduct!.price && (
+                    <span className="text-[9px] text-amber-400 tabular-nums">
+                      Cat. {formatMoney(selectedProduct!.price, currency)}
+                    </span>
+                  )}
+                </Label>
+                <NumericInput
+                  min={0}
+                  step={1}
+                  value={unitPrice}
+                  onValueChange={setUnitPrice}
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
               {/* Row 1: Cantidad + Unidad */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="flex flex-col gap-1">

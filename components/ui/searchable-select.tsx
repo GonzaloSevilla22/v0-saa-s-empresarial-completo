@@ -16,9 +16,12 @@ import { cn } from "@/lib/utils"
 
 export interface SearchableSelectOption {
   value: string
+  /** Used by cmdk for filtering and shown in the trigger button. */
   label: string
-  /** Optional secondary text shown to the right in the dropdown (e.g. "Stock: 42") */
+  /** Fallback secondary text shown to the right when renderOption is not provided. */
   sublabel?: string
+  /** Arbitrary structured data passed as-is to renderOption. */
+  data?: unknown
 }
 
 interface SearchableSelectProps {
@@ -30,6 +33,12 @@ interface SearchableSelectProps {
   emptyMessage?: string
   className?: string
   disabled?: boolean
+  /**
+   * Custom renderer for each dropdown option row.
+   * When provided, replaces the default label + sublabel rendering.
+   * The trigger button always uses opt.label regardless.
+   */
+  renderOption?: (opt: SearchableSelectOption, isSelected: boolean) => React.ReactNode
 }
 
 export function SearchableSelect({
@@ -41,6 +50,7 @@ export function SearchableSelect({
   emptyMessage = "Sin resultados.",
   className,
   disabled = false,
+  renderOption,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false)
 
@@ -95,12 +105,19 @@ export function SearchableSelect({
                       value === opt.value ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  <span className="flex-1 truncate">{opt.label}</span>
-                  {opt.sublabel && (
-                    <span className="ml-3 shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {opt.sublabel}
-                    </span>
-                  )}
+                  {renderOption
+                    ? renderOption(opt, value === opt.value)
+                    : (
+                      <>
+                        <span className="flex-1 truncate">{opt.label}</span>
+                        {opt.sublabel && (
+                          <span className="ml-3 shrink-0 text-xs text-muted-foreground tabular-nums">
+                            {opt.sublabel}
+                          </span>
+                        )}
+                      </>
+                    )
+                  }
                 </CommandItem>
               ))}
             </CommandGroup>

@@ -29,6 +29,7 @@ import {
 } from "@/lib/cart-utils"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getDisplayName, getCanonicalLabel } from "@/lib/product-labels"
+import { ProductDisplay, type ProductOptionData } from "@/components/shared/product-display"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
@@ -130,9 +131,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           const stockLabel = formatStock(p.stock, baseUnit?.symbol)
 
           return {
-            value:    p.id,
-            label:    getDisplayName(p, parent),
-            sublabel: `Costo: ${costLabel} · Stock: ${stockLabel}`,
+            value: p.id,
+            label: getDisplayName(p, parent),
+            data: {
+              name:       p.name,
+              parentName: parent?.name,
+              price:      p.cost,
+              stock:      p.stock,
+              unitSymbol: baseUnit?.symbol,
+            } satisfies ProductOptionData,
           }
         }),
     [products, parentProductIds, productById, unitsById],
@@ -585,6 +592,19 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
               placeholder="Seleccionar producto"
               searchPlaceholder="Buscar producto..."
               emptyMessage="No se encontraron productos."
+              renderOption={(opt) => {
+                const d = opt.data as ProductOptionData
+                return (
+                  <ProductDisplay
+                    mode="option"
+                    name={d.name}
+                    parentName={d.parentName}
+                    price={d.price}
+                    stock={d.stock}
+                    unitSymbol={d.unitSymbol}
+                  />
+                )
+              }}
             />
           )}
 

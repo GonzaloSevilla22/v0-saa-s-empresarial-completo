@@ -28,6 +28,7 @@ import {
 } from "@/lib/cart-utils"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getDisplayName, getCanonicalLabel } from "@/lib/product-labels"
+import { ProductDisplay, type ProductOptionData } from "@/components/shared/product-display"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 
@@ -141,9 +142,15 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           const stockLabel  = formatStock(p.stock, baseUnit?.symbol)
 
           return {
-            value:    p.id,
-            label:    getDisplayName(p, parent),
-            sublabel: `${priceLabel} · Stock: ${stockLabel}`,
+            value: p.id,
+            label: getDisplayName(p, parent),
+            data: {
+              name:       p.name,
+              parentName: parent?.name,
+              price:      p.price,
+              stock:      p.stock,
+              unitSymbol: baseUnit?.symbol,
+            } satisfies ProductOptionData,
           }
         }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -616,6 +623,20 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             placeholder="Seleccionar producto"
             searchPlaceholder="Buscar producto..."
             emptyMessage="No se encontraron productos."
+            renderOption={(opt) => {
+              const d = opt.data as ProductOptionData
+              return (
+                <ProductDisplay
+                  mode="option"
+                  name={d.name}
+                  parentName={d.parentName}
+                  price={d.price}
+                  stock={d.stock}
+                  unitSymbol={d.unitSymbol}
+                  currency={currency}
+                />
+              )
+            }}
           />
 
           {selectedProduct && (

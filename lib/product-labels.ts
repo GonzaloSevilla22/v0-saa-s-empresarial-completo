@@ -50,6 +50,17 @@ export function getExportLabel(product: Product, parent?: Product): string {
 }
 
 /**
+ * Inverse of getCanonicalLabel — splits "Parent / Variant" back into parts.
+ * Safe to use on standalone names (no " / " present → returns name only).
+ * The separator includes spaces so bare "/" in product names is never a false match.
+ */
+export function parseProductName(canonical: string): { name: string; parentName?: string } {
+  const idx = canonical.indexOf(" / ")
+  if (idx === -1) return { name: canonical }
+  return { parentName: canonical.slice(0, idx), name: canonical.slice(idx + 3) }
+}
+
+/**
  * Full-text search blob — lowercase, diacritics stripped.
  * Includes all tokens: variant name, parent name, SKU, barcode.
  *

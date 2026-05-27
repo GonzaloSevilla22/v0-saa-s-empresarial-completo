@@ -102,20 +102,17 @@ export default function DashboardPage() {
         <KpiCard
           title="Ventas hoy"
           value={loadingKpis ? "—" : `$${todaySales.toLocaleString()}`}
-          change={15}
           icon={DollarSign}
         />
         <KpiCard
           title="Gastos hoy"
           value={loadingKpis ? "—" : `$${todayExpenses.toLocaleString()}`}
-          change={-8}
           icon={TrendingDown}
           iconColor="text-red-400"
         />
         <KpiCard
           title="Ganancia neta"
           value={loadingKpis ? "—" : `$${netProfit.toLocaleString()}`}
-          change={12}
           icon={TrendingUp}
         />
         <KpiCard

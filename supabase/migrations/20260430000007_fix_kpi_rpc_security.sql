@@ -115,6 +115,7 @@ BEGIN
   SELECT COUNT(id) INTO v_count
   FROM public.products
   WHERE user_id = v_uid
+    AND min_stock > 0          -- exclude products with no threshold configured
     AND stock <= min_stock;
 
   RETURN COALESCE(v_count, 0);

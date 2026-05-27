@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { useData } from "@/contexts/data-context"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -65,23 +65,29 @@ export default function StockPage() {
   const { products, getLowStockProducts, refreshData } = useData()
   const lowStock = getLowStockProducts()
   const { isAdmin } = useAuth()
-  const supabase = createClient()
 
+  // Keep a stable ref to refreshData so the realtime handler always calls the
+  // latest version without adding it to the effect's dependency array (which
+  // would recreate the subscription on every DataContext render).
+  const refreshDataRef = useRef(refreshData)
+  useEffect(() => { refreshDataRef.current = refreshData }, [refreshData])
+
+  // Subscribe to product changes once on mount. createClient() is scoped
+  // inside the effect so it is never part of the dependency array.
   useEffect(() => {
+    const supabase = createClient()
     const channel = supabase
       .channel('stock-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'products' }, 
-        () => {
-          refreshData()
-        }
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'products' },
+        () => { refreshDataRef.current() }
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [supabase, refreshData])
+  }, []) // intentionally empty — subscription is created once on mount
 
   return (
     <div className="flex flex-col gap-6">

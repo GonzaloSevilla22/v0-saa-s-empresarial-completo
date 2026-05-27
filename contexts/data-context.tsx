@@ -577,7 +577,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [sales, purchases, expenses])
 
   const getLowStockProducts = useCallback(() => {
-    return products.filter((p) => p.stock <= p.minStock)
+    return products.filter((p) => p.minStock > 0 && p.stock <= p.minStock)
   }, [products])
 
   const getSalesByDay = useCallback(

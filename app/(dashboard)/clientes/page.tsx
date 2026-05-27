@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react"
 import { useData } from "@/contexts/data-context"
 import { ClientForm } from "@/components/forms/client-form"
+import { ClientImportDialog } from "@/components/clientes/client-import-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,14 +12,12 @@ import { PaginationBar } from "@/components/ui/pagination-bar"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { useAuth } from "@/contexts/auth-context"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
-import { formatMoney } from "@/lib/format"
 import { exportToCSV } from "@/lib/excel"
 import {
   Plus, Trash2, Pencil, Search, PackageOpen, Download, Upload, Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Client } from "@/lib/types"
-import { useRef } from "react"
 
 const statusColors: Record<string, string> = {
   activo:   "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -40,13 +39,12 @@ function mapRow(r: any): Client {
 }
 
 export default function ClientesPage() {
-  const { deleteClient, addClient } = useData()
+  const { deleteClient } = useData()
   const { isAdmin } = useAuth()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [importing,   setImporting]   = useState(false)
-  const [open,        setOpen]        = useState(false)
+  const [importOpen,    setImportOpen]    = useState(false)
+  const [open,          setOpen]          = useState(false)
   const [editingClient, setEditingClient] = useState<Client | undefined>()
-  const [deletingId,  setDeletingId]  = useState<string | null>(null)
+  const [deletingId,    setDeletingId]    = useState<string | null>(null)
 
   // ── Paginated query — name/email search server-side ──────────────────────
   const pq = usePaginatedQuery<any>({
@@ -88,48 +86,6 @@ export default function ClientesPage() {
     toast.success(`Exportados ${clients.length} clientes`)
   }
 
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImporting(true)
-    try {
-      const { parseCSV, readFileAsText, validateImportColumns } = await import("@/lib/excel")
-      const text = await readFileAsText(file)
-      const headers = [{ csvHeader: "Nombre", key: "name" }, { csvHeader: "Email", key: "email" },
-                       { csvHeader: "Teléfono", key: "phone" }, { csvHeader: "Estado", key: "status" }]
-      const val = validateImportColumns(text, ["Nombre"])
-      if (!val.ok) { toast.error(`Columna requerida faltante: Nombre`); return }
-
-      const rows = parseCSV(text, headers)
-      const validStatuses = new Set(["activo", "inactivo", "perdido"])
-      let success = 0; const errors: string[] = []
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i]
-        if (!row.name?.trim()) { errors.push(`Fila ${i + 2}: nombre requerido`); continue }
-        const status = row.status?.toLowerCase().trim() ?? ""
-        try {
-          await addClient({
-            name:  row.name.trim(), email: row.email?.trim() || "",
-            phone: row.phone?.trim() || "",
-            status: validStatuses.has(status) ? (status as any) : "activo",
-            lastPurchase: "-", totalSpent: 0,
-          })
-          success++
-        } catch (err: any) {
-          errors.push(`Fila ${i + 2}: ${err?.message ?? "error"}`)
-        }
-      }
-      if (success > 0) { toast.success(`${success} cliente${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""}`); pq.refetch() }
-      if (errors.length > 0) errors.slice(0, 3).forEach((e) => toast.error(e))
-    } catch (err: any) {
-      toast.error(err?.message || "Error al leer el archivo.")
-    } finally {
-      setImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
-    }
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -162,10 +118,9 @@ export default function ClientesPage() {
               : `${pq.meta.totalCount} cliente${pq.meta.totalCount !== 1 ? "s" : ""}`
             }
           </span>
-          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImport} />
-          <Button variant="outline" size="sm" disabled={importing} className="border-border text-foreground"
-            onClick={() => fileInputRef.current?.click()}>
-            <Upload className="h-4 w-4 mr-1" />{importing ? "Importando..." : "Importar CSV"}
+          <Button variant="outline" size="sm" className="border-border text-foreground"
+            onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-1" />Importar CSV
           </Button>
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Exportar
@@ -296,6 +251,12 @@ export default function ClientesPage() {
           />
         </DialogContent>
       </Dialog>
+
+      <ClientImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onSuccess={() => pq.refetch()}
+      />
     </div>
   )
 }

@@ -38,6 +38,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import {
   ArrowDownCircle, ArrowUpCircle, ClipboardList,
   AlertTriangle, Wrench, Timer, ArrowRightLeft,
@@ -474,6 +475,16 @@ function ProductRow({
     ? propProduct
     : allProducts.find((p) => p.id === item.productId)
 
+  // Build options once — cmdk does the filtering on keystroke
+  const productOptions = useMemo(
+    () => adjustableProducts.map((p) => ({
+      value:    p.id,
+      label:    p.name,
+      sublabel: `Stock: ${p.stock}`,
+    })),
+    [adjustableProducts],
+  )
+
   const parsedQty   = parseFloat(item.quantity)
   const previewDelta: number | null = useMemo(() => {
     if (isNaN(parsedQty) || parsedQty < 0) return null
@@ -523,21 +534,14 @@ function ProductRow({
           </div>
         </div>
       ) : (
-        <Select value={item.productId} onValueChange={onProductChange}>
-          <SelectTrigger className="bg-background border-border text-foreground">
-            <SelectValue placeholder="Seleccioná un producto…" />
-          </SelectTrigger>
-          <SelectContent className="bg-card border-border max-h-60 overflow-y-auto">
-            {adjustableProducts.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                <span className="font-medium">{p.name}</span>
-                <span className="text-muted-foreground ml-2 text-xs tabular-nums">
-                  Stock: {p.stock}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          options={productOptions}
+          value={item.productId}
+          onValueChange={onProductChange}
+          placeholder="Seleccioná un producto…"
+          searchPlaceholder="Buscar producto…"
+          emptyMessage="No se encontraron productos."
+        />
       )}
 
       {/* Quantity */}

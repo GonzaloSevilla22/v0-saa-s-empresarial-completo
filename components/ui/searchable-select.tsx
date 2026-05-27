@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils"
 export interface SearchableSelectOption {
   value: string
   label: string
+  /** Optional secondary text shown to the right in the dropdown (e.g. "Stock: 42") */
+  sublabel?: string
 }
 
 interface SearchableSelectProps {
@@ -89,11 +91,16 @@ export function SearchableSelect({
                 >
                   <Check
                     className={cn(
-                      "mr-2 h-4 w-4",
+                      "mr-2 h-4 w-4 shrink-0",
                       value === opt.value ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  {opt.label}
+                  <span className="flex-1 truncate">{opt.label}</span>
+                  {opt.sublabel && (
+                    <span className="ml-3 shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {opt.sublabel}
+                    </span>
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>

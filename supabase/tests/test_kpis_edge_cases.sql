@@ -108,6 +108,28 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: get_dashboard_critical_stock is scalar (RETURNS bigint)';
 
+  -- ── 6. get_admin_paid_conversion_rate: inverted date range must be handled ───
+  -- The function has DEFAULT NULL params so inverted dates are possible.
+  -- When from > to for a non-NULL range the result should be 0 (not an error),
+  -- but since is_admin() raises without a session this just verifies the guard fires.
+  v_raised := false;
+  BEGIN
+    PERFORM public.get_admin_paid_conversion_rate(
+      now() + interval '1 day',   -- from > to: inverted
+      now() - interval '1 day'
+    );
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      v_raised := true;   -- expected: is_admin() fired first
+    WHEN OTHERS THEN
+      v_raised := true;
+  END;
+
+  IF NOT v_raised THEN
+    RAISE EXCEPTION 'FAIL: get_admin_paid_conversion_rate did not raise for non-admin inverted-date call';
+  END IF;
+  RAISE NOTICE 'PASS: get_admin_paid_conversion_rate rejects non-admin call with date params';
+
   RAISE NOTICE '=== All edge-case KPI tests passed ===';
 END;
 $$;

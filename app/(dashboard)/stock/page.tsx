@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ProductForm } from "@/components/forms/product-form"
 import { Button } from "@/components/ui/button"
 import { SlidersHorizontal } from "lucide-react"
-import { toast } from "sonner"
 import type { Product } from "@/lib/types"
 
 const columns: Column<Product>[] = [
@@ -175,17 +174,6 @@ export default function StockPage() {
           { key: "minStock", header: "Stock mínimo"  },
         ]}
         exportFilename="stock"
-        importColumnMap={[
-          { csvHeader: "Producto",     key: "name"     },
-          { csvHeader: "Stock actual", key: "stock"    },
-        ]}
-        onImport={() => {
-          toast.info(
-            "El stock se actualiza automáticamente al registrar compras y ventas. " +
-            "Para ajustar el inventario usá el botón \"Ajustar stock\".",
-            { duration: 6000 },
-          )
-        }}
       />
 
       {/* ── Movements audit log ───────────────────────────────────────────── */}

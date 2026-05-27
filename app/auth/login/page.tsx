@@ -20,6 +20,11 @@ export default function LoginPage() {
   const [isMagicLink, setIsMagicLink] = useState(false)
   const { login } = useAuth()
   const router = useRouter()
+  // Restore the destination the user was trying to reach before being redirected to login
+  const searchParams = typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search)
+    : new URLSearchParams()
+  const nextPath = searchParams.get("next") ?? "/dashboard"
 
   const [isLoading, setIsLoading] = useState(false)
 
@@ -28,7 +33,7 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       await login(email, password)
-      router.push("/dashboard")
+      router.push(nextPath)
     } catch (error: any) {
       toast.error(error.message)
     } finally {

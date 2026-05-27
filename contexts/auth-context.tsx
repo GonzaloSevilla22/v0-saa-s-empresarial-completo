@@ -53,49 +53,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     try {
-      const { data: { session }, error } = await supabase.auth.getSession()
-      if (error || !session) {
+      // getUser() validates the JWT server-side (network call).
+      // getSession() only trusts the local cookie — never use it as an auth check.
+      // The middleware already calls getUser() on every request, so this
+      // client-side call is for hydrating the React state after confirmed auth.
+      const { data: { user: authUser }, error } = await supabase.auth.getUser()
+      if (error || !authUser) {
         setUser(null)
         return
       }
-
-      // Fetch profile data for plan and role
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
         .single()
 
       if (profile) {
         setUser({
-          id:           session.user.id,
-          email:        session.user.email || "",
-          plan:         (profile.plan as Plan) ?? 'free',
+          id:           authUser.id,
+          email:        authUser.email || "",
+          plan:         (profile.plan as Plan) ?? "free",
           role:         profile.role as UserRole,
-          // Personal profile
-          name:         profile.name || session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
+          name:         profile.name || authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
           lastName:     profile.last_name     ?? undefined,
           avatar:       profile.avatar_url    ?? undefined,
           businessName: profile.business_name ?? undefined,
           phone:        profile.phone         ?? undefined,
           bio:          profile.bio           ?? undefined,
-          // System preferences (use DB value or sensible defaults)
-          currency:     profile.currency    ?? 'ARS',
-          timezone:     profile.timezone    ?? 'America/Argentina/Buenos_Aires',
-          dateFormat:   profile.date_format ?? 'DD/MM/YYYY',
-          language:     profile.language    ?? 'es',
+          currency:     profile.currency    ?? "ARS",
+          timezone:     profile.timezone    ?? "America/Argentina/Buenos_Aires",
+          dateFormat:   profile.date_format ?? "DD/MM/YYYY",
+          language:     profile.language    ?? "es",
         })
       } else {
         setUser({
-          id:         session.user.id,
-          email:      session.user.email || "",
-          plan:       'free',
-          role:       'user',
-          name:       session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
-          currency:   'ARS',
-          timezone:   'America/Argentina/Buenos_Aires',
-          dateFormat: 'DD/MM/YYYY',
-          language:   'es',
+          id:         authUser.id,
+          email:      authUser.email || "",
+          plan:       "free",
+          role:       "user",
+          name:       authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          currency:   "ARS",
+          timezone:   "America/Argentina/Buenos_Aires",
+          dateFormat: "DD/MM/YYYY",
+          language:   "es",
         })
       }
     } catch (e) {
@@ -108,8 +108,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshSession()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      refreshSession()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      // TOKEN_REFRESHED fires every ~hour — middleware already rotates the cookie,
+      // no need to re-query the DB. Only react to events that change user state.
+      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        refreshSession()
+      } else if (event === "SIGNED_OUT") {
+        setUser(null)
+      }
     })
 
     return () => {
@@ -128,35 +134,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const login = useCallback(async (email: string, password: string) => {
-    console.log("[Auth] Iniciando flujo de login tradicional para:", email)
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    if (error) {
-      console.error("[Auth] Error en login:", error.message)
-      throw error
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
     await refreshSession()
     router.push("/dashboard")
   }, [supabase, router, refreshSession])
 
   const loginWithMagicLink = useCallback(async (email: string) => {
     const siteUrl = getSiteUrl()
-    console.log("[Auth] Iniciando flujo Magic Link. URL callback configurada a:", `${siteUrl}/auth/callback`)
-
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
-      }
+      options: { emailRedirectTo: `${siteUrl}/auth/callback` },
     })
-    if (error) {
-      console.error("[Auth] Error enviando email de Magic Link:", error.message)
-      throw error
-    }
-    console.log("[Auth] Email de magic link enviado correctamente a:", email)
+    if (error) throw error
   }, [supabase])
 
   const register = useCallback(async (name: string, email: string, password: string) => {
@@ -169,15 +160,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: {
         data: { name },
-        // After email confirmation the link lands here and the session is created.
         emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     })
-    if (error) {
-      console.error("[Auth] Error en registro:", error.message)
-      throw error
-    }
-    console.log("[Auth] Registro iniciado. Email de confirmación enviado a:", email)
+    if (error) throw error
     // Navigation is handled by the caller (register/page.tsx) so this function
     // remains a pure auth operation, reusable from any context without side-effects.
   }, [supabase])
@@ -185,7 +171,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
-    router.push("/")
+    // Clear tenant cookie on logout so a different user doesn't inherit the workspace
+    document.cookie = "tenant:active=; path=/; max-age=0"
+    router.push("/auth/login")
   }, [supabase, router])
 
   const updateProfile = useCallback(async (data: ProfileUpdateData) => {

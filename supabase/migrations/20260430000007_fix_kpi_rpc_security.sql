@@ -147,23 +147,24 @@ BEGIN
     RETURN 0::numeric;
   END IF;
 
-  WITH cohort_users AS (
-    SELECT id FROM public.profiles
-    WHERE created_at >= p_date_from AND created_at <= p_date_to
-  ),
-  activated AS (
-    SELECT COUNT(DISTINCT ae.user_id) AS cnt
-    FROM public.analytics_events ae
-    INNER JOIN cohort_users cu ON ae.user_id = cu.id
-    WHERE ae.event_name = 'first_operation'
+  -- Single-scan approach: compute total cohort size and activated count in one pass
+  -- to avoid evaluating the cohort_users CTE twice (PostgreSQL 12+ inlines CTEs).
+  WITH cohort_counts AS (
+    SELECT
+      COUNT(DISTINCT p.id)                                             AS total_cohort,
+      COUNT(DISTINCT ae.user_id)                                       AS activated_count
+    FROM public.profiles p
+    LEFT JOIN public.analytics_events ae
+           ON ae.user_id    = p.id
+          AND ae.event_name = 'first_operation'
+    WHERE p.created_at >= p_date_from
+      AND p.created_at <= p_date_to
   )
   SELECT COALESCE(
-    ROUND(
-      (a.cnt::numeric / NULLIF((SELECT COUNT(*) FROM cohort_users), 0)) * 100,
-      2
-    ), 0
+    ROUND(activated_count::numeric / NULLIF(total_cohort, 0) * 100, 2),
+    0
   ) INTO v_rate
-  FROM activated a;
+  FROM cohort_counts;
 
   RETURN v_rate;
 END;
@@ -190,6 +191,10 @@ BEGIN
     RETURN 0::numeric;
   END IF;
 
+  -- Denominator: users who activated within the selected period.
+  -- Numerator:   those same users who generated an insight at ANY point —
+  --              no upper-bound date so users who activated on day 1 but
+  --              reached UMV on day 8 are counted correctly.
   WITH activated AS (
     SELECT DISTINCT user_id FROM public.analytics_events
     WHERE event_name = 'first_operation'
@@ -200,7 +205,7 @@ BEGIN
     FROM public.analytics_events ae
     INNER JOIN activated a ON ae.user_id = a.user_id
     WHERE ae.event_name = 'insight_generated'
-      AND ae.created_at >= p_date_from AND ae.created_at <= p_date_to
+    -- Intentionally no date filter: did the user EVER reach UMV after activating?
   )
   SELECT COALESCE(
     ROUND(
@@ -214,7 +219,15 @@ END;
 $$;
 
 -- ── get_admin_paid_conversion_rate ────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION public.get_admin_paid_conversion_rate()
+-- Optional date params allow period-scoped cohort analysis (profiles registered
+-- between p_date_from and p_date_to). When omitted, returns the all-time snapshot.
+-- The old 0-param overload is dropped first to prevent signature ambiguity.
+DROP FUNCTION IF EXISTS public.get_admin_paid_conversion_rate();
+
+CREATE OR REPLACE FUNCTION public.get_admin_paid_conversion_rate(
+  p_date_from timestamptz DEFAULT NULL,
+  p_date_to   timestamptz DEFAULT NULL
+)
 RETURNS numeric
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -227,13 +240,17 @@ BEGIN
     RAISE EXCEPTION 'Admin access required' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
+  -- When dates are supplied: % of the registered cohort that is on 'pro' plan.
+  -- When NULL: all-time snapshot across all profiles (original behavior).
   SELECT COALESCE(
     ROUND(
       (COUNT(*) FILTER (WHERE plan = 'pro')::numeric / NULLIF(COUNT(*), 0)) * 100,
       2
     ), 0
   ) INTO v_rate
-  FROM public.profiles;
+  FROM public.profiles
+  WHERE (p_date_from IS NULL OR created_at >= p_date_from)
+    AND (p_date_to   IS NULL OR created_at <= p_date_to);
 
   RETURN v_rate;
 END;
@@ -305,10 +322,20 @@ $$;
 -- SECTION 3 — Explicit GRANT EXECUTE (defense against future permission changes)
 -- =============================================================================
 
-GRANT EXECUTE ON FUNCTION public.get_dashboard_financials(timestamptz, timestamptz)    TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_dashboard_critical_stock()                         TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_activation_rate(timestamptz, timestamptz)   TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_umv_rate(timestamptz, timestamptz)          TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_paid_conversion_rate()                      TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_community_interactions(timestamptz, timestamptz) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_admin_insights_breakdown(timestamptz, timestamptz) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_dashboard_financials(timestamptz, timestamptz)                        TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_dashboard_critical_stock()                                             TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_activation_rate(timestamptz, timestamptz)                       TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_umv_rate(timestamptz, timestamptz)                              TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_paid_conversion_rate(timestamptz, timestamptz)                  TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_community_interactions(timestamptz, timestamptz)                TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_admin_insights_breakdown(timestamptz, timestamptz)                    TO authenticated;
+
+-- =============================================================================
+-- SECTION 4 — Performance: expression index for insights_breakdown GROUP BY
+-- =============================================================================
+-- get_admin_insights_breakdown groups by LOWER(event_data->>'type').
+-- Without this index, each call does a seq scan + runtime LOWER() on every row.
+-- The partial index (WHERE event_name = 'insight_generated') keeps it small.
+CREATE INDEX IF NOT EXISTS idx_ae_insight_type_lower
+  ON public.analytics_events (LOWER(event_data->>'type'))
+  WHERE event_name = 'insight_generated';

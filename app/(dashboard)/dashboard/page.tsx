@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
@@ -26,8 +26,14 @@ export default function DashboardPage() {
   const { getLowStockProducts, insights, refreshData } = useData()
   const lowStock = getLowStockProducts()
 
-  const [financials, setFinancials]     = useState<DashboardFinancials | null>(null)
-  const [loadingKpis, setLoadingKpis]   = useState(true)
+  const [financials, setFinancials]   = useState<DashboardFinancials | null>(null)
+  const [loadingKpis, setLoadingKpis] = useState(true)
+
+  // Stable refs so the auto-generate effect doesn't need unstable DataContext
+  // values in its dependency array, preventing spurious re-runs.
+  const refreshDataRef        = useRef(refreshData)
+  const insightGenAttempted   = useRef(false)
+  useEffect(() => { refreshDataRef.current = refreshData }, [refreshData])
 
   // ── Server-side financial KPIs (no p_user_id — uses auth.uid() internally) ──
   useEffect(() => {
@@ -71,16 +77,20 @@ export default function DashboardPage() {
   }, [])  // intentionally runs once on mount; data is for "today" which doesn't change mid-session
 
   // ── Auto-generate AI insights if none exist for today ────────────────────────
+  // Uses insightGenAttempted ref to ensure generation fires at most once per
+  // page load, even if DataContext re-renders and changes `insights` reference.
   useEffect(() => {
+    if (insightGenAttempted.current) return
+
     const today = new Date().toISOString().split('T')[0]
     const todaysInsights = insights.filter(i => i.date === today)
+    if (todaysInsights.length > 0) return
 
-    if (todaysInsights.length === 0) {
-      aiInsightService.generateInsights()
-        .then(() => refreshData())
-        .catch(err => console.error("Error auto-generating insights:", err))
-    }
-  }, [insights, refreshData])
+    insightGenAttempted.current = true
+    aiInsightService.generateInsights()
+      .then(() => refreshDataRef.current())
+      .catch(err => console.error("Error auto-generating insights:", err))
+  }, [insights])
 
   // ── Derived display values ───────────────────────────────────────────────────
   const todaySales    = financials?.total_income   ?? 0

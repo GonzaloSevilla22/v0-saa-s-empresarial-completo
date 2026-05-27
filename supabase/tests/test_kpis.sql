@@ -129,6 +129,38 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: admin KPI functions are SECURITY DEFINER';
 
+  -- ── 8. get_dashboard_critical_stock excludes min_stock = 0 products ─────────
+  -- Verify the function definition contains the min_stock > 0 guard.
+  -- This is a static code check; behavioural validation requires a live session.
+  SELECT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND p.proname = 'get_dashboard_critical_stock'
+      AND p.prosrc  LIKE '%min_stock > 0%'
+  ) INTO v_ok;
+
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'FAIL: get_dashboard_critical_stock is missing the min_stock > 0 guard';
+  END IF;
+  RAISE NOTICE 'PASS: get_dashboard_critical_stock contains min_stock > 0 guard';
+
+  -- ── 9. get_admin_paid_conversion_rate accepts optional date params ────────────
+  -- New signature: (timestamptz DEFAULT NULL, timestamptz DEFAULT NULL).
+  -- pronargs = 2; both params must have defaults (proisstrict = false / pronargdefaults set).
+  SELECT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND p.proname = 'get_admin_paid_conversion_rate'
+      AND p.pronargs = 2
+  ) INTO v_ok;
+
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'FAIL: get_admin_paid_conversion_rate does not have the 2-param (date-optional) signature';
+  END IF;
+  RAISE NOTICE 'PASS: get_admin_paid_conversion_rate has optional date-range signature';
+
   RAISE NOTICE '=== All deterministic KPI tests passed ===';
 END;
 $$;

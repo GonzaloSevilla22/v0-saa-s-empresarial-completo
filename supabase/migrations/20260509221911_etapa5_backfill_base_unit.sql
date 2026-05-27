@@ -1,0 +1,10 @@
+-- =============================================================================
+-- MIGRATION: 20260509221911_etapa5_backfill_base_unit.sql
+-- DESCRIPTION: DB-level guard ensuring untracked products never have stock
+--              decremented on sales or incremented on purchases.
+--              Second layer of defence for direct INSERT/UPDATE paths.
+--
+-- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509221911
+-- This file is a documentation stub -- the migration was already applied.
+-- DO NOT re-execute: the DDL is already live on the remote database.
+-- =============================================================================

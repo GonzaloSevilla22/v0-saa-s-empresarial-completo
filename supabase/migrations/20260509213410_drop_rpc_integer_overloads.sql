@@ -1,0 +1,11 @@
+-- =============================================================================
+-- MIGRATION: 20260509213410_drop_rpc_integer_overloads.sql
+-- DESCRIPTION: Update rpc_atomic_create_purchase to accept p_unit_id (uuid
+--              DEFAULT NULL) and p_quantity as NUMERIC (was INTEGER). Resolves
+--              unit factor internally and normalises quantity for stock update.
+--              Drops old INTEGER-signature overloads to avoid ambiguity.
+--
+-- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509213410
+-- This file is a documentation stub -- the migration was already applied.
+-- DO NOT re-execute: the DDL is already live on the remote database.
+-- =============================================================================

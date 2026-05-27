@@ -1,9 +1,9 @@
 "use client"
 
-import { Fragment, useState, useMemo, useCallback } from "react"
+import { Fragment, useState, useMemo, useCallback, useRef, type ReactNode } from "react"
 import {
-  ChevronRight, ChevronDown, Plus, Search, Download,
-  Pencil, Trash2, Package, GitBranch,
+  ChevronRight, ChevronDown, Plus, Search, Download, Upload,
+  Pencil, Trash2, Package, GitBranch, Wrench,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,11 +17,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
+import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
+import { formatStock } from "@/lib/format-unit"
+import { resolveUnit } from "@/lib/unit-utils"
 import { exportToCSV } from "@/lib/excel"
 import type { Product } from "@/lib/types"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { ProductImportDialog } from "@/components/products/product-import-dialog"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -38,6 +42,8 @@ interface ProductCatalogProps {
   onEdit: (product: Product) => void
   onDelete: (id: string) => Promise<void>
   isAtLimit: boolean
+  /** Called after a successful CSV import to trigger data refresh. */
+  onImportComplete?: () => void
 }
 
 // ─── Standalone sub-component (outside ProductCatalog to avoid re-mounts) ────
@@ -118,10 +124,47 @@ export function ProductCatalog({
   onEdit,
   onDelete,
   isAtLimit,
+  onImportComplete,
 }: ProductCatalogProps) {
   const [search, setSearch] = useState("")
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+
+  // ── Unit-of-measure resolution ─────────────────────────────────────────────
+  // unitsById comes pre-built from the hook — no local useMemo needed
+  const { unitsById } = useUnitsOfMeasure()
+
+  /** Stock cell content for a single tracked product. */
+  function stockLabel(p: Product): ReactNode {
+    if (p.stockControlType === "untracked") {
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <Wrench className="h-3 w-3" />
+          Servicio
+        </span>
+      )
+    }
+    const sym = resolveUnit(p.baseUnitId, unitsById)?.symbol
+    return (
+      <span className="font-bold text-foreground tabular-nums">
+        {formatStock(p.stock, sym)}
+      </span>
+    )
+  }
+
+  /** Aggregated stock label for a variant group. */
+  function groupStockLabel(g: ProductGroup): ReactNode {
+    const total = groupStock(g)
+    // Use the symbol from the first child that has a unit assigned
+    const firstWithUnit = g.children.find((c) => c.baseUnitId)
+    const sym = resolveUnit(firstWithUnit?.baseUnitId, unitsById)?.symbol
+    return (
+      <span className="font-bold text-foreground tabular-nums">
+        {formatStock(total, sym)}
+      </span>
+    )
+  }
 
   // ── Group products ─────────────────────────────────────────────────────────
   const { groups, standalones } = useMemo(() => {
@@ -223,6 +266,8 @@ export function ProductCatalog({
     [onDelete],
   )
 
+  // ── Import from CSV — handled by ProductImportDialog ─────────────────────
+
   // ── Export to CSV ─────────────────────────────────────────────────────────
   function handleExport() {
     const rows: Record<string, unknown>[] = []
@@ -312,6 +357,16 @@ export function ProductCatalog({
             variant="outline"
             size="sm"
             className="border-border text-foreground"
+            onClick={() => setImportDialogOpen(true)}
+          >
+            <Upload className="h-4 w-4 mr-1" />
+            Importar CSV
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-border text-foreground"
             onClick={handleExport}
           >
             <Download className="h-4 w-4 mr-1" />
@@ -378,7 +433,7 @@ export function ProductCatalog({
                       </Badge>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">{groupPriceLabel(g)}</span>
-                        <span className="text-xs text-muted-foreground">{stock} uds</span>
+                        <span className="text-xs text-muted-foreground">{groupStockLabel(g)}</span>
                       </div>
                     </div>
 
@@ -424,7 +479,9 @@ export function ProductCatalog({
                             <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{child.barcode}</code>
                           )}
                         </div>
-                        <StockSemaphore stock={child.stock} minStock={child.minStock} size="sm" />
+                        {child.stockControlType !== "untracked" && (
+                          <StockSemaphore stock={child.stock} minStock={child.minStock} size="sm" />
+                        )}
                       </div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-emerald-400 font-medium">{formatMoney(child.price)}</span>
@@ -434,7 +491,7 @@ export function ProductCatalog({
                         )}>
                           {child.margin}% margen
                         </span>
-                        <span className="text-muted-foreground">{child.stock} uds</span>
+                        <span className="text-muted-foreground text-xs">{stockLabel(child)}</span>
                       </div>
                       <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
                         <Button
@@ -468,7 +525,9 @@ export function ProductCatalog({
                       <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{p.barcode}</code>
                     )}
                   </div>
-                  <StockSemaphore stock={p.stock} minStock={p.minStock} size="sm" />
+                  {p.stockControlType !== "untracked" && (
+                    <StockSemaphore stock={p.stock} minStock={p.minStock} size="sm" />
+                  )}
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <Badge variant="outline" className="text-xs border-border text-muted-foreground">
@@ -482,7 +541,7 @@ export function ProductCatalog({
                     )}>
                       {p.margin}%
                     </span>
-                    <span className="text-muted-foreground">{p.stock} uds</span>
+                    <span className="text-muted-foreground text-xs">{stockLabel(p)}</span>
                   </div>
                 </div>
                 <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
@@ -631,8 +690,7 @@ export function ProductCatalog({
 
                       {/* Aggregated stock */}
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <span className="font-bold text-foreground">{stock}</span>
-                        <span className="text-muted-foreground text-xs ml-1">uds</span>
+                        {groupStockLabel(g)}
                       </TableCell>
 
                       {/* Semaphore */}
@@ -742,16 +800,18 @@ export function ProductCatalog({
 
                             {/* Stock */}
                             <TableCell>
-                              <span className="text-sm">{child.stock}</span>
+                              {stockLabel(child)}
                             </TableCell>
 
                             {/* Semaphore */}
                             <TableCell>
-                              <StockSemaphore
-                                stock={child.stock}
-                                minStock={child.minStock}
-                                size="sm"
-                              />
+                              {child.stockControlType !== "untracked" && (
+                                <StockSemaphore
+                                  stock={child.stock}
+                                  minStock={child.minStock}
+                                  size="sm"
+                                />
+                              )}
                             </TableCell>
 
                             {/* Actions */}
@@ -840,16 +900,18 @@ export function ProductCatalog({
 
                   {/* Stock */}
                   <TableCell>
-                    <span className="text-sm">{p.stock}</span>
+                    {stockLabel(p)}
                   </TableCell>
 
                   {/* Semaphore */}
                   <TableCell>
-                    <StockSemaphore
-                      stock={p.stock}
-                      minStock={p.minStock}
-                      size="sm"
-                    />
+                    {p.stockControlType !== "untracked" && (
+                      <StockSemaphore
+                        stock={p.stock}
+                        minStock={p.minStock}
+                        size="sm"
+                      />
+                    )}
                   </TableCell>
 
                   {/* Actions */}
@@ -900,6 +962,16 @@ export function ProductCatalog({
             } de ${totalProducts} productos`
           : `${totalProducts} producto${totalProducts !== 1 ? "s" : ""} en catálogo`}
       </p>
+
+      {/* Import dialog */}
+      <ProductImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onComplete={() => {
+          setImportDialogOpen(false)
+          onImportComplete?.()
+        }}
+      />
     </div>
   )
 }

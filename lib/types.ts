@@ -4,12 +4,34 @@ export type Plan = "free" | "pro"
 export type UserRole = "user" | "admin"
 
 export interface User {
+  // ── Auth identity (from auth.users) ───────────────────────────────────────
   id: string
-  name: string
   email: string
+  // ── System-managed (read-only for the user) ───────────────────────────────
   plan: Plan
   role: UserRole
-  avatar?: string
+  // ── Personal profile (editable) ───────────────────────────────────────────
+  name: string
+  lastName?: string
+  avatar?: string          // URL from storage bucket
+  businessName?: string
+  phone?: string
+  bio?: string
+  // ── System preferences (editable) ─────────────────────────────────────────
+  currency: string         // 'ARS' | 'USD' | 'EUR' | 'BRL' | 'CLP'
+  timezone: string         // IANA timezone, e.g. 'America/Argentina/Buenos_Aires'
+  dateFormat: string       // 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD'
+  language: string         // 'es' (others prepared for future)
+}
+
+export type StockControlType = 'tracked' | 'untracked' | 'variant_only'
+
+export interface ProductAttribute {
+  id:         string
+  productId:  string
+  key:        string    // e.g. "color", "talle"
+  value:      string    // e.g. "Rojo", "XL"
+  sortOrder:  number
 }
 
 export interface Product {
@@ -22,6 +44,8 @@ export interface Product {
   stock: number
   minStock: number
   barcode?: string
+  /** Human-readable SKU — unique per user. Used as stable key for CSV upserts. */
+  sku?: string
   /** FK to products.id — set when this product is a variant of a parent */
   parentId?: string
   /**
@@ -29,6 +53,17 @@ export interface Product {
    * false → root product: either a parent catalogue entry or a standalone product
    */
   isVariant: boolean
+  /** Dynamic attributes loaded on demand (color, talle, etc.) */
+  attributes?: ProductAttribute[]
+  // ── Etapa 5+ ──────────────────────────────────────────────────────────────
+  /** FK to units_of_measure.id — the unit this product's stock is measured in. */
+  baseUnitId?: string
+  /**
+   * 'tracked'      → physical stock counted and decremented on each sale
+   * 'untracked'    → service/digital, stock never changes
+   * 'variant_only' → parent catalogue entry, stock lives in variant children
+   */
+  stockControlType?: StockControlType
 }
 
 export interface Sale {
@@ -42,6 +77,8 @@ export interface Sale {
   unitPrice: number
   total: number
   currency: Currency
+  /** UUID of the unit of measure used for this sale (Etapa 3+). */
+  unitId?: string
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
 }
@@ -55,8 +92,21 @@ export interface Purchase {
   unitCost: number
   total: number
   description?: string
+  /** UUID of the unit of measure used for this purchase (Etapa 3+). */
+  unitId?: string
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
+}
+
+export interface UnitOfMeasure {
+  id: string
+  name: string
+  symbol: string
+  type: 'unit' | 'weight' | 'volume' | 'length' | 'custom'
+  /** Conversion factor relative to the base unit of this type. */
+  factor: number
+  baseUnitId?: string
+  isSystem: boolean
 }
 
 export interface Expense {
@@ -138,6 +188,45 @@ export interface Course {
   category: string
   students: number
   rating: number
+}
+
+// ── Inventory Movements ───────────────────────────────────────────────────────
+
+export type MovementType =
+  | 'purchase'
+  | 'sale'
+  | 'adjustment'
+  | 'return'
+  | 'initial'
+  | 'sale_return'
+  | 'purchase_return'
+  | 'physical_count'
+  | 'loss'
+  | 'damage'
+  | 'expiry'
+  | 'transfer_in'
+  | 'transfer_out'
+
+export interface StockMovement {
+  id:             string
+  userId:         string
+  productId:      string
+  productName?:   string   // denormalised column (migration 000005); falls back to JOIN
+  type:           MovementType
+  quantityDelta:  number
+  quantityBefore?: number
+  quantityAfter?:  number
+  reason?:        string
+  notes?:         string
+  referenceId?:   string
+  referenceType?: string
+  performedBy?:   string
+  metadata?:      Record<string, unknown>
+  /** UUID shared by all movements created by the same logical operation (item 8). */
+  operationGroupId?: string
+  /** Global sequential counter for fiscal compliance and gap detection (item 9). */
+  movementNumber?:   number
+  createdAt:      string
 }
 
 export type ExpenseCategory =

@@ -1,0 +1,11 @@
+-- =============================================================================
+-- MIGRATION: 20260509214856_etapa3_unit_id_on_operations.sql
+-- DESCRIPTION: Backfill base_unit_id on existing tracked products using the
+--              canonical system unit (type='unit', symbol='u', is_system=true).
+--              Adds performance indexes on products.stock_control_type,
+--              sales.unit_id, and purchases.unit_id.
+--
+-- Applied directly via Supabase MCP on 2026-05-09. Version: 20260509214856
+-- This file is a documentation stub -- the migration was already applied.
+-- DO NOT re-execute: the DDL is already live on the remote database.
+-- =============================================================================

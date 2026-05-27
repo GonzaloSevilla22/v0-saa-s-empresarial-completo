@@ -16,7 +16,7 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover"
-import { exportToCSV, parseCSV, readFileAsText } from "@/lib/excel"
+import { exportToCSV, parseCSV, readFileAsText, validateImportColumns } from "@/lib/excel"
 import { toast } from "sonner"
 
 export interface Column<T> {
@@ -53,7 +53,7 @@ interface DataTableProps<T> {
   exportColumns?: ExportColumn[]
   exportFilename?: string
   importColumnMap?: ImportColumnMap[]
-  onImport?: (rows: Record<string, string>[]) => void
+  onImport?: (rows: Record<string, string>[]) => void | Promise<void>
   // Mobile card renderer — when provided, desktop table is hidden on mobile
   // and a card list is shown instead
   mobileCard?: (row: T) => React.ReactNode
@@ -72,6 +72,7 @@ export function DataTable<T>({
   const [dateFrom, setDateFrom] = useState("")
   const [dateTo, setDateTo] = useState("")
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 10
 
@@ -151,19 +152,33 @@ export function DataTable<T>({
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !importColumnMap || !onImport) return
+
+    setImporting(true)
     try {
       const text = await readFileAsText(file)
-      const rows = parseCSV(text, importColumnMap)
-      if (rows.length === 0) {
-        toast.error("No se encontraron datos en el archivo")
+
+      // Validate required columns before parsing
+      const requiredHeaders = importColumnMap.map((m) => m.csvHeader)
+      const validation = validateImportColumns(text, requiredHeaders)
+      if (!validation.ok) {
+        toast.error(`Columnas faltantes en el archivo: ${validation.missing.join(", ")}`)
         return
       }
-      onImport(rows)
-      toast.success(`Importados ${rows.length} registros`)
-    } catch {
-      toast.error("Error al leer el archivo")
+
+      const rows = parseCSV(text, importColumnMap)
+      if (rows.length === 0) {
+        toast.error("El archivo no contiene datos válidos.")
+        return
+      }
+
+      // The onImport handler is responsible for saving data and showing its own toasts
+      await onImport(rows)
+    } catch (err: any) {
+      toast.error(err?.message || "Error al leer el archivo.")
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
-    if (fileInputRef.current) fileInputRef.current.value = ""
   }
 
   const isDateFilterActive = dateFrom || dateTo
@@ -281,18 +296,19 @@ export function DataTable<T>({
               <input
                 type="file"
                 ref={fileInputRef}
-                accept=".csv,.txt"
+                accept=".csv"
                 className="hidden"
                 onChange={handleImport}
               />
               <Button
                 variant="outline"
                 size="sm"
+                disabled={importing}
                 className="border-border text-foreground"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <Upload className="h-4 w-4 mr-1" />
-                Importar
+                {importing ? "Importando..." : "Importar CSV"}
               </Button>
             </>
           )}

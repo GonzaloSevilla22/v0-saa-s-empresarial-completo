@@ -1,34 +1,60 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { useData } from "@/contexts/data-context"
-import { createClient } from "@/lib/supabase/client"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
+import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
+import { usePaginatedQuery } from "@/hooks/use-paginated-query"
+import type { Purchase } from "@/lib/types"
 import type { PurchaseOperation } from "@/lib/group-operations"
 
+function mapRow(r: any): Purchase {
+  return {
+    id:          r.id,
+    date:        r.date?.split("T")[0] ?? r.date,
+    productId:   r.product_id,
+    productName: r.product?.name || "Eliminado",
+    quantity:    r.quantity,
+    unitCost:    Number(r.amount),
+    total:       Number(r.total ?? r.amount),
+    operationId: r.operation_id ?? undefined,
+  }
+}
+
 export default function ComprasPage() {
-  const { purchases, deletePurchase, deletePurchasesByOperation, refreshData } = useData()
-  const [open, setOpen] = useState(false)
+  const { deletePurchase, deletePurchasesByOperation } = useData()
   const { isAdmin } = useAuth()
-  const supabase = createClient()
 
-  // Realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("compras-realtime")
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "purchases" },
-        () => { refreshData() },
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, refreshData])
+  const pq = usePaginatedQuery<any>({
+    table:  "purchases",
+    select: "*, product:products(name)",
+    applyFilters: (base, { dateFrom, dateTo }) => {
+      let q = base
+      if (dateFrom) q = q.gte("date", dateFrom)
+      if (dateTo)   q = q.lte("date", dateTo)
+      return q
+    },
+    defaultSortKey:  "date",
+    defaultSortDir:  "desc",
+    defaultPageSize: 50,
+  })
 
-  // Delete handler — 1 DB call for grouped ops, 1 for historical
+  const purchases = useMemo(() => pq.data.map(mapRow), [pq.data])
+
+  const [dialogOpen,       setDialogOpen]       = useState(false)
+  const [editingOperation, setEditingOperation] = useState<PurchaseOperation | null>(null)
+
+  function handleAdd() { setEditingOperation(null); setDialogOpen(true) }
+  function handleEdit(op: PurchaseOperation) { setEditingOperation(op); setDialogOpen(true) }
+  function handleDialogClose() {
+    setDialogOpen(false)
+    setTimeout(() => setEditingOperation(null), 300)
+  }
+
   const handleDeleteOperation = useCallback(
     async (op: PurchaseOperation) => {
       if (op.operationId) {
@@ -42,11 +68,12 @@ export default function ComprasPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gestión de compras a proveedores
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
+          <p className="text-sm text-muted-foreground mt-1">Gestión de compras a proveedores</p>
+        </div>
+        <InvoiceAIButton onPurchasesCreated={pq.refetch} />
       </div>
 
       {isAdmin && (
@@ -59,16 +86,34 @@ export default function ComprasPage() {
 
       <PurchaseOperationsList
         purchases={purchases}
-        onAdd={() => setOpen(true)}
+        meta={pq.meta}
+        loading={pq.loading}
+        error={pq.error}
+        dateFrom={pq.dateFrom}
+        setDateFrom={pq.setDateFrom}
+        dateTo={pq.dateTo}
+        setDateTo={pq.setDateTo}
+        clearFilters={pq.clearFilters}
+        onPageChange={pq.setPage}
+        onPageSizeChange={pq.setPageSize}
+        onAdd={handleAdd}
         onDeleteOperation={handleDeleteOperation}
+        onEditOperation={handleEdit}
+        onRefetch={pq.refetch}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-card border-border">
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
+        <DialogContent className="bg-card border-border overflow-hidden">
           <DialogHeader>
-            <DialogTitle className="text-card-foreground">Nueva compra</DialogTitle>
+            <DialogTitle className="text-card-foreground">
+              {editingOperation ? "Editar compra" : "Nueva compra"}
+            </DialogTitle>
           </DialogHeader>
-          <PurchaseForm onSuccess={() => setOpen(false)} />
+          <PurchaseForm
+            key={editingOperation ? editingOperation.key : "new-purchase"}
+            editingOperation={editingOperation ?? undefined}
+            onSuccess={() => { handleDialogClose(); pq.refetch() }}
+          />
         </DialogContent>
       </Dialog>
     </div>

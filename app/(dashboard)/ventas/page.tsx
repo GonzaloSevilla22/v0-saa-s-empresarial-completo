@@ -1,40 +1,78 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { useData } from "@/contexts/data-context"
-import { createClient } from "@/lib/supabase/client"
 import { SaleForm } from "@/components/forms/sale-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import { useAuth } from "@/contexts/auth-context"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
+import { usePaginatedQuery } from "@/hooks/use-paginated-query"
+import type { Sale } from "@/lib/types"
 import type { SaleOperation } from "@/lib/group-operations"
 
+// ── Row mapper (mirrors DataContext.mapSale) ──────────────────────────────────
+function mapRow(r: any): Sale {
+  return {
+    id:          r.id,
+    date:        r.date?.split("T")[0] ?? r.date,
+    productId:   r.product_id,
+    productName: r.product?.name || "Eliminado",
+    clientId:    r.client_id,
+    clientName:  r.client?.name  || "Consumidor Final",
+    quantity:    r.quantity,
+    unitPrice:   Number(r.amount),
+    total:       Number(r.total ?? r.amount),
+    currency:    r.currency,
+    operationId: r.operation_id ?? undefined,
+  }
+}
+
 export default function VentasPage() {
-  const { sales, deleteSale, deleteSalesByOperation, refreshData } = useData()
-  const [open, setOpen] = useState(false)
+  const { clients, deleteSale, deleteSalesByOperation } = useData()
   const { isAdmin } = useAuth()
-  const supabase = createClient()
 
-  // Realtime subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("ventas-realtime")
-      .on("postgres_changes",
-        { event: "*", schema: "public", table: "sales" },
-        () => { refreshData() },
-      )
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, refreshData])
+  // ── Paginated sales ───────────────────────────────────────────────────────
+  const pq = usePaginatedQuery<any>({
+    table:  "sales",
+    select: "*, product:products(name), client:clients(name)",
+    applyFilters: (base, { dateFrom, dateTo }) => {
+      let q = base
+      if (dateFrom) q = q.gte("date", dateFrom)
+      if (dateTo)   q = q.lte("date", dateTo)
+      return q
+    },
+    defaultSortKey:  "date",
+    defaultSortDir:  "desc",
+    defaultPageSize: 50,
+  })
 
-  // Delete handler — 1 DB call for grouped ops, 1 for historical
+  const sales = useMemo(() => pq.data.map(mapRow), [pq.data])
+
+  // ── Dialog state ──────────────────────────────────────────────────────────
+  const [dialogOpen,       setDialogOpen]       = useState(false)
+  const [editingOperation, setEditingOperation] = useState<SaleOperation | null>(null)
+
+  function handleAdd() {
+    setEditingOperation(null)
+    setDialogOpen(true)
+  }
+
+  function handleEdit(op: SaleOperation) {
+    setEditingOperation(op)
+    setDialogOpen(true)
+  }
+
+  function handleDialogClose() {
+    setDialogOpen(false)
+    setTimeout(() => setEditingOperation(null), 300)
+  }
+
   const handleDeleteOperation = useCallback(
     async (op: SaleOperation) => {
       if (op.operationId) {
         await deleteSalesByOperation(op.operationId)
       } else {
-        // Historical record (no operationId) — always a single item
         await deleteSale(op.items[0].id)
       }
     },
@@ -58,16 +96,35 @@ export default function VentasPage() {
 
       <SaleOperationsList
         sales={sales}
-        onAdd={() => setOpen(true)}
+        meta={pq.meta}
+        loading={pq.loading}
+        error={pq.error}
+        dateFrom={pq.dateFrom}
+        setDateFrom={pq.setDateFrom}
+        dateTo={pq.dateTo}
+        setDateTo={pq.setDateTo}
+        clearFilters={pq.clearFilters}
+        onPageChange={pq.setPage}
+        onPageSizeChange={pq.setPageSize}
+        clients={clients}
+        onAdd={handleAdd}
         onDeleteOperation={handleDeleteOperation}
+        onEditOperation={handleEdit}
+        onRefetch={pq.refetch}
       />
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-card border-border">
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
+        <DialogContent className="bg-card border-border overflow-hidden">
           <DialogHeader>
-            <DialogTitle className="text-card-foreground">Nueva venta</DialogTitle>
+            <DialogTitle className="text-card-foreground">
+              {editingOperation ? "Editar venta" : "Nueva venta"}
+            </DialogTitle>
           </DialogHeader>
-          <SaleForm onSuccess={() => setOpen(false)} />
+          <SaleForm
+            key={editingOperation ? editingOperation.key : "new-sale"}
+            editingOperation={editingOperation ?? undefined}
+            onSuccess={() => { handleDialogClose(); pq.refetch() }}
+          />
         </DialogContent>
       </Dialog>
     </div>

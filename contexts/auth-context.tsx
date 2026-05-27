@@ -5,6 +5,22 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole } from "@/lib/types"
 
+export interface ProfileUpdateData {
+  name?: string
+  lastName?: string
+  businessName?: string
+  phone?: string
+  bio?: string
+  avatarUrl?: string
+}
+
+export interface PreferencesUpdateData {
+  currency?: string
+  timezone?: string
+  dateFormat?: string
+  language?: string
+}
+
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
@@ -15,6 +31,16 @@ interface AuthContextType {
   logout: () => Promise<void>
   upgradePlan: () => Promise<void>
   downgradePlan: () => Promise<void>
+  /** Update editable profile fields (name, avatar, business info, etc.) */
+  updateProfile: (data: ProfileUpdateData) => Promise<void>
+  /** Update system preferences (currency, timezone, date format) */
+  updatePreferences: (data: PreferencesUpdateData) => Promise<void>
+  /** Change the authenticated user's password via Supabase Auth */
+  changePassword: (newPassword: string) => Promise<void>
+  /** Request an email change — Supabase sends a confirmation to the new address */
+  changeEmail: (newEmail: string) => Promise<void>
+  /** Sign out from ALL devices (including the current one) and redirect to login */
+  closeAllSessions: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -27,34 +53,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     try {
-      const { data: { session }, error } = await supabase.auth.getSession()
-      if (error || !session) {
+      // getUser() validates the JWT server-side (network call).
+      // getSession() only trusts the local cookie — never use it as an auth check.
+      // The middleware already calls getUser() on every request, so this
+      // client-side call is for hydrating the React state after confirmed auth.
+      const { data: { user: authUser }, error } = await supabase.auth.getUser()
+      if (error || !authUser) {
         setUser(null)
         return
       }
-
-      // Fetch profile data for plan and role
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
         .single()
 
       if (profile) {
         setUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
-          email: session.user.email || "",
-          plan: (profile.plan as Plan) ?? 'free',
-          role: profile.role as UserRole,
+          id:           authUser.id,
+          email:        authUser.email || "",
+          plan:         (profile.plan as Plan) ?? "free",
+          role:         profile.role as UserRole,
+          name:         profile.name || authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          lastName:     profile.last_name     ?? undefined,
+          avatar:       profile.avatar_url    ?? undefined,
+          businessName: profile.business_name ?? undefined,
+          phone:        profile.phone         ?? undefined,
+          bio:          profile.bio           ?? undefined,
+          currency:     profile.currency    ?? "ARS",
+          timezone:     profile.timezone    ?? "America/Argentina/Buenos_Aires",
+          dateFormat:   profile.date_format ?? "DD/MM/YYYY",
+          language:     profile.language    ?? "es",
         })
       } else {
         setUser({
-          id: session.user.id,
-          name: session.user.user_metadata?.name || session.user.email?.split("@")[0] || "Emprendedor",
-          email: session.user.email || "",
-          plan: 'free',
-          role: 'user',
+          id:         authUser.id,
+          email:      authUser.email || "",
+          plan:       "free",
+          role:       "user",
+          name:       authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          currency:   "ARS",
+          timezone:   "America/Argentina/Buenos_Aires",
+          dateFormat: "DD/MM/YYYY",
+          language:   "es",
         })
       }
     } catch (e) {
@@ -67,8 +108,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     refreshSession()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      refreshSession()
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      // TOKEN_REFRESHED fires every ~hour — middleware already rotates the cookie,
+      // no need to re-query the DB. Only react to events that change user state.
+      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+        refreshSession()
+      } else if (event === "SIGNED_OUT") {
+        setUser(null)
+      }
     })
 
     return () => {
@@ -87,35 +134,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const login = useCallback(async (email: string, password: string) => {
-    console.log("[Auth] Iniciando flujo de login tradicional para:", email)
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    if (error) {
-      console.error("[Auth] Error en login:", error.message)
-      throw error
-    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) throw error
     await refreshSession()
     router.push("/dashboard")
   }, [supabase, router, refreshSession])
 
   const loginWithMagicLink = useCallback(async (email: string) => {
     const siteUrl = getSiteUrl()
-    console.log("[Auth] Iniciando flujo Magic Link. URL callback configurada a:", `${siteUrl}/auth/callback`)
-
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${siteUrl}/auth/callback`,
-      }
+      options: { emailRedirectTo: `${siteUrl}/auth/callback` },
     })
-    if (error) {
-      console.error("[Auth] Error enviando email de Magic Link:", error.message)
-      throw error
-    }
-    console.log("[Auth] Email de magic link enviado correctamente a:", email)
+    if (error) throw error
   }, [supabase])
 
   const register = useCallback(async (name: string, email: string, password: string) => {
@@ -128,27 +160,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: {
         data: { name },
-        // After email verification, the magic link lands here and creates the session
         emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     })
-    if (error) {
-      console.error("[Auth] Error en registro:", error.message)
-      throw error
-    }
-    console.log("[Auth] Registro iniciado. Email de confirmación enviado a:", email)
-
-    // Redirect to the verification waiting screen.
-    // We intentionally do NOT call refreshSession() or push("/dashboard") here:
-    // with "Confirm email" ON, Supabase may return session = null.
-    // The verify-email page owns the session polling and final redirect.
-    router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
-  }, [supabase, router])
+    if (error) throw error
+    // Navigation is handled by the caller (register/page.tsx) so this function
+    // remains a pure auth operation, reusable from any context without side-effects.
+  }, [supabase])
 
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
-    router.push("/")
+    // Clear tenant cookie on logout so a different user doesn't inherit the workspace
+    document.cookie = "tenant:active=; path=/; max-age=0"
+    router.push("/auth/login")
+  }, [supabase, router])
+
+  const updateProfile = useCallback(async (data: ProfileUpdateData) => {
+    if (!user) throw new Error("No hay sesión activa")
+    const { error } = await supabase.from('profiles').update({
+      name:          data.name         ?? undefined,
+      last_name:     data.lastName     ?? undefined,
+      business_name: data.businessName ?? undefined,
+      phone:         data.phone        ?? undefined,
+      bio:           data.bio          ?? undefined,
+      avatar_url:    data.avatarUrl    ?? undefined,
+    }).eq('id', user.id)
+    if (error) throw error
+    await refreshSession()
+  }, [supabase, user, refreshSession])
+
+  const updatePreferences = useCallback(async (data: PreferencesUpdateData) => {
+    if (!user) throw new Error("No hay sesión activa")
+    const { error } = await supabase.from('profiles').update({
+      currency:    data.currency    ?? undefined,
+      timezone:    data.timezone    ?? undefined,
+      date_format: data.dateFormat  ?? undefined,
+      language:    data.language    ?? undefined,
+    }).eq('id', user.id)
+    if (error) throw error
+    await refreshSession()
+  }, [supabase, user, refreshSession])
+
+  const changePassword = useCallback(async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) throw error
+  }, [supabase])
+
+  const changeEmail = useCallback(async (newEmail: string) => {
+    const siteUrl = getSiteUrl()
+    const { error } = await supabase.auth.updateUser(
+      { email: newEmail },
+      { emailRedirectTo: `${siteUrl}/auth/callback` }
+    )
+    if (error) throw error
+    // Session remains valid. User must click the link sent to newEmail to confirm.
+  }, [supabase])
+
+  const closeAllSessions = useCallback(async () => {
+    // scope: 'global' revokes all refresh tokens including the current device.
+    // The user will be redirected to login by the auth state change listener.
+    const { error } = await supabase.auth.signOut({ scope: 'global' })
+    if (error) throw error
+    router.push("/auth/login")
   }, [supabase, router])
 
   const upgradePlan = useCallback(async () => {
@@ -182,6 +256,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         upgradePlan,
         downgradePlan,
+        updateProfile,
+        updatePreferences,
+        changePassword,
+        changeEmail,
+        closeAllSessions,
       }}
     >
       {children}

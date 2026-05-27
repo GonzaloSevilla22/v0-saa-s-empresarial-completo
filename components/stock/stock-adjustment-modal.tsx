@@ -198,13 +198,17 @@ export function StockAdjustmentModal({
 
   const isPhysicalCount = option.sign === 0
 
-  // Compute preview delta
+  // Compute preview delta (UI-only approximation — for display purposes)
+  // IMPORTANT: For physical_count, the true delta is computed SERVER-SIDE by
+  // the RPC after acquiring a row lock, so this preview may be slightly off
+  // if a concurrent operation changed the stock after the UI loaded.
+  // The server is always authoritative.
   const parsedQty = parseFloat(quantity)
-  const computedDelta: number | null = useMemo(() => {
+  const previewDelta: number | null = useMemo(() => {
     if (isNaN(parsedQty) || parsedQty < 0) return null
     if (isPhysicalCount) {
       if (!activeProduct) return null
-      return parsedQty - activeProduct.stock
+      return parsedQty - activeProduct.stock  // approximate — server recomputes from locked stock
     }
     return parsedQty * option.sign
   }, [parsedQty, isPhysicalCount, activeProduct, option.sign])
@@ -224,34 +228,48 @@ export function StockAdjustmentModal({
       toast.error("Seleccioná un producto")
       return
     }
-    if (quantity === "" || isNaN(parsedQty) || parsedQty <= 0) {
-      toast.error("Ingresá una cantidad válida mayor a cero")
+    if (quantity === "" || isNaN(parsedQty) || parsedQty < 0) {
+      toast.error("Ingresá una cantidad válida")
       return
     }
-    if (computedDelta === null) return
-
-    // For physical_count: allow delta = 0 only if the stock is already correct
-    // (we still call the RPC so it records the count; but the RPC rejects delta=0)
-    if (computedDelta === 0) {
-      toast.info("El stock ya está en esa cantidad. No hay ajuste que registrar.")
+    // For non-physical-count: require positive quantity
+    if (!isPhysicalCount && parsedQty <= 0) {
+      toast.error("Ingresá una cantidad mayor a cero")
       return
     }
 
     setLoading(true)
     try {
-      const { error } = await supabase.rpc("rpc_stock_adjustment", {
-        p_product_id:     activeProduct.id,
-        p_quantity_delta: computedDelta,
-        p_type:           option.type,
-        p_reason:         reason.trim() || null,
-        p_notes:          notes.trim()  || null,
-      })
+      // ── Build RPC params ────────────────────────────────────────────────────
+      // FIX 1 (race condition): for physical_count we pass p_target_quantity
+      // so the RPC computes the delta AFTER acquiring a row lock on the product.
+      // This eliminates the stale-UI race: if a concurrent sale changed the
+      // stock between when the user opened the modal and when they submitted,
+      // the RPC uses the real current stock — not our potentially stale value.
+      //
+      // For all other types we pass p_quantity_delta directly (pre-signed).
+      const rpcParams: Record<string, unknown> = {
+        p_product_id: activeProduct.id,
+        p_type:       option.type,
+        p_reason:     reason.trim() || null,
+        p_notes:      notes.trim()  || null,
+      }
+
+      if (isPhysicalCount) {
+        rpcParams.p_target_quantity = parsedQty  // server computes: delta = target - locked_stock
+      } else {
+        rpcParams.p_quantity_delta = parsedQty * option.sign
+      }
+
+      const { data, error } = await supabase.rpc("rpc_stock_adjustment", rpcParams)
 
       if (error) throw error
 
+      // Use server-returned delta for the success message (authoritative)
+      const serverDelta: number = (data as any)?.quantity_delta ?? (parsedQty * option.sign)
       toast.success(
         `Stock de "${activeProduct.name}" actualizado: ` +
-        `${computedDelta > 0 ? "+" : ""}${computedDelta} unidades`,
+        `${serverDelta > 0 ? "+" : ""}${serverDelta} unidades`,
       )
 
       await refreshData()
@@ -260,16 +278,16 @@ export function StockAdjustmentModal({
       onSuccess?.()
     } catch (err: any) {
       const msg: string = err?.message ?? "Error desconocido"
-      if (msg.includes("Stock insuficiente")) {
-        toast.error(msg)
-      } else {
-        toast.error("No se pudo registrar el ajuste. " + msg)
-      }
+      // Surface specific server-side errors directly (stock insuficiente, etc.)
+      toast.error(msg.startsWith("No se puede") || msg.includes("Stock") || msg.includes("stock")
+        ? msg
+        : "No se pudo registrar el ajuste. " + msg
+      )
     } finally {
       setLoading(false)
     }
   }, [
-    activeProduct, quantity, parsedQty, computedDelta,
+    activeProduct, quantity, parsedQty, isPhysicalCount,
     option, reason, notes, supabase, refreshData, resetForm, onOpenChange, onSuccess,
   ])
 
@@ -388,24 +406,27 @@ export function StockAdjustmentModal({
               className="bg-background border-border text-foreground"
             />
             {/* Delta preview */}
-            {activeProduct && quantity !== "" && computedDelta !== null && (
+            {activeProduct && quantity !== "" && previewDelta !== null && (
               <p className="text-xs text-muted-foreground">
                 {isPhysicalCount
-                  ? `Stock actual: ${activeProduct.stock} → `
+                  ? `Stock en pantalla: ${activeProduct.stock} → `
                   : "Resultado: "
                 }
                 <span className={cn(
                   "font-medium tabular-nums",
-                  computedDelta > 0 ? "text-emerald-400" : computedDelta < 0 ? "text-red-400" : "text-muted-foreground",
+                  previewDelta > 0 ? "text-emerald-400" : previewDelta < 0 ? "text-red-400" : "text-muted-foreground",
                 )}>
-                  {computedDelta > 0 ? "+" : ""}{computedDelta}
+                  {previewDelta > 0 ? "+" : ""}{previewDelta}
                 </span>
                 {" "}→ nuevo stock:{" "}
                 <span className="font-medium tabular-nums">
-                  {(activeProduct.stock + computedDelta).toFixed(
-                    Number.isInteger(activeProduct.stock + computedDelta) ? 0 : 2,
+                  {(activeProduct.stock + previewDelta).toFixed(
+                    Number.isInteger(activeProduct.stock + previewDelta) ? 0 : 2,
                   )}
                 </span>
+                {isPhysicalCount && (
+                  <span className="text-muted-foreground/60 ml-1">(el servidor confirma al guardar)</span>
+                )}
               </p>
             )}
           </div>

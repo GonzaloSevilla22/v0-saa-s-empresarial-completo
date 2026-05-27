@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { useData } from "@/contexts/data-context"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
+import { useDeleteExpense } from "@/hooks/data/use-expenses-query"
 import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -44,7 +44,7 @@ function mapRow(r: any): Expense {
 }
 
 export default function GastosPage() {
-  const { deleteExpense } = useData()
+  const deleteExpenseMutation = useDeleteExpense()
   const { isAdmin } = useAuth()
   const [importOpen,     setImportOpen]     = useState(false)
   const [addOpen,        setAddOpen]        = useState(false)
@@ -73,7 +73,7 @@ export default function GastosPage() {
   const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id)
     try {
-      await deleteExpense(id)
+      await deleteExpenseMutation.mutateAsync(id)
       toast.success("Gasto eliminado")
       pq.refetch()
     } catch (err: any) {
@@ -81,7 +81,7 @@ export default function GastosPage() {
     } finally {
       setDeletingId(null)
     }
-  }, [deleteExpense, pq])
+  }, [deleteExpenseMutation, pq])
 
   function handleExport() {
     exportToCSV(expenses as any[], [

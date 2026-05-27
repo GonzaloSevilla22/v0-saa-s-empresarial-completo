@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useData } from "@/contexts/data-context"
+import { useAddExpense, useUpdateExpense } from "@/hooks/data/use-expenses-query"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
 import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -19,7 +19,8 @@ interface ExpenseFormProps {
 }
 
 export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
-  const { addExpense, updateExpense } = useData()
+  const addExpenseMutation    = useAddExpense()
+  const updateExpenseMutation = useUpdateExpense()
   const isEdit = !!initialData
 
   const [category,    setCategory]    = useState(initialData?.category    ?? "")
@@ -35,10 +36,10 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
     }
     try {
       if (isEdit && initialData) {
-        await updateExpense({ ...initialData, category, description, amount, date })
+        await updateExpenseMutation.mutateAsync({ ...initialData, category, description, amount, date })
         toast.success("Gasto actualizado")
       } else {
-        await addExpense({ date, category, description, amount })
+        await addExpenseMutation.mutateAsync({ date, category, description, amount })
         toast.success("Gasto registrado")
       }
       onSuccess()

@@ -1,8 +1,13 @@
 "use client"
 
 import { useState } from "react"
-import { useData } from "@/contexts/data-context"
 import { useAuth } from "@/contexts/auth-context"
+import {
+  useCoursesQuery,
+  useAddCourse,
+  useUpdateCourse,
+  useDeleteCourse,
+} from "@/hooks/data/use-courses-query"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -72,9 +77,13 @@ const levelColors: Record<string, string> = {
 }
 
 export default function AdminCursosPage() {
-    const { courses, addCourse, updateCourse, deleteCourse } = useData()
     const { user } = useAuth()
     const supabase = createClient()
+
+    const { data: courses = [], isLoading: coursesLoading } = useCoursesQuery()
+    const addCourseMutation    = useAddCourse()
+    const updateCourseMutation = useUpdateCourse()
+    const deleteCourseMutation = useDeleteCourse()
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editingCourse, setEditingCourse] = useState<Course | null>(null)
@@ -206,14 +215,15 @@ export default function AdminCursosPage() {
         setSaving(true)
         try {
             if (editingCourse) {
-                await updateCourse({ id: editingCourse.id, ...form })
+                await updateCourseMutation.mutateAsync({ id: editingCourse.id, ...form })
             } else {
-                await addCourse(form)
+                await addCourseMutation.mutateAsync(form)
             }
             setDialogOpen(false)
             setForm(emptyForm)
-        } catch (e) {
-            console.error(e)
+            toast.success(editingCourse ? "Curso actualizado" : "Curso creado")
+        } catch (e: any) {
+            toast.error(e?.message || "Error al guardar el curso")
         } finally {
             setSaving(false)
         }
@@ -223,9 +233,10 @@ export default function AdminCursosPage() {
         if (!deleteTarget) return
         setDeleting(true)
         try {
-            await deleteCourse(deleteTarget.id)
-        } catch (e) {
-            console.error(e)
+            await deleteCourseMutation.mutateAsync(deleteTarget.id)
+            toast.success("Curso eliminado")
+        } catch (e: any) {
+            toast.error(e?.message || "Error al eliminar el curso")
         } finally {
             setDeleting(false)
             setDeleteTarget(null)

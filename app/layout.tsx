@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import { AuthProvider } from "@/contexts/auth-context"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ThemeSync } from "@/components/theme-sync"
+import { QueryProvider } from "@/providers/query-provider"
 import { Toaster } from "sonner"
 
 import "./globals.css"
@@ -61,14 +62,16 @@ export default async function RootLayout({
         >
           {/* Keeps ui:theme cookie in sync when the user changes the theme */}
           <ThemeSync />
-          <AuthProvider>
-            {children}
-            <Toaster
-              theme="dark"
-              richColors
-              position="bottom-right"
-            />
-          </AuthProvider>
+          <QueryProvider>
+            <AuthProvider>
+              {children}
+              <Toaster
+                theme="dark"
+                richColors
+                position="bottom-right"
+              />
+            </AuthProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

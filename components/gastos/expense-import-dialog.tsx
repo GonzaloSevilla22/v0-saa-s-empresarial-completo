@@ -24,7 +24,7 @@
  */
 
 import { useState, useCallback, useRef } from "react"
-import { useData } from "@/contexts/data-context"
+import { useAddExpense } from "@/hooks/data/use-expenses-query"
 import { toast } from "sonner"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -249,7 +249,7 @@ export function ExpenseImportDialog({
   onOpenChange,
   onSuccess,
 }: ExpenseImportDialogProps) {
-  const { addExpense } = useData()
+  const addExpenseMutation = useAddExpense()
 
   const [step,     setStep]     = useState<Step>(1)
   const [rows,     setRows]     = useState<ParsedRow[]>([])
@@ -321,7 +321,7 @@ export function ExpenseImportDialog({
         continue
       }
       try {
-        await addExpense({
+        await addExpenseMutation.mutateAsync({
           description: row.rawDescription.trim(),
           category:    row.resolvedCategory,
           amount:      row.resolvedAmount,
@@ -346,7 +346,7 @@ export function ExpenseImportDialog({
     } else {
       toast.warning(`${ok} OK · ${err} con error — revisá los detalles`)
     }
-  }, [rows, addExpense, onSuccess])
+  }, [rows, addExpenseMutation, onSuccess])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

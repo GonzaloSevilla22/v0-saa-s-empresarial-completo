@@ -6,7 +6,7 @@ import React, {
 } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { services } from "@/lib/supabase/services"
-import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Course, Reply } from "@/lib/types"
+import type { Product, Sale, Purchase, Expense, Client, Insight, Post, Reply } from "@/lib/types"
 import type { SaleCartItem, PurchaseCartItem } from "@/lib/cart-utils"
 
 // ── Context interface ──────────────────────────────────────────────────────────
@@ -19,7 +19,6 @@ interface DataContextType {
   clients:   Client[]
   insights:  Insight[]
   posts:     Post[]
-  courses:   Course[]
   loading:   boolean
   addProduct:    (p: Omit<Product, "id">) => Promise<void>
   updateProduct: (p: Product) => Promise<void>
@@ -27,13 +26,7 @@ interface DataContextType {
   addSale:    (s: Omit<Sale, "id">) => Promise<void>
   updateSale: (s: Sale) => Promise<void>
   deleteSale: (id: string) => Promise<void>
-  /** Deletes ALL sales rows that share the given operation_id (one DB call). */
   deleteSalesByOperation: (operationId: string) => Promise<void>
-  /**
-   * Atomically replaces an entire sale operation (1 or more rows).
-   * Reverses original stock, deletes old rows, inserts new rows with stock deduction.
-   * All in one PostgreSQL transaction — automatic rollback on any failure.
-   */
   updateSaleOperation: (
     saleIds: string[],
     newItems: SaleCartItem[],
@@ -42,21 +35,12 @@ interface DataContextType {
   addPurchase:    (p: Omit<Purchase, "id">) => Promise<void>
   updatePurchase: (p: Purchase) => Promise<void>
   deletePurchase: (id: string) => Promise<void>
-  /** Deletes ALL purchases rows that share the given operation_id (one DB call). */
   deletePurchasesByOperation: (operationId: string) => Promise<void>
-  /**
-   * Atomically replaces an entire purchase operation (1 or more rows).
-   * Reverses original stock addition, deletes old rows, inserts new rows with stock addition.
-   * All in one PostgreSQL transaction — automatic rollback on any failure.
-   */
   updatePurchaseOperation: (
     purchaseIds: string[],
     newItems: PurchaseCartItem[],
     meta: { date: string; description: string }
   ) => Promise<void>
-  addExpense:    (e: Omit<Expense, "id">) => Promise<void>
-  updateExpense: (e: Expense) => Promise<void>
-  deleteExpense: (id: string) => Promise<void>
   addClient:    (c: Omit<Client, "id">) => Promise<void>
   updateClient: (c: Client) => Promise<void>
   deleteClient: (id: string) => Promise<void>
@@ -66,16 +50,12 @@ interface DataContextType {
   toggleLike: (postId: string) => Promise<void>
   addReply:   (postId: string, content: string) => Promise<void>
   getReplies: (postId: string) => Promise<Reply[]>
-  addCourse:    (c: Omit<Course, "id" | "modules">) => Promise<void>
-  updateCourse: (c: Omit<Course, "modules">) => Promise<void>
-  deleteCourse: (id: string) => Promise<void>
   // Computed
   getTodaySales:       () => number
   getTodayExpenses:    () => number
   getNetProfit:        () => number
   getLowStockProducts: () => Product[]
   getSalesByDay:       (days: number) => { date: string; total: number }[]
-  /** Full re-fetch of all data slices. Use sparingly — prefer domain-specific fns internally. */
   refreshData: () => Promise<void>
 }
 
@@ -189,20 +169,6 @@ function mapPost(po: any, userId: string): Post {
   }
 }
 
-function mapCourse(cr: any): Course {
-  return {
-    id:          cr.id,
-    title:       cr.title,
-    description: cr.description,
-    level:       (cr.level as "basico" | "intermedio" | "avanzado") || "basico",
-    isPro:       cr.is_pro ?? false,
-    modules:     [],
-    category:    cr.category || "General",
-    students:    cr.students  || 0,
-    rating:      cr.rating ? Number(cr.rating) : 5,
-  }
-}
-
 /** Translates raw Postgres / Supabase error objects into clear Spanish messages. */
 function translateDbError(error: { code?: string; message?: string } | null): string {
   if (!error) return "Error desconocido"
@@ -231,7 +197,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [clients,   setClients]   = useState<Client[]>([])
   const [insights,  setInsights]  = useState<Insight[]>([])
   const [posts,     setPosts]     = useState<Post[]>([])
-  const [courses,   setCourses]   = useState<Course[]>([])
   const [loading,   setLoading]   = useState(true)
 
   // ── Domain-specific refresh functions ─────────────────────────────────────
@@ -329,18 +294,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (data) setPosts(data.map(po => mapPost(po, userId)))
   }, [supabase])
 
-  const refreshCourses = useCallback(async () => {
-    const { data, error } = await supabase.from("courses").select("*")
-    if (error) {
-      console.error("Error fetching courses:", error)
-      setCourses([])
-    } else if (data) {
-      setCourses(data.map(mapCourse))
-    }
-  }, [supabase])
-
   // ── Full refresh — used for initial load and post-AI-generation ────────────
-  // Now uses all domain-specific functions in parallel (including courses).
 
   const refreshData = useCallback(async () => {
     try {
@@ -355,7 +309,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         refreshClients(),
         refreshInsights(),
         refreshPosts(),
-        refreshCourses(),   // ← was sequential before (after the Promise.all), now parallel
       ])
     } catch (err) {
       console.error("Error fetching data:", err)
@@ -365,7 +318,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [
     supabase,
     refreshProducts, refreshSales, refreshPurchases, refreshExpenses,
-    refreshClients,  refreshInsights, refreshPosts,   refreshCourses,
+    refreshClients,  refreshInsights, refreshPosts,
   ])
 
   // ── Initial load ───────────────────────────────────────────────────────────
@@ -593,28 +546,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await Promise.all([refreshPurchases(), refreshProducts()])
   }, [supabase, refreshPurchases, refreshProducts])
 
-  // ── Expenses ───────────────────────────────────────────────────────────────
-
-  const addExpense = useCallback(async (e: Omit<Expense, "id">) => {
-    await services.createExpense(e)
-    await refreshExpenses()
-  }, [refreshExpenses])
-
-  const updateExpense = useCallback(async (e: Expense) => {
-    const { error } = await supabase.from("expenses").update({
-      category:    e.category,
-      description: e.description,
-      amount:      e.amount,
-    }).eq("id", e.id)
-    if (error) throw new Error(translateDbError(error))
-    await refreshExpenses()
-  }, [supabase, refreshExpenses])
-
-  const deleteExpense = useCallback(async (id: string) => {
-    const { error } = await supabase.from("expenses").delete().eq("id", id)
-    if (error) throw new Error(translateDbError(error))
-    await refreshExpenses()
-  }, [supabase, refreshExpenses])
+  // ── Expenses ── mutations moved to hooks/data/use-expenses-query.ts ─────────
+  // `expenses` state + `refreshExpenses` are kept here so Dashboard computed
+  // values (getTodayExpenses, getNetProfit) continue to work.
+  // The Supabase Realtime subscription (rt-expenses) keeps this in sync.
 
   // ── Clients ────────────────────────────────────────────────────────────────
 
@@ -768,51 +703,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }))
   }, [supabase])
 
-  // ── Courses ────────────────────────────────────────────────────────────────
-
-  const addCourse = useCallback(async (c: Omit<Course, "id" | "modules">) => {
-    const { error } = await supabase.from("courses").insert([{
-      title:       c.title,
-      description: c.description,
-      is_pro:      c.isPro,
-      level:       c.level,
-      category:    c.category,
-      students:    c.students,
-      rating:      c.rating,
-      content:     "",
-    }])
-    if (error) {
-      console.error("Error adding course:", error)
-      throw error
-    }
-    await refreshCourses()
-  }, [supabase, refreshCourses])
-
-  const updateCourse = useCallback(async (c: Omit<Course, "modules">) => {
-    const { error } = await supabase.from("courses").update({
-      title:       c.title,
-      description: c.description,
-      is_pro:      c.isPro,
-      level:       c.level,
-      category:    c.category,
-      students:    c.students,
-      rating:      c.rating,
-    }).eq("id", c.id)
-    if (error) {
-      console.error("Error updating course:", error)
-      throw error
-    }
-    await refreshCourses()
-  }, [supabase, refreshCourses])
-
-  const deleteCourse = useCallback(async (id: string) => {
-    const { error } = await supabase.from("courses").delete().eq("id", id)
-    if (error) {
-      console.error("Error deleting course:", error)
-      throw error
-    }
-    await refreshCourses()
-  }, [supabase, refreshCourses])
+  // ── Courses ── fully migrated to hooks/data/use-courses-query.ts ─────────────
 
   // ── Computed ───────────────────────────────────────────────────────────────
 
@@ -914,30 +805,25 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo(
     () => ({
       products, sales, purchases, expenses,
-      // Expose enriched clients (with computed lastPurchase + totalSpent).
       clients: clientsWithMetrics,
-      insights, posts, courses, loading,
+      insights, posts, loading,
       addProduct, updateProduct, deleteProduct,
       addSale, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
       addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
-      addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
-      addCourse, updateCourse, deleteCourse,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
       refreshData,
     }),
     [
       products, sales, purchases, expenses,
-      clientsWithMetrics,  // replaces raw `clients` — already encapsulates both clients + sales
-      insights, posts, courses, loading,
+      clientsWithMetrics,
+      insights, posts, loading,
       addProduct, updateProduct, deleteProduct,
       addSale, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
       addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
-      addExpense, updateExpense, deleteExpense,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
-      addCourse, updateCourse, deleteCourse,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
       refreshData,
     ],

@@ -1,10 +1,51 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { createServerClient } from "@supabase/ssr"
+import { NextResponse, type NextRequest } from "next/server"
 
-export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+// ── Security Headers ───────────────────────────────────────────────────────
+// Applied to every response. Tune CSP per feature (e.g., add blob: for file previews).
+function applySecurityHeaders(response: NextResponse): NextResponse {
+  const h = response.headers
+
+  h.set("X-Frame-Options", "DENY")
+  h.set("X-Content-Type-Options", "nosniff")
+  h.set("Referrer-Policy", "strict-origin-when-cross-origin")
+  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+  h.set("X-DNS-Prefetch-Control", "off")
+
+  // HSTS: only in production (local dev has no TLS)
+  if (process.env.NODE_ENV === "production") {
+    h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+  }
+
+  // CSP: permissive for now, tighten per module as you build
+  h.set(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // loosen for Next.js hydration; tighten later with nonces
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data:",
+      `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} https://api.resend.com wss:`,
+      "frame-ancestors 'none'",
+    ].join("; ")
+  )
+
+  return response
+}
+
+// ── Protected routes ───────────────────────────────────────────────────────
+const PROTECTED_PREFIXES = [
+  "/dashboard", "/ventas", "/compras", "/productos", "/stock",
+  "/clientes", "/gastos", "/insights", "/simulador", "/comunidad",
+  "/cursos", "/configuracion", "/copiloto-ia", "/ferias", "/seguros", "/admin",
+]
+
+const AUTH_ROUTES = ["/auth/login", "/auth/register"]
+
+// ── Core session update + route protection ────────────────────────────────
+export async function updateSession(request: NextRequest): Promise<NextResponse> {
+  let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,10 +56,8 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
-          })
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -27,75 +66,66 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
+  // getUser() makes a network call to validate the JWT server-side.
+  // Never replace this with getSession() in middleware — that trusts the local cookie.
   const {
     data: { user },
-    error: authError
+    error: authError,
   } = await supabase.auth.getUser()
 
-  // Handle stale sessions after a local DB reset
-  if (authError && authError.message.includes('Refresh Token Not Found')) {
-    // Clear cookies to avoid infinite loops and console noise
-    const response = NextResponse.redirect(new URL('/auth/login', request.url))
-    request.cookies.getAll().forEach(cookie => {
-      if (cookie.name.startsWith('sb-')) {
-        response.cookies.delete(cookie.name)
-      }
+  // Stale session after DB reset / token rotation failure
+  if (authError?.message.includes("Refresh Token Not Found")) {
+    const redirect = NextResponse.redirect(new URL("/auth/login", request.url))
+    request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.startsWith("sb-")) redirect.cookies.delete(cookie.name)
     })
-    return response
+    return applySecurityHeaders(redirect)
   }
 
-  const isAuthRoute =
-    request.nextUrl.pathname.startsWith('/auth/login') ||
-    request.nextUrl.pathname.startsWith('/auth/register')
+  const { pathname } = request.nextUrl
 
-  const protectedRoutes = [
-    '/dashboard', '/ventas', '/compras', '/productos', '/stock',
-    '/clientes', '/gastos', '/insights', '/simulador', '/comunidad',
-    '/cursos', '/configuracion', '/copiloto-ia', '/ferias', '/seguros', '/admin',
-  ]
-  const isProtected = protectedRoutes.some(r => request.nextUrl.pathname.startsWith(r))
-  const isAdminRoute = request.nextUrl.pathname.startsWith('/admin')
+  const isProtected    = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))
+  const isAuthRoute    = AUTH_ROUTES.some((p) => pathname.startsWith(p))
+  const isAdminRoute   = pathname.startsWith("/admin")
 
-  // ── Zero Trust: no session → login ────────────────────────────────────────
+  // No session → redirect to login (preserve intended destination)
   if (isProtected && !user) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth/login'
-    return NextResponse.redirect(url)
+    const url  = request.nextUrl.clone()
+    url.pathname = "/auth/login"
+    url.searchParams.set("next", pathname)
+    return applySecurityHeaders(NextResponse.redirect(url))
   }
 
-  // ── Email not confirmed → verify-email ───────────────────────────────────
-  // Supabase can issue a JWT even before email confirmation (email_confirmed_at = null).
-  // Block those users from protected routes until they verify.
+  // Unverified email → block until confirmed
   if (isProtected && user && !user.email_confirmed_at) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth/verify-email'
-    return NextResponse.redirect(url)
+    url.pathname = "/auth/verify-email"
+    return applySecurityHeaders(NextResponse.redirect(url))
   }
 
-  // ── Admin routes: server-side role check ─────────────────────────────────
-  // Defense-in-depth: don't rely solely on client-side role check in admin pages.
-  // The profiles SELECT policy allows each user to see their own row, so this
-  // query is always permitted without RLS recursion.
+  // Admin routes: server-side role check (defense-in-depth)
   if (isAdminRoute && user) {
     const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
       .single()
 
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || profile.role !== "admin") {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
-      return NextResponse.redirect(url)
+      url.pathname = "/dashboard"
+      return applySecurityHeaders(NextResponse.redirect(url))
     }
   }
 
-  // ── Already authenticated + verified → skip login/register ───────────────
-  if (isAuthRoute && user && user.email_confirmed_at) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+  // Authenticated + verified → skip auth pages
+  if (isAuthRoute && user?.email_confirmed_at) {
+    const next = request.nextUrl.searchParams.get("next") ?? "/dashboard"
+    const url  = request.nextUrl.clone()
+    url.pathname = next.startsWith("/") ? next : "/dashboard"
+    url.search   = ""
+    return applySecurityHeaders(NextResponse.redirect(url))
   }
 
-  return supabaseResponse
+  return applySecurityHeaders(supabaseResponse)
 }

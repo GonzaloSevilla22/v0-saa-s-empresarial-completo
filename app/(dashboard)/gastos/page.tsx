@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react"
 import { useData } from "@/contexts/data-context"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
+import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,8 +15,6 @@ import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { useAuth } from "@/contexts/auth-context"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { formatMoney, formatDate } from "@/lib/format"
-import { parseAmount, parseDate } from "@/lib/excel"
-import { EXPENSE_CATEGORIES } from "@/lib/constants"
 import { exportToCSV } from "@/lib/excel"
 import {
   Plus, Trash2, Pencil, Search, PackageOpen,
@@ -23,7 +22,6 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Expense } from "@/lib/types"
-import { useRef } from "react"
 
 const categoryColors: Record<string, string> = {
   Alquiler:  "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -46,13 +44,12 @@ function mapRow(r: any): Expense {
 }
 
 export default function GastosPage() {
-  const { deleteExpense, addExpense } = useData()
+  const { deleteExpense } = useData()
   const { isAdmin } = useAuth()
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [importing,    setImporting]    = useState(false)
-  const [addOpen,      setAddOpen]      = useState(false)
+  const [importOpen,     setImportOpen]     = useState(false)
+  const [addOpen,        setAddOpen]        = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
-  const [deletingId,   setDeletingId]   = useState<string | null>(null)
+  const [deletingId,     setDeletingId]     = useState<string | null>(null)
 
   // ── Paginated query — search + date filter fully server-side ─────────────
   const pq = usePaginatedQuery<any>({
@@ -94,48 +91,6 @@ export default function GastosPage() {
       { key: "amount",      header: "Monto"       },
     ], "gastos")
     toast.success(`Exportados ${expenses.length} gastos`)
-  }
-
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImporting(true)
-    try {
-      const { parseCSV, readFileAsText, validateImportColumns } = await import("@/lib/excel")
-      const text    = await readFileAsText(file)
-      const headers = [{ csvHeader: "Categoría", key: "category" }, { csvHeader: "Descripción", key: "description" },
-                       { csvHeader: "Monto", key: "amount" }, { csvHeader: "Fecha", key: "date" }]
-      const val = validateImportColumns(text, headers.map((h) => h.csvHeader))
-      if (!val.ok) { toast.error(`Columnas faltantes: ${val.missing.join(", ")}`); return }
-
-      const rows = parseCSV(text, headers)
-      const validCategories = new Set<string>(EXPENSE_CATEGORIES)
-      let success = 0; const errors: string[] = []
-
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i]
-        if (!row.description?.trim()) { errors.push(`Fila ${i + 2}: descripción requerida`); continue }
-        const amount = parseAmount(row.amount)
-        if (isNaN(amount) || amount <= 0) { errors.push(`Fila ${i + 2}: monto inválido`); continue }
-        const category = validCategories.has(row.category?.trim()) ? row.category!.trim() : "Otros"
-        try {
-          await addExpense({ date: parseDate(row.date), category, description: row.description.trim(), amount })
-          success++
-        } catch (err: any) {
-          errors.push(`Fila ${i + 2}: ${err?.message ?? "error"}`)
-        }
-      }
-      if (success > 0) {
-        toast.success(`${success} gasto${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""}`)
-        pq.refetch()
-      }
-      if (errors.length > 0) errors.slice(0, 3).forEach((e) => toast.error(e))
-    } catch (err: any) {
-      toast.error(err?.message || "Error al leer el archivo.")
-    } finally {
-      setImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
-    }
   }
 
   return (
@@ -205,10 +160,9 @@ export default function GastosPage() {
               : `${pq.meta.totalCount} gasto${pq.meta.totalCount !== 1 ? "s" : ""}`
             }
           </span>
-          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImport} />
-          <Button variant="outline" size="sm" disabled={importing} className="border-border text-foreground"
-            onClick={() => fileInputRef.current?.click()}>
-            <Upload className="h-4 w-4 mr-1" />{importing ? "Importando..." : "Importar CSV"}
+          <Button variant="outline" size="sm" className="border-border text-foreground"
+            onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-1" />Importar CSV
           </Button>
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Exportar
@@ -344,6 +298,12 @@ export default function GastosPage() {
           />
         </DialogContent>
       </Dialog>
+
+      <ExpenseImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onSuccess={() => pq.refetch()}
+      />
     </div>
   )
 }

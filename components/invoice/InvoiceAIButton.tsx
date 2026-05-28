@@ -8,7 +8,7 @@ import { InvoiceProcessingCard } from "@/components/invoice/InvoiceProcessingCar
 import { InvoiceReviewModal } from "@/components/invoice/InvoiceReviewModal"
 import { invoiceOcrService } from "@/lib/services/invoiceOcrService"
 import { enrichLines } from "@/lib/invoice-matcher"
-import { generateOperationId } from "@/lib/cart-utils"
+import type { PurchaseCartItem } from "@/lib/cart-utils"
 import { useData } from "@/contexts/data-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { ScanText, Sparkles } from "lucide-react"
@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function InvoiceAIButton({ onPurchasesCreated }: Props) {
-  const { products, addProduct, addPurchase, refreshData } = useData()
+  const { products, addProduct, addPurchaseOperation, refreshData } = useData()
   const { units }  = useUnitsOfMeasure()
 
   const [uploadOpen,  setUploadOpen]  = useState(false)
@@ -109,29 +109,31 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
     // Re-fetch products to get newly-created IDs
     await refreshData()
 
-    // 2. Create purchases for matched lines
+    // 2. Create all purchases atomically in a single transaction
     const purchasables = lines.filter((l) => l.confirmed_product_id)
     if (purchasables.length === 0) {
       toast.warning("No hay productos matcheados — verificá los nombres")
       return
     }
 
-    const errors: string[] = []
-    for (const line of purchasables) {
-      try {
-        await addPurchase({
-          date,
-          productId:   line.confirmed_product_id!,
-          productName: line.confirmed_product_name,
-          quantity:    line.confirmed_quantity,
-          unitCost:    line.confirmed_unit_price,
-          total:       line.confirmed_quantity * line.confirmed_unit_price,
-          description: `Factura IA${parsed.invoice?.number ? ` N° ${parsed.invoice.number}` : ""}`,
-          unitId:      line.confirmed_unit_id ?? undefined,
-          operationId,
-        })
+    const description = `Factura IA${parsed.invoice?.number ? ` N° ${parsed.invoice.number}` : ""}`
+    const items: PurchaseCartItem[] = purchasables.map((line) => ({
+      id:          crypto.randomUUID(),              // frontend-only, not persisted by RPC
+      productId:   line.confirmed_product_id!,
+      productName: line.confirmed_product_name ?? "",
+      quantity:    line.confirmed_quantity,
+      unitCost:    line.confirmed_unit_price,
+      subtotal:    line.confirmed_quantity * line.confirmed_unit_price,
+      unitId:      line.confirmed_unit_id ?? undefined,
+    }))
 
-        // Save alias for future OCR learning
+    try {
+      // operationId is a UUID generated once per review session by InvoiceReviewModal —
+      // using it as idempotency key: a double-confirm replays instead of duplicating.
+      await addPurchaseOperation(items, { idempotencyKey: operationId, date, description })
+
+      // Save aliases for future OCR learning (fire-and-forget, non-critical)
+      for (const line of purchasables) {
         if (
           line.match.type !== "exact_barcode" &&
           line.match.type !== "exact_name" &&
@@ -140,26 +142,20 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
         ) {
           invoiceOcrService.saveAlias(line.confirmed_product_id, line.description).catch(() => {})
         }
-      } catch (err: any) {
-        errors.push(`${line.confirmed_product_name}: ${err.message}`)
       }
-    }
 
-    // 3. Mark document as confirmed
-    if (documentId) {
-      invoiceOcrService.markConfirmed(documentId, operationId).catch(() => {})
-    }
+      // 3. Mark document as confirmed
+      if (documentId) {
+        invoiceOcrService.markConfirmed(documentId, operationId).catch(() => {})
+      }
 
-    if (errors.length > 0) {
-      toast.warning(`${purchasables.length - errors.length} registrado(s). ${errors.length} con error.`)
-      errors.forEach((e) => toast.error(e))
-    } else {
       toast.success(`✅ ${purchasables.length} compra${purchasables.length > 1 ? "s" : ""} registrada${purchasables.length > 1 ? "s" : ""} desde factura IA`)
+      setSession(INITIAL_STATE)
+      onPurchasesCreated?.()
+    } catch (err: any) {
+      toast.error(`Error al registrar compras: ${err.message || "Error desconocido"}`)
     }
-
-    setSession(INITIAL_STATE)
-    onPurchasesCreated?.()
-  }, [addProduct, addPurchase, refreshData, onPurchasesCreated])
+  }, [addProduct, addPurchaseOperation, refreshData, onPurchasesCreated])
 
   const handleReset = useCallback(() => {
     setSession(INITIAL_STATE)

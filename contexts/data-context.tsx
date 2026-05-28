@@ -23,7 +23,6 @@ interface DataContextType {
   addProduct:    (p: Omit<Product, "id">) => Promise<void>
   updateProduct: (p: Product) => Promise<void>
   deleteProduct: (id: string) => Promise<void>
-  addSale:    (s: Omit<Sale, "id">) => Promise<void>
   /** Atomic, idempotent, multi-item sale create. Replaces the per-item loop. */
   addSaleOperation: (
     items: SaleCartItem[],
@@ -37,7 +36,6 @@ interface DataContextType {
     newItems: SaleCartItem[],
     meta: { clientId: string | null; date: string; currency: string }
   ) => Promise<void>
-  addPurchase:    (p: Omit<Purchase, "id">) => Promise<void>
   /** Atomic, idempotent, multi-item purchase create. Replaces the per-item loop. */
   addPurchaseOperation: (
     items: PurchaseCartItem[],
@@ -450,12 +448,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Sales ──────────────────────────────────────────────────────────────────
 
-  const addSale = useCallback(async (s: Omit<Sale, "id">) => {
-    await services.createSale(s)
-    // Immediate refresh after Edge Function completes (don't wait for realtime)
-    await refreshSales()
-  }, [refreshSales])
-
   // Atomic, idempotent, multi-item create. Calls the new aggregate RPC directly
   // (same pattern as updateSaleOperation) — bypasses the per-item edge-function
   // loop entirely. amount = effective unit price (post-discount); the RPC derives
@@ -533,11 +525,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Purchases ──────────────────────────────────────────────────────────────
 
-  const addPurchase = useCallback(async (p: Omit<Purchase, "id">) => {
-    await services.createPurchase(p)
-    // Immediate refresh after Edge Function completes
-    await refreshPurchases()
-  }, [refreshPurchases])
 
   const addPurchaseOperation = useCallback(async (
     items: PurchaseCartItem[],
@@ -867,8 +854,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clients: clientsWithMetrics,
       insights, posts, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, addSaleOperation, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
-      addPurchase, addPurchaseOperation, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
+      addSaleOperation, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
+      addPurchaseOperation, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
@@ -879,8 +866,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clientsWithMetrics,
       insights, posts, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, addSaleOperation, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
-      addPurchase, addPurchaseOperation, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
+      addSaleOperation, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
+      addPurchaseOperation, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,

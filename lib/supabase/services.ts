@@ -1,5 +1,5 @@
 import { createClient } from './client'
-import type { Sale, Purchase, Insight } from '@/lib/types'
+import type { Insight } from '@/lib/types'
 
 const supabase = createClient()
 
@@ -12,86 +12,6 @@ export const getProfile = async (id: string, client?: any) => {
 
 export const services = {
   getProfile,
-  // Sales
-  async createSale(sale: Omit<Sale, 'id'>) {
-    const { data, error } = await supabase.functions.invoke('create-sale', {
-      body: {
-        client_id: sale.clientId,
-        product_id: sale.productId,
-        amount: sale.unitPrice,
-        quantity: sale.quantity,
-        unit_id: sale.unitId ?? null,
-        currency: sale.currency,
-        operation_id: sale.operationId ?? null,
-        date: sale.date,
-      },
-    })
-
-    if (error) {
-      let detailedMsg = "Error en la venta"
-
-      try {
-        const context = (error as any).context
-        if (context && context.response) {
-          const bodyText = await context.response.text()
-          try {
-            const parsed = JSON.parse(bodyText)
-            detailedMsg = parsed.error || bodyText
-          } catch (e) {
-            detailedMsg = bodyText
-          }
-        } else if (error instanceof Error) {
-          detailedMsg = error.message
-        }
-      } catch (e) {
-        if (error instanceof Error) detailedMsg = error.message
-      }
-
-      throw new Error(detailedMsg)
-    }
-    return data
-  },
-
-  // Purchases
-  async createPurchase(purchase: Omit<Purchase, 'id'>) {
-    const { data, error } = await supabase.functions.invoke('create-purchase', {
-      body: {
-        product_id: purchase.productId,
-        amount: purchase.unitCost,
-        quantity: purchase.quantity,
-        unit_id: purchase.unitId ?? null,
-        description: purchase.description,
-        operation_id: purchase.operationId ?? null,
-        date: purchase.date,
-      }
-    })
-
-    if (error) {
-      let detailedMsg = "Error en la compra"
-
-      try {
-        const context = (error as any).context
-        if (context && context.response) {
-          const bodyText = await context.response.text()
-          try {
-            const parsed = JSON.parse(bodyText)
-            detailedMsg = parsed.error || bodyText
-          } catch (e) {
-            detailedMsg = bodyText
-          }
-        } else if (error instanceof Error) {
-          detailedMsg = error.message
-        }
-      } catch (e) {
-        if (error instanceof Error) detailedMsg = error.message
-      }
-
-      throw new Error(detailedMsg)
-    }
-
-    return data
-  },
-
   // AI Insights - MOVED TO aiInsightService.ts
   
   // AI Resumen (Financial Summary)

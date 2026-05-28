@@ -24,6 +24,11 @@ interface DataContextType {
   updateProduct: (p: Product) => Promise<void>
   deleteProduct: (id: string) => Promise<void>
   addSale:    (s: Omit<Sale, "id">) => Promise<void>
+  /** Atomic, idempotent, multi-item sale create. Replaces the per-item loop. */
+  addSaleOperation: (
+    items: SaleCartItem[],
+    meta: { idempotencyKey: string; clientId: string | null; date: string; currency: string }
+  ) => Promise<{ operation_id: string; items: unknown[]; replayed: boolean }>
   updateSale: (s: Sale) => Promise<void>
   deleteSale: (id: string) => Promise<void>
   deleteSalesByOperation: (operationId: string) => Promise<void>
@@ -33,6 +38,11 @@ interface DataContextType {
     meta: { clientId: string | null; date: string; currency: string }
   ) => Promise<void>
   addPurchase:    (p: Omit<Purchase, "id">) => Promise<void>
+  /** Atomic, idempotent, multi-item purchase create. Replaces the per-item loop. */
+  addPurchaseOperation: (
+    items: PurchaseCartItem[],
+    meta: { idempotencyKey: string; date: string; description: string }
+  ) => Promise<{ operation_id: string; items: unknown[]; replayed: boolean }>
   updatePurchase: (p: Purchase) => Promise<void>
   deletePurchase: (id: string) => Promise<void>
   deletePurchasesByOperation: (operationId: string) => Promise<void>
@@ -446,6 +456,33 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     await refreshSales()
   }, [refreshSales])
 
+  // Atomic, idempotent, multi-item create. Calls the new aggregate RPC directly
+  // (same pattern as updateSaleOperation) — bypasses the per-item edge-function
+  // loop entirely. amount = effective unit price (post-discount); the RPC derives
+  // total = amount × quantity and normalizes stock by unit factor server-side.
+  const addSaleOperation = useCallback(async (
+    items: SaleCartItem[],
+    meta: { idempotencyKey: string; clientId: string | null; date: string; currency: string }
+  ) => {
+    const payload = items.map(item => ({
+      product_id: item.productId,
+      amount:     item.unitPrice * (1 - item.discount / 100),
+      quantity:   item.quantity,
+      unit_id:    item.unitId ?? null,
+    }))
+
+    const { data, error } = await supabase.rpc("rpc_create_sale_operation", {
+      p_idempotency_key: meta.idempotencyKey,
+      p_client_id:       meta.clientId ?? null,
+      p_date:            meta.date,
+      p_currency:        meta.currency,
+      p_items:           payload,
+    })
+    if (error) throw new Error(translateDbError(error))
+    await Promise.all([refreshSales(), refreshProducts()])
+    return data as { operation_id: string; items: unknown[]; replayed: boolean }
+  }, [supabase, refreshSales, refreshProducts])
+
   const updateSale = useCallback(async (s: Sale) => {
     // amount = unit price per item; total = unit price × quantity
     const { error } = await supabase.from("sales").update({
@@ -501,6 +538,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     // Immediate refresh after Edge Function completes
     await refreshPurchases()
   }, [refreshPurchases])
+
+  const addPurchaseOperation = useCallback(async (
+    items: PurchaseCartItem[],
+    meta: { idempotencyKey: string; date: string; description: string }
+  ) => {
+    const payload = items.map(item => ({
+      product_id: item.productId,
+      amount:     item.unitCost,
+      quantity:   item.quantity,
+      unit_id:    item.unitId ?? null,
+    }))
+
+    const { data, error } = await supabase.rpc("rpc_create_purchase_operation", {
+      p_idempotency_key: meta.idempotencyKey,
+      p_date:            meta.date,
+      p_description:     meta.description || null,
+      p_items:           payload,
+    })
+    if (error) throw new Error(translateDbError(error))
+    await Promise.all([refreshPurchases(), refreshProducts()])
+    return data as { operation_id: string; items: unknown[]; replayed: boolean }
+  }, [supabase, refreshPurchases, refreshProducts])
 
   const updatePurchase = useCallback(async (p: Purchase) => {
     // amount = unit cost per item; total = unit cost × quantity
@@ -808,8 +867,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clients: clientsWithMetrics,
       insights, posts, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
-      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
+      addSale, addSaleOperation, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
+      addPurchase, addPurchaseOperation, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,
@@ -820,8 +879,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       clientsWithMetrics,
       insights, posts, loading,
       addProduct, updateProduct, deleteProduct,
-      addSale, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
-      addPurchase, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
+      addSale, addSaleOperation, updateSale, deleteSale, deleteSalesByOperation, updateSaleOperation,
+      addPurchase, addPurchaseOperation, updatePurchase, deletePurchase, deletePurchasesByOperation, updatePurchaseOperation,
       addClient, updateClient, deleteClient,
       addInsight, addPost, deletePost, toggleLike, addReply, getReplies,
       getTodaySales, getTodayExpenses, getNetProfit, getLowStockProducts, getSalesByDay,

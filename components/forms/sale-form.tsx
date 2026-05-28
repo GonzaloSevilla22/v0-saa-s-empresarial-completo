@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
@@ -21,11 +21,11 @@ import {
   resolveUnit,
 } from "@/lib/unit-utils"
 import {
-  generateOperationId,
   calcSaleSubtotal,
   calcCartTotal,
   type SaleCartItem,
 } from "@/lib/cart-utils"
+import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
@@ -39,9 +39,14 @@ interface SaleFormProps {
 }
 
 export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
-  const { products, clients, addSale, addClient, refreshData, updateSaleOperation } = useData()
+  const { products, clients, addSaleOperation, addClient, refreshData, updateSaleOperation } = useData()
   const { units, unitsById } = useUnitsOfMeasure()
+  const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("sale-create")
   const isEdit = !!editingOperation
+
+  // Synchronous re-entrancy guard: closes the double-click window before the
+  // async `submitting` state has a chance to re-render the disabled button.
+  const submittingRef = useRef(false)
 
   // ── Cart state ──────────────────────────────────────────────────────────────
   // In edit mode: pre-populate cart from the existing operation's items.
@@ -327,6 +332,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       toast.error("Agregá al menos un producto al carrito")
       return
     }
+    if (submittingRef.current) return
+    submittingRef.current = true
 
     // ── Edit mode ─────────────────────────────────────────────────────────────
     if (isEdit && editingOperation) {
@@ -348,6 +355,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         toast.error(`Error al actualizar: ${err.message || "Error desconocido"}`)
       } finally {
         setSubmitting(false)
+        submittingRef.current = false
       }
       return
     }
@@ -355,59 +363,37 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     // ── Create mode ───────────────────────────────────────────────────────────
     if (!selectedClient) {
       toast.error("Seleccioná un cliente")
+      submittingRef.current = false
       return
     }
 
     setSubmitting(true)
-    const operationId = generateOperationId()
-
-    type Result = { success: boolean; productName: string; error?: string }
-    const results: Result[] = []
-
-    for (const item of cartItems) {
-      try {
-        const effectiveUnitPrice = item.unitPrice * (1 - item.discount / 100)
-        await addSale({
-          date,
-          productId:   item.productId,
-          productName: item.productName,
-          clientId:    selectedClient.id,
-          clientName:  selectedClient.name,
-          quantity:    item.quantity,
-          unitPrice:   effectiveUnitPrice,
-          total:       item.subtotal,
-          currency,
-          unitId:      item.unitId,
-          operationId,
-        })
-        results.push({ success: true, productName: item.productName })
-      } catch (err: any) {
-        results.push({
-          success:     false,
-          productName: item.productName,
-          error:       err.message || "Error desconocido",
-        })
-      }
-    }
-
-    const successful = results.filter((r) => r.success)
-    const failed     = results.filter((r) => !r.success)
-
-    setSubmitting(false)
-
-    if (failed.length === 0) {
-      toast.success(`✅ ${successful.length} producto(s) registrado(s) correctamente`)
+    try {
+      // One atomic, idempotent call for the whole cart. The idempotency_key is
+      // stable across retries/F5 (sessionStorage), so a double-submit or a
+      // resend-after-lost-response resolves to the SAME operation server-side
+      // (replay) instead of creating duplicates. Either every line commits or
+      // none does — no partial sale.
+      await addSaleOperation(cartItems, {
+        idempotencyKey: idempotencyKey,
+        clientId:       selectedClient.id,
+        date,
+        currency,
+      })
+      // Success → retire this key so the NEXT sale starts a fresh operation.
+      resetIdempotencyKey()
+      toast.success(
+        cartItems.length > 1
+          ? `✅ Venta registrada (${cartItems.length} ítems)`
+          : "✅ Venta registrada correctamente",
+      )
       await refreshData()
       onSuccess()
-    } else if (successful.length > 0) {
-      toast.warning(`⚠️ ${successful.length} registrado(s), ${failed.length} con error`)
-      failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
-      await refreshData()
-      const successNames = new Set(successful.map((s) => s.productName))
-      setCartItems((prev) => prev.filter((item) => !successNames.has(item.productName)))
-    } else {
-      toast.error("No se pudo registrar ningún producto")
-      failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
+    } catch (err: any) {
+      toast.error(`Error al registrar la venta: ${err.message || "Error desconocido"}`)
+    } finally {
+      setSubmitting(false)
+      submittingRef.current = false
     }
   }
 

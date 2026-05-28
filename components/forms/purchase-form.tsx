@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import { useState, useMemo, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
@@ -20,11 +20,11 @@ import {
 } from "@/lib/unit-utils"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
 import {
-  generateOperationId,
   calcPurchaseSubtotal,
   calcCartTotal,
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
+import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
@@ -38,9 +38,14 @@ interface PurchaseFormProps {
 }
 
 export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps) {
-  const { products, addPurchase, addProduct, refreshData, updatePurchaseOperation } = useData()
+  const { products, addPurchaseOperation, addProduct, refreshData, updatePurchaseOperation } = useData()
   const { units, unitsById } = useUnitsOfMeasure()
+  const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("purchase-create")
   const isEdit = !!editingOperation
+
+  // Synchronous re-entrancy guard: closes the double-click window before the
+  // async `submitting` state re-renders the disabled button.
+  const submittingRef = useRef(false)
 
   // ── Cart state ──────────────────────────────────────────────────────────────
   // In edit mode: pre-populate from the existing operation's items.
@@ -311,6 +316,8 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
       toast.error("Agregá al menos un producto al carrito")
       return
     }
+    if (submittingRef.current) return
+    submittingRef.current = true
 
     // ── Edit mode ─────────────────────────────────────────────────────────────
     if (isEdit && editingOperation) {
@@ -325,58 +332,33 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         toast.error(`Error al actualizar: ${err.message || "Error desconocido"}`)
       } finally {
         setSubmitting(false)
+        submittingRef.current = false
       }
       return
     }
 
     // ── Create mode ───────────────────────────────────────────────────────────
     setSubmitting(true)
-    const operationId = generateOperationId()
-
-    type Result = { success: boolean; productName: string; error?: string }
-    const results: Result[] = []
-
-    for (const item of cartItems) {
-      try {
-        await addPurchase({
-          date,
-          productId:   item.productId,
-          productName: item.productName,
-          quantity:    item.quantity,
-          unitCost:    item.unitCost,
-          total:       item.subtotal,
-          description: description || `Compra de ${item.productName}`,
-          unitId:      item.unitId,
-          operationId,
-        })
-        results.push({ success: true, productName: item.productName })
-      } catch (err: any) {
-        results.push({
-          success:     false,
-          productName: item.productName,
-          error:       err.message || "Error desconocido",
-        })
-      }
-    }
-
-    const successful = results.filter((r) => r.success)
-    const failed     = results.filter((r) => !r.success)
-
-    setSubmitting(false)
-
-    if (failed.length === 0) {
-      toast.success(`✅ ${successful.length} producto(s) registrado(s) correctamente`)
+    try {
+      // One atomic, idempotent call for the whole cart (see SaleForm rationale).
+      await addPurchaseOperation(cartItems, {
+        idempotencyKey: idempotencyKey,
+        date,
+        description,
+      })
+      resetIdempotencyKey()
+      toast.success(
+        cartItems.length > 1
+          ? `✅ Compra registrada (${cartItems.length} ítems)`
+          : "✅ Compra registrada correctamente",
+      )
       await refreshData()
       onSuccess()
-    } else if (successful.length > 0) {
-      toast.warning(`⚠️ ${successful.length} registrado(s), ${failed.length} con error`)
-      failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
-      await refreshData()
-      const successNames = new Set(successful.map((s) => s.productName))
-      setCartItems((prev) => prev.filter((item) => !successNames.has(item.productName)))
-    } else {
-      toast.error("No se pudo registrar ningún producto")
-      failed.forEach((f) => toast.error(`❌ ${f.productName}: ${f.error}`))
+    } catch (err: any) {
+      toast.error(`Error al registrar la compra: ${err.message || "Error desconocido"}`)
+    } finally {
+      setSubmitting(false)
+      submittingRef.current = false
     }
   }
 

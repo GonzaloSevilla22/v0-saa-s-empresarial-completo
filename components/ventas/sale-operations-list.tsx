@@ -29,6 +29,7 @@ import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate, type Currency } from "@/lib/format"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
 import type { Sale, Client } from "@/lib/types"
+import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
   Plus, Trash2, Pencil, ChevronDown, ChevronRight,
@@ -295,7 +296,10 @@ export function SaleOperationsList({
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
                     <span className="text-sm font-medium text-foreground truncate">
-                      {op.items.map((i) => i.productName).join(" · ")}
+                      {op.items[0].productName}
+                      {op.items.length > 1 && (
+                        <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                      )}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
@@ -311,7 +315,10 @@ export function SaleOperationsList({
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
                     <span className="text-sm font-medium text-foreground truncate">
-                      {op.items.map((i) => i.productName).join(" · ")}
+                      {op.items[0].productName}
+                      {op.items.length > 1 && (
+                        <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                      )}
                     </span>
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
@@ -354,7 +361,7 @@ export function SaleOperationsList({
                     </div>
                     {op.items.map((item) => (
                       <div key={item.id} className="grid grid-cols-[1fr_72px_110px_110px] gap-2 px-3 py-2.5 border-t border-border/30 text-sm items-center hover:bg-accent/10 min-w-[320px]">
-                        <span className="font-medium text-foreground">{item.productName}</span>
+                        <ProductDisplay mode="table" name={item.productName} />
                         <span className="text-center text-muted-foreground tabular-nums">{item.quantity}</span>
                         <span className="text-right text-muted-foreground tabular-nums">{formatMoney(item.unitPrice, op.currency)}</span>
                         <span className="text-right font-semibold text-emerald-400 tabular-nums">{formatMoney(item.total, op.currency)}</span>

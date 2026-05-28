@@ -4,6 +4,7 @@ import { Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { formatMoney, type Currency } from "@/lib/format"
+import { parseProductName } from "@/lib/product-labels"
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -74,21 +75,31 @@ export function CartItemList({
           ].join(" ")}
         >
           {/* Product info */}
-          <div className="flex flex-col gap-0.5 min-w-0">
-            <span className="text-sm font-medium text-foreground truncate leading-tight">
-              {item.productName}
-            </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[11px] text-muted-foreground">
-                {unitLabel}: {formatMoney(item.unitValue, currency)}
-              </span>
-              {item.badge && (
-                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25">
-                  {item.badge}
+          {(() => {
+            const { name, parentName } = parseProductName(item.productName)
+            return (
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-sm font-medium text-foreground truncate leading-tight">
+                  {name}
                 </span>
-              )}
-            </div>
-          </div>
+                {parentName && (
+                  <span className="text-[10px] text-muted-foreground truncate leading-none">
+                    {parentName}
+                  </span>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-muted-foreground">
+                    {unitLabel}: {formatMoney(item.unitValue, currency)}
+                  </span>
+                  {item.badge && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Quantity editor — step and min driven by unit type, not hardcoded */}
           <NumericInput

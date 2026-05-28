@@ -16,9 +16,12 @@ import { cn } from "@/lib/utils"
 
 export interface SearchableSelectOption {
   value: string
+  /** Used by cmdk for filtering and shown in the trigger button. */
   label: string
-  /** Optional secondary text shown to the right in the dropdown (e.g. "Stock: 42") */
+  /** Fallback secondary text shown to the right when renderOption is not provided. */
   sublabel?: string
+  /** Arbitrary structured data passed as-is to renderOption. */
+  data?: unknown
 }
 
 interface SearchableSelectProps {
@@ -30,6 +33,17 @@ interface SearchableSelectProps {
   emptyMessage?: string
   className?: string
   disabled?: boolean
+  /**
+   * Custom renderer for each dropdown option row.
+   * When provided, replaces the default label + sublabel rendering.
+   */
+  renderOption?: (opt: SearchableSelectOption, isSelected: boolean) => React.ReactNode
+  /**
+   * Custom renderer for the trigger button's selected state.
+   * When provided, replaces the single-line label span.
+   * The button height expands to fit multi-line content automatically.
+   */
+  renderTrigger?: (opt: SearchableSelectOption) => React.ReactNode
 }
 
 export function SearchableSelect({
@@ -41,10 +55,13 @@ export function SearchableSelect({
   emptyMessage = "Sin resultados.",
   className,
   disabled = false,
+  renderOption,
+  renderTrigger,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false)
 
-  const selectedLabel = options.find((opt) => opt.value === value)?.label
+  const selectedOption = options.find((opt) => opt.value === value)
+  const selectedLabel  = selectedOption?.label
 
   function handleSelect(optionValue: string) {
     // Toggle off if same value selected again (optional, keeps parity with Select)
@@ -63,11 +80,15 @@ export function SearchableSelect({
           disabled={disabled}
           className={cn(
             "w-full justify-between font-normal bg-background border-border text-foreground",
+            renderTrigger && selectedOption ? "h-auto min-h-11 md:min-h-10 py-2" : "",
             !selectedLabel && "text-muted-foreground",
             className
           )}
         >
-          <span className="truncate">{selectedLabel ?? placeholder}</span>
+          {renderTrigger && selectedOption
+            ? renderTrigger(selectedOption)
+            : <span className="truncate">{selectedLabel ?? placeholder}</span>
+          }
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -95,12 +116,19 @@ export function SearchableSelect({
                       value === opt.value ? "opacity-100" : "opacity-0"
                     )}
                   />
-                  <span className="flex-1 truncate">{opt.label}</span>
-                  {opt.sublabel && (
-                    <span className="ml-3 shrink-0 text-xs text-muted-foreground tabular-nums">
-                      {opt.sublabel}
-                    </span>
-                  )}
+                  {renderOption
+                    ? renderOption(opt, value === opt.value)
+                    : (
+                      <>
+                        <span className="flex-1 truncate">{opt.label}</span>
+                        {opt.sublabel && (
+                          <span className="ml-3 shrink-0 text-xs text-muted-foreground tabular-nums">
+                            {opt.sublabel}
+                          </span>
+                        )}
+                      </>
+                    )
+                  }
                 </CommandItem>
               ))}
             </CommandGroup>

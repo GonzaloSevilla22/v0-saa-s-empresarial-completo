@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from "react"
 import { useData } from "@/contexts/data-context"
 import { SaleForm } from "@/components/forms/sale-form"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import { useAuth } from "@/contexts/auth-context"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
@@ -113,20 +113,17 @@ export default function VentasPage() {
         onRefetch={pq.refetch}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) handleDialogClose() }}>
-        <DialogContent className="bg-card border-border overflow-hidden">
-          <DialogHeader>
-            <DialogTitle className="text-card-foreground">
-              {editingOperation ? "Editar venta" : "Nueva venta"}
-            </DialogTitle>
-          </DialogHeader>
-          <SaleForm
-            key={editingOperation ? editingOperation.key : "new-sale"}
-            editingOperation={editingOperation ?? undefined}
-            onSuccess={() => { handleDialogClose(); pq.refetch() }}
-          />
-        </DialogContent>
-      </Dialog>
+      <ResponsiveModal
+        open={dialogOpen}
+        onOpenChange={(open) => { if (!open) handleDialogClose() }}
+        title={editingOperation ? "Editar venta" : "Nueva venta"}
+      >
+        <SaleForm
+          key={editingOperation ? editingOperation.key : "new-sale"}
+          editingOperation={editingOperation ?? undefined}
+          onSuccess={() => { handleDialogClose(); pq.refetch() }}
+        />
+      </ResponsiveModal>
     </div>
   )
 }

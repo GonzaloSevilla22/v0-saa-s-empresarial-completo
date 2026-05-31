@@ -525,7 +525,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   // ── Purchases ──────────────────────────────────────────────────────────────
 
-
   const addPurchaseOperation = useCallback(async (
     items: PurchaseCartItem[],
     meta: { idempotencyKey: string; date: string; description: string }

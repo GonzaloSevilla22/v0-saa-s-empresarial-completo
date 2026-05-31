@@ -154,6 +154,7 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
       onPurchasesCreated?.()
     } catch (err: any) {
       toast.error(`Error al registrar compras: ${err.message || "Error desconocido"}`)
+      setSession((s) => ({ ...s, step: "error", error: err.message ?? "Error desconocido", progress: 0 }))
     }
   }, [addProduct, addPurchaseOperation, refreshData, onPurchasesCreated])
 

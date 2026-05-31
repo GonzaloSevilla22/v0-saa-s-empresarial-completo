@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback, useMemo, useEffect } from "react"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
@@ -40,9 +40,13 @@ export function InvoiceReviewModal({
 }: Props) {
   const [lines,       setLines]       = useState<MatchedInvoiceLine[]>(initialLines)
   const [confirming,  setConfirming]  = useState(false)
+  // One stable UUID per modal session. Re-using it on retry = idempotent replay.
+  // Generating inside handleConfirm (old behavior) created a new key per click,
+  // defeating the double-submit guard.
+  const [operationId] = useState(() => generateOperationId())
 
-  // Reset when modal reopens with new data
-  // (parent passes fresh initialLines each time)
+  // Sync lines when the modal opens with a fresh invoice (component may not remount).
+  useEffect(() => { setLines(initialLines) }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateLine = useCallback((index: number, updates: Partial<MatchedInvoiceLine>) => {
     setLines((prev) => prev.map((l, i) => i === index ? { ...l, ...updates } : l))
@@ -82,7 +86,6 @@ export function InvoiceReviewModal({
 
     setConfirming(true)
     try {
-      const operationId = generateOperationId()
       await onConfirm(includedLines, operationId, parsed, documentId)
       onOpenChange(false)
     } catch (err: any) {

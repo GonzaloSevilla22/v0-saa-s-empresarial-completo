@@ -213,7 +213,22 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: RLS enabled on operation_idempotency';
 
-  RAISE NOTICE '=== All idempotency tests passed (13/13) ===';
+  -- ── 13. CHECK constraint limita idempotency_key a 512 chars ─────────────────
+  SELECT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_namespace n ON c.connamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND c.conrelid = 'public.operation_idempotency'::regclass
+      AND c.contype = 'c'
+      AND c.conname = 'operation_idempotency_key_length'
+  ) INTO v_ok;
+
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'FAIL: CHECK constraint operation_idempotency_key_length not found — unbounded key allows DoS';
+  END IF;
+  RAISE NOTICE 'PASS: idempotency_key bounded to 512 chars';
+
+  RAISE NOTICE '=== All idempotency tests passed (14/14) ===';
 END;
 $$;
 

@@ -131,9 +131,56 @@ export function ProductPicker({
     type Scored = { option: PickerOption; score: number }
     const scored: Scored[] = []
 
+    // ─── DEBUG INSTRUMENTATION (temporary — remove after diagnosis) ──────────
+    // eslint-disable-next-line no-console
+    console.group(`[ProductPicker] search="${search}" raw="${raw}" norm="${q}" tokens=[${tokens.join(", ")}] allOptions=${allOptions.length}`)
+    // ─────────────────────────────────────────────────────────────────────────
+
     for (const o of allOptions) {
       const key     = norm(o.searchKey)        // searchKey already lowercase + no diacritics; add z↔s
       const display = norm(o.displayName)
+
+      // ─── DEBUG: per-token match analysis (BEFORE early continue) ───────────
+      const matchedTokens = tokens.filter((t) => key.includes(t) || display.includes(t))
+      const missingTokens = tokens.filter((t) => !key.includes(t) && !display.includes(t))
+      const wouldPass = missingTokens.length === 0
+
+      // Log items that DO pass the filter (so we see what's in filtered)
+      if (wouldPass) {
+        const tokenContexts = tokens.map((t) => {
+          const idxKey = key.indexOf(t)
+          const idxDisp = display.indexOf(t)
+          const contextKey = idxKey >= 0
+            ? `...${key.substring(Math.max(0, idxKey - 12), Math.min(key.length, idxKey + t.length + 12))}...`
+            : null
+          const contextDisp = idxDisp >= 0
+            ? `...${display.substring(Math.max(0, idxDisp - 12), Math.min(display.length, idxDisp + t.length + 12))}...`
+            : null
+          return {
+            token:           t,
+            foundInKey:      idxKey >= 0,
+            foundInDisplay:  idxDisp >= 0,
+            indexInKey:      idxKey,
+            indexInDisplay:  idxDisp,
+            keyContext:      contextKey,
+            displayContext:  contextDisp,
+          }
+        })
+        // eslint-disable-next-line no-console
+        console.log({
+          productId:     o.product.id,
+          productName:   o.product.name,
+          parentName:    o.parentName,
+          rawSearchKey:  o.searchKey,
+          normSearchKey: key,
+          rawDisplay:    o.displayName,
+          normDisplay:   display,
+          tokens,
+          matchedTokens,
+          tokenContexts,
+        })
+      }
+      // ─────────────────────────────────────────────────────────────────────────
 
       // AND semantics: every token must appear somewhere
       if (!tokens.every((t) => key.includes(t) || display.includes(t))) continue
@@ -150,6 +197,21 @@ export function ProductPicker({
     }
 
     scored.sort((a, b) => b.score - a.score)
+
+    // ─── DEBUG: final summary ────────────────────────────────────────────────
+    // eslint-disable-next-line no-console
+    console.log(`[ProductPicker] filtered.length=${scored.length} of ${allOptions.length} total`)
+    // eslint-disable-next-line no-console
+    console.log(`[ProductPicker] TOP 20 sorted by score:`, scored.slice(0, 20).map((x, i) => ({
+      rank:        i + 1,
+      score:       x.score,
+      productName: x.option.product.name,
+      parentName:  x.option.parentName,
+    })))
+    // eslint-disable-next-line no-console
+    console.groupEnd()
+    // ─────────────────────────────────────────────────────────────────────────
+
     return scored.map((x) => x.option)
   }, [allOptions, search])
 

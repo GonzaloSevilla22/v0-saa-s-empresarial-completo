@@ -208,6 +208,48 @@ export function ProductPicker({
       productName: x.option.product.name,
       parentName:  x.option.parentName,
     })))
+
+    // ─── DEBUG: SUSPICIOUS items — pasaron AND check pero NO tienen "buzo/buso/darlon" en el name crudo ──
+    const suspicious = scored.filter(({ option }) => {
+      const rawName   = option.product.name.toLowerCase()
+      const rawParent = (option.parentName ?? "").toLowerCase()
+      const combined  = `${rawName} ${rawParent}`
+      // Buscar "buzo", "buso", o "darlon" en el nombre CRUDO (sin normalizar)
+      // Si NO contiene ninguna de esas palabras, es sospechoso.
+      const hasBuzo   = combined.includes("buzo") || combined.includes("buso")
+      const hasDarlon = combined.includes("darlon")
+      return !(hasBuzo && hasDarlon)
+    })
+
+    if (suspicious.length > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(`🚨 [ProductPicker] ${suspicious.length} SOSPECHOSOS — pasaron filtro pero NO tienen "buzo/buso" Y "darlon" en name+parent crudo:`)
+      // eslint-disable-next-line no-console
+      console.warn(suspicious.slice(0, 30).map(({ option, score }) => ({
+        score,
+        productName:   option.product.name,
+        parentName:    option.parentName ?? "(sin parent)",
+        sku:           option.product.sku ?? "(sin sku)",
+        barcode:       option.product.barcode ?? "(sin barcode)",
+        rawSearchKey:  option.searchKey,
+        normSearchKey: norm(option.searchKey),
+        tokenLocations: tokens.map((t) => {
+          const nKey  = norm(option.searchKey)
+          const nDisp = norm(option.displayName)
+          const iKey  = nKey.indexOf(t)
+          const iDisp = nDisp.indexOf(t)
+          return {
+            token: t,
+            inKeyAt:     iKey  >= 0 ? `pos ${iKey}: "${nKey.substring(Math.max(0, iKey - 15), Math.min(nKey.length, iKey + t.length + 15))}"`  : "NOT FOUND",
+            inDisplayAt: iDisp >= 0 ? `pos ${iDisp}: "${nDisp.substring(Math.max(0, iDisp - 15), Math.min(nDisp.length, iDisp + t.length + 15))}"` : "NOT FOUND",
+          }
+        }),
+      })))
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(`✅ [ProductPicker] Zero sospechosos — todos los ${scored.length} items contienen "buzo/buso" Y "darlon" en name+parent.`)
+    }
+
     // eslint-disable-next-line no-console
     console.groupEnd()
     // ─────────────────────────────────────────────────────────────────────────

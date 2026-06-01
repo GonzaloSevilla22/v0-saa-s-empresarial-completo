@@ -329,7 +329,11 @@ export function ProductPicker({
             </span>
           </div>
           {/* ──────────────────────────────────────────────────────────────── */}
-          <CommandList>
+          {/* FIX: key={search} fuerza unmount completo en cada cambio de búsqueda.
+              Sin esto, cmdk preservaba CommandItems de renders anteriores
+              (L=1811 cuando filtered ya era 76), causando que productos
+              irrelevantes apareciesen en el DOM. */}
+          <CommandList key={search}>
             <CommandEmpty>No se encontraron productos.</CommandEmpty>
             <CommandGroup>
               {filtered.map((o, idx) => (

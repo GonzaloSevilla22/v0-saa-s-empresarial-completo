@@ -110,14 +110,50 @@ export function ProductPicker({
   )
 
   // ── Filter on deferred value ──────────────────────────────────────────────
+  // Multi-token AND search with relevance ranking and phonetic normalization.
+  //
+  // Improvements over the previous single-phrase includes() approach:
+  //   1. Token splitting — "buzo darlon" → ["buzo","darlon"], both must match
+  //      anywhere in the searchKey (order-independent).
+  //   2. z↔s normalization — covers regional spelling variants common in
+  //      Argentine/Colombian Spanish ("buso" matches "buzo", and vice-versa).
+  //   3. Relevance ranking — exact-phrase match ranks above token-only match;
+  //      word-boundary hits boost score further.
   const filtered = useMemo(() => {
-    const q = deferredSearch.trim().toLowerCase()
-    if (!q) return allOptions
-    return allOptions.filter(
-      (o) =>
-        o.searchKey.includes(q) ||
-        o.displayName.toLowerCase().includes(q),
-    )
+    const raw = deferredSearch.trim().toLowerCase()
+    if (!raw) return allOptions
+
+    // Normalize: remove diacritics (same as getSearchableLabel) + z↔s
+    const norm = (s: string) =>
+      s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/z/g, "s")
+
+    const q      = norm(raw)
+    const tokens = q.split(/\s+/).filter(Boolean)
+    if (tokens.length === 0) return allOptions
+
+    type Scored = { option: PickerOption; score: number }
+    const scored: Scored[] = []
+
+    for (const o of allOptions) {
+      const key     = norm(o.searchKey)        // searchKey already lowercase + no diacritics; add z↔s
+      const display = norm(o.displayName)
+
+      // AND semantics: every token must appear somewhere
+      if (!tokens.every((t) => key.includes(t) || display.includes(t))) continue
+
+      // Rank by relevance (higher = better match)
+      let score = 0
+      if (key.includes(q) || display.includes(q))                        score += 100 // exact phrase
+      if (key.startsWith(tokens[0]) || display.startsWith(tokens[0]))    score += 50  // starts with first token
+      for (const t of tokens) {
+        if (key.startsWith(t) || key.includes(` ${t}`))                  score += 10  // word-boundary hit
+      }
+
+      scored.push({ option: o, score })
+    }
+
+    scored.sort((a, b) => b.score - a.score)
+    return scored.map((x) => x.option)
   }, [allOptions, deferredSearch])
 
   const selectedOption = allOptions.find((o) => o.product.id === value)

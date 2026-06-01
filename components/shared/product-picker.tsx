@@ -1,7 +1,7 @@
 "use client"
 
-import { useDeferredValue, useMemo, useState } from "react"
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react"
+import { useMemo, useState } from "react"
+import { Check, ChevronsUpDown } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import {
@@ -53,8 +53,7 @@ interface ProductPickerProps {
  * pattern in sale and purchase forms with a component that:
  *
  *  - Computes its own parentProductIds and option metadata internally.
- *  - Owns the search string state and uses useDeferredValue so typing never
- *    blocks the UI, even with thousands of SKUs.
+ *  - Owns the search string state. Filter is synchronous (pure in-memory JS).
  *  - Uses getSearchableLabel for filtering — searches by name, parent name,
  *    SKU and barcode simultaneously.
  *  - Renders ProductDisplay in option mode (dropdown) and trigger mode
@@ -75,11 +74,9 @@ export function ProductPicker({
   const [open, setOpen]     = useState(false)
   const [search, setSearch] = useState("")
 
-  // Deferred search: typing updates `search` immediately (fast),
-  // but `deferredSearch` lags behind — React defers the expensive filter
-  // re-render until the browser is idle.
-  const deferredSearch = useDeferredValue(search)
-  const isStale        = search !== deferredSearch
+  // No useDeferredValue — the filter is pure in-memory JS over an already-loaded
+  // catalog. Deferring caused a stale-results flash (all products visible while
+  // deferredSearch lagged behind), which was the source of irrelevant results.
 
   // ── Build option list ─────────────────────────────────────────────────────
   // Only recomputes when products / units / currency change — not on keystrokes.
@@ -120,7 +117,7 @@ export function ProductPicker({
   //   3. Relevance ranking — exact-phrase match ranks above token-only match;
   //      word-boundary hits boost score further.
   const filtered = useMemo(() => {
-    const raw = deferredSearch.trim().toLowerCase()
+    const raw = search.trim().toLowerCase()
     if (!raw) return allOptions
 
     // Normalize: remove diacritics (same as getSearchableLabel) + z↔s
@@ -154,7 +151,7 @@ export function ProductPicker({
 
     scored.sort((a, b) => b.score - a.score)
     return scored.map((x) => x.option)
-  }, [allOptions, deferredSearch])
+  }, [allOptions, search])
 
   const selectedOption = allOptions.find((o) => o.product.id === value)
 
@@ -190,10 +187,7 @@ export function ProductPicker({
           ) : (
             <span className="truncate">{placeholder}</span>
           )}
-          {isStale
-            ? <Loader2 className="ml-2 h-4 w-4 shrink-0 opacity-50 animate-spin" />
-            : <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          }
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
 

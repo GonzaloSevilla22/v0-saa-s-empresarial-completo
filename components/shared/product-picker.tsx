@@ -345,9 +345,9 @@ export function ProductPicker({
                       value === o.product.id ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  {/* DEBUG: prefijo visible con índice */}
-                  <span style={{ fontFamily: "monospace", fontSize: "10px", color: "#facc15", marginRight: 6, minWidth: 38 }}>
-                    [#{idx}]
+                  {/* DEBUG: prefijo visible con índice + length actual */}
+                  <span style={{ fontFamily: "monospace", fontSize: "10px", color: "#facc15", marginRight: 6, minWidth: 70 }}>
+                    [#{idx}/L={filtered.length}]
                   </span>
                   <ProductDisplay
                     mode="option"
@@ -362,6 +362,35 @@ export function ProductPicker({
               ))}
             </CommandGroup>
           </CommandList>
+
+          {/* ─── DEBUG: lista plana PARALELA sin cmdk ──────────────────────── */}
+          <div
+            style={{
+              borderTop: "3px solid #ef4444",
+              background: "#7f1d1d",
+              color: "#fff",
+              padding: "8px",
+              maxHeight: "200px",
+              overflowY: "auto",
+              fontSize: "11px",
+              fontFamily: "monospace",
+            }}
+          >
+            <div style={{ fontWeight: "bold", marginBottom: 4, color: "#fef08a" }}>
+              ── LISTA PLANA (sin cmdk) — filtered.length={filtered.length} ──
+            </div>
+            {filtered.slice(0, 10).map((o, idx) => (
+              <div key={`flat-${o.product.id}`} style={{ padding: "2px 0", borderBottom: "1px dashed #b91c1c" }}>
+                FLAT[#{idx}/L={filtered.length}] {o.product.name}
+              </div>
+            ))}
+            {filtered.length > 10 && (
+              <div style={{ marginTop: 4, color: "#fca5a5" }}>
+                ...y {filtered.length - 10} más
+              </div>
+            )}
+          </div>
+          {/* ──────────────────────────────────────────────────────────────── */}
         </Command>
       </PopoverContent>
     </Popover>

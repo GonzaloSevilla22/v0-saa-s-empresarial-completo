@@ -308,14 +308,36 @@ export function ProductPicker({
             value={search}
             onValueChange={setSearch}
           />
+          {/* ─── DEBUG BANNER (temporary) ─────────────────────────────────── */}
+          <div
+            style={{
+              background:   "#fde047",
+              color:        "#000",
+              fontSize:     "11px",
+              fontWeight:   "bold",
+              fontFamily:   "monospace",
+              padding:      "6px 8px",
+              borderBottom: "2px solid #ca8a04",
+              lineHeight:   "1.3",
+            }}
+            data-debug-version="v3-banner-prefix"
+          >
+            DEBUG v3 · search=&quot;{search}&quot; · filtered.length={filtered.length} · allOptions={allOptions.length}
+            <br />
+            <span style={{ fontSize: "10px", fontWeight: "normal" }}>
+              Si NO ves este banner amarillo, tu browser está corriendo bundle viejo. Hard refresh: Ctrl+Shift+R.
+            </span>
+          </div>
+          {/* ──────────────────────────────────────────────────────────────── */}
           <CommandList>
             <CommandEmpty>No se encontraron productos.</CommandEmpty>
             <CommandGroup>
-              {filtered.map((o) => (
+              {filtered.map((o, idx) => (
                 <CommandItem
                   key={o.product.id}
                   value={o.product.id}
                   onSelect={() => handleSelect(o.product.id)}
+                  data-debug-idx={idx}
                 >
                   <Check
                     className={cn(
@@ -323,6 +345,10 @@ export function ProductPicker({
                       value === o.product.id ? "opacity-100" : "opacity-0",
                     )}
                   />
+                  {/* DEBUG: prefijo visible con índice */}
+                  <span style={{ fontFamily: "monospace", fontSize: "10px", color: "#facc15", marginRight: 6, minWidth: 38 }}>
+                    [#{idx}]
+                  </span>
                   <ProductDisplay
                     mode="option"
                     name={o.product.name}

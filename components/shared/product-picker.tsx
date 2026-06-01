@@ -204,7 +204,11 @@ export function ProductPicker({
             value={search}
             onValueChange={setSearch}
           />
-          <CommandList>
+          {/* key={search} fuerza unmount completo de CommandList en cada cambio
+              de búsqueda. Sin esto, cmdk preservaba CommandItems de renders
+              anteriores en el DOM, causando que productos irrelevantes
+              aparecieran mezclados con los resultados del filtro actual. */}
+          <CommandList key={search}>
             <CommandEmpty>No se encontraron productos.</CommandEmpty>
             <CommandGroup>
               {filtered.map((o) => (

@@ -67,21 +67,34 @@ export function ScrollableCartShell({
       )}
     >
       {/* ── HEADER ZONE ─────────────────────────────────────────────────── */}
-      {/* shrink-0 prevents this zone from compressing when the list is tall. */}
-      <div className="shrink-0 flex flex-col gap-4">
-        {children}
+      {/* flex-1 min-h-0: absorbs all free space left after LIST + FOOTER.  */}
+      {/* overflow-y-auto: when form fields (product staging area) are taller */}
+      {/* than the available space, the zone scrolls internally — the FOOTER  */}
+      {/* is never clipped. This fixes the mobile bug where the submit button  */}
+      {/* was hidden after selecting a product with many staging rows.         */}
+      <div
+        className={cn(
+          "flex-1 min-h-0 overflow-y-auto",
+          // Subtle enterprise scrollbar (matches list zone)
+          "[&::-webkit-scrollbar]:w-1.5",
+          "[&::-webkit-scrollbar-thumb]:rounded-full",
+          "[&::-webkit-scrollbar-thumb]:bg-border",
+          "[&::-webkit-scrollbar-track]:bg-transparent",
+          "scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent",
+        )}
+      >
+        <div className="flex flex-col gap-4 pb-2">
+          {children}
+        </div>
       </div>
 
       {/* ── LIST ZONE ───────────────────────────────────────────────────── */}
-      {/* Only this zone scrolls. The scroll container has:                  */}
-      {/*  - border-y: visual separation from header/footer                  */}
-      {/*  - mt-4: breathing room from the header                            */}
-      {/*  - max-h-[40vh]: prevents the list from consuming the full dialog  */}
-      {/*  - Custom thin scrollbar for an enterprise look                    */}
+      {/* shrink-0 prevents it from stealing space from the HEADER flex-1.  */}
+      {/* Scrolls independently — cart items don't push form fields up.      */}
       {hasItems && listContent && (
         <div
           className={cn(
-            "mt-4",
+            "shrink-0 mt-4",
             "overflow-y-auto",
             // Responsive cap: 40 vh leaves comfortable room for header + footer
             // on desktops. On short screens (landscape mobile) 35vh is safer.
@@ -102,14 +115,8 @@ export function ScrollableCartShell({
       )}
 
       {/* ── FOOTER ZONE ─────────────────────────────────────────────────── */}
-      {/* shrink-0 keeps footer visible regardless of list height.           */}
-      <div
-        className={cn(
-          "shrink-0 flex flex-col gap-3",
-          // Top spacing only when list is present (border-y already separates)
-          hasItems ? "mt-4" : "mt-4",
-        )}
-      >
+      {/* shrink-0 guarantees footer is always visible — never clipped.      */}
+      <div className="shrink-0 flex flex-col gap-3 mt-4">
         {footerContent}
       </div>
     </div>

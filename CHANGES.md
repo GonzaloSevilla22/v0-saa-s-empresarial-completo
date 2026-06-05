@@ -127,7 +127,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-02] `plan-gating-engine`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Hook `usePlanLimits()`: fetch de `plan_limits` por plan del usuario, expone `canDo(feature, currentUsage)` y `limit(feature)`
   - Función `checkPlanLimit(userId, feature)` en `lib/services/planService.ts`: consulta `plan_limits` + uso actual del usuario
@@ -416,7 +416,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | ID | Nombre | Fase | Governance | Dependencias | Estado |
 |----|--------|------|------------|--------------|--------|
 | C-01 | billing-schema-migration | 1 — Billing | CRITICO | — | `[x]` |
-| C-02 | plan-gating-engine | 1 — Billing | CRITICO | C-01 | `[ ]` |
+| C-02 | plan-gating-engine | 1 — Billing | CRITICO | C-01 | `[x]` |
 | C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[ ]` |
 | C-04 | ai-usage-counters-split | 2 — IA | ALTO | C-02 | `[ ]` |
 | C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[ ]` |

@@ -216,8 +216,9 @@ export default function CourseDetailPage({ params }: { params: Promise<{ id: str
     </div>
   )
 
-  if (course.is_pro && user?.plan !== "pro") {
-    return <PlanGate requiredPlan="pro" featureName="este curso">{content}</PlanGate>
+  if (course.is_pro) {
+    // PlanGate handles the access check internally (avanzado o pro).
+    return <PlanGate requiredPlan="avanzado" featureName="este curso">{content}</PlanGate>
   }
 
   return content

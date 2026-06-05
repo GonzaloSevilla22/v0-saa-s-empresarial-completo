@@ -7,12 +7,14 @@ import { ProductCatalog } from "@/components/products/product-catalog"
 import { ProductForm } from "@/components/forms/product-form"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
+import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
 
 export default function ProductosPage() {
   const { products, deleteProduct, refreshData } = useData()
   const { user } = useAuth()
+  const { limits } = usePlanLimits()
 
   const [open, setOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | undefined>()
@@ -21,7 +23,8 @@ export default function ProductosPage() {
 
   // Realtime subscription for products is handled centrally in DataProvider.
 
-  const isAtLimit = user?.plan === "gratis" && products.length >= MAX_PRODUCTS_FREE
+  const maxProducts = limits?.maxProducts ?? MAX_PRODUCTS_FREE
+  const isAtLimit = products.length >= maxProducts
 
   // â”€â”€ Dialog handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -63,7 +66,7 @@ export default function ProductosPage() {
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Productos</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {products.length} producto{products.length !== 1 ? "s" : ""}
-          {user?.plan === "gratis" && ` / ${MAX_PRODUCTS_FREE} (plan gratis)`}
+          {Number.isFinite(maxProducts) && ` / ${maxProducts}`}
         </p>
       </div>
 
@@ -80,7 +83,7 @@ export default function ProductosPage() {
       {isAtLimit && (
         <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
           <p className="text-sm text-yellow-400">
-            Llegaste al lÃ­mite de {MAX_PRODUCTS_FREE} productos del plan gratuito. ActualizÃ¡ a Pro para tener productos ilimitados.
+            Llegaste al límite de {maxProducts} productos de tu plan. Actualizá tu plan para tener más capacidad.
           </p>
         </div>
       )}

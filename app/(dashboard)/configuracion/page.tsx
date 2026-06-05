@@ -2,6 +2,8 @@
 
 import { useAuth } from "@/contexts/auth-context"
 import { useData } from "@/contexts/data-context"
+import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { planHasAccess } from "@/lib/plan-utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -29,9 +31,11 @@ const features = [
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ConfiguracionPage() {
-  const { user, upgradePlan, downgradePlan } = useAuth()
+  const { user, effectivePlan, upgradePlan, downgradePlan } = useAuth()
   const { products, clients } = useData()
-  const isPro = user?.plan === "pro"
+  const { limits } = usePlanLimits()
+  // "Pro" badge / premium UI reflects an eligible plan (avanzado o pro).
+  const isPro = planHasAccess(effectivePlan, "avanzado")
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">
@@ -118,9 +122,9 @@ export default function ConfiguracionPage() {
                 <CardTitle className="text-sm text-card-foreground">Uso actual</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
-                <UsageStat icon={Package} label="Productos" current={products.length} max={isPro ? Infinity : MAX_PRODUCTS_FREE} />
-                <UsageStat icon={Users}   label="Clientes"  current={clients.length}  max={isPro ? Infinity : MAX_CLIENTS_FREE} />
-                <UsageStat icon={Sparkles} label="Consejos" current={5}               max={isPro ? Infinity : MAX_INSIGHTS_FREE} />
+                <UsageStat icon={Package} label="Productos" current={products.length} max={limits?.maxProducts ?? MAX_PRODUCTS_FREE} />
+                <UsageStat icon={Users}   label="Clientes"  current={clients.length}  max={limits?.maxClients ?? MAX_CLIENTS_FREE} />
+                <UsageStat icon={Sparkles} label="Consejos" current={user?.aiAdviceUsed ?? 0}  max={limits?.maxAiAdvicePerMonth ?? MAX_INSIGHTS_FREE} />
               </CardContent>
             </Card>
 

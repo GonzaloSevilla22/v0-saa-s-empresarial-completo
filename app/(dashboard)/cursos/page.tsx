@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
+import { planHasAccess } from "@/lib/plan-utils"
 import { courseService } from "@/lib/services/courseService"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -36,7 +37,8 @@ export default function CursosPage() {
     fetchCourses()
   }, [])
 
-  const isPro = user?.plan === "pro"
+  // Access to pro courses requires an eligible plan (avanzado o pro).
+  const isPro = planHasAccess(user?.effectivePlan ?? "gratis", "avanzado")
 
   const filtered = filter === "todos"
     ? courses

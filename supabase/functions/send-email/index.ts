@@ -86,6 +86,54 @@ Deno.serve(async (req: Request) => {
           <p><em>Por favor, revisa tus costos o ajusta el precio para mantener la rentabilidad.</em></p>
         </div>
       `;
+    } else if (event_type === "trial_expiring_soon") {
+      // metadata.umbral: '7d' | '1d'
+      const umbral = metadata?.umbral ?? "7d";
+      const diasLabel = umbral === "1d" ? "1 día" : "7 días";
+      const urgenciaColor = umbral === "1d" ? "#ef4444" : "#f59e0b";
+      htmlContent = `
+        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: ${urgenciaColor}; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h2 style="color: white; margin: 0;">⏰ Te quedan ${diasLabel} de prueba</h2>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 16px;">Hola,</p>
+            <p>Tu período de prueba del plan <strong>Avanzado</strong> en EmprendeSmart está por terminar.</p>
+            <p>Cuando venza, vas a seguir usando EmprendeSmart con el <strong>plan Gratis</strong>. Si querés mantener todas las funciones avanzadas, podés elegir un plan pago.</p>
+            <div style="text-align: center; margin: 24px 0;">
+              <a href="https://emprende-smart.vercel.app/planes"
+                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
+                Ver planes y precios
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">Si ya elegiste un plan, podés ignorar este mensaje.</p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
+          </div>
+        </div>
+      `;
+    } else if (event_type === "trial_expired") {
+      htmlContent = `
+        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #6b7280; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h2 style="color: white; margin: 0;">Tu período de prueba terminó</h2>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 16px;">Hola,</p>
+            <p>Tu prueba del plan <strong>Avanzado</strong> en EmprendeSmart terminó. A partir de ahora estás usando el <strong>plan Gratis</strong>.</p>
+            <p>Con el plan Gratis podés seguir registrando ventas, compras y gastos. Si necesitás funciones avanzadas como reportes comparativos, inteligencia artificial ilimitada o más usuarios, elegí el plan que mejor se adapte a tu negocio.</p>
+            <div style="text-align: center; margin: 24px 0;">
+              <a href="https://emprende-smart.vercel.app/planes"
+                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
+                Ver planes y precios
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">Gracias por probar EmprendeSmart. Esperamos verte de nuevo en un plan pago.</p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
+          </div>
+        </div>
+      `;
     }
 
     // Recipient logic

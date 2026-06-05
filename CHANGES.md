@@ -150,7 +150,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-03] `grace-period-logic`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Campo `grace_period_ends_at` ya añadido en C-01; aquí se implementa la lógica de uso
   - Trigger PostgreSQL `trg_set_grace_period`: al INSERT en `profiles`, setear `grace_period_ends_at = NOW() + INTERVAL '60 days'`

@@ -11,6 +11,7 @@ import { AiAlerts } from "@/components/dashboard/ai-alerts"
 import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react"
 import { aiInsightService } from "@/lib/services/aiInsightService"
 import { createClient } from "@/lib/supabase/client"
+import { TrialBanner } from "@/components/dashboard/TrialBanner"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,8 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <TrialBanner />
+
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight text-balance">
           {greeting}

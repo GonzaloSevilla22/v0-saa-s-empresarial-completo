@@ -279,7 +279,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 > C-05 es el change de mayor complejidad estructural del proyecto. Bloquea C-06, C-07 y C-08. Debe planificarse cuidadosamente con el equipo antes de implementar.
 
 ### [C-05] `multi-user-tenant-architecture`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Nuevo concepto: `organizations` (tenant) que agrupa múltiples `auth.users` con un plan compartido
   - Migración SQL: tabla `organizations` — `id UUID PK`, `name TEXT`, `plan TEXT`, `plan_started_at`, `grace_period_ends_at`, `billing_subscription_id`, `owner_id UUID FK auth.users`, `created_at`
@@ -419,7 +419,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-02 | plan-gating-engine | 1 — Billing | CRITICO | C-01 | `[x]` |
 | C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[ ]` |
 | C-04 | ai-usage-counters-split | 2 — IA | ALTO | C-02 | `[ ]` |
-| C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[ ]` |
+| C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[x]` |
 | C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[ ]` |
 | C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[ ]` |
 | C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[ ]` |

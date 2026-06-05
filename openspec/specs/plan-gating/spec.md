@@ -6,7 +6,7 @@
 
 ### Requirement: Plan efectivo con soporte de trial
 
-El sistema SHALL calcular el plan efectivo del usuario considerando un trial activo: si `billing_status = 'trialing'`, `trial_plan` no es nulo, y `trial_expires_at > now()`, el plan efectivo es `trial_plan`; de lo contrario, es `billing_plan`.
+El sistema SHALL calcular el plan efectivo desde la **cuenta activa** del usuario (`accounts.billing_plan` / `accounts.trial_*`), no desde `profiles`. La lógica de trial se mantiene: si la cuenta está en trial activo, el plan efectivo es el `trial_plan` de la cuenta; de lo contrario, su `billing_plan`.
 
 #### Scenario: Usuario con trial activo accede a features de plan superior
 - **GIVEN** un usuario con `billing_plan = 'gratis'`, `trial_plan = 'avanzado'`, `trial_expires_at = now() + 15 days`
@@ -23,6 +23,16 @@ El sistema SHALL calcular el plan efectivo del usuario considerando un trial act
 - **WHEN** el sistema evalúa su plan efectivo
 - **THEN** el plan efectivo es 'gratis'
 
+#### Scenario: Miembros comparten el plan de la cuenta
+- **GIVEN** una cuenta con `billing_plan = 'pro'` y 5 miembros
+- **WHEN** cualquiera de los 5 miembros evalúa su acceso a una feature 'pro'
+- **THEN** el acceso es concedido (el plan vive en la cuenta, no en cada usuario)
+
+#### Scenario: Trial de cuenta aplica a todos los miembros
+- **GIVEN** una cuenta con `billing_status='trialing'`, `trial_plan='avanzado'`, trial vigente
+- **WHEN** un miembro evalúa el acceso a "rentabilidad por producto"
+- **THEN** el acceso es concedido para ese miembro (plan efectivo de la cuenta = 'avanzado')
+
 ### Requirement: Jerarquía de planes
 
 El sistema SHALL aplicar una jerarquía ordenada `gratis < inicial < avanzado < pro`. Una feature disponible desde el plan X es accesible por todos los planes >= X.
@@ -34,7 +44,7 @@ El sistema SHALL aplicar una jerarquía ordenada `gratis < inicial < avanzado < 
 
 ### Requirement: Límites numéricos de recursos
 
-El sistema SHALL bloquear la creación de recursos cuando el usuario alcanzó el límite de su plan efectivo.
+El sistema SHALL contar los recursos (productos, clientes, operaciones/mes) **por cuenta** (`account_id`), no por usuario, al comparar contra los límites del plan.
 
 #### Scenario: Usuario gratis intenta crear el producto 101
 - **GIVEN** un usuario con plan efectivo 'gratis' que ya tiene 100 productos
@@ -50,6 +60,11 @@ El sistema SHALL bloquear la creación de recursos cuando el usuario alcanzó el
 - **GIVEN** que el admin actualiza `plan_limits SET max_products = 150 WHERE plan = 'gratis'`
 - **WHEN** un usuario gratis con 120 productos intenta crear uno más
 - **THEN** el sistema permite la creación (límite actualizado a 150)
+
+#### Scenario: El límite de productos es compartido por la cuenta
+- **GIVEN** una cuenta 'inicial' (max_products=500) con 2 miembros que crearon 498 y 1 productos (499 total)
+- **WHEN** cualquier miembro crea un producto más
+- **THEN** la creación es permitida (499 < 500); el siguiente (#501) es bloqueado para todos los miembros
 
 ### Requirement: Gating de features exclusivas
 
@@ -83,6 +98,20 @@ El sistema SHALL rechazar llamadas a las Edge Functions de IA cuando el usuario 
 - **GIVEN** una llamada IA exitosa para un usuario con `ai_queries_used = 10`
 - **WHEN** la Edge Function completa la llamada a OpenAI
 - **THEN** `profiles.ai_queries_used` se incrementa a 11
+
+### Requirement: Límite de usuarios por cuenta
+
+El sistema SHALL enforcear `plan_limits.max_users` como la cantidad máxima de miembros activos de una cuenta.
+
+#### Scenario: El límite de usuarios refleja el plan
+- **GIVEN** una cuenta con plan 'avanzado'
+- **WHEN** se consulta el límite de usuarios
+- **THEN** es 5 (de `plan_limits.max_users WHERE plan='avanzado'`)
+
+#### Scenario: Upgrade de plan amplía el cupo de usuarios
+- **GIVEN** una cuenta 'inicial' (max=2) llena que sube a 'avanzado' (max=5)
+- **WHEN** se recalcula el cupo
+- **THEN** la cuenta puede aceptar 3 invitaciones más
 
 ### Requirement: Lectura de límites desde DB en runtime
 

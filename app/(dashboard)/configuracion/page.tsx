@@ -14,6 +14,7 @@ import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/co
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
 import { SystemForm } from "@/components/settings/SystemForm"
+import { TeamSection } from "@/components/settings/TeamSection"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
 const features = [
@@ -46,7 +47,7 @@ export default function ConfiguracionPage() {
 
       <Tabs defaultValue="perfil" className="w-full">
         {/* ── Tab navigation ─────────────────────────────────────────────────── */}
-        <TabsList className="grid w-full grid-cols-4 mb-6">
+        <TabsList className="grid w-full grid-cols-5 mb-6">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Perfil</span>
@@ -61,6 +62,11 @@ export default function ConfiguracionPage() {
             <Settings2 className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Sistema</span>
             <span className="sm:hidden">Sistema</span>
+          </TabsTrigger>
+          <TabsTrigger value="equipo" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <Users className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Equipo</span>
+            <span className="sm:hidden">Equipo</span>
           </TabsTrigger>
           <TabsTrigger value="plan" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Crown className="h-3.5 w-3.5" />
@@ -82,6 +88,11 @@ export default function ConfiguracionPage() {
         {/* ── Sistema ────────────────────────────────────────────────────────── */}
         <TabsContent value="sistema">
           <SystemForm />
+        </TabsContent>
+
+        {/* ── Equipo (C-05 Bloque G / Task 7.3) ────────────────────────────── */}
+        <TabsContent value="equipo">
+          <TeamSection />
         </TabsContent>
 
         {/* ── Plan (contenido original sin modificaciones) ───────────────────── */}

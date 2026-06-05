@@ -67,20 +67,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null)
         return
       }
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", authUser.id)
-        .single()
+      // ── Fetch profile + account membership in parallel ─────────────────────
+      // Profile: personal data, preferences, legacy billing columns.
+      // Membership: account_id, role, and the account's billing state (C-05 D5).
+      const [{ data: profile }, { data: membership }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", authUser.id)
+          .single(),
+        supabase
+          .from("account_members")
+          .select("account_id, role, accounts(billing_plan, billing_status, trial_plan, trial_started_at, trial_expires_at)")
+          .eq("user_id", authUser.id)
+          .single(),
+      ])
+
+      // ── Resolve billing state from account (C-05 D5) ───────────────────────
+      // Prefer the account's billing data; fall back to profile columns for
+      // legacy compatibility while both sources are maintained in parallel.
+      // Supabase infers the join as an array type; cast via unknown to get
+      // the single-row object shape we know the query returns (1:1 membership).
+      const accountRow = (membership?.accounts as unknown) as {
+        billing_plan: string
+        billing_status: string
+        trial_plan: string | null
+        trial_started_at: string | null
+        trial_expires_at: string | null
+      } | null
+
+      const billingPlan    = (accountRow?.billing_plan as Plan)    ?? (profile?.billing_plan as Plan) ?? "gratis"
+      const billingStatus  = (accountRow?.billing_status as BillingStatus) ?? (profile?.billing_status as BillingStatus) ?? "trialing"
+      const trialPlan      = (accountRow?.trial_plan as Plan | undefined) ?? (profile?.trial_plan as Plan | undefined)
+      const trialExpiresAt = accountRow?.trial_expires_at ?? profile?.trial_expires_at ?? undefined
+
+      const accountId   = membership?.account_id ?? ""
+      const accountRole = (membership?.role as "owner" | "member") ?? "owner"
 
       if (profile) {
-        const billingPlan    = (profile.billing_plan as Plan) ?? "gratis"
-        const billingStatus  = (profile.billing_status as BillingStatus) ?? "trialing"
-        const trialPlan      = (profile.trial_plan as Plan) ?? undefined
-        const trialExpiresAt = profile.trial_expires_at ?? undefined
         setUser({
           id:             authUser.id,
           email:          authUser.email || "",
+          // ── Tenant account (C-05) ──────────────────────────────────────────
+          accountId,
+          accountRole,
           // @deprecated `plan` kept for legacy compat — use effectivePlan for gating
           plan:           (profile.plan as Plan) ?? "gratis",
           billingPlan,
@@ -106,10 +136,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser({
           id:            authUser.id,
           email:         authUser.email || "",
+          accountId,
+          accountRole,
           plan:          "gratis",
-          billingPlan:   "gratis",
-          billingStatus: "trialing",
-          effectivePlan: "gratis",
+          billingPlan,
+          billingStatus,
+          trialPlan,
+          trialExpiresAt,
+          effectivePlan: getEffectivePlan({ billingPlan, billingStatus, trialPlan, trialExpiresAt }),
           aiQueriesUsed: 0,
           aiAdviceUsed:  0,
           role:          "user",

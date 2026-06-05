@@ -3,11 +3,43 @@ export type { Currency }
 
 // ── Billing & plan types (C-01 billing-schema-migration) ─────────────────────
 
-/** 4-tier commercial plan. Source of truth: profiles.billing_plan (DB). */
+/** 4-tier commercial plan. Source of truth: accounts.billing_plan (C-05). */
 export type Plan = "gratis" | "inicial" | "avanzado" | "pro"
 
-/** Subscription lifecycle state. Source of truth: profiles.billing_status (DB). */
+/** Subscription lifecycle state. Source of truth: accounts.billing_status (C-05). */
 export type BillingStatus = "active" | "trialing" | "expired" | "cancelled"
+
+// ── Multi-tenant account types (C-05 multi-user-tenant-architecture) ─────────
+
+/**
+ * A billing/tenant account.
+ * One account can have multiple members. Each user belongs to exactly one
+ * account after the C-05 backfill (N:N schema, 1:1 in practice for MVP).
+ * Source of truth: accounts table.
+ */
+export interface Account {
+  id: string
+  billingPlan: Plan
+  billingStatus: BillingStatus
+  /** Which plan is being trialed. null if no active trial. */
+  trialPlan: Plan | null
+  trialStartedAt: string | null
+  trialExpiresAt: string | null
+  ownerUserId: string
+  createdAt: string
+}
+
+/**
+ * Membership of a user in an account.
+ * Source of truth: account_members table.
+ */
+export interface AccountMember {
+  id: string
+  accountId: string
+  userId: string
+  role: "owner" | "member"
+  createdAt: string
+}
 
 /**
  * Mirror of the `plan_limits` DB table.
@@ -41,7 +73,12 @@ export interface User {
   // ── Auth identity (from auth.users) ───────────────────────────────────────
   id: string
   email: string
-  // ── Billing (C-01) — source of truth ──────────────────────────────────────
+  // ── Tenant account (C-05) — source of truth for billing & scoping ─────────
+  /** UUID of the user's active account. Resolved from account_members at login. */
+  accountId: string
+  /** Role of this user within the active account ('owner' | 'member'). */
+  accountRole: "owner" | "member"
+  // ── Billing (C-01/C-05) — now stored on accounts, mirrored here ───────────
   billingPlan: Plan
   billingStatus: BillingStatus
   /** Which plan is being trialed (e.g. 'avanzado'). NULL if no active trial. */
@@ -49,9 +86,9 @@ export interface User {
   /** ISO timestamp when the trial expires. Undefined for beta/active users. */
   trialExpiresAt?: string
   /**
-   * Computed plan used for all gating decisions (C-02). Derived from billingPlan
-   * with an override to trialPlan while a trial is active. NOT persisted in DB.
-   * Source of truth for access checks — prefer this over billingPlan for gating.
+   * Computed plan used for all gating decisions (C-02/C-05). Derived from the
+   * account's billingPlan with an override to trialPlan while a trial is active.
+   * NOT persisted in DB. Source of truth for access checks.
    */
   effectivePlan: Plan
   /** AI query counter (resets monthly via C-04). */
@@ -60,7 +97,7 @@ export interface User {
   aiAdviceUsed: number
   // ── System-managed (read-only for the user) ───────────────────────────────
   // @deprecated Use `billingPlan` instead. Legacy column kept for compatibility
-  // until all references are migrated (C-02). Will be removed in a future change.
+  // until all references are migrated. Will be removed in a future change.
   plan: Plan
   role: UserRole
   // ── Personal profile (editable) ───────────────────────────────────────────

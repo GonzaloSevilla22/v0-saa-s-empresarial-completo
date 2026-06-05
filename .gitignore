@@ -3,6 +3,9 @@ __v0_runtime_loader.js
 __v0_devtools.tsx
 __v0_jsx-dev-runtime.ts
 
+# Agent build artifacts
+.atl/
+
 # Common ignores
 node_modules/
 .next/
@@ -26,3 +29,4 @@ start_error.txt
 
 # IDE
 .idx/
+.gstack/

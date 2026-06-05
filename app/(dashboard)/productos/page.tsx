@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
@@ -21,9 +21,9 @@ export default function ProductosPage() {
 
   // Realtime subscription for products is handled centrally in DataProvider.
 
-  const isAtLimit = user?.plan === "free" && products.length >= MAX_PRODUCTS_FREE
+  const isAtLimit = user?.plan === "gratis" && products.length >= MAX_PRODUCTS_FREE
 
-  // ── Dialog handlers ────────────────────────────────────────────────────────
+  // â”€â”€ Dialog handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   function handleAdd() {
     setEditingProduct(undefined)
@@ -58,34 +58,34 @@ export default function ProductosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ── Header ── */}
+      {/* â”€â”€ Header â”€â”€ */}
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Productos</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {products.length} producto{products.length !== 1 ? "s" : ""}
-          {user?.plan === "free" && ` / ${MAX_PRODUCTS_FREE} (plan gratis)`}
+          {user?.plan === "gratis" && ` / ${MAX_PRODUCTS_FREE} (plan gratis)`}
         </p>
       </div>
 
-      {/* ── Admin analytics ── */}
+      {/* â”€â”€ Admin analytics â”€â”€ */}
       {user?.role === "admin" && (
         <ModuleMetricsWrapper
           moduleType="stock"
-          title="Analíticas de Productos & Stock"
+          title="AnalÃ­ticas de Productos & Stock"
           subtitle="Monitoreo de inventario"
         />
       )}
 
-      {/* ── Plan limit warning ── */}
+      {/* â”€â”€ Plan limit warning â”€â”€ */}
       {isAtLimit && (
         <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
           <p className="text-sm text-yellow-400">
-            Llegaste al límite de {MAX_PRODUCTS_FREE} productos del plan gratuito. Actualizá a Pro para tener productos ilimitados.
+            Llegaste al lÃ­mite de {MAX_PRODUCTS_FREE} productos del plan gratuito. ActualizÃ¡ a Pro para tener productos ilimitados.
           </p>
         </div>
       )}
 
-      {/* ── Catalog (hierarchical) ── */}
+      {/* â”€â”€ Catalog (hierarchical) â”€â”€ */}
       <ProductCatalog
         products={products}
         onAdd={handleAdd}
@@ -96,7 +96,7 @@ export default function ProductosPage() {
         onImportComplete={refreshData}
       />
 
-      {/* ── Create / Edit dialog ── */}
+      {/* â”€â”€ Create / Edit dialog â”€â”€ */}
       <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>

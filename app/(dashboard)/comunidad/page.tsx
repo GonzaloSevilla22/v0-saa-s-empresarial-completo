@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import Link from "next/link"
 import { useData } from "@/contexts/data-context"
 import { useAuth } from "@/contexts/auth-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,7 +12,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MessageSquare, Heart, Crown, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const categoryColors: Record<string, string> = {
   General: "border-border text-muted-foreground",
@@ -34,6 +34,7 @@ export default function ComunidadPage() {
   const [replies, setReplies] = useState<Record<string, any[]>>({})
   const [replyContent, setReplyContent] = useState("")
   const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({})
+  const [submitting, setSubmitting] = useState(false)
 
   const isPro = user?.plan === "pro"
 
@@ -64,16 +65,14 @@ export default function ComunidadPage() {
     }
 
     setExpandedPost(postId)
-    if (!replies[postId]) {
-      setLoadingReplies(prev => ({ ...prev, [postId]: true }))
-      try {
-        const data = await getReplies(postId)
-        setReplies(prev => ({ ...prev, [postId]: data }))
-      } catch (err) {
-        toast.error("Error al cargar respuestas")
-      } finally {
-        setLoadingReplies(prev => ({ ...prev, [postId]: false }))
-      }
+    setLoadingReplies(prev => ({ ...prev, [postId]: true }))
+    try {
+      const data = await getReplies(postId)
+      setReplies(prev => ({ ...prev, [postId]: data }))
+    } catch (err) {
+      toast.error("Error al cargar respuestas")
+    } finally {
+      setLoadingReplies(prev => ({ ...prev, [postId]: false }))
     }
   }
 
@@ -90,26 +89,34 @@ export default function ComunidadPage() {
     }
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!title || !content) {
       toast.error("Completá todos los campos")
       return
     }
-    addPost({
-      userId: user?.id || "",
-      author: user?.name || "Anónimo",
-      title,
-      content,
-      category,
-      date: new Date().toISOString().split("T")[0],
-      replies: 0,
-      likes: 0,
-    })
-    toast.success("Post publicado")
-    setOpen(false)
-    setTitle("")
-    setContent("")
+    setSubmitting(true)
+    try {
+      await addPost({
+        userId: user?.id || "",
+        author: user?.name || "Anónimo",
+        title,
+        content,
+        category,
+        date: new Date().toISOString().split("T")[0],
+        replies: 0,
+        likes: 0,
+      })
+      toast.success("Post publicado")
+      setOpen(false)
+      setTitle("")
+      setContent("")
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Error al publicar el post"
+      toast.error(message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -125,19 +132,13 @@ export default function ComunidadPage() {
             Nuevo post
           </Button>
         ) : (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" disabled className="opacity-60">
-                  <Crown className="h-4 w-4 mr-1 text-yellow-500" />
-                  Nuevo post
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="bg-popover border-border">
-                <p className="text-xs">Solo disponible en plan Pro</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 border border-border rounded-md px-3 py-1.5">
+            <Crown className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+            <span className="hidden sm:inline">Solo plan Pro puede publicar.</span>
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs text-primary" asChild>
+              <Link href="/planes">Actualizar</Link>
+            </Button>
+          </div>
         )}
       </div>
 
@@ -214,22 +215,32 @@ export default function ComunidadPage() {
                     )}
                   </div>
 
-                  <div className="flex gap-2 items-end">
-                    <Textarea
-                      placeholder="Escribir una respuesta..."
-                      value={replyContent}
-                      onChange={(e) => setReplyContent(e.target.value)}
-                      className="min-h-[60px] text-xs bg-background"
-                    />
-                    <Button
-                      size="sm"
-                      className="h-8 px-3"
-                      disabled={!replyContent.trim()}
-                      onClick={() => handleSubmitReply(post.id)}
-                    >
-                      Enviar
-                    </Button>
-                  </div>
+                  {isPro ? (
+                    <div className="flex gap-2 items-end">
+                      <Textarea
+                        placeholder="Escribir una respuesta..."
+                        value={replyContent}
+                        onChange={(e) => setReplyContent(e.target.value)}
+                        className="min-h-[60px] text-xs bg-background"
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8 px-3"
+                        disabled={!replyContent.trim()}
+                        onClick={() => handleSubmitReply(post.id)}
+                      >
+                        Enviar
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 rounded-md px-3 py-2">
+                      <Crown className="h-3 w-3 text-yellow-500 shrink-0" />
+                      <span>Actualizá a Pro para responder.</span>
+                      <Button variant="link" size="sm" className="h-auto p-0 text-xs text-primary" asChild>
+                        <Link href="/planes">Ver planes</Link>
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
@@ -270,8 +281,8 @@ export default function ComunidadPage() {
                 </Button>
               ))}
             </div>
-            <Button type="submit" className="w-full">
-              Publicar
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? "Publicando..." : "Publicar"}
             </Button>
           </form>
         </DialogContent>

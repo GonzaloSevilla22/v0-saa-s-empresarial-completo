@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
@@ -16,7 +16,7 @@ export default function InsightsPage() {
   const { user } = useAuth()
   const [isGenerating, setIsGenerating] = useState(false)
 
-  const isFree = user?.plan === "free"
+  const isFree = user?.plan === "gratis"
   const usedInsights = insights.length
   const atLimit = isFree && usedInsights >= MAX_INSIGHTS_FREE
 
@@ -26,8 +26,8 @@ export default function InsightsPage() {
     try {
       const result = await aiInsightService.generateInsights()
       if (result === null) {
-        // Fallback or key not configured – show friendly message, don't crash UI
-        toast.warning("El asistente no está disponible en este momento. Intentalo más tarde.")
+        // Fallback or key not configured â€“ show friendly message, don't crash UI
+        toast.warning("El asistente no estÃ¡ disponible en este momento. Intentalo mÃ¡s tarde.")
         return
       }
       await refreshData()
@@ -74,7 +74,7 @@ export default function InsightsPage() {
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardContent className="p-4">
             <p className="text-sm text-yellow-400">
-              Alcanzaste el límite de {MAX_INSIGHTS_FREE} consejos del plan gratuito. Actualizá a Pro para obtener consejos ilimitados.
+              Alcanzaste el lÃ­mite de {MAX_INSIGHTS_FREE} consejos del plan gratuito. ActualizÃ¡ a Pro para obtener consejos ilimitados.
             </p>
           </CardContent>
         </Card>

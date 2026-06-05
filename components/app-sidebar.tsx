@@ -119,7 +119,7 @@ export function AppSidebar() {
                             <span>{item.title}</span>
                           </Link>
                         </SidebarMenuButton>
-                        {item.pro && user?.plan === "free" && (
+                        {item.pro && user?.plan === "gratis" && (
                           <SidebarMenuBadge>
                             <Crown className="h-3 w-3 text-yellow-500" />
                           </SidebarMenuBadge>

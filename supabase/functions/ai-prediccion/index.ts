@@ -1,4 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,6 +69,13 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY — set it via: supabase secrets set OPENAI_API_KEY=sk-...' }, 500)
     }
 
+    // ── Plan quota check (C-02) — reject before any OpenAI cost ───────────────
+    const quota = await checkAiQuota(supabaseClient, user.id, 'queries')
+    if (!quota.allowed) {
+      console.warn('[ai-prediccion] Quota exceeded for user', user.id)
+      return jsonResponse(quota.body, 429)
+    }
+
     const body = await req.json().catch(() => ({}))
     const { days_ahead } = body
 
@@ -116,6 +124,9 @@ Deno.serve(async (req) => {
       console.error('[ai-prediccion] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
       return jsonResponse({ ok: false, error: isTimeout ? 'OpenAI tardó demasiado — intentá nuevamente en unos segundos' : extractErrorMessage(aiErr) }, 502)
     }
+
+    // OpenAI call succeeded — consume one AI query from the monthly quota (C-02).
+    await incrementAiUsage(supabaseClient, user.id, 'queries')
 
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
       // p_user_id removed: RPC uses auth.uid() internally (security hardening)

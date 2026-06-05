@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
+import { planHasAccess } from "@/lib/plan-utils"
 import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
@@ -65,7 +66,9 @@ const navGroups = [
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const { user, logout, isAdmin } = useAuth()
+  const { user, logout, isAdmin, effectivePlan } = useAuth()
+  // "pro" menu items are gated at avanzado+; show the crown when locked.
+  const showProBadge = !planHasAccess(effectivePlan, "avanzado")
   const { isMobile, setOpenMobile } = useSidebar()
 
   // Close the mobile drawer whenever the user navigates to a new route
@@ -119,7 +122,7 @@ export function AppSidebar() {
                             <span>{item.title}</span>
                           </Link>
                         </SidebarMenuButton>
-                        {item.pro && user?.plan === "gratis" && (
+                        {item.pro && showProBadge && (
                           <SidebarMenuBadge>
                             <Crown className="h-3 w-3 text-yellow-500" />
                           </SidebarMenuBadge>

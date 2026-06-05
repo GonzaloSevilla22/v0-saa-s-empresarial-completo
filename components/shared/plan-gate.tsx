@@ -1,6 +1,8 @@
-﻿"use client"
+"use client"
 
-import { useAuth } from "@/contexts/auth-context"
+import Link from "next/link"
+import { usePlanGate } from "@/hooks/auth/use-plan-gate"
+import { PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
 import { Button } from "@/components/ui/button"
 import { Crown } from "lucide-react"
 import type { Plan } from "@/lib/types"
@@ -11,12 +13,19 @@ interface PlanGateProps {
   featureName?: string
 }
 
-export function PlanGate({ requiredPlan, children, featureName = "esta funcion" }: PlanGateProps) {
-  const { user, upgradePlan } = useAuth()
+/**
+ * Gates children behind a minimum plan. If the user's effective plan
+ * (trial-aware) meets requiredPlan, children render normally. Otherwise a
+ * blurred overlay with an upgrade CTA is shown.
+ */
+export function PlanGate({ requiredPlan, children, featureName = "esta función" }: PlanGateProps) {
+  const { hasAccess } = usePlanGate(requiredPlan)
 
-  if (user?.plan === "pro" || requiredPlan === "gratis") {
+  if (hasAccess) {
     return <>{children}</>
   }
+
+  const requiredName = PLAN_DISPLAY_NAMES[requiredPlan]
 
   return (
     <div className="relative">
@@ -26,14 +35,17 @@ export function PlanGate({ requiredPlan, children, featureName = "esta funcion" 
           <Crown className="h-6 w-6 text-yellow-500" />
         </div>
         <div className="text-center">
-          <p className="text-sm font-medium text-foreground">Funcion Pro</p>
+          <p className="text-sm font-medium text-foreground">Requiere plan {requiredName}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Actualiza tu plan para acceder a {featureName}
+            Actualizá tu plan para acceder a {featureName}
           </p>
         </div>
-        <Button onClick={upgradePlan} size="sm" className="bg-yellow-500 text-yellow-950 hover:bg-yellow-400">
-          <Crown className="h-3.5 w-3.5 mr-1" />
-          Actualizar a Pro
+        {/* TODO(C-10): point to dedicated /planes upgrade flow once it exists. */}
+        <Button asChild size="sm" className="bg-yellow-500 text-yellow-950 hover:bg-yellow-400">
+          <Link href="/configuracion">
+            <Crown className="h-3.5 w-3.5 mr-1" />
+            Ver planes
+          </Link>
         </Button>
       </div>
     </div>

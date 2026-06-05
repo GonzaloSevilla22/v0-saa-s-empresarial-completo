@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { useData } from "@/contexts/data-context"
 import { useAuth } from "@/contexts/auth-context"
+import { planHasAccess } from "@/lib/plan-utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -23,7 +24,7 @@ const categoryColors: Record<string, string> = {
 
 export default function ComunidadPage() {
   const { posts, addPost, deletePost, toggleLike, getReplies, addReply } = useData()
-  const { user } = useAuth()
+  const { user, effectivePlan } = useAuth()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
@@ -36,7 +37,9 @@ export default function ComunidadPage() {
   const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({})
   const [submitting, setSubmitting] = useState(false)
 
-  const isPro = user?.plan === "pro"
+  // Posting in the community requires an eligible plan (avanzado o pro).
+  // Matches the DB RLS gate posts/replies_insert_owner_and_plan (C-02).
+  const isPro = planHasAccess(effectivePlan, "avanzado")
 
   async function handleToggleLike(postId: string) {
     try {

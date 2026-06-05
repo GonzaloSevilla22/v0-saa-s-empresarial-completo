@@ -1,4 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,6 +78,13 @@ Deno.serve(async (req) => {
     if (!openAiKey) {
       console.error('[ai-insights] OPENAI_API_KEY not set')
       return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY' }, 500)
+    }
+
+    // ── Plan quota check (C-02) — reject before any OpenAI cost ───────────────
+    const quota = await checkAiQuota(supabase, user.id, 'queries')
+    if (!quota.allowed) {
+      console.warn('[ai-insights] Quota exceeded for user', user.id)
+      return jsonResponse(quota.body, 429)
     }
 
     // ── Fetch data (período actual + anterior para comparativa) ───────────────
@@ -276,6 +284,9 @@ REGLAS:
       const { error: insertError } = await supabase.from('ai_insights').insert(toInsert)
       if (insertError) console.error('[ai-insights] DB insert error:', extractErrorMessage(insertError))
     }
+
+    // ── Consume one AI query from the monthly quota (C-02) ────────────────────
+    await incrementAiUsage(supabase, user.id, 'queries')
 
     console.log('[ai-insights] Success, count:', insightsData.length)
     return jsonResponse({ ok: true, count: insightsData.length, data: insightsData })

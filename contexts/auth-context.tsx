@@ -1,9 +1,11 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
+import { getEffectivePlan } from "@/lib/plan-utils"
 
 export interface ProfileUpdateData {
   name?: string
@@ -25,6 +27,8 @@ interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   isAdmin: boolean
+  /** Effective plan for gating (trial-aware). 'gratis' when logged out. */
+  effectivePlan: Plan
   login: (email: string, password: string) => Promise<void>
   loginWithMagicLink: (email: string) => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
@@ -50,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
   const router = useRouter()
+  const queryClient = useQueryClient()
 
   const refreshSession = useCallback(async () => {
     try {
@@ -69,15 +74,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single()
 
       if (profile) {
+        const billingPlan    = (profile.billing_plan as Plan) ?? "gratis"
+        const billingStatus  = (profile.billing_status as BillingStatus) ?? "trialing"
+        const trialPlan      = (profile.trial_plan as Plan) ?? undefined
+        const trialExpiresAt = profile.trial_expires_at ?? undefined
         setUser({
           id:             authUser.id,
           email:          authUser.email || "",
-          // @deprecated `plan` kept for legacy compat — use billingPlan for gating
+          // @deprecated `plan` kept for legacy compat — use effectivePlan for gating
           plan:           (profile.plan as Plan) ?? "gratis",
-          billingPlan:    (profile.billing_plan as Plan) ?? "gratis",
-          billingStatus:  (profile.billing_status as BillingStatus) ?? "trialing",
-          trialPlan:      (profile.trial_plan as Plan) ?? undefined,
-          trialExpiresAt: profile.trial_expires_at ?? undefined,
+          billingPlan,
+          billingStatus,
+          trialPlan,
+          trialExpiresAt,
+          effectivePlan:  getEffectivePlan({ billingPlan, billingStatus, trialPlan, trialExpiresAt }),
           aiQueriesUsed:  profile.ai_queries_used ?? 0,
           aiAdviceUsed:   profile.ai_advice_used  ?? 0,
           role:           profile.role as UserRole,
@@ -99,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           plan:          "gratis",
           billingPlan:   "gratis",
           billingStatus: "trialing",
+          effectivePlan: "gratis",
           aiQueriesUsed: 0,
           aiAdviceUsed:  0,
           role:          "user",
@@ -109,12 +120,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           language:      "es",
         })
       }
+      // Plan may have changed (upgrade/downgrade/trial expiry) → drop cached
+      // plan limits so usePlanLimits re-fetches against the current plan.
+      queryClient.invalidateQueries({ queryKey: ["planLimits"] })
     } catch (e) {
       console.error(e)
     } finally {
       setLoading(false)
     }
-  }, [supabase])
+  }, [supabase, queryClient])
 
   useEffect(() => {
     refreshSession()
@@ -261,6 +275,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isAuthenticated: !!user,
         isAdmin: user?.role === "admin",
+        effectivePlan: user?.effectivePlan ?? "gratis",
         login,
         loginWithMagicLink,
         register,

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { useData } from "@/contexts/data-context"
 import { useAuth } from "@/contexts/auth-context"
+import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { InsightCard } from "@/components/ai/insight-card"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -14,11 +15,13 @@ import { toast } from "sonner"
 export default function InsightsPage() {
   const { insights, refreshData } = useData()
   const { user } = useAuth()
+  const { limits } = usePlanLimits()
   const [isGenerating, setIsGenerating] = useState(false)
 
-  const isFree = user?.plan === "gratis"
-  const usedInsights = insights.length
-  const atLimit = isFree && usedInsights >= MAX_INSIGHTS_FREE
+  // Real monthly AI-query quota from the plan; counter enforced server-side.
+  const maxInsights  = limits?.maxAiQueriesPerMonth ?? MAX_INSIGHTS_FREE
+  const usedInsights = user?.aiQueriesUsed ?? insights.length
+  const atLimit = usedInsights >= maxInsights
 
   async function handleGenerate() {
     if (atLimit) return
@@ -50,11 +53,9 @@ export default function InsightsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {isFree && (
-            <span className="text-xs text-muted-foreground">
-              {usedInsights}/{MAX_INSIGHTS_FREE} generados
-            </span>
-          )}
+          <span className="text-xs text-muted-foreground">
+            {usedInsights}/{maxInsights} consultas IA este mes
+          </span>
           <Button
             onClick={handleGenerate}
             disabled={isGenerating || atLimit}

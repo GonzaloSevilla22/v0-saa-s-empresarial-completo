@@ -48,6 +48,12 @@ export interface User {
   trialPlan?: Plan
   /** ISO timestamp when the trial expires. Undefined for beta/active users. */
   trialExpiresAt?: string
+  /**
+   * Computed plan used for all gating decisions (C-02). Derived from billingPlan
+   * with an override to trialPlan while a trial is active. NOT persisted in DB.
+   * Source of truth for access checks — prefer this over billingPlan for gating.
+   */
+  effectivePlan: Plan
   /** AI query counter (resets monthly via C-04). */
   aiQueriesUsed: number
   /** AI advice counter (resets monthly via C-04). */

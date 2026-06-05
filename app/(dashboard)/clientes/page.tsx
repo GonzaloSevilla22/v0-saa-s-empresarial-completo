@@ -11,8 +11,10 @@ import { Badge } from "@/components/ui/badge"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { useAuth } from "@/contexts/auth-context"
+import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { exportToCSV } from "@/lib/excel"
+import { MAX_CLIENTS_FREE } from "@/lib/constants"
 import {
   Plus, Trash2, Pencil, Search, PackageOpen, Download, Upload, Loader2,
 } from "lucide-react"
@@ -41,6 +43,7 @@ function mapRow(r: any): Client {
 export default function ClientesPage() {
   const { deleteClient } = useData()
   const { isAdmin } = useAuth()
+  const { limits } = usePlanLimits()
   const [importOpen,    setImportOpen]    = useState(false)
   const [open,          setOpen]          = useState(false)
   const [editingClient, setEditingClient] = useState<Client | undefined>()
@@ -60,6 +63,10 @@ export default function ClientesPage() {
   })
 
   const clients = pq.data.map(mapRow)
+
+  // ── Plan limit gate (C-02) ────────────────────────────────────────────────
+  const maxClients = limits?.maxClients ?? MAX_CLIENTS_FREE
+  const isAtClientLimit = pq.meta.totalCount >= maxClients
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (id: string) => {
@@ -125,11 +132,24 @@ export default function ClientesPage() {
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Exportar
           </Button>
-          <Button onClick={() => { setEditingClient(undefined); setOpen(true) }} size="sm">
+          <Button
+            onClick={() => { setEditingClient(undefined); setOpen(true) }}
+            size="sm"
+            disabled={isAtClientLimit}
+            title={isAtClientLimit ? `Límite de ${maxClients} clientes alcanzado` : undefined}
+          >
             <Plus className="h-4 w-4 mr-1" />Nuevo cliente
           </Button>
         </div>
       </div>
+
+      {isAtClientLimit && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+          <p className="text-sm text-yellow-400">
+            Llegaste al límite de {maxClients} clientes de tu plan. Actualizá tu plan para tener más capacidad.
+          </p>
+        </div>
+      )}
 
       {pq.error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

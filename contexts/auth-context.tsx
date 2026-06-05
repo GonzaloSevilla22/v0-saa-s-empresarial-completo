@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
-import type { User, Plan, UserRole } from "@/lib/types"
+import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
 
 export interface ProfileUpdateData {
   name?: string
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // @deprecated `plan` kept for legacy compat — use billingPlan for gating
           plan:           (profile.plan as Plan) ?? "gratis",
           billingPlan:    (profile.billing_plan as Plan) ?? "gratis",
-          billingStatus:  (profile.billing_status as import("@/lib/types").BillingStatus) ?? "trialing",
+          billingStatus:  (profile.billing_status as BillingStatus) ?? "trialing",
           trialPlan:      (profile.trial_plan as Plan) ?? undefined,
           trialExpiresAt: profile.trial_expires_at ?? undefined,
           aiQueriesUsed:  profile.ai_queries_used ?? 0,

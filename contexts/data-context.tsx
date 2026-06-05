@@ -723,11 +723,9 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       console.error("Error adding reply:", error)
       throw error
     }
-
-    // Update replies_count in posts state without re-fetching all 8 tables
-    setPosts(prev => prev.map(p =>
-      p.id === postId ? { ...p, replies: p.replies + 1 } : p,
-    ))
+    // replies_count is updated by the DB trigger on_post_reply_change,
+    // and the realtime subscription rt-posts calls refreshPosts().
+    // No manual optimistic update here — it caused a double-increment.
   }, [supabase])
 
   const getReplies = useCallback(async (postId: string): Promise<Reply[]> => {

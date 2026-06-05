@@ -1,0 +1,24 @@
+# Change metadata for billing-schema-migration (C-01).
+# NOTE: This file was authored by hand because the `openspec` CLI was not
+# available in this environment (Bash/PowerShell were denied). When the CLI is
+# available, run `openspec status --change "billing-schema-migration"` to
+# reconcile/normalize this metadata against the CLI's expected schema.
+name: billing-schema-migration
+schema: spec-driven
+status: proposed
+artifacts:
+  - id: proposal
+    status: done
+    path: proposal.md
+  - id: design
+    status: done
+    path: design.md
+  - id: tasks
+    status: done
+    path: tasks.md
+specs:
+  - billing
+applyRequires:
+  - proposal
+  - design
+  - tasks

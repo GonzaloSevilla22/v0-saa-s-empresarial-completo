@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,7 @@ interface PlanGateProps {
 export function PlanGate({ requiredPlan, children, featureName = "esta funcion" }: PlanGateProps) {
   const { user, upgradePlan } = useAuth()
 
-  if (user?.plan === "pro" || requiredPlan === "free") {
+  if (user?.plan === "pro" || requiredPlan === "gratis") {
     return <>{children}</>
   }
 

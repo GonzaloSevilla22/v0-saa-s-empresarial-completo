@@ -1,13 +1,60 @@
 import type { Currency } from "@/lib/format"
 export type { Currency }
-export type Plan = "free" | "pro"
+
+// ── Billing & plan types (C-01 billing-schema-migration) ─────────────────────
+
+/** 4-tier commercial plan. Source of truth: profiles.billing_plan (DB). */
+export type Plan = "gratis" | "inicial" | "avanzado" | "pro"
+
+/** Subscription lifecycle state. Source of truth: profiles.billing_status (DB). */
+export type BillingStatus = "active" | "trialing" | "expired" | "cancelled"
+
+/**
+ * Mirror of the `plan_limits` DB table.
+ * Used for static fallback / typing. Runtime values come from the DB (C-02).
+ */
+export interface PlanLimits {
+  plan: Plan
+  priceMonthly: number
+  maxUsers: number
+  maxProducts: number
+  maxClients: number
+  maxSuppliers: number
+  maxOperationsPerMonth: number
+  historyDays: number
+  maxExportsPerMonth: number
+  maxAiQueriesPerMonth: number
+  maxAiAdvicePerMonth: number
+  maxBranches: number
+  hasProductProfitability: boolean
+  hasComparativeReports: boolean
+  hasPriceSuggestion: boolean
+  hasBranchesModule: boolean
+  hasMonthlyAnalysis: boolean
+  /** Role management level available to this plan. */
+  internalRoles: "none" | "basic" | "advanced"
+}
+
 export type UserRole = "user" | "admin"
 
 export interface User {
   // ── Auth identity (from auth.users) ───────────────────────────────────────
   id: string
   email: string
+  // ── Billing (C-01) — source of truth ──────────────────────────────────────
+  billingPlan: Plan
+  billingStatus: BillingStatus
+  /** Which plan is being trialed (e.g. 'avanzado'). NULL if no active trial. */
+  trialPlan?: Plan
+  /** ISO timestamp when the trial expires. Undefined for beta/active users. */
+  trialExpiresAt?: string
+  /** AI query counter (resets monthly via C-04). */
+  aiQueriesUsed: number
+  /** AI advice counter (resets monthly via C-04). */
+  aiAdviceUsed: number
   // ── System-managed (read-only for the user) ───────────────────────────────
+  // @deprecated Use `billingPlan` instead. Legacy column kept for compatibility
+  // until all references are migrated (C-02). Will be removed in a future change.
   plan: Plan
   role: UserRole
   // ── Personal profile (editable) ───────────────────────────────────────────

@@ -4,13 +4,13 @@
 
 ## Purpose
 
-Migrar del modelo de usuario individual al modelo de cuenta compartida: cada usuario pertenece a una o más cuentas, puede invitar otros usuarios a su cuenta, y todos los datos de negocio se scopean por `account_id` en lugar de `user_id`. Soporta equipos pequeños (1-5 miembros por plan) sin necesidad de roles granulares (solo owner/member).
+Migrar del modelo de usuario individual al modelo de cuenta compartida: cada usuario pertenece a una o más cuentas, puede invitar otros usuarios a su cuenta, y todos los datos de negocio se scopean por `account_id` en lugar de `user_id`. Soporta equipos pequeños (1-5 miembros por plan). C-06 añadió el rol `admin` (exclusivo del plan `pro`) con permisos de escritura pero sin gestión de billing ni ability de cambiar roles de otros admins.
 
 ## Requirements
 
 ### Requirement: Modelo de cuenta y membresía
 
-El sistema SHALL representar una cuenta (`accounts`) que puede ser compartida por múltiples usuarios a través de una tabla de membresía (`account_members`), donde cada miembro tiene un rol mínimo (`owner` o `member`).
+El sistema SHALL representar una cuenta (`accounts`) que puede ser compartida por múltiples usuarios a través de una tabla de membresía (`account_members`), donde cada miembro tiene un rol (`owner`, `admin` o `member`). El rol `admin` es exclusivo del plan `pro` y otorga permisos de escritura en operaciones financieras sin acceso a billing ni gestión de otros admins.
 
 #### Scenario: Una cuenta tiene un owner
 - **WHEN** se crea una `account`
@@ -20,6 +20,11 @@ El sistema SHALL representar una cuenta (`accounts`) que puede ser compartida po
 - **GIVEN** un usuario miembro de una cuenta
 - **WHEN** se consulta `current_account_ids()` para ese usuario
 - **THEN** el resultado incluye el `account_id` de su cuenta
+
+#### Scenario: Los valores de rol permitidos son owner, admin y member
+- **GIVEN** cualquier intento de INSERT/UPDATE en `account_members`
+- **WHEN** el valor de `role` es cualquier string fuera de `('owner', 'admin', 'member')` — por ejemplo `'superuser'`
+- **THEN** la DB rechaza la operación por la constraint `CHECK (role IN ('owner', 'admin', 'member'))`
 
 ### Requirement: Backfill no destructivo de usuarios existentes
 

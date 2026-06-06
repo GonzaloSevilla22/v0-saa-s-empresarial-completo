@@ -3,7 +3,7 @@
 import { Fragment, useState, useMemo, useCallback, useRef, type ReactNode } from "react"
 import {
   ChevronRight, ChevronDown, Plus, Search, Download, Upload,
-  Pencil, Trash2, Package, GitBranch, Wrench,
+  Pencil, Trash2, Package, GitBranch, Wrench, Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,6 +44,12 @@ interface ProductCatalogProps {
   isAtLimit: boolean
   /** Called after a successful CSV import to trigger data refresh. */
   onImportComplete?: () => void
+  /**
+   * When provided, a "Sugerir precio IA" button is shown for each standalone
+   * product and variant (not for parent-only catalogue entries). Controlled
+   * by the parent — the parent is responsible for plan gating.
+   */
+  onSuggestPrice?: (product: Product) => void
 }
 
 // ─── Standalone sub-component (outside ProductCatalog to avoid re-mounts) ────
@@ -125,6 +131,7 @@ export function ProductCatalog({
   onDelete,
   isAtLimit,
   onImportComplete,
+  onSuggestPrice,
 }: ProductCatalogProps) {
   const [search, setSearch] = useState("")
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
@@ -494,6 +501,18 @@ export function ProductCatalog({
                         <span className="text-muted-foreground text-xs">{stockLabel(child)}</span>
                       </div>
                       <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
+                        {onSuggestPrice && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                            onClick={() => onSuggestPrice(child)}
+                            title="Sugerir precio IA"
+                          >
+                            <Sparkles className="h-3 w-3 mr-0.5" />
+                            Precio IA
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -545,6 +564,18 @@ export function ProductCatalog({
                   </div>
                 </div>
                 <div className="flex items-center justify-end gap-1 pt-1 border-t border-border">
+                  {onSuggestPrice && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                      onClick={() => onSuggestPrice(p)}
+                      title="Sugerir precio IA"
+                    >
+                      <Sparkles className="h-3 w-3 mr-0.5" />
+                      Precio IA
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -817,6 +848,18 @@ export function ProductCatalog({
                             {/* Actions */}
                             <TableCell>
                               <div className="flex items-center justify-end gap-1">
+                                {onSuggestPrice && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                                    onClick={() => onSuggestPrice(child)}
+                                    title="Sugerir precio IA"
+                                  >
+                                    <Sparkles className="h-3 w-3 mr-0.5" />
+                                    Precio IA
+                                  </Button>
+                                )}
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -917,6 +960,18 @@ export function ProductCatalog({
                   {/* Actions */}
                   <TableCell>
                     <div className="flex items-center justify-end gap-1">
+                      {onSuggestPrice && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                          onClick={() => onSuggestPrice(p)}
+                          title="Sugerir precio IA"
+                        >
+                          <Sparkles className="h-3 w-3 mr-0.5" />
+                          Precio IA
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"

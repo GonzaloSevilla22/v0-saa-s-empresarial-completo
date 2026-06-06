@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Sparkles, RefreshCw, Crown, TrendingUp } from "lucide-react"
 import { toast } from "sonner"
+import { PriceSuggestionModal } from "@/components/ai/PriceSuggestionModal"
 import type { ProfitabilityInsight } from "@/lib/types"
 
 // ─── Upgrade CTA ──────────────────────────────────────────────────────────────
@@ -62,6 +63,12 @@ export default function RentabilidadPage() {
   const { data: products, isLoading: dataLoading } = useProfitability(hasAccess ? periodDays : 0)
 
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+
+  // task 4.3: track which product's modal is open (only one at a time)
+  const [priceSuggestionState, setPriceSuggestionState] = useState<{
+    productId: string
+    productName: string
+  } | null>(null)
 
   // Last profitability insight
   const { data: lastInsight } = useQuery<ProfitabilityInsight | null>({
@@ -279,6 +286,8 @@ export default function RentabilidadPage() {
                   <TableHead className="text-right">Costo</TableHead>
                   <TableHead className="text-right">Margen %</TableHead>
                   <TableHead className="text-right">Unidades</TableHead>
+                  {/* task 4.1: action column for price suggestion */}
+                  <TableHead className="w-32" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -301,6 +310,24 @@ export default function RentabilidadPage() {
                       </span>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{Number(p.units_sold).toFixed(0)}</TableCell>
+                    {/* task 4.1-4.2: action button for price suggestion */}
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-primary hover:text-primary hover:bg-primary/10"
+                        onClick={() =>
+                          setPriceSuggestionState({
+                            productId:   p.product_id,
+                            productName: p.product_name,
+                          })
+                        }
+                        title="Sugerir precio IA"
+                      >
+                        <Sparkles className="h-3 w-3 mr-1" />
+                        Precio IA
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -308,6 +335,16 @@ export default function RentabilidadPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Price Suggestion Modal (task 4.2-4.3) ── */}
+      {priceSuggestionState && (
+        <PriceSuggestionModal
+          productId={priceSuggestionState.productId}
+          productName={priceSuggestionState.productName}
+          isOpen={priceSuggestionState !== null}
+          onClose={() => setPriceSuggestionState(null)}
+        />
+      )}
     </div>
   )
 }

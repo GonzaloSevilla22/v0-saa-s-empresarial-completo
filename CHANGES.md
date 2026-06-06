@@ -255,7 +255,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-13] `ai-price-suggestion`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Nueva feature: sugerencia de precio óptimo por producto (disponible solo en `'avanzado'` y `'pro'`)
   - Edge Function `ai-precio`: recibe `product_id`, consulta historial de ventas del producto (últimos 90 días), elasticidad implícita (variación cantidad vs precio), costos → OpenAI sugiere precio óptimo con argumento narrativo
@@ -427,7 +427,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[ ]` |
 | C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
-| C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[ ]` |
+| C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[x]` |
 | C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[ ]` |
 
 ---

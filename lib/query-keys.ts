@@ -48,4 +48,8 @@ export const queryKeys = {
     all:    () => ["branches"] as const,
     active: () => ["branches", "active"] as const,
   },
+  branchStock: {
+    all:      () => ["branchStock"] as const,
+    byBranch: (branchId: string) => ["branchStock", "branch", branchId] as const,
+  },
 } as const

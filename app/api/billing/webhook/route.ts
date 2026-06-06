@@ -18,6 +18,15 @@ export const runtime = 'nodejs'
 
 const PLAN_HIERARCHY: Plan[] = ['gratis', 'inicial', 'avanzado', 'pro']
 
+// The mercadopago SDK v2 types are incomplete — preference_id and some fields
+// are present in the API response but missing from the TypeScript definitions.
+interface MpPaymentData {
+  status: string | null | undefined
+  external_reference: string | null | undefined
+  transaction_amount: number | null | undefined
+  preference_id: string | null | undefined
+}
+
 // ── HMAC-SHA256 signature verification ───────────────────────────────────────
 
 async function verifyMpSignature(
@@ -127,7 +136,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     // ── Fetch payment details from MP ────────────────────────────────────────
     const payment = new Payment(getMp())
-    const paymentData = await payment.get({ id: paymentId })
+    const paymentData = await payment.get({ id: paymentId }) as unknown as MpPaymentData
 
     if (paymentData.status !== 'approved') {
       console.log('[billing/webhook] Payment not approved:', paymentData.status)

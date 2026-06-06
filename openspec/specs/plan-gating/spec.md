@@ -166,3 +166,33 @@ El incremento SHALL realizarse mediante el RPC atómico `rpc_increment_ai_usage`
 - **GIVEN** un usuario `gratis` con `ai_queries_used = 5` (límite = 5)
 - **WHEN** llama a `ai-insights`
 - **THEN** la función retorna HTTP 429 con `{ ok: false, error: 'quota_exceeded' }`
+
+---
+
+### Requirement: Límite de sucursales por plan (C-07)
+
+El sistema SHALL leer `plan_limits.max_branches` y `plan_limits.has_branches_module` para cada plan y rechazar la creación de sucursales que supere el cupo. El módulo SHALL estar disponible solo para `pro`.
+
+#### Scenario: `usePlanLimits()` expone `maxBranches` y `hasBranchesModule`
+
+- **GIVEN** un usuario con plan efectivo 'pro'
+- **WHEN** el componente llama a `usePlanLimits()`
+- **THEN** el objeto retornado incluye `maxBranches: 3` y `hasBranchesModule: true`
+
+#### Scenario: `usePlanLimits()` retorna `hasBranchesModule: false` para planes sin sucursales
+
+- **GIVEN** un usuario con plan efectivo 'avanzado'
+- **WHEN** el componente llama a `usePlanLimits()`
+- **THEN** el objeto retornado incluye `hasBranchesModule: false`
+
+#### Scenario: Seed de `plan_limits` incluye `max_branches` y `has_branches_module`
+
+- **GIVEN** la tabla `plan_limits` correctamente seedeada
+- **WHEN** se consulta `SELECT max_branches, has_branches_module FROM plan_limits WHERE plan = 'pro'`
+- **THEN** retorna `max_branches = 3`, `has_branches_module = true`
+
+#### Scenario: UI oculta módulo de sucursales para planes sin acceso
+
+- **GIVEN** un usuario con plan 'avanzado' (`hasBranchesModule = false`)
+- **WHEN** navega al sidebar principal
+- **THEN** el item de menú "Sucursales" no está presente en el DOM (no solo oculto con CSS)

@@ -303,7 +303,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-06] `roles-internos-basicos`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Roles internos de organización (disponible en `'avanzado'` y `'pro'`): `owner`, `admin`, `member`
   - `owner`: acceso completo, puede cambiar plan, puede eliminar org
@@ -325,7 +325,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-07] `sucursales-module-pro`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-07
 - **Scope**:
   - Módulo sucursales (disponible exclusivamente en `'pro'`)
   - Migración SQL: tabla `branches` — `id UUID PK`, `org_id UUID FK organizations`, `name TEXT`, `address TEXT`, `is_active BOOLEAN DEFAULT TRUE`, `created_at`; UNIQUE(org_id, name)
@@ -417,11 +417,11 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 |----|--------|------|------------|--------------|--------|
 | C-01 | billing-schema-migration | 1 — Billing | CRITICO | — | `[x]` |
 | C-02 | plan-gating-engine | 1 — Billing | CRITICO | C-01 | `[x]` |
-| C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[ ]` |
+| C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[x]` |
 | C-04 | ai-usage-counters-split | 2 — IA | ALTO | C-02 | `[x]` |
 | C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[x]` |
-| C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[ ]` |
-| C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[ ]` |
+| C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[x]` |
+| C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[x]` |
 | C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[ ]` |
 | C-09 | community-bug-fixes | 1 — Billing | MEDIO | — | `[x]` |
 | C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[ ]` |

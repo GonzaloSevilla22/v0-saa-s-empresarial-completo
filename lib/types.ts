@@ -45,6 +45,19 @@ export interface AccountMember {
 }
 
 /**
+ * A physical location / point of sale within an account.
+ * Exclusive to plan 'pro'. Source of truth: branches table (C-07).
+ */
+export interface Branch {
+  id: string
+  accountId: string
+  name: string
+  address: string | null
+  isActive: boolean
+  createdAt: string
+}
+
+/**
  * Mirror of the `plan_limits` DB table.
  * Used for static fallback / typing. Runtime values come from the DB (C-02).
  */
@@ -208,6 +221,7 @@ export interface Expense {
   category: string
   description: string
   amount: number
+  branchId?: string | null
 }
 
 export type ClientStatus = "activo" | "inactivo" | "perdido"

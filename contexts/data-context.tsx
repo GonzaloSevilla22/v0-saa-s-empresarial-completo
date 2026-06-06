@@ -26,7 +26,7 @@ interface DataContextType {
   /** Atomic, idempotent, multi-item sale create. Replaces the per-item loop. */
   addSaleOperation: (
     items: SaleCartItem[],
-    meta: { idempotencyKey: string; clientId: string | null; date: string; currency: string }
+    meta: { idempotencyKey: string; clientId: string | null; date: string; currency: string; branchId?: string | null }
   ) => Promise<{ operation_id: string; items: unknown[]; replayed: boolean }>
   updateSale: (s: Sale) => Promise<void>
   deleteSale: (id: string) => Promise<void>
@@ -39,7 +39,7 @@ interface DataContextType {
   /** Atomic, idempotent, multi-item purchase create. Replaces the per-item loop. */
   addPurchaseOperation: (
     items: PurchaseCartItem[],
-    meta: { idempotencyKey: string; date: string; description: string }
+    meta: { idempotencyKey: string; date: string; description: string; branchId?: string | null }
   ) => Promise<{ operation_id: string; items: unknown[]; replayed: boolean }>
   updatePurchase: (p: Purchase) => Promise<void>
   deletePurchase: (id: string) => Promise<void>
@@ -454,7 +454,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   // total = amount × quantity and normalizes stock by unit factor server-side.
   const addSaleOperation = useCallback(async (
     items: SaleCartItem[],
-    meta: { idempotencyKey: string; clientId: string | null; date: string; currency: string }
+    meta: { idempotencyKey: string; clientId: string | null; date: string; currency: string; branchId?: string | null }
   ) => {
     const payload = items.map(item => ({
       product_id: item.productId,
@@ -469,6 +469,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       p_date:            meta.date,
       p_currency:        meta.currency,
       p_items:           payload,
+      p_branch_id:       meta.branchId ?? null,
     })
     if (error) throw new Error(translateDbError(error))
     await Promise.all([refreshSales(), refreshProducts()])
@@ -527,7 +528,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const addPurchaseOperation = useCallback(async (
     items: PurchaseCartItem[],
-    meta: { idempotencyKey: string; date: string; description: string }
+    meta: { idempotencyKey: string; date: string; description: string; branchId?: string | null }
   ) => {
     const payload = items.map(item => ({
       product_id: item.productId,
@@ -541,6 +542,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       p_date:            meta.date,
       p_description:     meta.description || null,
       p_items:           payload,
+      p_branch_id:       meta.branchId ?? null,
     })
     if (error) throw new Error(translateDbError(error))
     await Promise.all([refreshPurchases(), refreshProducts()])

@@ -37,6 +37,7 @@ export function useAddExpense() {
         category:    expense.category,
         description: expense.description,
         amount:      expense.amount,
+        branch_id:   expense.branchId ?? null,
       }])
       if (error) throw new Error(translateError(error))
     },

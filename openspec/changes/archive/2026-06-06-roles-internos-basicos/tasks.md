@@ -57,4 +57,4 @@
 
 - [x] 6.1 Re-correr TEST 0.1: `SELECT role, count(*) FROM account_members GROUP BY 1` — sigue siendo 26 `owner`, 0 cambios.
 - [x] 6.2 `tsc --noEmit` limpio en todo el proyecto.
-- [ ] 6.3 Marcar `[x]` C-06 en `CHANGES.md` tras archivar.
+- [x] 6.3 Marcar `[x]` C-06 en `CHANGES.md` tras archivar.

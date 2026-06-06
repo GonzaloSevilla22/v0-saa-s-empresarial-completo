@@ -31,6 +31,7 @@ import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
+import { BranchSelect } from "@/components/branches/BranchSelect"
 
 interface SaleFormProps {
   onSuccess: () => void
@@ -76,6 +77,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [clientId, setClientId] = useState(() => editingOperation?.clientId ?? "")
   const [currency, setCurrency] = useState<Currency>(() => (editingOperation?.currency as Currency) ?? "ARS")
   const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
+  const [branchId, setBranchId] = useState<string | null>(null)
 
   // ── Inline new client ───────────────────────────────────────────────────────
   const [showNewClient, setShowNewClient] = useState(false)
@@ -379,6 +381,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         clientId:       selectedClient.id,
         date,
         currency,
+        branchId,
       })
       // Success → retire this key so the NEXT sale starts a fresh operation.
       resetIdempotencyKey()
@@ -562,6 +565,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               />
             </div>
           </div>
+
+          {/* ── Sucursal (solo plan PRO) ──────────────────────────────── */}
+          <BranchSelect
+            value={branchId}
+            onChange={setBranchId}
+            placeholder="Sin sucursal (general)"
+            className="bg-background border-border text-foreground text-sm"
+          />
         </div>
 
         <div className="border-t border-border" />

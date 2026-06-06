@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useData } from "@/contexts/data-context"
 import { useGreeting } from "@/hooks/use-greeting"
 import { KpiCard } from "@/components/dashboard/kpi-card"
@@ -12,6 +13,7 @@ import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-reac
 import { aiInsightService } from "@/lib/services/aiInsightService"
 import { createClient } from "@/lib/supabase/client"
 import { TrialBanner } from "@/components/dashboard/TrialBanner"
+import { BranchFilter } from "@/components/branches/BranchFilter"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,7 +29,10 @@ interface DashboardFinancials {
 export default function DashboardPage() {
   const { getLowStockProducts, insights, refreshData } = useData()
   const { greeting } = useGreeting()
+  const searchParams = useSearchParams()
   const lowStock = getLowStockProducts()
+
+  const branchId = searchParams.get("branch") ?? null
 
   const [financials, setFinancials]     = useState<DashboardFinancials | null>(null)
   const [loadingKpis, setLoadingKpis]   = useState(true)
@@ -44,10 +49,13 @@ export default function DashboardPage() {
         const dateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString()
         const dateTo   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString()
 
-        const { data, error } = await supabase.rpc('get_dashboard_financials', {
+        const rpcParams: Record<string, string | null> = {
           p_date_from: dateFrom,
           p_date_to:   dateTo,
-        })
+        }
+        if (branchId) rpcParams.p_branch_id = branchId
+
+        const { data, error } = await supabase.rpc('get_dashboard_financials', rpcParams)
 
         if (error) {
           console.error('[Dashboard] get_dashboard_financials error:', error.message)
@@ -71,7 +79,7 @@ export default function DashboardPage() {
     }
 
     fetchFinancials()
-  }, [])  // intentionally runs once on mount; data is for "today" which doesn't change mid-session
+  }, [branchId])  // re-fetch when branch filter changes
 
   // ── Auto-generate AI insights if none exist for today ────────────────────────
   // Guard ref prevents double-execution (StrictMode) and error-retry loops.
@@ -102,13 +110,16 @@ export default function DashboardPage() {
     <div className="flex flex-col gap-6">
       <TrialBanner />
 
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight text-balance">
-          {greeting}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Así está tu negocio hoy
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight text-balance">
+            {greeting}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Así está tu negocio hoy
+          </p>
+        </div>
+        <BranchFilter />
       </div>
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">

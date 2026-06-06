@@ -5,11 +5,12 @@ import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { planHasAccess } from "@/lib/plan-utils"
+import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
-  ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare
+  ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -26,42 +27,44 @@ const navGroups = [
   {
     label: "Principal",
     items: [
-      { title: "Tablero", href: "/dashboard", icon: LayoutDashboard, pro: false },
+      { title: "Tablero", href: "/dashboard", icon: LayoutDashboard, pro: false, proOnly: false },
     ],
   },
   {
     label: "Operaciones",
     items: [
-      { title: "Ventas", href: "/ventas", icon: ShoppingCart, pro: false },
-      { title: "Compras", href: "/compras", icon: ShoppingBag, pro: false },
-      { title: "Gastos", href: "/gastos", icon: Receipt, pro: false },
+      { title: "Ventas", href: "/ventas", icon: ShoppingCart, pro: false, proOnly: false },
+      { title: "Compras", href: "/compras", icon: ShoppingBag, pro: false, proOnly: false },
+      { title: "Gastos", href: "/gastos", icon: Receipt, pro: false, proOnly: false },
     ],
   },
   {
     label: "Catálogo",
     items: [
-      { title: "Productos", href: "/productos", icon: Package, pro: false },
-      { title: "Stock", href: "/stock", icon: Warehouse, pro: false },
-      { title: "Clientes", href: "/clientes", icon: Users, pro: false },
+      { title: "Productos", href: "/productos", icon: Package, pro: false, proOnly: false },
+      { title: "Stock", href: "/stock", icon: Warehouse, pro: false, proOnly: false },
+      { title: "Clientes", href: "/clientes", icon: Users, pro: false, proOnly: false },
+      { title: "Sucursales", href: "/sucursales", icon: MapPin, pro: false, proOnly: true },
     ],
   },
   {
     label: "Inteligencia",
     items: [
-      { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true },
-      { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false },
-      { title: "Rentabilidad", href: "/rentabilidad", icon: TrendingUp, pro: true },
-      { title: "Comparativo", href: "/reportes/comparativo", icon: GitCompare, pro: true },
-      { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false },
-      { title: "Simulador", href: "/simulador", icon: Calculator, pro: false },
+      { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true, proOnly: false },
+      { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false, proOnly: false },
+      { title: "Rentabilidad", href: "/rentabilidad", icon: TrendingUp, pro: true, proOnly: false },
+      { title: "Comparativo", href: "/reportes/comparativo", icon: GitCompare, pro: true, proOnly: false },
+      { title: "Por Sucursal", href: "/reportes/sucursal", icon: MapPin, pro: false, proOnly: true },
+      { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
+      { title: "Simulador", href: "/simulador", icon: Calculator, pro: false, proOnly: false },
     ],
   },
   {
     label: "Ecosistema",
     items: [
-      { title: "Comunidad", href: "/comunidad", icon: MessageSquare, pro: false },
-      { title: "Cursos", href: "/cursos", icon: GraduationCap, pro: false },
-      { title: "Seguros", href: "/seguros", icon: ShieldCheck, pro: false },
+      { title: "Comunidad", href: "/comunidad", icon: MessageSquare, pro: false, proOnly: false },
+      { title: "Cursos", href: "/cursos", icon: GraduationCap, pro: false, proOnly: false },
+      { title: "Seguros", href: "/seguros", icon: ShieldCheck, pro: false, proOnly: false },
     ],
   },
 ]
@@ -69,8 +72,10 @@ const navGroups = [
 export function AppSidebar() {
   const pathname = usePathname()
   const { user, logout, isAdmin, effectivePlan } = useAuth()
+  const { limits } = usePlanLimits()
   // "pro" menu items are gated at avanzado+; show the crown when locked.
   const showProBadge = !planHasAccess(effectivePlan, "avanzado")
+  const hasBranchesModule = limits?.hasBranchesModule ?? false
   const { isMobile, setOpenMobile } = useSidebar()
 
   // Close the mobile drawer whenever the user navigates to a new route
@@ -111,6 +116,8 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {group.items.map((item) => {
+                    // proOnly items are only rendered for accounts with hasBranchesModule
+                    if (item.proOnly && !hasBranchesModule) return null
                     const isActive = pathname === item.href
                     return (
                       <SidebarMenuItem key={item.href}>

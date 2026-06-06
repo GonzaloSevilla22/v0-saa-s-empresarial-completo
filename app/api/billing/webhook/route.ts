@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { mp, Payment } from '@/lib/mercadopago'
+import { getMp, Payment } from '@/lib/mercadopago'
 import type { Plan } from '@/lib/types'
 
 // Next.js App Router: disable body parsing so we can read raw bytes for HMAC
@@ -126,7 +126,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     // ── Fetch payment details from MP ────────────────────────────────────────
-    const payment = new Payment(mp)
+    const payment = new Payment(getMp())
     const paymentData = await payment.get({ id: paymentId })
 
     if (paymentData.status !== 'approved') {

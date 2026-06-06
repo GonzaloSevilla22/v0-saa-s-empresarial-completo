@@ -6,27 +6,33 @@
  * avoid leaking MERCADOPAGO_ACCESS_TOKEN to the browser bundle.
  *
  * Usage:
- *   import { mp, Preference } from '@/lib/mercadopago'
- *   const pref = new Preference(mp)
+ *   import { getMp, Preference } from '@/lib/mercadopago'
+ *   const pref = new Preference(getMp())
  *   const { id } = await pref.create({ body: { items: [...], back_urls: {...} } })
  */
 
 import MercadoPago from 'mercadopago'
 import { Preference, Payment } from 'mercadopago'
 
-const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN
+// Lazy singleton: initialized on first request, not at import time.
+// This avoids crashing next build when MERCADOPAGO_ACCESS_TOKEN is not set
+// as a build-time env var in Vercel (it only needs to exist at runtime).
+let _mp: MercadoPago | null = null
 
-if (!accessToken) {
-  // Throw at module load time so the misconfiguration surfaces immediately
-  // in local dev. In production this is caught by Vercel's env check.
-  throw new Error(
-    '[mercadopago] MERCADOPAGO_ACCESS_TOKEN is not set. ' +
-    'Add it to your .env.local (dev) or Vercel environment variables (prod).'
-  )
+export function getMp(): MercadoPago {
+  if (_mp) return _mp
+
+  const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN
+  if (!accessToken) {
+    throw new Error(
+      '[mercadopago] MERCADOPAGO_ACCESS_TOKEN is not set. ' +
+      'Add it to your .env.local (dev) or Vercel environment variables (prod).'
+    )
+  }
+
+  _mp = new MercadoPago({ accessToken })
+  return _mp
 }
-
-/** Singleton MercadoPago client — reused across requests in the same process. */
-export const mp = new MercadoPago({ accessToken })
 
 /** Re-export resource classes for convenience so callers don't need to import from 'mercadopago' directly. */
 export { Preference, Payment }

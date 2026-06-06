@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { mp, Preference } from '@/lib/mercadopago'
+import { getMp, Preference } from '@/lib/mercadopago'
 import type { Plan } from '@/lib/types'
 
 const PLAN_HIERARCHY: Plan[] = ['gratis', 'inicial', 'avanzado', 'pro']
@@ -62,7 +62,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://emprende-smart.vercel.app'
 
     // ── Create MercadoPago preference ─────────────────────────────────────────
-    const preference = new Preference(mp)
+    const preference = new Preference(getMp())
     const result = await preference.create({
       body: {
         external_reference: `${user.id}::${plan}`,

@@ -371,7 +371,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ## FASE 4 — Upgrade Flow y Exportaciones
 
 ### [C-10] `subscription-ui-upgrade-flow`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-09
 - **Scope**:
   - Page `/planes`: comparativo visual de los 4 planes con tabla de features, precios y CTA de compra
   - Integración con pasarela de pagos: MercadoPago Checkout Pro (preferido para Argentina) o Stripe — definir en `DEC-04` actualizado
@@ -424,7 +424,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[x]` |
 | C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[x]` |
 | C-09 | community-bug-fixes | 1 — Billing | MEDIO | — | `[x]` |
-| C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[ ]` |
+| C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[x]` |
 | C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[x]` |

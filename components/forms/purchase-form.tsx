@@ -30,6 +30,7 @@ import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
+import { BranchSelect } from "@/components/branches/BranchSelect"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -80,6 +81,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
   // ── Operation date ──────────────────────────────────────────────────────────
   const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
+  const [branchId, setBranchId] = useState<string | null>(null)
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -345,6 +347,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         idempotencyKey: idempotencyKey,
         date,
         description,
+        branchId,
       })
       resetIdempotencyKey()
       toast.success(
@@ -452,6 +455,14 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
               className="bg-background border-border text-foreground"
             />
           </div>
+
+          {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
+          <BranchSelect
+            value={branchId}
+            onChange={setBranchId}
+            placeholder="Sin sucursal (general)"
+            className="bg-background border-border text-foreground text-sm"
+          />
         </div>
 
         <div className="border-t border-border" />

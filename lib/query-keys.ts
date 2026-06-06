@@ -44,4 +44,8 @@ export const queryKeys = {
     all:    () => ["posts"] as const,
     detail: (id: string) => ["posts", "detail", id] as const,
   },
+  branches: {
+    all:    () => ["branches"] as const,
+    active: () => ["branches", "active"] as const,
+  },
 } as const

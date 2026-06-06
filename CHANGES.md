@@ -420,7 +420,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[x]` |
 | C-04 | ai-usage-counters-split | 2 — IA | ALTO | C-02 | `[x]` |
 | C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[x]` |
-| C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[ ]` |
+| C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[x]` |
 | C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[ ]` |
 | C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[ ]` |
 | C-09 | community-bug-fixes | 1 — Billing | MEDIO | — | `[x]` |

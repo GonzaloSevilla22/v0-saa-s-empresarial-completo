@@ -11,6 +11,7 @@ import { EXPENSE_CATEGORIES } from "@/lib/constants"
 import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
 import type { Expense } from "@/lib/types"
+import { BranchSelect } from "@/components/branches/BranchSelect"
 
 interface ExpenseFormProps {
   onSuccess: () => void
@@ -27,6 +28,7 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
   const [description, setDescription] = useState(initialData?.description ?? "")
   const [amount,      setAmount]      = useState(initialData?.amount       ?? 0)
   const [date,        setDate]        = useState(initialData?.date         ?? new Date().toISOString().split("T")[0])
+  const [branchId,    setBranchId]    = useState<string | null>(initialData?.branchId ?? null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -39,7 +41,7 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
         await updateExpenseMutation.mutateAsync({ ...initialData, category, description, amount, date })
         toast.success("Gasto actualizado")
       } else {
-        await addExpenseMutation.mutateAsync({ date, category, description, amount })
+        await addExpenseMutation.mutateAsync({ date, category, description, amount, branchId })
         toast.success("Gasto registrado")
       }
       onSuccess()
@@ -103,6 +105,14 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
           />
         </div>
       </div>
+
+      {/* ── Sucursal (solo plan PRO) ───────────────────────────────── */}
+      <BranchSelect
+        value={branchId}
+        onChange={setBranchId}
+        placeholder="Sin sucursal (general)"
+        className="bg-background border-border text-foreground text-sm"
+      />
 
       <Button type="submit" className="w-full">
         {isEdit ? "Guardar cambios" : "Registrar gasto"}

@@ -249,6 +249,29 @@ export interface ProfitabilityInsight {
   created_at: string
 }
 
+// ── Period comparison (C-12 ai-comparative-reports) ───────────────────────────
+
+export interface PeriodComparison {
+  period_a_revenue:     number
+  period_a_expenses:    number
+  period_a_purchases:   number
+  period_a_operations:  number
+  period_b_revenue:     number
+  period_b_expenses:    number
+  period_b_purchases:   number
+  period_b_operations:  number
+  revenue_delta_pct:    number | null
+  expenses_delta_pct:   number | null
+  purchases_delta_pct:  number | null
+  operations_delta_pct: number | null
+}
+
+export interface ComparativeInsight {
+  id:         string
+  message:    string
+  created_at: string
+}
+
 export interface Post {
   id: string
   userId: string

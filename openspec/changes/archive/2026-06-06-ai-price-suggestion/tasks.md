@@ -8,7 +8,7 @@
 - [x] 1.6 Construir prompt para OpenAI con: precio actual, costo catálogo, top ventas semanales, elasticidad calculada. Instrucción: retornar JSON `{ suggested_price, margin_pct, argument }`
 - [x] 1.7 Llamar a `gpt-4o-mini` con timeout 25s; implementar fallback gracioso `{ ok: true, fallback: true, reason: 'timeout' }` si falla (RN-31)
 - [x] 1.8 Insertar resultado en `ai_insights` (`type='oportunidad'`, `metadata: { product_id }`) e incrementar `ai_queries_used` atomicamente (RPC existente o UPDATE directo con service_role)
-- [ ] 1.9 Deploy de la Edge Function: `npx supabase functions deploy ai-precio` — **MANUAL: ejecutar en terminal**
+- [x] 1.9 Deploy de la Edge Function: `npx supabase functions deploy ai-precio`
 
 ## 2. Componente `PriceSuggestionModal`
 

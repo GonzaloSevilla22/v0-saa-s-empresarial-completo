@@ -93,23 +93,11 @@ export async function checkAiQuota(
   return { allowed: true, body: null }
 }
 
-/** Increments the user's AI usage counter after a successful call. */
+/** Increments the user's AI usage counter after a successful call via an atomic DB-side RPC. */
 export async function incrementAiUsage(
   supabase: SupabaseClient,
   userId: string,
   counter: Counter,
 ): Promise<void> {
-  const column = counter === "queries" ? "ai_queries_used" : "ai_advice_used"
-  // Read-modify-write. Acceptable for the MVP; a DB-side atomic increment RPC
-  // can replace this in C-04 if concurrency becomes a concern.
-  const { data } = await supabase
-    .from("profiles")
-    .select(column)
-    .eq("id", userId)
-    .single()
-  const current = (data?.[column] as number | undefined) ?? 0
-  await supabase
-    .from("profiles")
-    .update({ [column]: current + 1 })
-    .eq("id", userId)
+  await supabase.rpc("rpc_increment_ai_usage", { p_user_id: userId, p_counter: counter })
 }

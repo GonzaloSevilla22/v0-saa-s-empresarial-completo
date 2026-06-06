@@ -230,6 +230,25 @@ export interface Insight {
   date: string
 }
 
+// ── Product profitability (C-11 ai-insights-rentabilidad-producto) ────────────
+
+export interface ProductProfitability {
+  product_id:       string
+  product_name:     string
+  total_revenue:    number
+  total_cost:       number
+  gross_margin:     number
+  gross_margin_pct: number
+  units_sold:       number
+  last_sale_date:   string | null
+}
+
+export interface ProfitabilityInsight {
+  id:         string
+  message:    string
+  created_at: string
+}
+
 export interface Post {
   id: string
   userId: string

@@ -1,4 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,6 +89,10 @@ Deno.serve(async (req) => {
     }
 
     console.log('[fair-advisor] Auth OK')
+
+    // 1b. Quota check
+    const quota = await checkAiQuota(supabaseClient, user.id, 'advice')
+    if (!quota.allowed) return jsonResponse(quota.body, 429)
 
     // 2. Validate OpenAI key
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
@@ -184,6 +189,9 @@ INSTRUCCIONES:
       console.error('[fair-advisor] AI call failed FULL:', isTimeout ? 'TIMEOUT' : aiErr)
       return jsonResponse({ ok: false, error: isTimeout ? 'OpenAI timeout (>8s)' : extractErrorMessage(aiErr) }, 502)
     }
+
+    // 5b. Increment advice counter (atomic RPC, non-blocking on error)
+    await incrementAiUsage(supabaseClient, user.id, 'advice')
 
     // 6. Persist to DB (error doesn't block the response)
     if (recommendations.length > 0) {

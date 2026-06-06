@@ -9,7 +9,7 @@ import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
-  ShieldCheck, BarChart3, LayoutGrid, Bot
+  ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -50,6 +50,7 @@ const navGroups = [
     items: [
       { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true },
       { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false },
+      { title: "Rentabilidad", href: "/rentabilidad", icon: TrendingUp, pro: true },
       { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false },
       { title: "Simulador", href: "/simulador", icon: Calculator, pro: false },
     ],

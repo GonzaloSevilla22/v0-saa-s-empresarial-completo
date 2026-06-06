@@ -33,9 +33,10 @@
 
 ## Prioridad: Media
 
-### PA-05 — Período de reset de insights para plan free
-**Pregunta**: El límite de 5 insights para plan free se resetea: ¿mensualmente? ¿semanalmente? ¿diariamente?  
-**Contexto**: Los campos `insights_used` e `insights_reset_at` están en `profiles` pero la lógica de reset no está implementada.
+### PA-05 — Período de reset de contadores IA ✅ RESUELTO (C-04)
+**Resolución**: Reset mensual — el primer día de cada mes a las 00:00 UTC, via pg_cron `reset-ai-counters`.  
+El cron actualiza `ai_queries_used = 0`, `ai_advice_used = 0`, `usage_reset_at = now()` en todos los perfiles.  
+Campo canónico: `usage_reset_at` (renombrado de `insights_reset_at` en C-01).
 
 ### PA-06 — Roles futuros adicionales
 **Pregunta**: ¿Qué roles están planificados para el futuro?  

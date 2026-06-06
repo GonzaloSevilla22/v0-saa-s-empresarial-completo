@@ -235,7 +235,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-12] `ai-comparative-reports`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Nueva feature: reportes comparativos período vs período (disponible solo en `'avanzado'` y `'pro'`)
   - RPC `rpc_period_comparison(p_user_id, p_period_a_start, p_period_a_end, p_period_b_start, p_period_b_end)`: devuelve ventas totales, gastos totales, operaciones, top productos para ambos períodos
@@ -426,7 +426,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-09 | community-bug-fixes | 1 — Billing | MEDIO | — | `[x]` |
 | C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[ ]` |
 | C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
-| C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[ ]` |
+| C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[ ]` |
 | C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[ ]` |
 

@@ -7,7 +7,7 @@ export type { Currency }
 export type Plan = "gratis" | "inicial" | "avanzado" | "pro"
 
 /** Subscription lifecycle state. Source of truth: accounts.billing_status (C-05). */
-export type BillingStatus = "active" | "trialing" | "expired" | "cancelled"
+export type BillingStatus = "active" | "trialing" | "expired" | "cancelled" | "cancelling"
 
 // ── Multi-tenant account types (C-05 multi-user-tenant-architecture) ─────────
 
@@ -120,6 +120,8 @@ export interface PlanLimits {
   hasMonthlyAnalysis: boolean
   /** Role management level available to this plan. */
   internalRoles: "none" | "basic" | "advanced"
+  /** Annual price in ARS (monthly * 10 = 2 free months). C-10. */
+  priceArsAnnual?: number
 }
 
 export type UserRole = "user" | "admin"

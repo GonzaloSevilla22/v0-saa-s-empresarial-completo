@@ -6,6 +6,8 @@ import { SaleForm } from "@/components/forms/sale-form"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
 import { useAuth } from "@/contexts/auth-context"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import type { Sale } from "@/lib/types"
@@ -31,6 +33,7 @@ function mapRow(r: any): Sale {
 export default function VentasPage() {
   const { clients, deleteSale, deleteSalesByOperation } = useData()
   const { isAdmin } = useAuth()
+  const { isWriter } = useOrgRole()
 
   // ── Paginated sales ───────────────────────────────────────────────────────
   const pq = usePaginatedQuery<any>({
@@ -94,6 +97,8 @@ export default function VentasPage() {
         />
       )}
 
+      {!isWriter && <NoWriteAccessBanner />}
+
       <SaleOperationsList
         sales={sales}
         meta={pq.meta}
@@ -107,7 +112,7 @@ export default function VentasPage() {
         onPageChange={pq.setPage}
         onPageSizeChange={pq.setPageSize}
         clients={clients}
-        onAdd={handleAdd}
+        onAdd={isWriter ? handleAdd : undefined}
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         onRefetch={pq.refetch}

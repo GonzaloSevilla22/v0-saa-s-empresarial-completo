@@ -53,7 +53,7 @@ interface SaleOperationsListProps {
   onPageSizeChange:(size: PageSizeOption) => void
   // Misc
   clients:         Client[]
-  onAdd:           () => void
+  onAdd?:          () => void
   onDeleteOperation:(op: SaleOperation) => Promise<void>
   onEditOperation?: (op: SaleOperation) => void
   onRefetch:       () => void
@@ -199,9 +199,11 @@ export function SaleOperationsList({
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Exportar
           </Button>
-          <Button onClick={onAdd} size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />Nueva venta
-          </Button>
+          {onAdd && (
+            <Button onClick={onAdd} size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />Nueva venta
+            </Button>
+          )}
         </div>
       </div>
 
@@ -248,7 +250,7 @@ export function SaleOperationsList({
             <p className="text-sm">
               {search || isDateFilterActive ? "Sin resultados para esa búsqueda" : "No hay ventas registradas"}
             </p>
-            {!search && !isDateFilterActive && (
+            {!search && !isDateFilterActive && onAdd && (
               <Button variant="outline" size="sm" onClick={onAdd} className="gap-2">
                 <Plus className="h-4 w-4" />Registrar primera venta
               </Button>

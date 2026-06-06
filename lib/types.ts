@@ -33,11 +33,14 @@ export interface Account {
  * Membership of a user in an account.
  * Source of truth: account_members table.
  */
+/** Role of a user within an account. 'admin' requires plan 'pro'. */
+export type OrgRole = "owner" | "admin" | "member"
+
 export interface AccountMember {
   id: string
   accountId: string
   userId: string
-  role: "owner" | "member"
+  role: OrgRole
   createdAt: string
 }
 
@@ -76,8 +79,8 @@ export interface User {
   // ── Tenant account (C-05) — source of truth for billing & scoping ─────────
   /** UUID of the user's active account. Resolved from account_members at login. */
   accountId: string
-  /** Role of this user within the active account ('owner' | 'member'). */
-  accountRole: "owner" | "member"
+  /** Role of this user within the active account. */
+  accountRole: OrgRole
   // ── Billing (C-01/C-05) — now stored on accounts, mirrored here ───────────
   billingPlan: Plan
   billingStatus: BillingStatus

@@ -18,6 +18,7 @@
  */
 
 import React, { useState } from "react"
+import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
@@ -27,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, UserPlus, Users, Loader2, AlertCircle, CheckCircle2, Lock } from "lucide-react"
+import { Crown, Shield, UserPlus, Users, Loader2, AlertCircle, CheckCircle2, Lock, Settings } from "lucide-react"
 import { planHasAccess } from "@/lib/plan-utils"
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ import { planHasAccess } from "@/lib/plan-utils"
 interface MemberRow {
   id: string
   user_id: string
-  role: "owner" | "member"
+  role: "owner" | "admin" | "member"
   created_at: string
   profiles: {
     name: string | null
@@ -177,6 +178,23 @@ export function TeamSection() {
               </React.Fragment>
             ))
           )}
+          {/* Quick links to dedicated role management pages */}
+          {(isOwner || accountRole === "admin") && planAllowsTeam && (
+            <div className="flex gap-2 pt-1 mt-1 border-t border-border">
+              <Link href="/organizacion/roles">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs border-border text-foreground">
+                  <Settings className="h-3.5 w-3.5" />
+                  Gestión de roles
+                </Button>
+              </Link>
+              <Link href="/organizacion/invitar">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs border-border text-foreground">
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Invitar miembro
+                </Button>
+              </Link>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -281,12 +299,20 @@ export function TeamSection() {
 
 // ── Sub-component: Role badge ─────────────────────────────────────────────────
 
-function RoleBadge({ role }: { role: "owner" | "member" }) {
+function RoleBadge({ role }: { role: "owner" | "admin" | "member" }) {
   if (role === "owner") {
     return (
       <Badge className="bg-yellow-500/20 text-yellow-600 border-yellow-500/30 text-xs gap-1">
         <Crown className="h-2.5 w-2.5" />
         Owner
+      </Badge>
+    )
+  }
+  if (role === "admin") {
+    return (
+      <Badge className="bg-blue-500/20 text-blue-600 border-blue-500/30 text-xs gap-1">
+        <Shield className="h-2.5 w-2.5" />
+        Admin
       </Badge>
     )
   }

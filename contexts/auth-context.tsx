@@ -102,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const trialExpiresAt = accountRow?.trial_expires_at ?? profile?.trial_expires_at ?? undefined
 
       const accountId   = membership?.account_id ?? ""
-      const accountRole = (membership?.role as "owner" | "member") ?? "owner"
+      const accountRole = (membership?.role as "owner" | "admin" | "member") ?? "owner"
 
       if (profile) {
         setUser({

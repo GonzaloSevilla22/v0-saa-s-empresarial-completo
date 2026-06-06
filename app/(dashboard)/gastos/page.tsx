@@ -13,6 +13,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { useAuth } from "@/contexts/auth-context"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { formatMoney, formatDate } from "@/lib/format"
 import { exportToCSV } from "@/lib/excel"
@@ -46,6 +48,7 @@ function mapRow(r: any): Expense {
 export default function GastosPage() {
   const deleteExpenseMutation = useDeleteExpense()
   const { isAdmin } = useAuth()
+  const { isWriter } = useOrgRole()
   const [importOpen,     setImportOpen]     = useState(false)
   const [addOpen,        setAddOpen]        = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
@@ -103,6 +106,8 @@ export default function GastosPage() {
       {isAdmin && (
         <ModuleMetricsWrapper moduleType="gastos" title="Analíticas de Gastos" subtitle="Control de egresos operativos" />
       )}
+
+      {!isWriter && <NoWriteAccessBanner />}
 
       {/* Controls */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -167,9 +172,11 @@ export default function GastosPage() {
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Exportar
           </Button>
-          <Button onClick={() => setAddOpen(true)} size="sm">
-            <Plus className="h-4 w-4 mr-1" />Nuevo gasto
-          </Button>
+          {isWriter && (
+            <Button onClick={() => setAddOpen(true)} size="sm">
+              <Plus className="h-4 w-4 mr-1" />Nuevo gasto
+            </Button>
+          )}
         </div>
       </div>
 
@@ -210,7 +217,7 @@ export default function GastosPage() {
             <p className="text-sm">
               {pq.search || isDateFilterActive ? "Sin resultados" : "No hay gastos registrados"}
             </p>
-            {!pq.search && !isDateFilterActive && (
+            {!pq.search && !isDateFilterActive && isWriter && (
               <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />Registrar primer gasto
               </Button>

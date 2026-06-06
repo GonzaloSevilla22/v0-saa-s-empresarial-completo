@@ -7,6 +7,8 @@ import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
 import { InvoiceAIButton } from "@/components/invoice/InvoiceAIButton"
 import { useAuth } from "@/contexts/auth-context"
+import { useOrgRole } from "@/hooks/useOrgRole"
+import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import type { Purchase } from "@/lib/types"
@@ -28,6 +30,7 @@ function mapRow(r: any): Purchase {
 export default function ComprasPage() {
   const { deletePurchase, deletePurchasesByOperation } = useData()
   const { isAdmin } = useAuth()
+  const { isWriter } = useOrgRole()
 
   const pq = usePaginatedQuery<any>({
     table:  "purchases",
@@ -84,6 +87,8 @@ export default function ComprasPage() {
         />
       )}
 
+      {!isWriter && <NoWriteAccessBanner />}
+
       <PurchaseOperationsList
         purchases={purchases}
         meta={pq.meta}
@@ -96,7 +101,7 @@ export default function ComprasPage() {
         clearFilters={pq.clearFilters}
         onPageChange={pq.setPage}
         onPageSizeChange={pq.setPageSize}
-        onAdd={handleAdd}
+        onAdd={isWriter ? handleAdd : undefined}
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
         onRefetch={pq.refetch}

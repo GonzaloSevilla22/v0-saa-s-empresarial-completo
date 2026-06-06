@@ -35,7 +35,7 @@ interface PurchaseOperationsListProps {
   clearFilters:    () => void
   onPageChange:    (page: number) => void
   onPageSizeChange:(size: PageSizeOption) => void
-  onAdd:           () => void
+  onAdd?:          () => void
   onDeleteOperation:(op: PurchaseOperation) => Promise<void>
   onEditOperation?: (op: PurchaseOperation) => void
   onRefetch:       () => void
@@ -173,9 +173,11 @@ export function PurchaseOperationsList({
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
             <Download className="h-4 w-4 mr-1" />Exportar
           </Button>
-          <Button onClick={onAdd} size="sm" className="gap-2">
-            <Plus className="h-4 w-4" />Nueva compra
-          </Button>
+          {onAdd && (
+            <Button onClick={onAdd} size="sm" className="gap-2">
+              <Plus className="h-4 w-4" />Nueva compra
+            </Button>
+          )}
         </div>
       </div>
 
@@ -217,7 +219,7 @@ export function PurchaseOperationsList({
             <p className="text-sm">
               {search || isDateFilterActive ? "Sin resultados para esa búsqueda" : "No hay compras registradas"}
             </p>
-            {!search && !isDateFilterActive && (
+            {!search && !isDateFilterActive && onAdd && (
               <Button variant="outline" size="sm" onClick={onAdd} className="gap-2">
                 <Plus className="h-4 w-4" />Registrar primera compra
               </Button>

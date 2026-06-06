@@ -348,7 +348,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-08] `stock-multisucursal`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-06
 - **Scope**:
   - Extensión del módulo de sucursales: stock separado por sucursal (target: septiembre 2026 según RN-03)
   - Migración SQL: tabla `branch_stock` — `id UUID PK`, `product_id UUID FK products`, `branch_id UUID FK branches`, `quantity NUMERIC(15,4)`, `min_stock INTEGER`, UNIQUE(product_id, branch_id)
@@ -422,7 +422,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[x]` |
 | C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[x]` |
 | C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[x]` |
-| C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[ ]` |
+| C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[x]` |
 | C-09 | community-bug-fixes | 1 — Billing | MEDIO | — | `[x]` |
 | C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[ ]` |
 | C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[x]` |

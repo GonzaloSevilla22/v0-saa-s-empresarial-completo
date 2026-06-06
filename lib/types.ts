@@ -58,6 +58,45 @@ export interface Branch {
 }
 
 /**
+ * Per-branch stock ledger entry. Tracks quantity of a product in a branch.
+ * Rows are created lazily on first movement (UPSERT pattern).
+ * Source of truth: branch_stock table (C-08).
+ */
+export interface BranchStock {
+  id: string
+  accountId: string
+  productId: string
+  branchId: string
+  quantity: number
+  minStock: number
+}
+
+/**
+ * BranchStock enriched with product info from a JOIN.
+ * Used by BranchStockTable to display product details alongside stock levels.
+ */
+export interface BranchStockWithProduct extends BranchStock {
+  productName: string
+  productSku: string | null
+}
+
+/** Return type of rpc_transfer_stock */
+export interface TransferStockResult {
+  from_branch_id: string
+  to_branch_id: string
+  product_id: string
+  quantity_transferred: number
+}
+
+/** Return type of rpc_adjust_branch_stock */
+export interface AdjustBranchStockResult {
+  product_id: string
+  branch_id: string
+  old_quantity: number
+  new_quantity: number
+}
+
+/**
  * Mirror of the `plan_limits` DB table.
  * Used for static fallback / typing. Runtime values come from the DB (C-02).
  */

@@ -1,11 +1,12 @@
 "use client"
 
+import Link from "next/link"
 import { useBranches, useDeactivateBranch } from "@/hooks/data/use-branches"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Trash2, Loader2 } from "lucide-react"
+import { MapPin, Trash2, Loader2, Package } from "lucide-react"
 import { toast } from "sonner"
 import type { PlanLimits } from "@/lib/types"
 
@@ -69,6 +70,17 @@ export function BranchList({ limits }: BranchListProps) {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Badge variant="outline" className="text-[10px]">Activa</Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                asChild
+              >
+                <Link href={`/sucursales/${branch.id}/stock`} aria-label={`Ver stock de ${branch.name}`}>
+                  <Package className="h-3.5 w-3.5 mr-1" />
+                  Ver stock
+                </Link>
+              </Button>
               {canWrite && (
                 <Button
                   variant="ghost"

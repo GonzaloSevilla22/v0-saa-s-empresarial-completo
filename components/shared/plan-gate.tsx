@@ -40,9 +40,8 @@ export function PlanGate({ requiredPlan, children, featureName = "esta función"
             Actualizá tu plan para acceder a {featureName}
           </p>
         </div>
-        {/* TODO(C-10): point to dedicated /planes upgrade flow once it exists. */}
         <Button asChild size="sm" className="bg-yellow-500 text-yellow-950 hover:bg-yellow-400">
-          <Link href="/configuracion">
+          <Link href="/planes">
             <Crown className="h-3.5 w-3.5 mr-1" />
             Ver planes
           </Link>

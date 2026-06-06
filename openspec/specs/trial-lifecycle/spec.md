@@ -43,6 +43,24 @@ El sistema SHALL registrar un `billing_events` por cada trial vencido, con el pl
 - **WHEN** `expire_trials()` transiciona un perfil
 - **THEN** se inserta un `billing_events` con `event_type='trial_expired'`, `from_plan` = trial_plan, `to_plan` = billing_plan
 
+### Requirement: Downgrade por cancelación programada
+
+El sistema SHALL degradar el plan de un usuario a `gratis` cuando su `plan_expires_at` vence tras una cancelación voluntaria, como extensión del ciclo de vida de billing.
+
+#### Scenario: Downgrade ejecutado por barrido diario
+- **GIVEN** una cuenta con `plan_expires_at < NOW()` y `billing_status = 'cancelling'`
+- **WHEN** corre `process_cancellations()` (03:30 UTC diariamente)
+- **THEN** `accounts.billing_plan` pasa a `'gratis'`, `billing_status = 'cancelled'`, se inserta `billing_events` con `event_type='plan_cancelled'`
+
+#### Scenario: Plan activo hasta el último día
+- **GIVEN** una cuenta con `plan_expires_at = today + 1 day` y `billing_status = 'cancelling'`
+- **WHEN** corre el barrido diario
+- **THEN** el plan no cambia (solo degrada cuando `plan_expires_at < NOW()`)
+
+#### Scenario: Email de downgrade por cancelación encolado
+- **WHEN** se ejecuta el downgrade por cancelación
+- **THEN** se inserta en `email_logs` con `event_type='plan_downgraded'`, diferenciado del downgrade por trial vencido via `metadata.reason = 'cancellation'`
+
 ### Requirement: Notificaciones de pre-vencimiento y vencimiento
 
 El sistema SHALL encolar notificaciones por email cuando el trial está por vencer (7 días y 1 día antes) y cuando vence, sin duplicados.

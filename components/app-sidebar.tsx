@@ -10,7 +10,8 @@ import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
-  ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin
+  ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
+  CreditCard
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -65,6 +66,13 @@ const navGroups = [
       { title: "Comunidad", href: "/comunidad", icon: MessageSquare, pro: false, proOnly: false },
       { title: "Cursos", href: "/cursos", icon: GraduationCap, pro: false, proOnly: false },
       { title: "Seguros", href: "/seguros", icon: ShieldCheck, pro: false, proOnly: false },
+    ],
+  },
+  {
+    label: "Mi Cuenta",
+    items: [
+      { title: "Planes", href: "/planes", icon: Crown, pro: false, proOnly: false },
+      { title: "Facturación", href: "/facturacion", icon: CreditCard, pro: false, proOnly: false },
     ],
   },
 ]

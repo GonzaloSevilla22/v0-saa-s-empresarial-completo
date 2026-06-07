@@ -30,11 +30,38 @@ desde la raíz del proyecto.
 Cada router debe tener al mínimo: 1 test de happy path + 1 test de error (auth fallida, input inválido).
 
 ### Requirement: Routers de datos registrados en main.py
-El sistema SHALL registrar los 8 routers de dominio (expenses, clients, products, branches, stock, sales, purchases, organizations) en `backend/main.py` con sus prefijos correspondientes y el tag OpenAPI apropiado.
+El sistema SHALL registrar los 9 routers de dominio (expenses, clients, products, branches, stock, sales, purchases, organizations, payments) en `backend/main.py` con sus prefijos correspondientes y el tag OpenAPI apropiado.
+
+Routers registrados:
+- `health.router`
+- `ws.router`
+- `expenses.router` (prefix `/expenses`)
+- `clients.router` (prefix `/clients`)
+- `products.router` (prefix `/products`)
+- `branches.router` (prefix `/branches`)
+- `stock.router` (prefix `/stock`)
+- `sales.router` (prefix `/sales`)
+- `purchases.router` (prefix `/purchases`)
+- `organizations.router` (prefix `/organizations`)
+- `payments.router` (prefix `/payments`) ← C-17
 
 #### Scenario: Todos los routers de datos responden tras startup
-- **WHEN** la app arranca correctamente con pool y Redis inicializados
-- **THEN** `GET /docs` lista todos los endpoints de expenses, clients, products, branches, stock, sales, purchases y organizations en la UI de Swagger
+- **WHEN** la app arranca correctamente con pool inicializado (Redis es opcional)
+- **THEN** `GET /docs` lista todos los endpoints de expenses, clients, products, branches, stock, sales, purchases, organizations y payments en la UI de Swagger
+
+### Requirement: Service-role pool initialization (C-17)
+
+El módulo `backend/core/database.py` SHALL exponer `get_service_conn()` como dependencia FastAPI que provee una conexión asyncpg usando el pool regular (usuario `postgres` con BYPASSRLS), separado del pool con JWT-passthrough para usuarios autenticados.
+
+#### Scenario: Service pool es inicializado al startup
+
+- **WHEN** la aplicación FastAPI arranca
+- **THEN** `init_pool()` inicializa el pool compartido y `get_service_conn()` retorna una conexión válida sin JWT-passthrough
+
+#### Scenario: Solo el router de payments usa get_service_conn
+
+- **WHEN** cualquier router distinto de `payments` es llamado
+- **THEN** usa `get_db_conn` (JWT-passthrough pool), no `get_service_conn`
 
 #### Scenario: Exception handler global captura errores asyncpg
 - **WHEN** cualquier endpoint lanza `asyncpg.PostgresError` no manejado explícitamente

@@ -20,6 +20,7 @@ async def init_pool() -> None:
         settings.database_url,
         min_size=2,
         max_size=10,
+        statement_cache_size=0,
     )
 
 

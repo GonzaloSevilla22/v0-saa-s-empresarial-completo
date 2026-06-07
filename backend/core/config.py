@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = ""
     redis_url: str = ""
+    backend_allowed_origin: str = "*"
     model_config = SettingsConfigDict(env_file=".env")
 
 

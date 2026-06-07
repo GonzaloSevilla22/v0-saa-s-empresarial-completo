@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 
 from pydantic import BaseModel, ConfigDict
 
@@ -16,7 +17,7 @@ class BranchUpdate(BaseModel):
 class BranchOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    user_id: str
+    id: uuid.UUID
+    user_id: uuid.UUID
     name: str
     created_at: datetime.datetime

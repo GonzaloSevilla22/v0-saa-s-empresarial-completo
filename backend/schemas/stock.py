@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import uuid
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class StockOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    product_id: str
+    product_id: uuid.UUID
     stock: Decimal
 
 

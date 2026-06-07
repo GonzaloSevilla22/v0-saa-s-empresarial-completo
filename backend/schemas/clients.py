@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 
 from pydantic import BaseModel, ConfigDict
 
@@ -20,8 +21,8 @@ class ClientUpdate(BaseModel):
 class ClientOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    user_id: str
+    id: uuid.UUID
+    user_id: uuid.UUID
     name: str
     email: str | None
     phone: str | None

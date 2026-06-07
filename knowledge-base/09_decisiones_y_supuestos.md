@@ -63,6 +63,34 @@
 **Justificación**: Los emprendedores de Mendoza venden en ferias con productos a granel (ej: 250g de queso, 1.5L de aceite).  
 **Migración**: `20260509210816` convirtió el tipo de INTEGER a NUMERIC, con backfill de datos existentes.
 
+### DEC-12 — Adoptar backend Python/FastAPI (modelo híbrido)
+**Decisión**: Introducir un backend Python/FastAPI que centraliza la lógica de negocio y el acceso a datos (mutaciones + lecturas). El frontend mantiene conexión directa a Supabase para Realtime, Auth y Storage (ver DEC-16).
+**Justificación**: Con el multi-tenant ya implementado (orgs, roles, sucursales), la autorización es compleja y hoy está dispersa entre el `DataContext` (God Object en el cliente), los RPCs y las Edge Functions. Un service layer real la centraliza, la saca del browser y la hace testeable.
+**Trade-off aceptado**: El frontend pasa a depender de dos backends (FastAPI + Supabase); un salto de red adicional en las operaciones de datos.
+**Estado**: **Scaffolding YA implementado y archivado** (change `fastapi-backend-monorepo`, 2026-06-06): monorepo, FastAPI, auth JWT, WebSocket, tests. **Pendiente** (CHANGES.md FASE 5): capa de datos (asyncpg + repositories), migración de la API, pagos, migración de realtime y desacople del DataContext. Vía Strangler Fig con feature flags.
+
+### DEC-13 — JWT-passthrough en el backend (NUNCA service_role)
+**Decisión**: El backend Python recibe el JWT del usuario e inyecta los claims en la conexión `asyncpg`, manteniendo la RLS org-based activa. No se usa `service_role` salvo en jobs administrativos aislados.
+**Justificación**: Preserva el hardening de seguridad existente (RLS, `WITH CHECK`, triggers anti-escalación, RPCs con `auth.uid()`) como red de seguridad. Usar `service_role` obligaría a reimplementar toda la autorización en Python, tirando ese activo.
+**Trade-off aceptado**: La autorización se valida en tres capas (FastAPI dependency → service guards → RLS), con algo de redundancia deliberada (defense-in-depth).
+**Reemplaza parcialmente a**: DEC-08 (RLS como capa principal) — la RLS deja de ser la *única* capa y pasa a ser la *última línea*; sigue siendo obligatoria.
+
+### DEC-14 — Infra del backend en tier gratis (Render + Upstash)
+**Decisión**: Desplegar FastAPI en Render (free web service) y usar Upstash Redis (free) para cache/rate-limit. Supabase sigue en su free tier.
+**Justificación**: Restricción de presupuesto = $0. Render es el free tier más usable para FastAPI con deploy desde GitHub.
+**Trade-off aceptado**: Render free spinea down tras ~15 min de inactividad → cold start ~50s en la primera request. Mitigable con un cron gratis que pinguea `/health`, o upgrade a Render $7/mo cuando haya tráfico.
+
+### DEC-15 — IA/OCR permanecen en Edge Functions (workers Python pospuestos)
+**Decisión**: Los servicios de IA y OCR se mantienen como Supabase Edge Functions; los workers async en Python (ARQ) se posponen.
+**Justificación**: El free tier de Render no corre workers persistentes bien, y las Edge Functions ya funcionan y son gratis dentro de límites. Reduce el alcance de la migración para mantener costo cero.
+**Revisión**: Cuando haya presupuesto (Render paid) y/o el volumen de IA justifique mover los workers a Python para mejor orquestación (LangChain, etc.).
+
+### DEC-16 — Realtime se mantiene en Supabase Realtime (WebSocket Python reservado)
+**Decisión**: El tiempo real sigue 100% en Supabase Realtime. El frontend conserva sus suscripciones `supabase.channel(...).on('postgres_changes')`. El WebSocket del backend Python (`core/ws_manager.py`, `/ws/{room_id}`), aunque ya scaffoldeado, NO se usa en producción — queda como infra lista para el futuro.
+**Justificación**: Supabase Realtime es gratis, aplica filtrado RLS automático (crítico en una app financiera multi-tenant) y sobrevive los cold starts de Render porque es independiente del backend. El "server-push" (insight de IA listo, OCR terminado, alerta de stock) ya se resuelve con el patrón **tabla→Realtime** que el proyecto YA usa: el backend inserta en una tabla y Supabase emite al cliente suscrito. No hay necesidad actual que Supabase no cubra.
+**Descartado**: migrar todo a WebSocket Python — exigiría un proceso always-on (Render paid $7/mo), reimplementar el filtrado por room (riesgo de fuga cross-tenant) y mucho código nuevo, todo para cero beneficio incremental hoy. Decisión del usuario el 2026-06-07 (revierte la propuesta inicial de migrar a WS).
+**Revisión**: Reconsiderar la mezcla (Supabase + WS Python) solo si aparece una necesidad real que Supabase no cubra: presencia/"está escribiendo", mensajes efímeros que no deben tocar la DB, o latencia sub-segundo.
+
 ---
 
 ## Supuestos Documentados

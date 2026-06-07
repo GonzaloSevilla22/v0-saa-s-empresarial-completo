@@ -194,6 +194,31 @@ async def test_webhook_invalid_external_reference_returns_400(async_client, mock
     assert resp.status_code == 400
 
 
+async def test_webhook_mp_payment_not_found_returns_skipped(async_client, mock_service_pool):
+    """MP devuelve 404 para IDs de test (ej. "123456") — debe retornar ok+skipped, no 502."""
+    pool, conn = mock_service_pool
+    body = _mp_body("123456")
+    sig = _make_signature("123456")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 404
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["skipped"] is True
+    conn.execute.assert_not_called()
+
+
 async def test_webhook_shadow_mode_no_db_writes(async_client, mock_service_pool):
     pool, conn = mock_service_pool
     body = _mp_body("pay-005")

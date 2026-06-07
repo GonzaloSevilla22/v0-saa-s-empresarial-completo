@@ -10,6 +10,7 @@ import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
+import { ExportButton } from "@/components/export/ExportButton"
 import type { Sale } from "@/lib/types"
 import type { SaleOperation } from "@/lib/group-operations"
 
@@ -84,9 +85,12 @@ export default function VentasPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Ventas</h1>
-        <p className="text-sm text-muted-foreground mt-1">Gestión de todas tus ventas</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Ventas</h1>
+          <p className="text-sm text-muted-foreground mt-1">Gestión de todas tus ventas</p>
+        </div>
+        <ExportButton exportType="sales_csv" />
       </div>
 
       {isAdmin && (

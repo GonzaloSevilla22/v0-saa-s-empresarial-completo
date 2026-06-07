@@ -23,6 +23,7 @@ import {
   Download, Upload, CalendarDays, X, Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { ExportButton } from "@/components/export/ExportButton"
 import type { Expense } from "@/lib/types"
 
 const categoryColors: Record<string, string> = {
@@ -169,9 +170,7 @@ export default function GastosPage() {
             onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4 mr-1" />Importar CSV
           </Button>
-          <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-1" />Exportar
-          </Button>
+          <ExportButton exportType="expenses_csv" />
           {isWriter && (
             <Button onClick={() => setAddOpen(true)} size="sm">
               <Plus className="h-4 w-4 mr-1" />Nuevo gasto

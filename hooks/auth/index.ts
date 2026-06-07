@@ -1,5 +1,6 @@
 export { useAiUsage } from "./use-ai-usage"
 export { useCurrentUser } from "./use-current-user"
+export { useExportUsage, triggerExport } from "./use-export-usage"
 export { usePermissions } from "./use-permissions"
 export { usePlanGate } from "./use-plan-gate"
 export { usePlanLimits } from "./use-plan-limits"

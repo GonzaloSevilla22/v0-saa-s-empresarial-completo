@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ProductForm } from "@/components/forms/product-form"
 import { Button } from "@/components/ui/button"
 import { SlidersHorizontal, Upload } from "lucide-react"
+import { ExportButton } from "@/components/export/ExportButton"
 import type { Product } from "@/lib/types"
 
 const columns: Column<Product>[] = [
@@ -119,6 +120,7 @@ export default function StockPage() {
           <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposición</p>
         </div>
         <div className="flex items-center gap-2">
+          <ExportButton exportType="stock_csv" />
           <Button
             variant="outline"
             size="sm"

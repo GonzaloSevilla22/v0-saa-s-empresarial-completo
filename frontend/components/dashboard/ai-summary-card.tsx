@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
 import { createClient } from "@/lib/supabase/client"
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -18,9 +18,13 @@ interface AiSummaryCardProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
-  // Low stock still sourced from the real-time context (consistent with stock page)
-  const { getLowStockProducts } = useData()
-  const lowStock = getLowStockProducts()
+  const { products } = useProducts()
+  const lowStock = products.filter(p =>
+    p.stockControlType !== "untracked" &&
+    p.stockControlType !== "variant_only" &&
+    p.minStock > 0 &&
+    p.stock <= p.minStock
+  )
 
   const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)

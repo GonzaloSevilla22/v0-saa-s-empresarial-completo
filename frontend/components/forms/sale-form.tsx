@@ -9,7 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useClients } from "@/hooks/data/use-clients"
+import { useSales } from "@/hooks/data/use-sales"
+import { useQueryClient } from "@tanstack/react-query"
+import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
 import type { SaleOperation } from "@/lib/group-operations"
@@ -40,7 +44,12 @@ interface SaleFormProps {
 }
 
 export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
-  const { products, clients, addSaleOperation, addClient, refreshData, updateSaleOperation } = useData()
+  const { products }                                     = useProducts()
+  const { clients, addClient }                           = useClients()
+  const { addSaleOperation, updateSaleOperation }        = useSales()
+  const queryClient = useQueryClient()
+  const { user }    = useAuth()
+  const refreshData = () => queryClient.invalidateQueries()
   const { units, unitsById } = useUnitsOfMeasure()
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("sale-create")
   const isEdit = !!editingOperation
@@ -345,10 +354,15 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       setSubmitting(true)
       try {
         const saleIds = editingOperation.items.map(i => i.id)
-        await updateSaleOperation(saleIds, cartItems, {
-          clientId: clientId || null,
-          date,
-          currency,
+        await updateSaleOperation({
+          saleIds,
+          newItems: cartItems,
+          meta: {
+            clientId: clientId || null,
+            date,
+            currency,
+            orgId: user?.accountId ?? "",
+          },
         })
         toast.success("✅ Venta actualizada correctamente")
         await refreshData()
@@ -376,12 +390,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       // resend-after-lost-response resolves to the SAME operation server-side
       // (replay) instead of creating duplicates. Either every line commits or
       // none does — no partial sale.
-      await addSaleOperation(cartItems, {
-        idempotencyKey: idempotencyKey,
-        clientId:       selectedClient.id,
-        date,
-        currency,
-        branchId,
+      await addSaleOperation({
+        items: cartItems,
+        meta: {
+          idempotencyKey: idempotencyKey,
+          clientId:       selectedClient.id,
+          date,
+          currency,
+          branchId,
+          orgId:          user?.accountId ?? "",
+        },
       })
       // Success → retire this key so the NEXT sale starts a fresh operation.
       resetIdempotencyKey()

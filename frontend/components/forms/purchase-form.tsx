@@ -8,7 +8,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { usePurchases } from "@/hooks/data/use-purchases"
+import { useQueryClient } from "@tanstack/react-query"
+import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
 import type { PurchaseOperation } from "@/lib/group-operations"
@@ -39,7 +42,11 @@ interface PurchaseFormProps {
 }
 
 export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps) {
-  const { products, addPurchaseOperation, addProduct, refreshData, updatePurchaseOperation } = useData()
+  const { products, addProduct }                           = useProducts()
+  const { addPurchaseOperation, updatePurchaseOperation } = usePurchases()
+  const queryClient = useQueryClient()
+  const { user }    = useAuth()
+  const refreshData = () => queryClient.invalidateQueries()
   const { units, unitsById } = useUnitsOfMeasure()
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("purchase-create")
   const isEdit = !!editingOperation
@@ -326,7 +333,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
       setSubmitting(true)
       try {
         const purchaseIds = editingOperation.items.map(i => i.id)
-        await updatePurchaseOperation(purchaseIds, cartItems, { date, description })
+        await updatePurchaseOperation({
+          purchaseIds,
+          newItems: cartItems,
+          meta: { date, description, orgId: user?.accountId ?? "" },
+        })
         toast.success("✅ Compra actualizada correctamente")
         await refreshData()
         onSuccess()
@@ -343,11 +354,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     setSubmitting(true)
     try {
       // One atomic, idempotent call for the whole cart (see SaleForm rationale).
-      await addPurchaseOperation(cartItems, {
-        idempotencyKey: idempotencyKey,
-        date,
-        description,
-        branchId,
+      await addPurchaseOperation({
+        items: cartItems,
+        meta: {
+          idempotencyKey: idempotencyKey,
+          date,
+          description,
+          branchId,
+          orgId: user?.accountId ?? "",
+        },
       })
       resetIdempotencyKey()
       toast.success(

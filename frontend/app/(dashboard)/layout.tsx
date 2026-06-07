@@ -1,5 +1,4 @@
 import { cookies } from "next/headers"
-import { DataProvider } from "@/contexts/data-context"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { BreadcrumbNav } from "@/components/dashboard/breadcrumb-nav"
@@ -17,16 +16,14 @@ export default async function DashboardLayout({
   const defaultOpen = sidebarCookie !== "false"
 
   return (
-    <DataProvider>
-      <SidebarProvider defaultOpen={defaultOpen}>
-        <AppSidebar />
-        <SidebarInset>
-          <BreadcrumbNav />
-          <div className="flex-1 overflow-auto p-4 md:p-6">
-            {children}
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
-    </DataProvider>
+    <SidebarProvider defaultOpen={defaultOpen}>
+      <AppSidebar />
+      <SidebarInset>
+        <BreadcrumbNav />
+        <div className="flex-1 overflow-auto p-4 md:p-6">
+          {children}
+        </div>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }

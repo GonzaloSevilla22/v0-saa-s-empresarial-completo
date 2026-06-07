@@ -1,12 +1,24 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useData } from "@/contexts/data-context"
+import { useSales } from "@/hooks/data/use-sales"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 
 export function SalesChart() {
-  const { getSalesByDay } = useData()
-  const data = getSalesByDay(7)
+  const { sales } = useSales()
+
+  // Compute last 7 days totals inline (replaces DataContext getSalesByDay)
+  const data = (() => {
+    const result: { date: string; total: number }[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dateStr  = d.toISOString().split("T")[0]
+      const dayTotal = sales.filter(s => s.date === dateStr).reduce((acc, s) => acc + s.total, 0)
+      result.push({ date: dateStr, total: dayTotal })
+    }
+    return result
+  })()
 
   const chartData = data.map((d) => ({
     date: new Date(d.date).toLocaleDateString("es-AR", { weekday: "short", day: "numeric" }),

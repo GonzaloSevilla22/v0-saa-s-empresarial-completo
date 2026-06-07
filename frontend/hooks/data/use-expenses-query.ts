@@ -1,83 +1,117 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useMemo } from "react"
-import { createClient } from "@/lib/supabase/client"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { Expense } from "@/lib/types"
 
-// ── Error translation ─────────────────────────────────────────────────────────
+// ── Types for API responses ───────────────────────────────────────────────────
 
-function translateError(err: { code?: string; message?: string } | null): string {
-  if (!err) return "Error desconocido"
-  switch (err.code) {
-    case "23503": return "No se puede eliminar: el gasto está siendo referenciado."
-    case "42501": return "No tenés permisos para realizar esta acción."
-    default:      return err.message || "Ocurrió un error inesperado."
+interface ExpenseApiRow {
+  id: string
+  user_id: string
+  category: string
+  amount: string | number
+  description: string | null
+  date: string
+  created_at: string
+}
+
+function mapExpense(e: ExpenseApiRow): Expense {
+  return {
+    id:          e.id,
+    date:        typeof e.date === "string" ? e.date.split("T")[0] : String(e.date),
+    category:    e.category,
+    description: e.description || "",
+    amount:      Number(e.amount),
   }
 }
 
-// ── Mutations ─────────────────────────────────────────────────────────────────
-// NOTE: The DataContext still holds `expenses` state for Dashboard computed values
-// (getTodayExpenses, getNetProfit). These mutations invalidate the React Query cache.
-// The DataContext stays in sync via Supabase Realtime (rt-expenses channel).
+// ── Unified hook ─────────────────────────────────────────────────────────────
 
-export function useAddExpense() {
+/**
+ * Returns expenses list + mutations (add, update, delete) via Python API.
+ */
+export function useExpenses() {
   const queryClient = useQueryClient()
-  const supabase    = useMemo(() => createClient(), [])
 
-  return useMutation({
+  const query = useQuery({
+    queryKey: queryKeys.expenses.lists(),
+    queryFn: async (): Promise<Expense[]> => {
+      const data = await pythonClient.get<ExpenseApiRow[]>("/expenses")
+      return data.map(mapExpense)
+    },
+    staleTime: 60 * 1000, // 1 min
+  })
+
+  const addExpenseMutation = useMutation({
     mutationFn: async (expense: Omit<Expense, "id">) => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error("No autenticado")
-
-      const { error } = await supabase.from("expenses").insert([{
-        user_id:     user.id,
-        date:        expense.date,
+      return pythonClient.post<ExpenseApiRow>("/expenses", {
         category:    expense.category,
-        description: expense.description,
+        description: expense.description ?? null,
         amount:      expense.amount,
-        branch_id:   expense.branchId ?? null,
-      }])
-      if (error) throw new Error(translateError(error))
+        date:        expense.date,
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all() })
     },
   })
-}
 
-export function useUpdateExpense() {
-  const queryClient = useQueryClient()
-  const supabase    = useMemo(() => createClient(), [])
-
-  return useMutation({
+  const updateExpenseMutation = useMutation({
     mutationFn: async (expense: Expense) => {
-      const { error } = await supabase.from("expenses").update({
+      return pythonClient.put<ExpenseApiRow>(`/expenses/${expense.id}`, {
         category:    expense.category,
-        description: expense.description,
+        description: expense.description ?? null,
         amount:      expense.amount,
         date:        expense.date,
-      }).eq("id", expense.id)
-      if (error) throw new Error(translateError(error))
+      })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all() })
     },
   })
+
+  const deleteExpenseMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return pythonClient.delete<void>(`/expenses/${id}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all() })
+    },
+  })
+
+  return {
+    expenses:      query.data ?? [],
+    isLoading:     query.isLoading,
+    isError:       query.isError,
+    error:         query.error,
+    addExpense:    addExpenseMutation.mutateAsync,
+    updateExpense: updateExpenseMutation.mutateAsync,
+    deleteExpense: deleteExpenseMutation.mutateAsync,
+    // Individual mutation states for UI feedback
+    addExpenseMutation,
+    updateExpenseMutation,
+    deleteExpenseMutation,
+  }
 }
 
-export function useDeleteExpense() {
-  const queryClient = useQueryClient()
-  const supabase    = useMemo(() => createClient(), [])
+// ── Legacy individual exports (kept for backward compatibility) ───────────────
 
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("expenses").delete().eq("id", id)
-      if (error) throw new Error(translateError(error))
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all() })
-    },
-  })
+/** @deprecated Use `useExpenses()` instead */
+export function useAddExpense() {
+  const { addExpenseMutation } = useExpenses()
+  return addExpenseMutation
+}
+
+/** @deprecated Use `useExpenses()` instead */
+export function useUpdateExpense() {
+  const { updateExpenseMutation } = useExpenses()
+  return updateExpenseMutation
+}
+
+/** @deprecated Use `useExpenses()` instead */
+export function useDeleteExpense() {
+  const { deleteExpenseMutation } = useExpenses()
+  return deleteExpenseMutation
 }

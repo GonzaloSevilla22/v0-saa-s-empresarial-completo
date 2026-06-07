@@ -9,7 +9,10 @@ import { InvoiceReviewModal } from "@/components/invoice/InvoiceReviewModal"
 import { invoiceOcrService } from "@/lib/services/invoiceOcrService"
 import { enrichLines } from "@/lib/invoice-matcher"
 import type { PurchaseCartItem } from "@/lib/cart-utils"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { usePurchases } from "@/hooks/data/use-purchases"
+import { useQueryClient } from "@tanstack/react-query"
+import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { ScanText, Sparkles } from "lucide-react"
 import { toast } from "sonner"
@@ -27,7 +30,11 @@ interface Props {
 }
 
 export function InvoiceAIButton({ onPurchasesCreated }: Props) {
-  const { products, addProduct, addPurchaseOperation, refreshData } = useData()
+  const { products, addProduct }    = useProducts()
+  const { addPurchaseOperation }    = usePurchases()
+  const queryClient                 = useQueryClient()
+  const { user }                    = useAuth()
+  const refreshData                 = () => queryClient.invalidateQueries()
   const { units }  = useUnitsOfMeasure()
 
   const [uploadOpen,  setUploadOpen]  = useState(false)
@@ -130,7 +137,15 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
     try {
       // operationId is a UUID generated once per review session by InvoiceReviewModal —
       // using it as idempotency key: a double-confirm replays instead of duplicating.
-      await addPurchaseOperation(items, { idempotencyKey: operationId, date, description })
+      await addPurchaseOperation({
+        items,
+        meta: {
+          idempotencyKey: operationId,
+          date,
+          description,
+          orgId: user?.accountId ?? "",
+        },
+      })
 
       // Save aliases for future OCR learning (fire-and-forget, non-critical)
       for (const line of purchasables) {
@@ -156,7 +171,7 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
       toast.error(`Error al registrar compras: ${err.message || "Error desconocido"}`)
       setSession((s) => ({ ...s, step: "error", error: err.message ?? "Error desconocido", progress: 0 }))
     }
-  }, [addProduct, addPurchaseOperation, refreshData, onPurchasesCreated])
+  }, [addProduct, addPurchaseOperation, user, queryClient, onPurchasesCreated])
 
   const handleReset = useCallback(() => {
     setSession(INITIAL_STATE)

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { useData } from "@/contexts/data-context"
+import { usePosts } from "@/hooks/data/use-posts"
 import { useAuth } from "@/contexts/auth-context"
 import { planHasAccess } from "@/lib/plan-utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -23,7 +23,7 @@ const categoryColors: Record<string, string> = {
 }
 
 export default function ComunidadPage() {
-  const { posts, addPost, deletePost, toggleLike, getReplies, addReply } = useData()
+  const { posts, addPost, deletePost, toggleLike, getReplies, addReply } = usePosts()
   const { user, effectivePlan } = useAuth()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")

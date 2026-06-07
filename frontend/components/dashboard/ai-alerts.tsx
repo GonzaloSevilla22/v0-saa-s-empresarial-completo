@@ -1,11 +1,13 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useSales } from "@/hooks/data/use-sales"
 import { AlertCircle, TrendingUp, TrendingDown, DollarSign, History, LineChart } from "lucide-react"
 
 export function AiAlerts() {
-    const { products, sales } = useData()
+    const { products } = useProducts()
+    const { sales }    = useSales()
 
     // Business logic for alerts
     const marginAlerts = products.map(p => {

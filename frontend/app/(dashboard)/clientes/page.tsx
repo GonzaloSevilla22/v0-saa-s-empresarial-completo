@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { useData } from "@/contexts/data-context"
+import { useClients } from "@/hooks/data/use-clients"
 import { ClientForm } from "@/components/forms/client-form"
 import { ClientImportDialog } from "@/components/clientes/client-import-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -41,7 +41,7 @@ function mapRow(r: any): Client {
 }
 
 export default function ClientesPage() {
-  const { deleteClient } = useData()
+  const { deleteClient } = useClients()
   const { isAdmin } = useAuth()
   const { limits } = usePlanLimits()
   const [importOpen,    setImportOpen]    = useState(false)

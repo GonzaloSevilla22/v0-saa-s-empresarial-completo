@@ -33,7 +33,8 @@
 
 import { useState, useCallback, useMemo, useRef } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -345,7 +346,9 @@ export function StockImportAdjustmentDialog({
   onOpenChange,
   onSuccess,
 }: StockImportAdjustmentDialogProps) {
-  const { products, refreshData } = useData()
+  const { products } = useProducts()
+  const queryClient  = useQueryClient()
+  const refreshData  = () => queryClient.invalidateQueries()
   const supabase = createClient()
 
   const [step,     setStep]     = useState<Step>(1)

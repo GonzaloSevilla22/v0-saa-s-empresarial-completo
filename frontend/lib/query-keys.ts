@@ -52,4 +52,12 @@ export const queryKeys = {
     all:      () => ["branchStock"] as const,
     byBranch: (branchId: string) => ["branchStock", "branch", branchId] as const,
   },
+  organizations: {
+    all:    () => ["organizations"] as const,
+    detail: (orgId: string) => ["organizations", "detail", orgId] as const,
+  },
+  stock: {
+    all:    () => ["stock"] as const,
+    lists:  () => ["stock", "list"] as const,
+  },
 } as const

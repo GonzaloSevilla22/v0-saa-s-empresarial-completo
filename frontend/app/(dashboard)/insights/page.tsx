@@ -1,7 +1,7 @@
 ﻿"use client"
 
 import { useState } from "react"
-import { useData } from "@/contexts/data-context"
+import { useInsights } from "@/hooks/data/use-insights"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { InsightCard } from "@/components/ai/insight-card"
@@ -13,7 +13,7 @@ import { aiInsightService } from "@/lib/services/aiInsightService"
 import { toast } from "sonner"
 
 export default function InsightsPage() {
-  const { insights, refreshData } = useData()
+  const { insights, refreshInsights: refreshData } = useInsights()
   const { user } = useAuth()
   const { limits } = usePlanLimits()
   const [isGenerating, setIsGenerating] = useState(false)

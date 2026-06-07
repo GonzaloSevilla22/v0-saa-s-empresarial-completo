@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { PRODUCT_CATEGORIES } from "@/lib/constants"
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
@@ -25,7 +25,7 @@ interface ProductFormProps {
 }
 
 export function ProductForm({ onSuccess, initialData, defaultParentId }: ProductFormProps) {
-  const { addProduct, updateProduct, products } = useData()
+  const { addProduct, updateProduct, products } = useProducts()
   const { units } = useUnitsOfMeasure()
 
   const [name, setName] = useState(initialData?.name || "")

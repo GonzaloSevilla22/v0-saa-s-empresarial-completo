@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useCallback, useMemo } from "react"
-import { useData } from "@/contexts/data-context"
+import { useSales } from "@/hooks/data/use-sales"
+import { useClients } from "@/hooks/data/use-clients"
 import { SaleForm } from "@/components/forms/sale-form"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { SaleOperationsList } from "@/components/ventas/sale-operations-list"
@@ -32,7 +33,8 @@ function mapRow(r: any): Sale {
 }
 
 export default function VentasPage() {
-  const { clients, deleteSale, deleteSalesByOperation } = useData()
+  const { clients }                        = useClients()
+  const { deleteSale, deleteSalesByOperation } = useSales()
   const { isAdmin } = useAuth()
   const { isWriter } = useOrgRole()
 

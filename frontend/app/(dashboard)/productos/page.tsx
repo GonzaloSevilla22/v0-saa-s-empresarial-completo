@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { ProductCatalog } from "@/components/products/product-catalog"
 import { ProductForm } from "@/components/forms/product-form"
@@ -14,7 +15,9 @@ import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
 
 export default function ProductosPage() {
-  const { products, deleteProduct, refreshData } = useData()
+  const { products, deleteProduct } = useProducts()
+  const queryClient = useQueryClient()
+  const refreshData = () => queryClient.invalidateQueries()
   const { user } = useAuth()
   const { limits } = usePlanLimits()
 

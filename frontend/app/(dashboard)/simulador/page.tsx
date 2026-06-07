@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useSales } from "@/hooks/data/use-sales"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
@@ -42,7 +43,8 @@ function friendlyError(raw: string): string {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function SimuladorPage() {
-  const { products, sales } = useData()
+  const { products } = useProducts()
+  const { sales }    = useSales()
   const [productId,  setProductId]  = useState(products[0]?.id || "")
   const [newPrice,   setNewPrice]   = useState(0)
   const [suggestion, setSuggestion] = useState<string | null>(null)

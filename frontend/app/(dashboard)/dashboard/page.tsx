@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useInsights } from "@/hooks/data/use-insights"
 import { useGreeting } from "@/hooks/use-greeting"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
@@ -27,7 +28,17 @@ interface DashboardFinancials {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { getLowStockProducts, insights, refreshData } = useData()
+  const { products }             = useProducts()
+  const { insights, refreshInsights: refreshData } = useInsights()
+
+  function getLowStockProducts() {
+    return products.filter(p =>
+      p.stockControlType !== "untracked" &&
+      p.stockControlType !== "variant_only" &&
+      p.minStock > 0 &&
+      p.stock <= p.minStock
+    )
+  }
   const { greeting } = useGreeting()
   const searchParams = useSearchParams()
   const lowStock = getLowStockProducts()

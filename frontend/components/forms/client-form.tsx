@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useData } from "@/contexts/data-context"
+import { useClients } from "@/hooks/data/use-clients"
 import { toast } from "sonner"
 import { MessageCircle, CheckCircle2, AlertCircle } from "lucide-react"
 import { isValidWhatsAppPhone, normalizeWhatsAppPhone, PHONE_FORMAT_HINT } from "@/lib/phone-utils"
@@ -18,7 +18,7 @@ interface ClientFormProps {
 }
 
 export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
-  const { addClient, updateClient } = useData()
+  const { addClient, updateClient } = useClients()
   const [name,     setName]     = useState(initialData?.name     || "")
   const [email,    setEmail]    = useState(initialData?.email    || "")
   const [phone,    setPhone]    = useState(initialData?.phone    || "")

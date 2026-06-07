@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useMemo } from "react"
-import { useData } from "@/contexts/data-context"
+import { usePurchases } from "@/hooks/data/use-purchases"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
@@ -29,7 +29,7 @@ function mapRow(r: any): Purchase {
 }
 
 export default function ComprasPage() {
-  const { deletePurchase, deletePurchasesByOperation } = useData()
+  const { deletePurchase, deletePurchasesByOperation } = usePurchases()
   const { isAdmin } = useAuth()
   const { isWriter } = useOrgRole()
 

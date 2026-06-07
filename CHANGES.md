@@ -476,7 +476,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-16] `backend-data-api-migration`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-07
 - **Scope**:
   - Migración de la API de datos via **Strangler Fig con feature flags** — el frontend puede apuntar al nuevo endpoint o al antiguo por flag; nunca corte abrupto
   - **Sub-etapa 1 — LOW risk**: `expenses` + `clients` → routers, schemas Pydantic v2, services con `require_plan()`, repositories que llaman a los RPCs existentes
@@ -516,7 +516,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-18] `frontend-decouple-datacontext`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado (2026-06-07)
 - **Scope**:
   - Eliminar el God Object `contexts/data-context.tsx`; reemplazar con hooks de **React Query** que consumen la API Python (C-16)
   - Un hook por dominio: `useExpenses()`, `useClients()`, `useProducts()`, `useBranches()`, `useStock()`, `useSales()`, `usePurchases()`, `useOrganizations()` — siguiendo el patrón de hooks ya existente en `hooks/`
@@ -555,9 +555,9 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[x]` |
 | C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[x]` |
 | C-15 | backend-data-layer | 5 — Migración Python | ALTO | — (scaffold archivado) | `[x]` |
-| C-16 | backend-data-api-migration | 5 — Migración Python | ALTO | C-15 | `[ ]` |
+| C-16 | backend-data-api-migration | 5 — Migración Python | ALTO | C-15 | `[x]` |
 | C-17 | backend-payments-migration | 5 — Migración Python | CRITICO | C-16 | `[ ]` |
-| C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[ ]` |
+| C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[x]` |
 
 ---
 

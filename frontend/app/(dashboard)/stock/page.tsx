@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
 import { useAuth } from "@/contexts/auth-context"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { LowStockAlert } from "@/components/stock/low-stock-alert"
@@ -100,8 +100,13 @@ function AdjustButton({ product }: { product: Product }) {
 }
 
 export default function StockPage() {
-  const { products, getLowStockProducts } = useData()
-  const lowStock = getLowStockProducts()
+  const { products } = useProducts()
+  const lowStock = products.filter(p =>
+    p.stockControlType !== "untracked" &&
+    p.stockControlType !== "variant_only" &&
+    p.minStock > 0 &&
+    p.stock <= p.minStock
+  )
   const { isAdmin } = useAuth()
 
   // Quick-edit dialog triggered from the alert panel

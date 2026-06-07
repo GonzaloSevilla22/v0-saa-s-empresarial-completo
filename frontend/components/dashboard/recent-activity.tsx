@@ -1,11 +1,13 @@
 "use client"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useData } from "@/contexts/data-context"
+import { useSales } from "@/hooks/data/use-sales"
+import { useExpenses } from "@/hooks/data/use-expenses-query"
 import { ShoppingCart, Receipt } from "lucide-react"
 
 export function RecentActivity() {
-  const { sales, expenses } = useData()
+  const { sales }    = useSales()
+  const { expenses } = useExpenses()
 
   const recentSales = sales.slice(0, 4)
   const recentExpenses = expenses.slice(0, 2)

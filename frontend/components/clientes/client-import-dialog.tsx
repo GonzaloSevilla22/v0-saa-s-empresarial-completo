@@ -23,7 +23,7 @@
  */
 
 import { useState, useCallback, useRef } from "react"
-import { useData } from "@/contexts/data-context"
+import { useClients } from "@/hooks/data/use-clients"
 import { toast } from "sonner"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -223,7 +223,7 @@ export function ClientImportDialog({
   onOpenChange,
   onSuccess,
 }: ClientImportDialogProps) {
-  const { addClient } = useData()
+  const { addClient } = useClients()
 
   const [step,     setStep]     = useState<Step>(1)
   const [rows,     setRows]     = useState<ParsedRow[]>([])

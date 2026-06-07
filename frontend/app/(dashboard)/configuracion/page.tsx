@@ -1,7 +1,8 @@
 "use client"
 
 import { useAuth } from "@/contexts/auth-context"
-import { useData } from "@/contexts/data-context"
+import { useProducts } from "@/hooks/data/use-products"
+import { useClients } from "@/hooks/data/use-clients"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { planHasAccess } from "@/lib/plan-utils"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -33,7 +34,8 @@ const features = [
 
 export default function ConfiguracionPage() {
   const { user, effectivePlan, upgradePlan, downgradePlan } = useAuth()
-  const { products, clients } = useData()
+  const { products } = useProducts()
+  const { clients }  = useClients()
   const { limits } = usePlanLimits()
   // "Pro" badge / premium UI reflects an eligible plan (avanzado o pro).
   const isPro = planHasAccess(effectivePlan, "avanzado")

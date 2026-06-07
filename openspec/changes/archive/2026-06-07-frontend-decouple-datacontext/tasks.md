@@ -66,7 +66,7 @@
 - [x] 10.2 Ejecutar `pnpm lint` en `frontend/` — 0 errores
 - [ ] 10.3 Deploy a Vercel y verificar en producción: navegar por ventas, compras, gastos, productos, clientes, stock
 - [ ] 10.4 Confirmar que no hay errores en Sentry/logs de Vercel en las primeras 15 minutos post-deploy
-- [ ] 10.5 Borrar Edge Function `create-sale` desde el Supabase Dashboard (proyecto `gxdhpxvdjjkmxhdkkwyb`)
-- [ ] 10.6 Borrar Edge Function `create-purchase` desde el Supabase Dashboard
-- [ ] 10.7 Borrar Edge Function `delete-product` desde el Supabase Dashboard
+- [x] 10.5 Borrar Edge Function `create-sale` desde el Supabase Dashboard (proyecto `gxdhpxvdjjkmxhdkkwyb`)
+- [x] 10.6 Borrar Edge Function `create-purchase` desde el Supabase Dashboard
+- [x] 10.7 Borrar Edge Function `delete-product` desde el Supabase Dashboard
 - [x] 10.8 Marcar `[x]` en `CHANGES.md` para C-18

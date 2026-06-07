@@ -195,7 +195,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 > C-04 puede correr en paralelo con C-03 una vez C-02 está completo.
 
 ### [C-04] `ai-usage-counters-split`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Migración SQL: renombrar `insights_used` a `ai_queries_used`, agregar `ai_advice_used INTEGER DEFAULT 0`
   - Migración SQL: actualizar `insights_reset_at` → `ai_counters_reset_at` (misma columna, rename)
@@ -216,7 +216,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-11] `ai-insights-rentabilidad-producto`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Nueva feature: rentabilidad por producto (disponible solo en `'avanzado'` y `'pro'`)
   - RPC PostgreSQL `rpc_product_profitability(p_user_id, p_period_days)`: calcula por SKU — `total_revenue`, `total_cost`, `gross_margin`, `gross_margin_pct`, `units_sold`, `last_sale_date`
@@ -235,7 +235,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-12] `ai-comparative-reports`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Nueva feature: reportes comparativos período vs período (disponible solo en `'avanzado'` y `'pro'`)
   - RPC `rpc_period_comparison(p_user_id, p_period_a_start, p_period_a_end, p_period_b_start, p_period_b_end)`: devuelve ventas totales, gastos totales, operaciones, top productos para ambos períodos
@@ -255,7 +255,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-13] `ai-price-suggestion`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Nueva feature: sugerencia de precio óptimo por producto (disponible solo en `'avanzado'` y `'pro'`)
   - Edge Function `ai-precio`: recibe `product_id`, consulta historial de ventas del producto (últimos 90 días), elasticidad implícita (variación cantidad vs precio), costos → OpenAI sugiere precio óptimo con argumento narrativo
@@ -303,7 +303,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-06] `roles-internos-basicos`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Roles internos de organización (disponible en `'avanzado'` y `'pro'`): `owner`, `admin`, `member`
   - `owner`: acceso completo, puede cambiar plan, puede eliminar org
@@ -325,7 +325,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-07] `sucursales-module-pro`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-07
 - **Scope**:
   - Módulo sucursales (disponible exclusivamente en `'pro'`)
   - Migración SQL: tabla `branches` — `id UUID PK`, `org_id UUID FK organizations`, `name TEXT`, `address TEXT`, `is_active BOOLEAN DEFAULT TRUE`, `created_at`; UNIQUE(org_id, name)
@@ -348,7 +348,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-08] `stock-multisucursal`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-06
 - **Scope**:
   - Extensión del módulo de sucursales: stock separado por sucursal (target: septiembre 2026 según RN-03)
   - Migración SQL: tabla `branch_stock` — `id UUID PK`, `product_id UUID FK products`, `branch_id UUID FK branches`, `quantity NUMERIC(15,4)`, `min_stock INTEGER`, UNIQUE(product_id, branch_id)
@@ -371,7 +371,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ## FASE 4 — Upgrade Flow y Exportaciones
 
 ### [C-10] `subscription-ui-upgrade-flow`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-09
 - **Scope**:
   - Page `/planes`: comparativo visual de los 4 planes con tabla de features, precios y CTA de compra
   - Integración con pasarela de pagos: MercadoPago Checkout Pro (preferido para Argentina) o Stripe — definir en `DEC-04` actualizado
@@ -392,7 +392,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-14] `export-module`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-06
 - **Scope**:
   - Feature de exportación de datos según límite del plan (0/3/15/50 por mes para gratis/inicial/avanzado/pro)
   - Migración SQL: tabla `export_logs` — `id UUID PK`, `user_id UUID`, `org_id UUID`, `export_type TEXT`, `file_path TEXT`, `status TEXT`, `created_at`; contador mensual en `profiles.exports_used INTEGER DEFAULT 0`
@@ -417,18 +417,18 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 |----|--------|------|------------|--------------|--------|
 | C-01 | billing-schema-migration | 1 — Billing | CRITICO | — | `[x]` |
 | C-02 | plan-gating-engine | 1 — Billing | CRITICO | C-01 | `[x]` |
-| C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[ ]` |
-| C-04 | ai-usage-counters-split | 2 — IA | ALTO | C-02 | `[ ]` |
+| C-03 | grace-period-logic | 1 — Billing | ALTO | C-02 | `[x]` |
+| C-04 | ai-usage-counters-split | 2 — IA | ALTO | C-02 | `[x]` |
 | C-05 | multi-user-tenant-architecture | 3 — Multi-tenant | CRITICO | C-02 | `[x]` |
-| C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[ ]` |
-| C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[ ]` |
-| C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[ ]` |
+| C-06 | roles-internos-basicos | 3 — Multi-tenant | ALTO | C-05 | `[x]` |
+| C-07 | sucursales-module-pro | 3 — Multi-tenant | MEDIO | C-05 | `[x]` |
+| C-08 | stock-multisucursal | 3 — Multi-tenant | ALTO | C-07 | `[x]` |
 | C-09 | community-bug-fixes | 1 — Billing | MEDIO | — | `[x]` |
-| C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[ ]` |
-| C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[ ]` |
-| C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[ ]` |
-| C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[ ]` |
-| C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[ ]` |
+| C-10 | subscription-ui-upgrade-flow | 4 — Upgrade | CRITICO | C-03 | `[x]` |
+| C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
+| C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
+| C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[x]` |
+| C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[x]` |
 
 ---
 

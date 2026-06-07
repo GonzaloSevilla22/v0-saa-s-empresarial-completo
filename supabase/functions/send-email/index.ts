@@ -112,6 +112,71 @@ Deno.serve(async (req: Request) => {
           </div>
         </div>
       `;
+    } else if (event_type === "plan_upgraded") {
+      // C-10: MercadoPago payment approved → plan activated
+      const planName = (metadata?.plan as string | undefined) ?? "pago"
+      const planDisplay = planName.charAt(0).toUpperCase() + planName.slice(1)
+      const amountDisplay = metadata?.amount != null ? `$${Number(metadata.amount).toLocaleString("es-AR")}` : ""
+      const activatedAt = metadata?.activated_at ? new Date(metadata.activated_at as string).toLocaleDateString("es-AR") : new Date().toLocaleDateString("es-AR")
+      htmlContent = `
+        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #10b981; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h2 style="color: white; margin: 0;">¡Tu plan ${planDisplay} ya está activo!</h2>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 16px;">¡Hola!</p>
+            <p>Tu pago fue procesado correctamente y el plan <strong>${planDisplay}</strong> está activo en tu cuenta de EmprendeSmart.</p>
+            ${amountDisplay ? `<p><strong>Monto abonado:</strong> ${amountDisplay}</p>` : ""}
+            <p><strong>Fecha de activación:</strong> ${activatedAt}</p>
+            <div style="text-align: center; margin: 24px 0;">
+              <a href="https://emprende-smart.vercel.app/dashboard"
+                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
+                Ir a mi Dashboard
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">Podés ver tu historial de pagos en <a href="https://emprende-smart.vercel.app/facturacion">Facturación</a>.</p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
+          </div>
+        </div>
+      `
+    } else if (event_type === "plan_downgraded") {
+      // C-10: subscription cancelled or expired — plan reverted to gratis
+      const planDisplay = (() => {
+        const p = (metadata?.plan as string | undefined) ?? ""
+        return p.charAt(0).toUpperCase() + p.slice(1)
+      })()
+      const expiresAt = metadata?.plan_expires_at
+        ? new Date(metadata.plan_expires_at as string).toLocaleDateString("es-AR")
+        : ""
+      const reason = (metadata?.reason as string | undefined) ?? "user_requested"
+      const isUserRequested = reason === "user_requested"
+      htmlContent = `
+        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #6b7280; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h2 style="color: white; margin: 0;">Tu suscripción fue ${isUserRequested ? "cancelada" : "vencida"}</h2>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 16px;">Hola,</p>
+            ${isUserRequested
+              ? `<p>Tu solicitud de cancelación del plan <strong>${planDisplay}</strong> fue registrada correctamente.</p>
+                 ${expiresAt ? `<p>Tu plan permanecerá activo hasta el <strong>${expiresAt}</strong>, después vas a seguir usando EmprendeSmart con el plan <strong>Gratis</strong>.</p>` : ""}
+                 <p>Si fue un error, podés reactivar tu suscripción en cualquier momento.</p>`
+              : `<p>Tu plan <strong>${planDisplay}</strong> venció y tu cuenta fue ajustada al plan <strong>Gratis</strong>.</p>
+                 <p>Si querés seguir con las funciones avanzadas, podés elegir un nuevo plan.</p>`
+            }
+            <div style="text-align: center; margin: 24px 0;">
+              <a href="https://emprende-smart.vercel.app/planes"
+                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
+                Ver planes y precios
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 14px;">¿Necesitás ayuda? Escribinos por <a href="https://wa.me/5492615000000">WhatsApp</a>.</p>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
+          </div>
+        </div>
+      `
     } else if (event_type === "trial_expired") {
       htmlContent = `
         <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">

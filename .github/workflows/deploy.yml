@@ -17,7 +17,8 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        # version is read from "packageManager" field in package.json
+        with:
+          version: '10.33.4'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,6 +30,7 @@ jobs:
         run: pnpm install --no-frozen-lockfile
 
       - name: Build application
+        working-directory: frontend
         run: pnpm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

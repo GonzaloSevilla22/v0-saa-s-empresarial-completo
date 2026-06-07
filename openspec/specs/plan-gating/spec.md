@@ -44,7 +44,7 @@ El sistema SHALL aplicar una jerarquía ordenada `gratis < inicial < avanzado < 
 
 ### Requirement: Límites numéricos de recursos
 
-El sistema SHALL contar los recursos (productos, clientes, operaciones/mes) **por cuenta** (`account_id`), no por usuario, al comparar contra los límites del plan.
+El sistema SHALL contar los recursos (productos, clientes, operaciones/mes, exportaciones/mes) **por cuenta** (`account_id`), no por usuario, al comparar contra los límites del plan. Se agrega `max_exports_per_month` como dimensión de límite numérico.
 
 #### Scenario: Usuario gratis intenta crear el producto 101
 - **GIVEN** un usuario con plan efectivo 'gratis' que ya tiene 100 productos
@@ -65,6 +65,16 @@ El sistema SHALL contar los recursos (productos, clientes, operaciones/mes) **po
 - **GIVEN** una cuenta 'inicial' (max_products=500) con 2 miembros que crearon 498 y 1 productos (499 total)
 - **WHEN** cualquier miembro crea un producto más
 - **THEN** la creación es permitida (499 < 500); el siguiente (#501) es bloqueado para todos los miembros
+
+#### Scenario: `usePlanLimits()` expone `maxExportsPerMonth` y `exportsUsed`
+- **GIVEN** un usuario con plan efectivo 'avanzado' y `exports_used = 7`
+- **WHEN** el componente llama a `usePlanLimits()`
+- **THEN** retorna `{ ..., maxExportsPerMonth: 15, exportsUsed: 7, exportsRemaining: 8 }`
+
+#### Scenario: `plan_limits` incluye `max_exports_per_month` por plan
+- **GIVEN** la tabla `plan_limits` con el seed actualizado
+- **WHEN** se consulta `SELECT max_exports_per_month FROM plan_limits WHERE plan = 'inicial'`
+- **THEN** retorna `3`
 
 ### Requirement: Gating de features exclusivas
 
@@ -142,3 +152,57 @@ La restricción de INSERT en `posts` y `replies` pasa de verificar `plan = 'pro'
 - **GIVEN** un usuario con `billing_plan = 'gratis'`
 - **WHEN** intenta INSERT en `posts`
 - **THEN** la RLS rechaza la operación con error de policy
+
+### Requirement: Cuota IA aplica a todas las Edge Functions de IA (C-04)
+
+El sistema SHALL verificar la cuota IA **antes** de llamar a OpenAI y SHALL incrementar el contador **después** de una llamada exitosa, en **todas** las Edge Functions de IA del proyecto: `ai-insights`, `ai-prediccion`, `ai-resumen`, `ai-simulador` (counter `'queries'`) y `fair-advisor` (counter `'advice'`).
+
+El incremento SHALL realizarse mediante el RPC atómico `rpc_increment_ai_usage` (no read-modify-write desde el cliente).
+
+#### Scenario: fair-advisor bloqueado al exceder cuota de advice
+
+- **GIVEN** un usuario `gratis` con `ai_advice_used = 3` (límite = 3)
+- **WHEN** llama a `fair-advisor`
+- **THEN** la función retorna HTTP 429 con `{ ok: false, error: 'quota_exceeded' }`
+
+#### Scenario: fair-advisor procede cuando hay cuota disponible
+
+- **GIVEN** un usuario `avanzado` con `ai_advice_used = 1` (límite = 10)
+- **WHEN** llama a `fair-advisor`
+- **THEN** la función procesa la solicitud y retorna resultado de IA, `ai_advice_used` queda en 2
+
+#### Scenario: ai-insights bloqueado al exceder cuota de queries
+
+- **GIVEN** un usuario `gratis` con `ai_queries_used = 5` (límite = 5)
+- **WHEN** llama a `ai-insights`
+- **THEN** la función retorna HTTP 429 con `{ ok: false, error: 'quota_exceeded' }`
+
+---
+
+### Requirement: Límite de sucursales por plan (C-07)
+
+El sistema SHALL leer `plan_limits.max_branches` y `plan_limits.has_branches_module` para cada plan y rechazar la creación de sucursales que supere el cupo. El módulo SHALL estar disponible solo para `pro`.
+
+#### Scenario: `usePlanLimits()` expone `maxBranches` y `hasBranchesModule`
+
+- **GIVEN** un usuario con plan efectivo 'pro'
+- **WHEN** el componente llama a `usePlanLimits()`
+- **THEN** el objeto retornado incluye `maxBranches: 3` y `hasBranchesModule: true`
+
+#### Scenario: `usePlanLimits()` retorna `hasBranchesModule: false` para planes sin sucursales
+
+- **GIVEN** un usuario con plan efectivo 'avanzado'
+- **WHEN** el componente llama a `usePlanLimits()`
+- **THEN** el objeto retornado incluye `hasBranchesModule: false`
+
+#### Scenario: Seed de `plan_limits` incluye `max_branches` y `has_branches_module`
+
+- **GIVEN** la tabla `plan_limits` correctamente seedeada
+- **WHEN** se consulta `SELECT max_branches, has_branches_module FROM plan_limits WHERE plan = 'pro'`
+- **THEN** retorna `max_branches = 3`, `has_branches_module = true`
+
+#### Scenario: UI oculta módulo de sucursales para planes sin acceso
+
+- **GIVEN** un usuario con plan 'avanzado' (`hasBranchesModule = false`)
+- **WHEN** navega al sidebar principal
+- **THEN** el item de menú "Sucursales" no está presente en el DOM (no solo oculto con CSS)

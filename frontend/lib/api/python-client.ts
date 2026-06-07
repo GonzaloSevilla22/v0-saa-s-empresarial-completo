@@ -11,22 +11,23 @@ if (!BACKEND_URL) {
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const supabase = createClient();
+  // getSession() reads from local storage and auto-refreshes expired tokens.
   const {
     data: { session },
   } = await supabase.auth.getSession();
   const token = session?.access_token ?? "";
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (response.status === 401) {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    window.location.href = "/auth/login";
-    throw new Error("Unauthorized");
+    // Token expired or invalid — throw so React Query shows an error state.
+    // Do NOT sign out: the middleware will handle session renewal on the next
+    // server request, and an API 401 does not mean the user's session is gone.
+    throw new Error("No autorizado. Recargá la página si el problema persiste.");
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));

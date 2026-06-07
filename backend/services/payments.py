@@ -78,14 +78,20 @@ async def _fetch_user_email(user_id: str) -> str | None:
     return resp.json().get("email")
 
 
-async def _fetch_mp_payment(payment_id: str) -> dict:
-    """Consulta MercadoPago REST API y retorna los datos del pago."""
+async def _fetch_mp_payment(payment_id: str) -> dict | None:
+    """Consulta MercadoPago REST API y retorna los datos del pago.
+
+    Retorna None si el pago no existe (404) — ocurre con IDs de test como "123456".
+    """
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             url,
             headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
         )
+    if resp.status_code == 404:
+        logger.info("[payments] Payment %s not found in MP API (test ID or already deleted)", payment_id)
+        return None
     if resp.status_code != 200:
         logger.error("[payments] MP API error %s for payment %s", resp.status_code, payment_id)
         raise HTTPException(status_code=502, detail="Error al consultar MercadoPago")
@@ -111,6 +117,9 @@ async def process_payment(
         return WebhookResponse(ok=True, idempotent=True)
 
     payment_data = await _fetch_mp_payment(payment_id)
+
+    if payment_data is None:
+        return WebhookResponse(ok=True, skipped=True)
 
     if payment_data.get("status") != "approved":
         return WebhookResponse(ok=True, status=payment_data.get("status"))

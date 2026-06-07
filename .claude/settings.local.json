@@ -117,7 +117,15 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('isComplete:', d['isComplete']\\); [print\\(' ',a['id'],'->',a['status']\\) for a in d['artifacts']]\")",
       "Bash(openspec --help)",
       "Bash(engram mem_save --help)",
-      "Bash(engram save 'OPSX: archive completed for grace-period-logic \\(C-03\\)' ' *)"
+      "Bash(engram save 'OPSX: archive completed for grace-period-logic \\(C-03\\)' ' *)",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\Usuario\\\\Desktop\\\\EIE\\\\v0-saa-s-empresarial-completo\\\\.claude\\\\skills\" -Recurse -Filter \"SKILL.md\")",
+      "Bash(Select-Object FullName)",
+      "Bash(find \"/mnt/c/Users/Usuario/.claude/skills\" -name \"SKILL.md\" 2>/dev/null | head -50)",
+      "Bash(find \"/mnt/c/Users/Usuario/Desktop/EIE/v0-saa-s-empresarial-completo/.claude/skills\" -name \"SKILL.md\" 2>/dev/null | head -50)",
+      "Bash(dir \"C:\\\\Users\\\\Usuario\\\\.claude\\\\skills\\\\supabase-postgres-best-practices\")",
+      "PowerShell(Copy-Item \"CLAUDE.md\" \"AGENTS.md\" -Force)",
+      "PowerShell(if \\($?\\) { \"AGENTS.md sincronizado con CLAUDE.md\" })",
+      "mcp__engram__mem_get_observation"
     ]
   }
 }

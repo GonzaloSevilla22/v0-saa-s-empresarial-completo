@@ -99,8 +99,7 @@ async def test_webhook_approved_upgrades_plan(async_client, mock_service_pool):
     sig = _make_signature("pay-001")
 
     member_row = {"account_id": "acc-uuid-1", "billing_plan": "gratis"}
-    auth_user_row = {"email": "user@example.com"}
-    conn.fetchrow = AsyncMock(side_effect=[None, member_row, auth_user_row])
+    conn.fetchrow = AsyncMock(side_effect=[None, member_row])
 
     mp_response = MagicMock()
     mp_response.status_code = 200
@@ -112,9 +111,10 @@ async def test_webhook_approved_upgrades_plan(async_client, mock_service_pool):
     }
 
     with (
-        patch("backend.core.database.service_pool", pool),
+        patch("backend.core.database.pool", pool),
         patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
         patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("backend.services.payments._fetch_user_email", new_callable=AsyncMock, return_value="user@example.com"),
         patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
     ):
         resp = await _post_webhook(async_client, body, sig)
@@ -130,7 +130,7 @@ async def test_webhook_invalid_signature_returns_400(async_client, mock_service_
     bad_sig = "ts=0,v1=invalidsig"
 
     with (
-        patch("backend.core.database.service_pool", pool),
+        patch("backend.core.database.pool", pool),
         patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
     ):
         resp = await _post_webhook(async_client, body, bad_sig)
@@ -155,7 +155,7 @@ async def test_webhook_duplicate_payment_is_idempotent(async_client, mock_servic
     }
 
     with (
-        patch("backend.core.database.service_pool", pool),
+        patch("backend.core.database.pool", pool),
         patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
         patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
         patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
@@ -184,7 +184,7 @@ async def test_webhook_invalid_external_reference_returns_400(async_client, mock
     }
 
     with (
-        patch("backend.core.database.service_pool", pool),
+        patch("backend.core.database.pool", pool),
         patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
         patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
         patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
@@ -212,7 +212,7 @@ async def test_webhook_shadow_mode_no_db_writes(async_client, mock_service_pool)
     }
 
     with (
-        patch("backend.core.database.service_pool", pool),
+        patch("backend.core.database.pool", pool),
         patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
         patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
         patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),

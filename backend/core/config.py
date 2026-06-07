@@ -7,8 +7,9 @@ class Settings(BaseSettings):
     database_url: str = ""
     redis_url: str = ""
     backend_allowed_origin: str = "*"
-    # Payments — service_role solo para el webhook MercadoPago (server-to-server)
-    service_role_key: str = ""
+    # Payments — webhook MercadoPago (server-to-server)
+    supabase_url: str = ""           # https://<ref>.supabase.co
+    service_role_key: str = ""       # para Supabase Admin REST API
     mercadopago_webhook_secret: str = ""
     mercadopago_access_token: str = ""
     model_config = SettingsConfigDict(env_file=".env")

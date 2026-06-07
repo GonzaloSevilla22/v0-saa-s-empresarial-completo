@@ -45,7 +45,7 @@ async def get_db_conn(
     if pool is None:
         raise HTTPException(status_code=503, detail="Database pool not initialized")
     async with pool.acquire() as conn:
-        await conn.execute("SET LOCAL app.jwt_claims = $1", json.dumps(user))
+        await conn.execute("SELECT set_config('app.jwt_claims', $1, true)", json.dumps(user))
         yield conn
 
 

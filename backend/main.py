@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.core.config import settings
-from backend.core.database import close_pool, init_pool
+from backend.core.database import close_pool, close_service_pool, init_pool, init_service_pool
 from backend.core.errors import asyncpg_error_handler
 from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
@@ -16,6 +16,7 @@ from backend.routers import (
     expenses,
     health,
     organizations,
+    payments,
     products,
     purchases,
     sales,
@@ -27,9 +28,11 @@ from backend.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
+    await init_service_pool()
     await init_redis()
     yield
     await close_pool()
+    await close_service_pool()
     await close_redis()
 
 
@@ -55,3 +58,4 @@ app.include_router(stock.router)
 app.include_router(sales.router)
 app.include_router(purchases.router)
 app.include_router(organizations.router)
+app.include_router(payments.router)

@@ -44,6 +44,8 @@ async def async_client():
         patch("backend.core.auth.settings") as mock_settings,
         patch("backend.core.database.init_pool", new_callable=AsyncMock),
         patch("backend.core.database.close_pool", new_callable=AsyncMock),
+        patch("backend.core.database.init_service_pool", new_callable=AsyncMock),
+        patch("backend.core.database.close_service_pool", new_callable=AsyncMock),
         patch("backend.core.redis_client.init_redis", new_callable=AsyncMock),
         patch("backend.core.redis_client.close_redis", new_callable=AsyncMock),
     ):

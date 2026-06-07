@@ -59,6 +59,25 @@ def verify_mp_signature(
     return hmac.compare_digest(computed, v1)
 
 
+async def _fetch_user_email(user_id: str) -> str | None:
+    """Obtiene el email del usuario via Supabase Admin REST API."""
+    if not settings.supabase_url or not settings.service_role_key:
+        return None
+    url = f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            url,
+            headers={
+                "Authorization": f"Bearer {settings.service_role_key}",
+                "apikey": settings.service_role_key,
+            },
+        )
+    if resp.status_code != 200:
+        logger.warning("[payments] Could not fetch user email for %s: %s", user_id, resp.status_code)
+        return None
+    return resp.json().get("email")
+
+
 async def _fetch_mp_payment(payment_id: str) -> dict:
     """Consulta MercadoPago REST API y retorna los datos del pago."""
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
@@ -158,11 +177,8 @@ async def process_payment(
         f'{{"account_id": "{account_id}", "payment_status": "approved"}}',
     )
 
-    auth_user_row = await conn.fetchrow(
-        "SELECT email FROM auth.users WHERE id = $1::uuid",
-        user_id,
-    )
-    if auth_user_row and auth_user_row["email"]:
+    recipient_email = await _fetch_user_email(user_id)
+    if recipient_email:
         plan_label = plan.capitalize()
         await conn.execute(
             """
@@ -170,7 +186,7 @@ async def process_payment(
             VALUES ($1, 'plan_upgraded', $2, $3, $4::jsonb)
             """,
             user_id,
-            auth_user_row["email"],
+            recipient_email,
             f"Tu plan {plan_label} está activo — EmprendeSmart",
             f'{{"plan": "{plan}", "amount": {amount}}}',
         )

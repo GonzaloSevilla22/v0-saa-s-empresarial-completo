@@ -10,7 +10,6 @@ from backend.core.auth import get_current_user
 from backend.core.config import settings
 
 pool: asyncpg.Pool | None = None
-service_pool: asyncpg.Pool | None = None
 
 
 async def init_pool() -> None:
@@ -31,28 +30,12 @@ async def close_pool() -> None:
         pool = None
 
 
-async def _init_service_conn(conn: asyncpg.Connection) -> None:
-    await conn.execute("SET ROLE service_role")
-
-
 async def init_service_pool() -> None:
-    """Pool separado con service_role — solo para el webhook de pagos."""
-    global service_pool
-    if not settings.database_url:
-        return
-    service_pool = await asyncpg.create_pool(
-        settings.database_url,
-        min_size=1,
-        max_size=3,
-        init=_init_service_conn,
-    )
+    """No-op: el webhook de pagos usa el pool regular (postgres tiene BYPASSRLS)."""
 
 
 async def close_service_pool() -> None:
-    global service_pool
-    if service_pool is not None:
-        await service_pool.close()
-        service_pool = None
+    """No-op: ver init_service_pool."""
 
 
 async def get_db_conn(
@@ -67,8 +50,12 @@ async def get_db_conn(
 
 
 async def get_service_conn() -> AsyncGenerator[asyncpg.Connection, None]:
-    """FastAPI dependency: service_role connection para el webhook de pagos."""
-    if service_pool is None:
-        raise HTTPException(status_code=503, detail="Service pool not initialized")
-    async with service_pool.acquire() as conn:
+    """FastAPI dependency: connection para el webhook de pagos.
+
+    Usa el pool regular — el usuario postgres tiene BYPASSRLS en Supabase.
+    El email del usuario se obtiene via Supabase Admin REST API (no auth.users).
+    """
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database pool not initialized")
+    async with pool.acquire() as conn:
         yield conn

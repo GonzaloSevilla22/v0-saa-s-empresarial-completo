@@ -2,6 +2,7 @@ from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 import jwt as pyjwt
 from jwt import PyJWKClient, PyJWTError
+from jwt.exceptions import PyJWKClientError
 from backend.core.config import settings
 
 _jwks_client: PyJWKClient | None = None
@@ -39,5 +40,5 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
             "user_id": payload["sub"],
             "role": payload.get("role", "authenticated"),
         }
-    except PyJWTError:
+    except (PyJWTError, PyJWKClientError):
         raise HTTPException(status_code=401, detail="Invalid token")

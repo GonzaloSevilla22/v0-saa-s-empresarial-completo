@@ -3,8 +3,9 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 import asyncpg
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
 from backend.core.database import close_pool, close_service_pool, init_pool, init_service_pool
@@ -47,6 +48,11 @@ app.add_middleware(
 )
 
 app.add_exception_handler(asyncpg.PostgresError, asyncpg_error_handler)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
 
 app.include_router(health.router)
 app.include_router(ws.router)

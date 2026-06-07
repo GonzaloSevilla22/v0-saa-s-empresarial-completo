@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -24,5 +25,5 @@ class PurchaseOperationIn(BaseModel):
 class PurchaseOperationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    operation_id: str
+    operation_id: uuid.UUID
     operation_kind: str | None = None

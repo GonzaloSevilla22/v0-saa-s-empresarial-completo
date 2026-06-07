@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 
 from pydantic import BaseModel, ConfigDict
 
@@ -8,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class OrgOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
+    id: uuid.UUID
     name: str | None = None
     created_at: datetime.datetime | None = None
 

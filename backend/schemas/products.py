@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import uuid
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
@@ -34,8 +35,8 @@ class ProductUpdate(BaseModel):
 class ProductOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: str
-    user_id: str
+    id: uuid.UUID
+    user_id: uuid.UUID
     name: str
     category: str | None
     price: Decimal | None

@@ -233,6 +233,68 @@ RESEND_API_KEY                    # Resend para Edge Functions
 
 ---
 
+## Evolución Arquitectónica: Backend Python/FastAPI (en curso)
+
+> Estado: **parcialmente implementado**. El **scaffolding ya está hecho y archivado** (change `fastapi-backend-monorepo`, 2026-06-06): monorepo `frontend/` + `backend/`, FastAPI (`backend/main.py`), auth JWT de Supabase (`core/auth.py`, HS256), WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`), `pnpm-workspace.yaml`, y 8 tests. Lo **pendiente** (CHANGES.md FASE 5): capa de datos (asyncpg + repositories), migración de la API de datos, pagos, migración de realtime a WebSocket y desacople del `DataContext`.
+
+### Motivación
+La lógica de negocio hoy está dispersa entre el `DataContext` (God Object en el cliente), los RPCs PostgreSQL y las Edge Functions. Con el multi-tenant ya implementado (organizations, organization_members, roles, sucursales), la autorización se volvió compleja (org + rol + plan + sucursal) y conviene centralizarla en un service layer real, testeable y fuera del browser.
+
+### Modelo híbrido — el frontend habla con DOS backends
+```
+                    ┌─→ MUTACIONES + LECTURAS  → FastAPI (Python) → PostgreSQL
+Frontend (Next.js) ─┼─→ REALTIME (suscripciones) → Supabase directo (Realtime)
+                    ├─→ AUTH (login/signup)      → Supabase directo
+                    └─→ STORAGE (upload facturas)→ Supabase directo (signed URL)
+```
+El frontend se adelgaza a UI pura; consume FastAPI para datos y sigue hablando directo con Supabase para Realtime, Auth y Storage. **Decisión (DEC-16):** el realtime se mantiene en Supabase Realtime. El "server-push" (insight de IA listo, OCR terminado, alerta de stock) ya se resuelve gratis con el patrón **tabla→Realtime** (el backend inserta en una tabla y Supabase lo emite al cliente suscrito, con filtrado RLS automático). El WebSocket que ya está scaffoldeado (`core/ws_manager.py`) queda como **infra lista para el futuro**, sin uso en producción por ahora.
+
+### Arquitectura del backend Python (3 capas)
+```
+routers/        → endpoints FastAPI (validación con Pydantic v2)
+services/       → lógica de negocio + guards (require_role, require_plan)
+repositories/   → acceso a datos (asyncpg / SQL puro; llama a los RPCs existentes)
+core/           → config, auth JWT, pool DB, rate limiting, errores
+```
+
+### Decisión #0 — JWT-passthrough (NO service_role)
+El backend recibe el JWT del usuario e inyecta los claims en la conexión `asyncpg`, de modo que **la RLS org-based sigue activa como red de seguridad**. Nunca se usa `service_role` en el backend (salvo jobs administrativos aislados). Esto preserva el hardening de seguridad existente en vez de tirarlo.
+
+### Tres capas de autorización
+```
+1. FastAPI dependency  → resuelve org + rol + plan desde organization_members (cacheable en Redis)
+2. Service layer       → guards require_role / require_plan + plan_limits + grace period
+3. PostgreSQL RLS      → última línea de defensa (org-scoped), aunque la app falle
+```
+
+### Lo que NO se migra (queda en Supabase)
+| Componente | Razón |
+|---|---|
+| PostgreSQL + RLS + RPCs | Activo más sólido; Python los orquesta, no los reescribe |
+| Supabase Auth | Python solo verifica el JWT |
+| **Realtime** | Se mantiene en Supabase Realtime: gratis, filtrado RLS automático, sobrevive cold starts de Render (es independiente del backend). El server-push se cubre con el patrón tabla→Realtime |
+| Storage | Upload directo con signed URLs |
+| **IA / OCR (Edge Functions)** | Se quedan en Supabase por ahora (gratis); los workers Python (ARQ) se posponen hasta tener presupuesto |
+
+### Lo que SÍ migra a Python
+| Componente | Destino |
+|---|---|
+| Mutaciones + lecturas de datos | FastAPI (routers/services/repositories) |
+| Webhook de pagos | FastAPI (governance CRÍTICO) |
+
+> El WebSocket del backend (`core/ws_manager.py`, `/ws/{room_id}`) ya está scaffoldeado pero **NO se usa en producción**: queda reservado para una necesidad futura que Supabase no cubra bien (presencia, mensajes efímeros, latencia sub-segundo). Migrar el realtime a WS exigiría un proceso always-on (Render paid) y reimplementar el filtrado por room — costo alto sin beneficio actual.
+
+### Infraestructura (tier gratis)
+| Componente | Servicio | Caveat |
+|---|---|---|
+| API FastAPI | **Render** (free web service) | Spinea down tras ~15 min → cold start ~50s; mitigable con cron ping a `/health` o upgrade a $7/mo |
+| Redis (cache + rate limit) | **Upstash** (free 10k cmds/día) | — |
+| DB / Auth / Realtime / Storage | **Supabase** (free, sin cambios) | Realtime se mantiene acá |
+
+Variables de entorno nuevas del backend: `SUPABASE_JWT_SECRET` (verificación HS256), `DATABASE_URL` (pool asyncpg), `REDIS_URL` (Upstash), más `OPENAI_API_KEY` / `RESEND_API_KEY` solo si se migran esos servicios.
+
+---
+
 ## Consideraciones de Escalabilidad (Futuras)
 
 | Área | Deuda actual | Plan futuro |

@@ -24,6 +24,18 @@
 | **Deploy** | Vercel (frontend) | — |
 | **Package manager** | pnpm | 10.33.4 |
 
+### Backend Python (NUEVO — planificado, CHANGES.md C-15+)
+
+> Backend que convive con el frontend Next.js en un **modelo híbrido**: el frontend consume FastAPI para datos (mutaciones + lecturas) y sigue hablando directo con Supabase para Realtime, Auth y Storage. Ver `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI".
+
+| Capa | Tecnología | Notas |
+|------|------------|-------|
+| **Framework API** | FastAPI + Pydantic v2 | Arquitectura 3 capas: routers → services → repositories |
+| **DB driver** | asyncpg | Pool con JWT-passthrough (RLS org-based activa) |
+| **Cache / rate-limit** | Redis (Upstash free) | — |
+| **Testing** | pytest + pytest-asyncio | Coverage mínimo en CI |
+| **Deploy backend** | Render (free tier) | Cold start ~50s; mitigable con ping a `/health` |
+
 ---
 
 ## Base de Conocimiento
@@ -40,7 +52,7 @@ Leé estos archivos antes de cualquier change. Son la fuente de verdad del siste
 | 06 | [knowledge-base/06_funcionalidades.md](knowledge-base/06_funcionalidades.md) | 10 épicas + estado por módulo. |
 | 07 | [knowledge-base/07_flujos_principales.md](knowledge-base/07_flujos_principales.md) | 9 flujos E2E (venta, insight, OCR, etc.). |
 | 08 | [knowledge-base/08_arquitectura_propuesta.md](knowledge-base/08_arquitectura_propuesta.md) | BaaS pattern, Server/Client, seguridad. |
-| 09 | [knowledge-base/09_decisiones_y_supuestos.md](knowledge-base/09_decisiones_y_supuestos.md) | 11 decisiones + 7 supuestos — leer antes de proponer. |
+| 09 | [knowledge-base/09_decisiones_y_supuestos.md](knowledge-base/09_decisiones_y_supuestos.md) | 15 decisiones + 7 supuestos (incl. DEC-12..15 backend Python) — leer antes de proponer. |
 | 10 | [knowledge-base/10_preguntas_abiertas.md](knowledge-base/10_preguntas_abiertas.md) | Inconsistencias conocidas — revisá antes de implementar. |
 
 ---
@@ -52,6 +64,7 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 | Agente / Rol | Skills que carga |
 |---|---|
 | **Backend / DB** (migraciones, RLS, RPCs, Supabase) | `supabase`, `supabase-postgres-best-practices` |
+| **Backend Python** (FastAPI, capas, Pydantic, async) | `fastapi-templates`, `python-design-patterns`, `python-testing-patterns`, `pytest-coverage` |
 | **Frontend / React** (componentes, App Router, SSR, data fetching) | `vercel-react-best-practices`, `nextjs-app-router-patterns` |
 | **Auth** (Supabase Auth + Next.js sessions, middleware, OAuth) | `nextjs-supabase-auth` |
 | **UI / Design** (accesibilidad, Tailwind, shadcn/ui) | `web-design-guidelines` |
@@ -69,32 +82,35 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 | Sesiones Supabase, middleware, OAuth | `nextjs-supabase-auth` |
 | Revisión de UI / accesibilidad / UX | `web-design-guidelines` |
 | Testing local del frontend con Playwright | `webapp-testing` |
+| Endpoints FastAPI, schemas Pydantic v2, `Depends` | `fastapi-templates` |
+| Diseñar capas routers/services/repositories, refactor | `python-design-patterns` |
+| Tests pytest, fixtures, mocking asyncpg, async | `python-testing-patterns` |
+| Coverage, umbrales en CI, reportes | `pytest-coverage` |
 
 ---
 
 ## Roadmap de Changes
 
-> Fuente: [CHANGES.md](CHANGES.md) — 14 changes en 4 fases.
+> Fuente: [CHANGES.md](CHANGES.md) — 18 changes en 5 fases. **Fases 1-4 (C-01→C-14) completadas.** El **scaffolding del backend** (FastAPI + auth JWT + WebSocket + monorepo) ya está hecho y archivado (`fastapi-backend-monorepo`, 2026-06-06). Fase 5 (resto de la migración) es el trabajo activo.
 
-### Camino crítico
+### Primer change recomendado (activo)
+**`C-15 backend-data-layer`** — Agregar al backend ya scaffoldeado el pool `asyncpg` + JWT-passthrough a RLS + repositories base. Es el prerequisito real de C-16. Ver `knowledge-base/08` §Backend Python.
+
+### Camino crítico de la migración (Fase 5)
 ```
-C-01 billing-schema-migration  →  C-02 plan-gating-engine  →  C-03 grace-period-logic
-                                                            →  C-05 multi-user-tenant-architecture (BLOQUEO MAYOR)
-                                                            →  C-10 subscription-ui-upgrade-flow
+C-15 backend-data-layer → C-16 backend-data-api-migration → ┬ C-17 backend-payments-migration (CRÍTICO)
+                                                            └ C-18 frontend-decouple-datacontext
 ```
-
-### Primer change recomendado
-**`C-01 billing-schema-migration`** — Migrar el enum `profiles.plan` de `free/pro` a los 4 planes reales (`gratis/inicial/avanzado/pro`) y agregar columnas de billing. Es el prerequisito de todo lo demás.
-
-También puede arrancarse en paralelo: **`C-09 community-bug-fixes`** (sin dependencias de billing).
+> Realtime se mantiene en Supabase (DEC-16); no se migra a WebSocket. El WS del backend queda como infra futura.
 
 ### Fases
-| Fase | Changes | Descripción |
-|---|---|---|
-| 1 — Billing | C-01, C-02, C-03, C-09 | Schema + gating engine + grace period + community bug fixes |
-| 2 — IA | C-04, C-11, C-12, C-13 | Contadores IA split + rentabilidad + reportes comparativos + sugerencia precios |
-| 3 — Multi-tenant | C-05, C-06, C-07, C-08 | Arquitectura multi-usuario + roles + sucursales + stock multisucursal |
-| 4 — Upgrade UX | C-10, C-14 | UI de upgrade de plan + módulo de exportaciones |
+| Fase | Changes | Estado | Descripción |
+|---|---|---|---|
+| 1 — Billing | C-01, C-02, C-03, C-09 | ✅ | Schema + gating engine + grace period + community bug fixes |
+| 2 — IA | C-04, C-11, C-12, C-13 | ✅ | Contadores IA split + rentabilidad + reportes comparativos + sugerencia precios |
+| 3 — Multi-tenant | C-05, C-06, C-07, C-08 | ✅ | Arquitectura multi-usuario + roles + sucursales + stock multisucursal |
+| 4 — Upgrade UX | C-10, C-14 | ✅ | UI de upgrade de plan + módulo de exportaciones |
+| 5 — Backend Python | C-15, C-16, C-17, C-18 | 🔜 | Capa de datos + migración API + pagos + desacople DataContext (scaffolding ya archivado; realtime queda en Supabase) |
 
 ---
 
@@ -121,6 +137,14 @@ También puede arrancarse en paralelo: **`C-09 community-bug-fixes`** (sin depen
   ```
   Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
   ```
+
+### Backend Python / FastAPI (Fase 5 — planificado)
+- **NUNCA usar `service_role` en el backend** → usar **JWT-passthrough**: inyectar los claims del JWT del usuario en la conexión `asyncpg` para que la RLS org-based siga activa como red de seguridad. Excepción única: jobs administrativos aislados.
+- **NUNCA poner lógica de negocio en los routers** → arquitectura de 3 capas obligatoria: `routers` (validación + DI) → `services` (lógica + guards `require_role`/`require_plan`) → `repositories` (acceso a datos / RPCs).
+- **SIEMPRE validar con Pydantic v2** en el endpoint antes de tocar la DB. Nada de payloads sin schema.
+- **Webhook de pagos = governance CRÍTICO** → migrarlo corriendo en paralelo al webhook actual y comparando resultados antes de cortar. Requiere aprobación humana explícita antes de tocar (dinero real).
+- **TDD con `pytest` + `pytest-asyncio`** → tests por cada router/service; coverage mínimo verificado en CI (`pytest-coverage`).
+- **NUNCA migrar IA/OCR a Python sin presupuesto** (DEC-15) → los servicios de IA y OCR se quedan en Supabase Edge Functions por ahora; los workers Python (ARQ) están pospuestos.
 
 ---
 

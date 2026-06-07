@@ -1,10 +1,10 @@
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from fastapi import HTTPException
-from backend.core.auth import get_current_user, ALGORITHM
+import jwt as pyjwt
+from jwt import PyJWTError
+from backend.core.auth import get_jwks_client
 from backend.core.ws_manager import manager
-from backend.core.config import settings
-from jose import JWTError, jwt
 
 router = APIRouter()
 
@@ -18,17 +18,19 @@ async def _validate_ws_token(token: str | None) -> dict:
     if not token:
         raise HTTPException(status_code=401, detail="Invalid token")
     try:
-        payload = jwt.decode(
+        client = get_jwks_client()
+        signing_key = client.get_signing_key_from_jwt(token)
+        payload = pyjwt.decode(
             token,
-            settings.supabase_jwt_secret,
-            algorithms=[ALGORITHM],
+            signing_key,
+            algorithms=["ES256", "RS256"],
             options={"verify_aud": False},
         )
         return {
             "user_id": payload["sub"],
             "role": payload.get("role", "authenticated"),
         }
-    except JWTError:
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 

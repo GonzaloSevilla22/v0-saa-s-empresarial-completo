@@ -11,6 +11,7 @@ import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { usePaginatedQuery } from "@/hooks/use-paginated-query"
+import { ExportButton } from "@/components/export/ExportButton"
 import type { Purchase } from "@/lib/types"
 import type { PurchaseOperation } from "@/lib/group-operations"
 
@@ -76,7 +77,10 @@ export default function ComprasPage() {
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
           <p className="text-sm text-muted-foreground mt-1">Gestión de compras a proveedores</p>
         </div>
-        <InvoiceAIButton onPurchasesCreated={pq.refetch} />
+        <div className="flex items-center gap-2">
+          <ExportButton exportType="purchases_csv" />
+          <InvoiceAIButton onPurchasesCreated={pq.refetch} />
+        </div>
       </div>
 
       {isAdmin && (

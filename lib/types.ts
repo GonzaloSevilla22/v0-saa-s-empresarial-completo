@@ -436,3 +436,26 @@ export type ProductCategory =
   | "Salud"
   | "Accesorios"
   | "Otros"
+
+// ── Export module types (C-14 export-module) ──────────────────────────────────
+
+export type ExportType =
+  | "sales_csv"
+  | "purchases_csv"
+  | "expenses_csv"
+  | "stock_csv"
+  | "full_report_xlsx"
+
+export type ExportStatus = "generated" | "expired" | "error"
+
+export interface ExportLog {
+  id: string
+  userId: string
+  orgId: string | null
+  exportType: ExportType
+  filePath: string
+  signedUrl: string | null
+  signedUrlExpiresAt: string | null
+  status: ExportStatus
+  createdAt: string
+}

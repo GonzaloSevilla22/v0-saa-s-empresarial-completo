@@ -44,7 +44,7 @@ El sistema SHALL aplicar una jerarquía ordenada `gratis < inicial < avanzado < 
 
 ### Requirement: Límites numéricos de recursos
 
-El sistema SHALL contar los recursos (productos, clientes, operaciones/mes) **por cuenta** (`account_id`), no por usuario, al comparar contra los límites del plan.
+El sistema SHALL contar los recursos (productos, clientes, operaciones/mes, exportaciones/mes) **por cuenta** (`account_id`), no por usuario, al comparar contra los límites del plan. Se agrega `max_exports_per_month` como dimensión de límite numérico.
 
 #### Scenario: Usuario gratis intenta crear el producto 101
 - **GIVEN** un usuario con plan efectivo 'gratis' que ya tiene 100 productos
@@ -65,6 +65,16 @@ El sistema SHALL contar los recursos (productos, clientes, operaciones/mes) **po
 - **GIVEN** una cuenta 'inicial' (max_products=500) con 2 miembros que crearon 498 y 1 productos (499 total)
 - **WHEN** cualquier miembro crea un producto más
 - **THEN** la creación es permitida (499 < 500); el siguiente (#501) es bloqueado para todos los miembros
+
+#### Scenario: `usePlanLimits()` expone `maxExportsPerMonth` y `exportsUsed`
+- **GIVEN** un usuario con plan efectivo 'avanzado' y `exports_used = 7`
+- **WHEN** el componente llama a `usePlanLimits()`
+- **THEN** retorna `{ ..., maxExportsPerMonth: 15, exportsUsed: 7, exportsRemaining: 8 }`
+
+#### Scenario: `plan_limits` incluye `max_exports_per_month` por plan
+- **GIVEN** la tabla `plan_limits` con el seed actualizado
+- **WHEN** se consulta `SELECT max_exports_per_month FROM plan_limits WHERE plan = 'inicial'`
+- **THEN** retorna `3`
 
 ### Requirement: Gating de features exclusivas
 

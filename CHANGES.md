@@ -392,7 +392,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-14] `export-module`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-06
 - **Scope**:
   - Feature de exportación de datos según límite del plan (0/3/15/50 por mes para gratis/inicial/avanzado/pro)
   - Migración SQL: tabla `export_logs` — `id UUID PK`, `user_id UUID`, `org_id UUID`, `export_type TEXT`, `file_path TEXT`, `status TEXT`, `created_at`; contador mensual en `profiles.exports_used INTEGER DEFAULT 0`
@@ -428,7 +428,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-11 | ai-insights-rentabilidad-producto | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[x]` |
-| C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[ ]` |
+| C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[x]` |
 
 ---
 

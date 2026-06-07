@@ -40,7 +40,19 @@ C-01 billing-schema-migration
     ├── C-12 ai-comparative-reports
     │
     └── C-14 export-module
+
+C-15 backend-data-layer                       ← scaffold ya archivado; esto agrega la capa de datos
+│
+└── C-16 backend-data-api-migration
+    │
+    ├── C-17 backend-payments-migration        ← CRITICO (dinero real)
+    │
+    └── C-18 frontend-decouple-datacontext
 ```
+
+> Nota: workers de IA/OCR (Edge Functions: `ai-insights`, `ai-prediccion`, `ai-resumen`, `ai-simulador`, `fair-advisor`, `invoice-ocr`) **NO se migran en esta fase** — permanecen como Supabase Edge Functions (ver DEC-15). Pospuesto hasta contar con presupuesto para Render paid y volumen que justifique workers Python (ARQ/LangChain).
+>
+> **Scaffolding archivado**: el change `fastapi-backend-monorepo` (2026-06-06) ya implementó: monorepo `frontend/` + `backend/`, FastAPI `backend/main.py`, auth JWT Supabase (`core/auth.py`, HS256), WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`), `pnpm-workspace.yaml` y 8 tests. Archivado en `openspec/changes/archive/2026-06-06-fastapi-backend-monorepo/`. La FASE 5 cubre lo **pendiente**.
 
 ### Paralelismo por fase
 
@@ -76,16 +88,31 @@ GATE 7: C-11 ✓
 
 GATE 8: C-02 ✓
   → C-14 export-module                        [Agente A]
+
+GATE 9: scaffold archivado (fastapi-backend-monorepo ✓) — sin dependencia en C-01..C-14
+  → C-15 backend-data-layer                   [Agente A]
+
+GATE 10: C-15 ✓
+  → C-16 backend-data-api-migration           [Agente A]
+
+GATE 11: C-16 ✓                              ← FORK
+  → C-17 backend-payments-migration           [Agente A — requiere aprobación humana]
+  → C-18 frontend-decouple-datacontext        [Agente B]
 ```
 
-### Camino crítico (6 changes — mínimo irreducible)
+### Camino crítico (6 changes originales + 4 nuevos — mínimo irreducible)
 
 ```
 C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
+
+[scaffold archivado] → C-15 → C-16 → C-17**
+                              └── C-18
 ```
 
 > `*` C-07 (sucursales) es la feature de mayor valor diferencial del plan PRO.
 > C-08 (stock multisucursal) está en desarrollo activo para septiembre 2026 y se agrega tras C-07.
+> `**` C-17 es CRÍTICO (dinero real); requiere aprobación humana explícita antes de cortar el webhook de pagos.
+> La cadena C-15 → C-16 → {C-17, C-18} es independiente del camino crítico original y puede correrse en cualquier momento post-MVP.
 
 ### Plan óptimo con 3 agentes
 
@@ -97,6 +124,14 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | 4 | C-10 subscription-ui-upgrade-flow | C-11 ai-insights-rentabilidad-producto | C-06 roles-internos-basicos |
 | 5 | C-14 export-module | C-12 ai-comparative-reports | C-07 sucursales-module-pro |
 | 6 | — | C-13 ai-price-suggestion | C-08 stock-multisucursal |
+
+**Fase 5 — Migración Backend (secuencia separada; scaffold ya archivado)**
+
+| Paso | Agente A (Backend Python) | Agente B (Frontend) | Agente C |
+|------|--------------------------|---------------------|----------|
+| 7 | C-15 backend-data-layer | — | — |
+| 8 | C-16 backend-data-api-migration | — | — |
+| 9 | C-17 backend-payments-migration *(requiere aprobación)* | C-18 frontend-decouple-datacontext | — |
 
 ---
 
@@ -411,6 +446,96 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 
 ---
 
+## FASE 5 — Migración a Backend Python
+
+> Fase independiente de las anteriores. Puede iniciarse en cualquier momento post-MVP sin bloquear los changes C-01..C-14. Los workers de IA/OCR (Edge Functions `ai-insights`, `ai-prediccion`, `ai-resumen`, `ai-simulador`, `fair-advisor`, `invoice-ocr`) **no se migran en esta fase** — se mantienen en Supabase Edge Functions hasta contar con presupuesto (ver DEC-15). La cadena de dependencias es: C-15 → C-16 → {C-17, C-18}.
+>
+> **Realtime se mantiene en Supabase Realtime (DEC-16); el WebSocket del backend ya scaffoldeado queda reservado como infra futura, sin uso en producción.**
+>
+> **Scaffolding YA archivado** (`openspec/changes/archive/2026-06-06-fastapi-backend-monorepo/`): el change `fastapi-backend-monorepo` implementó el monorepo `frontend/` + `backend/`, FastAPI `backend/main.py`, auth JWT Supabase (`core/auth.py`, HS256), WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`), `pnpm-workspace.yaml` y 8 tests. **La FASE 5 cubre lo PENDIENTE**: capa de datos (C-15), migración de API (C-16), pagos (C-17) y desacople de DataContext (C-18). **NO re-crear** `auth.py`, `main.py` ni el health endpoint — ya existen.
+
+### [C-15] `backend-data-layer`
+- **Estado**: `[x]` completado — 2026-06-07
+- **Scope**:
+  - **NO re-crear**: `core/auth.py`, `backend/main.py`, `GET /health`, `core/ws_manager.py` — ya implementados y archivados. Este change agrega la **capa de datos** al backend existente.
+  - `core/database.py`: pool `asyncpg` con JWT-passthrough — claims del usuario inyectados vía `SET LOCAL request.jwt.claims` en cada conexión; RLS org-based sigue activa como red de seguridad; NUNCA `service_role` en el backend principal
+  - `core/deps.py`: dependency `get_auth_context()` — resuelve org + rol + plan desde `organization_members` (una sola query); cacheable en Redis/Upstash; retorna `AuthContext(user_id, org_id, role, plan)`
+  - `repositories/` base: clase base `BaseRepository(db_pool)` con método `_execute(query, *args)` que inyecta JWT-claims; las implementaciones concretas llaman a los RPCs existentes en PostgreSQL
+  - `core/errors.py`: mapeo de errores PostgreSQL a mensajes en español — FK violation → "recurso no encontrado"; unique violation → "ya existe"; check violation → "valor fuera de rango"; 23xxx codes completos
+  - Integración Sentry (free tier) para error tracking del backend
+  - Variables de entorno nuevas: `DATABASE_URL` (asyncpg pool), `REDIS_URL` (Upstash) — `SUPABASE_JWT_SECRET` ya configurada en el scaffold
+  - Tests: query con JWT inyectado respeta RLS (cross-org → 0 filas); `get_auth_context()` resuelve org + rol correctamente para owner, admin y member; error PG FK violation → respuesta 404 con mensaje en español
+- **Dependencias**: ninguna (el scaffold ya existe)
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI", §"Decisión #0 — JWT-passthrough"
+  - `knowledge-base/09_decisiones_y_supuestos.md` §DEC-12, §DEC-13
+  - `knowledge-base/04_modelo_de_datos.md` §organization_members
+  - `openspec/changes/archive/2026-06-06-fastapi-backend-monorepo/` (contexto del scaffold archivado)
+
+---
+
+### [C-16] `backend-data-api-migration`
+- **Estado**: `[ ]` pendiente
+- **Scope**:
+  - Migración de la API de datos via **Strangler Fig con feature flags** — el frontend puede apuntar al nuevo endpoint o al antiguo por flag; nunca corte abrupto
+  - **Sub-etapa 1 — LOW risk**: `expenses` + `clients` → routers, schemas Pydantic v2, services con `require_plan()`, repositories que llaman a los RPCs existentes
+  - **Sub-etapa 2 — MEDIO risk**: `products` + `branches` + `stock` → mismo patrón; preservar idempotencia (`idempotency_key`), paridad de stock, transferencias entre sucursales (`rpc_transfer_stock`)
+  - **Sub-etapa 3 — MEDIO-ALTO risk**: `sales` + `purchases` + `organizations` → mismo patrón; orquesta `rpc_create_operation_aggregate`; verifica counters de plan pre-insert
+  - Guards por router: `require_role(["owner", "admin"])` en mutaciones → `member` recibe 403; `require_plan(["inicial", "avanzado", "pro"])` donde aplica
+  - Feature flag: variable de entorno `NEXT_PUBLIC_USE_PYTHON_API=true/false`; `DataContext` dirige tráfico al endpoint correcto
+  - Tests por router: happy path; `member` intenta mutación → 403; p95 latency ≤ latency actual + 50ms (medido con `pytest-asyncio` + `httpx`)
+  - OpenAPI docs en `/docs` (automático FastAPI) y `/redoc`
+- **Dependencias**: `C-15`
+- **Governance**: ALTO
+- **Leer antes**:
+  - `knowledge-base/04_modelo_de_datos.md` (completo — entidades a migrar)
+  - `knowledge-base/05_reglas_de_negocio.md` (completo — guards y límites de plan)
+  - `knowledge-base/08_arquitectura_propuesta.md` §"Backend Python", §"Patrón de Operaciones Atómicas", §"Lo que SÍ migra"
+  - `knowledge-base/09_decisiones_y_supuestos.md` §DEC-06 (idempotencia), §DEC-07 (ledger inmutable)
+
+---
+
+### [C-17] `backend-payments-migration`
+- **Estado**: `[ ]` pendiente
+- **Scope**:
+  - Migrar el webhook de pago (MercadoPago / Stripe, implementado en C-10) de Next.js API Routes a FastAPI con **doble verificación de firma**
+  - El nuevo webhook corre en **paralelo** al webhook actual durante la transición; los resultados se comparan (log de discrepancias) antes de hacer el corte
+  - `POST /api/billing/webhook`: verifica firma HMAC del provider; valida idempotencia del evento (`billing_events.provider_event_id`); ejecuta `UPDATE organizations.plan`, `plan_started_at`, `billing_subscription_id`; INSERT en `billing_events`
+  - Trigger de emails: INSERT en `email_logs` (templates `plan_upgraded`, `plan_downgraded`) via patrón DEC-09 existente
+  - **Requiere aprobación humana explícita antes de apagar el webhook Next.js** (dinero real — governance CRITICO)
+  - Tests: webhook pago exitoso → plan upgrade correcto; firma inválida → 400 rechazado sin efecto; evento duplicado → idempotente (no doble upgrade); webhook cancelación → downgrade al vencimiento
+- **Dependencias**: `C-16`
+- **Governance**: CRITICO
+- **Leer antes**:
+  - `knowledge-base/05_reglas_de_negocio.md` §RN-02, §RN-03, §RN-04
+  - `knowledge-base/09_decisiones_y_supuestos.md` §DEC-09 (patrón email), §DEC-04 (billing)
+  - `CHANGES.md` §C-10 (implementación original del webhook)
+  - `knowledge-base/04_modelo_de_datos.md` §billing_events, §organizations
+
+---
+
+### [C-18] `frontend-decouple-datacontext`
+- **Estado**: `[ ]` pendiente
+- **Scope**:
+  - Eliminar el God Object `contexts/data-context.tsx`; reemplazar con hooks de **React Query** que consumen la API Python (C-16)
+  - Un hook por dominio: `useExpenses()`, `useClients()`, `useProducts()`, `useBranches()`, `useStock()`, `useSales()`, `usePurchases()`, `useOrganizations()` — siguiendo el patrón de hooks ya existente en `hooks/`
+  - El frontend queda como **UI pura**: consume FastAPI para datos; mantiene conexión directa a Supabase solo para Realtime (WebSocket), Auth (`supabase.auth.*`) y Storage (signed URLs)
+  - Apagar feature flags legacy de la migración (C-16) una vez validada la paridad
+  - Borrar las Edge Functions de datos migradas (las de IA/OCR se mantienen — ver DEC-15): `create-sale`, `create-purchase`, `delete-product`
+  - OpenAPI docs del backend accesibles desde la UI dev en `/docs` (vía proxy Next.js o link)
+  - Load testing con k6: 50 usuarios concurrentes → p95 ≤ 500ms en endpoints críticos (`/sales`, `/products`)
+  - Tests: cada hook retorna datos correctos mockeando la API Python; invalidación de cache post-mutación funciona
+- **Dependencias**: `C-16`
+- **Governance**: MEDIO
+- **Leer antes**:
+  - `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI", §"Lo que NO se migra", §"Modelo híbrido"
+  - `knowledge-base/06_funcionalidades.md` §Estado por Módulo
+  - `knowledge-base/09_decisiones_y_supuestos.md` §DEC-15 (IA/OCR pospuesto), §DEC-16 (realtime por WS)
+  - `knowledge-base/02_descripcion_general.md` §Stack
+
+---
+
 ## Tabla Resumen
 
 | ID | Nombre | Fase | Governance | Dependencias | Estado |
@@ -429,6 +554,10 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-12 | ai-comparative-reports | 2 — IA | MEDIO | C-02, C-04 | `[x]` |
 | C-13 | ai-price-suggestion | 2 — IA | MEDIO | C-11 | `[x]` |
 | C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[x]` |
+| C-15 | backend-data-layer | 5 — Migración Python | ALTO | — (scaffold archivado) | `[x]` |
+| C-16 | backend-data-api-migration | 5 — Migración Python | ALTO | C-15 | `[ ]` |
+| C-17 | backend-payments-migration | 5 — Migración Python | CRITICO | C-16 | `[ ]` |
+| C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[ ]` |
 
 ---
 
@@ -436,4 +565,6 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 
 `C-01` (`billing-schema-migration`) es el primer change a implementar — es CRITICO, sin dependencias, y desbloquea el camino crítico completo. Puede correrse en paralelo con `C-09` (community-bug-fixes).
 
-Para arrancar: `/opsx:propose billing-schema-migration`
+**Para la Fase 5**: `C-15` (`backend-data-layer`) puede iniciarse en cualquier momento — el scaffolding ya está archivado en `openspec/changes/archive/2026-06-06-fastapi-backend-monorepo/`, este change solo agrega la capa de datos (asyncpg + repositories + get_auth_context + errores).
+
+Para arrancar la Fase 5: `/opsx:propose backend-data-layer`

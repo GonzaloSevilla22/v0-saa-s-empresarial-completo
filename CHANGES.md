@@ -497,7 +497,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 ---
 
 ### [C-17] `backend-payments-migration`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado
 - **Scope**:
   - Migrar el webhook de pago (MercadoPago / Stripe, implementado en C-10) de Next.js API Routes a FastAPI con **doble verificación de firma**
   - El nuevo webhook corre en **paralelo** al webhook actual durante la transición; los resultados se comparan (log de discrepancias) antes de hacer el corte
@@ -556,7 +556,7 @@ C-01 → C-02 → C-03 → C-10 → C-05 → C-07*
 | C-14 | export-module | 4 — Upgrade | MEDIO | C-02 | `[x]` |
 | C-15 | backend-data-layer | 5 — Migración Python | ALTO | — (scaffold archivado) | `[x]` |
 | C-16 | backend-data-api-migration | 5 — Migración Python | ALTO | C-15 | `[x]` |
-| C-17 | backend-payments-migration | 5 — Migración Python | CRITICO | C-16 | `[ ]` |
+| C-17 | backend-payments-migration | 5 — Migración Python | CRITICO | C-16 | `[x]` |
 | C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[x]` |
 
 ---

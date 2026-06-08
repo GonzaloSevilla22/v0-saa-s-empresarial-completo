@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 import asyncpg
@@ -9,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
 from backend.core.database import close_pool, close_service_pool, init_pool, init_service_pool
-from backend.core.errors import asyncpg_error_handler
+from backend.core.errors import asyncpg_error_handler, cors_error_headers
 from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
     branches,
@@ -24,6 +25,8 @@ from backend.routers import (
     stock,
     ws,
 )
+
+logger = logging.getLogger("app")
 
 
 @asynccontextmanager
@@ -52,7 +55,12 @@ app.add_exception_handler(asyncpg.PostgresError, asyncpg_error_handler)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
+    logger.exception("Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno del servidor"},
+        headers=cors_error_headers(request),
+    )
 
 app.include_router(health.router)
 app.include_router(ws.router)

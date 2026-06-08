@@ -45,6 +45,7 @@ class ProductOut(BaseModel):
     min_stock: Decimal | None
     barcode: str | None
     sku: str | None
+    parent_id: uuid.UUID | None
     is_variant: bool | None
     stock_control_type: str | None
     created_at: datetime.datetime

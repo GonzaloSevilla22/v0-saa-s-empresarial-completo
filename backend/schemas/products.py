@@ -42,7 +42,7 @@ class ProductOut(BaseModel):
     price: Decimal | None
     cost: Decimal | None
     stock: Decimal
-    min_stock: int | None
+    min_stock: Decimal | None
     barcode: str | None
     sku: str | None
     is_variant: bool | None

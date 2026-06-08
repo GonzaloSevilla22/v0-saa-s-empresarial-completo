@@ -29,9 +29,15 @@ class BaseRepository:
             return await self._conn.fetchrow(query, *params.values())
         return await self._conn.fetchrow(f"SELECT * FROM {name}()")
 
-    async def fetch(self, query: str, *args) -> list[asyncpg.Record]:
-        """Execute a query and return all matching rows."""
-        return await self._conn.fetch(query, *args)
+    async def fetch(self, query: str, *args) -> list[dict]:
+        """Execute a query and return all matching rows as plain dicts.
+
+        Pydantic v2 with from_attributes=True does not reliably access
+        asyncpg.Record fields. Converting to dict guarantees correct
+        response model serialization across all list endpoints.
+        """
+        records = await self._conn.fetch(query, *args)
+        return [dict(r) for r in records]
 
     async def fetchrow(self, query: str, *args) -> asyncpg.Record | None:
         """Execute a query and return a single row, or None if not found."""

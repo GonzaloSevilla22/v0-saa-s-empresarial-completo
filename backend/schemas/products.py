@@ -16,6 +16,7 @@ class ProductCreate(BaseModel):
     min_stock: int = 0
     barcode: str | None = None
     sku: str | None = None
+    parent_id: str | None = None
     is_variant: bool = False
     stock_control_type: str = "unit"
 

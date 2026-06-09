@@ -72,6 +72,7 @@ export function useProducts() {
         min_stock:          product.minStock,
         barcode:            product.barcode     ?? null,
         sku:                product.sku         ?? null,
+        parent_id:          product.parentId    ?? null,
         is_variant:         product.isVariant,
         stock_control_type: product.stockControlType ?? "tracked",
       })

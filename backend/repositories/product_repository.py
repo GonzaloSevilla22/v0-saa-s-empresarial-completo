@@ -23,8 +23,8 @@ class ProductRepository(BaseRepository):
         return await self.fetchrow(
             """
             INSERT INTO products (user_id, name, category, price, cost, stock, min_stock, barcode, sku,
-                                  is_variant, stock_control_type)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                  parent_id, is_variant, stock_control_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
             """,
             user_id,
@@ -36,6 +36,7 @@ class ProductRepository(BaseRepository):
             data.get("min_stock", 0),
             data.get("barcode"),
             data.get("sku"),
+            data.get("parent_id"),
             data.get("is_variant", False),
             data.get("stock_control_type", "unit"),
         )

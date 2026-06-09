@@ -46,7 +46,18 @@ async def get_db_conn(
     if pool is None:
         raise HTTPException(status_code=503, detail="Database pool not initialized")
     async with pool.acquire() as conn:
-        await conn.execute("SELECT set_config('app.jwt_claims', $1, true)", json.dumps(user))
+        # Set both configs in one round-trip:
+        # - app.jwt_claims: leído por RLS policies y código app
+        # - request.jwt.claims: leído por auth.uid() de Supabase en RPCs SECURITY DEFINER
+        await conn.execute(
+            """
+            SELECT
+                set_config('app.jwt_claims',    $1, true),
+                set_config('request.jwt.claims', $2, true)
+            """,
+            json.dumps(user),
+            json.dumps({"sub": user["user_id"], "role": "authenticated"}),
+        )
         yield conn
 
 

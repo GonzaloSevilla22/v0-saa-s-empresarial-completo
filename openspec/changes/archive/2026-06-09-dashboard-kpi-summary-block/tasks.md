@@ -43,4 +43,4 @@
 
 ## 8. Documentación
 
-- [ ] 8.1 Marcar el avance y, al archivar, sincronizar specs (`/opsx:archive`). Actualizar CHANGES.md si corresponde.
+- [x] 8.1 Marcar el avance y, al archivar, sincronizar specs (`/opsx:archive`). Actualizar CHANGES.md si corresponde.

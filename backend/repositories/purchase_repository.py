@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 from decimal import Decimal
 
@@ -38,18 +39,34 @@ class PurchaseRepository(BaseRepository):
         org_id: str,
         items: list[dict],
         idempotency_key: str,
-    ) -> asyncpg.Record | None:
+        date: datetime.date | None = None,
+        description: str | None = None,
+    ) -> dict | None:
         existing = await self.get_idempotency(user_id, idempotency_key)
         if existing is not None:
-            return existing
+            return dict(existing)
+
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
-        return await self.call_rpc(
-            "rpc_create_operation_aggregate",
-            p_user_id=user_id,
-            p_org_id=org_id,
-            p_items=json.dumps(items, default=_default),
+        # The RPC takes description at operation level — strip it from items
+        clean_items = [
+            {k: v for k, v in item.items() if k != "description"}
+            for item in items
+        ]
+
+        row = await self._conn.fetchrow(
+            """
+            SELECT
+                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb)->>'operation_id')::uuid
+                    AS operation_id,
+                'purchase'::text AS operation_kind
+            """,
+            idempotency_key,
+            date or datetime.date.today(),
+            description,
+            json.dumps(clean_items, default=_default),
         )
+        return dict(row) if row else None

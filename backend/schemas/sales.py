@@ -19,6 +19,8 @@ class SaleOperationIn(BaseModel):
     org_id: str
     items: list[SaleItemIn]
     date: datetime.date | None = None
+    client_id: str | None = None
+    currency: str = "ARS"
 
 
 class SaleOperationOut(BaseModel):

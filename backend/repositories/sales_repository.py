@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import json
 from decimal import Decimal
 
@@ -38,18 +39,30 @@ class SalesRepository(BaseRepository):
         org_id: str,
         items: list[dict],
         idempotency_key: str,
-    ) -> asyncpg.Record | None:
+        date: datetime.date | None = None,
+        client_id: str | None = None,
+        currency: str = "ARS",
+    ) -> dict | None:
         existing = await self.get_idempotency(user_id, idempotency_key)
         if existing is not None:
-            return existing
+            return dict(existing)
+
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
-        return await self.call_rpc(
-            "rpc_create_operation_aggregate",
-            p_user_id=user_id,
-            p_org_id=org_id,
-            p_items=json.dumps(items, default=_default),
+        row = await self._conn.fetchrow(
+            """
+            SELECT
+                (rpc_create_sale_operation($1, $2::text::uuid, $3, $4, $5::jsonb)->>'operation_id')::uuid
+                    AS operation_id,
+                'sale'::text AS operation_kind
+            """,
+            idempotency_key,
+            client_id,
+            date or datetime.date.today(),
+            currency,
+            json.dumps(items, default=_default),
         )
+        return dict(row) if row else None

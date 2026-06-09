@@ -69,9 +69,12 @@ describe("useSales", () => {
     vi.clearAllMocks()
   })
 
-  // ── RED → GREEN: hook returns mapped sales ──────────────────────────────
+  // ── Hook returns mapped sales (paginado por operaciones: {items, total_operations}) ──
   it("returns mapped sales when API responds", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValueOnce(mockSaleRows)
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({
+      items: mockSaleRows,
+      total_operations: 1,
+    })
 
     const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })
 
@@ -86,12 +89,15 @@ describe("useSales", () => {
       total:       3000,
       currency:    "ARS",
     })
-    expect(pythonClient.get).toHaveBeenCalledWith("/sales")
+    // La página se pide con los params de paginación por defecto
+    expect(pythonClient.get).toHaveBeenCalledWith("/sales?page=0&page_size=25")
+    // total_operations alimenta la meta de paginación (operaciones, no filas)
+    expect(result.current.meta.totalCount).toBe(1)
   })
 
   // ── TRIANGULATE: empty sales list ───────────────────────────────────────
   it("returns empty array when no sales exist", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValueOnce([])
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({ items: [], total_operations: 0 })
 
     const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })
 
@@ -100,9 +106,9 @@ describe("useSales", () => {
     expect(result.current.sales).toEqual([])
   })
 
-  // ── RED → GREEN: addSaleOperation calls POST /sales with correct payload ─
+  // ── addSaleOperation calls POST /sales with correct payload ──────────────
   it("addSaleOperation calls POST /sales with correct payload", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue(mockSaleRows)
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: mockSaleRows, total_operations: 1 })
     vi.mocked(pythonClient.post).mockResolvedValueOnce({
       operation_id:   "op-new",
       operation_kind: "sale",
@@ -130,6 +136,8 @@ describe("useSales", () => {
       idempotency_key: "key-123",
       org_id:          "org-1",
       date:            "2026-02-01",
+      client_id:       "client-1",
+      currency:        "ARS",
       items: [{
         product_id: "prod-1",
         amount:     1500,
@@ -139,9 +147,11 @@ describe("useSales", () => {
     })
   })
 
-  // ── TRIANGULATE: optimistic update appears before settle ────────────────
-  it("addSaleOperation adds optimistic entry before settle", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue([])
+  // ── Sin optimistic update: con paginación server-side la mutación invalida
+  //    la query y se refetchea la página al settle (la fila nueva puede ni
+  //    pertenecer a la página visible). ────────────────────────────────────
+  it("addSaleOperation refetches the page after settle (no optimistic entries)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total_operations: 0 })
 
     // Delay the POST to observe intermediate state
     let resolveMutation!: (v: unknown) => void
@@ -154,12 +164,11 @@ describe("useSales", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false))
 
     // Start mutation but don't await
-    let mutationPromise: Promise<unknown>
     act(() => {
-      mutationPromise = result.current.addSaleOperation({
+      void result.current.addSaleOperation({
         items: mockSaleCartItems,
         meta: {
-          idempotencyKey: "key-optimistic",
+          idempotencyKey: "key-no-optimistic",
           clientId:       null,
           date:           "2026-02-01",
           currency:       "ARS",
@@ -169,17 +178,15 @@ describe("useSales", () => {
       })
     })
 
-    // Optimistic entries should be present before settling
-    await waitFor(() => {
-      expect(result.current.sales.some(s => s.id.startsWith("optimistic-"))).toBe(true)
-    })
+    // While pending: the visible page does NOT change (no optimistic rows)
+    expect(result.current.sales).toEqual([])
+    expect(pythonClient.get).toHaveBeenCalledTimes(1)
 
-    // Resolve the mutation and check state after settle
+    // Resolve the mutation: onSettled invalidates → the page refetches
     act(() => {
       resolveMutation({ operation_id: "op-settled", operation_kind: "sale" })
     })
 
-    // After settle, get is called again to refetch
     await waitFor(() => {
       expect(pythonClient.get).toHaveBeenCalledTimes(2)
     })
@@ -187,7 +194,7 @@ describe("useSales", () => {
 
   // ── deleteSale calls DELETE /sales/:id ───────────────────────────────────
   it("deleteSale calls DELETE and invalidates", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue(mockSaleRows)
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: mockSaleRows, total_operations: 1 })
     vi.mocked(pythonClient.delete).mockResolvedValueOnce(undefined)
 
     const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })

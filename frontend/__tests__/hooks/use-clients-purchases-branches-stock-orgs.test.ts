@@ -123,18 +123,22 @@ describe("usePurchases", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("returns mapped purchases from API", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValueOnce([
-      {
-        id: "pur-1",
-        date: "2026-01-10",
-        product_id: "prod-1",
-        product: { name: "Tela" },
-        quantity: 5,
-        amount: "200",
-        total: "1000",
-        operation_id: "op-1",
-      },
-    ])
+    // Paginado por operaciones: el endpoint devuelve {items, total_operations}
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({
+      items: [
+        {
+          id: "pur-1",
+          date: "2026-01-10",
+          product_id: "prod-1",
+          product: { name: "Tela" },
+          quantity: 5,
+          amount: "200",
+          total: "1000",
+          operation_id: "op-1",
+        },
+      ],
+      total_operations: 1,
+    })
 
     const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
 
@@ -151,7 +155,7 @@ describe("usePurchases", () => {
   })
 
   it("addPurchaseOperation calls POST /purchases with correct payload", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue([])
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total_operations: 0 })
     vi.mocked(pythonClient.post).mockResolvedValueOnce({ operation_id: "op-new" })
 
     const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })

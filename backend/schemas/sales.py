@@ -4,7 +4,7 @@ import datetime
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SaleItemIn(BaseModel):
@@ -21,6 +21,9 @@ class SaleOperationIn(BaseModel):
     date: datetime.date | None = None
     client_id: str | None = None
     currency: str = "ARS"
+    # Canal de venta de la operación (instagram, mercadolibre, whatsapp, local,
+    # otro). NULL = "Sin canal" — ventas legacy o sin canal elegido.
+    canal: str | None = Field(default=None, max_length=40)
 
 
 class SaleOperationOut(BaseModel):

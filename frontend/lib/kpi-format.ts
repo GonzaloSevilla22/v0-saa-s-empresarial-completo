@@ -50,3 +50,44 @@ export function formatKpiCurrency(value: number | null | undefined): string {
   const grouped = abs.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")
   return `${rounded < 0 ? "-" : ""}$${grouped}`
 }
+
+// ─── Margen por Canal (Fase B) ────────────────────────────────────────────────
+
+/** Entrada de rpc_dashboard_channel_margin.channels (ordenada por margen desc). */
+export interface ChannelMarginEntry {
+  canal: string
+  revenue: number
+  margin_pct: number | null
+}
+
+/** Canales sugeridos en el form de venta (valor → etiqueta completa). */
+export const SALE_CHANNELS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "instagram", label: "Instagram" },
+  { value: "mercadolibre", label: "MercadoLibre" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "local", label: "Local" },
+  { value: "otro", label: "Otro" },
+]
+
+const CHANNEL_SHORT: Record<string, string> = {
+  instagram: "IG",
+  mercadolibre: "ML",
+  whatsapp: "WA",
+  sin_canal: "S/C",
+}
+
+/** Etiqueta corta del canal para la tarjeta ("IG", "ML"); desconocidos capitalizados. */
+export function channelLabel(canal: string): string {
+  return CHANNEL_SHORT[canal] ?? canal.charAt(0).toUpperCase() + canal.slice(1)
+}
+
+/** "IG 34% / ML 18%" con los 2 mejores canales (spec §3); "—" sin datos. */
+export function formatChannelMargin(
+  channels: ChannelMarginEntry[] | null | undefined,
+): string {
+  if (!channels || channels.length === 0) return "—"
+  return channels
+    .slice(0, 2)
+    .map(c => `${channelLabel(c.canal)} ${Math.round(c.margin_pct ?? 0)}%`)
+    .join(" / ")
+}

@@ -138,6 +138,7 @@ describe("useSales", () => {
       date:            "2026-02-01",
       client_id:       "client-1",
       currency:        "ARS",
+      canal:           null, // sin canal elegido → "Sin canal"
       items: [{
         product_id: "prod-1",
         amount:     1500,
@@ -145,6 +146,39 @@ describe("useSales", () => {
         unit_id:    null,
       }],
     })
+  })
+
+  // ── Canal de venta (Fase B): viaja en el payload hacia el backend ─────────
+  it("addSaleOperation incluye el canal elegido en el payload", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total_operations: 0 })
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      operation_id:   "op-canal",
+      operation_kind: "sale",
+    })
+
+    const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.addSaleOperation({
+        items: mockSaleCartItems,
+        meta: {
+          idempotencyKey: "key-canal",
+          clientId:       null,
+          date:           "2026-02-01",
+          currency:       "ARS",
+          branchId:       null,
+          canal:          "instagram",
+          orgId:          "org-1",
+        },
+      })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      "/sales",
+      expect.objectContaining({ canal: "instagram" }),
+    )
   })
 
   // ── Sin optimistic update: con paginación server-side la mutación invalida

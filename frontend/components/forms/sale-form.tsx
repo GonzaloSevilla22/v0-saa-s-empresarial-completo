@@ -16,6 +16,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
+import { SALE_CHANNELS } from "@/lib/kpi-format"
 import type { SaleOperation } from "@/lib/group-operations"
 import { formatStock } from "@/lib/format-unit"
 import {
@@ -87,6 +88,8 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [currency, setCurrency] = useState<Currency>(() => (editingOperation?.currency as Currency) ?? "ARS")
   const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
   const [branchId, setBranchId] = useState<string | null>(null)
+  // Canal de venta (Fase B Bloque KPI): alimenta "Margen por Canal". Opcional.
+  const [canal, setCanal] = useState<string | null>(null)
 
   // ── Inline new client ───────────────────────────────────────────────────────
   const [showNewClient, setShowNewClient] = useState(false)
@@ -398,6 +401,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           date,
           currency,
           branchId,
+          canal,
           orgId:          user?.accountId ?? "",
         },
       })
@@ -591,6 +595,27 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             placeholder="Sin sucursal (general)"
             className="bg-background border-border text-foreground text-sm"
           />
+
+          {/* ── Canal de venta (alimenta el KPI Margen por Canal) ─────── */}
+          <div className="flex flex-col gap-2">
+            <Label className="text-foreground">Canal de venta</Label>
+            <Select
+              value={canal ?? "__none__"}
+              onValueChange={(v) => setCanal(v === "__none__" ? null : v)}
+            >
+              <SelectTrigger className="bg-background border-border text-foreground">
+                <SelectValue placeholder="Sin canal" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover border-border">
+                <SelectItem value="__none__">Sin canal</SelectItem>
+                {SALE_CHANNELS.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         <div className="border-t border-border" />

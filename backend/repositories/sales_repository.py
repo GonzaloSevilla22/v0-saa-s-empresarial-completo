@@ -88,6 +88,7 @@ class SalesRepository(BaseRepository):
         date: datetime.date | None = None,
         client_id: str | None = None,
         currency: str = "ARS",
+        canal: str | None = None,
     ) -> dict | None:
         existing = await self.get_idempotency(user_id, idempotency_key)
         if existing is not None:
@@ -98,10 +99,11 @@ class SalesRepository(BaseRepository):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
+        # p_branch_id se omite (DEFAULT NULL); canal va como p_canal nombrado.
         row = await self._conn.fetchrow(
             """
             SELECT
-                (rpc_create_sale_operation($1, $2::text::uuid, $3, $4, $5::jsonb)->>'operation_id')::uuid
+                (rpc_create_sale_operation($1, $2::text::uuid, $3, $4, $5::jsonb, p_canal => $6)->>'operation_id')::uuid
                     AS operation_id,
                 'sale'::text AS operation_kind
             """,
@@ -110,5 +112,6 @@ class SalesRepository(BaseRepository):
             date or datetime.date.today(),
             currency,
             json.dumps(items, default=_default),
+            canal,
         )
         return dict(row) if row else None

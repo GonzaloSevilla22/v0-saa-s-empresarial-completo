@@ -62,15 +62,17 @@ async def test_call_rpc_executes_correct_query(mock_conn):
 
 @pytest.mark.asyncio
 async def test_fetch_returns_rows_when_results_exist(mock_conn):
-    row1 = MagicMock()
-    row2 = MagicMock()
+    row1 = {"id": "sale-1", "total": 100}
+    row2 = {"id": "sale-2", "total": 250}
     mock_conn.fetch = AsyncMock(return_value=[row1, row2])
 
     repo = BaseRepository(mock_conn)
     result = await repo.fetch("SELECT * FROM sales")
     assert len(result) == 2
-    assert result[0] is row1
-    assert result[1] is row2
+    # fetch convierte cada Record a dict plano (serialización Pydantic v2)
+    assert all(type(r) is dict for r in result)
+    assert result[0] == row1
+    assert result[1] == row2
 
 
 @pytest.mark.asyncio

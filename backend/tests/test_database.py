@@ -20,8 +20,15 @@ async def test_get_db_conn_injects_jwt_claims(mock_pool):
         gen = get_db_conn(TEST_USER)
         conn = await gen.__anext__()
 
-        conn_mock.execute.assert_called_once_with(
-            "SET LOCAL app.jwt_claims = $1", json.dumps(TEST_USER)
+        conn_mock.execute.assert_called_once()
+        query, app_claims, request_claims = conn_mock.execute.call_args[0]
+        # Ambos configs en un solo round-trip, session-scoped (is_local=false)
+        assert "set_config('app.jwt_claims'" in query
+        assert "set_config('request.jwt.claims'" in query
+        assert query.count(", false)") == 2
+        assert app_claims == json.dumps(TEST_USER)
+        assert request_claims == json.dumps(
+            {"sub": TEST_USER["user_id"], "role": "authenticated"}
         )
         assert conn is conn_mock
     finally:
@@ -77,6 +84,7 @@ async def test_init_pool_creates_pool_with_correct_params():
             "postgresql://user:pass@host/db",
             min_size=2,
             max_size=10,
+            statement_cache_size=0,
         )
 
         db_module.pool = None

@@ -1,0 +1,22 @@
+-- =============================================================================
+-- MIGRATION: 20260610000002_drop_vulnerable_dashboard_financials_overload.sql
+-- SECURITY (CRITICAL): drop a cross-tenant financial data-leak overload.
+--
+-- THREAT:
+--   public.get_dashboard_financials(p_user_id uuid, p_date_from timestamptz,
+--   p_date_to timestamptz) is SECURITY DEFINER, filters `WHERE user_id = p_user_id`
+--   using the CALLER-SUPPLIED p_user_id, performs NO auth.uid() check, and is
+--   EXECUTE-able by `authenticated`. Any logged-in user can therefore read ANY
+--   other user's total income / expenses / purchases / net profit by passing an
+--   arbitrary user_id — a horizontal privilege-escalation (IDOR) leak of
+--   financial data.
+--
+-- SAFE TO DROP:
+--   This overload is dead code. The application only calls the secure overload
+--   get_dashboard_financials(p_date_from, p_date_to, p_branch_id) — which gates on
+--   auth.uid() and scopes by account_id. Verified zero source callers pass
+--   p_user_id. Superseded; a prior 20260426000001_drop_vulnerable_rpc_overloads
+--   missed this one.
+-- =============================================================================
+
+DROP FUNCTION IF EXISTS public.get_dashboard_financials(uuid, timestamptz, timestamptz);

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.repositories.purchase_repository import PurchaseRepository
-from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationOut
+from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationOut, PurchasesPageOut
 from backend.services import purchases as purchases_service
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
@@ -16,12 +16,18 @@ def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PurchaseReposit
     return PurchaseRepository(conn)
 
 
-@router.get("")
+@router.get("", response_model=PurchasesPageOut)
 async def list_purchases(
+    page: int = Query(0, ge=0),
+    page_size: int = Query(25, ge=1, le=100),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     auth: dict = Depends(get_current_user),
     repo: PurchaseRepository = Depends(get_repo),
 ):
-    return await purchases_service.list_purchases(repo, auth)
+    return await purchases_service.list_purchases_paginated(
+        repo, auth, page, page_size, date_from, date_to,
+    )
 
 
 @router.delete("", status_code=204)

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback } from "react"
 import { usePurchases } from "@/hooks/data/use-purchases"
 import { PurchaseForm } from "@/components/forms/purchase-form"
 import { ResponsiveModal } from "@/components/shared/responsive-modal"
@@ -10,44 +10,19 @@ import { useAuth } from "@/contexts/auth-context"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
-import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { ExportButton } from "@/components/export/ExportButton"
-import type { Purchase } from "@/lib/types"
 import type { PurchaseOperation } from "@/lib/group-operations"
 
-function mapRow(r: any): Purchase {
-  return {
-    id:          r.id,
-    date:        r.date?.split("T")[0] ?? r.date,
-    productId:   r.product_id,
-    productName: r.product?.name || "Eliminado",
-    quantity:    r.quantity,
-    unitCost:    Number(r.amount),
-    total:       Number(r.total ?? r.amount),
-    operationId: r.operation_id ?? undefined,
-  }
-}
-
 export default function ComprasPage() {
-  const { deletePurchase, deletePurchasesByOperation } = usePurchases()
+  const {
+    purchases, meta, isLoading, error,
+    dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
+    setPage, setPageSize, refetch,
+    deletePurchase, deletePurchasesByOperation,
+  } = usePurchases()
+
   const { isAdmin } = useAuth()
   const { isWriter } = useOrgRole()
-
-  const pq = usePaginatedQuery<any>({
-    table:  "purchases",
-    select: "*, product:products(name)",
-    applyFilters: (base, { dateFrom, dateTo }) => {
-      let q = base
-      if (dateFrom) q = q.gte("date", dateFrom)
-      if (dateTo)   q = q.lte("date", dateTo)
-      return q
-    },
-    defaultSortKey:  "date",
-    defaultSortDir:  "desc",
-    defaultPageSize: 50,
-  })
-
-  const purchases = useMemo(() => pq.data.map(mapRow), [pq.data])
 
   const [dialogOpen,       setDialogOpen]       = useState(false)
   const [editingOperation, setEditingOperation] = useState<PurchaseOperation | null>(null)
@@ -79,7 +54,7 @@ export default function ComprasPage() {
         </div>
         <div className="flex items-center gap-2">
           <ExportButton exportType="purchases_csv" />
-          <InvoiceAIButton onPurchasesCreated={pq.refetch} />
+          <InvoiceAIButton onPurchasesCreated={refetch} />
         </div>
       </div>
 
@@ -95,20 +70,20 @@ export default function ComprasPage() {
 
       <PurchaseOperationsList
         purchases={purchases}
-        meta={pq.meta}
-        loading={pq.loading}
-        error={pq.error}
-        dateFrom={pq.dateFrom}
-        setDateFrom={pq.setDateFrom}
-        dateTo={pq.dateTo}
-        setDateTo={pq.setDateTo}
-        clearFilters={pq.clearFilters}
-        onPageChange={pq.setPage}
-        onPageSizeChange={pq.setPageSize}
+        meta={meta}
+        loading={isLoading}
+        error={error}
+        dateFrom={dateFrom}
+        setDateFrom={setDateFrom}
+        dateTo={dateTo}
+        setDateTo={setDateTo}
+        clearFilters={clearFilters}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
         onAdd={isWriter ? handleAdd : undefined}
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
-        onRefetch={pq.refetch}
+        onRefetch={refetch}
       />
 
       <ResponsiveModal
@@ -119,7 +94,7 @@ export default function ComprasPage() {
         <PurchaseForm
           key={editingOperation ? editingOperation.key : "new-purchase"}
           editingOperation={editingOperation ?? undefined}
-          onSuccess={() => { handleDialogClose(); pq.refetch() }}
+          onSuccess={() => { handleDialogClose(); refetch() }}
         />
       </ResponsiveModal>
     </div>

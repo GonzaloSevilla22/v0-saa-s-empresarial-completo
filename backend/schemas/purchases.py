@@ -27,3 +27,22 @@ class PurchaseOperationOut(BaseModel):
 
     operation_id: uuid.UUID
     operation_kind: str | None = None
+
+
+class PurchaseItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    date: datetime.date
+    product_id: uuid.UUID | None = None
+    product_name: str | None = None
+    operation_id: uuid.UUID | None = None
+    quantity: Decimal
+    amount: Decimal
+    total: Decimal | None = None
+    description: str | None = None
+
+
+class PurchasesPageOut(BaseModel):
+    items: list[PurchaseItemOut]
+    total_operations: int

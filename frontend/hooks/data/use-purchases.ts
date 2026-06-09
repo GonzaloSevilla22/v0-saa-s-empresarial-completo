@@ -1,10 +1,16 @@
 "use client"
 
+import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { Purchase } from "@/lib/types"
 import type { PurchaseCartItem } from "@/lib/cart-utils"
+import {
+  buildPaginationMeta,
+  type PaginationMeta,
+  type PageSizeOption,
+} from "@/lib/pagination-utils"
 
 // ── Types for API responses ───────────────────────────────────────────────────
 
@@ -12,11 +18,18 @@ interface PurchaseApiRow {
   id: string
   date: string
   product_id: string
+  product_name?: string | null
   product?: { name: string } | null
   quantity: number
   amount: string | number
   total: string | number | null
   operation_id?: string | null
+  description?: string | null
+}
+
+interface PurchasesPageResponse {
+  items: PurchaseApiRow[]
+  total_operations: number
 }
 
 interface PurchaseOperationResult {
@@ -29,35 +42,74 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     id:          p.id,
     date:        p.date.split("T")[0],
     productId:   p.product_id,
-    productName: p.product?.name || "Eliminado",
+    productName: p.product_name || p.product?.name || "Eliminado",
     quantity:    Number(p.quantity),
     unitCost:    Number(p.amount),
     total:       Number(p.total ?? p.amount),
+    description: p.description ?? undefined,
     operationId: p.operation_id ?? undefined,
   }
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-/**
- * Returns purchases list + mutations (add operation, update, delete) via Python API.
- */
 export function usePurchases() {
   const queryClient = useQueryClient()
 
+  // ── Pagination & filter state ─────────────────────────────────────────────
+  const [page,     setPageState]     = useState(0)
+  const [pageSize, setPageSizeState] = useState<PageSizeOption>(25)
+  const [dateFrom, setDateFromState] = useState("")
+  const [dateTo,   setDateToState]   = useState("")
+
+  const setPage = useCallback((p: number) => setPageState(p), [])
+  const setPageSize = useCallback((s: PageSizeOption) => {
+    setPageSizeState(s)
+    setPageState(0)
+  }, [])
+  const setDateFrom = useCallback((v: string) => { setDateFromState(v); setPageState(0) }, [])
+  const setDateTo   = useCallback((v: string) => { setDateToState(v);   setPageState(0) }, [])
+  const clearFilters = useCallback(() => {
+    setDateFromState("")
+    setDateToState("")
+    setPageState(0)
+  }, [])
+
+  // ── List query ────────────────────────────────────────────────────────────
+  const queryParams = useMemo(() => {
+    const p: Record<string, string> = {
+      page:      String(page),
+      page_size: String(pageSize),
+    }
+    if (dateFrom) p.date_from = dateFrom
+    if (dateTo)   p.date_to   = dateTo
+    return p
+  }, [page, pageSize, dateFrom, dateTo])
+
   const query = useQuery({
-    queryKey: queryKeys.purchases.lists(),
-    queryFn: async (): Promise<Purchase[]> => {
-      const data = await pythonClient.get<PurchaseApiRow[]>("/purchases")
-      return data.map(mapPurchase)
+    queryKey: [...queryKeys.purchases.lists(), queryParams],
+    queryFn: async (): Promise<PurchasesPageResponse> => {
+      const qs = new URLSearchParams(queryParams).toString()
+      return pythonClient.get<PurchasesPageResponse>(`/purchases?${qs}`)
     },
-    staleTime: 30 * 1000, // 30 sec
+    staleTime: 30 * 1000,
   })
 
+  const purchases = useMemo(
+    () => (query.data?.items ?? []).map(mapPurchase),
+    [query.data],
+  )
+
+  const meta: PaginationMeta = useMemo(
+    () => buildPaginationMeta(page, pageSize, query.data?.total_operations ?? 0),
+    [page, pageSize, query.data?.total_operations],
+  )
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const addPurchaseOperationMutation = useMutation({
     mutationFn: async ({
       items,
-      meta,
+      meta: opMeta,
     }: {
       items: PurchaseCartItem[]
       meta: {
@@ -69,14 +121,14 @@ export function usePurchases() {
       }
     }): Promise<PurchaseOperationResult> => {
       const payload = {
-        idempotency_key: meta.idempotencyKey,
-        org_id:          meta.orgId,
-        date:            meta.date,
+        idempotency_key: opMeta.idempotencyKey,
+        org_id:          opMeta.orgId,
+        date:            opMeta.date,
         items: items.map(item => ({
           product_id:  item.productId,
           amount:      item.unitCost,
           quantity:    item.quantity,
-          description: meta.description || null,
+          description: opMeta.description || null,
           unit_id:     item.unitId ?? null,
         })),
       }
@@ -123,7 +175,7 @@ export function usePurchases() {
     mutationFn: async ({
       purchaseIds,
       newItems,
-      meta,
+      meta: opMeta,
     }: {
       purchaseIds: string[]
       newItems: PurchaseCartItem[]
@@ -136,8 +188,8 @@ export function usePurchases() {
       }))
       return pythonClient.put<void>("/purchases/operation", {
         purchase_ids: purchaseIds,
-        date:         meta.date,
-        description:  meta.description || null,
+        date:         opMeta.date,
+        description:  opMeta.description || null,
         items,
       })
     },
@@ -148,10 +200,19 @@ export function usePurchases() {
   })
 
   return {
-    purchases:                  query.data ?? [],
-    isLoading:                  query.isLoading,
-    isError:                    query.isError,
-    error:                      query.error,
+    purchases,
+    meta,
+    isLoading: query.isLoading,
+    isError:   query.isError,
+    error:     query.error ? (query.error as Error).message : null,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    clearFilters,
+    setPage,
+    setPageSize,
+    refetch: query.refetch,
     addPurchaseOperation:       addPurchaseOperationMutation.mutateAsync,
     updatePurchase:             updatePurchaseMutation.mutateAsync,
     deletePurchase:             deletePurchaseMutation.mutateAsync,

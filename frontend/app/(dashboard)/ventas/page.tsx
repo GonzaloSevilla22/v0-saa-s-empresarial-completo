@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useMemo } from "react"
+import { useState, useCallback } from "react"
 import { useSales } from "@/hooks/data/use-sales"
 import { useClients } from "@/hooks/data/use-clients"
 import { SaleForm } from "@/components/forms/sale-form"
@@ -10,52 +10,21 @@ import { useAuth } from "@/contexts/auth-context"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
-import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { ExportButton } from "@/components/export/ExportButton"
-import type { Sale } from "@/lib/types"
 import type { SaleOperation } from "@/lib/group-operations"
 
-// ── Row mapper (mirrors DataContext.mapSale) ──────────────────────────────────
-function mapRow(r: any): Sale {
-  return {
-    id:          r.id,
-    date:        r.date?.split("T")[0] ?? r.date,
-    productId:   r.product_id,
-    productName: r.product?.name || "Eliminado",
-    clientId:    r.client_id,
-    clientName:  r.client?.name  || "Consumidor Final",
-    quantity:    r.quantity,
-    unitPrice:   Number(r.amount),
-    total:       Number(r.total ?? r.amount),
-    currency:    r.currency,
-    operationId: r.operation_id ?? undefined,
-  }
-}
-
 export default function VentasPage() {
-  const { clients }                        = useClients()
-  const { deleteSale, deleteSalesByOperation } = useSales()
+  const { clients } = useClients()
+  const {
+    sales, meta, isLoading, error,
+    dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
+    setPage, setPageSize, refetch,
+    deleteSale, deleteSalesByOperation,
+  } = useSales()
+
   const { isAdmin } = useAuth()
   const { isWriter } = useOrgRole()
 
-  // ── Paginated sales ───────────────────────────────────────────────────────
-  const pq = usePaginatedQuery<any>({
-    table:  "sales",
-    select: "*, product:products(name), client:clients(name)",
-    applyFilters: (base, { dateFrom, dateTo }) => {
-      let q = base
-      if (dateFrom) q = q.gte("date", dateFrom)
-      if (dateTo)   q = q.lte("date", dateTo)
-      return q
-    },
-    defaultSortKey:  "date",
-    defaultSortDir:  "desc",
-    defaultPageSize: 50,
-  })
-
-  const sales = useMemo(() => pq.data.map(mapRow), [pq.data])
-
-  // ── Dialog state ──────────────────────────────────────────────────────────
   const [dialogOpen,       setDialogOpen]       = useState(false)
   const [editingOperation, setEditingOperation] = useState<SaleOperation | null>(null)
 
@@ -107,21 +76,21 @@ export default function VentasPage() {
 
       <SaleOperationsList
         sales={sales}
-        meta={pq.meta}
-        loading={pq.loading}
-        error={pq.error}
-        dateFrom={pq.dateFrom}
-        setDateFrom={pq.setDateFrom}
-        dateTo={pq.dateTo}
-        setDateTo={pq.setDateTo}
-        clearFilters={pq.clearFilters}
-        onPageChange={pq.setPage}
-        onPageSizeChange={pq.setPageSize}
+        meta={meta}
+        loading={isLoading}
+        error={error}
+        dateFrom={dateFrom}
+        setDateFrom={setDateFrom}
+        dateTo={dateTo}
+        setDateTo={setDateTo}
+        clearFilters={clearFilters}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
         clients={clients}
         onAdd={isWriter ? handleAdd : undefined}
         onDeleteOperation={handleDeleteOperation}
         onEditOperation={handleEdit}
-        onRefetch={pq.refetch}
+        onRefetch={refetch}
       />
 
       <ResponsiveModal
@@ -132,7 +101,7 @@ export default function VentasPage() {
         <SaleForm
           key={editingOperation ? editingOperation.key : "new-sale"}
           editingOperation={editingOperation ?? undefined}
-          onSuccess={() => { handleDialogClose(); pq.refetch() }}
+          onSuccess={() => { handleDialogClose(); refetch() }}
         />
       </ResponsiveModal>
     </div>

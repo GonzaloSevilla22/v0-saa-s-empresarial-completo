@@ -16,6 +16,50 @@ class PurchaseRepository(BaseRepository):
             user_id,
         )
 
+    async def list_paginated_by_operation(
+        self,
+        user_id: str,
+        page: int,
+        page_size: int,
+        date_from: datetime.date | None = None,
+        date_to: datetime.date | None = None,
+    ) -> tuple[list[asyncpg.Record], int]:
+        total: int = await self._conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT COALESCE(operation_id::text, id::text))
+            FROM purchases
+            WHERE user_id = $1::uuid
+              AND ($2::date IS NULL OR date >= $2::date)
+              AND ($3::date IS NULL OR date <= $3::date)
+            """,
+            user_id, date_from, date_to,
+        ) or 0
+
+        rows: list[asyncpg.Record] = await self._conn.fetch(
+            """
+            WITH op_page AS (
+              SELECT COALESCE(operation_id::text, id::text) AS op_key
+              FROM purchases
+              WHERE user_id = $1::uuid
+                AND ($2::date IS NULL OR date >= $2::date)
+                AND ($3::date IS NULL OR date <= $3::date)
+              GROUP BY COALESCE(operation_id::text, id::text)
+              ORDER BY MAX(date) DESC
+              LIMIT $4 OFFSET $5
+            )
+            SELECT p.id, p.date, p.product_id, p.operation_id,
+                   p.quantity, p.amount, p.total, p.description,
+                   pr.name AS product_name
+            FROM purchases p
+            JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
+            LEFT JOIN products pr ON p.product_id = pr.id
+            WHERE p.user_id = $1::uuid
+            ORDER BY p.date DESC, p.id
+            """,
+            user_id, date_from, date_to, page_size, page * page_size,
+        )
+        return rows, total
+
     async def get_operation(self, operation_id: str, user_id: str) -> asyncpg.Record | None:
         return await self.fetchrow(
             "SELECT * FROM purchases WHERE operation_id = $1 AND user_id = $2 LIMIT 1",

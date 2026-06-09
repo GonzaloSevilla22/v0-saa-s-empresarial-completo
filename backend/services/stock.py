@@ -21,7 +21,7 @@ async def list_movements(repo: StockRepository, auth: dict, product_id: str) -> 
 async def transfer_stock(
     repo: StockRepository, auth: dict, payload: StockTransferRequest
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     result = await repo.transfer(
         str(payload.from_branch_id),
         str(payload.to_branch_id),

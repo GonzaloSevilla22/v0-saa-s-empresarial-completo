@@ -7,7 +7,7 @@ import pytest
 from backend.tests.conftest import make_token
 
 OPERATION_ROW = {
-    "operation_id": "op-uuid-1",
+    "operation_id": "66666666-6666-6666-6666-666666666666",
     "operation_kind": "sale",
 }
 
@@ -22,7 +22,7 @@ SALE_PAYLOAD = {
 
 async def test_create_sale_ok(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "owner"})
+    owner_token = make_token({"role": "user"})
 
     async def fetchrow_side_effect(query, *args):
         if "operation_idempotency" in query:
@@ -37,13 +37,13 @@ async def test_create_sale_ok(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    assert resp.json()["operation_id"] == "op-uuid-1"
+    assert resp.json()["operation_id"] == "66666666-6666-6666-6666-666666666666"
 
 
 async def test_create_sale_idempotent(async_client, mock_pool):
     """Duplicate idempotency_key returns existing operation (HTTP 201 with same data)."""
     pool, conn = mock_pool
-    owner_token = make_token({"role": "owner"})
+    owner_token = make_token({"role": "user"})
     conn.fetchrow = AsyncMock(return_value=OPERATION_ROW)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
@@ -52,7 +52,7 @@ async def test_create_sale_idempotent(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    assert resp.json()["operation_id"] == "op-uuid-1"
+    assert resp.json()["operation_id"] == "66666666-6666-6666-6666-666666666666"
 
 
 async def test_create_sale_member_forbidden(async_client, mock_pool):

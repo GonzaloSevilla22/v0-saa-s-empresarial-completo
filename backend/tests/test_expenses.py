@@ -7,8 +7,8 @@ import pytest
 from backend.tests.conftest import make_token
 
 EXPENSE_ROW = {
-    "id": "exp-uuid-1",
-    "user_id": "test-user-id",
+    "id": "55555555-5555-5555-5555-555555555555",
+    "user_id": "11111111-1111-1111-1111-111111111111",
     "category": "supplies",
     "amount": "150.00",
     "description": "Paper",
@@ -43,7 +43,7 @@ async def test_get_expenses_empty(async_client, valid_token, mock_pool):
 
 async def test_create_expense_ok(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "owner"})
+    owner_token = make_token({"role": "user"})
     conn.fetchrow = AsyncMock(return_value=EXPENSE_ROW)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(

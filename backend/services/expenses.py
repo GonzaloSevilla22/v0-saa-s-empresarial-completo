@@ -19,7 +19,7 @@ async def get_expense(repo: ExpenseRepository, auth: dict, expense_id: str) -> d
 
 
 async def create_expense(repo: ExpenseRepository, auth: dict, payload: ExpenseCreate) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.create(auth["user_id"], payload.model_dump())
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear el gasto")
@@ -29,7 +29,7 @@ async def create_expense(repo: ExpenseRepository, auth: dict, payload: ExpenseCr
 async def update_expense(
     repo: ExpenseRepository, auth: dict, expense_id: str, payload: ExpenseUpdate
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.update(expense_id, auth["user_id"], payload.model_dump(exclude_none=True))
     if record is None:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
@@ -37,7 +37,7 @@ async def update_expense(
 
 
 async def delete_expense(repo: ExpenseRepository, auth: dict, expense_id: str) -> None:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     existing = await repo.get_by_id(expense_id, auth["user_id"])
     if existing is None:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")

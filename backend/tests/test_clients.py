@@ -7,8 +7,8 @@ import pytest
 from backend.tests.conftest import make_token
 
 CLIENT_ROW = {
-    "id": "cli-uuid-1",
-    "user_id": "test-user-id",
+    "id": "33333333-3333-3333-3333-333333333333",
+    "user_id": "11111111-1111-1111-1111-111111111111",
     "name": "Acme Corp",
     "email": "acme@example.com",
     "phone": "+54 261 555-1234",
@@ -41,7 +41,7 @@ async def test_get_clients_empty(async_client, valid_token, mock_pool):
 
 async def test_create_client_ok(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "owner"})
+    owner_token = make_token({"role": "user"})
     conn.fetchrow = AsyncMock(return_value=CLIENT_ROW)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(

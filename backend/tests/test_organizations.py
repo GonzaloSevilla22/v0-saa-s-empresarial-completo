@@ -7,7 +7,7 @@ import pytest
 from backend.tests.conftest import make_token
 
 ORG_ROW = {
-    "id": "org-uuid-1",
+    "id": "44444444-4444-4444-4444-444444444444",
     "name": "Mi Empresa",
     "created_at": "2024-01-01T00:00:00",
 }
@@ -38,7 +38,7 @@ async def test_get_org_not_found(async_client, valid_token, mock_pool):
 
 async def test_update_org_settings_owner_ok(async_client, mock_pool):
     pool, conn = mock_pool
-    owner_token = make_token({"role": "owner"})
+    owner_token = make_token({"role": "user"})
     conn.fetchrow = AsyncMock(return_value=ORG_ROW)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.put(

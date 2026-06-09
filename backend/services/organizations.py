@@ -17,7 +17,7 @@ async def get_org(repo: OrganizationRepository, auth: dict, org_id: str) -> dict
 async def update_org_settings(
     repo: OrganizationRepository, auth: dict, org_id: str, payload: OrgSettingsUpdate
 ) -> dict:
-    require_role(auth, ["owner"])
+    require_role(auth, ["user"])
     record = await repo.update_settings(org_id, payload.model_dump(exclude_none=True))
     if record is None:
         raise HTTPException(status_code=404, detail="Organización no encontrada")

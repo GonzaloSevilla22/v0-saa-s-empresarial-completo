@@ -11,6 +11,24 @@ async def list_purchases(repo: PurchaseRepository, auth: dict) -> list:
     return await repo.list_by_org(auth["user_id"])
 
 
+async def delete_purchase(
+    repo: PurchaseRepository, auth: dict, purchase_id: str
+) -> None:
+    require_role(auth, ["user", "admin"])
+    found = await repo.delete_by_id(purchase_id, auth["user_id"])
+    if not found:
+        raise HTTPException(status_code=404, detail="Compra no encontrada")
+
+
+async def delete_purchase_operation(
+    repo: PurchaseRepository, auth: dict, operation_id: str
+) -> None:
+    require_role(auth, ["user", "admin"])
+    found = await repo.delete_by_operation(operation_id, auth["user_id"])
+    if not found:
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+
 async def create_purchase_operation(
     repo: PurchaseRepository, auth: dict, payload: PurchaseOperationIn
 ) -> dict:

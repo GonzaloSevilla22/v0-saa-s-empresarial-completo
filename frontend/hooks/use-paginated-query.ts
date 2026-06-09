@@ -100,8 +100,10 @@ export function usePaginatedQuery<T = any>({
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState<string | null>(null)
 
-  const debTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const abortRef    = useRef<AbortController | undefined>(undefined)
+  const debTimerRef      = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const abortRef         = useRef<AbortController | undefined>(undefined)
+  const applyFiltersRef  = useRef<ApplyFilters>(applyFilters)
+  applyFiltersRef.current = applyFilters
 
   // ── Setters that reset to page 0 ─────────────────────────────────────────
   const setSearch = useCallback((v: string) => {
@@ -159,14 +161,14 @@ export function usePaginatedQuery<T = any>({
     try {
       // Count query — head:true returns no rows, only the count header
       const countBase = supabase.from(table).select("*", { count: "exact", head: true })
-      const countQ    = applyFilters(countBase, params)
+      const countQ    = applyFiltersRef.current(countBase, params)
       const { count, error: cErr } = await countQ
       if (ctrl.signal.aborted) return
       if (cErr) throw cErr
 
       // Data query — same filters + order + range
       const dataBase = supabase.from(table).select(select)
-      let   dataQ    = applyFilters(dataBase, params)
+      let   dataQ    = applyFiltersRef.current(dataBase, params)
       if (sortKey) dataQ = dataQ.order(sortKey, { ascending: sortDir === "asc" })
       dataQ = dataQ.range(from, to)
 
@@ -184,7 +186,7 @@ export function usePaginatedQuery<T = any>({
       if (!ctrl.signal.aborted) setLoading(false)
     }
   }, [
-    supabase, table, select, applyFilters,
+    supabase, table, select,
     page, pageSize, debSearch, dateFrom, dateTo, sortKey, sortDir,
   ])
 

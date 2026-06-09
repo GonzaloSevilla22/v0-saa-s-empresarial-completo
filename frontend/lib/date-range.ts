@@ -50,3 +50,18 @@ export function utcPrevMonthRange(d: Date = new Date()): IsoRange {
   // Date.UTC normalizes month underflow (m - 1 < 0 rolls back the year).
   return { from: startOfDayUtc(y, m - 1, 1), to: endOfDayUtc(y, m, 0) }
 }
+
+/** "YYYY-MM" key for the local month of `d` — used by the dashboard ?period= param. */
+export function monthKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+}
+
+/** Parse a "YYYY-MM" key to the 1st of that month (local). Invalid/null falls back to the current month. */
+export function parseMonthKey(key: string | null | undefined): Date {
+  if (key && /^\d{4}-(0[1-9]|1[0-2])$/.test(key)) {
+    const [y, m] = key.split("-").map(Number)
+    return new Date(y, m - 1, 1)
+  }
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), 1)
+}

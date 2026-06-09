@@ -15,7 +15,9 @@ import { aiInsightService } from "@/lib/services/aiInsightService"
 import { createClient } from "@/lib/supabase/client"
 import { TrialBanner } from "@/components/dashboard/TrialBanner"
 import { BranchFilter } from "@/components/branches/BranchFilter"
-import { utcDayRange } from "@/lib/date-range"
+import { KpiSummaryBlock } from "@/components/dashboard/KpiSummaryBlock"
+import { PeriodFilter } from "@/components/dashboard/PeriodFilter"
+import { utcDayRange, parseMonthKey } from "@/lib/date-range"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,8 @@ export default function DashboardPage() {
   const lowStock = getLowStockProducts()
 
   const branchId = searchParams.get("branch") ?? null
+  // Período del Bloque Resumen KPI (?period=YYYY-MM, mes en curso por defecto).
+  const periodDate = parseMonthKey(searchParams.get("period"))
 
   const [financials, setFinancials]     = useState<DashboardFinancials | null>(null)
   const [loadingKpis, setLoadingKpis]   = useState(true)
@@ -132,8 +136,15 @@ export default function DashboardPage() {
             Así está tu negocio hoy
           </p>
         </div>
-        <BranchFilter />
+        <div className="flex items-center gap-2 flex-wrap">
+          <PeriodFilter />
+          <BranchFilter />
+        </div>
       </div>
+
+      {/* Bloque Resumen KPI (spec ALIADATA v1.1) — SIEMPRE arriba del contenido
+          existente (Consejos IA / AiSummaryCard quedan más abajo, sin moverse). */}
+      <KpiSummaryBlock periodDate={periodDate} branchId={branchId} />
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard

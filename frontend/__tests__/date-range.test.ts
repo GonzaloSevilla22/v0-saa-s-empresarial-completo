@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest"
-import { utcDayRange, utcMonthRange, utcPrevMonthRange } from "@/lib/date-range"
+import {
+  utcDayRange,
+  utcMonthRange,
+  utcPrevMonthRange,
+  monthKey,
+  parseMonthKey,
+} from "@/lib/date-range"
 
 // These helpers exist to fix the dashboard "$0 today" bug: sale/expense/purchase
 // `date` values are stored at MIDNIGHT UTC keyed to a calendar date, so the
@@ -44,6 +50,36 @@ describe("utcMonthRange", () => {
     const { from, to } = utcMonthRange(new Date(2026, 11, 5)) // Dec 2026
     expect(from).toBe("2026-12-01T00:00:00.000Z")
     expect(to).toBe("2026-12-31T23:59:59.999Z")
+  })
+})
+
+describe("monthKey / parseMonthKey", () => {
+  it("monthKey produce YYYY-MM de la fecha local", () => {
+    expect(monthKey(new Date(2026, 5, 17))).toBe("2026-06")
+    expect(monthKey(new Date(2026, 0, 3))).toBe("2026-01")
+  })
+
+  it("parseMonthKey devuelve el primer día del mes (fecha local)", () => {
+    const d = parseMonthKey("2026-05")
+    expect(d.getFullYear()).toBe(2026)
+    expect(d.getMonth()).toBe(4)
+    expect(d.getDate()).toBe(1)
+  })
+
+  it("parseMonthKey con input inválido o null cae al mes actual", () => {
+    const now = new Date()
+    for (const bad of [null, "", "junio", "2026-13", "26-05"]) {
+      const d = parseMonthKey(bad)
+      expect(d.getFullYear()).toBe(now.getFullYear())
+      expect(d.getMonth()).toBe(now.getMonth())
+    }
+  })
+
+  it("roundtrip: parseMonthKey(monthKey(d)) conserva año y mes", () => {
+    const d = new Date(2025, 11, 31)
+    const parsed = parseMonthKey(monthKey(d))
+    expect(parsed.getFullYear()).toBe(2025)
+    expect(parsed.getMonth()).toBe(11)
   })
 })
 

@@ -52,8 +52,8 @@ async def get_db_conn(
         await conn.execute(
             """
             SELECT
-                set_config('app.jwt_claims',    $1, true),
-                set_config('request.jwt.claims', $2, true)
+                set_config('app.jwt_claims',    $1, false),
+                set_config('request.jwt.claims', $2, false)
             """,
             json.dumps(user),
             json.dumps({"sub": user["user_id"], "role": "authenticated"}),

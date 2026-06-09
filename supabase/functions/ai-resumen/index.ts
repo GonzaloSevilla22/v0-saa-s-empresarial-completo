@@ -77,21 +77,40 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}))
-    const { period } = body
+    const { period, dateFrom, dateTo } = body
 
-    // 3. Fetch Data based on Period
-    const now = new Date()
-    let startDate = new Date()
-    if (period === 'weekly') startDate.setDate(now.getDate() - 7)
-    else if (period === 'monthly') startDate.setMonth(now.getMonth() - 1)
-    else startDate.setDate(now.getDate() - 1) // daily default
+    // 3. Resolve the date window.
+    //   Sale/expense `date` rows are stored at MIDNIGHT UTC keyed to a calendar
+    //   date. This Edge Function runs in UTC and cannot know the caller's local
+    //   day, so the client passes an explicit UTC range (built via the same
+    //   lib/date-range helper the dashboard uses). We prefer that range; the
+    //   rolling fallback below only applies to legacy callers without a range.
+    let startIso: string
+    let endIso: string | null = null
+    if (typeof dateFrom === 'string' && typeof dateTo === 'string') {
+      startIso = dateFrom
+      endIso = dateTo
+    } else {
+      const now = new Date()
+      const startDate = new Date()
+      if (period === 'weekly') startDate.setUTCDate(now.getUTCDate() - 7)
+      else if (period === 'monthly') startDate.setUTCMonth(now.getUTCMonth() - 1)
+      else startDate.setUTCDate(now.getUTCDate() - 1) // daily default
+      startIso = startDate.toISOString()
+    }
 
-    const [salesResult, expensesResult] = await Promise.all([
-      supabaseClient.from('sales').select('amount').gte('date', startDate.toISOString()),
-      supabaseClient.from('expenses').select('amount').gte('date', startDate.toISOString())
-    ])
+    // `total` is the line total (amount * quantity); `amount` is the unit price.
+    // Sum `total` and fall back to `amount` for any legacy row without a total.
+    let salesQuery = supabaseClient.from('sales').select('amount, total').gte('date', startIso)
+    let expensesQuery = supabaseClient.from('expenses').select('amount').gte('date', startIso)
+    if (endIso) {
+      salesQuery = salesQuery.lte('date', endIso)
+      expensesQuery = expensesQuery.lte('date', endIso)
+    }
 
-    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
+    const [salesResult, expensesResult] = await Promise.all([salesQuery, expensesQuery])
+
+    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.total ?? s.amount), 0)
     const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
     const balance = totalSales - totalExpenses
 

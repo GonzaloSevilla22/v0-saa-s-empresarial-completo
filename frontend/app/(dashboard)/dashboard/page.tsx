@@ -15,6 +15,7 @@ import { aiInsightService } from "@/lib/services/aiInsightService"
 import { createClient } from "@/lib/supabase/client"
 import { TrialBanner } from "@/components/dashboard/TrialBanner"
 import { BranchFilter } from "@/components/branches/BranchFilter"
+import { utcDayRange } from "@/lib/date-range"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,10 +56,11 @@ export default function DashboardPage() {
     async function fetchFinancials() {
       setLoadingKpis(true)
       try {
-        // Today's window in local ISO strings
-        const now      = new Date()
-        const dateFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString()
-        const dateTo   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString()
+        // Today's window — UTC calendar day, NOT browser-local midnight.
+        // Sale/expense/purchase `date` rows are stored at midnight UTC keyed to a
+        // calendar date; a local-midnight window (UTC-3 → 03:00Z) pushes every row
+        // into the previous day's bucket and "ventas hoy" reads $0. See lib/date-range.ts.
+        const { from: dateFrom, to: dateTo } = utcDayRange()
 
         const rpcParams: Record<string, string | null> = {
           p_date_from: dateFrom,

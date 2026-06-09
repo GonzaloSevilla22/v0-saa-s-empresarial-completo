@@ -15,12 +15,16 @@ async def create_purchase_operation(
     repo: PurchaseRepository, auth: dict, payload: PurchaseOperationIn
 ) -> dict:
     require_role(auth, ["user", "admin"])
+    # Extract operation-level description from first item (frontend sends it per-item)
+    description = payload.items[0].description if payload.items else None
     items = [item.model_dump() for item in payload.items]
     record = await repo.create_operation(
         auth["user_id"],
         payload.org_id,
         items,
         payload.idempotency_key,
+        date=payload.date,
+        description=description,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de compra")

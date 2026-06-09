@@ -21,6 +21,9 @@ async def create_sale_operation(
         payload.org_id,
         items,
         payload.idempotency_key,
+        date=payload.date,
+        client_id=payload.client_id,
+        currency=payload.currency,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de venta")

@@ -81,6 +81,8 @@ export function useSales() {
         idempotency_key: meta.idempotencyKey,
         org_id:          meta.orgId,
         date:            meta.date,
+        client_id:       meta.clientId ?? null,
+        currency:        meta.currency,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),

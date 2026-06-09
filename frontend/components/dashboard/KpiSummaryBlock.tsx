@@ -3,11 +3,14 @@
 import { TrendingUp, Share2, PackageX, Receipt, Tag } from "lucide-react"
 import { KpiSummaryCard } from "@/components/dashboard/KpiSummaryCard"
 import { useDashboardKpiSummary } from "@/hooks/data/use-dashboard-kpi-summary"
+import { useChannelMargin } from "@/hooks/data/use-channel-margin"
 import {
   kpiDeltaPct,
   kpiBadgeTone,
   formatKpiDelta,
   formatKpiCurrency,
+  formatChannelMargin,
+  channelLabel,
 } from "@/lib/kpi-format"
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -24,11 +27,11 @@ interface KpiSummaryBlockProps {
 /**
  * Bloque Resumen KPI (spec ALIADATA v1.1): 5 tarjetas mensuales con badge de
  * variación contra el mes anterior. Grilla 2 col mobile (5ta ancho completo),
- * 3 col tablet, 5 col web. "Margen por Canal" muestra "—" hasta la Fase B
- * (campo sales.canal pendiente de gate de governance).
+ * 3 col tablet, 5 col web.
  */
 export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlockProps) {
   const { data, isLoading } = useDashboardKpiSummary(periodDate, branchId)
+  const { data: channelData, isLoading: channelLoading } = useChannelMargin(periodDate, branchId)
 
   // Sin datos del período (o cargando): todas las tarjetas muestran "—".
   // Ganancia $0 con 0 ventas se trata como "sin datos" (nada registrado),
@@ -42,6 +45,14 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
   const stockDelta = empty
     ? null
     : kpiDeltaPct(data.stagnantStockCount, data.prevStagnantStockCount)
+
+  // Margen por Canal: valor "IG 34% / ML 18%", badge "IG lidera"; el tone
+  // compara el margen TOTAL contra el mes anterior (up_good).
+  const channelEmpty =
+    channelLoading || channelData === null || channelData.channels.length === 0
+  const marginDelta = channelEmpty
+    ? null
+    : kpiDeltaPct(channelData.marginPct, channelData.prevMarginPct)
 
   return (
     <div
@@ -58,9 +69,13 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
       />
       <KpiSummaryCard
         label="Margen por Canal"
-        value="—"
-        badge="—"
-        tone="yellow"
+        value={channelEmpty ? "—" : formatChannelMargin(channelData.channels)}
+        badge={
+          channelEmpty || !channelData.leader
+            ? "—"
+            : `${channelLabel(channelData.leader)} lidera`
+        }
+        tone={kpiBadgeTone(marginDelta, "up_good")}
         icon={Share2}
         iconColor="text-violet-400"
       />

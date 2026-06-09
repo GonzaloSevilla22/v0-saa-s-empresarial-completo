@@ -4,7 +4,51 @@ import {
   kpiBadgeTone,
   formatKpiDelta,
   formatKpiCurrency,
+  channelLabel,
+  formatChannelMargin,
+  type ChannelMarginEntry,
 } from "@/lib/kpi-format"
+
+const channels: ChannelMarginEntry[] = [
+  { canal: "instagram", revenue: 50000, margin_pct: 34 },
+  { canal: "mercadolibre", revenue: 80000, margin_pct: 18 },
+  { canal: "sin_canal", revenue: 12000, margin_pct: 10 },
+]
+
+describe("channelLabel", () => {
+  it("abrevia los canales conocidos", () => {
+    expect(channelLabel("instagram")).toBe("IG")
+    expect(channelLabel("mercadolibre")).toBe("ML")
+    expect(channelLabel("whatsapp")).toBe("WA")
+    expect(channelLabel("sin_canal")).toBe("S/C")
+  })
+
+  it("capitaliza canales desconocidos", () => {
+    expect(channelLabel("local")).toBe("Local")
+    expect(channelLabel("feria")).toBe("Feria")
+  })
+})
+
+describe("formatChannelMargin", () => {
+  it("muestra los 2 mejores canales como 'IG 34% / ML 18%' (spec §3)", () => {
+    expect(formatChannelMargin(channels)).toBe("IG 34% / ML 18%")
+  })
+
+  it("con un solo canal muestra solo ese", () => {
+    expect(formatChannelMargin([channels[0]])).toBe("IG 34%")
+  })
+
+  it("sin canales devuelve —", () => {
+    expect(formatChannelMargin([])).toBe("—")
+    expect(formatChannelMargin(null)).toBe("—")
+  })
+
+  it("redondea márgenes con decimales", () => {
+    expect(
+      formatChannelMargin([{ canal: "whatsapp", revenue: 1000, margin_pct: 22.6 }]),
+    ).toBe("WA 23%")
+  })
+})
 
 // Lógica del badge de variación del Bloque Resumen KPI (spec sección 5):
 //   verde  = variación FAVORABLE según la polaridad del KPI

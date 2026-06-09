@@ -67,12 +67,64 @@ async def test_create_sale_member_forbidden(async_client, mock_pool):
     assert resp.status_code == 403
 
 
+async def test_create_sale_passes_canal_to_rpc(async_client, mock_pool):
+    """El canal del payload llega como argumento del RPC rpc_create_sale_operation."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["query"] = query
+        captured["args"] = args
+        return OPERATION_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/sales",
+            json={**SALE_PAYLOAD, "canal": "instagram"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "rpc_create_sale_operation" in captured["query"]
+    assert "instagram" in captured["args"]
+
+
+async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
+    """Sin canal en el payload, el RPC recibe NULL (ventas legacy = 'Sin canal')."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["args"] = args
+        return OPERATION_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/sales",
+            json=SALE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert None in captured["args"][-1:]  # último arg = canal None
+
+
 async def test_list_sales_ok(async_client, valid_token, mock_pool):
     pool, conn = mock_pool
     conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=0)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.get(
             "/sales", headers={"Authorization": f"Bearer {valid_token}"}
         )
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    # Paginado por operaciones: {items, total_operations}
+    assert body["items"] == []
+    assert body["total_operations"] == 0

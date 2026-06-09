@@ -123,6 +123,7 @@ export function useSales() {
         date: string
         currency: string
         branchId?: string | null
+        canal?: string | null
         orgId: string
       }
     }): Promise<SaleOperationResult> => {
@@ -132,6 +133,7 @@ export function useSales() {
         date:            opMeta.date,
         client_id:       opMeta.clientId ?? null,
         currency:        opMeta.currency,
+        canal:           opMeta.canal ?? null,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),

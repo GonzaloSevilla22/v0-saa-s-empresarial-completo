@@ -33,13 +33,13 @@
 
 ## 7. Fase B — Canal de venta (GOVERNANCE HIGH — requiere aprobación humana explícita antes de escribir/aplicar la migración)
 
-- [ ] 7.1 **[GATE]** Confirmar aprobación del usuario para tocar el modelo de datos financiero (`sales.canal`).
-- [ ] 7.2 Migración: `ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS canal text;` + índice `(account_id, canal)`. Idempotente. (NO aplicar sin 7.1.)
-- [ ] 7.3 Actualizar `rpc_create_sale_operation` para aceptar `p_canal text` y sellarlo en cada `INSERT INTO sales` (canal por operación). Mantener idempotencia y firma compatible.
-- [ ] 7.4 Captura de canal en el form de creación de venta (select con valores sugeridos + "Otro"); pasar `p_canal` al RPC. Test del form.
-- [ ] 7.5 `rpc_dashboard_channel_margin(p_from, p_to, p_branch_id)` (o extender el agregador) devolviendo margen por canal (`jsonb`) + canal líder; scope account, COGS = `SUM(products.cost * sales.quantity)`.
-- [ ] 7.6 Cablear la tarjeta "Margen por Canal" al dato real (reemplaza el `—`); test del render con varios canales.
-- [ ] 7.7 `supabase db push` + deploy + verificación; PR a main.
+- [x] 7.1 **[GATE]** Confirmar aprobación del usuario para tocar el modelo de datos financiero (`sales.canal`).
+- [x] 7.2 Migración: `ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS canal text;` + índice `(account_id, canal)`. Idempotente. (NO aplicar sin 7.1.)
+- [x] 7.3 Actualizar `rpc_create_sale_operation` para aceptar `p_canal text` y sellarlo en cada `INSERT INTO sales` (canal por operación). Mantener idempotencia y firma compatible.
+- [x] 7.4 Captura de canal en el form de creación de venta (select con valores sugeridos + "Otro"); pasar `p_canal` al RPC. Test del form.
+- [x] 7.5 `rpc_dashboard_channel_margin(p_from, p_to, p_branch_id)` (o extender el agregador) devolviendo margen por canal (`jsonb`) + canal líder; scope account, COGS = `SUM(products.cost * sales.quantity)`.
+- [x] 7.6 Cablear la tarjeta "Margen por Canal" al dato real (reemplaza el `—`); test del render con varios canales.
+- [x] 7.7 `supabase db push` + deploy + verificación; PR a main.
 
 ## 8. Documentación
 

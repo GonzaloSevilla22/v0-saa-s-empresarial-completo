@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+
 from fastapi import HTTPException
 
 from backend.core.guards import require_role
@@ -7,8 +9,20 @@ from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import SaleOperationIn
 
 
-async def list_sales(repo: SalesRepository, auth: dict) -> list:
-    return await repo.list_by_org(auth["user_id"])
+async def list_sales_paginated(
+    repo: SalesRepository,
+    auth: dict,
+    page: int,
+    page_size: int,
+    date_from: str | None,
+    date_to: str | None,
+) -> dict:
+    df = datetime.date.fromisoformat(date_from) if date_from else None
+    dt = datetime.date.fromisoformat(date_to) if date_to else None
+    rows, total = await repo.list_paginated_by_operation(
+        auth["user_id"], page, page_size, df, dt,
+    )
+    return {"items": [dict(r) for r in rows], "total_operations": total}
 
 
 async def create_sale_operation(

@@ -1,10 +1,16 @@
 "use client"
 
+import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import type { Sale } from "@/lib/types"
 import type { SaleCartItem } from "@/lib/cart-utils"
+import {
+  buildPaginationMeta,
+  type PaginationMeta,
+  type PageSizeOption,
+} from "@/lib/pagination-utils"
 
 // ── Types for API responses ───────────────────────────────────────────────────
 
@@ -12,14 +18,21 @@ interface SaleApiRow {
   id: string
   date: string
   product_id: string
+  product_name?: string | null
   product?: { name: string } | null
   client_id: string | null
+  client_name?: string | null
   client?: { name: string } | null
   quantity: number
   amount: string | number
   total: string | number | null
   currency: string
   operation_id?: string | null
+}
+
+interface SalesPageResponse {
+  items: SaleApiRow[]
+  total_operations: number
 }
 
 interface SaleOperationResult {
@@ -32,9 +45,9 @@ function mapSale(s: SaleApiRow): Sale {
     id:          s.id,
     date:        s.date.split("T")[0],
     productId:   s.product_id,
-    productName: s.product?.name || "Eliminado",
+    productName: s.product_name || s.product?.name || "Eliminado",
     clientId:    s.client_id    || "",
-    clientName:  s.client?.name || "Consumidor Final",
+    clientName:  s.client_name  || s.client?.name || "Consumidor Final",
     quantity:    Number(s.quantity),
     unitPrice:   Number(s.amount),
     total:       Number(s.total ?? s.amount),
@@ -45,27 +58,63 @@ function mapSale(s: SaleApiRow): Sale {
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-/**
- * Returns sales list + mutations (add operation, update, delete) via Python API.
- * addSaleOperation uses optimistic update.
- */
 export function useSales() {
   const queryClient = useQueryClient()
 
+  // ── Pagination & filter state ─────────────────────────────────────────────
+  const [page,     setPageState]     = useState(0)
+  const [pageSize, setPageSizeState] = useState<PageSizeOption>(25)
+  const [dateFrom, setDateFromState] = useState("")
+  const [dateTo,   setDateToState]   = useState("")
+
+  const setPage = useCallback((p: number) => setPageState(p), [])
+  const setPageSize = useCallback((s: PageSizeOption) => {
+    setPageSizeState(s)
+    setPageState(0)
+  }, [])
+  const setDateFrom = useCallback((v: string) => { setDateFromState(v); setPageState(0) }, [])
+  const setDateTo   = useCallback((v: string) => { setDateToState(v);   setPageState(0) }, [])
+  const clearFilters = useCallback(() => {
+    setDateFromState("")
+    setDateToState("")
+    setPageState(0)
+  }, [])
+
+  // ── List query ────────────────────────────────────────────────────────────
+  const queryParams = useMemo(() => {
+    const p: Record<string, string> = {
+      page:      String(page),
+      page_size: String(pageSize),
+    }
+    if (dateFrom) p.date_from = dateFrom
+    if (dateTo)   p.date_to   = dateTo
+    return p
+  }, [page, pageSize, dateFrom, dateTo])
+
   const query = useQuery({
-    queryKey: queryKeys.sales.lists(),
-    queryFn: async (): Promise<Sale[]> => {
-      const data = await pythonClient.get<SaleApiRow[]>("/sales")
-      return data.map(mapSale)
+    queryKey: [...queryKeys.sales.lists(), queryParams],
+    queryFn: async (): Promise<SalesPageResponse> => {
+      const qs = new URLSearchParams(queryParams).toString()
+      return pythonClient.get<SalesPageResponse>(`/sales?${qs}`)
     },
-    staleTime: 30 * 1000, // 30 sec — sales change frequently
+    staleTime: 30 * 1000,
   })
 
-  // ── addSaleOperation (idempotent, multi-item) with optimistic update ─────────
+  const sales = useMemo(
+    () => (query.data?.items ?? []).map(mapSale),
+    [query.data],
+  )
+
+  const meta: PaginationMeta = useMemo(
+    () => buildPaginationMeta(page, pageSize, query.data?.total_operations ?? 0),
+    [page, pageSize, query.data?.total_operations],
+  )
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const addSaleOperationMutation = useMutation({
     mutationFn: async ({
       items,
-      meta,
+      meta: opMeta,
     }: {
       items: SaleCartItem[]
       meta: {
@@ -78,11 +127,11 @@ export function useSales() {
       }
     }): Promise<SaleOperationResult> => {
       const payload = {
-        idempotency_key: meta.idempotencyKey,
-        org_id:          meta.orgId,
-        date:            meta.date,
-        client_id:       meta.clientId ?? null,
-        currency:        meta.currency,
+        idempotency_key: opMeta.idempotencyKey,
+        org_id:          opMeta.orgId,
+        date:            opMeta.date,
+        client_id:       opMeta.clientId ?? null,
+        currency:        opMeta.currency,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),
@@ -92,42 +141,7 @@ export function useSales() {
       }
       return pythonClient.post<SaleOperationResult>("/sales", payload)
     },
-    onMutate: async ({ items, meta }) => {
-      // Cancel in-flight queries for sales
-      await queryClient.cancelQueries({ queryKey: queryKeys.sales.lists() })
-
-      // Snapshot previous state for rollback
-      const previous = queryClient.getQueryData<Sale[]>(queryKeys.sales.lists())
-
-      // Optimistic insert — temporary IDs
-      const optimisticSales: Sale[] = items.map((item, i) => ({
-        id:          `optimistic-${meta.idempotencyKey}-${i}`,
-        date:        meta.date,
-        productId:   item.productId,
-        productName: item.productName,
-        clientId:    meta.clientId || "",
-        clientName:  "Consumidor Final",
-        quantity:    item.quantity,
-        unitPrice:   item.unitPrice * (1 - item.discount / 100),
-        total:       item.subtotal,
-        currency:    meta.currency as Sale["currency"],
-        operationId: meta.idempotencyKey,
-      }))
-
-      queryClient.setQueryData<Sale[]>(queryKeys.sales.lists(), old =>
-        [...optimisticSales, ...(old ?? [])]
-      )
-
-      return { previous }
-    },
-    onError: (_err, _variables, context) => {
-      // Rollback on error
-      if (context?.previous) {
-        queryClient.setQueryData(queryKeys.sales.lists(), context.previous)
-      }
-    },
     onSettled: () => {
-      // Full invalidation after settlement to get accurate server state
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
     },
@@ -169,7 +183,7 @@ export function useSales() {
     mutationFn: async ({
       saleIds,
       newItems,
-      meta,
+      meta: opMeta,
     }: {
       saleIds: string[]
       newItems: SaleCartItem[]
@@ -182,9 +196,9 @@ export function useSales() {
       }))
       return pythonClient.put<void>("/sales/operation", {
         sale_ids:  saleIds,
-        client_id: meta.clientId ?? null,
-        date:      meta.date,
-        currency:  meta.currency,
+        client_id: opMeta.clientId ?? null,
+        date:      opMeta.date,
+        currency:  opMeta.currency,
         items,
       })
     },
@@ -195,15 +209,24 @@ export function useSales() {
   })
 
   return {
-    sales:                 query.data ?? [],
-    isLoading:             query.isLoading,
-    isError:               query.isError,
-    error:                 query.error,
-    addSaleOperation:      addSaleOperationMutation.mutateAsync,
-    updateSale:            updateSaleMutation.mutateAsync,
-    deleteSale:            deleteSaleMutation.mutateAsync,
+    sales,
+    meta,
+    isLoading: query.isLoading,
+    isError:   query.isError,
+    error:     query.error ? (query.error as Error).message : null,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    clearFilters,
+    setPage,
+    setPageSize,
+    refetch: query.refetch,
+    addSaleOperation:       addSaleOperationMutation.mutateAsync,
+    updateSale:             updateSaleMutation.mutateAsync,
+    deleteSale:             deleteSaleMutation.mutateAsync,
     deleteSalesByOperation: deleteSalesByOperationMutation.mutateAsync,
-    updateSaleOperation:   updateSaleOperationMutation.mutateAsync,
+    updateSaleOperation:    updateSaleOperationMutation.mutateAsync,
     addSaleOperationMutation,
     updateSaleMutation,
     deleteSaleMutation,

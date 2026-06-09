@@ -28,3 +28,24 @@ class SaleOperationOut(BaseModel):
 
     operation_id: uuid.UUID
     operation_kind: str | None = None
+
+
+class SaleItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    date: datetime.date
+    product_id: uuid.UUID | None = None
+    product_name: str | None = None
+    client_id: uuid.UUID | None = None
+    client_name: str | None = None
+    operation_id: uuid.UUID | None = None
+    quantity: Decimal
+    amount: Decimal
+    total: Decimal | None = None
+    currency: str = "ARS"
+
+
+class SalesPageOut(BaseModel):
+    items: list[SaleItemOut]
+    total_operations: int

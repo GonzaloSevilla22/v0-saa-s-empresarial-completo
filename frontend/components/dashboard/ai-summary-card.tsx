@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
 import { useProducts } from "@/hooks/data/use-products"
 import { createClient } from "@/lib/supabase/client"
+import { utcDayRange } from "@/lib/date-range"
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -33,8 +34,11 @@ export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
     setIsLoading(true)
     const supabase = createClient()
     try {
+      // Pass an explicit UTC day range — the Edge Function runs in UTC and can't
+      // infer the user's local "today" (rows are stored at midnight UTC).
+      const { from: dateFrom, to: dateTo } = utcDayRange()
       const { data, error } = await supabase.functions.invoke('ai-resumen', {
-        body: { period: 'daily' },
+        body: { period: 'daily', dateFrom, dateTo },
       })
 
       if (error) throw error

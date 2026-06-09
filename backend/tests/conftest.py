@@ -8,9 +8,12 @@ from jose import jwt
 TEST_SECRET = "test-secret-key"
 
 
+TEST_USER_ID = "11111111-1111-1111-1111-111111111111"
+
+
 def make_token(extra: dict = {}) -> str:
     payload = {
-        "sub": "test-user-id",
+        "sub": TEST_USER_ID,
         "role": "authenticated",
         "exp": int(time.time()) + 3600,
     }
@@ -49,6 +52,7 @@ async def async_client():
         patch("backend.core.redis_client.init_redis", new_callable=AsyncMock),
         patch("backend.core.redis_client.close_redis", new_callable=AsyncMock),
     ):
+        mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"

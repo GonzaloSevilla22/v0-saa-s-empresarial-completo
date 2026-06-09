@@ -26,8 +26,8 @@ async def get_product(repo: ProductRepository, auth: dict, product_id: str) -> d
 
 
 async def create_product(repo: ProductRepository, auth: dict, payload: ProductCreate) -> dict:
-    require_role(auth, ["owner", "admin"])
-    plan = auth.get("plan", "gratis")
+    require_role(auth, ["user", "admin"])
+    plan = auth.get("plan", "pro")
     limit = PLAN_PRODUCT_LIMITS.get(plan, 100)
     current_count = await repo.count_by_org(auth["user_id"])
     if current_count >= limit:
@@ -44,7 +44,7 @@ async def create_product(repo: ProductRepository, auth: dict, payload: ProductCr
 async def update_product(
     repo: ProductRepository, auth: dict, product_id: str, payload: ProductUpdate
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.update(product_id, auth["user_id"], payload.model_dump(exclude_none=True))
     if record is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
@@ -52,7 +52,7 @@ async def update_product(
 
 
 async def delete_product(repo: ProductRepository, auth: dict, product_id: str) -> None:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     existing = await repo.get_by_id(product_id, auth["user_id"])
     if existing is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")

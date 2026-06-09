@@ -19,7 +19,7 @@ async def get_client(repo: ClientRepository, auth: dict, client_id: str) -> dict
 
 
 async def create_client(repo: ClientRepository, auth: dict, payload: ClientCreate) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.create(auth["user_id"], payload.model_dump())
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear el cliente")
@@ -29,7 +29,7 @@ async def create_client(repo: ClientRepository, auth: dict, payload: ClientCreat
 async def update_client(
     repo: ClientRepository, auth: dict, client_id: str, payload: ClientUpdate
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.update(client_id, auth["user_id"], payload.model_dump(exclude_none=True))
     if record is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -37,7 +37,7 @@ async def update_client(
 
 
 async def delete_client(repo: ClientRepository, auth: dict, client_id: str) -> None:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     existing = await repo.get_by_id(client_id, auth["user_id"])
     if existing is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")

@@ -14,7 +14,7 @@ async def list_purchases(repo: PurchaseRepository, auth: dict) -> list:
 async def create_purchase_operation(
     repo: PurchaseRepository, auth: dict, payload: PurchaseOperationIn
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     items = [item.model_dump() for item in payload.items]
     record = await repo.create_operation(
         auth["user_id"],

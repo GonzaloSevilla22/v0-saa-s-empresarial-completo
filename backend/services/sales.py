@@ -14,7 +14,7 @@ async def list_sales(repo: SalesRepository, auth: dict) -> list:
 async def create_sale_operation(
     repo: SalesRepository, auth: dict, payload: SaleOperationIn
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     items = [item.model_dump() for item in payload.items]
     record = await repo.create_operation(
         auth["user_id"],

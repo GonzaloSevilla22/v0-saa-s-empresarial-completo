@@ -19,7 +19,7 @@ async def get_branch(repo: BranchRepository, auth: dict, branch_id: str) -> dict
 
 
 async def create_branch(repo: BranchRepository, auth: dict, payload: BranchCreate) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.create(auth["user_id"], payload.model_dump())
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la sucursal")
@@ -29,7 +29,7 @@ async def create_branch(repo: BranchRepository, auth: dict, payload: BranchCreat
 async def update_branch(
     repo: BranchRepository, auth: dict, branch_id: str, payload: BranchUpdate
 ) -> dict:
-    require_role(auth, ["owner", "admin"])
+    require_role(auth, ["user", "admin"])
     record = await repo.update(branch_id, auth["user_id"], payload.model_dump(exclude_none=True))
     if record is None:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")

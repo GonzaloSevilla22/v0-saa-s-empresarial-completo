@@ -419,6 +419,94 @@ async def test_list_purchases_paginated_returns_items_with_product_fields(async_
     assert body["items"] == []
 
 
+async def test_list_sales_query_falls_back_to_header_for_rows_without_items(async_client, mock_pool):
+    """
+    Regresión incidente 2026-06-10: las ventas sin fila en sale_items (líneas de
+    servicio, no cubiertas por el backfill) salían del LEFT JOIN con
+    quantity/amount NULL y Pydantic devolvía 500. El SELECT debe hacer COALESCE
+    al header flat (poblado por la doble escritura) hasta el DROP (Grupo 10).
+    """
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    import datetime
+    import uuid
+
+    captured = {}
+
+    async def fetch_side_effect(query, *args):
+        captured["query"] = query
+        # Fila como la produce el COALESCE para una línea de servicio:
+        # product_id NULL pero quantity/amount del header (nunca NULL).
+        return [{
+            "id": uuid.UUID(SALE_ID_1),
+            "date": datetime.date(2026, 6, 10),
+            "product_id": None,
+            "client_id": None,
+            "operation_id": None,
+            "quantity": Decimal("1.0000"),
+            "amount": Decimal("500.00"),
+            "total": Decimal("500.00"),
+            "currency": "ARS",
+            "product_name": None,
+            "client_name": None,
+        }]
+
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    # Guardia del fallback: si alguien quita el COALESCE antes del DROP, esto rompe.
+    assert "COALESCE(si.quantity" in captured["query"]
+    assert "COALESCE(si.price" in captured["query"]
+    assert "COALESCE(si.product_id" in captured["query"]
+
+
+async def test_list_purchases_query_falls_back_to_header_for_rows_without_items(async_client, mock_pool):
+    """
+    Regresión incidente 2026-06-10 (espejo compras): ver test de ventas.
+    """
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    import datetime
+    import uuid
+
+    captured = {}
+
+    async def fetch_side_effect(query, *args):
+        captured["query"] = query
+        return [{
+            "id": uuid.UUID(SALE_ID_1),
+            "date": datetime.date(2026, 6, 10),
+            "product_id": None,
+            "operation_id": None,
+            "quantity": Decimal("1.0000"),
+            "amount": Decimal("250.00"),
+            "total": Decimal("250.00"),
+            "product_name": None,
+            "description": "servicio",
+        }]
+
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert "COALESCE(pi2.quantity" in captured["query"]
+    assert "COALESCE(pi2.price" in captured["query"]
+    assert "COALESCE(pi2.product_id" in captured["query"]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Group 7: Hook shape (TypeScript mapping — documented in Python contract tests)
 # ─────────────────────────────────────────────────────────────────────────────

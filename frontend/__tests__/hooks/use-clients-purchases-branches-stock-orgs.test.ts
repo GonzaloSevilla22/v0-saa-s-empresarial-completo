@@ -100,6 +100,74 @@ describe("useClients", () => {
     expect(pythonClient.get).toHaveBeenCalledTimes(2) // initial + after invalidation
   })
 
+  it("maps fiscal identity fields from API (C-22)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([
+      {
+        id: "c-2", user_id: "u-1", name: "ACME S.R.L.", email: null, phone: null,
+        tax_id: "30-71234567-1", iva_condition: "responsable_inscripto", legal_name: "ACME Sociedad",
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ])
+
+    const { result } = renderHook(() => useClients(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.clients[0]).toMatchObject({
+      taxId:        "30-71234567-1",
+      ivaCondition: "responsable_inscripto",
+      legalName:    "ACME Sociedad",
+    })
+  })
+
+  it("addClient sends fiscal fields in snake_case (C-22)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue([])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      id: "c-new", user_id: "u-1", name: "Juan", email: null, phone: null, created_at: "2026-01-15T00:00:00Z",
+    })
+
+    const { result } = renderHook(() => useClients(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.addClient({
+        name: "Juan", email: "", phone: "", status: "activo", lastPurchase: "-", totalSpent: 0,
+        taxId: "20-12345678-6", ivaCondition: "monotributista", legalName: "Juan Pérez",
+      })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith("/clients", expect.objectContaining({
+      tax_id:        "20-12345678-6",
+      iva_condition: "monotributista",
+      legal_name:    "Juan Pérez",
+    }))
+  })
+
+  it("updateClient sends fiscal fields in snake_case (C-22)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue([])
+    vi.mocked(pythonClient.put).mockResolvedValueOnce({
+      id: "c-1", user_id: "u-1", name: "Ana", email: null, phone: null, created_at: "2026-01-01T00:00:00Z",
+    })
+
+    const { result } = renderHook(() => useClients(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.updateClient({
+        id: "c-1", name: "Ana", email: "", phone: "", status: "activo", lastPurchase: "-", totalSpent: 0,
+        taxId: "30-71234567-1", ivaCondition: "exento", legalName: "Ana SA",
+      })
+    })
+
+    expect(pythonClient.put).toHaveBeenCalledWith("/clients/c-1", expect.objectContaining({
+      tax_id:        "30-71234567-1",
+      iva_condition: "exento",
+      legal_name:    "Ana SA",
+    }))
+  })
+
   it("deleteClient calls DELETE /clients/:id and re-fetches", async () => {
     vi.mocked(pythonClient.get).mockResolvedValue([])
     vi.mocked(pythonClient.delete).mockResolvedValueOnce(undefined)

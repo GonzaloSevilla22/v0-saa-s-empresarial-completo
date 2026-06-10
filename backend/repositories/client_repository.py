@@ -22,8 +22,8 @@ class ClientRepository(BaseRepository):
     async def create(self, user_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
         return await self.fetchrow(
             """
-            INSERT INTO clients (user_id, account_id, name, email, phone)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO clients (user_id, account_id, name, email, phone, tax_id, iva_condition, legal_name)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             """,
             user_id,
@@ -31,6 +31,9 @@ class ClientRepository(BaseRepository):
             data["name"],
             data.get("email"),
             data.get("phone"),
+            data.get("tax_id"),
+            data.get("iva_condition"),
+            data.get("legal_name"),
         )
 
     async def update(self, client_id: str, account_id: str, data: dict) -> asyncpg.Record | None:

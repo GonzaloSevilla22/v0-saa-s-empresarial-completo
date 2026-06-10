@@ -268,6 +268,12 @@ export interface Expense {
 
 export type ClientStatus = "activo" | "inactivo" | "perdido"
 
+export type IvaCondition =
+  | "responsable_inscripto"
+  | "monotributista"
+  | "exento"
+  | "consumidor_final"
+
 export interface Client {
   id: string
   name: string
@@ -277,6 +283,9 @@ export interface Client {
   lastPurchase: string
   totalSpent: number
   category?: string
+  taxId?: string
+  ivaCondition?: IvaCondition
+  legalName?: string
 }
 
 export type InsightPriority = "alta" | "media" | "baja"

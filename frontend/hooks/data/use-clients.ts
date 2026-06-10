@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import type { Client } from "@/lib/types"
+import type { Client, IvaCondition } from "@/lib/types"
 
 // ── Types for API responses ───────────────────────────────────────────────────
 
@@ -14,6 +14,9 @@ interface ClientApiRow {
   name: string
   email: string | null
   phone: string | null
+  tax_id?: string | null
+  iva_condition?: IvaCondition | null
+  legal_name?: string | null
   created_at: string
 }
 
@@ -27,6 +30,9 @@ function mapClient(c: ClientApiRow): Client {
     lastPurchase: "-",
     totalSpent:   0,
     category:     undefined,
+    taxId:        c.tax_id       || undefined,
+    ivaCondition: c.iva_condition || undefined,
+    legalName:    c.legal_name   || undefined,
   }
 }
 
@@ -50,9 +56,12 @@ export function useClients() {
   const addClientMutation = useMutation({
     mutationFn: async (client: Omit<Client, "id">) => {
       return pythonClient.post<ClientApiRow>("/clients", {
-        name:  client.name,
-        email: client.email   || null,
-        phone: client.phone   || null,
+        name:          client.name,
+        email:         client.email        || null,
+        phone:         client.phone        || null,
+        tax_id:        client.taxId        || null,
+        iva_condition: client.ivaCondition || null,
+        legal_name:    client.legalName    || null,
       })
     },
     onSuccess: () => {
@@ -63,9 +72,12 @@ export function useClients() {
   const updateClientMutation = useMutation({
     mutationFn: async (client: Client) => {
       return pythonClient.put<ClientApiRow>(`/clients/${client.id}`, {
-        name:  client.name,
-        email: client.email  || null,
-        phone: client.phone  || null,
+        name:          client.name,
+        email:         client.email        || null,
+        phone:         client.phone        || null,
+        tax_id:        client.taxId        || null,
+        iva_condition: client.ivaCondition || null,
+        legal_name:    client.legalName    || null,
       })
     },
     onSuccess: () => {

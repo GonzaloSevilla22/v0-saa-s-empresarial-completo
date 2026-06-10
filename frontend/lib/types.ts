@@ -163,6 +163,7 @@ export interface User {
   avatar?: string          // URL from storage bucket
   businessName?: string
   phone?: string
+  locality?: string
   bio?: string
   // ── System preferences (editable) ─────────────────────────────────────────
   currency: string         // 'ARS' | 'USD' | 'EUR' | 'BRL' | 'CLP'

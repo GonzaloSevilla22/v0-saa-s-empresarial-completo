@@ -40,6 +40,21 @@ ALTER TABLE public.sale_items ALTER COLUMN quantity TYPE numeric(15,4) USING qua
 ALTER TABLE public.sale_items
   ADD COLUMN IF NOT EXISTS subtotal numeric NOT NULL DEFAULT 0;
 
+-- Agregar unit_id en sales y purchases (fue aplicado via MCP en el stub
+-- 20260509214856_etapa3_unit_id_on_operations.sql que dejó solo un comentario;
+-- columna ausente en la cadena CI). En prod ya existe (uuid nullable). No-op.
+ALTER TABLE public.sales
+  ADD COLUMN IF NOT EXISTS unit_id uuid REFERENCES public.units_of_measure(id) ON DELETE SET NULL;
+
+-- Columnas de units_of_measure ausentes en el stub 20260517000000 pero presentes
+-- en prod (type, factor, base_unit_id — también creados via MCP stubs).
+-- No-op en prod con IF NOT EXISTS; necesarias para que los RPCs v2 funcionen
+-- en runtime en el entorno CI.
+ALTER TABLE public.units_of_measure
+  ADD COLUMN IF NOT EXISTS type         text,
+  ADD COLUMN IF NOT EXISTS factor       numeric NOT NULL DEFAULT 1.0,
+  ADD COLUMN IF NOT EXISTS base_unit_id uuid;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1.2 ALTER TABLE purchase_items (simétrico)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +71,11 @@ ALTER TABLE public.purchase_items ALTER COLUMN quantity TYPE numeric(15,4) USING
 -- Agregar subtotal (mismo drift que sale_items — columna en prod, ausente en el stub).
 ALTER TABLE public.purchase_items
   ADD COLUMN IF NOT EXISTS subtotal numeric NOT NULL DEFAULT 0;
+
+-- Agregar unit_id en purchases (mismo stub drift que sales).
+ALTER TABLE public.purchases
+  ADD COLUMN IF NOT EXISTS unit_id uuid REFERENCES public.units_of_measure(id) ON DELETE SET NULL;
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1.3 Índices únicos parciales para idempotencia del backfill

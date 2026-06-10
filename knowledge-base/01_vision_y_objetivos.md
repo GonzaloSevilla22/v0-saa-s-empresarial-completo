@@ -82,6 +82,19 @@ Este es el evento central que valida que el sistema entregó valor real.
 - **Deployado en producción**: Vercel + Supabase
 - **Usuarios reales activos**: Sí
 - **Plan activo durante beta**: todos los usuarios tienen plan `pro` (sin restricciones)
-- **Próximo hito**: estabilizar el MVP (fix bugs) + integrar billing real + activar planes
+- **Próximo hito**: implementar el modelo de dominio V2 — Fase V2.0 retirada de deuda (billing, multi-tenant y backend Python ya completados en Fases 1-5 de CHANGES.md)
 - **URL**: https://v0-saa-s-empresarial-completo-eie.vercel.app/
 - **Repo**: https://github.com/GonzaloSevilla22/v0-saa-s-empresarial-completo
+
+---
+
+## Evolución V2 — Aliadata ERP (decidido 2026-06-09)
+
+El PO adoptó el **modelo de dominio V2** (`modelo-dominio-aliadata-v2.md`, validado en `openspec/explore/2026-06-09-modelo-dominio-v2.md`), que reposiciona el producto:
+
+- **Mercado objetivo ampliado**: de microemprendedores de Mendoza a **PyMEs argentinas** (referentes: Odoo, ERPNext, SAP Business One).
+- **Core domain corregido**: el ERP operativo confiable (ventas, stock, compras, caja, fiscal AR) ES el core. La IA pasa a Supporting Domain — es la razón por la que el cliente *renueva*, no por la que *compra*.
+- **Diferenciador**: "un ERP argentino que factura, no pierde stock y cierra la caja todos los días" — la facturación AFIP deja de estar fuera de alcance (va en V2.1, ver DEC-22).
+- **Roadmap V2**: V2.0 retirada de deuda → V2.1 operación (Branch, AFIP, CashSession, Quote, ctas ctes) → V2.5 finanzas → V3 inteligencia. Ver CHANGES.md.
+
+> Pendiente de definición explícita: naming (EmprendeSmart vs Aliadata) y si el reposicionamiento a PyMEs reemplaza o amplía el segmento original — ver PA-23 en `10_preguntas_abiertas.md`.

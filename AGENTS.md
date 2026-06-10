@@ -54,6 +54,7 @@ Leé estos archivos antes de cualquier change. Son la fuente de verdad del siste
 | 08 | [knowledge-base/08_arquitectura_propuesta.md](knowledge-base/08_arquitectura_propuesta.md) | BaaS pattern, Server/Client, seguridad. |
 | 09 | [knowledge-base/09_decisiones_y_supuestos.md](knowledge-base/09_decisiones_y_supuestos.md) | 15 decisiones + 7 supuestos (incl. DEC-12..15 backend Python) — leer antes de proponer. |
 | 10 | [knowledge-base/10_preguntas_abiertas.md](knowledge-base/10_preguntas_abiertas.md) | Inconsistencias conocidas — revisá antes de implementar. |
+| — | [modelo-dominio-aliadata-v2.md](modelo-dominio-aliadata-v2.md) | Modelo de dominio V2 adoptado (2026-06-09). Leer antes de cualquier change V2 (C-19+), junto a `openspec/explore/2026-06-09-modelo-dominio-v2.md`. |
 
 ---
 
@@ -91,17 +92,21 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 
 ## Roadmap de Changes
 
-> Fuente: [CHANGES.md](CHANGES.md) — 18 changes en 5 fases. **Fases 1-4 (C-01→C-14) completadas.** El **scaffolding del backend** (FastAPI + auth JWT + WebSocket + monorepo) ya está hecho y archivado (`fastapi-backend-monorepo`, 2026-06-06). Fase 5 (resto de la migración) es el trabajo activo.
+> Fuente: [CHANGES.md](CHANGES.md) — 30 changes en 7 fases. **Fases 1-5 (C-01→C-18) completadas** (backend Python en producción desde 2026-06-07). El PO adoptó el **modelo de dominio V2** (`modelo-dominio-aliadata-v2.md`, 2026-06-09; validado en `openspec/explore/2026-06-09-modelo-dominio-v2.md`): la Fase 6 (V2.0 retirada de deuda) es el trabajo activo. **Regla dura: ninguna feature nueva sobre tablas en retirada (RN-97, `knowledge-base/05`).**
 
-### Primer change recomendado (activo)
-**`C-15 backend-data-layer`** — Agregar al backend ya scaffoldeado el pool `asyncpg` + JWT-passthrough a RLS + repositories base. Es el prerequisito real de C-16. Ver `knowledge-base/08` §Backend Python.
+### Próximo change recomendado (activo)
+**`C-22 v20-fiscal-identity-clients`** [BAJO, S] — Identidad fiscal opcional en `clients`: `tax_id` (CUIT/DNI), `iva_condition`, `legal_name` + validación de CUIT (dígito verificador módulo 11) + UI "Datos fiscales" + schemas Pydantic. Sin dependencias ni preguntas abiertas; prerequisito de C-27 (AFIP).
 
-### Camino crítico de la migración (Fase 5)
+> **C-19 `v20-tenancy-cleanup` ✅ completado y archivado (2026-06-09).** C-20/C-21/C-25 quedaron desbloqueados pero esperan respuestas del PO: PA-20 (variantes en backfill de `sale_items`), PA-19 (filas de `warehouses`) y PA-21 (scope del outbox) — `knowledge-base/10`.
+
+### Camino crítico (Fases 6-7)
 ```
-C-15 backend-data-layer → C-16 backend-data-api-migration → ┬ C-17 backend-payments-migration (CRÍTICO)
-                                                            └ C-18 frontend-decouple-datacontext
+C-19 tenancy-cleanup ─┬→ C-20 sale-items ────────→ C-29 quote-salesorder → C-30 ctas-corrientes
+                      ├→ C-21 inventory-unif ────→ C-26 branch-as-root ─┬→ C-27 fiscal-profile (AFIP, CRÍTICO)
+                      ├→ C-24 insights-unif                             └→ C-28 cash-session
+                      └→ C-25 outbox-activation
+C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e independientes
 ```
-> Realtime se mantiene en Supabase (DEC-16); no se migra a WebSocket. El WS del backend queda como infra futura.
 
 ### Fases
 | Fase | Changes | Estado | Descripción |
@@ -110,7 +115,10 @@ C-15 backend-data-layer → C-16 backend-data-api-migration → ┬ C-17 backend
 | 2 — IA | C-04, C-11, C-12, C-13 | ✅ | Contadores IA split + rentabilidad + reportes comparativos + sugerencia precios |
 | 3 — Multi-tenant | C-05, C-06, C-07, C-08 | ✅ | Arquitectura multi-usuario + roles + sucursales + stock multisucursal |
 | 4 — Upgrade UX | C-10, C-14 | ✅ | UI de upgrade de plan + módulo de exportaciones |
-| 5 — Backend Python | C-15, C-16, C-17, C-18 | 🔜 | Capa de datos + migración API + pagos + desacople DataContext (scaffolding ya archivado; realtime queda en Supabase) |
+| 5 — Backend Python | C-15, C-16, C-17, C-18 | ✅ | Capa de datos + migración API + pagos + desacople DataContext (realtime queda en Supabase, DEC-16) |
+| 6 — V2.0 Retirada de deuda | C-19 → C-25 | 🔨 C-19 ✅ | Tenancy única, sale_items, ledger único de stock + Branch "Casa Central", FiscalIdentity en clientes, schema community, insights unificados, outbox activo |
+| 7 — V2.1 Operación | C-26 → C-30 | ⏳ | Branch como root, FiscalProfile + AFIP (CAE async), CashSession con arqueo, Quote/SalesOrder + quickSale POS, cuentas corrientes |
+| Futuras | V2.5 / V3 | ⏳ | Finanzas (BankReconciliation, JournalEntry, CostCenter UI, percepciones) / Inteligencia (AIAgent, KnowledgeBase, automatizaciones) |
 
 ---
 

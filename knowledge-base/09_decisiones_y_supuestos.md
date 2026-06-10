@@ -91,6 +91,42 @@
 **Descartado**: migrar todo a WebSocket Python — exigiría un proceso always-on (Render paid $7/mo), reimplementar el filtrado por room (riesgo de fuga cross-tenant) y mucho código nuevo, todo para cero beneficio incremental hoy. Decisión del usuario el 2026-06-07 (revierte la propuesta inicial de migrar a WS).
 **Revisión**: Reconsiderar la mezcla (Supabase + WS Python) solo si aparece una necesidad real que Supabase no cubra: presencia/"está escribiendo", mensajes efímeros que no deben tocar la DB, o latencia sub-segundo.
 
+### DEC-17 — Adoptar el modelo de dominio V2 (monolito modular, deuda primero)
+**Decisión**: Adoptar `modelo-dominio-aliadata-v2.md` como modelo de dominio objetivo: 8 módulos en un monolito modular, ERP operativo como core domain, roadmap V2.0 (retirada de deuda H1–H7) → V2.1 (operación) → V2.5 (finanzas) → V3 (inteligencia). La retirada de deuda es prerequisito de toda construcción nueva.
+**Justificación**: El esquema real acumula tres generaciones de modelo sin retirar las anteriores (triple tenancy, doble ledger de inventario, venta plana + ítems). Cada feature nueva debe decidir contra qué generación escribir — congela velocidad.
+**Trade-off aceptado**: ~16–20 días de trabajo de migración antes de features nuevas visibles.
+**Fecha**: 2026-06-09. Validado contra la DB real en `openspec/explore/2026-06-09-modelo-dominio-v2.md`.
+
+### DEC-18 — Customer/Supplier separados (no Party)
+**Decisión**: Agregados `Customer` y `Supplier` independientes, con `FiscalIdentity` como Value Object compartido (Shared Kernel) y `counterpartRef` para el caso dual "me compra y me vende".
+**Justificación**: Party castiga el 100% de queries, formularios, permisos y reportes para optimizar un caso minoritario (solapamiento real medido ~0%: 1.101 clientes, proveedores de un dígito). ERPNext usa el mismo diseño.
+**Revisión**: si el solapamiento supera ~20% de terceros activos, evaluar extracción de `FiscalIdentity` a tabla común.
+
+### DEC-19 — Branch como Aggregate Root; stock por (product, branch)
+**Decisión**: `Branch` es root de primer nivel; todo documento operativo lleva `branch_id` obligatorio (Branch "Casa Central" en onboarding, oculta si hay una sola); el stock vive en `branch_stock` por `(product, branch)` como única fuente de verdad; `products.stock` se retira (total = Σ, como vista).
+**Justificación**: El hack del dual-ledger (H4) existe porque el modelo no le dio a la sucursal el lugar que la operación exige. De paso elimina el hot-row de `products.stock` a escala.
+
+### DEC-20 — Consistencia transaccional en el hot path; outbox para el resto
+**Decisión**: Venta+stock+caja+numeración fiscal en la misma transacción; contabilidad/reporting/audit/IA/email vía outbox (tabla `events`). Sin event sourcing, sin broker, sin microservicios.
+**Justificación**: "No vender lo que no hay" es invariante de negocio, no UX optimista. La coreografía asíncrona entre Sales e Inventory en un monolito es complejidad sin beneficio con costo real (stock fantasma).
+**Reemplaza**: la propuesta v1 de eventos asíncronos entre Sales e Inventory.
+
+### DEC-21 — IA degradada a Supporting Domain
+**Decisión**: El modelo V1 de IA queda reducido a `AIConversation` (con discriminador `conversation_kind`), `Insight` unificado y `DocumentExtraction` (OCR existente). Se eliminan de V1/V2: `AIAgent` configurable, `AICreditWallet`, `KnowledgeBase`/`Embedding`. `AIAgent` nace en V3 cuando tenga invariantes reales.
+**Justificación**: Test de supervivencia (sin IA hay producto; sin ERP no), test de cheque (la PyME paga por facturar/stock/cobrar; renueva por insights), y el uso real ya votó (lo usado es IA de soporte a procesos ERP).
+**Complementa**: DEC-15 (IA/OCR siguen en Edge Functions).
+
+### DEC-22 — AFIP va en V2.1 (no postergable)
+**Decisión**: `FiscalProfile` + `FiscalDocument` + `DocumentSequence` + adaptador WSFE entran en V2.1. CAE asíncrono (`pending_cae` con reintento) para no atar el hot path al uptime de AFIP.
+**Justificación**: En Argentina la facturación electrónica es condición de existencia del producto: sin comprobante válido la PyME usaría Aliadata *además de* su facturador, no *en lugar de*.
+**Revierte**: la postergación "post-validación" de la tabla de decisiones postergadas.
+**Governance**: CRÍTICO (facturación real).
+
+### DEC-23 — V2.0 incluye el refactor de tenancy del backend Python y las Edge Functions
+**Decisión**: `v20-tenancy-cleanup` incluye en su scope el refactor del backend FastAPI (118 ocurrencias de `user_id` en 7 repositories) y de las 11 Edge Functions que filtran por `user_id`, además de las migraciones de DB.
+**Justificación**: La Fase 5 (C-15→C-18) ya está completada y en producción — el documento V2 asumía un codebase sin backend Python. Si V2.0 dropea las columnas legacy sin refactorizar el backend primero, el backend se rompe en producción. La deuda de código es tan real como la de esquema.
+**Pendiente**: decidir si va como change atómico o sub-change paralelo con feature flag (PA-16).
+
 ---
 
 ## Supuestos Documentados
@@ -135,6 +171,6 @@
 | Pasarela de pagos real (Stripe/MercadoPago) | Priorizar validar UMV y retención antes de monetización formal | Cuando conversión free→pro supere umbral consistente 2-3 meses |
 | Data Warehouse / OLAP separado | Volumen no justifica separación OLTP/OLAP | Cuando volumen afecte performance o se requieran cohortes multi-anuales complejas |
 | App mobile nativa (iOS/Android) | Web responsive es suficiente para MVP | Cuando tracción y feedback lo justifiquen |
-| Facturación electrónica AFIP | Alta complejidad técnica y legal, fuera del problema central | En fase post-validación si hay demanda clara |
+| ~~Facturación electrónica AFIP~~ → **adelantada a V2.1** | Revertido por DEC-22: sin comprobante válido no hay producto para PyMEs | Va en V2.1 con CAE asíncrono |
 | OAuth (Google login) | Aumenta complejidad de auth | Cuando tasa de abandono en registro sea > 30% |
 | Sistema de roles avanzado (moderador, soporte) | El equipo actual es pequeño, admin cubre todo | Cuando el equipo de soporte crezca |

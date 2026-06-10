@@ -5,11 +5,15 @@
   "roadmap": {
     "created_by": "roadmap-generator",
     "source": "CHANGES.md",
+    "updated": "2026-06-09",
     "changes": [
       "C-01", "C-02", "C-03", "C-04", "C-05",
       "C-06", "C-07", "C-08", "C-09", "C-10",
       "C-11", "C-12", "C-13", "C-14",
-      "C-15", "C-16", "C-17", "C-18"
+      "C-15", "C-16", "C-17", "C-18",
+      "C-19", "C-20", "C-21", "C-22", "C-23",
+      "C-24", "C-25",
+      "C-26", "C-27", "C-28", "C-29", "C-30"
     ]
   },
   "skills": {
@@ -51,6 +55,22 @@
   "kb": {
     "created_by": "kb-creator",
     "source": "interactive",
+    "last_ingest": {
+      "date": "2026-06-09",
+      "sources": [
+        "modelo-dominio-aliadata-v2.md",
+        "openspec/explore/2026-06-09-modelo-dominio-v2.md"
+      ],
+      "files_updated": [
+        "knowledge-base/01_vision_y_objetivos.md",
+        "knowledge-base/04_modelo_de_datos.md",
+        "knowledge-base/05_reglas_de_negocio.md",
+        "knowledge-base/06_funcionalidades.md",
+        "knowledge-base/08_arquitectura_propuesta.md",
+        "knowledge-base/09_decisiones_y_supuestos.md",
+        "knowledge-base/10_preguntas_abiertas.md"
+      ]
+    },
     "discovery": {
       "system_type": "SaaS B2C — fintech / gestión para microemprendedores",
       "domain": "finanzas, inventario, IA de negocio, comunidad, educación",

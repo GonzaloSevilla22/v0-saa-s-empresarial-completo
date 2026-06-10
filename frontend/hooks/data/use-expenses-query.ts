@@ -9,7 +9,8 @@ import type { Expense } from "@/lib/types"
 
 interface ExpenseApiRow {
   id: string
-  user_id: string
+  account_id: string
+  user_id?: string
   category: string
   amount: string | number
   description: string | null

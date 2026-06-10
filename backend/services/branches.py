@@ -7,30 +7,30 @@ from backend.repositories.branch_repository import BranchRepository
 from backend.schemas.branches import BranchCreate, BranchUpdate
 
 
-async def list_branches(repo: BranchRepository, auth: dict) -> list:
-    return await repo.list_by_org(auth["user_id"])
+async def list_branches(repo: BranchRepository, account_id: str) -> list:
+    return await repo.list_by_org(account_id)
 
 
-async def get_branch(repo: BranchRepository, auth: dict, branch_id: str) -> dict:
-    record = await repo.get_by_id(branch_id, auth["user_id"])
+async def get_branch(repo: BranchRepository, account_id: str, branch_id: str) -> dict:
+    record = await repo.get_by_id(branch_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")
     return dict(record)
 
 
-async def create_branch(repo: BranchRepository, auth: dict, payload: BranchCreate) -> dict:
+async def create_branch(repo: BranchRepository, auth: dict, account_id: str, payload: BranchCreate) -> dict:
     require_role(auth, ["user", "admin"])
-    record = await repo.create(auth["user_id"], payload.model_dump())
+    record = await repo.create(account_id, payload.model_dump())
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la sucursal")
     return dict(record)
 
 
 async def update_branch(
-    repo: BranchRepository, auth: dict, branch_id: str, payload: BranchUpdate
+    repo: BranchRepository, auth: dict, account_id: str, branch_id: str, payload: BranchUpdate
 ) -> dict:
     require_role(auth, ["user", "admin"])
-    record = await repo.update(branch_id, auth["user_id"], payload.model_dump(exclude_none=True))
+    record = await repo.update(branch_id, account_id, payload.model_dump(exclude_none=True))
     if record is None:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")
     return dict(record)

@@ -107,6 +107,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'No autorizado' }, 401)
     }
 
+    // Resolve account_id for tenancy-aware queries (C-19)
+    const { data: memberData, error: memberErr } = await supabase
+      .from('account_members')
+      .select('account_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (memberErr || !memberData) {
+      console.error('[ai-precio] No active account for user:', user.id)
+      return jsonResponse({ ok: false, error: 'No se encontró cuenta activa' }, 403)
+    }
+    const accountId = memberData.account_id
+
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openAiKey) {
       return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY' }, 500)
@@ -166,7 +179,7 @@ Deno.serve(async (req) => {
       .from('products')
       .select('id, name, price, cost')
       .eq('id', productId)
-      .eq('user_id', user.id)
+      .eq('account_id', accountId)
       .single()
 
     if (productErr || !product) {
@@ -185,7 +198,7 @@ Deno.serve(async (req) => {
       .from('sales')
       .select('amount, quantity, date')
       .eq('product_id', productId)
-      .eq('user_id', user.id)
+      .eq('account_id', accountId)
       .gte('date', cutoff.toISOString().slice(0, 10))
 
     if (salesErr) {

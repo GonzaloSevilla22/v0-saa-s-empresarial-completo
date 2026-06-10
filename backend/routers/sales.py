@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import uuid
+
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from backend.core.auth import get_current_user
-from backend.core.database import get_db_conn
+from backend.core.database import get_account_id, get_db_conn
 from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import SaleOperationIn, SaleOperationOut, SalesPageOut
 from backend.services import sales as sales_service
@@ -23,10 +25,11 @@ async def list_sales(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
 ):
     return await sales_service.list_sales_paginated(
-        repo, auth, page, page_size, date_from, date_to,
+        repo, str(account_id), page, page_size, date_from, date_to,
     )
 
 
@@ -34,6 +37,7 @@ async def list_sales(
 async def create_sale(
     payload: SaleOperationIn,
     auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
 ):
-    return await sales_service.create_sale_operation(repo, auth, payload)
+    return await sales_service.create_sale_operation(repo, auth, str(account_id), payload)

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import uuid
+
 import asyncpg
 from fastapi import APIRouter, Depends
 
 from backend.core.auth import get_current_user
-from backend.core.database import get_db_conn
+from backend.core.database import get_account_id, get_db_conn
 from backend.repositories.stock_repository import StockRepository
 from backend.schemas.stock import StockOut, StockTransferRequest
 from backend.services import stock as stock_service
@@ -20,18 +22,20 @@ def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> StockRepository
 async def get_stock(
     product_id: str,
     auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
     repo: StockRepository = Depends(get_repo),
 ):
-    return await stock_service.get_stock(repo, auth, product_id)
+    return await stock_service.get_stock(repo, str(account_id), product_id)
 
 
 @router.get("/movements/{product_id}")
 async def list_movements(
     product_id: str,
     auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
     repo: StockRepository = Depends(get_repo),
 ):
-    return await stock_service.list_movements(repo, auth, product_id)
+    return await stock_service.list_movements(repo, str(account_id), product_id)
 
 
 @router.post("/transfer", status_code=200)

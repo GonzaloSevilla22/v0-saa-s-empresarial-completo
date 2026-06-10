@@ -9,7 +9,8 @@ import type { Product } from "@/lib/types"
 
 interface ProductApiRow {
   id: string
-  user_id: string
+  account_id: string
+  user_id?: string
   name: string
   category: string | null
   price: string | number | null

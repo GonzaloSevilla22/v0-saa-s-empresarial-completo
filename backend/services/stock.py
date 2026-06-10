@@ -7,15 +7,15 @@ from backend.repositories.stock_repository import StockRepository
 from backend.schemas.stock import StockTransferRequest
 
 
-async def get_stock(repo: StockRepository, auth: dict, product_id: str) -> dict:
-    record = await repo.get_stock_by_product(product_id, auth["user_id"])
+async def get_stock(repo: StockRepository, account_id: str, product_id: str) -> dict:
+    record = await repo.get_stock_by_product(product_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     return {"product_id": product_id, "stock": record["stock"]}
 
 
-async def list_movements(repo: StockRepository, auth: dict, product_id: str) -> list:
-    return await repo.list_movements(product_id, auth["user_id"])
+async def list_movements(repo: StockRepository, account_id: str, product_id: str) -> list:
+    return await repo.list_movements(product_id, account_id)
 
 
 async def transfer_stock(

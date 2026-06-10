@@ -9,7 +9,8 @@ import type { Client } from "@/lib/types"
 
 interface ClientApiRow {
   id: string
-  user_id: string
+  account_id: string
+  user_id?: string
   name: string
   email: string | null
   phone: string | null

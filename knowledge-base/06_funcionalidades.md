@@ -216,3 +216,18 @@
 | Admin Métricas | ✅ Funcional |
 | Billing / Planes | ❌ No implementado (beta all-pro) |
 | Período de gracia 60d | ❌ No implementado |
+
+> ⚠️ Tabla de estado previa a las Fases 1-5 de CHANGES.md: billing (Fase 1), IA split (Fase 2), multi-tenant/roles/sucursales (Fase 3), upgrade UX/exportaciones (Fase 4) y backend Python (Fase 5) ya están completados.
+
+---
+
+## Épicas V2 (planificadas — modelo de dominio V2, adoptado 2026-06-09)
+
+> Fuente: `modelo-dominio-aliadata-v2.md` §10.4 + descomposición de la exploración `openspec/explore/2026-06-09-modelo-dominio-v2.md`.
+
+| Fase | Contenido | Changes |
+|---|---|---|
+| **V2.0 — Retirada de deuda** | Tenancy única (incluye refactor del backend Python + 11 Edge Functions), `sale_items`/`purchase_items` como única fuente, ledger único de stock + Branch "Casa Central", FiscalIdentity en clientes, schema `community` separado, insights unificados, outbox activo | `v20-tenancy-cleanup`, `v20-sale-items-migration`, `v20-inventory-unification`, `v20-fiscal-identity-clients`, `v20-community-schema-split`, `v20-insights-unification`, `v20-outbox-activation` |
+| **V2.1 — Operación** | Branch como Aggregate Root + transferencias, FiscalProfile + AFIP/FiscalDocument (CAE async), CashSession con arqueo, Quote → SalesOrder + `quickSale()` POS, cuentas corrientes cliente/proveedor | `v21-branch-as-root`, `v21-fiscal-profile`, `v21-cash-session`, `v21-quote-salesorder`, `v21-customer-supplier-accounts` |
+| **V2.5 — Finanzas** | BankReconciliation, JournalEntry automático vía outbox, CostCenter con UI, percepciones/retenciones | (a definir) |
+| **V3 — Inteligencia** | AIAgent con casos de uso reales, KnowledgeBase, automatizaciones, predicción | (a definir) |

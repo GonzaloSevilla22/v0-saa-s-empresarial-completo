@@ -102,3 +102,36 @@ El sender de emails es `"ALIADATA Emprendedores <onboarding@resend.dev>"` pero e
 
 ### INC-04 — `create-sale` y `create-purchase` Edge Functions vs RPCs
 Existen Edge Functions `create-sale/index.ts` y `create-purchase/index.ts` Y también las RPCs `rpc_create_operation_aggregate`. ¿Cuál se usa actualmente? ¿Las Edge Functions son legacy reemplazadas por las RPCs? ¿Hay duplicación de lógica?
+
+---
+
+## Preguntas del Modelo V2 (exploración 2026-06-09)
+
+> Surgidas al validar `modelo-dominio-aliadata-v2.md` contra la DB real (`openspec/explore/2026-06-09-modelo-dominio-v2.md`). Bloquean decisiones de diseño de los changes V2.0/V2.1.
+
+### ~~PA-16 — Refactor del backend Python: ¿dentro de `v20-tenancy-cleanup` o change separado?~~ ✅ RESUELTA
+**Resuelto:** 2026-06-09 — PO confirmó scope **atómico dentro de `v20-tenancy-cleanup`**.  
+El refactor del backend Python (118 ocurrencias `user_id` en 7 repositorios) + las 11 Edge Functions van en el mismo change. No hay sub-change paralelo ni feature flag.
+
+### ~~PA-17 — ¿Ventana de mantenimiento o zero-downtime estricto?~~ ✅ RESUELTA
+**Resuelto:** 2026-06-09 — PO confirmó **zero-downtime estricto**.  
+Estrategia: patrón Strangler Fig (columna nueva → backfill → migrar lecturas → drop viejo). Vistas de compatibilidad temporales requeridas en los pasos de backfill.
+
+### ~~PA-18 — Las 6 filas de `companies` (+5 de `company_users`)~~ ✅ RESUELTA
+**Resuelto:** 2026-06-09 — PO confirmó que son **organizaciones reales** de una versión anterior.  
+El paso 1 de §7 debe mapear esas filas a `accounts` antes de hacer el drop de `company_id`.
+
+### PA-19 — Las 6 filas de `warehouses`
+El documento V2 asumía la tabla vacía. ¿Depósitos reales de algún tenant o datos de prueba? Define si el paso 3 preserva o descarta esos datos.
+
+### PA-20 — Variantes en el backfill de `sale_items`
+Las 128 ventas legacy tienen `product_id` en el header pero `sale_items` referencia `variant_id`. ¿Se crea variante por defecto por producto o se acepta `variant_id NULL`? Define el contrato definitivo de `sale_items`.
+
+### PA-21 — Scope del outbox en V2.0
+¿Solo consumer de AuditLog, o también reporting e insights de IA? Más valor inmediato vs. más scope (D6 de la exploración).
+
+### PA-22 — AFIP V2.1: ¿homologación o producción?
+Si es producción con facturas reales: certificado digital + alta de punto de venta AFIP están en el camino crítico y no son bloqueables por código.
+
+### PA-23 — Naming y reposicionamiento
+El doc V2 habla de "Aliadata" y "PyMEs argentinas"; la KB habla de "EmprendeSmart" y "microemprendedores de Mendoza" (relacionado: INC-03). ¿El reposicionamiento reemplaza o amplía el segmento original? ¿Cuál es el nombre canónico del producto?

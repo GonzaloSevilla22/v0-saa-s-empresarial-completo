@@ -1,5 +1,51 @@
 # 04 — Modelo de Datos
 
+> ⚠️ **Modelo en transición (junio 2026):** el PO adoptó el **modelo de dominio V2** (`modelo-dominio-aliadata-v2.md`, validado contra la DB real en `openspec/explore/2026-06-09-modelo-dominio-v2.md`). Las secciones siguientes resumen la auditoría verificada, las estructuras en retirada y el modelo objetivo. El resto del archivo documenta el estado actual (parcial: la DB real tiene **55 tablas**; acá está el subconjunto principal y faltan las generaciones multi-tenant `accounts`/`account_members`, `branch_stock`, `sale_items`, etc.).
+> **Regla dura: ninguna feature nueva sobre tablas en retirada.**
+
+## Auditoría del esquema real (hallazgos verificados 2026-06-09)
+
+| # | Hallazgo | Evidencia verificada por SQL | Severidad |
+|---|---|---|---|
+| H1 | Triple clave de tenancy | `sales`/`purchases`/`products`/`expenses`/`clients` tienen `user_id` + `company_id` + `account_id`. `companies` (6 filas) y `company_users` (5) casi muertas. Las RLS activas ya usan solo `account_id` (`current_account_ids()`). **`suppliers` solo tiene `company_id`** — hueco de tenancy. | 🔴 |
+| H2 | Doble ledger de inventario | Sistema A (activo): `stock_movements` 492, `branch_stock` 2.249. Sistema B (semi-muerto): `inventory_stock` 19, `inventory_movements` 22, **`warehouses` 6 (no 0)**, `product_variants` 56. | 🔴 |
+| H3 | Venta plana + venta con ítems | 128/129 ventas con `product_id` en header; `sale_items` 23 filas (referencia `variant_id`, no `product_id`). `purchases` 181/184 planas; `purchase_items` 18. | 🔴 |
+| H4 | Dual-ledger por sucursal | Comentario literal en schema de `branch_stock`: "when a sale or purchase has branch_id, this table is updated instead of products.stock". | 🔴 |
+| H5 | Cliente sin identidad fiscal | `clients` sin `tax_id`/CUIT; `suppliers` sí tiene `tax_id` pero sin `account_id`. | 🟠 |
+| H6 | Scope creep | 14+ tablas de comunidad/verticals en `public` (mayoría vacías; `courses` 6, `course_enrollments` 4). | 🟠 |
+| H7 | Insights duplicados | `insights` 427 filas (`content`+`actionable`, sin `account_id`) vs `ai_insights` 726 (`message`+`priority`, con `account_id`) — schemas distintos. | 🟡 |
+| H8 | Bien hecho — conservar | `operation_idempotency` (23), `plan_limits` (4), `billing_events` (52), **`events` outbox existe con 0 filas (lista, sin wiring)**, `audit_logs` 0, RLS al 100%. | ✅ |
+
+## Estructuras en retirada (V2.0)
+
+| Estructura legacy | Reemplazo V2 | Dependencias de código a refactorizar |
+|---|---|---|
+| `user_id`/`company_id` como tenancy | `account_id` única clave (concepto: `organization_id`) | Backend Python: 118 ocurrencias en 7 repositories; 11 Edge Functions; 4 hooks frontend |
+| `sales`/`purchases` planas (`product_id`,`amount`,`quantity` en header) | `sale_items`/`purchase_items` única fuente | `use-sales.ts`, `sales_repository.py`, EFs `ai-insights`/`ai-precio`, RPC `rpc_create_sale_operation` |
+| `products.stock` columna mutable | `branch_stock` por `(product, branch)`; total = Σ (vista) | 15 archivos frontend + `stock_repository.py` |
+| `inventory_stock`/`inventory_movements`/`warehouses` | ledger `branch_stock` + `stock_movements` | Solo `database.types.ts` (sin consumidores activos); migrar datos |
+| `insights` legacy | unificada con `ai_insights` | Frontend + EFs que escriben/leen insights |
+| Tablas comunidad/verticals en `public` | schema `community` separado | Query paths + RLS recreadas |
+| `companies`/`company_users` | drop (tras auditar las 6+5 filas — PA-18) | — |
+
+## Modelo objetivo V2 (8 módulos — monolito modular)
+
+| Módulo | Agregados / entidades clave |
+|---|---|
+| 1. Organization & Identity | Organization (+FiscalProfile), **Branch (root)**, UserAccount, Membership (`allowedBranches`) |
+| 2. Billing SaaS | Plan (=`plan_limits`), Subscription, BillingEvent — sin overage, cupo duro |
+| 3. Catalog | Product (+ProductVariant, `trackingPolicy: none\|lot\|serial-reservado`), Category, PriceList (`applyMassIncrease`), UnitOfMeasure |
+| 4. Inventory | **BranchStock (única fuente de verdad)**, StockMovement (append-only, `balanceAfter`), StockTransfer, Lot |
+| 5. Sales | Customer (FiscalIdentity VO), Quote, SalesOrder (+SaleItem), CustomerAccount (cta cte, ledger) |
+| 6. Purchasing | Supplier, PurchaseOrder, SupplierAccount, DocumentExtraction (OCR actual, conservado) |
+| 7. Finance & Fiscal AR | FiscalDocument (CAE), DocumentSequence, Cashbox/CashSession, BankAccount, BankReconciliation, JournalEntry, Tax, CostCenter |
+| 8. AI Assist (supporting) | AIConversation (`conversation_kind`), Insight unificado |
+
+**Shared Kernel:** `OrganizationId`, `BranchId`, `Money`, `Quantity`, `FiscalIdentity` (CUIT/DNI, razón social, cond. IVA), `TaxRate`, `Address`.
+Detalle de agregados, invariantes y catálogo de eventos: `modelo-dominio-aliadata-v2.md` §5.
+
+---
+
 ## Convenciones del Schema
 
 - **IDs**: UUID v4 en todas las entidades

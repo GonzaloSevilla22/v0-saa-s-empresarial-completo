@@ -209,3 +209,39 @@ Todas las funciones PostgreSQL critican de SQL injection via `SET search_path = 
 
 ### RN-83 — Índices de performance en RLS
 Los patrones de RLS con `auth.uid()` tienen índices en `(user_id)` en todas las tablas principales para evitar el problema de `initplan` de RLS (ver migration `20260517000003_fix_rls_initplan_and_indexes.sql`).
+
+---
+
+## Dominio: Modelo V2 (reglas objetivo — adoptadas 2026-06-09)
+
+> Fuente: `modelo-dominio-aliadata-v2.md` (§3, §5.9, §6) + exploración validada. Rigen el diseño de todo change V2. Las reglas RN-10..RN-25 (idempotencia, amount guard, ledger inmutable) se conservan en el modelo V2.
+
+### RN-90 — Consistencia transaccional en el hot path de venta
+Venta → descuento de stock → movimiento de caja → numeración fiscal ocurren en **la misma transacción** (commands síncronos entre módulos). "Vendí pero el stock no bajó" es un bug inaceptable, no consistencia eventual. Contabilidad, reporting, audit, insights y emails van **asíncronos vía outbox** (tabla `events` + consumers idempotentes). Sin event sourcing, sin broker, sin microservicios.
+
+### RN-91 — Tenancy única
+`account_id` (conceptualmente `organization_id`) es LA clave de tenancy en toda tabla del tenant. `user_id`-como-tenancy y `company_id` quedan prohibidos en código nuevo y se retiran en V2.0. Todo índice de tabla transaccional empieza por `(account_id, ...)`.
+
+### RN-92 — Stock: única fuente de verdad por sucursal
+El stock vive por `(product/variant, branch)` en `branch_stock`. El total por producto es Σ branch_stock (vista), nunca una columna mutable. Invariante `onHand ≥ 0` configurable por organización (permitir negativo con advertencia es pedido frecuente en retail). `products.stock` queda en retirada.
+
+### RN-93 — BranchId obligatorio en documentos operativos
+Toda venta, compra, gasto y movimiento de caja lleva `branch_id`. La organización con un solo local tiene una Branch "Casa Central" creada en onboarding; la UI la oculta si hay una sola. Transferencias entre sucursales = dos movimientos atómicos (out/in) con `transfer_id` común.
+
+### RN-94 — Numeración fiscal sin huecos
+La numeración por punto de venta AFIP vive en el agregado `DocumentSequence` con lock corto, jamás dentro de la transacción larga de la venta completa. El CAE se obtiene asíncrono (estado `pending_cae` con reintento) para que el hot path no dependa del uptime de AFIP.
+
+### RN-95 — Sesión de caja (arqueo)
+Una sola `CashSession` abierta por Cashbox; todo movimiento de efectivo exige sesión abierta; la diferencia de cierre (declarado vs esperado) queda registrada como señal antifraude. El cierre Z diario sale de acá.
+
+### RN-96 — Cliente y proveedor con identidad fiscal
+`FiscalIdentity` (CUIT/DNI, razón social, condición IVA) es un Value Object compartido entre Customer y Supplier (misma validación de dígito verificador, cero duplicación). El caso "me compra y me vende" se resuelve con `counterpartRef`, no con Party. Trigger de revisión: solapamiento real > 20% de terceros activos.
+
+### RN-97 — Ninguna feature nueva sobre tablas en retirada
+Mientras dure V2.0, ningún change puede construir sobre: tenancy `user_id`/`company_id`, ventas/compras planas, `products.stock`, sistema B de inventario (`inventory_*`, `warehouses`), `insights` legacy. Ver tabla de retirada en `04_modelo_de_datos.md`.
+
+### RN-98 — IA nunca escribe en el ERP
+AI Assist consume eventos del outbox y genera insights/conversaciones; jamás escribe en agregados del ERP. Si algún día lo hace, pasa por los mismos comandos y permisos que un humano. Gating por `plan_limits` (consultas IA/mes) — sin wallet de créditos.
+
+### RN-99 — Ledgers append-only con saldo materializado
+Stock, caja y cuentas corrientes usan el patrón contable: movimientos append-only con `balance_after` por fila (como ya hace `stock_movements`). Se consultan por SQL directo — NO es event sourcing, no se "reproducen" eventos.

@@ -295,6 +295,34 @@ Variables de entorno nuevas del backend: `SUPABASE_JWT_SECRET` (verificación HS
 
 ---
 
+## Evolución Arquitectónica: Monolito Modular V2 (adoptado 2026-06-09)
+
+> Fuente: `modelo-dominio-aliadata-v2.md` (§4, §5.9, §6), validado en `openspec/explore/2026-06-09-modelo-dominio-v2.md`. Complementa (no reemplaza) el modelo híbrido FastAPI de la sección anterior: los módulos V2 viven como slices de 3 capas (routers/services/repositories) dentro del backend.
+
+### Mapa de módulos (8, no 13 bounded contexts)
+- **Plataforma**: 1. Organization & Identity · 2. Billing SaaS
+- **ERP Core (core domain)**: 3. Catalog · 4. Inventory · 5. Sales · 6. Purchasing · 7. Finance & Fiscal AR
+- **Soporte**: 8. AI Assist (+ Reporting/AuditLog como read models, no módulos con dominio propio)
+
+**Shared Kernel (lo único compartido):** `OrganizationId`, `BranchId`, `Money`, `Quantity`, `FiscalIdentity`, `TaxRate`, `Address`.
+
+### Regla de consistencia (§5.9 — la corrección central al v1)
+| Operación | Modo |
+|---|---|
+| Venta → stock / caja / cta cte / numeración fiscal | **Misma transacción** (commands síncronos entre módulos) |
+| Compra → stock (al recibir) | Misma transacción |
+| Venta → asiento contable / reporting / audit / insights / email | **Outbox asíncrono** (tabla `events` ya existente + consumers idempotentes) |
+
+Sin event sourcing (ledgers append-only con saldo materializado — patrón contable), sin broker hasta que el outbox duela (Postgres LISTEN/NOTIFY o polling alcanza por años), sin microservicios. Eventos versionados solo si cruzan al exterior. El módulo Fiscal (AR) es enchufable: el dominio conoce `CAE`/`DocumentType`, jamás el SOAP de AFIP (adaptador WSFE detrás de ACL).
+
+### Multi-tenancy V2
+Shared DB + RLS se conserva, con tres correcciones: (1) una sola clave de tenancy — `account_id` — en TODA tabla del tenant; (2) todo índice transaccional empieza por `(account_id, ...)`; (3) `Membership.allowedBranches` agrega el segundo nivel de aislamiento (sucursal). `TenantTier` reservado para schema-per-tenant enterprise futuro.
+
+### Disciplina de fronteras
+Los módulos se cruzan por interfaces de aplicación (commands), nunca por SQL ajeno. Enforcement: lint de imports entre módulos + revisión de que ningún módulo lee tablas de otro.
+
+---
+
 ## Consideraciones de Escalabilidad (Futuras)
 
 | Área | Deuda actual | Plan futuro |

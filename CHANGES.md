@@ -692,8 +692,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ---
 
-### [C-22] `v20-fiscal-identity-clients` ⭐ NEXT
-- **Estado**: `[ ]` pendiente
+### [C-22] `v20-fiscal-identity-clients`
+- **Estado**: `[x]` completado — 2026-06-10 (archivado: `openspec/changes/archive/2026-06-10-v20-fiscal-identity-clients`)
 - **Scope**:
   - Migración SQL: agregar columnas nullable a `clients` — `tax_id TEXT` (CUIT/DNI), `iva_condition TEXT CHECK ('responsable_inscripto','monotributista','exento','consumidor_final')`, `legal_name TEXT`
   - UI: formulario de cliente actualizado con sección "Datos fiscales" (campos opcionales con label `CUIT/DNI`, `Condición IVA`, `Razón social`)
@@ -711,7 +711,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ---
 
-### [C-23] `v20-community-schema-split`
+### [C-23] `v20-community-schema-split` ⭐ NEXT
 - **Estado**: `[ ]` pendiente
 - **Scope**:
   - Crear schema Postgres `community` en el proyecto Supabase
@@ -926,8 +926,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-19 | v20-tenancy-cleanup | 6 — V2.0 Retirada deuda | CRITICO | — | `[x]` |
 | C-20 | v20-sale-items-migration | 6 — V2.0 Retirada deuda | ALTO | C-19 | `[ ]` |
 | C-21 | v20-inventory-unification | 6 — V2.0 Retirada deuda | CRITICO | C-19 | `[ ]` |
-| C-22 | v20-fiscal-identity-clients ⭐ | 6 — V2.0 Retirada deuda | BAJO | — | `[ ]` |
-| C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[ ]` |
+| C-22 | v20-fiscal-identity-clients | 6 — V2.0 Retirada deuda | BAJO | — | `[x]` |
+| C-23 | v20-community-schema-split ⭐ | 6 — V2.0 Retirada deuda | MEDIO | — | `[ ]` |
 | C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[ ]` |
 | C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[ ]` |
 | C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[ ]` |
@@ -940,11 +940,11 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ## Primer change recomendado
 
-**Fases 1–5 completadas. C-19 `v20-tenancy-cleanup` completado y archivado (2026-06-09).** El siguiente change recomendado es:
+**Fases 1–5 completadas. C-19 `v20-tenancy-cleanup` (2026-06-09) y C-22 `v20-fiscal-identity-clients` (2026-06-10) completados y archivados.** El siguiente change recomendado es:
 
-### `C-22` `v20-fiscal-identity-clients` ⭐ — PRÓXIMO
+### `C-23` `v20-community-schema-split` ⭐ — PRÓXIMO
 
-BAJO governance, sin dependencias técnicas ni preguntas abiertas: agrega identidad fiscal opcional a `clients` (`tax_id`, `iva_condition`, `legal_name`) con validación de CUIT. Es prerequisito de C-27 (`v21-fiscal-profile`, AFIP).
+MEDIO governance, independiente del resto de la fase: mueve las 15 tablas no-ERP (cursos, posts, meetings, seguros, etc.) al schema Postgres `community` — copy de datos + FKs + RLS recreadas + referencias frontend + regen de tipos. Es el único change implementable hoy sin decisiones pendientes del PO.
 
 **Desbloqueados por C-19 pero a la espera de decisiones del PO:**
 - **C-20** `v20-sale-items-migration` — requiere **PA-20** (¿variante principal o `variant_id = NULL` en el backfill de `sale_items`?)
@@ -954,6 +954,4 @@ BAJO governance, sin dependencias técnicas ni preguntas abiertas: agrega identi
 
 Ver `knowledge-base/10_preguntas_abiertas.md` §PA-19, §PA-20, §PA-21.
 
-**También disponible en paralelo:** C-23 (`v20-community-schema-split`, MEDIO, independiente).
-
-Para arrancar: `/opsx:propose v20-fiscal-identity-clients`
+Para arrancar: `/opsx:propose v20-community-schema-split`

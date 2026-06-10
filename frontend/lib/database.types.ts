@@ -12,6 +12,606 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  community: {
+    Tables: {
+      copilot_prompts: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          prompt_text: string
+          status: string | null
+          updated_at: string | null
+          usage_count: number | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          prompt_text: string
+          status?: string | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          prompt_text?: string
+          status?: string | null
+          updated_at?: string | null
+          usage_count?: number | null
+        }
+        Relationships: []
+      }
+      course_enrollments: {
+        Row: {
+          course_id: string
+          enrolled_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          course_id: string
+          enrolled_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          course_id?: string
+          enrolled_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_enrollments_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      course_lessons: {
+        Row: {
+          content_url: string | null
+          created_at: string
+          description: string | null
+          duration: string | null
+          id: string
+          module_id: string
+          order_index: number
+          title: string
+        }
+        Insert: {
+          content_url?: string | null
+          created_at?: string
+          description?: string | null
+          duration?: string | null
+          id?: string
+          module_id: string
+          order_index?: number
+          title: string
+        }
+        Update: {
+          content_url?: string | null
+          created_at?: string
+          description?: string | null
+          duration?: string | null
+          id?: string
+          module_id?: string
+          order_index?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_lessons_module_id_fkey"
+            columns: ["module_id"]
+            isOneToOne: false
+            referencedRelation: "course_modules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      course_modules: {
+        Row: {
+          course_id: string
+          created_at: string
+          id: string
+          order_index: number
+          title: string
+        }
+        Insert: {
+          course_id: string
+          created_at?: string
+          id?: string
+          order_index?: number
+          title: string
+        }
+        Update: {
+          course_id?: string
+          created_at?: string
+          id?: string
+          order_index?: number
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_modules_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      course_progress: {
+        Row: {
+          account_id: string | null
+          completed: boolean
+          course_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          completed?: boolean
+          course_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          completed?: boolean
+          course_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "course_progress_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      courses: {
+        Row: {
+          category: string
+          content: string
+          created_at: string
+          description: string
+          id: string
+          is_pro: boolean
+          level: string
+          rating: number
+          students: number
+          title: string
+        }
+        Insert: {
+          category?: string
+          content: string
+          created_at?: string
+          description: string
+          id?: string
+          is_pro?: boolean
+          level?: string
+          rating?: number
+          students?: number
+          title: string
+        }
+        Update: {
+          category?: string
+          content?: string
+          created_at?: string
+          description?: string
+          id?: string
+          is_pro?: boolean
+          level?: string
+          rating?: number
+          students?: number
+          title?: string
+        }
+        Relationships: []
+      }
+      fair_ai_tools: {
+        Row: {
+          category: string
+          clicks_count: number | null
+          created_at: string | null
+          description: string | null
+          id: string
+          link: string | null
+          name: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          clicks_count?: number | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          link?: string | null
+          name: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          clicks_count?: number | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          link?: string | null
+          name?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      fair_recommendations: {
+        Row: {
+          account_id: string | null
+          created_at: string
+          id: string
+          recommendation: Json
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string
+          id?: string
+          recommendation: Json
+          user_id?: string
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string
+          id?: string
+          recommendation?: Json
+          user_id?: string
+        }
+        Relationships: []
+      }
+      landing_sections: {
+        Row: {
+          active: boolean | null
+          button_link: string | null
+          button_text: string | null
+          content: string | null
+          created_at: string
+          id: string
+          image_url: string | null
+          position: number | null
+          slug: string
+          subtitle: string | null
+          title: string | null
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean | null
+          button_link?: string | null
+          button_text?: string | null
+          content?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          position?: number | null
+          slug: string
+          subtitle?: string | null
+          title?: string | null
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean | null
+          button_link?: string | null
+          button_text?: string | null
+          content?: string | null
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          position?: number | null
+          slug?: string
+          subtitle?: string | null
+          title?: string | null
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      lesson_progress: {
+        Row: {
+          completed: boolean
+          id: string
+          lesson_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean
+          id?: string
+          lesson_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed?: boolean
+          id?: string
+          lesson_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lesson_progress_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "course_lessons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meetings: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          meeting_url: string
+          start_time: string
+          title: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          meeting_url: string
+          start_time: string
+          title: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          meeting_url?: string
+          start_time?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      post_likes: {
+        Row: {
+          created_at: string
+          id: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_likes_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_likes_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      posts: {
+        Row: {
+          category: string | null
+          content: string
+          created_at: string
+          id: string
+          likes_count: number
+          replies_count: number
+          title: string
+          user_id: string
+        }
+        Insert: {
+          category?: string | null
+          content: string
+          created_at?: string
+          id?: string
+          likes_count?: number
+          replies_count?: number
+          title: string
+          user_id: string
+        }
+        Update: {
+          category?: string | null
+          content?: string
+          created_at?: string
+          id?: string
+          likes_count?: number
+          replies_count?: number
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "posts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      purchase_pools: {
+        Row: {
+          closes_at: string
+          created_at: string | null
+          current_amount: number | null
+          description: string | null
+          id: string
+          status: string | null
+          target_amount: number
+          title: string
+        }
+        Insert: {
+          closes_at: string
+          created_at?: string | null
+          current_amount?: number | null
+          description?: string | null
+          id?: string
+          status?: string | null
+          target_amount: number
+          title: string
+        }
+        Update: {
+          closes_at?: string
+          created_at?: string | null
+          current_amount?: number | null
+          description?: string | null
+          id?: string
+          status?: string | null
+          target_amount?: number
+          title?: string
+        }
+        Relationships: []
+      }
+      replies: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "replies_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "replies_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      seguros: {
+        Row: {
+          clicks_count: number | null
+          contact_url: string | null
+          coverage: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          is_visible: boolean | null
+          price: string | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          clicks_count?: number | null
+          contact_url?: string | null
+          coverage?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_visible?: boolean | null
+          price?: string | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          clicks_count?: number | null
+          contact_url?: string | null
+          coverage?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          is_visible?: boolean | null
+          price?: string | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          id: string | null
+          name: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          id?: string | null
+          name?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          id?: string | null
+          name?: string | null
+        }
+        Relationships: []
+      }
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       account_invitations: {
@@ -399,9 +999,12 @@ export type Database = {
           deleted_at: string | null
           email: string | null
           id: string
+          iva_condition: string | null
+          legal_name: string | null
           name: string
           phone: string | null
           status: string
+          tax_id: string | null
           user_id: string
         }
         Insert: {
@@ -412,9 +1015,12 @@ export type Database = {
           deleted_at?: string | null
           email?: string | null
           id?: string
+          iva_condition?: string | null
+          legal_name?: string | null
           name: string
           phone?: string | null
           status?: string
+          tax_id?: string | null
           user_id?: string
         }
         Update: {
@@ -425,9 +1031,12 @@ export type Database = {
           deleted_at?: string | null
           email?: string | null
           id?: string
+          iva_condition?: string | null
+          legal_name?: string | null
           name?: string
           phone?: string | null
           status?: string
+          tax_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -496,225 +1105,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      copilot_prompts: {
-        Row: {
-          category: string
-          created_at: string | null
-          description: string | null
-          id: string
-          name: string
-          prompt_text: string
-          status: string | null
-          updated_at: string | null
-          usage_count: number | null
-        }
-        Insert: {
-          category: string
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          name: string
-          prompt_text: string
-          status?: string | null
-          updated_at?: string | null
-          usage_count?: number | null
-        }
-        Update: {
-          category?: string
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          name?: string
-          prompt_text?: string
-          status?: string | null
-          updated_at?: string | null
-          usage_count?: number | null
-        }
-        Relationships: []
-      }
-      course_enrollments: {
-        Row: {
-          course_id: string
-          enrolled_at: string
-          id: string
-          user_id: string
-        }
-        Insert: {
-          course_id: string
-          enrolled_at?: string
-          id?: string
-          user_id: string
-        }
-        Update: {
-          course_id?: string
-          enrolled_at?: string
-          id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "course_enrollments_course_id_fkey"
-            columns: ["course_id"]
-            isOneToOne: false
-            referencedRelation: "courses"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      course_lessons: {
-        Row: {
-          content_url: string | null
-          created_at: string
-          description: string | null
-          duration: string | null
-          id: string
-          module_id: string
-          order_index: number
-          title: string
-        }
-        Insert: {
-          content_url?: string | null
-          created_at?: string
-          description?: string | null
-          duration?: string | null
-          id?: string
-          module_id: string
-          order_index?: number
-          title: string
-        }
-        Update: {
-          content_url?: string | null
-          created_at?: string
-          description?: string | null
-          duration?: string | null
-          id?: string
-          module_id?: string
-          order_index?: number
-          title?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "course_lessons_module_id_fkey"
-            columns: ["module_id"]
-            isOneToOne: false
-            referencedRelation: "course_modules"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      course_modules: {
-        Row: {
-          course_id: string
-          created_at: string
-          id: string
-          order_index: number
-          title: string
-        }
-        Insert: {
-          course_id: string
-          created_at?: string
-          id?: string
-          order_index?: number
-          title: string
-        }
-        Update: {
-          course_id?: string
-          created_at?: string
-          id?: string
-          order_index?: number
-          title?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "course_modules_course_id_fkey"
-            columns: ["course_id"]
-            isOneToOne: false
-            referencedRelation: "courses"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      course_progress: {
-        Row: {
-          account_id: string | null
-          completed: boolean
-          course_id: string
-          created_at: string
-          id: string
-          user_id: string
-        }
-        Insert: {
-          account_id?: string | null
-          completed?: boolean
-          course_id: string
-          created_at?: string
-          id?: string
-          user_id: string
-        }
-        Update: {
-          account_id?: string | null
-          completed?: boolean
-          course_id?: string
-          created_at?: string
-          id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "course_progress_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "course_progress_course_id_fkey"
-            columns: ["course_id"]
-            isOneToOne: false
-            referencedRelation: "courses"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      courses: {
-        Row: {
-          category: string
-          content: string
-          created_at: string
-          description: string
-          id: string
-          is_pro: boolean
-          level: string
-          rating: number
-          students: number
-          title: string
-        }
-        Insert: {
-          category?: string
-          content: string
-          created_at?: string
-          description: string
-          id?: string
-          is_pro?: boolean
-          level?: string
-          rating?: number
-          students?: number
-          title: string
-        }
-        Update: {
-          category?: string
-          content?: string
-          created_at?: string
-          description?: string
-          id?: string
-          is_pro?: boolean
-          level?: string
-          rating?: number
-          students?: number
-          title?: string
-        }
-        Relationships: []
       }
       email_logs: {
         Row: {
@@ -895,74 +1285,6 @@ export type Database = {
           {
             foreignKeyName: "export_logs_org_id_fkey"
             columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      fair_ai_tools: {
-        Row: {
-          category: string
-          clicks_count: number | null
-          created_at: string | null
-          description: string | null
-          id: string
-          link: string | null
-          name: string
-          status: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          category: string
-          clicks_count?: number | null
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          link?: string | null
-          name: string
-          status?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          category?: string
-          clicks_count?: number | null
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          link?: string | null
-          name?: string
-          status?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      fair_recommendations: {
-        Row: {
-          account_id: string | null
-          created_at: string
-          id: string
-          recommendation: Json
-          user_id: string
-        }
-        Insert: {
-          account_id?: string | null
-          created_at?: string
-          id?: string
-          recommendation: Json
-          user_id?: string
-        }
-        Update: {
-          account_id?: string | null
-          created_at?: string
-          id?: string
-          recommendation?: Json
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "fair_recommendations_account_id_fkey"
-            columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
             referencedColumns: ["id"]
@@ -1235,113 +1557,6 @@ export type Database = {
           },
         ]
       }
-      landing_sections: {
-        Row: {
-          active: boolean | null
-          button_link: string | null
-          button_text: string | null
-          content: string | null
-          created_at: string
-          id: string
-          image_url: string | null
-          position: number | null
-          slug: string
-          subtitle: string | null
-          title: string | null
-          type: string
-          updated_at: string
-        }
-        Insert: {
-          active?: boolean | null
-          button_link?: string | null
-          button_text?: string | null
-          content?: string | null
-          created_at?: string
-          id?: string
-          image_url?: string | null
-          position?: number | null
-          slug: string
-          subtitle?: string | null
-          title?: string | null
-          type: string
-          updated_at?: string
-        }
-        Update: {
-          active?: boolean | null
-          button_link?: string | null
-          button_text?: string | null
-          content?: string | null
-          created_at?: string
-          id?: string
-          image_url?: string | null
-          position?: number | null
-          slug?: string
-          subtitle?: string | null
-          title?: string | null
-          type?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      lesson_progress: {
-        Row: {
-          completed: boolean
-          id: string
-          lesson_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          completed?: boolean
-          id?: string
-          lesson_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          completed?: boolean
-          id?: string
-          lesson_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "lesson_progress_lesson_id_fkey"
-            columns: ["lesson_id"]
-            isOneToOne: false
-            referencedRelation: "course_lessons"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      meetings: {
-        Row: {
-          created_at: string | null
-          description: string | null
-          id: string
-          meeting_url: string
-          start_time: string
-          title: string
-        }
-        Insert: {
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          meeting_url: string
-          start_time: string
-          title: string
-        }
-        Update: {
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          meeting_url?: string
-          start_time?: string
-          title?: string
-        }
-        Relationships: []
-      }
       operation_idempotency: {
         Row: {
           account_id: string | null
@@ -1448,97 +1663,6 @@ export type Database = {
           price_monthly?: number
         }
         Relationships: []
-      }
-      post_likes: {
-        Row: {
-          created_at: string
-          id: string
-          post_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          post_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          post_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "post_likes_post_id_fkey"
-            columns: ["post_id"]
-            isOneToOne: false
-            referencedRelation: "posts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "post_likes_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "post_likes_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles_public"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      posts: {
-        Row: {
-          category: string | null
-          content: string
-          created_at: string
-          id: string
-          likes_count: number
-          replies_count: number
-          title: string
-          user_id: string
-        }
-        Insert: {
-          category?: string | null
-          content: string
-          created_at?: string
-          id?: string
-          likes_count?: number
-          replies_count?: number
-          title: string
-          user_id: string
-        }
-        Update: {
-          category?: string | null
-          content?: string
-          created_at?: string
-          id?: string
-          likes_count?: number
-          replies_count?: number
-          title?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "posts_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "posts_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles_public"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       product_aliases: {
         Row: {
@@ -1775,6 +1899,7 @@ export type Database = {
           insights_used: number
           language: string
           last_name: string | null
+          locality: string | null
           name: string | null
           overstock_threshold: number | null
           phone: string | null
@@ -1805,6 +1930,7 @@ export type Database = {
           insights_used?: number
           language?: string
           last_name?: string | null
+          locality?: string | null
           name?: string | null
           overstock_threshold?: number | null
           phone?: string | null
@@ -1835,6 +1961,7 @@ export type Database = {
           insights_used?: number
           language?: string
           last_name?: string | null
+          locality?: string | null
           name?: string | null
           overstock_threshold?: number | null
           phone?: string | null
@@ -1890,39 +2017,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      purchase_pools: {
-        Row: {
-          closes_at: string
-          created_at: string | null
-          current_amount: number | null
-          description: string | null
-          id: string
-          status: string | null
-          target_amount: number
-          title: string
-        }
-        Insert: {
-          closes_at: string
-          created_at?: string | null
-          current_amount?: number | null
-          description?: string | null
-          id?: string
-          status?: string | null
-          target_amount: number
-          title: string
-        }
-        Update: {
-          closes_at?: string
-          created_at?: string | null
-          current_amount?: number | null
-          description?: string | null
-          id?: string
-          status?: string | null
-          target_amount?: number
-          title?: string
-        }
-        Relationships: []
       }
       purchases: {
         Row: {
@@ -2017,52 +2111,6 @@ export type Database = {
             columns: ["unit_id"]
             isOneToOne: false
             referencedRelation: "units_of_measure"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      replies: {
-        Row: {
-          content: string
-          created_at: string
-          id: string
-          post_id: string
-          user_id: string
-        }
-        Insert: {
-          content: string
-          created_at?: string
-          id?: string
-          post_id: string
-          user_id: string
-        }
-        Update: {
-          content?: string
-          created_at?: string
-          id?: string
-          post_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "replies_post_id_fkey"
-            columns: ["post_id"]
-            isOneToOne: false
-            referencedRelation: "posts"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "replies_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "replies_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles_public"
             referencedColumns: ["id"]
           },
         ]
@@ -2164,6 +2212,7 @@ export type Database = {
           account_id: string | null
           amount: number
           branch_id: string | null
+          canal: string | null
           client_id: string | null
           company_id: string | null
           created_at: string
@@ -2181,6 +2230,7 @@ export type Database = {
           account_id?: string | null
           amount: number
           branch_id?: string | null
+          canal?: string | null
           client_id?: string | null
           company_id?: string | null
           created_at?: string
@@ -2198,6 +2248,7 @@ export type Database = {
           account_id?: string | null
           amount?: number
           branch_id?: string | null
+          canal?: string | null
           client_id?: string | null
           company_id?: string | null
           created_at?: string
@@ -2255,45 +2306,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      seguros: {
-        Row: {
-          clicks_count: number | null
-          contact_url: string | null
-          coverage: string | null
-          created_at: string | null
-          description: string | null
-          id: string
-          is_visible: boolean | null
-          price: string | null
-          title: string
-          updated_at: string | null
-        }
-        Insert: {
-          clicks_count?: number | null
-          contact_url?: string | null
-          coverage?: string | null
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          is_visible?: boolean | null
-          price?: string | null
-          title: string
-          updated_at?: string | null
-        }
-        Update: {
-          clicks_count?: number | null
-          contact_url?: string | null
-          coverage?: string | null
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          is_visible?: boolean | null
-          price?: string | null
-          title?: string
-          updated_at?: string | null
-        }
-        Relationships: []
       }
       stock_movements: {
         Row: {
@@ -2385,6 +2397,7 @@ export type Database = {
       }
       suppliers: {
         Row: {
+          account_id: string | null
           company_id: string
           created_at: string
           email: string | null
@@ -2394,6 +2407,7 @@ export type Database = {
           tax_id: string | null
         }
         Insert: {
+          account_id?: string | null
           company_id: string
           created_at?: string
           email?: string | null
@@ -2403,6 +2417,7 @@ export type Database = {
           tax_id?: string | null
         }
         Update: {
+          account_id?: string | null
           company_id?: string
           created_at?: string
           email?: string | null
@@ -2412,6 +2427,13 @@ export type Database = {
           tax_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "suppliers_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "suppliers_company_id_fkey"
             columns: ["company_id"]
@@ -2525,6 +2547,10 @@ export type Database = {
     Functions: {
       current_account_ids: { Args: never; Returns: string[] }
       expire_trials: { Args: never; Returns: number }
+      get_account_ids_for_user: {
+        Args: { p_user_id: string }
+        Returns: string[]
+      }
       get_admin_activation_rate: {
         Args: { p_date_from: string; p_date_to: string }
         Returns: number
@@ -2548,29 +2574,15 @@ export type Database = {
       get_dashboard_critical_stock:
         | { Args: never; Returns: number }
         | { Args: { p_user_id: string }; Returns: number }
-      get_dashboard_financials:
-        | {
-            Args: {
-              p_branch_id?: string
-              p_date_from: string
-              p_date_to: string
-            }
-            Returns: {
-              net_profit: number
-              total_expenses: number
-              total_income: number
-              total_purchases: number
-            }[]
-          }
-        | {
-            Args: { p_date_from: string; p_date_to: string; p_user_id: string }
-            Returns: {
-              net_profit: number
-              total_expenses: number
-              total_income: number
-              total_purchases: number
-            }[]
-          }
+      get_dashboard_financials: {
+        Args: { p_branch_id?: string; p_date_from: string; p_date_to: string }
+        Returns: {
+          net_profit: number
+          total_expenses: number
+          total_income: number
+          total_purchases: number
+        }[]
+      }
       is_account_writer: { Args: { p_account_id: string }; Returns: boolean }
       is_admin:
         | { Args: never; Returns: boolean }
@@ -2695,6 +2707,7 @@ export type Database = {
       rpc_create_sale_operation: {
         Args: {
           p_branch_id?: string
+          p_canal?: string
           p_client_id: string
           p_currency: string
           p_date: string
@@ -2702,6 +2715,44 @@ export type Database = {
           p_items: Json
         }
         Returns: Json
+      }
+      rpc_dashboard_channel_margin: {
+        Args: {
+          p_branch_id?: string
+          p_from: string
+          p_prev_from: string
+          p_prev_to: string
+          p_to: string
+        }
+        Returns: {
+          channels: Json
+          leader: string
+          margin_pct: number
+          prev_margin_pct: number
+        }[]
+      }
+      rpc_dashboard_kpi_summary: {
+        Args: {
+          p_branch_id?: string
+          p_from: string
+          p_prev_from: string
+          p_prev_to: string
+          p_to: string
+        }
+        Returns: {
+          avg_ticket: number
+          cost_per_sale: number
+          net_profit: number
+          prev_avg_ticket: number
+          prev_cost_per_sale: number
+          prev_net_profit: number
+          prev_sales_count: number
+          prev_stagnant_stock_count: number
+          prev_stagnant_stock_value: number
+          sales_count: number
+          stagnant_stock_count: number
+          stagnant_stock_value: number
+        }[]
       }
       rpc_deactivate_branch: {
         Args: { p_branch_id: string }
@@ -2917,6 +2968,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  community: {
+    Enums: {},
+  },
   public: {
     Enums: {
       user_plan: ["free", "pro"],

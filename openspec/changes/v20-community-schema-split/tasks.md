@@ -20,14 +20,14 @@
 - [x] 3.4 GREEN mecánico (sin lógica nueva): `insuranceService.ts`, `fairAiToolsService.ts`, `fairAdvisorService.ts`, `copilotPromptsService.ts`, `lib/landing.ts`, `app/actions/landing.ts`, `admin/cursos/page.tsx` — `.schema("community")` en todas las llamadas a tablas movidas
 - [x] 3.5 Verificación de cero referencias residuales: búsqueda `from("<tabla movida>")` sin `.schema` en `frontend/` → 0 resultados
 - [x] 3.6 Edge Function `fair-advisor/index.ts`: `.schema('community')` en `fair_recommendations`
-- [ ] 3.7 Regenerar `frontend/lib/database.types.ts` con `--schema public,community` — POSPUESTO al corte (el remoto aún no tiene las tablas en community; el archivo no se importa en ningún lado, no bloquea tsc)
+- [x] 3.7 Regenerar `frontend/lib/database.types.ts` con `--schema public,community` (hecho en el corte, post-migración B)
 - [x] 3.8 Suites completas: vitest frontend + `tsc --noEmit` + pytest backend (sin regresiones sobre baseline)
 
 ## 4. Corte coordinado ⚠️
 
-- [ ] 4.1 ⚠️ Checkpoint con el PO: confirmar momento del corte (ventana de minutos en módulos comunidad/cursos/seguros/feria; ERP inafectado)
-- [ ] 4.2 Aplicar migración B vía `npx supabase db push`; verificar conteos (posts=4, courses=4, replies=2, enrollments=4, fair_recommendations=3) y FKs cross-schema en `pg_constraint`
-- [ ] 4.3 Gate de embedding: GET REST `posts?select=*,profiles(name),post_likes(user_id)` vía schema `community` → 200 con embeds correctos. Si falla → rollback (`SET SCHEMA public` inverso) y rediseño del embed
+- [x] 4.1 ⚠️ Checkpoint con el PO ("dale", 2026-06-10): confirmar momento del corte (ventana de minutos en módulos comunidad/cursos/seguros/feria; ERP inafectado)
+- [x] 4.2 Aplicar migración B vía `npx supabase db push`; verificar conteos (posts=4, courses=4, replies=2, enrollments=4, fair_recommendations=3) y FKs cross-schema en `pg_constraint`
+- [x] 4.3 Gate de embedding — falló el cross-schema directo (PGRST200: PostgREST no embebe entre schemas); resuelto con vista puente `community.profiles` (security_invoker, migración 20260615000002) → 200 OK con embeds correctos, sin cambios de código
 - [ ] 4.4 Merge del PR + deploy Vercel; redeploy de `fair-advisor`
 - [ ] 4.5 Smoke test post-deploy: feed de posts carga, crear/like/reply funciona, cursos listan, ERP intacto (dashboard + ventas)
 

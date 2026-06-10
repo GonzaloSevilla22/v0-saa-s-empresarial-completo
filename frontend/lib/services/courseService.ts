@@ -9,6 +9,7 @@ export const courseService = {
    */
   async getVisibleCourses() {
     const { data, error } = await supabase
+      .schema("community")
       .from("courses")
       .select("*")
       .order("created_at", { ascending: false })
@@ -22,6 +23,7 @@ export const courseService = {
    */
   async getCourseDetail(courseId: string) {
     const { data: course, error: courseError } = await supabase
+      .schema("community")
       .from("courses")
       .select("*")
       .eq("id", courseId)
@@ -30,6 +32,7 @@ export const courseService = {
     if (courseError) throw courseError
 
     const { data: modules, error: modulesError } = await supabase
+      .schema("community")
       .from("course_modules")
       .select(`
         *,
@@ -57,6 +60,7 @@ export const courseService = {
    */
   async enrollUser(userId: string, courseId: string) {
     const { error } = await supabase
+      .schema("community")
       .from("course_enrollments")
       .upsert({ user_id: userId, course_id: courseId })
 
@@ -68,6 +72,7 @@ export const courseService = {
    */
   async isEnrolled(userId: string, courseId: string) {
     const { data, error } = await supabase
+      .schema("community")
       .from("course_enrollments")
       .select("id")
       .eq("user_id", userId)
@@ -83,8 +88,9 @@ export const courseService = {
    */
   async updateLessonProgress(userId: string, lessonId: string, completed: boolean) {
     const { error } = await supabase
+      .schema("community")
       .from("lesson_progress")
-      .upsert({ 
+      .upsert({
         user_id: userId, 
         lesson_id: lessonId, 
         completed,
@@ -100,6 +106,7 @@ export const courseService = {
   async getCourseProgress(userId: string, courseId: string) {
     // 1. Get all lesson IDs for the course
     const { data: modules, error: modulesError } = await supabase
+      .schema("community")
       .from("course_modules")
       .select("id")
       .eq("course_id", courseId)
@@ -110,6 +117,7 @@ export const courseService = {
     if (moduleIds.length === 0) return 0
 
     const { data: lessons, error: lessonsError } = await supabase
+      .schema("community")
       .from("course_lessons")
       .select("id")
       .in("module_id", moduleIds)
@@ -121,6 +129,7 @@ export const courseService = {
 
     // 2. Get completed lessons for the user
     const { data: progress, error: progressError } = await supabase
+      .schema("community")
       .from("lesson_progress")
       .select("lesson_id")
       .eq("user_id", userId)

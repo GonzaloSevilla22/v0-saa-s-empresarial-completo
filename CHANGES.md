@@ -648,7 +648,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ### [C-20] `v20-sale-items-migration`
 - **Estado**: `[ ]` pendiente
 - **Scope**:
-  - Backfill: para cada una de las 128 ventas legacy con `product_id NOT NULL` en el header, crear 1 fila en `sale_items` (con `variant_id = NULL` o variante principal según decisión del PO en PA-20)
+  - Backfill: para cada una de las 128 ventas legacy con `product_id NOT NULL` en el header, crear 1 fila en `sale_items` con `variant_id = NULL` (PA-20 resuelta 2026-06-10: variante opcional, sin variantes default)
   - Versionar el RPC `rpc_create_sale_operation`: nueva versión escribe exclusivamente en `sale_items`; versión legacy queda como fallback con feature flag
   - Actualizar `backend/repositories/sales_repository.py`: query paginada migra de `SELECT s.product_id, s.quantity, s.amount` del header a `JOIN sale_items ON s.id = si.sale_id`
   - Actualizar `frontend/hooks/data/use-sales.ts`: mapper que lee de `sale_items` join en lugar de campos flat del header
@@ -674,7 +674,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Scope**:
   - Crear Branch "Casa Central" para cada `account_id` sin branches (o cuyo `branch_id` esté NULL en operaciones) — INSERT en `branches` con `is_default = true`
   - Migrar 19 filas de `inventory_stock` y 22 filas de `inventory_movements` a `branch_stock` + `stock_movements` con `branch_id = casa_central_id`
-  - Auditar y resolver las 6 filas de `warehouses` (con el PO per PA-19): si son depósitos reales de un tenant → migrar a `branch_stock`; si son prueba → descartar
+  - Resolver las 6 filas de `warehouses` (PA-19 resuelta 2026-06-10): migrar sus 19 filas de stock a `branch_stock` de Casa Central; los warehouses (auto-generados "Main Warehouse") NO se convierten en branches — se descartan con el drop
   - Vista de compatibilidad `v_products_with_stock`: calcula `products.stock = SUM(quantity) FROM branch_stock WHERE product_id = ?` para preservar lecturas legacy durante la transición
   - Actualizar `backend/repositories/stock_repository.py`: `SELECT stock FROM products WHERE id = $1 AND user_id = $2` → query sobre `branch_stock` con `account_id`; también `StockOut` schema de Pydantic
   - Actualizar los 15 archivos frontend que leen `products.stock` directamente (a través de la vista o cambiando el source del hook `use-products`): `use-products.ts`, `stock/page.tsx`, `product-catalog.tsx`, `sale-form.tsx`, `stock-adjustment-modal.tsx`, `low-stock-alert.tsx`, `product-picker.tsx`, `ai-summary-card.tsx`, `buildBusinessSnapshot.ts`, `aiCopilotService.ts`, `validator.ts`, `importer.ts`, `unit-utils.ts`, `dashboard/page.tsx`, `backend/repositories/stock_repository.py`
@@ -736,7 +736,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Scope**:
   - Definir schema canónico unificado — decisión: usar el schema de `ai_insights` como base (`message`, `priority`, `type`, `account_id`) por ser el más completo
   - Migrar las 427 filas de `insights` al schema unificado: mapear `content → message`, derivar `account_id` via join `user_id → accounts`, `actionable → priority` ('high' si `actionable = true`)
-  - Opción A: renombrar `ai_insights` → `insights` (migración más limpia); Opción B: tabla `unified_insights` nueva. Decidir antes de proponer.
+  - Decisión PO 2026-06-10: **Opción A** — migrar las 427 filas legacy a `ai_insights` y renombrar `ai_insights` → `insights` (nombre definitivo, sin tabla transitoria)
   - Actualizar las Edge Functions que escriben en `ai_insights` (todas las de IA): apuntar al nombre canónico post-renaming
   - Actualizar el frontend que lee de `insights` (si existe — verificar en `use-insights` hook o componentes de dashboard)
   - Drop tabla `insights` legacy tras validar que 0 referencias activas la leen
@@ -946,12 +946,10 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 MEDIO governance, independiente del resto de la fase: mueve las 15 tablas no-ERP (cursos, posts, meetings, seguros, etc.) al schema Postgres `community` — copy de datos + FKs + RLS recreadas + referencias frontend + regen de tipos. Es el único change implementable hoy sin decisiones pendientes del PO.
 
-**Desbloqueados por C-19 pero a la espera de decisiones del PO:**
-- **C-20** `v20-sale-items-migration` — requiere **PA-20** (¿variante principal o `variant_id = NULL` en el backfill de `sale_items`?)
-- **C-21** `v20-inventory-unification` — requiere **PA-19** (¿las 6 filas de `warehouses` son reales o de prueba?)
-- **C-25** `v20-outbox-activation` — requiere **PA-21** (scope de consumers del outbox en V2.0)
-- **C-24** `v20-insights-unification` — sin pregunta abierta formal, pero decidir Opción A (renombrar `ai_insights` → `insights`) vs. B (tabla nueva) antes de proponer
-
-Ver `knowledge-base/10_preguntas_abiertas.md` §PA-19, §PA-20, §PA-21.
+**Toda la fase quedó desbloqueada el 2026-06-10** (PO respondió PA-19/PA-20/PA-21 + decisión C-24 — ver `knowledge-base/10_preguntas_abiertas.md`):
+- **C-20** `v20-sale-items-migration` — backfill con `variant_id = NULL` (PA-20)
+- **C-21** `v20-inventory-unification` — migrar las 19 filas de stock a Casa Central; descartar los 6 warehouses auto-generados (PA-19)
+- **C-24** `v20-insights-unification` — Opción A: renombrar `ai_insights` → `insights`
+- **C-25** `v20-outbox-activation` — consumers V2.0: AuditLog + EmailNotification (PA-21)
 
 Para arrancar: `/opsx:propose v20-community-schema-split`

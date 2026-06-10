@@ -121,14 +121,17 @@ Estrategia: patrón Strangler Fig (columna nueva → backfill → migrar lectura
 **Resuelto:** 2026-06-09 — PO confirmó que son **organizaciones reales** de una versión anterior.  
 El paso 1 de §7 debe mapear esas filas a `accounts` antes de hacer el drop de `company_id`.
 
-### PA-19 — Las 6 filas de `warehouses`
-El documento V2 asumía la tabla vacía. ¿Depósitos reales de algún tenant o datos de prueba? Define si el paso 3 preserva o descarta esos datos.
+### ~~PA-19 — Las 6 filas de `warehouses`~~ ✅ RESUELTA
+**Resuelto:** 2026-06-10 — PO confirmó **migrar el stock y descartar los depósitos**.  
+Auditoría en DB real: los 6 `warehouses` se llaman "Main Warehouse", creados el mismo día (2026-03-11, auto-generados por el sistema viejo de companies); solo 2 tienen stock (15 + 4 = 19 filas de `inventory_stock`). En C-21: las 19 filas migran a `branch_stock` de la sucursal "Casa Central" de cada cuenta; los warehouses NO se convierten en branches y se descartan con el drop de la tabla.
 
-### PA-20 — Variantes en el backfill de `sale_items`
-Las 128 ventas legacy tienen `product_id` en el header pero `sale_items` referencia `variant_id`. ¿Se crea variante por defecto por producto o se acepta `variant_id NULL`? Define el contrato definitivo de `sale_items`.
+### ~~PA-20 — Variantes en el backfill de `sale_items`~~ ✅ RESUELTA
+**Resuelto:** 2026-06-10 — PO confirmó **`variant_id = NULL`** en el backfill.  
+Contrato definitivo de `sale_items`: producto obligatorio, variante opcional (`variant_id` nullable). Las 128 ventas legacy quedan sin variante; no se crean variantes default por producto.
 
-### PA-21 — Scope del outbox en V2.0
-¿Solo consumer de AuditLog, o también reporting e insights de IA? Más valor inmediato vs. más scope (D6 de la exploración).
+### ~~PA-21 — Scope del outbox en V2.0~~ ✅ RESUELTA
+**Resuelto:** 2026-06-10 — PO confirmó **AuditLog + EmailNotification**.  
+Consumers V2.0: entrada en `audit_logs` por cada evento + emails para `sale_created` / `stock_adjusted` / `plan_changed`. Consumers de IA/reporting quedan para V2.1. (Misma fecha: PO decidió **Opción A** para C-24 — renombrar `ai_insights` → `insights`.)
 
 ### PA-22 — AFIP V2.1: ¿homologación o producción?
 Si es producción con facturas reales: certificado digital + alta de punto de venta AFIP están en el camino crítico y no son bloqueables por código.

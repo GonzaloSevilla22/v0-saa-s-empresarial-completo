@@ -43,6 +43,7 @@ export function usePosts() {
       const userId = session?.user?.id || ""
 
       const { data, error } = await supabase
+        .schema("community")
         .from("posts")
         .select("*, profiles(name), post_likes(user_id)")
         .order("created_at", { ascending: false })
@@ -58,7 +59,7 @@ export function usePosts() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error("No autenticado")
 
-      const { data, error } = await supabase.from("posts").insert([{
+      const { data, error } = await supabase.schema("community").from("posts").insert([{
         user_id:  user.id,
         title:    post.title,
         content:  post.content,
@@ -84,7 +85,7 @@ export function usePosts() {
 
   const deletePostMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("posts").delete().eq("id", id)
+      const { error } = await supabase.schema("community").from("posts").delete().eq("id", id)
       if (error) throw error
     },
     onSuccess: () => {
@@ -99,6 +100,7 @@ export function usePosts() {
       if (!userId) throw new Error("No autenticado")
 
       const { data: existing, error: findError } = await supabase
+        .schema("community")
         .from("post_likes")
         .select("id")
         .eq("post_id", postId)
@@ -108,10 +110,10 @@ export function usePosts() {
       if (findError) throw findError
 
       if (existing) {
-        const { error } = await supabase.from("post_likes").delete().eq("id", existing.id)
+        const { error } = await supabase.schema("community").from("post_likes").delete().eq("id", existing.id)
         if (error) throw error
       } else {
-        const { error } = await supabase.from("post_likes").insert([{ post_id: postId, user_id: userId }])
+        const { error } = await supabase.schema("community").from("post_likes").insert([{ post_id: postId, user_id: userId }])
         if (error) throw error
       }
     },
@@ -142,6 +144,7 @@ export function usePosts() {
 
   async function getReplies(postId: string): Promise<Reply[]> {
     const { data } = await supabase
+      .schema("community")
       .from("replies")
       .select("*, profiles(name)")
       .eq("post_id", postId)
@@ -163,7 +166,7 @@ export function usePosts() {
     const userId = session?.user?.id
     if (!userId) return
 
-    const { error } = await supabase.from("replies").insert([{
+    const { error } = await supabase.schema("community").from("replies").insert([{
       post_id: postId,
       user_id: userId,
       content,

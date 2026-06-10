@@ -17,7 +17,7 @@ const supabase = createClient()
 export const fairAiToolsService = {
   async getAllTools() {
     const { data, error } = await supabase
-      .from("fair_ai_tools")
+      .schema("community").from("fair_ai_tools")
       .select("*")
       .order("created_at", { ascending: false })
 
@@ -27,7 +27,7 @@ export const fairAiToolsService = {
 
   async createTool(data: Partial<FairAiTool>) {
     const { data: result, error } = await supabase
-      .from("fair_ai_tools")
+      .schema("community").from("fair_ai_tools")
       .insert([data])
       .select()
       .single()
@@ -38,7 +38,7 @@ export const fairAiToolsService = {
 
   async updateTool(id: string, data: Partial<FairAiTool>) {
     const { data: result, error } = await supabase
-      .from("fair_ai_tools")
+      .schema("community").from("fair_ai_tools")
       .update(data)
       .eq("id", id)
       .select()
@@ -50,7 +50,7 @@ export const fairAiToolsService = {
 
   async deleteTool(id: string) {
     const { error } = await supabase
-      .from("fair_ai_tools")
+      .schema("community").from("fair_ai_tools")
       .delete()
       .eq("id", id)
 
@@ -58,12 +58,12 @@ export const fairAiToolsService = {
   },
 
   async incrementClicks(id: string) {
-    const { data } = await supabase.from("fair_ai_tools").select("clicks_count").eq("id", id).single()
-    await supabase.from("fair_ai_tools").update({ clicks_count: (data?.clicks_count || 0) + 1 }).eq("id", id)
+    const { data } = await supabase.schema("community").from("fair_ai_tools").select("clicks_count").eq("id", id).single()
+    await supabase.schema("community").from("fair_ai_tools").update({ clicks_count: (data?.clicks_count || 0) + 1 }).eq("id", id)
   },
 
   async getAdminStats() {
-    const { data: all } = await supabase.from("fair_ai_tools").select("*")
+    const { data: all } = await supabase.schema("community").from("fair_ai_tools").select("*")
     
     const stats = {
       total: all?.length || 0,

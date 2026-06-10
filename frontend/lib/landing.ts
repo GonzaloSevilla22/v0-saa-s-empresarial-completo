@@ -19,7 +19,7 @@ export type LandingSection = {
 export async function getLandingSections() {
     const supabase = createClient()
     const { data, error } = await supabase
-        .from('landing_sections')
+        .schema('community').from('landing_sections')
         .select('*')
         .eq('active', true)
         .order('position', { ascending: true })
@@ -35,7 +35,7 @@ export async function getLandingSections() {
 export async function getAllLandingSections() {
     const supabase = createClient()
     const { data, error } = await supabase
-        .from('landing_sections')
+        .schema('community').from('landing_sections')
         .select('*')
         .order('position', { ascending: true })
 
@@ -50,7 +50,7 @@ export async function getAllLandingSections() {
 export async function updateLandingSection(id: string, updates: Partial<LandingSection>) {
     const supabase = createClient()
     const { data, error } = await supabase
-        .from('landing_sections')
+        .schema('community').from('landing_sections')
         .update(updates)
         .eq('id', id)
         .select()

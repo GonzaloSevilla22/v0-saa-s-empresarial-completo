@@ -28,9 +28,9 @@
 - [x] 4.1 ⚠️ Checkpoint con el PO ("dale", 2026-06-10): confirmar momento del corte (ventana de minutos en módulos comunidad/cursos/seguros/feria; ERP inafectado)
 - [x] 4.2 Aplicar migración B vía `npx supabase db push`; verificar conteos (posts=4, courses=4, replies=2, enrollments=4, fair_recommendations=3) y FKs cross-schema en `pg_constraint`
 - [x] 4.3 Gate de embedding — falló el cross-schema directo (PGRST200: PostgREST no embebe entre schemas); resuelto con vista puente `community.profiles` (security_invoker, migración 20260615000002) → 200 OK con embeds correctos, sin cambios de código
-- [ ] 4.4 Merge del PR + deploy Vercel; redeploy de `fair-advisor`
-- [ ] 4.5 Smoke test post-deploy: feed de posts carga, crear/like/reply funciona, cursos listan, ERP intacto (dashboard + ventas)
+- [x] 4.4 Merge del PR (#151, 2026-06-10) + deploy Vercel; redeploy de `fair-advisor` (hecho en el corte)
+- [x] 4.5 Smoke test post-deploy: verificado por el PO ("deploy funcionando") + gate REST 200 con embeds pre-merge
 
 ## 5. Cierre
 
-- [ ] 5.1 Marcar C-23 `[x]` en CHANGES.md + archive del change (PR docs)
+- [x] 5.1 Marcar C-23 `[x]` en CHANGES.md + archive del change (PR docs)

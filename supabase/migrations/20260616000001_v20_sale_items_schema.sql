@@ -33,6 +33,13 @@ ALTER TABLE public.sale_items
 -- Ampliar quantity de integer a numeric(15,4) para preservar fracciones
 ALTER TABLE public.sale_items ALTER COLUMN quantity TYPE numeric(15,4) USING quantity::numeric(15,4);
 
+-- Agregar subtotal (columna presente en prod desde el importer de variantes pero ausente
+-- en el stub de la cadena de migraciones CI — 20260517000000_ci_compat_stubs.sql).
+-- ADD COLUMN IF NOT EXISTS es no-op en prod (columna ya existe). DEFAULT 0 + NOT NULL
+-- coincide exactamente con la definición real de prod.
+ALTER TABLE public.sale_items
+  ADD COLUMN IF NOT EXISTS subtotal numeric NOT NULL DEFAULT 0;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1.2 ALTER TABLE purchase_items (simétrico)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -45,6 +52,10 @@ ALTER TABLE public.purchase_items
   ADD COLUMN IF NOT EXISTS unit_id     uuid REFERENCES public.units_of_measure(id) ON DELETE SET NULL;
 
 ALTER TABLE public.purchase_items ALTER COLUMN quantity TYPE numeric(15,4) USING quantity::numeric(15,4);
+
+-- Agregar subtotal (mismo drift que sale_items — columna en prod, ausente en el stub).
+ALTER TABLE public.purchase_items
+  ADD COLUMN IF NOT EXISTS subtotal numeric NOT NULL DEFAULT 0;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1.3 Índices únicos parciales para idempotencia del backfill

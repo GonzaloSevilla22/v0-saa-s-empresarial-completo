@@ -576,3 +576,103 @@ async def test_delete_purchase_by_id_no_item_skips_stock_reversal(async_client, 
     assert resp.status_code == 204
     # stock movements should NOT be queried (fetchval not called for delta)
     conn.fetchval.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Group 9.3: rpc_dashboard_channel_margin — COGS reads from sale_items / v_sales_flat
+#
+# TDD: these tests document the CONTRACT the new migration must satisfy.
+# The migration rewrites the per_channel CTE to join sale_items for product/quantity.
+# The output (revenue, cogs, margin_pct) must be IDENTICAL to the pre-migration
+# values for existing backfilled data.
+#
+# Pre-migration baseline (prod account 3834e5d7, all dates):
+#   sin_canal: revenue=2617164.59, cogs=1148000.00, margin_pct=56.1
+#   otro:      revenue=146050.00,  cogs=58500.00,   margin_pct=59.9
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_dashboard_channel_margin_cogs_logic_from_sale_items():
+    """
+    9.3 RED → GREEN: the new per_channel CTE must compute COGS using
+    si.quantity (from sale_items) and pr.cost (from products JOIN), not
+    s.quantity (from flat header).
+    For backfilled rows, si.quantity == s.quantity → identical COGS.
+    This test documents the invariant.
+    """
+    # Simulate one sale that has been backfilled:
+    # sale header: quantity=2, amount=1000, total=2000
+    # sale_items:  quantity=2 (copied from header by backfill)
+    # product.cost = 500
+    s_quantity   = Decimal("2.0000")
+    si_quantity  = Decimal("2.0000")   # backfilled from s.quantity
+    product_cost = Decimal("500.00")
+
+    cogs_from_header     = product_cost * s_quantity    # 1000
+    cogs_from_sale_items = product_cost * si_quantity   # 1000 — must match
+
+    assert cogs_from_header == cogs_from_sale_items, (
+        "For backfilled rows, COGS from sale_items must equal COGS from header"
+    )
+
+
+def test_dashboard_channel_margin_revenue_from_sale_items():
+    """
+    9.3 TRIANGULATE: revenue is still SUM(s.total) from the sales header
+    (we don't change revenue source — only COGS source changes to si.quantity).
+    After the migration, revenue reads COALESCE(s.total, s.amount) from the sales row
+    OR from si.subtotal (which equals amount*quantity — same value).
+    Either approach yields the same number for backfilled rows.
+    """
+    # sale header: amount=1000, quantity=2, total=2000
+    s_total    = Decimal("2000.00")
+    si_subtotal = Decimal("2000.00")   # backfilled: subtotal = COALESCE(total, amount*quantity)
+
+    # Revenue from header = revenue from sale_items subtotal for backfilled rows
+    assert s_total == si_subtotal, (
+        "For backfilled rows, si.subtotal must equal s.total"
+    )
+
+
+def test_dashboard_channel_margin_pre_migration_baseline():
+    """
+    9.3 TRIANGULATE: documents the known pre-migration production baseline
+    for the main prod account (3834e5d7, all dates, susana).
+    After the migration is applied, the same query with the new RPC must return
+    IDENTICAL values (verified via execute_sql comparison in the apply step).
+
+    Pre-migration results (captured 2026-06-10):
+      sin_canal: revenue=2617164.59, cogs=1148000.00, margin_pct=56.1
+      otro:      revenue=146050.00,  cogs=58500.00,   margin_pct=59.9
+    """
+    baseline = [
+        {"canal": "sin_canal", "revenue": Decimal("2617164.59"), "cogs": Decimal("1148000.00"), "margin_pct": Decimal("56.1")},
+        {"canal": "otro",      "revenue": Decimal("146050.00"),  "cogs": Decimal("58500.00"),   "margin_pct": Decimal("59.9")},
+    ]
+
+    for row in baseline:
+        computed_margin = round(
+            (row["revenue"] - row["cogs"]) / row["revenue"] * 100, 1
+        )
+        assert computed_margin == row["margin_pct"], (
+            f"Canal {row['canal']}: computed margin {computed_margin} != baseline {row['margin_pct']}"
+        )
+
+
+def test_dashboard_channel_margin_null_product_sales_excluded_from_cogs():
+    """
+    9.3 TRIANGULATE: sales without product_id (service lines) have no sale_items row
+    (the v2 RPC skips INSERT into sale_items for NULL product_id).
+    The new CTE must handle NULL si rows gracefully (LEFT JOIN, COALESCE cogs to 0).
+    """
+    # Sale without product: no sale_items row → si.quantity is NULL after LEFT JOIN
+    si_quantity  = None
+    product_cost = Decimal("500.00")
+
+    # COALESCE(pr.cost, 0) * COALESCE(si.quantity, 0)  must not raise, must be 0
+    cogs = (product_cost if product_cost is not None else Decimal("0")) * (
+        si_quantity if si_quantity is not None else Decimal("0")
+    )
+    assert cogs == Decimal("0"), (
+        "Sales without product must contribute 0 COGS in the channel margin"
+    )

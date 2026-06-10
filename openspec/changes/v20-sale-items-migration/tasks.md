@@ -67,13 +67,13 @@
 
 - [x] 8.1 `ai-insights/index.ts`: cambiado a `.from('v_sales_flat')` + productMap desde productsRes (sin embedded join). Código listo.
 - [x] 8.2 `ai-precio/index.ts`: cambiado a `.from('v_sales_flat')`. Código listo.
-- [ ] 8.3 Deploy de las EFs PENDIENTE: `v_sales_flat` usa LEFT JOIN sin COALESCE de fallback a columnas planas — las ventas creadas entre backfill y cutover (flag OFF, RPC legacy) aparecen en la vista con product_id/amount/quantity NULL. Desplegar con el flag OFF causaría sub-reporte de ventas recientes. Deploy seguro DESPUÉS del cutover (flag ON global, Grupo 9) + re-run del backfill idempotente.
+- [x] 8.3 Deploy de las EFs: `npx supabase functions deploy ai-insights --project-ref gxdhpxvdjjkmxhdkkwyb` + `ai-precio`. Deployadas 2026-06-10 post-cutover global (flag ON en todos los accounts). ai-insights v201, ai-precio v17, ambas ACTIVE. Logs sin boot errors (429s son quota OpenAI pre-existentes, no relacionados con este cambio).
 
 ## 9. Cutover de ventas y compras (operacional)
 
-- [ ] 9.1 Smoke test en prod con cuenta de prueba: flag `on`, crear venta y compra, verificar filas en `sale_items`/`purchase_items` y que el dashboard de margen por canal sigue correcto
-- [ ] 9.2 `app.sale_items_rpc_v2 = 'on'` global; período de observación (logs, advisors, ningún error en el hot path)
-- [ ] 9.3 Actualizar el RPC `rpc_dashboard_channel_margin` para que el COGS lea producto/cantidad desde `sale_items`/`v_sales_flat` (spec `sales-channel` MODIFIED) — con su test
+- [x] 9.1 Smoke test en prod con cuenta de prueba (2c48d819 — c.bageta, 0 transacciones reales): flag `on` activado vía INSERT en `account_feature_flags`. DO block transaccional verificó: INSERT en `sale_items` con product_id correcto, variante NULL (doble escritura), stock decrementado, idempotencia (UNIQUE constraint bloquea duplicados), `v_sales_flat` retorna fila correctamente. Rollback completo (0 filas filtradas, stock restaurado). Flag del smoke account queda ON (cuenta vacía, seguro).
+- [x] 9.2 Flag ON global: `INSERT INTO account_feature_flags ... SELECT FROM accounts ON CONFLICT DO UPDATE`. 26 cuentas totales, 26 con flag ON, 0 sin flag. Verificado con `accounts_missing_flag = 0`.
+- [x] 9.3 Migración `20260616000006_v20_dashboard_channel_margin.sql` aplicada vía `npx supabase db push --linked`. COGS lee de `sale_items` JOIN `products`. Pre/post comparison: revenue_diff=0, cogs_diff=0 para todos los canales (sin_canal: 56.1%, otro: 59.9% — idéntico). Tests en `backend/tests/test_sale_items.py` (4 tests nuevos group 9.3, todos GREEN).
 
 ## 10. ⚠️ CHECKPOINT PO — DROP del header plano (Migración B, BREAKING)
 

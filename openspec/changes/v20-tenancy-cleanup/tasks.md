@@ -11,12 +11,12 @@
 - [x] 2.4 Crear migration SQL: backfill `suppliers.account_id` via join `company_id → companies → company_users → account_members`
 - [x] 2.5 Crear migration SQL: para cada fila en `companies`, verificar si sus usuarios ya tienen `account_id` en `account_members`; si no, crear `accounts` + `account_members` con role=owner; nunca duplicar cuentas existentes
 - [x] 2.6 Verificar que la migration no genera NULLs residuales: queries `SELECT COUNT(*) FROM <tabla> WHERE account_id IS NULL` deben retornar 0 para todas las tablas listadas
-- [ ] 2.7 Aplicar migrations al proyecto `gxdhpxvdjjkmxhdkkwyb` via `npx supabase db push`; verificar en producción
+- [x] 2.7 Aplicar migrations al proyecto `gxdhpxvdjjkmxhdkkwyb` via `npx supabase db push`; verificar en producción
 
 ## 3. DB — RLS de suppliers (Paso 2 del plan)
 
 - [x] 3.1 Crear migration SQL: agregar políticas RLS a `suppliers` para SELECT, INSERT, UPDATE, DELETE usando `account_id = ANY(current_account_ids())` — alineadas con el patrón del resto de tablas ERP
-- [ ] 3.2 Aplicar migration al proyecto `gxdhpxvdjjkmxhdkkwyb` via `npx supabase db push`
+- [x] 3.2 Aplicar migration al proyecto `gxdhpxvdjjkmxhdkkwyb` via `npx supabase db push`
 - [ ] 3.3 Verificar: desde la UI, un usuario no puede ver suppliers de otro tenant
 
 ## 4. Backend Python — core/deps.py y core/auth.py (Paso 3 del plan)

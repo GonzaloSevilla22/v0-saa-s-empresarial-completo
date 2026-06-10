@@ -10,15 +10,15 @@ from backend.repositories.base import BaseRepository
 
 
 class SalesRepository(BaseRepository):
-    async def list_by_org(self, user_id: str) -> list[asyncpg.Record]:
+    async def list_by_org(self, account_id: str) -> list[dict]:
         return await self.fetch(
-            "SELECT * FROM sales WHERE user_id = $1 ORDER BY date DESC",
-            user_id,
+            "SELECT * FROM sales WHERE account_id = $1 ORDER BY date DESC",
+            account_id,
         )
 
     async def list_paginated_by_operation(
         self,
-        user_id: str,
+        account_id: str,
         page: int,
         page_size: int,
         date_from: datetime.date | None = None,
@@ -28,11 +28,11 @@ class SalesRepository(BaseRepository):
             """
             SELECT COUNT(DISTINCT COALESCE(operation_id::text, id::text))
             FROM sales
-            WHERE user_id = $1::uuid
+            WHERE account_id = $1::uuid
               AND ($2::date IS NULL OR date >= $2::date)
               AND ($3::date IS NULL OR date <= $3::date)
             """,
-            user_id, date_from, date_to,
+            account_id, date_from, date_to,
         ) or 0
 
         rows: list[asyncpg.Record] = await self._conn.fetch(
@@ -40,7 +40,7 @@ class SalesRepository(BaseRepository):
             WITH op_page AS (
               SELECT COALESCE(operation_id::text, id::text) AS op_key
               FROM sales
-              WHERE user_id = $1::uuid
+              WHERE account_id = $1::uuid
                 AND ($2::date IS NULL OR date >= $2::date)
                 AND ($3::date IS NULL OR date <= $3::date)
               GROUP BY COALESCE(operation_id::text, id::text)
@@ -55,34 +55,34 @@ class SalesRepository(BaseRepository):
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
             LEFT JOIN products pr ON s.product_id = pr.id
             LEFT JOIN clients cl ON s.client_id = cl.id
-            WHERE s.user_id = $1::uuid
+            WHERE s.account_id = $1::uuid
             ORDER BY s.date DESC, s.id
             """,
-            user_id, date_from, date_to, page_size, page * page_size,
+            account_id, date_from, date_to, page_size, page * page_size,
         )
         return rows, total
 
-    async def get_operation(self, operation_id: str, user_id: str) -> asyncpg.Record | None:
+    async def get_operation(self, operation_id: str, account_id: str) -> asyncpg.Record | None:
         return await self.fetchrow(
-            "SELECT * FROM sales WHERE operation_id = $1 AND user_id = $2 LIMIT 1",
+            "SELECT * FROM sales WHERE operation_id = $1 AND account_id = $2 LIMIT 1",
             operation_id,
-            user_id,
+            account_id,
         )
 
-    async def get_idempotency(self, user_id: str, idempotency_key: str) -> asyncpg.Record | None:
+    async def get_idempotency(self, account_id: str, idempotency_key: str) -> asyncpg.Record | None:
         return await self.fetchrow(
             """
             SELECT operation_id, operation_kind FROM operation_idempotency
-            WHERE user_id = $1 AND idempotency_key = $2
+            WHERE account_id = $1 AND idempotency_key = $2
             """,
-            user_id,
+            account_id,
             idempotency_key,
         )
 
     async def create_operation(
         self,
         user_id: str,
-        org_id: str,
+        account_id: str,
         items: list[dict],
         idempotency_key: str,
         date: datetime.date | None = None,
@@ -90,7 +90,7 @@ class SalesRepository(BaseRepository):
         currency: str = "ARS",
         canal: str | None = None,
     ) -> dict | None:
-        existing = await self.get_idempotency(user_id, idempotency_key)
+        existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
             return dict(existing)
 
@@ -99,7 +99,6 @@ class SalesRepository(BaseRepository):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
-        # p_branch_id se omite (DEFAULT NULL); canal va como p_canal nombrado.
         row = await self._conn.fetchrow(
             """
             SELECT

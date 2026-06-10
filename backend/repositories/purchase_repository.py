@@ -10,15 +10,15 @@ from backend.repositories.base import BaseRepository
 
 
 class PurchaseRepository(BaseRepository):
-    async def list_by_org(self, user_id: str) -> list[asyncpg.Record]:
+    async def list_by_org(self, account_id: str) -> list[dict]:
         return await self.fetch(
-            "SELECT * FROM purchases WHERE user_id = $1 ORDER BY date DESC",
-            user_id,
+            "SELECT * FROM purchases WHERE account_id = $1 ORDER BY date DESC",
+            account_id,
         )
 
     async def list_paginated_by_operation(
         self,
-        user_id: str,
+        account_id: str,
         page: int,
         page_size: int,
         date_from: datetime.date | None = None,
@@ -28,11 +28,11 @@ class PurchaseRepository(BaseRepository):
             """
             SELECT COUNT(DISTINCT COALESCE(operation_id::text, id::text))
             FROM purchases
-            WHERE user_id = $1::uuid
+            WHERE account_id = $1::uuid
               AND ($2::date IS NULL OR date >= $2::date)
               AND ($3::date IS NULL OR date <= $3::date)
             """,
-            user_id, date_from, date_to,
+            account_id, date_from, date_to,
         ) or 0
 
         rows: list[asyncpg.Record] = await self._conn.fetch(
@@ -40,7 +40,7 @@ class PurchaseRepository(BaseRepository):
             WITH op_page AS (
               SELECT COALESCE(operation_id::text, id::text) AS op_key
               FROM purchases
-              WHERE user_id = $1::uuid
+              WHERE account_id = $1::uuid
                 AND ($2::date IS NULL OR date >= $2::date)
                 AND ($3::date IS NULL OR date <= $3::date)
               GROUP BY COALESCE(operation_id::text, id::text)
@@ -53,36 +53,36 @@ class PurchaseRepository(BaseRepository):
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
             LEFT JOIN products pr ON p.product_id = pr.id
-            WHERE p.user_id = $1::uuid
+            WHERE p.account_id = $1::uuid
             ORDER BY p.date DESC, p.id
             """,
-            user_id, date_from, date_to, page_size, page * page_size,
+            account_id, date_from, date_to, page_size, page * page_size,
         )
         return rows, total
 
-    async def get_operation(self, operation_id: str, user_id: str) -> asyncpg.Record | None:
+    async def get_operation(self, operation_id: str, account_id: str) -> asyncpg.Record | None:
         return await self.fetchrow(
-            "SELECT * FROM purchases WHERE operation_id = $1 AND user_id = $2 LIMIT 1",
+            "SELECT * FROM purchases WHERE operation_id = $1 AND account_id = $2 LIMIT 1",
             operation_id,
-            user_id,
+            account_id,
         )
 
-    async def get_idempotency(self, user_id: str, idempotency_key: str) -> asyncpg.Record | None:
+    async def get_idempotency(self, account_id: str, idempotency_key: str) -> asyncpg.Record | None:
         return await self.fetchrow(
             """
             SELECT operation_id, operation_kind FROM operation_idempotency
-            WHERE user_id = $1 AND idempotency_key = $2
+            WHERE account_id = $1 AND idempotency_key = $2
             """,
-            user_id,
+            account_id,
             idempotency_key,
         )
 
-    async def delete_by_id(self, purchase_id: str, user_id: str) -> bool:
+    async def delete_by_id(self, purchase_id: str, account_id: str) -> bool:
         async with self._conn.transaction():
             row = await self._conn.fetchrow(
-                "SELECT id, product_id, operation_id FROM purchases WHERE id = $1::uuid AND user_id = $2::uuid",
+                "SELECT id, product_id, operation_id FROM purchases WHERE id = $1::uuid AND account_id = $2::uuid",
                 purchase_id,
-                user_id,
+                account_id,
             )
             if row is None:
                 return False
@@ -114,12 +114,12 @@ class PurchaseRepository(BaseRepository):
                     )
             return True
 
-    async def delete_by_operation(self, operation_id: str, user_id: str) -> bool:
+    async def delete_by_operation(self, operation_id: str, account_id: str) -> bool:
         async with self._conn.transaction():
             rows = await self._conn.fetch(
-                "SELECT id, product_id FROM purchases WHERE operation_id = $1::uuid AND user_id = $2::uuid",
+                "SELECT id, product_id FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
                 operation_id,
-                user_id,
+                account_id,
             )
             if not rows:
                 return False
@@ -140,9 +140,9 @@ class PurchaseRepository(BaseRepository):
                         row["id"],
                     )
             await self._conn.execute(
-                "DELETE FROM purchases WHERE operation_id = $1::uuid AND user_id = $2::uuid",
+                "DELETE FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
                 operation_id,
-                user_id,
+                account_id,
             )
             await self._conn.execute(
                 "DELETE FROM operation_idempotency WHERE operation_id = $1::uuid",
@@ -153,13 +153,13 @@ class PurchaseRepository(BaseRepository):
     async def create_operation(
         self,
         user_id: str,
-        org_id: str,
+        account_id: str,
         items: list[dict],
         idempotency_key: str,
         date: datetime.date | None = None,
         description: str | None = None,
     ) -> dict | None:
-        existing = await self.get_idempotency(user_id, idempotency_key)
+        existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
             return dict(existing)
 
@@ -168,7 +168,6 @@ class PurchaseRepository(BaseRepository):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
-        # The RPC takes description at operation level — strip it from items
         clean_items = [
             {k: v for k, v in item.items() if k != "description"}
             for item in items

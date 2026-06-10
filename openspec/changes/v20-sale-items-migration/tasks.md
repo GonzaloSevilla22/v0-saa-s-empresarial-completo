@@ -17,7 +17,7 @@
 - [x] 1.3 Índice único parcial `CREATE UNIQUE INDEX ... ON sale_items (sale_id, product_id) WHERE product_id IS NOT NULL` (idempotencia del backfill; no choca con filas de variantes que tienen `product_id IS NULL`); equivalente en `purchase_items (purchase_id, product_id)`
 - [x] 1.4 Índices para los JOINs/RLS: `(sale_id)`, `(account_id)` en `sale_items`; `(purchase_id)`, `(account_id)` en `purchase_items`
 - [x] 1.5 RLS: políticas por `account_id` en `sale_items`/`purchase_items` (espejo de las de `sales`/`purchases`, usando `current_account_ids()`); habilitar RLS si no estaba
-- [ ] 1.6 Correr `get_advisors` (security + performance) tras la migración; resolver hallazgos
+- [x] 1.6 Correr `get_advisors` (security + performance) tras la migración; resolver hallazgos
 
 ## 2. Backfill idempotente
 
@@ -45,29 +45,29 @@
 
 ## 5. Vista de compatibilidad
 
-- [ ] 5.1 Test: un usuario solo ve sus propias ventas vía `v_sales_flat` (RLS respetada por `security_invoker`)
-- [ ] 5.2 Test: para una venta backfilleada, `v_sales_flat.product_id/amount/quantity/total` provienen del `sale_items`
-- [ ] 5.3 Migración SQL: `CREATE VIEW v_sales_flat WITH (security_invoker = true) AS SELECT ... JOIN sale_items`; idem `v_purchases_flat`
-- [ ] 5.4 Correr `get_advisors` y confirmar que las vistas no aparecen como `security_definer`/sin invoker
+- [x] 5.1 Test: un usuario solo ve sus propias ventas vía `v_sales_flat` (RLS respetada por `security_invoker`)
+- [x] 5.2 Test: para una venta backfilleada, `v_sales_flat.product_id/amount/quantity/total` provienen del `sale_items`
+- [x] 5.3 Migración SQL: `CREATE VIEW v_sales_flat WITH (security_invoker = true) AS SELECT ... JOIN sale_items`; idem `v_purchases_flat`
+- [x] 5.4 `get_advisors` corrido: 5 hallazgos security (SECURITY DEFINER RPCs — intencional, sin acción) + 12 performance (duplicados + FK sin índice → resueltos en migración 20260616000005)
 
 ## 6. Migrar lecturas del backend (repositories)
 
-- [ ] 6.1 Test (pytest): `sales_repository.list_paginated_by_operation` devuelve `product_id/quantity/amount` desde `JOIN sale_items` (incluida una venta legacy backfilleada)
-- [ ] 6.2 Reescribir el SELECT paginado de `sales_repository.py` para `JOIN sale_items si ON si.sale_id = s.id`; alias `si.price AS amount`, `si.subtotal AS total`
-- [ ] 6.3 Test + reescritura simétrica en `purchase_repository.py` (incluye revisar `delete_by_id`/`delete_by_operation`: leen `product_id` para revertir stock → tomar el `product_id` del ítem)
-- [ ] 6.4 Verificar que los schemas Pydantic (`SaleOut`/`PurchaseOut`) siguen exponiendo los mismos campos al frontend (sin cambio de contrato del API en este paso)
+- [x] 6.1 Test (pytest): `sales_repository.list_paginated_by_operation` devuelve `product_id/quantity/amount` desde `JOIN sale_items` (incluida una venta legacy backfilleada)
+- [x] 6.2 Reescribir el SELECT paginado de `sales_repository.py` para `JOIN sale_items si ON si.sale_id = s.id`; alias `si.price AS amount`, `si.subtotal AS total`
+- [x] 6.3 Test + reescritura simétrica en `purchase_repository.py` (incluye revisar `delete_by_id`/`delete_by_operation`: leen `product_id` para revertir stock → tomar el `product_id` del ítem)
+- [x] 6.4 Verificar que los schemas Pydantic (`SaleOut`/`PurchaseOut`) siguen exponiendo los mismos campos al frontend (sin cambio de contrato del API en este paso)
 
 ## 7. Migrar lecturas del frontend (hooks)
 
-- [ ] 7.1 Test del hook `use-sales` (patrón existente): `mapSale` produce `productId/quantity/unitPrice` correctos con el nuevo shape del API
-- [ ] 7.2 Ajustar `frontend/hooks/data/use-sales.ts` si el shape del row del API cambió (idealmente NO, porque el repo mantiene los mismos nombres de columna)
-- [ ] 7.3 Test + ajuste simétrico de `frontend/hooks/data/use-purchases.ts`
+- [x] 7.1 Test del hook `use-sales` (patrón existente): `mapSale` produce `productId/quantity/unitPrice` correctos con el nuevo shape del API
+- [x] 7.2 Ajustar `frontend/hooks/data/use-sales.ts` si el shape del row del API cambió (NO cambió — el repo mantiene los mismos aliases: `si.price AS amount`, `si.quantity`, `si.product_id`)
+- [x] 7.3 Test + ajuste simétrico de `frontend/hooks/data/use-purchases.ts` (NO requirió cambio por la misma razón)
 
 ## 8. Migrar Edge Functions de IA
 
-- [ ] 8.1 `ai-insights/index.ts`: cambiar `.from('sales').select('amount, quantity, ... product_id ...')` a `.from('v_sales_flat')` (mismos nombres de columna; cambio mínimo) — líneas ~98–142
-- [ ] 8.2 `ai-precio/index.ts`: cambiar `.from('sales').select('amount, quantity, date').eq('product_id', ...)` a `.from('v_sales_flat')` — líneas ~198–248
-- [ ] 8.3 Validar cada EF en preview (corrida real); deploy de las EFs
+- [x] 8.1 `ai-insights/index.ts`: cambiado a `.from('v_sales_flat')` + productMap desde productsRes (sin embedded join). Código listo.
+- [x] 8.2 `ai-precio/index.ts`: cambiado a `.from('v_sales_flat')`. Código listo.
+- [ ] 8.3 Deploy de las EFs PENDIENTE: `v_sales_flat` usa LEFT JOIN sin COALESCE de fallback a columnas planas — las ventas creadas entre backfill y cutover (flag OFF, RPC legacy) aparecen en la vista con product_id/amount/quantity NULL. Desplegar con el flag OFF causaría sub-reporte de ventas recientes. Deploy seguro DESPUÉS del cutover (flag ON global, Grupo 9) + re-run del backfill idempotente.
 
 ## 9. Cutover de ventas y compras (operacional)
 

@@ -646,19 +646,20 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-20] `v20-sale-items-migration`
-- **Estado**: `[ ]` pendiente
-- **Scope**:
-  - Backfill: para cada una de las 128 ventas legacy con `product_id NOT NULL` en el header, crear 1 fila en `sale_items` con `variant_id = NULL` (PA-20 resuelta 2026-06-10: variante opcional, sin variantes default)
-  - Versionar el RPC `rpc_create_sale_operation`: nueva versión escribe exclusivamente en `sale_items`; versión legacy queda como fallback con feature flag
-  - Actualizar `backend/repositories/sales_repository.py`: query paginada migra de `SELECT s.product_id, s.quantity, s.amount` del header a `JOIN sale_items ON s.id = si.sale_id`
-  - Actualizar `frontend/hooks/data/use-sales.ts`: mapper que lee de `sale_items` join en lugar de campos flat del header
-  - Actualizar Edge Functions que leen `sale.product_id/amount/quantity`: `ai-insights/index.ts`, `ai-precio/index.ts`
-  - Vista de compatibilidad temporal en `sales` (`v_sales_flat`) que expone `product_id/amount/quantity` como columnas calculadas — mantiene otras queries sin romper durante la transición
-  - Proceso simétrico para `purchases`/`purchase_items`: backfill, RPC versionado, repo, hook
-  - Drop de `product_id`, `amount`, `quantity`, `total` del header `sales` (último paso, tras validar que nada lee las columnas del header y que la vista de compatibilidad está en uso)
-  - Drop de las columnas equivalentes en `purchases`
-  - Tests: venta creada con nuevo RPC tiene 1 fila en `sale_items`; hook `use-sales` devuelve ítems correctos; venta legacy pre-backfill es accesible; `purchase_items` espeja el comportamiento
-- **Dependencias**: `C-19`
+- **Estado**: `[x]` completado — 2026-06-10 (archivado: `openspec/changes/archive/2026-06-10-v20-sale-items-migration`)
+- **Nota**: Grupo 10 (DROP del header plano) **diferido a change propio** — requiere aprobación separada del PO y está bloqueado por la representación de líneas de servicio en las tablas de ítems (product_id NULL, hoy solo existen en el header via COALESCE). Migraciones 20260616000001–09 + 3 hotfixes completas, RPC v2 con flag por cuenta (26/26 ON), EFs deployadas, repos + hooks actualizados, suite backend 85/85 verde, PRs #153/#154/#155 mergeados.
+- **Scope** (completado):
+  - Backfill: para cada una de las 128 ventas legacy con `product_id NOT NULL` en el header, crear 1 fila en `sale_items` con `variant_id = NULL` (PA-20 resuelta 2026-06-10: variante opcional, sin variantes default) ✓
+  - Versionar el RPC `rpc_create_sale_operation`: nueva versión escribe exclusivamente en `sale_items`; versión legacy queda como fallback con feature flag ✓
+  - Actualizar `backend/repositories/sales_repository.py`: query paginada migra de `SELECT s.product_id, s.quantity, s.amount` del header a `JOIN sale_items ON s.id = si.sale_id` ✓
+  - Actualizar `frontend/hooks/data/use-sales.ts`: mapper que lee de `sale_items` join en lugar de campos flat del header ✓
+  - Actualizar Edge Functions que leen `sale.product_id/amount/quantity`: `ai-insights/index.ts`, `ai-precio/index.ts` ✓
+  - Vista de compatibilidad temporal en `sales` (`v_sales_flat`) que expone `product_id/amount/quantity` como columnas calculadas — mantiene otras queries sin romper durante la transición ✓
+  - Proceso simétrico para `purchases`/`purchase_items`: backfill, RPC versionado, repo, hook ✓
+  - Tests: venta creada con nuevo RPC tiene 1 fila en `sale_items`; hook `use-sales` devuelve ítems correctos; venta legacy pre-backfill es accesible; `purchase_items` espeja el comportamiento ✓
+  - Drop de `product_id`, `amount`, `quantity`, `total` del header `sales` → **DIFERIDO a change propio** (Group 10, bloqueado)
+  - Drop de las columnas equivalentes en `purchases` → **DIFERIDO a change propio** (Group 10, bloqueado)
+- **Dependencias**: `C-19` ✓
 - **Governance**: ALTO
 - **Leer antes**:
   - `openspec/explore/2026-06-09-modelo-dominio-v2.md` §2.3 (campos planos en ventas), §4 sizing paso 2
@@ -940,15 +941,17 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ## Primer change recomendado
 
-**Fase 6: 3/7 completados** — C-19 (2026-06-09), C-22 y C-23 (2026-06-10) archivados. El siguiente change recomendado es:
+**Fase 6: 4/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10) archivados. El siguiente change recomendado es:
 
-### `C-20` `v20-sale-items-migration` ⭐ — PRÓXIMO
+### `C-21` `v20-inventory-unification` ⭐ — PRÓXIMO
 
-ALTO governance, sobre el camino crítico (C-20 → C-29 → C-30). Migra ventas/compras del header plano a `sale_items`/`purchase_items` con backfill `variant_id = NULL` (PA-20 resuelta). Por governance ALTO: proponer y esperar revisión del PO antes de escribir código.
+CRITICO governance, sobre el camino crítico (C-21 → C-26 → C-27). Migra 19 filas de stock a Casa Central Branch; descartar 6 warehouses auto-generados (PA-19 resuelta). Desbloquea la rama Branch del V2.1.
 
 **También disponibles (decisiones del PO ya tomadas el 2026-06-10):**
-- **C-21** `v20-inventory-unification` [CRITICO] — migrar las 19 filas de stock a Casa Central; descartar los 6 warehouses auto-generados (PA-19). Desbloquea C-26 → C-27/C-28.
 - **C-24** `v20-insights-unification` [BAJO] — Opción A: renombrar `ai_insights` → `insights`
 - **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21)
 
-Para arrancar: `/opsx:propose v20-sale-items-migration`
+**Diferido:**
+- **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
+
+Para arrancar: `/opsx:propose v20-inventory-unification`

@@ -95,9 +95,9 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 > Fuente: [CHANGES.md](CHANGES.md) — 30 changes en 7 fases. **Fases 1-5 (C-01→C-18) completadas** (backend Python en producción desde 2026-06-07). El PO adoptó el **modelo de dominio V2** (`modelo-dominio-aliadata-v2.md`, 2026-06-09; validado en `openspec/explore/2026-06-09-modelo-dominio-v2.md`): la Fase 6 (V2.0 retirada de deuda) es el trabajo activo. **Regla dura: ninguna feature nueva sobre tablas en retirada (RN-97, `knowledge-base/05`).**
 
 ### Próximo change recomendado (activo)
-**`C-20 v20-sale-items-migration`** [ALTO, M] — Migrar ventas/compras del header plano a `sale_items`/`purchase_items`: backfill con `variant_id = NULL` (PA-20 resuelta), RPC versionado, repo/hook/EFs actualizados, drop de columnas flat. Camino crítico → C-29 → C-30. Por governance ALTO: proponer y esperar revisión del PO antes de escribir código.
+**`C-21 v20-inventory-unification`** [CRÍTICO, L] — Migrar 19 filas de stock de `inventory_stock` a `branch_stock` de Casa Central; descartar 6 warehouses auto-generados (PA-19 resuelta). Desbloquea la rama Branch → C-26 → C-27/C-28. Camino crítico del V2.1.
 
-> **Fase 6: 3/7 ✅** — C-19 (2026-06-09), C-22 y C-23 (2026-06-10) archivados. Las tablas community viven en el schema `community` (acceso vía `.schema("community")`; embedding a `profiles` vía vista puente). **Todas las preguntas abiertas de la fase están resueltas** (PA-19/PA-20/PA-21 + C-24 Opción A, `knowledge-base/10`): C-21, C-24 y C-25 también proposables.
+> **Fase 6: 4/7 ✅** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10) archivados. Las tablas community viven en el schema `community` (acceso vía `.schema("community")`; embedding a `profiles` vía vista puente). **Todas las preguntas abiertas de la fase están resueltas** (PA-19/PA-20/PA-21 + C-24 Opción A, `knowledge-base/10`): C-21, C-24 y C-25 también proposables. **C-20 Grupo 10 (DROP header plano) diferido** — bloqueado por representación de líneas de servicio.
 
 ### Camino crítico (Fases 6-7)
 ```
@@ -116,7 +116,7 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 | 3 — Multi-tenant | C-05, C-06, C-07, C-08 | ✅ | Arquitectura multi-usuario + roles + sucursales + stock multisucursal |
 | 4 — Upgrade UX | C-10, C-14 | ✅ | UI de upgrade de plan + módulo de exportaciones |
 | 5 — Backend Python | C-15, C-16, C-17, C-18 | ✅ | Capa de datos + migración API + pagos + desacople DataContext (realtime queda en Supabase, DEC-16) |
-| 6 — V2.0 Retirada de deuda | C-19 → C-25 | 🔨 C-19 ✅ | Tenancy única, sale_items, ledger único de stock + Branch "Casa Central", FiscalIdentity en clientes, schema community, insights unificados, outbox activo |
+| 6 — V2.0 Retirada de deuda | C-19 → C-25 | 🔨 C-19/C-20 ✅ | Tenancy única, sale_items (C-20 live en prod, Grupo 10 DROP diferido), ledger único de stock + Branch "Casa Central", FiscalIdentity en clientes, schema community, insights unificados, outbox activo |
 | 7 — V2.1 Operación | C-26 → C-30 | ⏳ | Branch como root, FiscalProfile + AFIP (CAE async), CashSession con arqueo, Quote/SalesOrder + quickSale POS, cuentas corrientes |
 | Futuras | V2.5 / V3 | ⏳ | Finanzas (BankReconciliation, JournalEntry, CostCenter UI, percepciones) / Inteligencia (AIAgent, KnowledgeBase, automatizaciones) |
 

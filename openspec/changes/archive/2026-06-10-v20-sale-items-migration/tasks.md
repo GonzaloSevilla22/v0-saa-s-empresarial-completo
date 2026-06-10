@@ -86,9 +86,22 @@
 - [ ] 10.5 Correr `get_advisors`; regenerar `database.types.ts` (`supabase gen types typescript`) con el nuevo esquema
 - [ ] 10.6 Decisión OQ3: retirar o conservar `v_sales_flat`/`v_purchases_flat`
 
+## 10. ⚠️ CHECKPOINT PO — DROP del header plano (Migración B, BREAKING) — DIFERIDO
+
+> **DIFERIDO 2026-06-10** por aprobación del PO separada. El DROP queda fuera de este change.
+> 
+> **Bloqueado además por**: la representación de líneas de servicio en las tablas de ítems. Hoy las líneas de servicio (product_id NULL) no tienen fila en `sale_items`/`purchase_items` y el header plano con COALESCE es su única fuente (ver migración 20260616000009). El DROP será un change propio cuando el PO lo apruebe y la representación de servicios esté resuelta.
+
+- [ ] 10.1 Pre-DROP guard: query que falla si alguna función/vista fuera de la lista esperada referencia `sales.product_id/amount/quantity/total/unit_id` o equivalentes de `purchases` (`pg_get_functiondef`, `pg_views`)
+- [ ] 10.2 Confirmar v2 `on` estable y vista de compat en uso; aprobación del PO
+- [ ] 10.3 Migración B: `ALTER TABLE sales DROP COLUMN product_id, amount, quantity, total, unit_id` (los que correspondan); equivalentes en `purchases`. Incluir en la migración el SQL inverso de rollback documentado (ADD COLUMN + backfill desde el ítem), como hizo C-19
+- [ ] 10.4 v2 deja de escribir columnas flat (si OQ2 = doble escritura); ajustar `v_sales_flat`/`v_purchases_flat` si hace falta (la vista sobrevive: se computa desde el ítem)
+- [ ] 10.5 Correr `get_advisors`; regenerar `database.types.ts` (`supabase gen types typescript`) con el nuevo esquema
+- [ ] 10.6 Decisión OQ3: retirar o conservar `v_sales_flat`/`v_purchases_flat`
+
 ## 11. Cierre
 
-- [ ] 11.1 Suite completa verde (backend pytest + tests de hooks)
-- [ ] 11.2 PR(s) a `main` (nunca commit directo a main); el PO mergea
-- [ ] 11.3 `/opsx:archive v20-sale-items-migration` → sincroniza specs `sale-line-items` y `sales-channel`
-- [ ] 11.4 Marcar C-20 `[x]` en CHANGES.md y actualizar el estado de Fase 6 en CLAUDE.md/AGENTS.md
+- [x] 11.1 Suite completa verde (backend pytest + tests de hooks)
+- [x] 11.2 PR(s) a `main` (nunca commit directo a main); el PO mergea
+- [x] 11.3 `/opsx:archive v20-sale-items-migration` → sincroniza specs `sale-line-items` y `sales-channel`
+- [x] 11.4 Marcar C-20 `[x]` en CHANGES.md y actualizar el estado de Fase 6 en CLAUDE.md/AGENTS.md

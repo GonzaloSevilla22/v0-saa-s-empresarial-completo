@@ -47,12 +47,16 @@ class PurchaseRepository(BaseRepository):
               ORDER BY MAX(date) DESC
               LIMIT $4 OFFSET $5
             )
-            SELECT p.id, p.date, p.product_id, p.operation_id,
-                   p.quantity, p.amount, p.total, p.description,
+            SELECT p.id, p.date, p.operation_id, p.description,
+                   pi2.product_id,
+                   pi2.quantity,
+                   pi2.price    AS amount,
+                   pi2.subtotal AS total,
                    pr.name AS product_name
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
-            LEFT JOIN products pr ON p.product_id = pr.id
+            LEFT JOIN purchase_items pi2 ON pi2.purchase_id = p.id AND pi2.product_id IS NOT NULL
+            LEFT JOIN products pr ON pi2.product_id = pr.id
             WHERE p.account_id = $1::uuid
             ORDER BY p.date DESC, p.id
             """,
@@ -79,14 +83,22 @@ class PurchaseRepository(BaseRepository):
 
     async def delete_by_id(self, purchase_id: str, account_id: str) -> bool:
         async with self._conn.transaction():
+            # C-20 Group 6.3: fetch purchase_id and operation_id from header,
+            # product_id from purchase_items (preparing for DROP of flat columns).
             row = await self._conn.fetchrow(
-                "SELECT id, product_id, operation_id FROM purchases WHERE id = $1::uuid AND account_id = $2::uuid",
+                "SELECT id, operation_id FROM purchases WHERE id = $1::uuid AND account_id = $2::uuid",
                 purchase_id,
                 account_id,
             )
             if row is None:
                 return False
-            if row["product_id"] is not None:
+            # Read product_id from purchase_items (C-20: source of truth post-migration)
+            item_row = await self._conn.fetchrow(
+                "SELECT product_id FROM purchase_items WHERE purchase_id = $1::uuid AND product_id IS NOT NULL LIMIT 1",
+                purchase_id,
+            )
+            product_id = item_row["product_id"] if item_row else None
+            if product_id is not None:
                 delta = await self._conn.fetchval(
                     "SELECT quantity_delta FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase' LIMIT 1",
                     purchase_id,
@@ -95,7 +107,7 @@ class PurchaseRepository(BaseRepository):
                     await self._conn.execute(
                         "UPDATE products SET stock = stock - $1 WHERE id = $2::uuid",
                         delta,
-                        row["product_id"],
+                        product_id,
                     )
                 await self._conn.execute(
                     "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase'",
@@ -116,28 +128,36 @@ class PurchaseRepository(BaseRepository):
 
     async def delete_by_operation(self, operation_id: str, account_id: str) -> bool:
         async with self._conn.transaction():
+            # C-20 Group 6.3: fetch purchase ids first; get product_id per id from
+            # purchase_items (not from purchases flat column — prepares for DROP).
             rows = await self._conn.fetch(
-                "SELECT id, product_id FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
+                "SELECT id FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
                 operation_id,
                 account_id,
             )
             if not rows:
                 return False
             for row in rows:
-                if row["product_id"] is not None:
+                purchase_id = row["id"]
+                item_row = await self._conn.fetchrow(
+                    "SELECT product_id FROM purchase_items WHERE purchase_id = $1 AND product_id IS NOT NULL LIMIT 1",
+                    purchase_id,
+                )
+                product_id = item_row["product_id"] if item_row else None
+                if product_id is not None:
                     delta = await self._conn.fetchval(
                         "SELECT quantity_delta FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase' LIMIT 1",
-                        row["id"],
+                        purchase_id,
                     )
                     if delta is not None:
                         await self._conn.execute(
                             "UPDATE products SET stock = stock - $1 WHERE id = $2",
                             delta,
-                            row["product_id"],
+                            product_id,
                         )
                     await self._conn.execute(
                         "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase'",
-                        row["id"],
+                        purchase_id,
                     )
             await self._conn.execute(
                 "DELETE FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",

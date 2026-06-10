@@ -47,13 +47,17 @@ class SalesRepository(BaseRepository):
               ORDER BY MAX(date) DESC
               LIMIT $4 OFFSET $5
             )
-            SELECT s.id, s.date, s.product_id, s.client_id, s.operation_id,
-                   s.quantity, s.amount, s.total, s.currency,
+            SELECT s.id, s.date, s.client_id, s.operation_id, s.currency,
+                   si.product_id,
+                   si.quantity,
+                   si.price   AS amount,
+                   si.subtotal AS total,
                    pr.name AS product_name,
                    cl.name AS client_name
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
-            LEFT JOIN products pr ON s.product_id = pr.id
+            LEFT JOIN sale_items si ON si.sale_id = s.id AND si.product_id IS NOT NULL
+            LEFT JOIN products pr ON si.product_id = pr.id
             LEFT JOIN clients cl ON s.client_id = cl.id
             WHERE s.account_id = $1::uuid
             ORDER BY s.date DESC, s.id

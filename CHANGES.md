@@ -711,8 +711,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ---
 
-### [C-23] `v20-community-schema-split` ⭐ NEXT
-- **Estado**: `[ ]` pendiente
+### [C-23] `v20-community-schema-split`
+- **Estado**: `[x]` completado — 2026-06-10 (archivado: `openspec/changes/archive/2026-06-10-v20-community-schema-split`). Nota: se usó `ALTER TABLE SET SCHEMA` (no recreación) + vista puente `community.profiles` para el embedding de PostgREST; 16 tablas (incluye `course_progress`, no listada originalmente)
 - **Scope**:
   - Crear schema Postgres `community` en el proyecto Supabase
   - Migrar tablas de dominio no-ERP al nuevo schema: `courses`, `course_modules`, `course_lessons`, `course_enrollments`, `lesson_progress`, `posts`, `replies`, `post_likes`, `meetings`, `seguros`, `purchase_pools`, `landing_sections`, `fair_recommendations`, `fair_ai_tools`, `copilot_prompts`
@@ -924,10 +924,10 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-17 | backend-payments-migration | 5 — Migración Python | CRITICO | C-16 | `[x]` |
 | C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[x]` |
 | C-19 | v20-tenancy-cleanup | 6 — V2.0 Retirada deuda | CRITICO | — | `[x]` |
-| C-20 | v20-sale-items-migration | 6 — V2.0 Retirada deuda | ALTO | C-19 | `[ ]` |
+| C-20 | v20-sale-items-migration ⭐ | 6 — V2.0 Retirada deuda | ALTO | C-19 | `[ ]` |
 | C-21 | v20-inventory-unification | 6 — V2.0 Retirada deuda | CRITICO | C-19 | `[ ]` |
 | C-22 | v20-fiscal-identity-clients | 6 — V2.0 Retirada deuda | BAJO | — | `[x]` |
-| C-23 | v20-community-schema-split ⭐ | 6 — V2.0 Retirada deuda | MEDIO | — | `[ ]` |
+| C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[x]` |
 | C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[ ]` |
 | C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[ ]` |
 | C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[ ]` |
@@ -940,16 +940,15 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ## Primer change recomendado
 
-**Fases 1–5 completadas. C-19 `v20-tenancy-cleanup` (2026-06-09) y C-22 `v20-fiscal-identity-clients` (2026-06-10) completados y archivados.** El siguiente change recomendado es:
+**Fase 6: 3/7 completados** — C-19 (2026-06-09), C-22 y C-23 (2026-06-10) archivados. El siguiente change recomendado es:
 
-### `C-23` `v20-community-schema-split` ⭐ — PRÓXIMO
+### `C-20` `v20-sale-items-migration` ⭐ — PRÓXIMO
 
-MEDIO governance, independiente del resto de la fase: mueve las 15 tablas no-ERP (cursos, posts, meetings, seguros, etc.) al schema Postgres `community` — copy de datos + FKs + RLS recreadas + referencias frontend + regen de tipos. Es el único change implementable hoy sin decisiones pendientes del PO.
+ALTO governance, sobre el camino crítico (C-20 → C-29 → C-30). Migra ventas/compras del header plano a `sale_items`/`purchase_items` con backfill `variant_id = NULL` (PA-20 resuelta). Por governance ALTO: proponer y esperar revisión del PO antes de escribir código.
 
-**Toda la fase quedó desbloqueada el 2026-06-10** (PO respondió PA-19/PA-20/PA-21 + decisión C-24 — ver `knowledge-base/10_preguntas_abiertas.md`):
-- **C-20** `v20-sale-items-migration` — backfill con `variant_id = NULL` (PA-20)
-- **C-21** `v20-inventory-unification` — migrar las 19 filas de stock a Casa Central; descartar los 6 warehouses auto-generados (PA-19)
-- **C-24** `v20-insights-unification` — Opción A: renombrar `ai_insights` → `insights`
-- **C-25** `v20-outbox-activation` — consumers V2.0: AuditLog + EmailNotification (PA-21)
+**También disponibles (decisiones del PO ya tomadas el 2026-06-10):**
+- **C-21** `v20-inventory-unification` [CRITICO] — migrar las 19 filas de stock a Casa Central; descartar los 6 warehouses auto-generados (PA-19). Desbloquea C-26 → C-27/C-28.
+- **C-24** `v20-insights-unification` [BAJO] — Opción A: renombrar `ai_insights` → `insights`
+- **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21)
 
-Para arrancar: `/opsx:propose v20-community-schema-split`
+Para arrancar: `/opsx:propose v20-sale-items-migration`

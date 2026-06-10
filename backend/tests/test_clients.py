@@ -76,3 +76,98 @@ async def test_get_client_cross_org_returns_404(async_client, mock_pool):
             headers={"Authorization": f"Bearer {other_token}"},
         )
     assert resp.status_code == 404
+
+
+# ── Identidad fiscal (C-22 v20-fiscal-identity-clients) ─────────────────────
+
+FISCAL_CLIENT_ROW = {
+    **CLIENT_ROW,
+    "name": "ACME S.R.L.",
+    "tax_id": "30-71234567-1",
+    "iva_condition": "responsable_inscripto",
+    "legal_name": "ACME Sociedad de Responsabilidad Limitada",
+}
+
+
+async def test_create_client_with_fiscal_identity(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value=FISCAL_CLIENT_ROW)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={
+                "name": "ACME S.R.L.",
+                "tax_id": "30-71234567-1",
+                "iva_condition": "responsable_inscripto",
+                "legal_name": "ACME Sociedad de Responsabilidad Limitada",
+            },
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["tax_id"] == "30-71234567-1"
+    assert data["iva_condition"] == "responsable_inscripto"
+    assert data["legal_name"] == "ACME Sociedad de Responsabilidad Limitada"
+    insert_args = conn.fetchrow.await_args.args
+    assert "30-71234567-1" in insert_args
+    assert "responsable_inscripto" in insert_args
+
+
+async def test_create_client_without_fiscal_identity_returns_nulls(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    row = {**CLIENT_ROW, "tax_id": None, "iva_condition": None, "legal_name": None}
+    conn.fetchrow = AsyncMock(return_value=row)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={"name": "Acme Corp"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["tax_id"] is None
+    assert data["iva_condition"] is None
+    assert data["legal_name"] is None
+
+
+async def test_create_client_invalid_iva_condition_returns_422(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value=FISCAL_CLIENT_ROW)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={"name": "Test", "iva_condition": "inscripto_raro"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    conn.fetchrow.assert_not_awaited()
+
+
+async def test_update_client_fiscal_fields_only(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    updated_row = {
+        **CLIENT_ROW,
+        "tax_id": "20-12345678-6",
+        "iva_condition": "monotributista",
+        "legal_name": None,
+    }
+    conn.fetchrow = AsyncMock(return_value=updated_row)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/clients/{CLIENT_ROW['id']}",
+            json={"tax_id": "20-12345678-6", "iva_condition": "monotributista"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["tax_id"] == "20-12345678-6"
+    assert data["iva_condition"] == "monotributista"
+    assert data["name"] == "Acme Corp"
+    update_sql = conn.fetchrow.await_args.args[0]
+    assert "UPDATE clients" in update_sql
+    assert "tax_id" in update_sql
+    assert "20-12345678-6" in conn.fetchrow.await_args.args

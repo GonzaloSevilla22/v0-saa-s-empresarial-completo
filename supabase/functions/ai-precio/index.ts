@@ -190,12 +190,14 @@ Deno.serve(async (req) => {
     const prod = product as ProductRow
 
     // 6. Fetch sales for this product in the last 90 days
-    // The sales table stores: amount (unit price), quantity, date, product_id, user_id
+    // C-20: leer desde v_sales_flat (LEFT JOIN sale_items) para que backfill + doble
+    // escritura sean transparentes. Las columnas amount, quantity, date, product_id
+    // son idénticas al shape anterior de sales.
     const cutoff = new Date()
     cutoff.setDate(cutoff.getDate() - LOOKBACK_DAYS)
 
     const { data: salesRows, error: salesErr } = await supabase
-      .from('sales')
+      .from('v_sales_flat')
       .select('amount, quantity, date')
       .eq('product_id', productId)
       .eq('account_id', accountId)

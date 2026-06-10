@@ -48,15 +48,15 @@ class PurchaseRepository(BaseRepository):
               LIMIT $4 OFFSET $5
             )
             SELECT p.id, p.date, p.operation_id, p.description,
-                   pi2.product_id,
-                   pi2.quantity,
-                   pi2.price    AS amount,
-                   pi2.subtotal AS total,
+                   COALESCE(pi2.product_id, p.product_id) AS product_id,
+                   COALESCE(pi2.quantity,   p.quantity)   AS quantity,
+                   COALESCE(pi2.price,      p.amount)     AS amount,
+                   COALESCE(pi2.subtotal,   p.total)      AS total,
                    pr.name AS product_name
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
             LEFT JOIN purchase_items pi2 ON pi2.purchase_id = p.id AND pi2.product_id IS NOT NULL
-            LEFT JOIN products pr ON pi2.product_id = pr.id
+            LEFT JOIN products pr ON COALESCE(pi2.product_id, p.product_id) = pr.id
             WHERE p.account_id = $1::uuid
             ORDER BY p.date DESC, p.id
             """,

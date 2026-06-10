@@ -21,27 +21,27 @@
 
 ## 2. Backfill idempotente
 
-- [ ] 2.1 Test (SQL/pytest): tras backfill, `count(sale_items WHERE product_id NOT NULL) == count(sales WHERE product_id NOT NULL)`; re-ejecutar no duplica
-- [ ] 2.2 Test: las 2 ventas con `quantity` fraccional quedan con `quantity` exacto (no truncado) en `sale_items`
-- [ ] 2.3 Test: las 23+18 filas de variantes preexistentes (`product_id IS NULL`) quedan intactas
-- [ ] 2.4 Backfill `sale_items` desde `sales` (`INSERT ... SELECT ... WHERE product_id IS NOT NULL AND NOT EXISTS (...)`), mapeando `price=amount`, `subtotal=COALESCE(total, amount*quantity)`, `variant_id=NULL`, copiando `account_id`/`unit_id`
-- [ ] 2.5 Backfill simétrico `purchase_items` desde `purchases`
-- [ ] 2.6 Query de validación post-backfill (ventas y compras) — incluir en la migración como assertion o como check manual documentado
+- [x] 2.1 Test (SQL/pytest): tras backfill, `count(sale_items WHERE product_id NOT NULL) == count(sales WHERE product_id NOT NULL)`; re-ejecutar no duplica
+- [x] 2.2 Test: las 2 ventas con `quantity` fraccional quedan con `quantity` exacto (no truncado) en `sale_items`
+- [x] 2.3 Test: las 23+18 filas de variantes preexistentes (`product_id IS NULL`) quedan intactas
+- [x] 2.4 Backfill `sale_items` desde `sales` (`INSERT ... SELECT ... WHERE product_id IS NOT NULL AND NOT EXISTS (...)`), mapeando `price=amount`, `subtotal=COALESCE(total, amount*quantity)`, `variant_id=NULL`, copiando `account_id`/`unit_id`
+- [x] 2.5 Backfill simétrico `purchase_items` desde `purchases`
+- [x] 2.6 Query de validación post-backfill (ventas y compras) — incluir en la migración como assertion o como check manual documentado
 
 ## 3. RPC versionado de ventas + feature flag
 
-- [ ] 3.1 Test (pytest): con flag `on`, crear venta → existe fila `sale_items` con `sale_id`=venta, `product_id` correcto, `variant_id NULL`
-- [ ] 3.2 Test: idempotencia preservada en v2 (misma `idempotency_key` → 1 venta, 1 `sale_items`, segunda llamada replay sin tocar stock)
-- [ ] 3.3 Test: con flag `off`, el camino legacy se ejecuta (no rompe nada existente)
-- [ ] 3.4 Migración SQL: `rpc_create_sale_operation_v2(...)` (misma firma de 7 args) que inserta header + `sale_items` en la misma transacción; preserva normalización de unidad, guards de variante, stock y `stock_movements` (DEC-07 intacto). Decisión OQ2: escribir o no columnas flat en paralelo
-- [ ] 3.5 Migración SQL: wrapper `rpc_create_sale_operation(...)` que despacha a v2 o legacy según `current_setting('app.sale_items_rpc_v2', true)`; `DROP FUNCTION IF EXISTS` de firmas viejas ambiguas; `REVOKE`/`GRANT` explícitos
-- [ ] 3.6 Setear el flag en `off` por default; documentar el comando de cutover/rollback (`ALTER DATABASE ... SET app.sale_items_rpc_v2 = 'on'|'off'`)
+- [x] 3.1 Test (pytest): con flag `on`, crear venta → existe fila `sale_items` con `sale_id`=venta, `product_id` correcto, `variant_id NULL`
+- [x] 3.2 Test: idempotencia preservada en v2 (misma `idempotency_key` → 1 venta, 1 `sale_items`, segunda llamada replay sin tocar stock)
+- [x] 3.3 Test: con flag `off`, el camino legacy se ejecuta (no rompe nada existente)
+- [x] 3.4 Migración SQL: `rpc_create_sale_operation_v2(...)` (misma firma de 7 args) que inserta header + `sale_items` en la misma transacción; preserva normalización de unidad, guards de variante, stock y `stock_movements` (DEC-07 intacto). Decisión OQ2: escribe columnas flat en paralelo (doble escritura)
+- [x] 3.5 Migración SQL: wrapper `rpc_create_sale_operation(...)` que despacha a v2 o legacy según `account_feature_flags(account_id, 'sale_items_rpc_v2')`; `DROP FUNCTION IF EXISTS` de firma 7-args previa; `REVOKE`/`GRANT` explícitos
+- [x] 3.6 Flag default OFF por cuenta; cutover: `INSERT INTO account_feature_flags VALUES ('<account_id>', 'sale_items_rpc_v2', true)`
 
 ## 4. RPC versionado de compras
 
-- [ ] 4.1 Test (pytest): con flag `on`, crear compra → fila `purchase_items` correcta
-- [ ] 4.2 Test: idempotencia y stock preservados en v2 de compras
-- [ ] 4.3 Migración SQL: `rpc_create_purchase_operation_v2(...)` + wrapper con el mismo flag (o un flag hermano `app.purchase_items_rpc_v2` si se prefiere conmutar por separado)
+- [x] 4.1 Test (pytest): con flag `on`, crear compra → fila `purchase_items` correcta
+- [x] 4.2 Test: idempotencia y stock preservados en v2 de compras
+- [x] 4.3 Migración SQL: `rpc_create_purchase_operation_v2(...)` + wrapper con el mismo flag `sale_items_rpc_v2` (conmutan juntos, simplicidad operacional)
 
 ## 5. Vista de compatibilidad
 

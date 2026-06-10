@@ -31,7 +31,12 @@ interface AuthContextType {
   effectivePlan: Plan
   login: (email: string, password: string) => Promise<void>
   loginWithMagicLink: (email: string) => Promise<void>
-  register: (name: string, email: string, password: string) => Promise<void>
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    extras?: { phone?: string; locality?: string },
+  ) => Promise<void>
   logout: () => Promise<void>
   upgradePlan: () => Promise<void>
   downgradePlan: () => Promise<void>
@@ -209,16 +214,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error
   }, [supabase])
 
-  const register = useCallback(async (name: string, email: string, password: string) => {
+  const register = useCallback(async (
+    name: string,
+    email: string,
+    password: string,
+    extras?: { phone?: string; locality?: string },
+  ) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
     const siteUrl = getSiteUrl()
     console.log("[Auth] Iniciando registro. URL callback configurada a:", `${siteUrl}/auth/callback`)
 
+    // phone/locality viajan en el user_metadata del signUp; el trigger
+    // handle_new_user los copia a profiles al crear el perfil.
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        data: { name },
+        data: {
+          name,
+          phone: extras?.phone || null,
+          locality: extras?.locality || null,
+        },
         emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     })

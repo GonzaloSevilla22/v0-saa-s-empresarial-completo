@@ -14,6 +14,8 @@ import { toast } from "sonner"
 export default function RegisterPage() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
+  const [phone, setPhone] = useState("")
+  const [locality, setLocality] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -56,6 +58,14 @@ export default function RegisterPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!phone.trim()) {
+      toast.error("El teléfono es obligatorio")
+      return
+    }
+    if (!locality.trim()) {
+      toast.error("La localidad es obligatoria")
+      return
+    }
     if (!isPasswordSecure) {
       toast.error("La contraseña no cumple con los requisitos de seguridad")
       return
@@ -66,7 +76,10 @@ export default function RegisterPage() {
     }
     setIsLoading(true)
     try {
-      await register(name || "Emprendedor", email, password)
+      await register(name || "Emprendedor", email, password, {
+        phone: phone.trim(),
+        locality: locality.trim(),
+      })
       // Go directly to the verification screen — no intermediate /dashboard hop.
       // The middleware would catch it anyway, but going direct avoids the extra redirect.
       router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
@@ -93,7 +106,7 @@ export default function RegisterPage() {
             <CardTitle className="text-xl text-card-foreground">Crear cuenta</CardTitle>
             <CardDescription>Registrate para empezar a gestionar tu negocio</CardDescription>
           </CardHeader>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} data-testid="register-form">
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="name" className="text-foreground">Nombre</Label>
@@ -113,6 +126,29 @@ export default function RegisterPage() {
                   placeholder="tu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="phone" className="text-foreground">Teléfono</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  required
+                  placeholder="+54 9 261 5555555"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="bg-background border-border text-foreground"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="locality" className="text-foreground">Localidad</Label>
+                <Input
+                  id="locality"
+                  required
+                  placeholder="Ej: Godoy Cruz, Mendoza"
+                  value={locality}
+                  onChange={(e) => setLocality(e.target.value)}
                   className="bg-background border-border text-foreground"
                 />
               </div>

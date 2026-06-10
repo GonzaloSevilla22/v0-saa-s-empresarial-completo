@@ -30,5 +30,5 @@
 
 ## 5. Cierre
 
-- [ ] 5.1 Commit + push en `feat/fiscal-identity-clients` + PR a main (conventional commit `feat(clientes): ...`)
-- [ ] 5.2 Marcar C-22 `[x]` en CHANGES.md (post-merge, junto con el archive del change)
+- [x] 5.1 Commit + push en `feat/fiscal-identity-clients` + PR a main (conventional commit `feat(clientes): ...`) — PR #149 mergeado 2026-06-10
+- [x] 5.2 Marcar C-22 `[x]` en CHANGES.md (post-merge, junto con el archive del change)

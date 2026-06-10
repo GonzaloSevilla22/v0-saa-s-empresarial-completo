@@ -95,9 +95,9 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 > Fuente: [CHANGES.md](CHANGES.md) — 30 changes en 7 fases. **Fases 1-5 (C-01→C-18) completadas** (backend Python en producción desde 2026-06-07). El PO adoptó el **modelo de dominio V2** (`modelo-dominio-aliadata-v2.md`, 2026-06-09; validado en `openspec/explore/2026-06-09-modelo-dominio-v2.md`): la Fase 6 (V2.0 retirada de deuda) es el trabajo activo. **Regla dura: ninguna feature nueva sobre tablas en retirada (RN-97, `knowledge-base/05`).**
 
 ### Próximo change recomendado (activo)
-**`C-22 v20-fiscal-identity-clients`** [BAJO, S] — Identidad fiscal opcional en `clients`: `tax_id` (CUIT/DNI), `iva_condition`, `legal_name` + validación de CUIT (dígito verificador módulo 11) + UI "Datos fiscales" + schemas Pydantic. Sin dependencias ni preguntas abiertas; prerequisito de C-27 (AFIP).
+**`C-23 v20-community-schema-split`** [MEDIO, M] — Mover las 15 tablas no-ERP (cursos, posts, meetings, seguros, etc.) al schema Postgres `community`: copy de datos + FKs + RLS recreadas + referencias frontend + regen de tipos. Independiente; único change implementable sin decisiones pendientes del PO.
 
-> **C-19 `v20-tenancy-cleanup` ✅ completado y archivado (2026-06-09).** C-20/C-21/C-25 quedaron desbloqueados pero esperan respuestas del PO: PA-20 (variantes en backfill de `sale_items`), PA-19 (filas de `warehouses`) y PA-21 (scope del outbox) — `knowledge-base/10`.
+> **C-19 `v20-tenancy-cleanup` ✅ (2026-06-09) y C-22 `v20-fiscal-identity-clients` ✅ (2026-06-10) completados y archivados.** C-20/C-21/C-25 esperan respuestas del PO: PA-20 (variantes en backfill de `sale_items`), PA-19 (filas de `warehouses`) y PA-21 (scope del outbox) — `knowledge-base/10`. C-24 requiere decidir renombrar `ai_insights` → `insights` vs. tabla nueva.
 
 ### Camino crítico (Fases 6-7)
 ```

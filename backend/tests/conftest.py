@@ -43,7 +43,7 @@ def mock_pool():
 @pytest.fixture
 async def async_client():
     from backend.main import app
-    from backend.core.database import get_account_id
+    from backend.core.deps import get_account_id
 
     async def _mock_account_id():
         return TEST_ACCOUNT_ID

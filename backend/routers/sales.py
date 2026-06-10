@@ -6,7 +6,8 @@ import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from backend.core.auth import get_current_user
-from backend.core.database import get_account_id, get_db_conn
+from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import SaleOperationIn, SaleOperationOut, SalesPageOut
 from backend.services import sales as sales_service

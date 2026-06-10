@@ -6,7 +6,8 @@ import asyncpg
 from fastapi import APIRouter, Depends
 
 from backend.core.auth import get_current_user
-from backend.core.database import get_account_id, get_db_conn
+from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.repositories.branch_repository import BranchRepository
 from backend.schemas.branches import BranchCreate, BranchOut, BranchUpdate
 from backend.services import branches as branch_service

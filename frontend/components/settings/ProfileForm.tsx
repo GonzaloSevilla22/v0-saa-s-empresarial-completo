@@ -19,6 +19,7 @@ export function ProfileForm() {
   const [lastName,     setLastName]     = useState(user?.lastName     ?? "")
   const [businessName, setBusinessName] = useState(user?.businessName ?? "")
   const [phone,        setPhone]        = useState(user?.phone        ?? "")
+  const [locality,     setLocality]     = useState(user?.locality     ?? "")
   const [bio,          setBio]          = useState(user?.bio          ?? "")
   const [avatarUrl,    setAvatarUrl]    = useState<string | null>(user?.avatar ?? null)
   const [saving,       setSaving]       = useState(false)
@@ -44,6 +45,7 @@ export function ProfileForm() {
         lastName:     lastName.trim()     || undefined,
         businessName: businessName.trim() || undefined,
         phone:        phone.trim()        || undefined,
+        locality:     locality.trim()     || undefined,
         bio:          bio.trim()          || undefined,
         avatarUrl:    avatarUrl           ?? undefined,
       })
@@ -129,6 +131,21 @@ export function ProfileForm() {
                 onChange={e => setPhone(e.target.value)}
                 placeholder="+54 9 11 1234-5678"
                 maxLength={30}
+                className="bg-background border-border text-foreground"
+              />
+            </div>
+          </div>
+
+          {/* ── Localidad ───────────────────────────────────────────────────── */}
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="locality" className="text-foreground">Localidad</Label>
+              <Input
+                id="locality"
+                value={locality}
+                onChange={e => setLocality(e.target.value)}
+                placeholder="Ej: Godoy Cruz, Mendoza"
+                maxLength={80}
                 className="bg-background border-border text-foreground"
               />
             </div>

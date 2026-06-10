@@ -12,6 +12,7 @@ export interface ProfileUpdateData {
   lastName?: string
   businessName?: string
   phone?: string
+  locality?: string
   bio?: string
   avatarUrl?: string
 }
@@ -131,6 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar:         profile.avatar_url    ?? undefined,
           businessName:   profile.business_name ?? undefined,
           phone:          profile.phone         ?? undefined,
+          locality:       profile.locality      ?? undefined,
           bio:            profile.bio           ?? undefined,
           currency:       profile.currency    ?? "ARS",
           timezone:       profile.timezone    ?? "America/Argentina/Buenos_Aires",
@@ -258,6 +260,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       last_name:     data.lastName     ?? undefined,
       business_name: data.businessName ?? undefined,
       phone:         data.phone        ?? undefined,
+      locality:      data.locality     ?? undefined,
       bio:           data.bio          ?? undefined,
       avatar_url:    data.avatarUrl    ?? undefined,
     }).eq('id', user.id)

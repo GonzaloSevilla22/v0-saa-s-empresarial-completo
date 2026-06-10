@@ -36,6 +36,7 @@ function translateError(err: { code?: string; message?: string } | null): string
 async function fetchCourses(): Promise<Course[]> {
   const supabase = createClient()
   const { data, error } = await supabase
+    .schema("community")
     .from("courses")
     .select("*")
     .order("created_at", { ascending: false })
@@ -60,7 +61,7 @@ export function useAddCourse() {
 
   return useMutation({
     mutationFn: async (input: CourseInput) => {
-      const { error } = await supabase.from("courses").insert([{
+      const { error } = await supabase.schema("community").from("courses").insert([{
         title:       input.title,
         description: input.description,
         is_pro:      input.isPro,
@@ -84,7 +85,7 @@ export function useUpdateCourse() {
 
   return useMutation({
     mutationFn: async (input: Omit<Course, "modules">) => {
-      const { error } = await supabase.from("courses").update({
+      const { error } = await supabase.schema("community").from("courses").update({
         title:       input.title,
         description: input.description,
         is_pro:      input.isPro,
@@ -107,7 +108,7 @@ export function useDeleteCourse() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("courses").delete().eq("id", id)
+      const { error } = await supabase.schema("community").from("courses").delete().eq("id", id)
       if (error) throw new Error(translateError(error))
     },
     onMutate: async (id) => {

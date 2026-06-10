@@ -103,7 +103,7 @@ export default function AdminCursosPage() {
         setContentDialogOpen(true)
         setLoadingContent(true)
         try {
-            const { data, error } = await supabase.from('course_modules').select('*, lessons:course_lessons(*)').eq('course_id', course.id).order('order_index', { ascending: true })
+            const { data, error } = await supabase.schema('community').from('course_modules').select('*, lessons:course_lessons(*)').eq('course_id', course.id).order('order_index', { ascending: true })
             if (error) throw error
             setModules(data.map(m => ({
                 ...m,
@@ -123,7 +123,7 @@ export default function AdminCursosPage() {
             title: "Nuevo Módulo",
             order_index: modules.length
         }
-        const { data, error } = await supabase.from('course_modules').insert([newModule]).select().single()
+        const { data, error } = await supabase.schema('community').from('course_modules').insert([newModule]).select().single()
         if (error) {
             console.error(error)
             toast.error("Error al agregar módulo")
@@ -134,7 +134,7 @@ export default function AdminCursosPage() {
     }
 
     const deleteModule = async (moduleId: string) => {
-        const { error } = await supabase.from('course_modules').delete().eq('id', moduleId)
+        const { error } = await supabase.schema('community').from('course_modules').delete().eq('id', moduleId)
         if (error) {
             console.error(error)
             toast.error("Error al eliminar módulo")
@@ -153,7 +153,7 @@ export default function AdminCursosPage() {
             order_index: mod.lessons.length,
             duration: "10 min"
         }
-        const { data, error } = await supabase.from('course_lessons').insert([newLesson]).select().single()
+        const { data, error } = await supabase.schema('community').from('course_lessons').insert([newLesson]).select().single()
         if (error) {
             console.error(error)
             toast.error("Error al agregar lección")
@@ -164,7 +164,7 @@ export default function AdminCursosPage() {
     }
 
     const deleteLesson = async (moduleId: string, lessonId: string) => {
-        const { error } = await supabase.from('course_lessons').delete().eq('id', lessonId)
+        const { error } = await supabase.schema('community').from('course_lessons').delete().eq('id', lessonId)
         if (error) {
             console.error(error)
             toast.error("Error al eliminar lección")

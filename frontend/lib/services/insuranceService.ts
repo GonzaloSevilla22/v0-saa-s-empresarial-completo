@@ -20,7 +20,7 @@ export const insuranceService = {
    */
   async getVisibleInsurances() {
     const { data, error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .select("*")
       .eq("is_visible", true)
       .order("created_at", { ascending: false })
@@ -34,7 +34,7 @@ export const insuranceService = {
    */
   async getAllInsurances() {
     const { data, error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .select("*")
       .order("created_at", { ascending: false })
 
@@ -47,7 +47,7 @@ export const insuranceService = {
    */
   async getInsuranceById(id: string) {
     const { data, error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .select("*")
       .eq("id", id)
       .single()
@@ -61,7 +61,7 @@ export const insuranceService = {
    */
   async createInsurance(data: Partial<Insurance>) {
     const { data: result, error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .insert([data])
       .select()
       .single()
@@ -75,7 +75,7 @@ export const insuranceService = {
    */
   async updateInsurance(id: string, data: Partial<Insurance>) {
     const { data: result, error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .update(data)
       .eq("id", id)
       .select()
@@ -90,7 +90,7 @@ export const insuranceService = {
    */
   async deleteInsurance(id: string) {
     const { error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .delete()
       .eq("id", id)
 
@@ -102,7 +102,7 @@ export const insuranceService = {
    */
   async toggleInsuranceVisibility(id: string, currentVisibility: boolean) {
     const { error } = await supabase
-      .from("seguros")
+      .schema("community").from("seguros")
       .update({ is_visible: !currentVisibility })
       .eq("id", id)
 
@@ -117,7 +117,7 @@ export const insuranceService = {
     if (error) {
       // Fallback if RPC doesn't exist yet
       const insurance = await this.getInsuranceById(id)
-      await supabase.from("seguros").update({ clicks_count: ((insurance as any)?.clicks_count || 0) + 1 }).eq("id", id)
+      await supabase.schema("community").from("seguros").update({ clicks_count: ((insurance as any)?.clicks_count || 0) + 1 }).eq("id", id)
     }
   },
 
@@ -125,7 +125,7 @@ export const insuranceService = {
    * Fetch admin dashboard metrics for seguros
    */
   async getAdminStats() {
-    const { data: all } = await supabase.from("seguros").select("is_visible, clicks_count, created_at")
+    const { data: all } = await supabase.schema("community").from("seguros").select("is_visible, clicks_count, created_at")
     
     const stats = {
       total: all?.length || 0,

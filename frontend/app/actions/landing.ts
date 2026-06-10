@@ -7,7 +7,7 @@ import type { LandingSection } from '@/lib/landing'
 export async function getLandingSectionsAction(): Promise<LandingSection[]> {
   const supabase = createClient()
   const { data, error } = await supabase
-    .from('landing_sections')
+    .schema('community').from('landing_sections')
     .select('*')
     .eq('active', true)
     .order('position', { ascending: true })
@@ -23,7 +23,7 @@ export async function getLandingSectionsAction(): Promise<LandingSection[]> {
 export async function getAllLandingSectionsAction(): Promise<LandingSection[]> {
   const supabase = createClient()
   const { data, error } = await supabase
-    .from('landing_sections')
+    .schema('community').from('landing_sections')
     .select('*')
     .order('position', { ascending: true })
 
@@ -41,7 +41,7 @@ export async function updateLandingSectionAction(
 ): Promise<LandingSection> {
   const supabase = createClient()
   const { data, error } = await supabase
-    .from('landing_sections')
+    .schema('community').from('landing_sections')
     .update(updates)
     .eq('id', id)
     .select()

@@ -47,7 +47,7 @@ export const fairAdvisorService = {
     if (!user) throw new Error("Not authenticated")
 
     const { data, error } = await supabase
-      .from('fair_recommendations')
+      .schema('community').from('fair_recommendations')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })

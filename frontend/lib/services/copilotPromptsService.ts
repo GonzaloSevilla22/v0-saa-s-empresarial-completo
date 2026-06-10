@@ -17,7 +17,7 @@ const supabase = createClient()
 export const copilotPromptsService = {
   async getAllPrompts() {
     const { data, error } = await supabase
-      .from("copilot_prompts")
+      .schema("community").from("copilot_prompts")
       .select("*")
       .order("created_at", { ascending: false })
 
@@ -27,7 +27,7 @@ export const copilotPromptsService = {
 
   async createPrompt(data: Partial<CopilotPrompt>) {
     const { data: result, error } = await supabase
-      .from("copilot_prompts")
+      .schema("community").from("copilot_prompts")
       .insert([data])
       .select()
       .single()
@@ -38,7 +38,7 @@ export const copilotPromptsService = {
 
   async updatePrompt(id: string, data: Partial<CopilotPrompt>) {
     const { data: result, error } = await supabase
-      .from("copilot_prompts")
+      .schema("community").from("copilot_prompts")
       .update(data)
       .eq("id", id)
       .select()
@@ -50,7 +50,7 @@ export const copilotPromptsService = {
 
   async deletePrompt(id: string) {
     const { error } = await supabase
-      .from("copilot_prompts")
+      .schema("community").from("copilot_prompts")
       .delete()
       .eq("id", id)
 
@@ -58,12 +58,12 @@ export const copilotPromptsService = {
   },
 
   async incrementUsage(id: string) {
-    const { data } = await supabase.from("copilot_prompts").select("usage_count").eq("id", id).single()
-    await supabase.from("copilot_prompts").update({ usage_count: (data?.usage_count || 0) + 1 }).eq("id", id)
+    const { data } = await supabase.schema("community").from("copilot_prompts").select("usage_count").eq("id", id).single()
+    await supabase.schema("community").from("copilot_prompts").update({ usage_count: (data?.usage_count || 0) + 1 }).eq("id", id)
   },
 
   async getAdminStats() {
-    const { data: all } = await supabase.from("copilot_prompts").select("*")
+    const { data: all } = await supabase.schema("community").from("copilot_prompts").select("*")
     
     const stats = {
       total: all?.length || 0,

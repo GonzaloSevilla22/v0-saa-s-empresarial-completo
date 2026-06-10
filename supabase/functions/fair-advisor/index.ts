@@ -196,6 +196,7 @@ INSTRUCCIONES:
     // 6. Persist to DB (error doesn't block the response)
     if (recommendations.length > 0) {
       const { error: insertError } = await supabaseClient
+        .schema('community')
         .from('fair_recommendations')
         .insert({ user_id: user.id, recommendation: recommendations })
       if (insertError) {

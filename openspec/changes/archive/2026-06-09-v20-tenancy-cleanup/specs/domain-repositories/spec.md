@@ -1,20 +1,16 @@
-# domain-repositories
-
-## Purpose
-
-Repositorios concretos tipados por dominio (8 dominios: expenses, clients, products, branches, stock, sales, purchases, organizations) que extienden `BaseRepository` sin constructor propio. Cada repositorio expone métodos con nombres de negocio (`list_by_org`, `get_by_id`, `create`, `update`, `delete`) que internamente usan las primitivas heredadas (`fetch`, `fetchrow`, `execute`, `call_rpc`). Los repositorios reciben siempre una conexión asyncpg con JWT-passthrough ya activa via dependency injection; ninguno accede al pool directamente.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Repositorios concretos por dominio extienden BaseRepository
 El sistema SHALL proveer una clase repositorio concreta por dominio en `backend/repositories/<domain>.py`. Cada clase extiende `BaseRepository` (C-15) sin constructor propio y expone métodos con nombres de negocio (`list_by_org`, `get_by_id`, `create`, `update`, `delete`) que internamente usan `fetch`, `fetchrow`, `execute` o `call_rpc` de la clase base. Los dominios cubiertos son: `ExpenseRepository`, `ClientRepository`, `ProductRepository`, `BranchRepository`, `StockRepository`, `SalesRepository`, `PurchaseRepository`, `OrganizationRepository`.
+
+**Cambio respecto a C-16:** Las queries SQL internas que usaban `WHERE user_id = $1` como filtro de tenancy ahora usan `WHERE account_id = $1`. Los métodos públicos conservan su firma (`org_id: UUID` como parámetro); es el nombre del parámetro SQL interno (`$1`) lo que cambia en la query.
 
 #### Scenario: ExpenseRepository.list_by_org retorna gastos de la org activa
 - **WHEN** se llama `await repo.list_by_org(org_id=uuid, filters={})` con una conexión JWT-passthrough activa
 - **THEN** ejecuta un SELECT filtrado por `account_id = $1` y retorna una `list[asyncpg.Record]` con solo los gastos de esa organización (RLS valida además en PostgreSQL)
 
 #### Scenario: SalesRepository.create_operation llama al RPC atómico existente
-- **WHEN** se llama `await repo.create_operation(idempotency_key="...", items=[...])` 
+- **WHEN** se llama `await repo.create_operation(idempotency_key="...", items=[...])`
 - **THEN** ejecuta `await self.call_rpc("rpc_create_operation_aggregate", ...)` y retorna el `operation_id` del resultado; si la clave ya existe el RPC retorna el operation_id previo (idempotente)
 
 #### Scenario: ProductRepository.get_by_id retorna None para producto de otra org
@@ -33,19 +29,6 @@ El sistema SHALL proveer una clase repositorio concreta por dominio en `backend/
 - **WHEN** se inspecciona el SQL de cualquier método `list_by_org` en los 7 repositorios
 - **THEN** el WHERE clause usa `account_id = $1` y no contiene `user_id = $1`
 
-### Requirement: Tests de repositorios usan account_id en fixtures, no user_id
-
-El sistema SHALL garantizar que los tests de repositorios inyectan `account_id` como parámetro de tenancy en sus fixtures y mocks. Ningún test SHALL pasar `user_id` como parámetro de filtro de tenancy.
-
-#### Scenario: Fixture de test usa account_id
-- **GIVEN** un test que verifica `ExpenseRepository.list_by_org`
-- **WHEN** se construye la fixture con `org_id = test_account_uuid`
-- **THEN** el mock de la conexión recibe `account_id = test_account_uuid` en el parámetro `$1` del query SQL
-
-#### Scenario: Tests pasan en CI con account_id como tenancy
-- **WHEN** corre `pytest backend/tests/` en el pipeline de CI tras el cambio de repositorios
-- **THEN** todos los tests pasan sin errores relacionados con `user_id` no encontrado
-
 ### Requirement: Repositorios no acceden al pool directamente
 Los repositorios concretos SHALL recibir siempre una conexión asyncpg ya configurada con JWT-passthrough via `get_db_conn` (C-15). Ningún repositorio SHALL importar ni referenciar el objeto `pool` directamente.
 
@@ -56,3 +39,17 @@ Los repositorios concretos SHALL recibir siempre una conexión asyncpg ya config
 #### Scenario: Repositorio no puede instanciarse sin conexión
 - **WHEN** se intenta instanciar `ExpenseRepository()` sin pasar `conn`
 - **THEN** Python lanza `TypeError` por el parámetro requerido en el constructor heredado de `BaseRepository`
+
+## ADDED Requirements
+
+### Requirement: Tests de repositorios usan account_id en fixtures, no user_id
+El sistema SHALL garantizar que los tests de repositorios inyectan `account_id` como parámetro de tenancy en sus fixtures y mocks. Ningún test SHALL pasar `user_id` como parámetro de filtro de tenancy.
+
+#### Scenario: Fixture de test usa account_id
+- **GIVEN** un test que verifica `ExpenseRepository.list_by_org`
+- **WHEN** se construye la fixture con `org_id = test_account_uuid`
+- **THEN** el mock de la conexión recibe `account_id = test_account_uuid` en el parámetro `$1` del query SQL
+
+#### Scenario: Tests pasan en CI con account_id como tenancy
+- **WHEN** corre `pytest backend/tests/` en el pipeline de CI tras el cambio de repositorios
+- **THEN** todos los tests pasan sin errores relacionados con `user_id` no encontrado

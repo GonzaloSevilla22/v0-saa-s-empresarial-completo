@@ -94,12 +94,13 @@ Deno.serve(async (req) => {
     const d30Str = d30.toISOString().split('T')[0]
     const d60Str = d60.toISOString().split('T')[0]
 
+    // C-20: leer desde v_sales_flat (columnas planas desde sale_items) en lugar de sales
     const [salesRes, prevSalesRes, productsRes, expensesRes, rotationRes] = await Promise.all([
-      supabase.from('sales').select('amount, quantity, date, product_id, products(name, cost, price)').gte('date', d30Str),
-      supabase.from('sales').select('amount').gte('date', d60Str).lt('date', d30Str),
+      supabase.from('v_sales_flat').select('amount, quantity, date, product_id').gte('date', d30Str),
+      supabase.from('v_sales_flat').select('amount').gte('date', d60Str).lt('date', d30Str),
       supabase.from('products').select('id, name, price, cost, stock, min_stock').limit(50),
       supabase.from('expenses').select('amount, category').gte('date', d30Str),
-      supabase.from('sales').select('product_id, date').gte('date', d60Str).order('date', { ascending: false }),
+      supabase.from('v_sales_flat').select('product_id, date').gte('date', d60Str).order('date', { ascending: false }),
     ])
 
     const sales    = salesRes.data    ?? []
@@ -123,12 +124,17 @@ Deno.serve(async (req) => {
       : 'sin datos previos'
 
     // Top productos por revenue
+    // C-20: s.products ya no viene del embedded join (v_sales_flat no expone FK embebida)
+    // → buscar info del producto desde productsRes ya fetched
+    const productMap = new Map<string, { name: string; cost: number; price: number }>(
+      products.map((p: any) => [p.id, { name: p.name, cost: Number(p.cost ?? 0), price: Number(p.price ?? 0) }])
+    )
     const salesByProduct = new Map<string, { nombre: string; revenue: number; units: number; cost: number; price: number }>()
     for (const s of sales) {
       const pid = s.product_id
       if (!pid) continue
-      const p   = s.products as any
-      const cur = salesByProduct.get(pid) ?? { nombre: p?.name ?? '?', revenue: 0, units: 0, cost: Number(p?.cost ?? 0), price: Number(p?.price ?? 0) }
+      const p   = productMap.get(pid)
+      const cur = salesByProduct.get(pid) ?? { nombre: p?.name ?? '?', revenue: 0, units: 0, cost: p?.cost ?? 0, price: p?.price ?? 0 }
       salesByProduct.set(pid, { ...cur, revenue: cur.revenue + Number(s.amount), units: cur.units + Number(s.quantity) })
     }
     const topProducts = [...salesByProduct.values()]

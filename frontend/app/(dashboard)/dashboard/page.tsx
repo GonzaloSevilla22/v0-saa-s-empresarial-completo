@@ -159,7 +159,7 @@ export default function DashboardPage() {
           iconColor="text-red-400"
         />
         <KpiCard
-          title="Ganancia neta"
+          title="Ganancia neta hoy"
           value={loadingKpis ? "—" : `$${netProfit.toLocaleString()}`}
           icon={TrendingUp}
         />

@@ -51,9 +51,14 @@ export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
         "No se pudo generar el resumen en este momento."
 
       setSummary(text)
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[AiSummaryCard] Error:', err)
-      setSummary("Error al conectar con la IA de ALIADATA. Reintentá en unos minutos.")
+      const status = (err as { context?: { status?: number } })?.context?.status
+      if (status === 429) {
+        setSummary("Límite mensual de consultas IA alcanzado. El contador se reinicia el 1° de cada mes.")
+      } else {
+        setSummary("Error al conectar con la IA de ALIADATA. Reintentá en unos minutos.")
+      }
     } finally {
       setIsLoading(false)
     }

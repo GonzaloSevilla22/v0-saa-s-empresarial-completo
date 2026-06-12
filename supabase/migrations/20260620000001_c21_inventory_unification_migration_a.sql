@@ -3,6 +3,7 @@
 -- Push 1 — NO aplicar sin aprobación del PO
 -- ============================================================
 -- Incluye:
+--   Grupo 0: Reparación de drift de schema (no-op en prod)
 --   Grupo 1: Branch por defecto para cuentas sin branch
 --   Grupo 2: Reconciliación products.stock → branch_stock
 --   Grupo 3: Vista de compatibilidad v_products_with_stock
@@ -16,6 +17,20 @@
 --   -- quitar con: DELETE FROM branch_stock WHERE created_at >= '<timestamp>';
 --   -- No afecta los datos preexistentes.
 -- ============================================================
+
+-- ─── Grupo 0: Reparación de drift de schema ───────────────────────────────────
+--
+-- Estas columnas existen en producción pero NO en la cadena de migraciones
+-- comprometida (se aplicaron originalmente vía MCP stubs sin DDL — misma clase
+-- que las correcciones en 20260517000000_ci_compat_stubs.sql).
+-- ADD COLUMN IF NOT EXISTS → no-op en prod, crea la columna en CI.
+--
+-- deleted_at: usada en Grupo 2 (CTE divergentes) y en los gates post-reconciliación.
+-- stock_control_type: referenciada en RPCs de stock y en el backend (SELECT *).
+
+ALTER TABLE public.products
+  ADD COLUMN IF NOT EXISTS deleted_at         timestamptz,
+  ADD COLUMN IF NOT EXISTS stock_control_type text;
 
 -- ─── Grupo 1: Branch por defecto ──────────────────────────────────────────────
 --
@@ -140,7 +155,8 @@ END $$;
 --   cross-tenant. El security advisor de Supabase lo marca explícitamente.
 --
 -- La vista sobrevive al DROP de products.stock (Grupo 9): la columna stock de products
---   no participa en la definición; el stock se calcula desde branch_stock.
+--   no participa en la definición (lista de columnas explícita, sin p.*);
+--   el stock se calcula desde branch_stock.
 
 DROP VIEW IF EXISTS v_products_with_stock;
 
@@ -148,7 +164,46 @@ CREATE VIEW v_products_with_stock
 WITH (security_invoker = true)
 AS
 SELECT
-    p.*,
+    -- Lista explícita de columnas de products según la cadena de migraciones
+    -- (incluyendo drift reparado en Grupo 0).
+    -- Se excluye products.stock — el campo stock se computa desde branch_stock
+    -- para que la vista sobreviva al DROP de products.stock (C-21 Grupo 9).
+    --
+    -- Columna           | Origen en la cadena
+    -- ------------------|----------------------------------------------------
+    -- id                | 20250101000003 CREATE TABLE
+    -- user_id           | 20250101000003 CREATE TABLE
+    -- name              | 20250101000003 CREATE TABLE
+    -- price             | 20250101000003 CREATE TABLE
+    -- cost              | 20250101000003 CREATE TABLE
+    -- created_at        | 20250101000003 CREATE TABLE
+    -- category          | 20250101000006 ADD COLUMN
+    -- min_stock         | 20250101000006 ADD COLUMN
+    -- parent_id         | 20260228000200 ADD COLUMN
+    -- barcode           | 20260228000200 ADD COLUMN
+    -- is_variant        | 20260424000003 ADD COLUMN
+    -- company_id        | 20260517000000 ADD COLUMN IF NOT EXISTS (ci_compat_stubs)
+    -- sku               | 20260526155531 ADD COLUMN
+    -- account_id        | 20260606000003 ADD COLUMN
+    -- deleted_at        | 20260620000001 Grupo 0 drift repair
+    -- stock_control_type| 20260620000001 Grupo 0 drift repair
+    p.id,
+    p.user_id,
+    p.name,
+    p.price,
+    p.cost,
+    p.created_at,
+    p.category,
+    p.min_stock,
+    p.parent_id,
+    p.barcode,
+    p.is_variant,
+    p.company_id,
+    p.sku,
+    p.account_id,
+    p.deleted_at,
+    p.stock_control_type,
+    -- stock calculado desde branch_stock (drop-in replacement de products.stock)
     COALESCE(
         (SELECT SUM(bs.quantity)
          FROM branch_stock bs
@@ -158,9 +213,11 @@ SELECT
 FROM products p;
 
 COMMENT ON VIEW v_products_with_stock IS
-    'C-21: Vista de compatibilidad — expone products.* con stock = COALESCE(Σ branch_stock.quantity, 0). '
+    'C-21: Vista de compatibilidad — expone columnas explícitas de products (sin products.stock) '
+    'con stock = COALESCE(Σ branch_stock.quantity, 0). '
     'security_invoker = true (no bypasea RLS). '
-    'Sobrevive al DROP de products.stock (C-21 Grupo 9). '
+    'Lista de columnas explícita para evitar conflicto de nombre con el stock calculado '
+    'y para que la vista no genere dependencia sobre products.stock (sobrevive al DROP de Grupo 9). '
     'Campo stock es drop-in: consumidores solo cambian .from(''products'') por .from(''v_products_with_stock'').';
 
 -- ─── Verificación final de la vista ─────────────────────────────────────────

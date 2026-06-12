@@ -117,9 +117,12 @@ async function fetchExpensesRows(supabase: any, dateFrom: string) {
 
 // deno-lint-ignore no-explicit-any
 async function fetchStockRows(supabase: any) {
+  // C-21 checkpoint #2: stock vive en branch_stock — la vista expone stock = Σ branch_stock.
+  // Se quita 'currency' del select: products nunca tuvo esa columna (el select fallaba
+  // y la hoja de stock se exportaba vacía).
   const { data } = await supabase
-    .from('products')
-    .select('name, sku, stock, min_stock, price, currency')
+    .from('v_products_with_stock')
+    .select('name, sku, stock, min_stock, price')
     .order('name', { ascending: true })
     .limit(10000)
   return (data ?? []).map((r: Record<string, unknown>) => ({
@@ -128,7 +131,6 @@ async function fetchStockRows(supabase: any) {
     stock:      r.stock,
     min_stock:  r.min_stock,
     precio:     r.price,
-    moneda:     r.currency,
   }))
 }
 

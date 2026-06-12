@@ -7,9 +7,9 @@
 
 ## 0. Pre-flight y decisiones del PO
 
-- [ ] 0.1 PO resuelve OQ-A (gate per-branch + CHECK `onHand >= 0`), OQ-B (cierre bloqueado con stock), OQ-C (floor a 0 en reversa de compras). Registrar en design.md §Resolved Decisions.
-- [ ] 0.2 Baseline de tests del backend (`pytest`): registrar "N passing" (al proponer: 117).
-- [ ] 0.3 Snapshot read-only en prod: branches activas (26), filas `branch_stock` negativas (0 — gate del CHECK), transferencias históricas (0), ventas con `branch_id` (0).
+- [x] 0.1 PO resuelve OQ-A (gate per-branch + CHECK `onHand >= 0`), OQ-B (cierre bloqueado con stock), OQ-C (floor a 0 en reversa de compras). Registrar en design.md §Resolved Decisions. ✅ 2026-06-12 — "dale con lo recomendado" (OQ-A/B/C = sí); registradas con 2 refinamientos de implementación (gate sin-branch contra default operativa; firma de rpc_apply_product_stock_delta conservada con semántica floor).
+- [x] 0.2 Baseline de tests del backend (`pytest`): registrar "N passing" (al proponer: 117). ✅ 117 passing confirmado pre-apply.
+- [x] 0.3 Snapshot read-only en prod: branches activas (26), filas `branch_stock` negativas (0 — gate del CHECK), transferencias históricas (0), ventas con `branch_id` (0). ✅ Re-verificado 2026-06-12; columnas status / tabla stock_transfers no existen aún.
 
 ## 1. Migración SQL (única, no destructiva)
 

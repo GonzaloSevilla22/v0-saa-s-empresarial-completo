@@ -65,8 +65,8 @@
 
 - [x] 8.1 Query de verificación reproducible (gate). ✅ Documentada en `supabase/migrations/20260620000003_c21_sistema_b_drop_guard.sql` como comentario ejecutable pre-DROP.
 - [x] 8.2 Pre-DROP guard: query que falla si alguna función o vista referencia `inventory_stock`, `inventory_movements` o `warehouses`. ✅ Documentada en el mismo archivo.
-- [ ] 8.3 Aprobación del PO ("dale") tras 8.1/8.2 verdes. ⏳ PENDIENTE — aprobación humana requerida.
-- [ ] 8.4 Migración SQL destructiva. ⏳ PENDIENTE — COMENTADA en `20260620000003`. Descomentar y aplicar tras 8.3. Requiere `npx supabase db push`.
+- [x] 8.3 Aprobación del PO ("dale") tras 8.1/8.2 verdes. ✅ Aprobado explícitamente por el PO 2026-06-12.
+- [x] 8.4 Migración SQL destructiva. ✅ Checkpoint #1 aprobado 2026-06-12; archivo `supabase/migrations/20260621000001_c21_drop_sistema_b.sql` creado con guards DO $$ (vista + 0 divergentes + 0 FK externas) y DROPs con IF EXISTS + CASCADE. **Aplica al merge del PR** vía CI `npx supabase db push --include-all`. No descomentar 20260620000003 (ya aplicado como no-op).
 - [ ] 8.5 Correr `get_advisors`; regenerar `database.types.ts`. ⏳ PENDIENTE — post-DROP.
 
 ## 9. ⚠️ CHECKPOINT PO #2 — DROP de products.stock (Migración destructiva, BREAKING)

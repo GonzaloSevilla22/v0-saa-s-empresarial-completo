@@ -23,9 +23,29 @@ def cors_error_headers(request: Request) -> dict[str, str]:
     return {}
 
 
+# Códigos de negocio custom de los RPCs (RAISE ... USING ERRCODE). El mensaje
+# del RAISE lo escriben nuestras propias funciones SQL — es seguro mostrarlo.
+# (Los códigos de 4 chars 'P4xx' eran inválidos y degradaban a 42704; se
+# normalizaron a 'P04xx' en la migración 20260624000001.)
+_BUSINESS_ERRCODE_STATUS = {
+    "P0400": 400,
+    "P0401": 403,
+    "P0403": 403,
+    "P0404": 404,
+    "P0409": 409,
+    "P0422": 422,
+}
+
+
 async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) -> JSONResponse:
     headers = cors_error_headers(request)
     code = exc.sqlstate if hasattr(exc, "sqlstate") else None
+    if code in _BUSINESS_ERRCODE_STATUS:
+        return JSONResponse(
+            status_code=_BUSINESS_ERRCODE_STATUS[code],
+            content={"detail": str(exc)},
+            headers=headers,
+        )
     if code == "23503":
         return JSONResponse(status_code=409, content={"detail": "Referencia inválida: el recurso relacionado no existe."}, headers=headers)
     if code == "23505":

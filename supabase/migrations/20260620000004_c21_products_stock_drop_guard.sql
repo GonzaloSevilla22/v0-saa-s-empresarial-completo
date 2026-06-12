@@ -1,0 +1,91 @@
+-- ============================================================
+-- C-21 v20-inventory-unification: Pre-DROP guard — products.stock
+-- ⚠️  CHECKPOINT PO #2 — NO APLICAR sin aprobación explícita del PO
+-- ============================================================
+-- Este archivo contiene:
+--   1. Gate de reconciliación estable (9.1)
+--   2. Pre-DROP guard de referencias a products.stock (9.2)
+--   3. La migración destructiva DROP products.stock (9.4) — COMENTADA
+--   4. Ajuste al importador post-DROP (9.5) — documentado
+--
+-- Prerequisito: Checkpoint PO #1 (DROP Sistema B) ya aplicado.
+-- Prerequisito: Período de observación con v_products_with_stock activa
+--   (gate de reconciliación = 0 divergencias estable).
+--
+-- Workflow:
+--   1. Verificar 9.1 (reconciliación estable).
+--   2. Verificar 9.2 (sin referencias a products.stock fuera de la lista esperada).
+--   3. PO aprueba ("dale").
+--   4. Descomentar sección DROP y aplicar con npx supabase db push.
+--   5. Completar 9.5 (importer solo escribe branch_stock).
+--   6. Regenerar database.types.ts (9.6).
+--
+-- NUNCA aplicar vía MCP apply_migration.
+-- ============================================================
+
+-- ─── 9.1: Gate — reconciliación verde estable (0 divergencias) ───────────────
+-- Ejecutar luego del período de observación. Debe retornar 0.
+--
+-- SELECT count(*) AS divergencias_post_cutover
+-- FROM products p
+-- WHERE p.deleted_at IS NULL
+--   AND p.stock <> COALESCE(
+--       (SELECT SUM(quantity) FROM branch_stock bs WHERE bs.product_id = p.id),
+--       0
+--   );
+
+-- ─── 9.2: Pre-DROP guard — referencias a products.stock ──────────────────────
+-- Debe retornar 0 filas (o solo la lista esperada).
+-- Ejecutar antes del DROP para confirmar que nada inesperado lee la columna.
+--
+-- -- Funciones que referencian products.stock:
+-- SELECT routine_name, routine_type
+-- FROM information_schema.routines
+-- WHERE routine_definition ILIKE '%products.stock%'
+--    OR routine_definition ILIKE '%products%stock%'
+--    AND routine_schema = 'public';
+--
+-- -- Vistas que referencian products.stock:
+-- SELECT viewname FROM pg_views
+-- WHERE definition ILIKE '%products%stock%'
+--   AND schemaname = 'public'
+--   AND viewname <> 'v_products_with_stock'; -- esta vista NO referencia la columna; OK
+--
+-- -- Confirmar que v_products_with_stock computa desde branch_stock (no products.stock):
+-- SELECT definition FROM pg_views WHERE viewname = 'v_products_with_stock';
+-- -- La definición NO debe mencionar 'p.stock' ni 'products.stock'.
+
+
+-- ─── 9.4: DROP destructivo — ⚠️ DESCOMENTAR SOLO CON APROBACIÓN DEL PO ────────
+--
+-- ROLLBACK SQL incluido en comentario (como en C-19):
+--   Si es necesario revertir, ejecutar el bloque de ROLLBACK a continuación.
+--
+-- /*
+-- -- ROLLBACK (ejecutar si es necesario deshacer el DROP):
+-- ALTER TABLE products ADD COLUMN IF NOT EXISTS stock numeric NOT NULL DEFAULT 0;
+-- UPDATE products p
+-- SET stock = COALESCE(
+--     (SELECT SUM(quantity) FROM branch_stock bs WHERE bs.product_id = p.id),
+--     0
+-- )
+-- WHERE stock = 0;
+-- */
+--
+-- -- DROP de la columna (ejecutar DESPUÉS del ROLLBACK SQL si se requiere):
+-- /*
+-- ALTER TABLE products DROP COLUMN IF EXISTS stock;
+-- */
+
+
+-- ─── 9.5: Post-DROP — importador deja de escribir products.stock ─────────────
+-- Tras el DROP, actualizar rpc_bulk_upsert_products para remover la escritura a
+-- products.stock (ya no existe la columna):
+--   - Eliminar el campo stock del INSERT INTO products
+--   - Eliminar el campo stock del UPDATE products SET
+-- La escritura a branch_stock (añadida en la migración 20260620000002) se conserva.
+--
+-- NOTA: La vista v_products_with_stock NO necesita cambios; computa desde branch_stock.
+
+-- ─── 9.6: Post-DROP — regenerar tipos TypeScript ──────────────────────────────
+-- npx supabase gen types typescript --project-id gxdhpxvdjjkmxhdkkwyb > frontend/lib/database.types.ts

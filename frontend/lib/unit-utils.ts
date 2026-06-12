@@ -59,7 +59,7 @@ export function unitInputMin(unit?: UnitOfMeasure | null): number {
 
 /**
  * Converts a display quantity (entered in the selected unit) to the normalized
- * base quantity that the DB stores in products.stock.
+ * base quantity that the DB stores in branch_stock (C-21: migrated from products.stock).
  *
  * The RPC does the same conversion server-side; this helper lets the frontend
  * validate stock locally before hitting the network.

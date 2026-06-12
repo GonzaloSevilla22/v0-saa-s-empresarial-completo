@@ -671,7 +671,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-21] `v20-inventory-unification`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-12 (archivado: `openspec/changes/archive/2026-06-12-v20-inventory-unification`). PRs #157 (apply) #158 (fix backfill account_id) #159 (checkpoint #1: DROP Sistema B) #160 (hotfix write-path dual-write) #161 (checkpoint #2: DROP `products.stock`, single-write). `branch_stock` es el único ledger; gate de venta = Σ branch_stock (global, decisión PO); specs `inventory-single-ledger` (nueva) y `branch-stock` (actualizada) sincronizadas.
 - **Scope**:
   - Crear Branch "Casa Central" para cada `account_id` sin branches (o cuyo `branch_id` esté NULL en operaciones) — INSERT en `branches` con `is_default = true`
   - Migrar 19 filas de `inventory_stock` y 22 filas de `inventory_movements` a `branch_stock` + `stock_movements` con `branch_id = casa_central_id`
@@ -926,7 +926,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[x]` |
 | C-19 | v20-tenancy-cleanup | 6 — V2.0 Retirada deuda | CRITICO | — | `[x]` |
 | C-20 | v20-sale-items-migration ⭐ | 6 — V2.0 Retirada deuda | ALTO | C-19 | `[ ]` |
-| C-21 | v20-inventory-unification | 6 — V2.0 Retirada deuda | CRITICO | C-19 | `[ ]` |
+| C-21 | v20-inventory-unification | 6 — V2.0 Retirada deuda | CRITICO | C-19 | `[x]` |
 | C-22 | v20-fiscal-identity-clients | 6 — V2.0 Retirada deuda | BAJO | — | `[x]` |
 | C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[x]` |
 | C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[ ]` |

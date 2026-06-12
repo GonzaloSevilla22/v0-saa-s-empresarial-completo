@@ -106,7 +106,10 @@ BEGIN
           barcode            = COALESCE(NULLIF(v_row->>'barcode',''),    barcode),
           parent_id          = COALESCE(v_resolved_pid,                  parent_id),
           is_variant         = COALESCE((v_row->>'is_variant')::boolean, is_variant),
-          stock_control_type = COALESCE(NULLIF(v_row->>'stock_control_type',''), stock_control_type)
+          stock_control_type = COALESCE(NULLIF(v_row->>'stock_control_type',''), stock_control_type),
+          -- C-21 fix: si la fila preexistente tiene account_id NULL (bug del importador
+          -- pre-C-21), lo corregimos en el UPDATE para mantener tenancy consistente.
+          account_id         = COALESCE(account_id, v_account_id)
         WHERE id = v_existing_id AND user_id = p_user_id;
 
         v_product_id := v_existing_id;
@@ -114,10 +117,14 @@ BEGIN
 
       ELSE
         INSERT INTO public.products (
-          user_id, name, category, price, cost, stock, min_stock,
+          user_id, account_id, name, category, price, cost, stock, min_stock,
           barcode, sku, parent_id, is_variant, stock_control_type
         ) VALUES (
           p_user_id,
+          -- C-21 fix: siempre poblar account_id al insertar para mantener tenancy
+          -- correcta. El importador pre-C-21 omitía esta columna — ese fue el bug
+          -- que generó 2.371 products con account_id NULL el 2026-06-11.
+          v_account_id,
           v_row->>'name',
           COALESCE(NULLIF(v_row->>'category',''), 'Otros'),
           COALESCE((v_row->>'price')::numeric,    0),
@@ -194,4 +201,6 @@ $function$;
 
 COMMENT ON FUNCTION public.rpc_bulk_upsert_products IS
     'C-21: dual-write — escribe branch_stock (default branch) + products.stock durante la transición. '
+    'Fix write-path: siempre asigna account_id en INSERT y lo repara en UPDATE si era NULL '
+    '(bug pre-C-21 que generó 2.371 products con account_id IS NULL el 2026-06-11). '
     'Tras el DROP de products.stock (Checkpoint PO #2), remover la escritura a products.stock.';

@@ -32,6 +32,34 @@ ALTER TABLE public.products
   ADD COLUMN IF NOT EXISTS deleted_at         timestamptz,
   ADD COLUMN IF NOT EXISTS stock_control_type text;
 
+-- ─── Grupo 0.5: Backfill account_id huérfanos del importador ─────────────────
+--
+-- Contexto: el 2026-06-11 entre las 22:03 y 22:39 UTC se realizó una importación
+-- masiva vía CSV. El RPC rpc_bulk_upsert_products (versión pre-C-21) no asignaba
+-- account_id al insertar productos nuevos — bug activo post-C-19.
+-- Resultado: 2.371 productos con account_id IS NULL pertenecientes a un único
+-- usuario, que mapea a exactamente una cuenta en account_members.
+--
+-- Sin este backfill, el JOIN de Grupo 2 (divergentes → default_branch ON
+-- db.account_id = d.account_id) silenciosamente descarta los NULL y 581 de esos
+-- productos quedan divergentes → el gate de Grupo 2 falla con SQLSTATE P0001.
+--
+-- La lógica es idempotente: solo corrige usuarios con exactamente una cuenta
+-- (HAVING count(DISTINCT account_id) = 1) → determinista, sin ambigüedad.
+-- Si un producto tiene user_id sin cuenta en account_members, queda NULL; el gate
+-- de Grupo 2 lo captura (hoy ese conjunto es vacío — verificado en prod).
+
+UPDATE products p
+SET account_id = am.account_id
+FROM (
+    SELECT user_id, min(account_id::text)::uuid AS account_id
+    FROM account_members
+    GROUP BY user_id
+    HAVING count(DISTINCT account_id) = 1
+) am
+WHERE p.account_id IS NULL
+  AND p.user_id = am.user_id;
+
 -- ─── Grupo 1: Branch por defecto ──────────────────────────────────────────────
 --
 -- Test/gate 1.1: tras la migración, toda cuenta tiene ≥ 1 branch
@@ -91,7 +119,23 @@ divergentes AS (
     SELECT
         p.id           AS product_id,
         p.account_id,
-        p.stock        AS target_quantity
+        -- Robustez: la default branch recibe p.stock - Σ(stock en OTRAS branches),
+        -- de modo que tras el upsert Σ branch_stock == products.stock incluso si
+        -- existieran filas de otras branches. Hoy ese conjunto es vacío (0 productos
+        -- en accounts multi-branch con stock fuera de la default), pero la lógica
+        -- es correcta para la ventana hasta el apply en prod.
+        p.stock - COALESCE(
+            (SELECT SUM(bs2.quantity)
+             FROM branch_stock bs2
+             WHERE bs2.product_id = p.id
+               AND bs2.branch_id <> (
+                   SELECT db2.id FROM branches db2
+                   WHERE db2.account_id = p.account_id
+                   ORDER BY db2.created_at ASC
+                   LIMIT 1
+               )
+            ), 0
+        ) AS target_quantity
     FROM products p
     WHERE p.deleted_at IS NULL
       AND p.stock <> COALESCE(

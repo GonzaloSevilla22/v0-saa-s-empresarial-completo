@@ -582,8 +582,10 @@ async def test_delete_purchase_by_id_reads_product_id_from_items(async_client, m
         "product_id": PRODUCT_ID,
         "operation_id": None,
     }
-    conn.fetchrow = AsyncMock(return_value=purchase_header_row)
-    conn.fetchval = AsyncMock(return_value=None)   # no stock_movements delta
+    # C-21 checkpoint #2: header → item_row (purchase_items) → movement (None = sin reversa)
+    conn.fetchrow = AsyncMock(
+        side_effect=[purchase_header_row, {"product_id": PRODUCT_ID}, None]
+    )
     conn.execute = AsyncMock(return_value="DELETE 1")
     transaction_ctx = AsyncMock()
     transaction_ctx.__aenter__ = AsyncMock(return_value=None)

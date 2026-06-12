@@ -99,15 +99,19 @@ class PurchaseRepository(BaseRepository):
             )
             product_id = item_row["product_id"] if item_row else None
             if product_id is not None:
-                delta = await self._conn.fetchval(
-                    "SELECT quantity_delta FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase' LIMIT 1",
+                movement = await self._conn.fetchrow(
+                    "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase' LIMIT 1",
                     purchase_id,
                 )
-                if delta is not None:
-                    await self._conn.execute(
-                        "UPDATE products SET stock = stock - $1 WHERE id = $2::uuid",
-                        delta,
+                if movement is not None and movement["quantity_delta"] is not None:
+                    # C-21 checkpoint #2: la reversa va a branch_stock (branch del
+                    # movimiento o default). allow_negative + sin movement nuevo =
+                    # paridad con el comportamiento previo sobre products.stock.
+                    await self._conn.fetchrow(
+                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
                         product_id,
+                        -movement["quantity_delta"],
+                        movement["branch_id"],
                     )
                 await self._conn.execute(
                     "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase'",
@@ -145,15 +149,17 @@ class PurchaseRepository(BaseRepository):
                 )
                 product_id = item_row["product_id"] if item_row else None
                 if product_id is not None:
-                    delta = await self._conn.fetchval(
-                        "SELECT quantity_delta FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase' LIMIT 1",
+                    movement = await self._conn.fetchrow(
+                        "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase' LIMIT 1",
                         purchase_id,
                     )
-                    if delta is not None:
-                        await self._conn.execute(
-                            "UPDATE products SET stock = stock - $1 WHERE id = $2",
-                            delta,
+                    if movement is not None and movement["quantity_delta"] is not None:
+                        # C-21 checkpoint #2: reversa sobre branch_stock (ver delete_by_id)
+                        await self._conn.fetchrow(
+                            "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
                             product_id,
+                            -movement["quantity_delta"],
+                            movement["branch_id"],
                         )
                     await self._conn.execute(
                         "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase'",

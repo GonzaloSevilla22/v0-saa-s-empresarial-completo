@@ -104,7 +104,8 @@ Deno.serve(async (req) => {
     // 3. Fetch business data
     const [salesResult, productsResult] = await Promise.all([
       supabaseClient.from('sales').select('quantity, product_id, date').order('date', { ascending: false }).limit(200),
-      supabaseClient.from('products').select('id, name, stock, cost, price')
+      // C-21 checkpoint #2: stock vive en branch_stock — la vista expone stock = Σ branch_stock
+      supabaseClient.from('v_products_with_stock').select('id, name, stock, cost, price')
     ])
 
     const sales = salesResult.data || []

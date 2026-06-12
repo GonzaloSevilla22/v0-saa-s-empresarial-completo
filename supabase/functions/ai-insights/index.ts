@@ -98,7 +98,8 @@ Deno.serve(async (req) => {
     const [salesRes, prevSalesRes, productsRes, expensesRes, rotationRes] = await Promise.all([
       supabase.from('v_sales_flat').select('amount, quantity, date, product_id').gte('date', d30Str),
       supabase.from('v_sales_flat').select('amount').gte('date', d60Str).lt('date', d30Str),
-      supabase.from('products').select('id, name, price, cost, stock, min_stock').limit(50),
+      // C-21 checkpoint #2: stock vive en branch_stock — la vista expone stock = Σ branch_stock
+      supabase.from('v_products_with_stock').select('id, name, price, cost, stock, min_stock').limit(50),
       supabase.from('expenses').select('amount, category').gte('date', d30Str),
       supabase.from('v_sales_flat').select('product_id, date').gte('date', d60Str).order('date', { ascending: false }),
     ])

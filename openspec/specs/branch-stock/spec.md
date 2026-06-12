@@ -1,38 +1,36 @@
 # branch-stock — Spec (stock-multisucursal)
 
-> Capability: **branch-stock** — inventario de stock por sucursal. Exclusivo plan PRO. Mantiene un ledger separado por combinación `(product_id, branch_id)` en la tabla `branch_stock`, con ajuste manual, alertas de stock bajo y página de inventario por sucursal.
+## Purpose
 
+Inventario de stock por sucursal. Mantiene el ledger por combinación `(product_id, branch_id)` en la tabla `branch_stock` — desde C-21, **único ledger de inventario del sistema** — con ajuste manual, transferencias entre sucursales, alertas de stock bajo y página de inventario por sucursal. La gestión multi-sucursal es exclusiva del plan PRO.
 ## Requirements
-
 ### Requirement: Ledger de stock por sucursal (branch_stock)
+El sistema SHALL mantener el inventario por combinación `(product_id, branch_id)` en `branch_stock` como **única fuente de verdad** del stock. Toda operación (venta o compra) SHALL afectar `branch_stock.quantity` de su `branch_id` — incluida la branch por defecto ("Casa Central"/"Principal") cuando la cuenta opera con una sola sucursal. La columna `products.stock` SHALL NOT mutarse por operaciones de stock (el dual-ledger queda retirado por C-21); el stock total de un producto es `SUM(branch_stock.quantity)`.
 
-El sistema SHALL mantener un registro de inventario separado por combinación `(product_id, branch_id)` en la tabla `branch_stock`. Cuando una operación (venta o compra) incluye `branch_id`, el movimiento de stock afecta `branch_stock.quantity` en lugar de `products.stock`.
-
-#### Scenario: Venta con branch_id descuenta de branch_stock
-
+#### Scenario: Venta descuenta de branch_stock
 - **GIVEN** un producto con 10 unidades en `branch_stock` de la sucursal A
-- **WHEN** se registra una venta de 3 unidades con `branch_id = A`
-- **THEN** `branch_stock.quantity` para `(product_id, branch_id=A)` pasa a 7 y `products.stock` no cambia
+- **WHEN** se registra una venta de 3 unidades en la sucursal A
+- **THEN** `branch_stock.quantity` para `(product_id, branch_id=A)` pasa a 7 y no se modifica ninguna columna de `products`
 
-#### Scenario: Venta con branch_id falla si stock insuficiente en sucursal
+#### Scenario: Venta falla si stock insuficiente (gate global)
+- **GIVEN** un producto con `SUM(branch_stock.quantity) = 2` en toda la cuenta
+- **WHEN** se registra una venta de 5 unidades
+- **THEN** la RPC retorna error `Insufficient stock` y no inserta ninguna fila
 
-- **GIVEN** un producto con 2 unidades en `branch_stock` de la sucursal A
-- **WHEN** se registra una venta de 5 unidades con `branch_id = A`
-- **THEN** la RPC retorna error `insufficient_branch_stock` y no inserta ninguna fila
+#### Scenario: Venta en sucursal sin stock local no se bloquea (gate global, decisión PO C-21)
+- **GIVEN** un producto con 10 unidades en la branch por defecto y 0 en la sucursal B
+- **WHEN** se registra una venta de 2 unidades en la sucursal B
+- **THEN** la venta procede (el gate es `SUM(branch_stock)`); `branch_stock` de B queda en −2 transitorio y la suma global se preserva (se regulariza con transferencia)
 
-#### Scenario: Compra con branch_id incrementa branch_stock
-
+#### Scenario: Compra incrementa branch_stock
 - **GIVEN** un producto con 0 unidades en `branch_stock` de la sucursal B (o sin fila aún)
-- **WHEN** se registra una compra de 20 unidades con `branch_id = B`
+- **WHEN** se registra una compra de 20 unidades en la sucursal B
 - **THEN** `branch_stock.quantity` para `(product_id, branch_id=B)` pasa a 20 (fila creada si no existía)
 
-#### Scenario: Operación sin branch_id no afecta branch_stock
-
-- **GIVEN** un producto con 10 unidades globales (`products.stock`) y 5 en `branch_stock` sucursal A
-- **WHEN** se registra una venta de 2 unidades SIN `branch_id`
-- **THEN** `products.stock` pasa a 8 y `branch_stock` de la sucursal A no cambia
-
----
+#### Scenario: Operación sobre la branch por defecto afecta branch_stock, no products.stock
+- **GIVEN** una cuenta con una sola sucursal (branch por defecto) y un producto con 10 unidades en `branch_stock`
+- **WHEN** se registra una venta de 2 unidades
+- **THEN** `branch_stock` de la branch por defecto pasa a 8 y la columna `products.stock` no participa (es la única verdad `branch_stock`)
 
 ### Requirement: Ajuste manual de stock por sucursal
 
@@ -97,3 +95,4 @@ El sistema SHALL generar una alerta cuando `branch_stock.quantity <= branch_stoc
 - **GIVEN** ya existe una alerta `low_branch_stock_alert` de hace 2 horas para `(product X, sucursal A)`
 - **WHEN** otra venta reduce el stock aún más
 - **THEN** NO se inserta una nueva alerta (deduplicación activa)
+

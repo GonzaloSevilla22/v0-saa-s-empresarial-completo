@@ -92,8 +92,9 @@ export async function buildBusinessSnapshot(
       .lt('date', d30Str),
 
     // Productos (limitado para no inflar contexto)
+    // C-21: lee de v_products_with_stock — stock = COALESCE(Σ branch_stock, 0)
     supabase
-      .from('products')
+      .from('v_products_with_stock')
       .select('id, name, price, cost, stock, min_stock')
       .order('price', { ascending: false })
       .limit(50),

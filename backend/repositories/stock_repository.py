@@ -7,8 +7,26 @@ from backend.repositories.base import BaseRepository
 
 class StockRepository(BaseRepository):
     async def get_stock_by_product(self, product_id: str, account_id: str) -> asyncpg.Record | None:
+        # C-21: reads from branch_stock (SUM por account_id) en lugar de products.stock.
+        # Corrige también la tenancy: usa account_id, no user_id (alineado con C-19).
+        # JOIN a products para preservar el 404 si el producto no existe bajo esa cuenta.
+        # Si el producto existe pero sin filas branch_stock, COALESCE retorna 0.
         return await self.fetchrow(
-            "SELECT stock FROM products WHERE id = $1 AND account_id = $2",
+            """
+            SELECT
+                p.id AS product_id,
+                COALESCE(
+                    (SELECT SUM(bs.quantity)
+                     FROM branch_stock bs
+                     WHERE bs.product_id = p.id
+                       AND bs.account_id = $2),
+                    0
+                ) AS stock
+            FROM products p
+            WHERE p.id = $1
+              AND p.account_id = $2
+              AND p.deleted_at IS NULL
+            """,
             product_id,
             account_id,
         )

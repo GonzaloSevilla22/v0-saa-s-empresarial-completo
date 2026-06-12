@@ -1,0 +1,70 @@
+-- ============================================================
+-- C-21 v20-inventory-unification: Pre-DROP guard — Sistema B
+-- ⚠️  CHECKPOINT PO #1 — NO APLICAR sin aprobación explícita del PO
+-- ============================================================
+-- Este archivo contiene:
+--   1. Las queries de verificación (gates 8.1 y 8.2) que deben ser
+--      GREEN antes del DROP.
+--   2. La migración destructiva DROP (8.4) — COMENTADA.
+--
+-- Workflow:
+--   1. Correr las queries de verificación manualmente (read-only).
+--   2. Confirmar que ambas retornan 0.
+--   3. PO aprueba ("dale").
+--   4. Descomentar y aplicar la sección DROP con npx supabase db push.
+--
+-- NUNCA aplicar vía MCP apply_migration.
+-- ============================================================
+
+-- ─── 8.1: Gate — filas de inventory_stock ya representadas en branch_stock ────
+-- Debe retornar 0. Si > 0, hay filas de Sistema B sin representación en branch_stock.
+--
+-- SELECT count(*) AS filas_sin_cobertura_en_branch_stock
+-- FROM inventory_stock ist
+-- LEFT JOIN product_variants pv ON pv.id = ist.variant_id
+-- LEFT JOIN branch_stock bs
+--   ON bs.product_id = pv.product_id
+--  AND bs.branch_id IN (
+--      SELECT b.id FROM branches b
+--      JOIN accounts a ON a.id = b.account_id
+--      JOIN products p ON p.account_id = a.id AND p.id = pv.product_id
+--  )
+-- WHERE bs.id IS NULL;
+--
+-- ─── 8.2: Gate — ninguna función o vista referencia las tablas del Sistema B ──
+-- Debe retornar 0 filas. Si hay referencias, revisar y eliminar primero.
+--
+-- SELECT routine_name, routine_type
+-- FROM information_schema.routines
+-- WHERE routine_definition ILIKE '%inventory_stock%'
+--    OR routine_definition ILIKE '%inventory_movements%'
+--    OR routine_definition ILIKE '%warehouses%'
+--    AND routine_schema = 'public';
+--
+-- SELECT viewname, definition FROM pg_views
+-- WHERE (definition ILIKE '%inventory_stock%'
+--    OR definition ILIKE '%inventory_movements%'
+--    OR definition ILIKE '%warehouses%')
+--   AND schemaname = 'public';
+
+
+-- ─── 8.4: DROP destructivo — ⚠️ DESCOMENTAR SOLO CON APROBACIÓN DEL PO ────────
+--
+-- Orden respetando FKs:
+--   inventory_stock referencia warehouses y product_variants
+--   inventory_movements referencia warehouses
+--   warehouses se elimina al final
+--
+-- ROLLBACK SQL (para restaurar desde backup si fuera necesario):
+--   -- No hay consumers activos; restaurar desde snapshot de prod de la fecha del DROP.
+--   -- Las 19 filas del Sistema B son stale respecto a branch_stock (duplicados con
+--   -- quantities diferentes). NO intentar re-insertar en branch_stock.
+--
+-- /*
+-- DROP TABLE IF EXISTS public.inventory_movements;
+-- DROP TABLE IF EXISTS public.inventory_stock;
+-- DROP TABLE IF EXISTS public.warehouses;
+-- */
+
+-- ─── 8.5: Post-DROP — descomentar y ejecutar tras el DROP ─────────────────────
+-- Regenerar database.types.ts: npx supabase gen types typescript --project-id gxdhpxvdjjkmxhdkkwyb > frontend/lib/database.types.ts

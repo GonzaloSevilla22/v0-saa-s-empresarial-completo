@@ -7,14 +7,18 @@ from backend.repositories.base import BaseRepository
 
 class ProductRepository(BaseRepository):
     async def list_by_org(self, account_id: str) -> list[dict]:
+        # C-21: lee de v_products_with_stock para que el campo `stock` refleje
+        # COALESCE(Σ branch_stock, 0) en lugar de products.stock.
+        # La vista tiene security_invoker=true — respeta RLS.
         return await self.fetch(
-            "SELECT * FROM products WHERE account_id = $1 ORDER BY name ASC",
+            "SELECT * FROM v_products_with_stock WHERE account_id = $1 ORDER BY name ASC",
             account_id,
         )
 
     async def get_by_id(self, product_id: str, account_id: str) -> asyncpg.Record | None:
+        # C-21: ídem — usa la vista de compatibilidad para stock consistente.
         return await self.fetchrow(
-            "SELECT * FROM products WHERE id = $1 AND account_id = $2",
+            "SELECT * FROM v_products_with_stock WHERE id = $1 AND account_id = $2",
             product_id,
             account_id,
         )

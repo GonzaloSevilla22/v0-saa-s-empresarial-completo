@@ -48,8 +48,9 @@ export const aiCopilotService = {
       { data: recentExpenses },
       { data: recentPurchases },
     ] = await Promise.all([
+      // C-21: lee de v_products_with_stock — stock = COALESCE(Σ branch_stock, 0)
       supabase
-        .from('products')
+        .from('v_products_with_stock')
         .select('id, name, price, cost, stock, min_stock')
         .order('price', { ascending: false })     // High-value products first
         .limit(30),                               // cap to avoid bloating context

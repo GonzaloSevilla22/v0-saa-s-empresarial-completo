@@ -43,6 +43,6 @@
 ## 4. Verificación y cierre
 
 - [x] 4.1 Smoke transaccional en prod (rollback): venta en B sin stock → P0409; transferencia → `stock_transfers` + 2 movements con `transfer_id`; venta con B 3→2; venta sin branch default 35→31; close con stock → P0409; venta en cerrada → P0422; close última operativa → P0409. ✅ (El smoke detectó y se corrigió el bug del upsert vs CHECK — ver 1.5.)
-- [ ] 4.2 PR(s) a main; checks verdes; merge (autorizado si CI pasa); Render/Vercel deploy.
-- [ ] 4.3 `/opsx:archive v21-branch-as-root` → sync specs (`branches`, `branch-stock`, `stock-transfer`).
-- [ ] 4.4 CHANGES.md C-26 `[x]`; CLAUDE.md próximo recomendado (C-27 fiscal-profile — requiere PA-22 del PO — o C-28 cash-session).
+- [x] 4.2 PR(s) a main; checks verdes; merge; Render/Vercel deploy. ✅ PR #164 (propose, mergeado por el PO) + PR #165 (apply, squash con checks verdes, 6c8073f).
+- [x] 4.3 `/opsx:archive v21-branch-as-root` → sync specs (`branches`, `branch-stock`, `stock-transfer`). ✅ 2026-06-12.
+- [x] 4.4 CHANGES.md C-26 `[x]`; CLAUDE.md próximo recomendado (C-27 fiscal-profile — requiere PA-22 del PO — o C-28 cash-session). ✅ 2026-06-12.

@@ -5,32 +5,37 @@
 Inventario de stock por sucursal. Mantiene el ledger por combinación `(product_id, branch_id)` en la tabla `branch_stock` — desde C-21, **único ledger de inventario del sistema** — con ajuste manual, transferencias entre sucursales, alertas de stock bajo y página de inventario por sucursal. La gestión multi-sucursal es exclusiva del plan PRO.
 ## Requirements
 ### Requirement: Ledger de stock por sucursal (branch_stock)
-El sistema SHALL mantener el inventario por combinación `(product_id, branch_id)` en `branch_stock` como **única fuente de verdad** del stock. Toda operación (venta o compra) SHALL afectar `branch_stock.quantity` de su `branch_id` — incluida la branch por defecto ("Casa Central"/"Principal") cuando la cuenta opera con una sola sucursal. La columna `products.stock` SHALL NOT mutarse por operaciones de stock (el dual-ledger queda retirado por C-21); el stock total de un producto es `SUM(branch_stock.quantity)`.
+El sistema SHALL mantener el inventario por combinación `(product_id, branch_id)` en `branch_stock` como única fuente de verdad, con el invariante **`quantity >= 0`** garantizado por CHECK en la base. Las operaciones **con `branch_id` explícito** SHALL validar stock suficiente en ESA sucursal; las operaciones **sin `branch_id`** afectan la sucursal default de la cuenta con gate global (`SUM(branch_stock.quantity)`). El stock total de un producto es `SUM(branch_stock.quantity)`.
 
 #### Scenario: Venta descuenta de branch_stock
 - **GIVEN** un producto con 10 unidades en `branch_stock` de la sucursal A
 - **WHEN** se registra una venta de 3 unidades en la sucursal A
-- **THEN** `branch_stock.quantity` para `(product_id, branch_id=A)` pasa a 7 y no se modifica ninguna columna de `products`
+- **THEN** `branch_stock.quantity` para `(product_id, branch_id=A)` pasa a 7
 
-#### Scenario: Venta falla si stock insuficiente (gate global)
-- **GIVEN** un producto con `SUM(branch_stock.quantity) = 2` en toda la cuenta
-- **WHEN** se registra una venta de 5 unidades
-- **THEN** la RPC retorna error `Insufficient stock` y no inserta ninguna fila
+#### Scenario: Venta con sucursal explícita falla si esa sucursal no tiene stock suficiente
+- **GIVEN** un producto con 10 unidades en la sucursal default y 0 en la sucursal B
+- **WHEN** se registra una venta de 2 unidades con `p_branch_id = B`
+- **THEN** la RPC retorna `P0409 insufficient_branch_stock` y no inserta ninguna fila (transferir stock a B primero)
 
-#### Scenario: Venta en sucursal sin stock local no se bloquea (gate global, decisión PO C-21)
-- **GIVEN** un producto con 10 unidades en la branch por defecto y 0 en la sucursal B
-- **WHEN** se registra una venta de 2 unidades en la sucursal B
-- **THEN** la venta procede (el gate es `SUM(branch_stock)`); `branch_stock` de B queda en −2 transitorio y la suma global se preserva (se regulariza con transferencia)
+#### Scenario: Venta sin sucursal usa la default con gate global
+- **GIVEN** una cuenta mono-sucursal con `SUM(branch_stock) = 2` para un producto
+- **WHEN** se registra una venta de 5 unidades sin `branch_id`
+- **THEN** la RPC retorna `P0409` Insufficient stock y no inserta ninguna fila
 
 #### Scenario: Compra incrementa branch_stock
 - **GIVEN** un producto con 0 unidades en `branch_stock` de la sucursal B (o sin fila aún)
 - **WHEN** se registra una compra de 20 unidades en la sucursal B
 - **THEN** `branch_stock.quantity` para `(product_id, branch_id=B)` pasa a 20 (fila creada si no existía)
 
-#### Scenario: Operación sobre la branch por defecto afecta branch_stock, no products.stock
-- **GIVEN** una cuenta con una sola sucursal (branch por defecto) y un producto con 10 unidades en `branch_stock`
-- **WHEN** se registra una venta de 2 unidades
-- **THEN** `branch_stock` de la branch por defecto pasa a 8 y la columna `products.stock` no participa (es la única verdad `branch_stock`)
+#### Scenario: Ninguna escritura puede dejar una sucursal en negativo
+- **GIVEN** cualquier vía de escritura sobre `branch_stock` (RPCs, helper, importador)
+- **WHEN** el resultado dejaría `quantity < 0`
+- **THEN** la base rechaza la operación por CHECK constraint (red de seguridad física del invariante)
+
+#### Scenario: Reversa de compra borrada con stock ya vendido hace floor a 0
+- **GIVEN** una compra de 5 unidades cuyo stock ya fue vendido (la sucursal quedó en 0)
+- **WHEN** se borra la compra y la reversa de −5 dejaría la sucursal en negativo
+- **THEN** la cantidad queda en 0 y se registra un `stock_movement` de ajuste con reason `floor_on_purchase_delete` por la diferencia (trazabilidad en lugar de negativo)
 
 ### Requirement: Ajuste manual de stock por sucursal
 

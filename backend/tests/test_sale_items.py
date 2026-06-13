@@ -508,6 +508,81 @@ async def test_list_purchases_query_falls_back_to_header_for_rows_without_items(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Regresión 2026-06-13: date timestamptz con componente de hora ≠ 00:00
+#
+# sales.date / purchases.date son `timestamp with time zone`. Las filas viejas
+# (creadas con now()) tienen hora ≠ 00:00. Llegaban a Pydantic como datetime con
+# hora, y el campo `date: datetime.date` de SaleItemOut/PurchaseItemOut las
+# rechazaba (ResponseValidationError) → 500 "Error interno del servidor" en TODA
+# la página (una sola fila mala envenena el response completo). El schema debe
+# coercionar datetime → date.
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def test_list_sales_serializes_timestamp_date_with_time_component(async_client, mock_pool):
+    """Una venta con date=timestamptz 16:33:40 debe devolver 200 y date='2026-04-06'."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    import datetime
+    import uuid
+
+    sale_row = {
+        "id": uuid.UUID(SALE_ID_1),
+        "date": datetime.datetime(2026, 4, 6, 16, 33, 40, 270406, tzinfo=datetime.timezone.utc),
+        "product_id": uuid.UUID(PRODUCT_ID),
+        "client_id": None,
+        "operation_id": None,
+        "quantity": Decimal("1.0000"),
+        "amount": Decimal("500.00"),
+        "total": Decimal("500.00"),
+        "currency": "ARS",
+        "product_name": "Test Product",
+        "client_name": None,
+    }
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(return_value=[sale_row])
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["date"] == "2026-04-06"
+
+
+async def test_list_purchases_serializes_timestamp_date_with_time_component(async_client, mock_pool):
+    """Espejo compras: purchases.date timestamptz con hora ≠ 00:00 → 200 y date='2026-04-06'."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    import datetime
+    import uuid
+
+    purchase_row = {
+        "id": uuid.UUID(SALE_ID_1),
+        "date": datetime.datetime(2026, 4, 6, 16, 33, 40, 270406, tzinfo=datetime.timezone.utc),
+        "product_id": uuid.UUID(PRODUCT_ID),
+        "operation_id": None,
+        "quantity": Decimal("1.0000"),
+        "amount": Decimal("250.00"),
+        "total": Decimal("250.00"),
+        "product_name": "Test Product",
+        "description": None,
+    }
+    conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(return_value=[purchase_row])
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["date"] == "2026-04-06"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Group 7: Hook shape (TypeScript mapping — documented in Python contract tests)
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@ import datetime
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class SaleItemIn(BaseModel):
@@ -47,6 +47,16 @@ class SaleItemOut(BaseModel):
     amount: Decimal
     total: Decimal | None = None
     currency: str = "ARS"
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def _coerce_datetime_to_date(cls, v: object) -> object:
+        # sales.date es `timestamptz`: las filas con hora ≠ 00:00 (ventas viejas
+        # creadas con now()) llegan como datetime y Pydantic las rechaza contra
+        # `date` (date_from_datetime_inexact) → 500. Tomamos la parte de fecha.
+        if isinstance(v, datetime.datetime):
+            return v.date()
+        return v
 
 
 class SalesPageOut(BaseModel):

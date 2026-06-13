@@ -48,11 +48,11 @@
 
 ## 4. Frontend
 
-- [ ] 4.1 `use-fiscal-profile`: select + upsert del perfil; reusa `isValidCuit` (módulo-11) de C-22 para validar el CUIT del emisor.
-- [ ] 4.1b `use-points-of-sale`: list + create + deactivate de PVs (TanStack Query; invalida al mutar).
-- [ ] 4.2 Página `/configuracion/fiscal`: formulario del perfil (CUIT, condición IVA, IIBB, ambiente) + **CRUD mínimo de puntos de venta** (listar / agregar con `numero` + `branch_id` opcional / desactivar, sin límite de cantidad — OQ-2) + upload del certificado al bucket privado (signed upload).
-- [ ] 4.3 Estados de `FiscalDocument` en UI (badge `En trámite`/`Autorizado`/`Rechazado`); suscripción Realtime al cambio `pending_cae → authorized` (patrón tabla→Realtime, DEC-16) — alcance mínimo si OQ-3 deja la emisión como endpoint directo.
-- [ ] 4.4 Errores nuevos traducidos en `translateRpcError`; `database.types.ts` regenerado; `tsc --noEmit` limpio; tests frontend verdes (`npm test`, no `npx jest`).
+- [x] 4.1 `use-fiscal-profile`: select + upsert del perfil; reusa `isValidCuit` (módulo-11) de C-22 para validar el CUIT del emisor. → `hooks/data/use-fiscal-profile.ts` (useFiscalProfile + useUpsertFiscalProfile; 404 → null; isValidCuit guard en mutation).
+- [x] 4.1b `use-points-of-sale`: list + create + deactivate de PVs (TanStack Query; invalida al mutar). → `hooks/data/use-points-of-sale.ts` (usePointsOfSale + useCreatePointOfSale + useDeactivatePointOfSale); agregado `.patch` a `python-client.ts`.
+- [x] 4.2 Página `/configuracion/fiscal`: formulario del perfil (CUIT, condición IVA, IIBB, ambiente) + **CRUD mínimo de puntos de venta** (listar / agregar con `numero` + `branch_id` opcional / desactivar, sin límite de cantidad — OQ-2) + upload del certificado al bucket privado (signed upload). → `app/(dashboard)/configuracion/fiscal/page.tsx` (FiscalProfileForm + CertUploadSection + PointsOfSaleSection).
+- [x] 4.3 Estados de `FiscalDocument` en UI (badge `En trámite`/`Autorizado`/`Rechazado`); suscripción Realtime al cambio `pending_cae → authorized` (patrón tabla→Realtime, DEC-16) — alcance mínimo si OQ-3 deja la emisión como endpoint directo. → `components/fiscal/FiscalDocumentBadge.tsx` (Realtime channel por `documentId`; unsubscribe al llegar a estado terminal).
+- [x] 4.4 Errores nuevos traducidos en `translateRpcError`; `database.types.ts` regenerado; `tsc --noEmit` limpio; tests frontend verdes (`npm test`, no `npx jest`). → `translateFiscalError` en `use-fiscal-profile.ts`; `database.types.ts` regenerado con tablas C-27; tsc limpio; **221 passing** (203 baseline + 18 nuevos en `__tests__/c27-fiscal-profile.test.ts`).
 
 ## 5. Verificación y cierre
 

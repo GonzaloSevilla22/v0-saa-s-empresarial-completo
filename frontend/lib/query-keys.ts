@@ -60,4 +60,17 @@ export const queryKeys = {
     all:    () => ["stock"] as const,
     lists:  () => ["stock", "list"] as const,
   },
+  // C-27: FiscalProfile + PointsOfSale + FiscalDocuments
+  fiscalProfile: {
+    all:    () => ["fiscalProfile"] as const,
+    detail: () => ["fiscalProfile", "detail"] as const,
+  },
+  pointsOfSale: {
+    all:   () => ["pointsOfSale"] as const,
+    lists: () => ["pointsOfSale", "list"] as const,
+  },
+  fiscalDocuments: {
+    all:     () => ["fiscalDocuments"] as const,
+    pending: () => ["fiscalDocuments", "pending"] as const,
+  },
 } as const

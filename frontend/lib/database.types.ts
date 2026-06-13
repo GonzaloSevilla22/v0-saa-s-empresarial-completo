@@ -612,31 +612,6 @@ export type Database = {
       [_ in never]: never
     }
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       account_feature_flags: {
@@ -1179,6 +1154,38 @@ export type Database = {
           },
         ]
       }
+      document_sequences: {
+        Row: {
+          comprobante_type: string
+          created_at: string
+          id: string
+          last_number: number
+          point_of_sale_id: string
+        }
+        Insert: {
+          comprobante_type: string
+          created_at?: string
+          id?: string
+          last_number?: number
+          point_of_sale_id: string
+        }
+        Update: {
+          comprobante_type?: string
+          created_at?: string
+          id?: string
+          last_number?: number
+          point_of_sale_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_sequences_point_of_sale_id_fkey"
+            columns: ["point_of_sale_id"]
+            isOneToOne: false
+            referencedRelation: "points_of_sale"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_logs: {
         Row: {
           created_at: string
@@ -1359,6 +1366,133 @@ export type Database = {
             foreignKeyName: "export_logs_org_id_fkey"
             columns: ["org_id"]
             isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fiscal_documents: {
+        Row: {
+          account_id: string
+          attempts: number
+          cae: string | null
+          cae_due_date: string | null
+          client_id: string | null
+          comprobante_type: string
+          created_at: string
+          fiscal_profile_id: string
+          id: string
+          last_error: string | null
+          next_attempt_at: string | null
+          number: number
+          point_of_sale_id: string
+          punto_de_venta: number
+          status: string
+          total: number
+        }
+        Insert: {
+          account_id: string
+          attempts?: number
+          cae?: string | null
+          cae_due_date?: string | null
+          client_id?: string | null
+          comprobante_type: string
+          created_at?: string
+          fiscal_profile_id: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string | null
+          number: number
+          point_of_sale_id: string
+          punto_de_venta: number
+          status?: string
+          total?: number
+        }
+        Update: {
+          account_id?: string
+          attempts?: number
+          cae?: string | null
+          cae_due_date?: string | null
+          client_id?: string | null
+          comprobante_type?: string
+          created_at?: string
+          fiscal_profile_id?: string
+          id?: string
+          last_error?: string | null
+          next_attempt_at?: string | null
+          number?: number
+          point_of_sale_id?: string
+          punto_de_venta?: number
+          status?: string
+          total?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fiscal_documents_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_documents_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_documents_fiscal_profile_id_fkey"
+            columns: ["fiscal_profile_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fiscal_documents_point_of_sale_id_fkey"
+            columns: ["point_of_sale_id"]
+            isOneToOne: false
+            referencedRelation: "points_of_sale"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fiscal_profiles: {
+        Row: {
+          account_id: string
+          ambiente: string
+          certificado_afip_path: string | null
+          created_at: string
+          cuit: string
+          id: string
+          iibb_condition: string | null
+          iva_condition: string
+        }
+        Insert: {
+          account_id: string
+          ambiente?: string
+          certificado_afip_path?: string | null
+          created_at?: string
+          cuit: string
+          id?: string
+          iibb_condition?: string | null
+          iva_condition: string
+        }
+        Update: {
+          account_id?: string
+          ambiente?: string
+          certificado_afip_path?: string | null
+          created_at?: string
+          cuit?: string
+          id?: string
+          iibb_condition?: string | null
+          iva_condition?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fiscal_profiles_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: true
             referencedRelation: "accounts"
             referencedColumns: ["id"]
           },
@@ -1639,6 +1773,58 @@ export type Database = {
           price_monthly?: number
         }
         Relationships: []
+      }
+      points_of_sale: {
+        Row: {
+          account_id: string
+          branch_id: string | null
+          created_at: string
+          fiscal_profile_id: string
+          id: string
+          is_active: boolean
+          numero: number
+        }
+        Insert: {
+          account_id: string
+          branch_id?: string | null
+          created_at?: string
+          fiscal_profile_id: string
+          id?: string
+          is_active?: boolean
+          numero: number
+        }
+        Update: {
+          account_id?: string
+          branch_id?: string | null
+          created_at?: string
+          fiscal_profile_id?: string
+          id?: string
+          is_active?: boolean
+          numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "points_of_sale_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "points_of_sale_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "points_of_sale_fiscal_profile_id_fkey"
+            columns: ["fiscal_profile_id"]
+            isOneToOne: false
+            referencedRelation: "fiscal_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       product_aliases: {
         Row: {
@@ -3106,6 +3292,15 @@ export type Database = {
         Args: { p_branch_id: string }
         Returns: undefined
       }
+      rpc_emit_pending_cae: {
+        Args: {
+          p_client_id?: string
+          p_comprobante_type: string
+          p_point_of_sale_id?: string
+          p_total: number
+        }
+        Returns: Json
+      }
       rpc_increment_ai_usage: {
         Args: { p_counter: string; p_user_id: string }
         Returns: undefined
@@ -3121,6 +3316,10 @@ export type Database = {
             Returns: Json
           }
       rpc_my_account_role: { Args: { p_account_id: string }; Returns: string }
+      rpc_next_document_number: {
+        Args: { p_comprobante_type: string; p_point_of_sale_id: string }
+        Returns: number
+      }
       rpc_open_branch: { Args: { p_branch_id: string }; Returns: Json }
       rpc_period_comparison: {
         Args: {
@@ -3318,9 +3517,6 @@ export type CompositeTypes<
 
 export const Constants = {
   community: {
-    Enums: {},
-  },
-  graphql_public: {
     Enums: {},
   },
   public: {

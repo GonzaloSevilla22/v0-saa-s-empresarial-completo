@@ -63,6 +63,16 @@ export const pythonClient = {
     return handleResponse<T>(response);
   },
 
+  async patch<T>(path: string, body: unknown): Promise<T> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${BACKEND_URL as string}${path}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(body),
+    });
+    return handleResponse<T>(response);
+  },
+
   async delete<T>(path: string): Promise<T> {
     const headers = await getAuthHeaders();
     const response = await fetch(`${BACKEND_URL as string}${path}`, { method: "DELETE", headers });

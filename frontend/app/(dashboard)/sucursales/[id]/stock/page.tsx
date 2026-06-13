@@ -5,7 +5,9 @@ import Link from "next/link"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useBranches } from "@/hooks/data/use-branches"
 import { BranchStockTable } from "@/components/branches/BranchStockTable"
+import { BranchTransfersList } from "@/components/branches/BranchTransfersList"
 import { useOrgRole } from "@/hooks/useOrgRole"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Crown, Package, ArrowLeft, ArrowLeftRight } from "lucide-react"
 import { useState } from "react"
@@ -67,7 +69,12 @@ export default function BranchStockPage({ params }: PageProps) {
             <Package className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">Inventario — {branchName}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold">Inventario — {branchName}</h1>
+              {branch?.status === "closed" && (
+                <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">Cerrada</Badge>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground">
               Stock de productos en esta sucursal
             </p>
@@ -77,6 +84,9 @@ export default function BranchStockPage({ params }: PageProps) {
 
       {/* Stock table */}
       <BranchStockTable branchId={branchId} />
+
+      {/* C-26: historial de transferencias (origen o destino) */}
+      <BranchTransfersList branchId={branchId} />
     </div>
   )
 }

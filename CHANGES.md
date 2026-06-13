@@ -807,7 +807,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
   - Adaptador WSFE (AFIP) detrás de ACL: interfaz `FiscalDocumentPort` con método `requestCAE(invoice_data) → CAEResponse`; implementación real vs. stub para tests
   - CAE asíncrono: la venta confirma y persiste con `status = 'pending_cae'`; el adaptador AFIP solicita el CAE en background; reintento con backoff en caso de error AFIP (DEC-22)
   - UI `/configuracion/fiscal`: formulario de configuración de perfil fiscal; upload de certificado a Storage
-  - **Requiere respuesta del PO a PA-22** antes de conectar el adaptador real de AFIP (¿homologación o producción con facturas reales?)
+  - **PA-22 ✅ RESUELTA (2026-06-12)**: el adaptador real apunta a **homologación** de ARCA; ambiente como config por cuenta (`AFIPConfiguration.ambiente`); trámites de producción (certificado + punto de venta WSFE) en paralelo, por cuenta emisora — no bloquean el change (ver `knowledge-base/10` §PA-22)
   - Tests: crear `DocumentSequence` para dos `fiscal_profile` en paralelo → sin duplicados (test de lock); `requestCAE` stub → devuelve CAE ficticio; secuencia de números → sin huecos tras 100 calls concurrentes
 - **Dependencias**: `C-22`, `C-26`
 - **Governance**: CRITICO

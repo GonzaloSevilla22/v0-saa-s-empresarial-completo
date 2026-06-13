@@ -14,6 +14,9 @@ function mapRow(r: {
   address: string | null
   is_active: boolean
   created_at: string
+  status: string | null
+  opened_at: string | null
+  closed_at: string | null
 }): Branch {
   return {
     id:        r.id,
@@ -22,12 +25,18 @@ function mapRow(r: {
     address:   r.address,
     isActive:  r.is_active,
     createdAt: r.created_at,
+    status:    (r.status as Branch["status"]) ?? "active",
+    openedAt:  r.opened_at,
+    closedAt:  r.closed_at,
   }
 }
 
 function translateRpcError(message: string): string {
   if (message.includes("branch_limit_exceeded")) return "Límite de sucursales alcanzado para tu plan."
   if (message.includes("branch_name_duplicate")) return "Ya existe una sucursal con ese nombre."
+  if (message.includes("branch_has_stock"))      return "La sucursal tiene stock asignado. Transferilo a otra sucursal antes de cerrarla."
+  if (message.includes("last_active_branch"))    return "No podés cerrar la única sucursal operativa de tu cuenta."
+  if (message.includes("branch_closed"))         return "La sucursal está cerrada."
   if (message.includes("unauthorized"))          return "No tenés permisos para realizar esta acción."
   if (message.includes("branch_not_found"))      return "La sucursal no existe."
   return message || "Ocurrió un error inesperado."
@@ -48,7 +57,7 @@ export function useBranches() {
       if (!accountId) return []
       const { data, error } = await supabase
         .from("branches")
-        .select("id, account_id, name, address, is_active, created_at")
+        .select("id, account_id, name, address, is_active, created_at, status, opened_at, closed_at")
         .eq("account_id", accountId)
         .eq("is_active", true)
         .order("created_at", { ascending: true })
@@ -87,6 +96,41 @@ export function useCreateBranch() {
       })
       if (error) throw new Error(translateRpcError(error.message))
       return data as Branch
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.branches.all() })
+    },
+  })
+}
+
+/**
+ * C-26: lifecycle operacional — abrir/cerrar sucursal.
+ * El cierre falla con mensaje claro si la sucursal tiene stock
+ * (branch_has_stock) o es la última operativa (last_active_branch).
+ */
+export function useOpenBranch() {
+  const queryClient = useQueryClient()
+  const supabase    = useMemo(() => createClient(), [])
+
+  return useMutation({
+    mutationFn: async (branchId: string) => {
+      const { error } = await supabase.rpc("rpc_open_branch", { p_branch_id: branchId })
+      if (error) throw new Error(translateRpcError(error.message))
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.branches.all() })
+    },
+  })
+}
+
+export function useCloseBranch() {
+  const queryClient = useQueryClient()
+  const supabase    = useMemo(() => createClient(), [])
+
+  return useMutation({
+    mutationFn: async (branchId: string) => {
+      const { error } = await supabase.rpc("rpc_close_branch", { p_branch_id: branchId })
+      if (error) throw new Error(translateRpcError(error.message))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.branches.all() })

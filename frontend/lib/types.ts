@@ -55,6 +55,27 @@ export interface Branch {
   address: string | null
   isActive: boolean
   createdAt: string
+  /** C-26: estado operacional (independiente del soft-delete isActive) */
+  status: "active" | "closed"
+  openedAt: string | null
+  closedAt: string | null
+}
+
+/**
+ * C-26: stock transfer between branches as a first-class entity.
+ * Source of truth: stock_transfers table; served by GET /branches/{id}/transfers.
+ */
+export interface StockTransfer {
+  id: string
+  productId: string
+  productName: string
+  fromBranchId: string
+  fromBranchName: string
+  toBranchId: string
+  toBranchName: string
+  quantity: number
+  status: string
+  createdAt: string
 }
 
 /**

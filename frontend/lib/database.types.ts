@@ -1023,26 +1023,35 @@ export type Database = {
         Row: {
           account_id: string
           address: string | null
+          closed_at: string | null
           created_at: string
           id: string
           is_active: boolean
           name: string
+          opened_at: string | null
+          status: string
         }
         Insert: {
           account_id: string
           address?: string | null
+          closed_at?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
           name: string
+          opened_at?: string | null
+          status?: string
         }
         Update: {
           account_id?: string
           address?: string | null
+          closed_at?: string | null
           created_at?: string
           id?: string
           is_active?: boolean
           name?: string
+          opened_at?: string | null
+          status?: string
         }
         Relationships: [
           {
@@ -2406,6 +2415,7 @@ export type Database = {
           reason: string | null
           reference_id: string | null
           reference_type: string | null
+          transfer_id: string | null
           type: string
           user_id: string
         }
@@ -2427,6 +2437,7 @@ export type Database = {
           reason?: string | null
           reference_id?: string | null
           reference_type?: string | null
+          transfer_id?: string | null
           type: string
           user_id: string
         }
@@ -2448,6 +2459,7 @@ export type Database = {
           reason?: string | null
           reference_id?: string | null
           reference_type?: string | null
+          transfer_id?: string | null
           type?: string
           user_id?: string
         }
@@ -2478,6 +2490,85 @@ export type Database = {
             columns: ["product_id"]
             isOneToOne: false
             referencedRelation: "v_products_with_stock"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_transfer_id_fkey"
+            columns: ["transfer_id"]
+            isOneToOne: false
+            referencedRelation: "stock_transfers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_transfers: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string
+          from_branch_id: string
+          id: string
+          product_id: string
+          quantity: number
+          status: string
+          to_branch_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by: string
+          from_branch_id: string
+          id?: string
+          product_id: string
+          quantity: number
+          status?: string
+          to_branch_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string
+          from_branch_id?: string
+          id?: string
+          product_id?: string
+          quantity?: number
+          status?: string
+          to_branch_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_transfers_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_transfers_from_branch_id_fkey"
+            columns: ["from_branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_transfers_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_transfers_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "v_products_with_stock"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_transfers_to_branch_id_fkey"
+            columns: ["to_branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
             referencedColumns: ["id"]
           },
         ]
@@ -2766,6 +2857,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      c26_default_branch: { Args: { p_account_id: string }; Returns: string }
       current_account_ids: { Args: never; Returns: string[] }
       expire_trials: { Args: never; Returns: number }
       get_account_ids_for_user: {
@@ -2909,15 +3001,19 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_close_branch: { Args: { p_branch_id: string }; Returns: Json }
       rpc_create_branch: {
         Args: { p_account_id: string; p_address?: string; p_name: string }
         Returns: {
           account_id: string
           address: string | null
+          closed_at: string | null
           created_at: string
           id: string
           is_active: boolean
           name: string
+          opened_at: string | null
+          status: string
         }
         SetofOptions: {
           from: "*"
@@ -3025,6 +3121,7 @@ export type Database = {
             Returns: Json
           }
       rpc_my_account_role: { Args: { p_account_id: string }; Returns: string }
+      rpc_open_branch: { Args: { p_branch_id: string }; Returns: Json }
       rpc_period_comparison: {
         Args: {
           p_a_end: string

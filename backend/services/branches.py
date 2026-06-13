@@ -34,3 +34,18 @@ async def update_branch(
     if record is None:
         raise HTTPException(status_code=404, detail="Sucursal no encontrada")
     return dict(record)
+
+
+# ── C-26: lifecycle operacional ──────────────────────────────────────────────
+async def open_branch(repo: BranchRepository, auth: dict, branch_id: str) -> dict:
+    require_role(auth, ["user", "admin"])
+    return await repo.open_branch(branch_id)
+
+
+async def close_branch(repo: BranchRepository, auth: dict, branch_id: str) -> dict:
+    require_role(auth, ["user", "admin"])
+    return await repo.close_branch(branch_id)
+
+
+async def list_transfers(repo: BranchRepository, account_id: str, branch_id: str) -> list:
+    return await repo.list_transfers(branch_id, account_id)

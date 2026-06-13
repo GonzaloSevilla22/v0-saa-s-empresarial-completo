@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
+
 import asyncpg
 
 from backend.repositories.base import BaseRepository
+
+
+def _jsonb(value):
+    """asyncpg devuelve jsonb como str cuando no hay codec registrado."""
+    return json.loads(value) if isinstance(value, str) else value
 
 
 class BranchRepository(BaseRepository):
@@ -37,4 +44,40 @@ class BranchRepository(BaseRepository):
             branch_id,
             account_id,
             *values,
+        )
+
+    # ── C-26: lifecycle operacional ─────────────────────────────────────────
+    async def open_branch(self, branch_id: str) -> dict:
+        row = await self.fetchrow(
+            "SELECT public.rpc_open_branch($1::uuid) AS result",
+            branch_id,
+        )
+        return _jsonb(row["result"])
+
+    async def close_branch(self, branch_id: str) -> dict:
+        row = await self.fetchrow(
+            "SELECT public.rpc_close_branch($1::uuid) AS result",
+            branch_id,
+        )
+        return _jsonb(row["result"])
+
+    async def list_transfers(self, branch_id: str, account_id: str) -> list[dict]:
+        # Transferencias donde la sucursal es origen O destino, aisladas por cuenta.
+        return await self.fetch(
+            """
+            SELECT st.id, st.account_id, st.product_id, p.name AS product_name,
+                   st.from_branch_id, fb.name AS from_branch_name,
+                   st.to_branch_id,   tb.name AS to_branch_name,
+                   st.quantity, st.status, st.created_at
+            FROM stock_transfers st
+            JOIN branches fb ON fb.id = st.from_branch_id
+            JOIN branches tb ON tb.id = st.to_branch_id
+            JOIN products p  ON p.id  = st.product_id
+            WHERE st.account_id = $2
+              AND (st.from_branch_id = $1 OR st.to_branch_id = $1)
+            ORDER BY st.created_at DESC
+            LIMIT 100
+            """,
+            branch_id,
+            account_id,
         )

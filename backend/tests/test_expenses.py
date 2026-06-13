@@ -30,6 +30,26 @@ async def test_get_expenses_ok(async_client, valid_token, mock_pool):
     assert data[0]["category"] == "supplies"
 
 
+async def test_get_expenses_serializes_timestamp_date_with_time_component(async_client, valid_token, mock_pool):
+    """Regresión 2026-06-13: expenses.date es timestamptz; filas con hora ≠ 00:00
+    deben coercionarse a date en vez de tirar 500 (mismo bug que ventas/compras)."""
+    import datetime
+
+    row = {
+        **EXPENSE_ROW,
+        "date": datetime.datetime(2026, 4, 6, 16, 33, 40, 270406, tzinfo=datetime.timezone.utc),
+        "created_at": datetime.datetime(2026, 4, 6, 16, 33, 40, tzinfo=datetime.timezone.utc),
+    }
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[row])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/expenses", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    assert resp.json()[0]["date"] == "2026-04-06"
+
+
 async def test_get_expenses_empty(async_client, valid_token, mock_pool):
     pool, conn = mock_pool
     conn.fetch = AsyncMock(return_value=[])

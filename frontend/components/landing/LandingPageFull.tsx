@@ -333,22 +333,28 @@ function AISection() {
 function Pricing() {
   const plans = [
     {
-      name: "Starter", price: "Gratis", period: "",
+      name: "Gratis", price: "$0", period: "",
       desc: "Para empezar a ordenar tu negocio sin costo.",
-      features: ["Hasta 50 operaciones/mes","1 usuario","Panel de control","Ventas y compras","Soporte por email"],
+      features: ["100 operaciones/mes","1 usuario","100 productos","30 dias de historial","5 consultas IA/mes","Ventas, compras y stock"],
       cta: "Empezar Gratis", highlighted: false,
     },
     {
-      name: "Pro", price: "$15.900", period: "/mes",
-      desc: "Para negocios en crecimiento que quieren mas.",
-      features: ["Operaciones ilimitadas","Hasta 3 usuarios","Todo del plan Starter","Informes avanzados","IA incluida","Soporte prioritario","Unidades de medida"],
+      name: "Inicial", price: "$24.900", period: "/mes",
+      desc: "Para negocios que empiezan a crecer.",
+      features: ["500 operaciones/mes","2 usuarios","500 productos","365 dias de historial","30 consultas IA/mes","3 exportaciones/mes"],
+      cta: "Comenzar", highlighted: false,
+    },
+    {
+      name: "Avanzado", price: "$34.900", period: "/mes",
+      desc: "Para negocios en plena expansion.",
+      features: ["2.000 operaciones/mes","5 usuarios","1.500 productos","730 dias de historial","120 consultas IA/mes","15 exportaciones/mes","Rentabilidad de productos","Reportes comparativos","Sugerencia de precios"],
       cta: "Comenzar Ahora", highlighted: true,
     },
     {
-      name: "Empresa", price: "A consultar", period: "",
-      desc: "Para equipos grandes con necesidades especificas.",
-      features: ["Todo del plan Pro","Usuarios ilimitados","Onboarding dedicado","SLA garantizado","Integraciones personalizadas","Soporte telefonico"],
-      cta: "Hablar con ventas", highlighted: false,
+      name: "Pro", price: "$69.900", period: "/mes",
+      desc: "Para equipos que necesitan todo el poder.",
+      features: ["6.000 operaciones/mes","10 usuarios","5.000 productos","1.825 dias de historial","300 consultas IA/mes","50 exportaciones/mes","Sucursales (hasta 3)","Roles internos avanzados","Todo lo del plan Avanzado"],
+      cta: "Comenzar Ahora", highlighted: false,
     },
   ]
   return (
@@ -359,9 +365,9 @@ function Pricing() {
           <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">Planes para cada etapa de tu negocio</h2>
           <p className="mt-4 text-lg text-slate-400">Empieza gratis y escala cuando lo necesites. Sin permanencia.</p>
         </div>
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3 lg:items-start max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4 lg:items-start max-w-6xl mx-auto">
           {plans.map((plan) => (
-            <div key={plan.name} className={`relative flex flex-col rounded-2xl border p-8 ${plan.highlighted ? "border-emerald-500/50 bg-slate-950 shadow-2xl shadow-emerald-900/20 ring-1 ring-emerald-500/20" : "border-slate-800 bg-slate-900"}`}>
+            <div key={plan.name} className={`relative flex flex-col rounded-2xl border p-6 ${plan.highlighted ? "border-emerald-500/50 bg-slate-950 shadow-2xl shadow-emerald-900/20 ring-1 ring-emerald-500/20" : "border-slate-800 bg-slate-900"}`}>
               {plan.highlighted && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2">
                   <span className="rounded-full bg-emerald-600 px-4 py-1 text-xs font-bold text-white uppercase tracking-wide shadow-lg">Mas popular</span>
@@ -370,7 +376,7 @@ function Pricing() {
               <div className="mb-6">
                 <h3 className="text-xl font-bold text-white">{plan.name}</h3>
                 <div className="mt-3 flex items-baseline gap-1">
-                  <span className={`text-4xl font-extrabold ${plan.highlighted ? "text-emerald-400" : "text-white"}`}>{plan.price}</span>
+                  <span className={`text-3xl font-extrabold ${plan.highlighted ? "text-emerald-400" : "text-white"}`}>{plan.price}</span>
                   {plan.period && <span className="text-slate-500 text-sm">{plan.period}</span>}
                 </div>
                 <p className="mt-2 text-sm text-slate-400">{plan.desc}</p>

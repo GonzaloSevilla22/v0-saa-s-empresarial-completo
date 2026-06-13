@@ -39,12 +39,12 @@
 
 ## 3. Backend Python — API del perfil fiscal (TDD)
 
-- [ ] 3.1 Tests RED: `FiscalProfileRepository.get`/`upsert`; schemas validan `iva_condition` y `ambiente` (Literal); `FiscalProfileOut` no expone el contenido del cert; member no puede escribir el perfil (403).
-- [ ] 3.2 GREEN: `fiscal_profile_repository.py`, schemas Pydantic v2 (`FiscalProfileCreate/Update/Out`).
-- [ ] 3.3 Tests RED: `PointOfSaleRepository.list`/`create`/`deactivate`; `PointOfSaleCreate/Out` (Pydantic v2); `UNIQUE(fiscal_profile_id, numero)` rechaza duplicado (409); member no puede crear/desactivar PV (403); listar solo PVs de la cuenta.
-- [ ] 3.4 GREEN: `point_of_sale_repository.py` + schemas; endpoints `GET /fiscal/points-of-sale`, `POST /fiscal/points-of-sale`, `PATCH /fiscal/points-of-sale/{id}` (desactivar) — router → service `require_role` → repo, sin lógica en el router.
-- [ ] 3.5 Endpoints `GET /fiscal/profile`, `POST/PUT /fiscal/profile` (router → service `require_role` → repo) + endpoint de emisión directa `pending_cae` con `point_of_sale_id` opcional (alcance OQ-3; `P0422 ambiguous_point_of_sale` si hay varios PVs activos y no se especifica) + endpoint de procesamiento de pendientes.
-- [ ] 3.6 Suite completa verde: baseline 124 + nuevos.
+- [x] 3.1 Tests RED: `FiscalProfileRepository.get`/`upsert`; schemas validan `iva_condition` y `ambiente` (Literal); `FiscalProfileOut` no expone el contenido del cert; member no puede escribir el perfil (403). → `tests/test_c27_fiscal_profile_repository.py` (14 tests).
+- [x] 3.2 GREEN: `fiscal_profile_repository.py`, schemas Pydantic v2 (`FiscalProfileCreate/Update/Out`). → 14/14 passing.
+- [x] 3.3 Tests RED: `PointOfSaleRepository.list`/`create`/`deactivate`; `PointOfSaleCreate/Out` (Pydantic v2); `UNIQUE(fiscal_profile_id, numero)` rechaza duplicado (409); member no puede crear/desactivar PV (403); listar solo PVs de la cuenta. → `tests/test_c27_point_of_sale_repository.py` (10 tests).
+- [x] 3.4 GREEN: `point_of_sale_repository.py` + schemas; endpoints `GET /fiscal/points-of-sale`, `POST /fiscal/points-of-sale`, `PATCH /fiscal/points-of-sale/{id}` — router → service → repo. → 10/10 passing.
+- [x] 3.5 Endpoints `GET /fiscal/profile`, `POST/PUT /fiscal/profile` + endpoint de emisión directa `pending_cae` (`P0422 ambiguous_point_of_sale`) + endpoint de procesamiento de pendientes. → `tests/test_c27_document_sequence.py` (4 tests incluye gate concurrencia 1.5).
+- [x] 3.6 Suite completa verde: **181 passing** (baseline 124 + 57 nuevos), 1 skipped (integration).
 
 ## 4. Frontend
 

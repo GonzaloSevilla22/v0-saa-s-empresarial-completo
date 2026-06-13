@@ -16,6 +16,7 @@ from backend.routers import (
     branches,
     clients,
     expenses,
+    fiscal,
     health,
     organizations,
     payments,
@@ -64,6 +65,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(health.router)
 app.include_router(ws.router)
+app.include_router(fiscal.router)
 app.include_router(expenses.router)
 app.include_router(clients.router)
 app.include_router(products.router)

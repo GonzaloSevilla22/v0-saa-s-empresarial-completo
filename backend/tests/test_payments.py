@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
 import json
 import time
+import uuid
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from backend.services.payments import verify_mp_signature
+from backend.tests.conftest import make_token
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -247,3 +251,87 @@ async def test_webhook_shadow_mode_no_db_writes(async_client, mock_service_pool)
     assert resp.status_code == 200
     assert resp.json()["shadow"] is True
     conn.execute.assert_not_called()
+
+
+# ── Recibos de pago — vista admin (#4 comprobante) ────────────────────────────
+
+RECEIPT_ROW = {
+    "id": uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+    "receipt_number": "RC-2026-000001",
+    "payment_id": "163134506523",
+    "plan": "pro",
+    "amount": Decimal("69900.00"),
+    "created_at": datetime.datetime(2026, 6, 13, 16, 33, 40, tzinfo=datetime.timezone.utc),
+    "customer_email": "danielsevilla64@gmail.com",
+    "customer_name": "Roberto Daniel Sevilla",
+}
+
+
+async def test_list_receipts_requires_admin(async_client, mock_service_pool):
+    """Un usuario no admin (profiles.role != 'admin') recibe 403."""
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value="user")
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/payments/receipts", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert resp.status_code == 403
+
+
+async def test_list_receipts_admin_ok(async_client, mock_service_pool):
+    """Admin lista pagos aprobados con sus datos de recibo."""
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(side_effect=["admin", 1])  # 1=role check, 2=count
+    conn.fetch = AsyncMock(return_value=[RECEIPT_ROW])
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/payments/receipts", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["receipt_number"] == "RC-2026-000001"
+    assert body["items"][0]["customer_email"] == "danielsevilla64@gmail.com"
+
+
+async def test_download_receipt_pdf_admin_ok(async_client, mock_service_pool):
+    """Admin descarga el PDF del recibo (application/pdf con bytes válidos)."""
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value="admin")
+    conn.fetchrow = AsyncMock(return_value=RECEIPT_ROW)
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/payments/receipt/{RECEIPT_ROW['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF")
+
+
+async def test_download_receipt_not_found_returns_404(async_client, mock_service_pool):
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value="admin")
+    conn.fetchrow = AsyncMock(return_value=None)
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/payments/receipt/{uuid.uuid4()}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 404
+
+
+async def test_download_receipt_non_admin_forbidden(async_client, mock_service_pool):
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value=None)  # sin perfil admin
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/payments/receipt/{RECEIPT_ROW['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 403

@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Persistencia del comprobante fiscal con máquina de estados de CAE
-El sistema SHALL persistir cada comprobante emitido en la tabla `fiscal_documents` (`id` UUID PK, `account_id` UUID FK, `fiscal_profile_id` UUID FK, `comprobante_type` TEXT, `punto_de_venta` INTEGER, `number` BIGINT, `client_id` UUID FK NULL, `total` NUMERIC, `status` TEXT NOT NULL, `cae` TEXT NULL, `cae_due_date` DATE NULL, `attempts` INTEGER NOT NULL DEFAULT 0, `next_attempt_at` TIMESTAMPTZ NULL, `last_error` TEXT NULL, `created_at` TIMESTAMPTZ). `status` MUST estar restringida por CHECK a `'pending_cae'`, `'authorized'`, `'rejected'`. La tabla SHALL tener RLS por `account_id`.
+El sistema SHALL persistir cada comprobante emitido en la tabla `fiscal_documents` (`id` UUID PK, `account_id` UUID FK, `fiscal_profile_id` UUID FK, `point_of_sale_id` UUID FK `points_of_sale`, `comprobante_type` TEXT, `punto_de_venta` INTEGER (snapshot del `numero` del PV al emitir), `number` BIGINT, `client_id` UUID FK NULL, `total` NUMERIC, `status` TEXT NOT NULL, `cae` TEXT NULL, `cae_due_date` DATE NULL, `attempts` INTEGER NOT NULL DEFAULT 0, `next_attempt_at` TIMESTAMPTZ NULL, `last_error` TEXT NULL, `created_at` TIMESTAMPTZ). `status` MUST estar restringida por CHECK a `'pending_cae'`, `'authorized'`, `'rejected'`. La tabla SHALL tener RLS por `account_id`.
 
 #### Scenario: Comprobante nace en pending_cae
 - **WHEN** se emite un comprobante
@@ -17,16 +17,16 @@ El sistema SHALL persistir cada comprobante emitido en la tabla `fiscal_document
 - **THEN** solo recibe los comprobantes de A (RLS aísla)
 
 ### Requirement: Emisión síncrona reserva número y persiste pending_cae sin tocar AFIP
-El sistema SHALL emitir el comprobante en una transacción corta que reserva el número vía `rpc_next_document_number` y persiste la fila con `status = 'pending_cae'`, SIN llamar a AFIP dentro de esa transacción. La obtención del CAE SHALL ocurrir fuera de la transacción de emisión (y, cuando exista, fuera de la transacción de la venta — C-29).
+El sistema SHALL emitir el comprobante en una transacción corta que resuelve el punto de venta efectivo (ver capability `fiscal-profile`, "Selección del punto de venta en la emisión"), reserva el número vía `rpc_next_document_number(point_of_sale_id, comprobante_type)` y persiste la fila con `status = 'pending_cae'`, SIN llamar a AFIP dentro de esa transacción. La obtención del CAE SHALL ocurrir fuera de la transacción de emisión (y, cuando exista, fuera de la transacción de la venta — C-29).
 
 #### Scenario: La emisión no depende del uptime de AFIP
 - **GIVEN** el web service de AFIP está caído
 - **WHEN** se emite un comprobante
 - **THEN** la emisión completa correctamente con `status = 'pending_cae'` y el número reservado, sin error de AFIP
 
-#### Scenario: El número se reserva en la emisión
-- **WHEN** se emite un comprobante de tipo `'factura_b'` en PV 1
-- **THEN** el comprobante toma el siguiente número de la secuencia `(perfil, PV 1, 'factura_b')` y queda persistido con ese `number`
+#### Scenario: El número se reserva en la emisión por punto de venta
+- **WHEN** se emite un comprobante de tipo `'factura_b'` para el punto de venta P1 (`numero = 1`)
+- **THEN** el comprobante toma el siguiente número de la secuencia `(P1, 'factura_b')`, queda persistido con ese `number`, `point_of_sale_id = P1` y `punto_de_venta = 1`
 
 ### Requirement: Adaptador WSFE detrás de un ACL (port + impl real/stub)
 El sistema SHALL exponer un port `FiscalDocumentPort.request_cae(invoice_data) -> CAEResponse` en la capa de dominio, con al menos dos implementaciones inyectables por DI: `WSFEAdapter` (real, autentica vía WSAA para el ticket de acceso y solicita el CAE vía WSFEv1, contra el ambiente del perfil de la cuenta) y `WSFEStubAdapter` (devuelve un CAE ficticio determinístico para tests y dev). El dominio y los services SHALL conocer únicamente `CAE`, `CAEDueDate`, `DocumentType` y códigos de error normalizados; el SOAP/XML de AFIP SHALL permanecer encapsulado en el adapter.

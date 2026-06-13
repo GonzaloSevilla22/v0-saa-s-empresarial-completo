@@ -203,6 +203,20 @@ export function AppSidebar() {
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
+                    isActive={pathname === "/admin/pagos"}
+                    tooltip="Recibos de Pago"
+                    className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Link href="/admin/pagos">
+                      <Receipt className="h-4 w-4" />
+                      <span>Recibos de Pago</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
                     isActive={pathname === "/admin/cursos"}
                     tooltip="Gestionar Cursos"
                     className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"

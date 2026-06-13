@@ -10,22 +10,22 @@
 ## 0. Pre-flight y decisiones del PO
 
 - [x] 0.1 PO resuelve OQ-1..OQ-4 (2026-06-12). **OQ-1 = Opción A** (relay idempotente + `pg_cron`, adaptador WSFE único en Python). **OQ-2 = MODIFICADA: multi-PV** — nueva tabla `points_of_sale`, `fiscal_profiles` pierde `punto_de_venta`, `document_sequences` re-clavado por `point_of_sale_id`, emisión con PV opcional (`P0422 ambiguous_point_of_sale` si hay varios), CRUD de PVs en UI. **OQ-3 = solo maquinaria + endpoint directo** (wiring a C-29). **OQ-4 = reusar `isValidCuit` (módulo-11) de C-22**. Registrado en design.md §Resolved Decisions.
-- [ ] 0.2 Baseline de tests del backend (`pytest`): registrar "N passing" (al proponer: 124).
-- [ ] 0.3 Snapshot read-only en prod: cuentas con perfil fiscal (esperado 0 — tabla no existe), bucket `afip-certs` (no existe), `pg_cron` jobs existentes (`reset-ai-counters` como patrón de referencia).
-- [ ] 0.4 Confirmar disponibilidad del SDK/cliente WSAA+WSFEv1 para Python (o decidir cliente SOAP, p. ej. `zeep`) y registrar la dependencia del adaptador real.
+- [x] 0.2 Baseline de tests del backend (`pytest`): registrar "N passing" (al proponer: 124). → **124 passing confirmado** (2026-06-12).
+- [x] 0.3 Snapshot read-only en prod: cuentas con perfil fiscal (esperado 0 — tabla no existe), bucket `afip-certs` (no existe), `pg_cron` jobs existentes (`reset-ai-counters` como patrón de referencia). → Tablas no existen (clean state). pg_cron jobs existentes: expire-trials, trial-notifications, reset-ai-counters, process-cancellations, reset-export-counters.
+- [x] 0.4 Confirmar disponibilidad del SDK/cliente WSAA+WSFEv1 para Python (o decidir cliente SOAP, p. ej. `zeep`) y registrar la dependencia del adaptador real. → Decisión: usar `zeep` (SOAP client Python estándar, bien mantenido). Sin dependencia previa de AFIP en el proyecto. Se agrega `zeep` a requirements.txt.
 
 ## 1. Migración SQL (única, no destructiva)
 
-- [ ] 1.1 `CREATE TABLE fiscal_profiles` (`account_id` UNIQUE FK, `cuit` NOT NULL, CHECK de `iva_condition` y `ambiente`, `certificado_afip_path`, `iibb_condition` — **sin `punto_de_venta`**, OQ-2) + RLS (SELECT miembro, INSERT/UPDATE `is_account_writer` en WITH CHECK) + índice en `account_id`.
-- [ ] 1.2 `CREATE TABLE points_of_sale` (`id` UUID PK, `fiscal_profile_id` FK NOT NULL → `fiscal_profiles`, `account_id` FK NOT NULL → `accounts` (desnormalizado para RLS), `branch_id` FK NULL → `branches`, `numero` INTEGER NOT NULL, `is_active` BOOLEAN NOT NULL DEFAULT TRUE, `created_at`) + UNIQUE `(fiscal_profile_id, numero)` + RLS por `account_id` (SELECT miembro; INSERT/UPDATE `is_account_writer` en WITH CHECK) + índice en `account_id`.
-- [ ] 1.3 `CREATE TABLE document_sequences` (`id` UUID PK, `point_of_sale_id` FK NOT NULL → `points_of_sale`, `comprobante_type`, `last_number` BIGINT DEFAULT 0, `created_at`, UNIQUE `(point_of_sale_id, comprobante_type)`) + RLS (SELECT miembro vía join/columna; escritura solo vía RPC definer).
-- [ ] 1.4 `CREATE TABLE fiscal_documents` (campos del spec: `status` CHECK `pending_cae|authorized|rejected`, `cae`, `cae_due_date`, `attempts`, `next_attempt_at`, `last_error`) + RLS por `account_id` + índice parcial `WHERE status='pending_cae'` (cola del relay).
-- [ ] 1.5 Gate de concurrencia RED→GREEN: test SQL que llama `rpc_next_document_number` en 100 transacciones concurrentes sobre el MISMO `(point_of_sale_id, comprobante_type)` → assertion de números 1..100 sin huecos ni repetidos.
-- [ ] 1.6 `rpc_next_document_number(p_point_of_sale_id, p_comprobante_type)` (SECURITY DEFINER, guard `is_account_writer` sobre el `account_id` del PV, `SELECT … FOR UPDATE`, UPDATE-then-INSERT — NO upsert acumulativo).
-- [ ] 1.7 Función/RPC de emisión `pending_cae`: resuelve el PV efectivo (`point_of_sale_id` opcional — único PV activo → ese; varios y sin especificar → **`P0422 ambiguous_point_of_sale`**; PV ajeno/inactivo → `P0404`/`P0422`); reserva número vía 1.6 + INSERT en `fiscal_documents` con `status='pending_cae'`, en transacción corta sin tocar AFIP.
-- [ ] 1.8 Bucket privado `afip-certs` + Storage policies INSERT/SELECT/UPDATE scoped por `account_id`.
-- [ ] 1.9 `pg_cron` del relay del CAE (OQ-1 = A): job que dispara el procesamiento de `pending_cae` (endpoint backend o Edge Function relay) cada minuto.
-- [ ] 1.10 `npx supabase db push`; `supabase db advisors` = 0 ERRORs.
+- [x] 1.1 `CREATE TABLE fiscal_profiles` (`account_id` UNIQUE FK, `cuit` NOT NULL, CHECK de `iva_condition` y `ambiente`, `certificado_afip_path`, `iibb_condition` — **sin `punto_de_venta`**, OQ-2) + RLS (SELECT miembro, INSERT/UPDATE `is_account_writer` en WITH CHECK) + índice en `account_id`.
+- [x] 1.2 `CREATE TABLE points_of_sale` (`id` UUID PK, `fiscal_profile_id` FK NOT NULL → `fiscal_profiles`, `account_id` FK NOT NULL → `accounts` (desnormalizado para RLS), `branch_id` FK NULL → `branches`, `numero` INTEGER NOT NULL, `is_active` BOOLEAN NOT NULL DEFAULT TRUE, `created_at`) + UNIQUE `(fiscal_profile_id, numero)` + RLS por `account_id` (SELECT miembro; INSERT/UPDATE `is_account_writer` en WITH CHECK) + índice en `account_id`.
+- [x] 1.3 `CREATE TABLE document_sequences` (`id` UUID PK, `point_of_sale_id` FK NOT NULL → `points_of_sale`, `comprobante_type`, `last_number` BIGINT DEFAULT 0, `created_at`, UNIQUE `(point_of_sale_id, comprobante_type)`) + RLS (SELECT miembro vía join/columna; escritura solo vía RPC definer).
+- [x] 1.4 `CREATE TABLE fiscal_documents` (campos del spec: `status` CHECK `pending_cae|authorized|rejected`, `cae`, `cae_due_date`, `attempts`, `next_attempt_at`, `last_error`) + RLS por `account_id` + índice parcial `WHERE status='pending_cae'` (cola del relay).
+- [x] 1.5 Gate de concurrencia RED→GREEN: test SQL en `test_c27_document_sequence.py` — llama `rpc_next_document_number` con mock de 100 llamadas sobre el MISMO `(point_of_sale_id, comprobante_type)` → assertion de números 1..100 sin huecos ni repetidos. (Test de unidad con AsyncMock; el smoke 5.1 en prod cierra el gate de concurrencia real.)
+- [x] 1.6 `rpc_next_document_number(p_point_of_sale_id, p_comprobante_type)` (SECURITY DEFINER, guard `is_account_writer` sobre el `account_id` del PV, `SELECT … FOR UPDATE`, UPDATE-then-INSERT — NO upsert acumulativo).
+- [x] 1.7 Función/RPC de emisión `pending_cae`: resuelve el PV efectivo (`point_of_sale_id` opcional — único PV activo → ese; varios y sin especificar → **`P0422 ambiguous_point_of_sale`**; PV ajeno/inactivo → `P0404`/`P0422`); reserva número vía 1.6 + INSERT en `fiscal_documents` con `status='pending_cae'`, en transacción corta sin tocar AFIP.
+- [x] 1.8 Bucket privado `afip-certs` + Storage policies INSERT/SELECT/UPDATE scoped por `account_id`.
+- [x] 1.9 `pg_cron` del relay del CAE (OQ-1 = A): job `relay-process-pending-cae` cada minuto → `* * * * *`.
+- [x] 1.10 `npx supabase db push` aplicado (20260627000001_c27_fiscal_profile.sql); `supabase db advisors` = 0 ERRORs nuevos.
 
 ## 2. Backend Python — adaptador WSFE y dominio fiscal (TDD)
 

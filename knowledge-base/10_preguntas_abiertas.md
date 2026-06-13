@@ -133,8 +133,9 @@ Contrato definitivo de `sale_items`: producto obligatorio, variante opcional (`v
 **Resuelto:** 2026-06-10 — PO confirmó **AuditLog + EmailNotification**.  
 Consumers V2.0: entrada en `audit_logs` por cada evento + emails para `sale_created` / `stock_adjusted` / `plan_changed`. Consumers de IA/reporting quedan para V2.1. (Misma fecha: PO decidió **Opción A** para C-24 — renombrar `ai_insights` → `insights`.)
 
-### PA-22 — AFIP V2.1: ¿homologación o producción?
-Si es producción con facturas reales: certificado digital + alta de punto de venta AFIP están en el camino crítico y no son bloqueables por código.
+### ~~PA-22 — AFIP V2.1: ¿homologación o producción?~~ ✅ RESUELTA
+**Resuelto:** 2026-06-12 — PO confirmó **homologación + trámites de producción en paralelo**.  
+C-27 construye y valida el adaptador WSFE end-to-end contra el ambiente de **homologación** de ARCA (WSAA, ticket de acceso, CAE, numeración sin huecos, manejo de errores). El ambiente queda como **config por cuenta** (`AFIPConfiguration.ambiente`, ya previsto en el modelo V2 §3.6): el cutover a producción por cuenta es subir el certificado real + alta de punto de venta WSFE, sin re-trabajo de código. Los trámites de producción para cuentas piloto (clave fiscal nivel 3, CSR, alta de cert en ARCA, punto de venta "web service") arrancan en paralelo al desarrollo — son responsabilidad del usuario final emisor y no bloquean C-27.
 
 ### PA-23 — Naming y reposicionamiento
 El doc V2 habla de "Aliadata" y "PyMEs argentinas"; la KB habla de "EmprendeSmart" y "microemprendedores de Mendoza" (relacionado: INC-03). ¿El reposicionamiento reemplaza o amplía el segmento original? ¿Cuál es el nombre canónico del producto?

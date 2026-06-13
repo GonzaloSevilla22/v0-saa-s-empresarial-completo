@@ -45,6 +45,26 @@ Deno.serve(async (req: Request) => {
           <a href="https://aliadata.com/dashboard" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a mi Dashboard</a>
         </div>
       `;
+    } else if (event_type === "new_user_admin_notice") {
+      // Aviso al administrador: se registró un usuario nuevo (con sus datos).
+      htmlContent = `
+        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
+          <div style="background-color: #10b981; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
+            <h2 style="color: white; margin: 0;">Nuevo registro en ALIADATA</h2>
+          </div>
+          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
+            <p style="font-size: 16px;">Se registró un nuevo usuario en la app:</p>
+            <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+              <tr><td style="padding: 8px 0; color: #6b7280; width: 120px;">Nombre</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.name ?? "-"}</td></tr>
+              <tr><td style="padding: 8px 0; color: #6b7280;">Email</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.email ?? "-"}</td></tr>
+              <tr><td style="padding: 8px 0; color: #6b7280;">Teléfono</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.phone ?? "-"}</td></tr>
+              <tr><td style="padding: 8px 0; color: #6b7280;">Localidad</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.locality ?? "-"}</td></tr>
+            </table>
+            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+            <p style="color: #9ca3af; font-size: 12px; text-align: center;">Aviso automático de EmprendeSmart.</p>
+          </div>
+        </div>
+      `;
     } else if (event_type === "meeting_notice") {
       htmlContent = `
         <div style="font-family: Arial, sans-serif; color: #333;">

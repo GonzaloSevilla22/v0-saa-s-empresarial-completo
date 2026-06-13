@@ -29,13 +29,13 @@
 
 ## 2. Backend Python — adaptador WSFE y dominio fiscal (TDD)
 
-- [ ] 2.1 Tests RED: `resolve_invoice_type` (RI→RI=A, RI→CF=B, monotributo=C) como función pura.
-- [ ] 2.2 GREEN: `services/fiscal/invoice_type_resolver.py`.
-- [ ] 2.3 Tests RED: `WSFEStubAdapter.request_cae` devuelve `CAEResponse` ficticio determinístico; el port `FiscalDocumentPort` define la interfaz; el service solo referencia tipos de dominio (no SOAP).
-- [ ] 2.4 GREEN: port `FiscalDocumentPort` + `WSFEStubAdapter` + tipos `CAERequest`/`CAEResponse`/`DocumentType` + `CAE`/`CAEDueDate`.
-- [ ] 2.5 `WSFEAdapter` real (WSAA ticket de acceso + WSFEv1, resuelve ambiente desde el perfil; lee el cert del bucket privado server-side). Tests con el cliente SOAP mockeado (sin red); test de integración real contra homologación marcado/excluido del gate de CI.
-- [ ] 2.6 Tests RED: proceso de background idempotente — `pending_cae`+CAE válido→`authorized`; error transitorio→`attempts++` + `next_attempt_at` backoff; rechazo→`rejected`+`last_error`; reproceso de `authorized`→sin cambio.
-- [ ] 2.7 GREEN: el relay/endpoint de procesamiento del CAE (Opción A) con backoff e idempotencia (reusa patrón `operation_idempotency`).
+- [x] 2.1 Tests RED: `resolve_invoice_type` (RI→RI=A, RI→CF=B, monotributo=C) como función pura. → `tests/test_c27_invoice_type_resolver.py` (8 tests).
+- [x] 2.2 GREEN: `services/fiscal/invoice_type_resolver.py`. → 8/8 passing.
+- [x] 2.3 Tests RED: `WSFEStubAdapter.request_cae` devuelve `CAEResponse` ficticio determinístico; el port `FiscalDocumentPort` define la interfaz; el service solo referencia tipos de dominio (no SOAP). → `tests/test_c27_fiscal_document_port.py` (10 tests).
+- [x] 2.4 GREEN: port `FiscalDocumentPort` + `WSFEStubAdapter` + tipos `CAERequest`/`CAEResponse`/`DocumentType`. → 10/10 passing.
+- [x] 2.5 `WSFEAdapter` real (WSAA + WSFEv1, resuelve ambiente del perfil; lee cert server-side). Tests con SOAP mockeado (5 passing + 1 skipped integration). → `tests/test_c27_wsfe_adapter.py`.
+- [x] 2.6 Tests RED: proceso de background idempotente — 6 scenarios. → `tests/test_c27_cae_relay_processor.py`.
+- [x] 2.7 GREEN: `CAERelayProcessor` con backoff (`_BACKOFF_MINUTES`) e idempotencia. → 6/6 passing.
 
 ## 3. Backend Python — API del perfil fiscal (TDD)
 

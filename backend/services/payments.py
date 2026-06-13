@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
+import json
 import logging
 
 import asyncpg
@@ -10,6 +12,7 @@ from fastapi import HTTPException
 
 from backend.core.config import settings
 from backend.schemas.payments import WebhookResponse
+from backend.services.receipts import ReceiptData, build_receipt_pdf_base64
 
 logger = logging.getLogger(__name__)
 
@@ -169,13 +172,14 @@ async def process_payment(
         account_id,
     )
 
-    await conn.execute(
+    event_row = await conn.fetchrow(
         """
         INSERT INTO billing_events
           (user_id, event_type, from_plan, to_plan, reason,
            mercadopago_payment_id, mercadopago_preference_id, amount, metadata)
         VALUES ($1, 'plan_upgraded', $2, $3, 'C-17 mercadopago-payment-approved',
                 $4, $5, $6, $7::jsonb)
+        RETURNING id, receipt_number
         """,
         user_id,
         from_plan,
@@ -183,12 +187,36 @@ async def process_payment(
         payment_id,
         preference_id,
         amount,
-        f'{{"account_id": "{account_id}", "payment_status": "approved"}}',
+        json.dumps({"account_id": str(account_id), "payment_status": "approved"}),
     )
+    billing_event_id = str(event_row["id"]) if event_row else None
+    receipt_number = event_row["receipt_number"] if event_row else None
 
     recipient_email = await _fetch_user_email(user_id)
     if recipient_email:
         plan_label = plan.capitalize()
+        email_meta: dict = {
+            "plan": plan,
+            "amount": float(amount) if amount is not None else None,
+            "activated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "billing_event_id": billing_event_id,
+            "receipt_number": receipt_number,
+        }
+        # Recibo en PDF adjunto (best-effort: nunca romper el webhook por esto).
+        try:
+            email_meta["receipt_pdf_base64"] = build_receipt_pdf_base64(
+                ReceiptData(
+                    receipt_number=receipt_number or f"RC-{billing_event_id}",
+                    issued_at=datetime.datetime.now(datetime.timezone.utc),
+                    customer_email=recipient_email,
+                    plan=plan,
+                    amount=amount or 0,
+                    payment_id=payment_id,
+                )
+            )
+        except Exception:
+            logger.exception("[payments] No se pudo generar el PDF del recibo; se envía sin adjunto")
+
         await conn.execute(
             """
             INSERT INTO email_logs (user_id, event_type, recipient, subject, metadata)
@@ -196,8 +224,8 @@ async def process_payment(
             """,
             user_id,
             recipient_email,
-            f"Tu plan {plan_label} está activo — EmprendeSmart",
-            f'{{"plan": "{plan}", "amount": {amount}}}',
+            f"Tu plan {plan_label} está activo — ALIADATA",
+            json.dumps(email_meta),
         )
 
     logger.info("[payments] Upgraded user %s from %s to %s", user_id, from_plan, plan)

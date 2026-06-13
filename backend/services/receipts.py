@@ -65,7 +65,7 @@ def build_receipt_pdf(data: ReceiptData) -> bytes:
     pdf.cell(0, 12, "ALIADATA", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(*GRAY)
-    pdf.cell(0, 6, "EmprendeSmart - Gestion para microemprendedores", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, "EmprendeSmart", new_x="LMARGIN", new_y="NEXT")
 
     pdf.ln(6)
     pdf.set_draw_color(*EMERALD)

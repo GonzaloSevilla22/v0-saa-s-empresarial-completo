@@ -241,7 +241,7 @@ Deno.serve(async (req: Request) => {
     // Batch or loop setup (using Promise.all for simple MVP chunking)
     const emailPromises = toAddresses.map((email) =>
       resend.emails.send({
-        from: "ALIADATA Emprendedores <onboarding@resend.dev>",
+        from: "ALIADATA <no-reply@aliadata.com.ar>",
         to: email,
         subject: subject || "Notificación de ALIADATA",
         html: htmlContent,

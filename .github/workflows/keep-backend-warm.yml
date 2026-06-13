@@ -1,0 +1,32 @@
+name: Keep backend warm
+
+# Render (plan gratis) apaga el servicio tras ~15 min de inactividad y tarda
+# ~50s en despertar, devolviendo 502 a las notificaciones de MercadoPago — el
+# webhook de pagos vive en el backend (POST /payments/webhook). Este ping cada
+# ~10 min mantiene el servicio despierto para que el webhook no falle.
+#
+# Costo: el repo es público => minutos de GitHub Actions gratis e ilimitados.
+# Nota: mantener Render encendido 24/7 usa ~730 de las 750 horas gratis/mes.
+
+on:
+  schedule:
+    # Cada 10 min, con offset (2,12,...) para evitar la congestión del minuto 0.
+    - cron: "2,12,22,32,42,52 * * * *"
+  workflow_dispatch: {}
+
+# Evita que se acumulen corridas si una se atrasa.
+concurrency:
+  group: keep-backend-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping backend /health (despierta el servicio si está dormido)
+        run: |
+          curl -fsS \
+            --retry 5 --retry-all-errors --retry-delay 15 -m 90 \
+            -w '\nHTTP %{http_code} en %{time_total}s\n' \
+            https://emprende-smart-backend.onrender.com/health

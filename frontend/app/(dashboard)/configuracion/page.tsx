@@ -10,12 +10,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck } from "lucide-react"
+import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
 import { SystemForm } from "@/components/settings/SystemForm"
 import { TeamSection } from "@/components/settings/TeamSection"
+import { FiscalSettings } from "@/components/settings/FiscalSettings"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
 const features = [
@@ -49,31 +50,30 @@ export default function ConfiguracionPage() {
 
       <Tabs defaultValue="perfil" className="w-full">
         {/* ── Tab navigation ─────────────────────────────────────────────────── */}
-        <TabsList className="grid w-full grid-cols-5 mb-6">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Perfil</span>
-            <span className="sm:hidden">Perfil</span>
+            <span>Perfil</span>
           </TabsTrigger>
           <TabsTrigger value="cuenta" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <ShieldCheck className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Cuenta</span>
-            <span className="sm:hidden">Cuenta</span>
+            <span>Cuenta</span>
+          </TabsTrigger>
+          <TabsTrigger value="fiscal" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <FileText className="h-3.5 w-3.5" />
+            <span>AFIP</span>
           </TabsTrigger>
           <TabsTrigger value="sistema" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Settings2 className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Sistema</span>
-            <span className="sm:hidden">Sistema</span>
+            <span>Sistema</span>
           </TabsTrigger>
           <TabsTrigger value="equipo" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Users className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Equipo</span>
-            <span className="sm:hidden">Equipo</span>
+            <span>Equipo</span>
           </TabsTrigger>
           <TabsTrigger value="plan" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Crown className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Plan</span>
-            <span className="sm:hidden">Plan</span>
+            <span>Plan</span>
           </TabsTrigger>
         </TabsList>
 
@@ -85,6 +85,17 @@ export default function ConfiguracionPage() {
         {/* ── Cuenta ─────────────────────────────────────────────────────────── */}
         <TabsContent value="cuenta">
           <AccountForm />
+        </TabsContent>
+
+        {/* ── Facturación AFIP (C-27 v21-fiscal-profile) ─────────────────────── */}
+        <TabsContent value="fiscal">
+          <div className="flex flex-col gap-1 mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Facturación AFIP</h2>
+            <p className="text-sm text-muted-foreground">
+              Perfil fiscal, certificado digital y puntos de venta para emitir comprobantes electrónicos.
+            </p>
+          </div>
+          <FiscalSettings />
         </TabsContent>
 
         {/* ── Sistema ────────────────────────────────────────────────────────── */}

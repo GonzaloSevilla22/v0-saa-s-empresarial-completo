@@ -799,7 +799,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-27] `v21-fiscal-profile`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-12 (archivado: `openspec/changes/archive/2026-06-12-v21-fiscal-profile`). PRs #168 (propose) #169 (design/decisions) #170 (apply — mergeado). Multi-PV con `points_of_sale` + `document_sequences` por PV, `fiscal_documents` con maquina de estados `pending_cae→authorized/rejected`, relay `pg_cron` (`relay-process-pending-cae`), adaptador `WSFEAdapter`/`WSFEStubAdapter` contra ambiente del perfil, `resolve_invoice_type` puro (A/B/C), bucket privado `afip-certs`. Backend 181/181 (57 nuevos), frontend 221/221 (18 nuevos). Specs `fiscal-profile`/`document-sequence`/`afip-fiscal-document` sincronizadas. **Nota: task 5.2 (E2E homologacion ARCA) pendiente del tramite ARCA del PO — no bloqueo merge.**
 - **Scope**:
   - `FiscalProfile` como entidad dentro de `Account`/`Organization`: campos `cuit TEXT`, `iva_condition TEXT`, `iibb_condition TEXT`, `punto_de_venta INTEGER`, `certificado_afip TEXT` (referencia a Storage)
   - Migración SQL: tabla `fiscal_profiles` — `id UUID PK`, `account_id UUID FK accounts`, `cuit TEXT NOT NULL`, `iva_condition TEXT`, `punto_de_venta INTEGER`, `created_at`, UNIQUE(account_id)
@@ -932,7 +932,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[ ]` |
 | C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[ ]` |
 | C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[x]` |
-| C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[ ]` |
+| C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[x]` |
 | C-28 | v21-cash-session | 7 — V2.1 Operación | MEDIO | C-26 | `[ ]` |
 | C-29 | v21-quote-salesorder | 7 — V2.1 Operación | MEDIO | C-20, C-26 | `[ ]` |
 | C-30 | v21-customer-supplier-accounts | 7 — V2.1 Operación | MEDIO | C-29 | `[ ]` |
@@ -941,17 +941,22 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ## Primer change recomendado
 
-**Fase 6: 4/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10) archivados. El siguiente change recomendado es:
+**Fase 6: 5/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12) archivados; faltan C-24 y C-25.
+**Fase 7: 2/5 completados** — C-26 (2026-06-12) y C-27 (2026-06-12) archivados.
 
-### `C-21` `v20-inventory-unification` ⭐ — PRÓXIMO
+### `C-28` `v21-cash-session` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
 
-CRITICO governance, sobre el camino crítico (C-21 → C-26 → C-27). Migra 19 filas de stock a Casa Central Branch; descartar 6 warehouses auto-generados (PA-19 resuelta). Desbloquea la rama Branch del V2.1.
+Desbloqueado por C-26 (archivado). Gestión de caja por sucursal: `Cashbox`, `CashSession` (ciclo open/close/arqueo), `CashMovement` append-only. UI `/sucursales/:id/caja`.
 
-**También disponibles (decisiones del PO ya tomadas el 2026-06-10):**
+**También disponible:**
+- **C-29** `v21-quote-salesorder` [MEDIO] — Desbloqueado: C-20 ✅ (live en prod) + C-26 ✅. Quote/SalesOrder + quickSale POS. Hot path completo con C-27 para emision de comprobantes.
 - **C-24** `v20-insights-unification` [BAJO] — Opción A: renombrar `ai_insights` → `insights`
 - **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21)
+
+**Pendiente externo (no bloquea):**
+- **C-27 task 5.2** — Verificacion E2E en homologacion ARCA (WSAA ticket → WSFEv1 CAE): pendiente del tramite AFIP del PO (certificado de homologacion). El adaptador `WSFEAdapter` esta implementado y testeado con SOAP mockeado.
 
 **Diferido:**
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 
-Para arrancar: `/opsx:propose v20-inventory-unification`
+Para arrancar: `/opsx:propose v21-cash-session`

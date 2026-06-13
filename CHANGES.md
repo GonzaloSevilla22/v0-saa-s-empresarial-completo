@@ -779,7 +779,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 > Fase habilitada una vez completada la retirada de deuda. Construye lo nuevo sobre el esquema limpio: Branch como root real, caja, cotizaciones, órdenes de venta, cuentas corrientes y facturación AFIP. C-26 es el prerequisito interno de la mayoría — completar primero.
 
 ### [C-26] `v21-branch-as-root`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-12 (archivado: `openspec/changes/archive/2026-06-13-v21-branch-as-root`). PRs #164 (propose) #165 (apply). Lifecycle Branch (status active/closed + open/close RPCs, cierre bloqueado con stock o última operativa), StockTransfer como entidad (`stock_transfers` + `transfer_id` en movements), invariante `onHand >= 0` (CHECK + gate per-branch; sin branch → default operativa), `P0422 branch_closed` en operaciones. Backend 124/124, frontend 203/203. Specs `branches`/`branch-stock`/`stock-transfer` sincronizadas. Nota: el invariante exigió UPDATE-then-INSERT en el helper (los CHECK se validan sobre la fila propuesta antes del ON CONFLICT).
 - **Scope**:
   - Promover `Branch` a Aggregate Root real con lifecycle completo: comandos `open()` y `close()` para apertura/cierre operacional de la sucursal
   - `BranchStock` con invariante: `onHand >= 0` verificado en la transacción (sin stock negativo)
@@ -931,7 +931,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[x]` |
 | C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[ ]` |
 | C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[ ]` |
-| C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[ ]` |
+| C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[x]` |
 | C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[ ]` |
 | C-28 | v21-cash-session | 7 — V2.1 Operación | MEDIO | C-26 | `[ ]` |
 | C-29 | v21-quote-salesorder | 7 — V2.1 Operación | MEDIO | C-20, C-26 | `[ ]` |

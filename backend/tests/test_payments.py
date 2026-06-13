@@ -103,7 +103,8 @@ async def test_webhook_approved_upgrades_plan(async_client, mock_service_pool):
     sig = _make_signature("pay-001")
 
     member_row = {"account_id": "acc-uuid-1", "billing_plan": "gratis"}
-    conn.fetchrow = AsyncMock(side_effect=[None, member_row])
+    event_row = {"id": "be-uuid-1", "receipt_number": "RC-2026-000099"}
+    conn.fetchrow = AsyncMock(side_effect=[None, member_row, event_row])
 
     mp_response = MagicMock()
     mp_response.status_code = 200
@@ -126,6 +127,12 @@ async def test_webhook_approved_upgrades_plan(async_client, mock_service_pool):
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     assert resp.json().get("idempotent") is None
+    # El email_logs del recibo debe incluir el PDF en base64 + el N° de recibo.
+    email_insert = [c for c in conn.execute.await_args_list if "email_logs" in str(c.args[0])]
+    assert email_insert, "no se insertó el email_logs del recibo"
+    meta_json = email_insert[0].args[4]
+    assert "receipt_pdf_base64" in meta_json
+    assert "RC-2026-000099" in meta_json
 
 
 async def test_webhook_invalid_signature_returns_400(async_client, mock_service_pool):
@@ -332,6 +339,38 @@ async def test_download_receipt_non_admin_forbidden(async_client, mock_service_p
     with patch("backend.core.database.pool", pool):
         resp = await async_client.get(
             f"/payments/receipt/{RECEIPT_ROW['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 403
+
+
+async def test_resend_receipt_admin_queues_email_with_pdf(async_client, mock_service_pool):
+    """Admin reenvía: inserta email_logs 'payment_receipt' con el PDF en base64."""
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value="admin")   # require_admin
+    conn.fetchrow = AsyncMock(return_value=RECEIPT_ROW)  # get_receipt
+    conn.execute = AsyncMock(return_value="INSERT 0 1")
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            f"/payments/receipts/{RECEIPT_ROW['id']}/resend",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 202
+    assert resp.json()["ok"] is True
+    insert_call = conn.execute.await_args_list[-1]
+    assert "email_logs" in str(insert_call.args[0])
+    assert "payment_receipt" in str(insert_call.args[0])
+    assert "receipt_pdf_base64" in insert_call.args[4]  # metadata json ($4)
+
+
+async def test_resend_receipt_requires_admin(async_client, mock_service_pool):
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value="user")
+    token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            f"/payments/receipts/{RECEIPT_ROW['id']}/resend",
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 403

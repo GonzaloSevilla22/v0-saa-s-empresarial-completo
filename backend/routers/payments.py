@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+import json
 import logging
 import uuid
 
@@ -17,7 +19,12 @@ from backend.schemas.payments import (
     WebhookResponse,
 )
 from backend.services.payments import process_payment, verify_mp_signature
-from backend.services.receipts import ReceiptData, build_receipt_pdf
+from backend.services.receipts import (
+    ReceiptData,
+    build_receipt_pdf,
+    build_receipt_pdf_base64,
+    receipt_data_from_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +122,43 @@ async def download_payment_receipt(
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="recibo-{receipt_number}.pdf"'},
     )
+
+
+@router.post("/receipts/{billing_event_id}/resend", status_code=202)
+async def resend_payment_receipt(
+    billing_event_id: uuid.UUID,
+    _admin: dict = Depends(require_admin),
+    repo: BillingRepository = Depends(get_billing_repo),
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> dict:
+    """Reencola el email del recibo (con el PDF adjunto) al cliente. Solo admin."""
+    row = await repo.get_receipt(str(billing_event_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="Recibo no encontrado")
+    data = dict(row)
+
+    meta: dict = {
+        "billing_event_id": str(billing_event_id),
+        "receipt_number": data.get("receipt_number"),
+        "plan": data.get("plan"),
+        "amount": float(data["amount"]) if data.get("amount") is not None else None,
+        # único por reenvío (evita el UNIQUE(user_id,event_type,metadata) en reenvíos).
+        "requested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    try:
+        meta["receipt_pdf_base64"] = build_receipt_pdf_base64(receipt_data_from_row(data))
+    except Exception:
+        logger.exception("[payments] No se pudo generar el PDF del recibo para reenvío")
+
+    await conn.execute(
+        """
+        INSERT INTO email_logs (user_id, event_type, recipient, subject, metadata)
+        SELECT be.user_id, 'payment_receipt', $2, $3, $4::jsonb
+        FROM billing_events be WHERE be.id = $1::uuid
+        """,
+        str(billing_event_id),
+        data["customer_email"],
+        "Tu comprobante de pago — ALIADATA",
+        json.dumps(meta),
+    )
+    return {"ok": True, "recipient": data["customer_email"]}

@@ -6,7 +6,9 @@ em-dash ni comillas tipográficas) o fpdf lanzará al renderizar.
 """
 from __future__ import annotations
 
+import base64
 import datetime
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -130,3 +132,24 @@ def build_receipt_pdf(data: ReceiptData) -> bytes:
 
     out = pdf.output()
     return bytes(out)
+
+
+def build_receipt_pdf_base64(data: ReceiptData) -> str:
+    """Igual que build_receipt_pdf pero devuelve el PDF en base64 (para adjuntar
+    en el email_logs.metadata y que la Edge Function lo mande como adjunto)."""
+    return base64.b64encode(build_receipt_pdf(data)).decode("ascii")
+
+
+def receipt_data_from_row(row: Mapping) -> ReceiptData:
+    """Construye ReceiptData desde una fila de BillingRepository.get_receipt
+    (claves: receipt_number, payment_id, plan, amount, created_at,
+    customer_email, customer_name, id)."""
+    return ReceiptData(
+        receipt_number=row["receipt_number"] or f"RC-{row['id']}",
+        issued_at=row["created_at"],
+        customer_email=row["customer_email"],
+        customer_name=row.get("customer_name"),
+        plan=row["plan"] or "",
+        amount=row["amount"] or 0,
+        payment_id=row["payment_id"] or "-",
+    )

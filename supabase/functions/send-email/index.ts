@@ -1,4 +1,4 @@
-﻿import { Resend } from "npm:resend";
+import { Resend } from "npm:resend";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
@@ -6,6 +6,62 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+// ── Branding ──────────────────────────────────────────────────────────────────
+const APP_URL = "https://www.aliadata.com.ar";
+const LOGO_URL = "https://www.aliadata.com.ar/aliadata-logo.png";
+const GREEN = "#10b981";
+const DARK = "#0f172a";
+
+/**
+ * Envuelve el contenido en el layout de marca ALIADATA (logo + verde/negro).
+ * HTML compatible con clientes de email (tablas + estilos inline).
+ */
+function layout(opts: {
+  title: string;
+  intro?: string;
+  bodyHtml?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  accent?: string;
+}): string {
+  const accent = opts.accent ?? GREEN;
+  return `
+  <div style="margin:0;padding:0;background:#f3f4f6;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;font-family:Arial,Helvetica,sans-serif;">
+      <tr><td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.12);">
+          <tr><td style="background:${DARK};padding:22px 32px;text-align:center;border-bottom:3px solid ${accent};">
+            <img src="${LOGO_URL}" width="40" height="40" alt="ALIADATA" style="display:inline-block;vertical-align:middle;border:0;" />
+            <span style="display:inline-block;vertical-align:middle;margin-left:10px;font-size:21px;font-weight:bold;letter-spacing:3px;color:#ffffff;">ALIADATA</span>
+          </td></tr>
+          <tr><td style="padding:32px;color:#334155;font-size:15px;line-height:1.6;">
+            <h1 style="margin:0 0 16px;font-size:22px;color:${DARK};">${opts.title}</h1>
+            ${opts.intro ? `<p style="margin:0 0 16px;">${opts.intro}</p>` : ""}
+            ${opts.bodyHtml ?? ""}
+            ${opts.ctaText && opts.ctaUrl ? `
+            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 8px;"><tr>
+              <td style="border-radius:8px;background:${accent};">
+                <a href="${opts.ctaUrl}" style="display:inline-block;padding:13px 30px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:8px;">${opts.ctaText}</a>
+              </td></tr></table>` : ""}
+          </td></tr>
+          <tr><td style="background:${DARK};padding:22px 32px;text-align:center;">
+            <p style="margin:0 0 4px;font-size:13px;font-weight:bold;letter-spacing:2px;color:${accent};">ALIADATA</p>
+            <p style="margin:0;font-size:11px;color:#94a3b8;">Gestión inteligente para tu negocio</p>
+            <p style="margin:10px 0 0;font-size:11px;color:#64748b;">© 2026 ALIADATA · Mendoza, Argentina</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </div>`;
+}
+
+function infoRow(label: string, value: string): string {
+  return `<tr>
+    <td style="padding:7px 0;color:#64748b;width:130px;vertical-align:top;">${label}</td>
+    <td style="padding:7px 0;color:${DARK};font-weight:bold;">${value}</td>
+  </tr>`;
+}
 
 Deno.serve(async (req: Request) => {
   try {
@@ -34,192 +90,149 @@ Deno.serve(async (req: Request) => {
 
     const { id, event_type, recipient, subject, metadata } = record;
 
-    // Template logic
-    let htmlContent = `<h1>Notificación de ALIADATA</h1><p>Has recibido un nuevo aviso: ${event_type}</p>`;
+    // ── Template por tipo de evento (todos con el layout de marca) ────────────
+    let htmlContent = layout({
+      title: "Notificación de ALIADATA",
+      intro: `Recibiste un nuevo aviso: ${event_type}.`,
+    });
 
     if (event_type === "welcome") {
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>¡Bienvenido a ALIADATA Emprendedores! 🚀</h2>
-          <p>Nos alegra tenerte en nuestra comunidad. Estás a un paso de optimizar la gestión de tu negocio.</p>
-          <a href="https://aliadata.com/dashboard" style="background-color: #10b981; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ir a mi Dashboard</a>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "¡Te damos la bienvenida! 🚀",
+        intro: `Hola ${metadata?.name ?? ""}, ¡gracias por sumarte a ALIADATA!`,
+        bodyHtml: `<p style="margin:0 0 16px;">Ya podés empezar a ordenar tu negocio: registrá ventas, compras y stock, y dejá que la inteligencia artificial te dé información útil para crecer.</p>`,
+        ctaText: "Ir a mi panel",
+        ctaUrl: `${APP_URL}/dashboard`,
+      });
     } else if (event_type === "new_user_admin_notice") {
-      // Aviso al administrador: se registró un usuario nuevo (con sus datos).
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #10b981; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-            <h2 style="color: white; margin: 0;">Nuevo registro en ALIADATA</h2>
-          </div>
-          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px;">Se registró un nuevo usuario en la app:</p>
-            <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-              <tr><td style="padding: 8px 0; color: #6b7280; width: 120px;">Nombre</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.name ?? "-"}</td></tr>
-              <tr><td style="padding: 8px 0; color: #6b7280;">Email</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.email ?? "-"}</td></tr>
-              <tr><td style="padding: 8px 0; color: #6b7280;">Teléfono</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.phone ?? "-"}</td></tr>
-              <tr><td style="padding: 8px 0; color: #6b7280;">Localidad</td><td style="padding: 8px 0; font-weight: bold;">${metadata?.locality ?? "-"}</td></tr>
-            </table>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-            <p style="color: #9ca3af; font-size: 12px; text-align: center;">Aviso automático de EmprendeSmart.</p>
-          </div>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "Nuevo registro en ALIADATA",
+        intro: "Se registró un nuevo usuario en la app:",
+        bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:15px;">
+          ${infoRow("Nombre", metadata?.name ?? "-")}
+          ${infoRow("Email", metadata?.email ?? "-")}
+          ${infoRow("Teléfono", metadata?.phone ?? "-")}
+          ${infoRow("Localidad", metadata?.locality ?? "-")}
+        </table>`,
+      });
     } else if (event_type === "meeting_notice") {
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>📅 Nueva Reunión Programada</h2>
-          <p>Se ha agendado una nueva reunión en la comunidad: <strong>${metadata.title}</strong></p>
-          <p><strong>Fecha/Hora (UTC):</strong> ${new Date(metadata.start_time).toLocaleString()}</p>
-          <a href="${metadata.url}" style="background-color: #3b82f6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Unirse a la Reunión</a>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "📅 Nueva reunión programada",
+        intro: `Se agendó una nueva reunión en la comunidad: <strong>${metadata.title}</strong>.`,
+        bodyHtml: `<p style="margin:0;"><strong>Fecha/Hora (UTC):</strong> ${new Date(metadata.start_time).toLocaleString()}</p>`,
+        ctaText: "Unirse a la reunión",
+        ctaUrl: metadata.url,
+      });
     } else if (event_type === "pool_notice") {
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>🛒 Nuevo Pool de Compra Abierto</h2>
-          <p>Un nuevo pool de compra está disponible: <strong>${metadata.title}</strong></p>
-          <p><strong>Cierra el:</strong> ${new Date(metadata.closes_at).toLocaleDateString()}</p>
-          <a href="https://aliadata.com/pools/${metadata.pool_id}" style="background-color: #8b5cf6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Ver Pool</a>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "🛒 Nuevo pool de compra abierto",
+        intro: `Hay un nuevo pool de compra disponible: <strong>${metadata.title}</strong>.`,
+        bodyHtml: `<p style="margin:0;"><strong>Cierra el:</strong> ${new Date(metadata.closes_at).toLocaleDateString()}</p>`,
+        ctaText: "Ver pool",
+        ctaUrl: `${APP_URL}/comunidad`,
+      });
     } else if (event_type === "low_stock_alert") {
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>⚠️ Alerta de Stock Bajo (AI)</h2>
-          <p>El producto <strong>${metadata.product_name}</strong> tiene bajo inventario.</p>
-          <p><strong>Stock actual:</strong> <span style="color: #ef4444; font-weight: bold;">${metadata.current_stock}</span> unidades.</p>
-          <p><em>Te recomendamos reabastecer pronto para no perder ventas.</em></p>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "⚠️ Alerta de stock bajo",
+        intro: `El producto <strong>${metadata.product_name}</strong> tiene poco inventario.`,
+        bodyHtml: `<p style="margin:0 0 8px;"><strong>Stock actual:</strong> <span style="color:#ef4444;font-weight:bold;">${metadata.current_stock}</span> unidades.</p>
+          <p style="margin:0;color:#64748b;">Te recomendamos reabastecer pronto para no perder ventas.</p>`,
+        ctaText: "Ver stock",
+        ctaUrl: `${APP_URL}/stock`,
+      });
     } else if (event_type === "low_margin_alert") {
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333;">
-          <h2>📉 Alerta de Margen Crítico (AI)</h2>
-          <p>Se ha registrado una venta con un margen de ganancia inferior al 15%.</p>
-          <ul>
-            <li><strong>Producto:</strong> ${metadata.product_name}</li>
-            <li><strong>Monto Venta:</strong> $${metadata.amount}</li>
-            <li><strong>Costo Base:</strong> $${metadata.cost_basis}</li>
-            <li><strong>Margen de Ganancia:</strong> <span style="color: #ef4444; font-weight: bold;">${metadata.margin_percentage}%</span></li>
-          </ul>
-          <p><em>Por favor, revisa tus costos o ajusta el precio para mantener la rentabilidad.</em></p>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "📉 Alerta de margen crítico",
+        intro: "Se registró una venta con un margen de ganancia inferior al 15%.",
+        bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:15px;">
+          ${infoRow("Producto", String(metadata.product_name ?? "-"))}
+          ${infoRow("Monto de venta", `$${metadata.amount}`)}
+          ${infoRow("Costo base", `$${metadata.cost_basis}`)}
+          ${infoRow("Margen", `<span style="color:#ef4444;">${metadata.margin_percentage}%</span>`)}
+        </table>
+        <p style="margin:16px 0 0;color:#64748b;">Revisá tus costos o ajustá el precio para mantener la rentabilidad.</p>`,
+      });
     } else if (event_type === "trial_expiring_soon") {
-      // metadata.umbral: '7d' | '1d'
       const umbral = metadata?.umbral ?? "7d";
       const diasLabel = umbral === "1d" ? "1 día" : "7 días";
-      const urgenciaColor = umbral === "1d" ? "#ef4444" : "#f59e0b";
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: ${urgenciaColor}; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-            <h2 style="color: white; margin: 0;">⏰ Te quedan ${diasLabel} de prueba</h2>
-          </div>
-          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px;">Hola,</p>
-            <p>Tu período de prueba del plan <strong>Avanzado</strong> en EmprendeSmart está por terminar.</p>
-            <p>Cuando venza, vas a seguir usando EmprendeSmart con el <strong>plan Gratis</strong>. Si querés mantener todas las funciones avanzadas, podés elegir un plan pago.</p>
-            <div style="text-align: center; margin: 24px 0;">
-              <a href="https://emprende-smart.vercel.app/planes"
-                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
-                Ver planes y precios
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">Si ya elegiste un plan, podés ignorar este mensaje.</p>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
-          </div>
-        </div>
-      `;
+      htmlContent = layout({
+        title: `⏰ Te quedan ${diasLabel} de prueba`,
+        intro: "Tu período de prueba del plan Avanzado está por terminar.",
+        bodyHtml: `<p style="margin:0;">Cuando venza, vas a seguir usando ALIADATA con el plan Gratis. Si querés mantener todas las funciones avanzadas, elegí un plan pago.</p>`,
+        ctaText: "Ver planes y precios",
+        ctaUrl: `${APP_URL}/planes`,
+      });
     } else if (event_type === "plan_upgraded") {
-      // C-10: MercadoPago payment approved → plan activated
-      const planName = (metadata?.plan as string | undefined) ?? "pago"
-      const planDisplay = planName.charAt(0).toUpperCase() + planName.slice(1)
-      const amountDisplay = metadata?.amount != null ? `$${Number(metadata.amount).toLocaleString("es-AR")}` : ""
-      const activatedAt = metadata?.activated_at ? new Date(metadata.activated_at as string).toLocaleDateString("es-AR") : new Date().toLocaleDateString("es-AR")
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #10b981; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-            <h2 style="color: white; margin: 0;">¡Tu plan ${planDisplay} ya está activo!</h2>
-          </div>
-          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px;">¡Hola!</p>
-            <p>Tu pago fue procesado correctamente y el plan <strong>${planDisplay}</strong> está activo en tu cuenta de EmprendeSmart.</p>
-            ${amountDisplay ? `<p><strong>Monto abonado:</strong> ${amountDisplay}</p>` : ""}
-            <p><strong>Fecha de activación:</strong> ${activatedAt}</p>
-            <div style="text-align: center; margin: 24px 0;">
-              <a href="https://emprende-smart.vercel.app/dashboard"
-                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
-                Ir a mi Dashboard
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">Podés ver tu historial de pagos en <a href="https://emprende-smart.vercel.app/facturacion">Facturación</a>.</p>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
-          </div>
-        </div>
-      `
+      const planName = (metadata?.plan as string | undefined) ?? "pago";
+      const planDisplay = planName.charAt(0).toUpperCase() + planName.slice(1);
+      const amountDisplay = metadata?.amount != null ? `$${Number(metadata.amount).toLocaleString("es-AR")}` : "";
+      const activatedAt = metadata?.activated_at
+        ? new Date(metadata.activated_at as string).toLocaleDateString("es-AR")
+        : new Date().toLocaleDateString("es-AR");
+      htmlContent = layout({
+        title: `¡Tu plan ${planDisplay} ya está activo!`,
+        intro: "¡Hola! Tu pago se procesó correctamente y tu plan ya está activo en ALIADATA.",
+        bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:15px;">
+          ${infoRow("Plan", planDisplay)}
+          ${amountDisplay ? infoRow("Monto abonado", amountDisplay) : ""}
+          ${infoRow("Fecha de activación", activatedAt)}
+        </table>
+        ${metadata?.receipt_pdf_base64 ? `<p style="margin:18px 0 0;color:#64748b;">Adjuntamos tu <strong>comprobante de pago</strong> en PDF.</p>` : ""}`,
+        ctaText: "Ir a mi panel",
+        ctaUrl: `${APP_URL}/dashboard`,
+      });
+    } else if (event_type === "payment_receipt") {
+      const planName = (metadata?.plan as string | undefined) ?? "";
+      const planDisplay = planName ? planName.charAt(0).toUpperCase() + planName.slice(1) : "";
+      const amountDisplay = metadata?.amount != null ? `$${Number(metadata.amount).toLocaleString("es-AR")}` : "";
+      htmlContent = layout({
+        title: "Tu comprobante de pago",
+        intro: "¡Gracias por tu pago! Adjuntamos el comprobante de tu suscripción a ALIADATA.",
+        bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:15px;">
+          ${metadata?.receipt_number ? infoRow("N° de recibo", String(metadata.receipt_number)) : ""}
+          ${planDisplay ? infoRow("Plan", planDisplay) : ""}
+          ${amountDisplay ? infoRow("Monto", amountDisplay) : ""}
+        </table>
+        <p style="margin:18px 0 0;color:#64748b;">El comprobante en PDF va adjunto a este correo. Es un comprobante de pago, no una factura.</p>`,
+      });
     } else if (event_type === "plan_downgraded") {
-      // C-10: subscription cancelled or expired — plan reverted to gratis
-      const planDisplay = (() => {
-        const p = (metadata?.plan as string | undefined) ?? ""
-        return p.charAt(0).toUpperCase() + p.slice(1)
-      })()
+      const p = (metadata?.plan as string | undefined) ?? "";
+      const planDisplay = p ? p.charAt(0).toUpperCase() + p.slice(1) : "";
+      const reason = (metadata?.reason as string | undefined) ?? "user_requested";
+      const isUserRequested = reason === "user_requested";
       const expiresAt = metadata?.plan_expires_at
         ? new Date(metadata.plan_expires_at as string).toLocaleDateString("es-AR")
-        : ""
-      const reason = (metadata?.reason as string | undefined) ?? "user_requested"
-      const isUserRequested = reason === "user_requested"
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #6b7280; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-            <h2 style="color: white; margin: 0;">Tu suscripción fue ${isUserRequested ? "cancelada" : "vencida"}</h2>
-          </div>
-          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px;">Hola,</p>
-            ${isUserRequested
-              ? `<p>Tu solicitud de cancelación del plan <strong>${planDisplay}</strong> fue registrada correctamente.</p>
-                 ${expiresAt ? `<p>Tu plan permanecerá activo hasta el <strong>${expiresAt}</strong>, después vas a seguir usando EmprendeSmart con el plan <strong>Gratis</strong>.</p>` : ""}
-                 <p>Si fue un error, podés reactivar tu suscripción en cualquier momento.</p>`
-              : `<p>Tu plan <strong>${planDisplay}</strong> venció y tu cuenta fue ajustada al plan <strong>Gratis</strong>.</p>
-                 <p>Si querés seguir con las funciones avanzadas, podés elegir un nuevo plan.</p>`
-            }
-            <div style="text-align: center; margin: 24px 0;">
-              <a href="https://emprende-smart.vercel.app/planes"
-                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
-                Ver planes y precios
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">¿Necesitás ayuda? Escribinos por <a href="https://wa.me/5492615000000">WhatsApp</a>.</p>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
-          </div>
-        </div>
-      `
+        : "";
+      htmlContent = layout({
+        title: `Tu suscripción fue ${isUserRequested ? "cancelada" : "dada de baja"}`,
+        intro: isUserRequested
+          ? `Registramos la cancelación de tu plan ${planDisplay}.`
+          : `Tu plan ${planDisplay} venció y tu cuenta pasó al plan Gratis.`,
+        bodyHtml: isUserRequested && expiresAt
+          ? `<p style="margin:0;">Tu plan sigue activo hasta el <strong>${expiresAt}</strong>; después vas a usar ALIADATA con el plan Gratis. Si fue un error, podés reactivar cuando quieras.</p>`
+          : `<p style="margin:0;">Si querés seguir con las funciones avanzadas, podés elegir un nuevo plan.</p>`,
+        ctaText: "Ver planes y precios",
+        ctaUrl: `${APP_URL}/planes`,
+      });
     } else if (event_type === "trial_expired") {
-      htmlContent = `
-        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto;">
-          <div style="background-color: #6b7280; padding: 20px; border-radius: 8px 8px 0 0; text-align: center;">
-            <h2 style="color: white; margin: 0;">Tu período de prueba terminó</h2>
-          </div>
-          <div style="background-color: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb; border-top: none;">
-            <p style="font-size: 16px;">Hola,</p>
-            <p>Tu prueba del plan <strong>Avanzado</strong> en EmprendeSmart terminó. A partir de ahora estás usando el <strong>plan Gratis</strong>.</p>
-            <p>Con el plan Gratis podés seguir registrando ventas, compras y gastos. Si necesitás funciones avanzadas como reportes comparativos, inteligencia artificial ilimitada o más usuarios, elegí el plan que mejor se adapte a tu negocio.</p>
-            <div style="text-align: center; margin: 24px 0;">
-              <a href="https://emprende-smart.vercel.app/planes"
-                 style="background-color: #10b981; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">
-                Ver planes y precios
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">Gracias por probar EmprendeSmart. Esperamos verte de nuevo en un plan pago.</p>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
-            <p style="color: #9ca3af; font-size: 12px; text-align: center;">EmprendeSmart — Gestión financiera para microemprendedores de Mendoza</p>
-          </div>
-        </div>
-      `;
+      htmlContent = layout({
+        title: "Tu período de prueba terminó",
+        intro: "Tu prueba del plan Avanzado terminó. A partir de ahora usás el plan Gratis.",
+        bodyHtml: `<p style="margin:0;">Con el plan Gratis seguís registrando ventas, compras y gastos. Si necesitás reportes comparativos, IA ilimitada o más usuarios, elegí el plan que mejor se adapte a tu negocio.</p>`,
+        ctaText: "Ver planes y precios",
+        ctaUrl: `${APP_URL}/planes`,
+      });
     }
+
+    // ── Adjunto del recibo (si viene en metadata) ─────────────────────────────
+    // El backend genera el PDF (build_receipt_pdf) y lo deja en
+    // metadata.receipt_pdf_base64 para plan_upgraded / payment_receipt.
+    const attachments = metadata?.receipt_pdf_base64
+      ? [{
+          filename: `recibo-${metadata?.receipt_number ?? "aliadata"}.pdf`,
+          content: metadata.receipt_pdf_base64 as string,
+        }]
+      : undefined;
 
     // Recipient logic
     let toAddresses: string[] = [];
@@ -238,19 +251,18 @@ Deno.serve(async (req: Request) => {
     // Dispatch
     console.log(`Sending emails to ${toAddresses.length} recipients for event: ${event_type}`);
 
-    // Batch or loop setup (using Promise.all for simple MVP chunking)
     const emailPromises = toAddresses.map((email) =>
       resend.emails.send({
         from: "ALIADATA <no-reply@aliadata.com.ar>",
         to: email,
         subject: subject || "Notificación de ALIADATA",
         html: htmlContent,
+        ...(attachments ? { attachments } : {}),
       })
     );
 
     const results = await Promise.allSettled(emailPromises);
 
-    // Evaluate ALL results, not just the first one
     const successful = results.filter(
       (r): r is PromiseFulfilledResult<any> =>
         r.status === "fulfilled" && !r.value?.error
@@ -288,7 +300,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Partial or full success
     await supabase.from("email_logs").update({
       status: partialFailed ? "partial" : "sent",
       provider_id: firstSuccessId,

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { pythonClient } from "@/lib/api/python-client"
-import { Receipt, Download, FileText, AlertTriangle } from "lucide-react"
+import { Receipt, Download, FileText, AlertTriangle, Send, CheckCircle2 } from "lucide-react"
 
 interface PaymentReceipt {
   id: string
@@ -42,7 +42,9 @@ export default function AdminPagosPage() {
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [resendingId, setResendingId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -91,6 +93,20 @@ export default function AdminPagosPage() {
     }
   }, [])
 
+  const resendReceipt = useCallback(async (r: PaymentReceipt) => {
+    setResendingId(r.id)
+    setError(null)
+    setNotice(null)
+    try {
+      await pythonClient.post(`/payments/receipts/${r.id}/resend`, {})
+      setNotice(`Recibo reenviado por email a ${r.customer_email}.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo reenviar el recibo.")
+    } finally {
+      setResendingId(null)
+    }
+  }, [])
+
   return (
     <div className="container mx-auto p-6 max-w-6xl pb-20">
       <header className="flex items-center gap-3 mb-2">
@@ -112,6 +128,13 @@ export default function AdminPagosPage() {
       {error && (
         <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="mb-6 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-400">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {notice}
         </div>
       )}
 
@@ -149,15 +172,25 @@ export default function AdminPagosPage() {
                   </td>
                   <td className="px-4 py-3 text-slate-300">{PLAN_LABELS[r.plan ?? ""] ?? r.plan ?? "—"}</td>
                   <td className="px-4 py-3 text-right font-semibold text-slate-100">{formatAmount(r.amount)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => downloadReceipt(r)}
-                      disabled={downloadingId === r.id}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      {downloadingId === r.id ? "Generando..." : "Descargar PDF"}
-                    </button>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => downloadReceipt(r)}
+                        disabled={downloadingId === r.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        {downloadingId === r.id ? "Generando..." : "Descargar PDF"}
+                      </button>
+                      <button
+                        onClick={() => resendReceipt(r)}
+                        disabled={resendingId === r.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        {resendingId === r.id ? "Enviando..." : "Reenviar"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -516,3 +516,65 @@ export function generateReceiptText(
 
   return lines.join("\n")
 }
+
+// ── Short WhatsApp message (the PDF carries the detail) ──────────────────────
+
+/**
+ * Mensaje corto para WhatsApp cuando se adjunta el PDF: saludo + negocio +
+ * agradecimiento, sin el detalle (que va en el comprobante PDF adjunto).
+ */
+export function generateReceiptShortText(
+  op: SaleOperation,
+  opts: ReceiptTextOptions,
+): string {
+  const biz = opts.businessName || "Mi Negocio"
+  const firstName = opts.clientFirstName?.split(" ")[0].trim()
+  const lines: string[] = []
+
+  if (firstName) {
+    lines.push(`Hola ${firstName} 👋`)
+    lines.push("")
+  }
+  lines.push(`Te enviamos el comprobante de tu compra en *${biz}*.`)
+  lines.push("")
+  lines.push("¡Gracias por tu compra! 🙌")
+
+  return lines.join("\n")
+}
+
+// ── Payload for the backend sales-receipt PDF endpoint ───────────────────────
+
+export interface SalesReceiptPdfPayload {
+  business_name: string
+  receipt_number: string
+  date_label: string
+  items: { name: string; quantity: string; unit_price: string; subtotal: string }[]
+  total: string
+  currency: string
+  client_name?: string | null
+  business_phone?: string | null
+  business_email?: string | null
+}
+
+export function buildSalesReceiptPdfPayload(
+  op: SaleOperation,
+  opts: ReceiptOptions,
+): SalesReceiptPdfPayload {
+  const hasClient = op.clientName && op.clientName !== "Consumidor Final"
+  return {
+    business_name:  opts.businessName || "Mi Negocio",
+    receipt_number: receiptNumber(op),
+    date_label:     capitalise(longDate(op.date)),
+    items: op.items.map((i) => ({
+      name:       i.productName,
+      quantity:   String(i.quantity),
+      unit_price: String(i.unitPrice),
+      subtotal:   String(i.total),
+    })),
+    total:          String(op.total),
+    currency:       op.currency,
+    client_name:    hasClient ? op.clientName : null,
+    business_phone: opts.businessPhone ?? null,
+    business_email: opts.businessEmail ?? null,
+  }
+}

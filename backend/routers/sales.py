@@ -3,16 +3,62 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.repositories.sales_repository import SalesRepository
-from backend.schemas.sales import SaleOperationIn, SaleOperationOut, SalesPageOut
+from backend.schemas.sales import (
+    SaleOperationIn,
+    SaleOperationOut,
+    SalesPageOut,
+    SalesReceiptPdfIn,
+)
 from backend.services import sales as sales_service
+from backend.services.receipts import (
+    SalesReceiptData,
+    SalesReceiptItem,
+    build_sales_receipt_pdf,
+)
 
 router = APIRouter(prefix="/sales", tags=["sales"])
+
+
+@router.post("/receipt-pdf")
+async def sales_receipt_pdf(
+    payload: SalesReceiptPdfIn,
+    auth: dict = Depends(get_current_user),
+) -> Response:
+    """Genera el PDF del comprobante de venta a partir de los datos provistos
+    (para compartirlo por WhatsApp). No toca la DB: render stateless."""
+    data = SalesReceiptData(
+        business_name=payload.business_name,
+        receipt_number=payload.receipt_number,
+        date_label=payload.date_label,
+        items=[
+            SalesReceiptItem(
+                name=i.name,
+                quantity=i.quantity,
+                unit_price=i.unit_price,
+                subtotal=i.subtotal,
+            )
+            for i in payload.items
+        ],
+        total=payload.total,
+        currency=payload.currency,
+        client_name=payload.client_name,
+        business_phone=payload.business_phone,
+        business_email=payload.business_email,
+    )
+    pdf = build_sales_receipt_pdf(data)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="comprobante-{payload.receipt_number}.pdf"'
+        },
+    )
 
 
 def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> SalesRepository:

@@ -23,7 +23,13 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
-import { generateReceiptHTML, generateReceiptText } from "@/lib/receipt"
+import { createClient } from "@/lib/supabase/client"
+import {
+  generateReceiptHTML,
+  generateReceiptText,
+  generateReceiptShortText,
+  buildSalesReceiptPdfPayload,
+} from "@/lib/receipt"
 import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
 import type { SaleOperation } from "@/lib/group-operations"
 
@@ -42,6 +48,7 @@ export function SaleReceiptButton({
 }: SaleReceiptButtonProps) {
   const { user } = useAuth()
   const [loadingPrint, setLoadingPrint] = useState(false)
+  const [loadingWa, setLoadingWa]       = useState(false)
   const [copied, setCopied]             = useState(false)
 
   // ── Receipt options derived from user profile ────────────────────────────
@@ -98,19 +105,75 @@ export function SaleReceiptButton({
     }
   }, [op, receiptOpts])
 
-  // ── Send via WhatsApp ────────────────────────────────────────────────────
-  const handleWhatsApp = useCallback(() => {
-    const text = generateReceiptText(op, receiptOpts)
-    const url  = buildWhatsAppUrl(clientPhone, text)
-    window.open(url, "_blank", "noopener,noreferrer")
+  // ── Send via WhatsApp (mensaje corto + PDF adjunto) ──────────────────────
+  // En el celular: abre el menú de compartir con el PDF real + el mensaje corto
+  // → el usuario elige WhatsApp y se manda el comprobante adjunto. WhatsApp no
+  // permite adjuntar archivos vía link wa.me, por eso se usa el share nativo.
+  // Fallback (compu / sin soporte): descarga el PDF y abre WhatsApp con el texto.
+  const openWhatsAppText = useCallback(
+    (text: string) => {
+      window.open(buildWhatsAppUrl(clientPhone, text), "_blank", "noopener,noreferrer")
+      if (!hasValidPhone) {
+        toast.info(
+          "No hay número de WhatsApp registrado para este cliente. Seleccioná el contacto en WhatsApp.",
+          { duration: 4000 },
+        )
+      }
+    },
+    [clientPhone, hasValidPhone],
+  )
 
-    if (!hasValidPhone) {
-      toast.info(
-        "No hay número de WhatsApp registrado para este cliente. Seleccioná el contacto en WhatsApp.",
-        { duration: 4000 },
-      )
+  const handleWhatsApp = useCallback(async () => {
+    const shortText = generateReceiptShortText(op, receiptOpts)
+    setLoadingWa(true)
+    try {
+      const payload = buildSalesReceiptPdfPayload(op, receiptOpts)
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sales/receipt-pdf`, {
+        method:  "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:  `Bearer ${session?.access_token ?? ""}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error("pdf")
+
+      const blob = await res.blob()
+      const file = new File([blob], `comprobante-${payload.receipt_number}.pdf`, {
+        type: "application/pdf",
+      })
+
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean }
+      if (nav.canShare?.({ files: [file] })) {
+        try {
+          await nav.share({ files: [file], text: shortText, title: "Comprobante de venta" })
+          return
+        } catch (err) {
+          if ((err as Error)?.name === "AbortError") return // el usuario canceló
+          // si falló el share (ej. iOS), seguimos al fallback de descarga
+        }
+      }
+
+      // Fallback: descargar el PDF + abrir WhatsApp con el mensaje corto
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `comprobante-${payload.receipt_number}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      openWhatsAppText(shortText)
+      toast.info("Descargamos el comprobante en PDF. Adjuntalo en el chat de WhatsApp que se abrió.")
+    } catch {
+      // Último recurso: solo el mensaje de texto por WhatsApp
+      openWhatsAppText(shortText)
+    } finally {
+      setLoadingWa(false)
     }
-  }, [op, receiptOpts, clientPhone, hasValidPhone])
+  }, [op, receiptOpts, openWhatsAppText])
 
   return (
     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -164,6 +227,7 @@ export function SaleReceiptButton({
         variant="outline"
         size="sm"
         onClick={handleWhatsApp}
+        disabled={loadingWa}
         className={[
           "h-7 gap-1.5 text-xs px-2.5 transition-colors",
           hasValidPhone
@@ -176,7 +240,9 @@ export function SaleReceiptButton({
             : "Enviar por WhatsApp (sin número de cliente registrado)"
         }
       >
-        <MessageCircle className="h-3.5 w-3.5" />
+        {loadingWa
+          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          : <MessageCircle className="h-3.5 w-3.5" />}
         {hasValidPhone ? "Enviar por WhatsApp" : "WhatsApp"}
       </Button>
     </div>

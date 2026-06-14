@@ -62,3 +62,24 @@ class SaleItemOut(BaseModel):
 class SalesPageOut(BaseModel):
     items: list[SaleItemOut]
     total_operations: int
+
+
+# ── Comprobante de venta en PDF (para compartir por WhatsApp) ─────────────────
+
+class SalesReceiptItemIn(BaseModel):
+    name: str
+    quantity: str
+    unit_price: Decimal
+    subtotal: Decimal
+
+
+class SalesReceiptPdfIn(BaseModel):
+    business_name: str
+    receipt_number: str
+    date_label: str
+    items: list[SalesReceiptItemIn]
+    total: Decimal
+    currency: str = "ARS"
+    client_name: str | None = None
+    business_phone: str | None = None
+    business_email: str | None = None

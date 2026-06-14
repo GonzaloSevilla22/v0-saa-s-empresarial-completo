@@ -929,7 +929,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-21 | v20-inventory-unification | 6 — V2.0 Retirada deuda | CRITICO | C-19 | `[x]` |
 | C-22 | v20-fiscal-identity-clients | 6 — V2.0 Retirada deuda | BAJO | — | `[x]` |
 | C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[x]` |
-| C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[ ]` |
+| C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[x]` |
 | C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[ ]` |
 | C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[x]` |
 | C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[x]` |
@@ -941,7 +941,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ## Primer change recomendado
 
-**Fase 6: 5/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12) archivados; faltan C-24 y C-25.
+**Fase 6: 6/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13) archivados; falta C-25.
 **Fase 7: 2/5 completados** — C-26 (2026-06-12) y C-27 (2026-06-12) archivados.
 
 ### `C-28` `v21-cash-session` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
@@ -950,8 +950,7 @@ Desbloqueado por C-26 (archivado). Gestión de caja por sucursal: `Cashbox`, `Ca
 
 **También disponible:**
 - **C-29** `v21-quote-salesorder` [MEDIO] — Desbloqueado: C-20 ✅ (live en prod) + C-26 ✅. Quote/SalesOrder + quickSale POS. Hot path completo con C-27 para emision de comprobantes.
-- **C-24** `v20-insights-unification` [BAJO] — Opción A: renombrar `ai_insights` → `insights`
-- **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21)
+- **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21) · último pendiente de Fase 6
 
 **Pendiente externo (no bloquea):**
 - **C-27 task 5.2** — Verificacion E2E en homologacion ARCA (WSAA ticket → WSFEv1 CAE): pendiente del tramite AFIP del PO (certificado de homologacion). El adaptador `WSFEAdapter` esta implementado y testeado con SOAP mockeado.

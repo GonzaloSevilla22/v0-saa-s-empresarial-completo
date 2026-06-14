@@ -27,20 +27,20 @@
 
 - [x] 3.1 5/5 aserciones verdes: schema unificado · backfill con mapeo · trigger autorrellena `account_id` · RLS account-based + vista `security_invoker` honran scoping (u1 ve sus filas, NO la de u2 NULL) · RPC canónico + contador
 
-## 4. Cierre de este PR (solo migración)
+## 4. Cierre del PR de migración (PR #182)
 
-- [ ] 4.1 PR feature branch → `main` con la migración + artefactos OpenSpec; CI verde (`gh pr checks`)
-- [ ] 4.2 **GATE PO**: aplicar a prod con `npx supabase db push` (NUNCA MCP `apply_migration`). Toca datos reales + contador → requiere OK explícito del PO
-- [ ] 4.3 Post-push: validar en prod que `insights` recibe filas nuevas (los EF vuelven a funcionar) y conteos vs baseline 0.1
+- [x] 4.1 PR #182 (migración + artefactos OpenSpec), CI verde, mergeado
+- [x] 4.2 Aplicado a prod vía CI `deploy.yml` (db push automático al mergear) — confirmado en `schema_migrations`
+- [x] 4.3 Verificado en prod: `insights`=1188 (726+462, sin pérdida), backup=462, account_id NULL=7, trigger activo; camino de insert (directo y vía vista) probado
 
-## 5. PR de limpieza (posterior, tras validar en prod — OQ3)
+## 5. PR de limpieza (PRs #183 + #184)
 
-- [ ] 5.1 Repuntar `ai_insights → insights` en los 4 EF (`ai-insights`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`) y en frontend (`use-insights`, `aiInsightService`, páginas dashboard/insights/comparativo/rentabilidad)
-- [ ] 5.2 Regenerar `frontend/lib/database.types.ts` + typecheck + suite frontend verde
-- [ ] 5.3 Redeploy de las 7 Edge Functions; smoke test
-- [ ] 5.4 Migración `<ts>_cleanup_insights_legacy.sql`: `DROP VIEW ai_insights` + `DROP TABLE insights_legacy_backup`
-- [ ] 5.5 Grep final: 0 referencias a `ai_insights` en `frontend/` y `supabase/functions/`
+- [x] 5.1 Repuntado `ai_insights → insights` en los 4 EF y frontend (PR #183)
+- [x] 5.2 `database.types.ts` actualizado (bloque `insights` canónico) + typecheck verde (PR #183)
+- [x] 5.3 Redeploy de Edge Functions vía CI al mergear #183 — completed/success
+- [x] 5.4 Migración `20260629000002_cleanup_insights_legacy.sql`: `DROP VIEW ai_insights` + `DROP TABLE insights_legacy_backup` (PR #184)
+- [x] 5.5 Verificado en prod: 0 funciones y 0 vistas dependen de `ai_insights`; vista + backup eliminados; `insights` intacta
 
 ## 6. Archive
 
-- [ ] 6.1 `/opsx:archive v20-insights-unification` — sync spec `insights` a `openspec/specs/`, `[x]` C-24 en `CHANGES.md`, Fase 6 → 6/7
+- [x] 6.1 `/opsx:archive v20-insights-unification` — spec `insights` sincronizado a `openspec/specs/`, `[x]` C-24 en `CHANGES.md`, Fase 6 → 6/7

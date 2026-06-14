@@ -75,7 +75,7 @@ export default function RentabilidadPage() {
     queryKey: ["profitabilityInsight", user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("ai_insights")
+        .from("insights")
         .select("id, message, created_at")
         .eq("type", "margen")
         .order("created_at", { ascending: false })

@@ -33,7 +33,7 @@ export function useInsights() {
     queryKey: queryKeys.insights.all(),
     queryFn: async (): Promise<Insight[]> => {
       const { data, error } = await supabase
-        .from("ai_insights")
+        .from("insights")
         .select("*")
         .order("created_at", { ascending: false })
 

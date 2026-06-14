@@ -288,7 +288,7 @@ REGLAS:
             : 'Sin mensaje',
         }
       })
-      const { error: insertError } = await supabase.from('ai_insights').insert(toInsert)
+      const { error: insertError } = await supabase.from('insights').insert(toInsert)
       if (insertError) console.error('[ai-insights] DB insert error:', extractErrorMessage(insertError))
     }
 

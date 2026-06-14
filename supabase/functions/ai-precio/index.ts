@@ -340,10 +340,11 @@ Devolvé SOLO un JSON con:
       return jsonResponse({ ok: false, error: extractErrorMessage(aiErr) }, 502)
     }
 
-    // 11. Insert into ai_insights + increment counter
-    // Use the user's authed client so RLS INSERT policy (auth.uid() = user_id) passes
+    // 11. Insert into insights + increment counter
+    // Use the user's authed client; the BEFORE INSERT trigger fills account_id so the
+    // account-based RLS WITH CHECK passes (C-24).
     const { error: insertErr } = await supabase
-      .from('ai_insights')
+      .from('insights')
       .insert({
         user_id:  user.id,
         type:     'oportunidad',

@@ -1500,30 +1500,41 @@ export type Database = {
       }
       insights: {
         Row: {
-          actionable: string | null
-          content: string
+          account_id: string | null
           created_at: string
           id: string
+          message: string
+          priority: string
           type: string
           user_id: string
         }
         Insert: {
-          actionable?: string | null
-          content: string
+          account_id?: string | null
           created_at?: string
           id?: string
+          message: string
+          priority: string
           type: string
           user_id?: string
         }
         Update: {
-          actionable?: string | null
-          content?: string
+          account_id?: string | null
           created_at?: string
           id?: string
+          message?: string
+          priority?: string
           type?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "insights_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       invoice_documents: {
         Row: {

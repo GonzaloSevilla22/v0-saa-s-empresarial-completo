@@ -209,7 +209,7 @@ Devolvé SOLO el JSON.`
 
     // 7. Persist insight + increment quota
     if (insight) {
-      const { error: insertErr } = await supabase.from('ai_insights').insert({
+      const { error: insertErr } = await supabase.from('insights').insert({
         user_id:  user.id,
         type:     'comparativo',
         priority: 'alta',

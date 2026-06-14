@@ -4,14 +4,14 @@ import Link from "next/link"
 import { useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
-import { planHasAccess } from "@/lib/plan-utils"
+import { planHasAccess, PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import {
   LayoutDashboard, ShoppingCart, ShoppingBag, Receipt,
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown
+  CreditCard, FolderDown, Leaf
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -332,12 +332,23 @@ export function AppSidebar() {
             </span>
             <Badge
               variant="outline"
-              className={`w-fit text-[10px] px-1.5 py-0 ${user?.role === "admin"
+              className={`w-fit gap-1 text-[10px] px-1.5 py-0 ${user?.role === "admin"
                 ? "border-emerald-500/50 text-emerald-500"
-                : "border-sidebar-border text-sidebar-foreground/60"
+                : effectivePlan === "gratis"
+                  ? "border-sidebar-border text-sidebar-foreground/60"
+                  : "border-primary/50 text-primary"
                 }`}
             >
-              {user?.role === "admin" ? "Administrador" : "Usuario"}
+              {user?.role === "admin" ? (
+                "Administrador"
+              ) : (
+                <>
+                  {effectivePlan === "gratis"
+                    ? <Leaf className="h-3 w-3" />
+                    : <Crown className="h-3 w-3" />}
+                  {PLAN_DISPLAY_NAMES[effectivePlan]}
+                </>
+              )}
             </Badge>
           </div>
         </div>

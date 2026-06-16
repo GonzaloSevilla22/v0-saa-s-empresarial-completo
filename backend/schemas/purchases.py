@@ -29,6 +29,21 @@ class PurchaseOperationOut(BaseModel):
     operation_kind: str | None = None
 
 
+class PurchaseOperationUpdateItemIn(BaseModel):
+    product_id: str
+    quantity: Decimal
+    amount: Decimal
+
+
+class PurchaseOperationUpdateIn(BaseModel):
+    """Payload del editor de compras: reemplaza los ítems de una operación.
+    Lo consume rpc_atomic_update_purchase_operation (REVERSE + APPLY sobre branch_stock)."""
+    purchase_ids: list[str]
+    items: list[PurchaseOperationUpdateItemIn]
+    date: datetime.date
+    description: str | None = None
+
+
 class PurchaseItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

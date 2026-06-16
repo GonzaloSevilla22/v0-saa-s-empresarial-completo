@@ -83,6 +83,124 @@ class SalesRepository(BaseRepository):
             idempotency_key,
         )
 
+    async def delete_by_id(self, sale_id: str, account_id: str) -> bool:
+        async with self._conn.transaction():
+            # Espejo de PurchaseRepository.delete_by_id. product_id se lee de
+            # sale_items (fuente de verdad post-C-20); la reversa de stock va a
+            # branch_stock (C-21) con el signo opuesto al movimiento original.
+            row = await self._conn.fetchrow(
+                "SELECT id, operation_id FROM sales WHERE id = $1::uuid AND account_id = $2::uuid",
+                sale_id,
+                account_id,
+            )
+            if row is None:
+                return False
+            item_row = await self._conn.fetchrow(
+                "SELECT product_id FROM sale_items WHERE sale_id = $1::uuid AND product_id IS NOT NULL LIMIT 1",
+                sale_id,
+            )
+            product_id = item_row["product_id"] if item_row else None
+            if product_id is not None:
+                movement = await self._conn.fetchrow(
+                    "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'sale' LIMIT 1",
+                    sale_id,
+                )
+                if movement is not None and movement["quantity_delta"] is not None:
+                    # La venta descontó stock (quantity_delta < 0); la reversa
+                    # devuelve a la branch original. allow_negative + sin movement
+                    # nuevo = paridad con el comportamiento previo.
+                    await self._conn.fetchrow(
+                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
+                        product_id,
+                        -movement["quantity_delta"],
+                        movement["branch_id"],
+                    )
+                await self._conn.execute(
+                    "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'sale'",
+                    sale_id,
+                )
+            await self._conn.execute("DELETE FROM sales WHERE id = $1::uuid", sale_id)
+            if row["operation_id"] is not None:
+                count = await self._conn.fetchval(
+                    "SELECT COUNT(*) FROM sales WHERE operation_id = $1",
+                    row["operation_id"],
+                )
+                if count == 0:
+                    await self._conn.execute(
+                        "DELETE FROM operation_idempotency WHERE operation_id = $1",
+                        row["operation_id"],
+                    )
+            return True
+
+    async def delete_by_operation(self, operation_id: str, account_id: str) -> bool:
+        async with self._conn.transaction():
+            # Espejo de PurchaseRepository.delete_by_operation.
+            rows = await self._conn.fetch(
+                "SELECT id FROM sales WHERE operation_id = $1::uuid AND account_id = $2::uuid",
+                operation_id,
+                account_id,
+            )
+            if not rows:
+                return False
+            for row in rows:
+                sale_id = row["id"]
+                item_row = await self._conn.fetchrow(
+                    "SELECT product_id FROM sale_items WHERE sale_id = $1 AND product_id IS NOT NULL LIMIT 1",
+                    sale_id,
+                )
+                product_id = item_row["product_id"] if item_row else None
+                if product_id is not None:
+                    movement = await self._conn.fetchrow(
+                        "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1 AND reference_type = 'sale' LIMIT 1",
+                        sale_id,
+                    )
+                    if movement is not None and movement["quantity_delta"] is not None:
+                        await self._conn.fetchrow(
+                            "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
+                            product_id,
+                            -movement["quantity_delta"],
+                            movement["branch_id"],
+                        )
+                    await self._conn.execute(
+                        "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'sale'",
+                        sale_id,
+                    )
+            await self._conn.execute(
+                "DELETE FROM sales WHERE operation_id = $1::uuid AND account_id = $2::uuid",
+                operation_id,
+                account_id,
+            )
+            await self._conn.execute(
+                "DELETE FROM operation_idempotency WHERE operation_id = $1::uuid",
+                operation_id,
+            )
+            return True
+
+    async def update_operation(
+        self,
+        sale_ids: list[str],
+        client_id: str | None,
+        date: datetime.date,
+        currency: str,
+        items: list[dict],
+    ) -> None:
+        # rpc_atomic_update_sale_operation hace REVERSE de los ítems viejos +
+        # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
+        # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
+        def _default(obj):
+            if isinstance(obj, Decimal):
+                return str(obj)
+            raise TypeError(f"Not serializable: {type(obj)}")
+
+        await self._conn.execute(
+            "SELECT rpc_atomic_update_sale_operation($1::text[]::uuid[], $2::text::uuid, $3::date, $4::text, $5::jsonb)",
+            sale_ids,
+            client_id,
+            date,
+            currency,
+            json.dumps(items, default=_default),
+        )
+
     async def create_operation(
         self,
         user_id: str,

@@ -12,6 +12,7 @@ from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import (
     SaleOperationIn,
     SaleOperationOut,
+    SaleOperationUpdateIn,
     SalesPageOut,
     SalesReceiptPdfIn,
 )
@@ -88,3 +89,35 @@ async def create_sale(
     repo: SalesRepository = Depends(get_repo),
 ):
     return await sales_service.create_sale_operation(repo, auth, str(account_id), payload)
+
+
+@router.put("/operation")
+async def update_sale_operation(
+    payload: SaleOperationUpdateIn,
+    auth: dict = Depends(get_current_user),
+    repo: SalesRepository = Depends(get_repo),
+):
+    """Edita una operación de venta: reemplaza sus ítems vía
+    rpc_atomic_update_sale_operation (REVERSE + APPLY de stock, atómico)."""
+    await sales_service.update_sale_operation(repo, auth, payload)
+    return {"ok": True}
+
+
+@router.delete("", status_code=204)
+async def delete_sales_by_operation(
+    operation_id: str = Query(...),
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: SalesRepository = Depends(get_repo),
+):
+    await sales_service.delete_sale_operation(repo, auth, str(account_id), operation_id)
+
+
+@router.delete("/{sale_id}", status_code=204)
+async def delete_sale(
+    sale_id: str,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: SalesRepository = Depends(get_repo),
+):
+    await sales_service.delete_sale(repo, auth, str(account_id), sale_id)

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from backend.core.guards import require_role
 from backend.repositories.purchase_repository import PurchaseRepository
-from backend.schemas.purchases import PurchaseOperationIn
+from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationUpdateIn
 
 
 async def list_purchases_paginated(
@@ -41,6 +41,19 @@ async def delete_purchase_operation(
     found = await repo.delete_by_operation(operation_id, account_id)
     if not found:
         raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+
+async def update_purchase_operation(
+    repo: PurchaseRepository, auth: dict, payload: PurchaseOperationUpdateIn
+) -> None:
+    require_role(auth, ["user", "admin"])
+    items = [item.model_dump() for item in payload.items]
+    await repo.update_operation(
+        payload.purchase_ids,
+        payload.date,
+        payload.description,
+        items,
+    )
 
 
 async def create_purchase_operation(

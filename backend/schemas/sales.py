@@ -33,6 +33,22 @@ class SaleOperationOut(BaseModel):
     operation_kind: str | None = None
 
 
+class SaleOperationUpdateItemIn(BaseModel):
+    product_id: str
+    quantity: Decimal
+    amount: Decimal
+
+
+class SaleOperationUpdateIn(BaseModel):
+    """Payload del editor de ventas: reemplaza los ítems de una operación.
+    Lo consume rpc_atomic_update_sale_operation (REVERSE + APPLY sobre branch_stock)."""
+    sale_ids: list[str]
+    items: list[SaleOperationUpdateItemIn]
+    date: datetime.date
+    client_id: str | None = None
+    currency: str = "ARS"
+
+
 class SaleItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

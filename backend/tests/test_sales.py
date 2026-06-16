@@ -115,6 +115,121 @@ async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
     assert None in captured["args"][-1:]  # último arg = canal None
 
 
+SALE_ID = "11111111-1111-1111-1111-111111111111"
+OPERATION_ID = "66666666-6666-6666-6666-666666666666"
+
+UPDATE_PAYLOAD = {
+    "sale_ids": [SALE_ID],
+    "client_id": None,
+    "date": "2024-01-15",
+    "currency": "ARS",
+    "items": [{"product_id": "prod-uuid-1", "quantity": "1.0", "amount": "100.00"}],
+}
+
+
+async def test_delete_sale_ok(async_client, mock_pool):
+    """DELETE /sales/{id} elimina una venta simple → 204."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    async def fetchrow_side_effect(query, *args):
+        # Header de la venta encontrado; sin product_id en sale_items → sin stock.
+        if "FROM sales WHERE id" in query:
+            return {"id": SALE_ID, "operation_id": None}
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/sales/{SALE_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 204
+
+
+async def test_delete_sale_not_found(async_client, mock_pool):
+    """Venta inexistente (o de otra org, vía RLS) → 404."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value=None)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/sales/{SALE_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 404
+
+
+async def test_delete_sale_member_forbidden(async_client, mock_pool):
+    pool, conn = mock_pool
+    member_token = make_token({"role": "member"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/sales/{SALE_ID}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+    assert resp.status_code == 403
+
+
+async def test_delete_sales_by_operation_ok(async_client, mock_pool):
+    """DELETE /sales?operation_id= elimina toda la operación agrupada → 204."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetch = AsyncMock(return_value=[{"id": SALE_ID}])
+    conn.fetchrow = AsyncMock(return_value=None)  # sin product_id → sin reversa de stock
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/sales?operation_id={OPERATION_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 204
+
+
+async def test_delete_sales_by_operation_not_found(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetch = AsyncMock(return_value=[])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/sales?operation_id={OPERATION_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 404
+
+
+async def test_update_sale_operation_ok(async_client, mock_pool):
+    """PUT /sales/operation invoca rpc_atomic_update_sale_operation → 200."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["query"] = query
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert "rpc_atomic_update_sale_operation" in captured["query"]
+
+
+async def test_update_sale_operation_member_forbidden(async_client, mock_pool):
+    pool, conn = mock_pool
+    member_token = make_token({"role": "member"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+    assert resp.status_code == 403
+
+
 async def test_list_sales_ok(async_client, valid_token, mock_pool):
     pool, conn = mock_pool
     conn.fetch = AsyncMock(return_value=[])

@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from backend.core.guards import require_role
 from backend.repositories.sales_repository import SalesRepository
-from backend.schemas.sales import SaleOperationIn
+from backend.schemas.sales import SaleOperationIn, SaleOperationUpdateIn
 
 
 async def list_sales_paginated(
@@ -23,6 +23,38 @@ async def list_sales_paginated(
         account_id, page, page_size, df, dt,
     )
     return {"items": [dict(r) for r in rows], "total_operations": total}
+
+
+async def delete_sale(
+    repo: SalesRepository, auth: dict, account_id: str, sale_id: str
+) -> None:
+    require_role(auth, ["user", "admin"])
+    found = await repo.delete_by_id(sale_id, account_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Venta no encontrada")
+
+
+async def delete_sale_operation(
+    repo: SalesRepository, auth: dict, account_id: str, operation_id: str
+) -> None:
+    require_role(auth, ["user", "admin"])
+    found = await repo.delete_by_operation(operation_id, account_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Operación no encontrada")
+
+
+async def update_sale_operation(
+    repo: SalesRepository, auth: dict, payload: SaleOperationUpdateIn
+) -> None:
+    require_role(auth, ["user", "admin"])
+    items = [item.model_dump() for item in payload.items]
+    await repo.update_operation(
+        payload.sale_ids,
+        payload.client_id,
+        payload.date,
+        payload.currency,
+        items,
+    )
 
 
 async def create_sale_operation(

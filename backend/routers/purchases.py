@@ -9,7 +9,12 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.repositories.purchase_repository import PurchaseRepository
-from backend.schemas.purchases import PurchaseOperationIn, PurchaseOperationOut, PurchasesPageOut
+from backend.schemas.purchases import (
+    PurchaseOperationIn,
+    PurchaseOperationOut,
+    PurchaseOperationUpdateIn,
+    PurchasesPageOut,
+)
 from backend.services import purchases as purchases_service
 
 router = APIRouter(prefix="/purchases", tags=["purchases"])
@@ -62,3 +67,15 @@ async def create_purchase(
     repo: PurchaseRepository = Depends(get_repo),
 ):
     return await purchases_service.create_purchase_operation(repo, auth, str(account_id), payload)
+
+
+@router.put("/operation")
+async def update_purchase_operation(
+    payload: PurchaseOperationUpdateIn,
+    auth: dict = Depends(get_current_user),
+    repo: PurchaseRepository = Depends(get_repo),
+):
+    """Edita una operación de compra: reemplaza sus ítems vía
+    rpc_atomic_update_purchase_operation (REVERSE + APPLY de stock, atómico)."""
+    await purchases_service.update_purchase_operation(repo, auth, payload)
+    return {"ok": True}

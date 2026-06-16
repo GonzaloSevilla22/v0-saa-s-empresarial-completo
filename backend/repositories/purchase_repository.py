@@ -176,6 +176,29 @@ class PurchaseRepository(BaseRepository):
             )
             return True
 
+    async def update_operation(
+        self,
+        purchase_ids: list[str],
+        date: datetime.date,
+        description: str | None,
+        items: list[dict],
+    ) -> None:
+        # rpc_atomic_update_purchase_operation hace REVERSE de los ítems viejos +
+        # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
+        # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
+        def _default(obj):
+            if isinstance(obj, Decimal):
+                return str(obj)
+            raise TypeError(f"Not serializable: {type(obj)}")
+
+        await self._conn.execute(
+            "SELECT rpc_atomic_update_purchase_operation($1::text[]::uuid[], $2::date, $3::text, $4::jsonb)",
+            purchase_ids,
+            date,
+            description,
+            json.dumps(items, default=_default),
+        )
+
     async def create_operation(
         self,
         user_id: str,

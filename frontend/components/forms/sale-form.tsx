@@ -28,6 +28,7 @@ import {
 import {
   calcSaleSubtotal,
   calcCartTotal,
+  unitPriceFromSubtotal,
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
@@ -82,6 +83,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [quantity, setQuantity] = useState(1)
   const [discount, setDiscount] = useState(0)
   const [unitId, setUnitId] = useState("")
+
+  // Subtotal is editable: the user can type the exact price the sale closed at
+  // and we back-compute the effective unit price. While the field is focused we
+  // show their raw draft (avoids rounding flicker when qty > 1); when blurred we
+  // show the derived stagedSubtotal. unitPrice + discount remain the source of
+  // truth, so the rest of the form (and persistence) is unchanged.
+  const [subtotalFocused, setSubtotalFocused] = useState(false)
+  const [subtotalDraft, setSubtotalDraft] = useState(0)
 
   // ── Header fields (apply to all items) ─────────────────────────────────────
   const [clientId, setClientId] = useState(() => editingOperation?.clientId ?? "")
@@ -715,10 +724,27 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
-                  <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-emerald-400 tabular-nums">
-                    {formatMoney(stagedSubtotal, currency)}
-                  </div>
+                  <Label className="text-[10px] text-muted-foreground flex items-center justify-between">
+                    Subtotal
+                    <span className="text-[9px] text-muted-foreground/70">editable</span>
+                  </Label>
+                  <NumericInput
+                    min={0}
+                    value={subtotalFocused ? subtotalDraft : stagedSubtotal}
+                    onFocus={(e) => {
+                      e.target.select()
+                      setSubtotalDraft(stagedSubtotal)
+                      setSubtotalFocused(true)
+                    }}
+                    onBlur={() => setSubtotalFocused(false)}
+                    onValueChange={(val) => {
+                      setSubtotalDraft(val)
+                      // Fijar el precio efectivo a partir del subtotal tipeado.
+                      setUnitPrice(unitPriceFromSubtotal(val, quantity))
+                      setDiscount(0)
+                    }}
+                    className="bg-background border-border text-right font-bold text-emerald-400"
+                  />
                 </div>
               </div>
             </div>

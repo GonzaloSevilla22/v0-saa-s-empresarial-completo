@@ -61,6 +61,21 @@ export function calcSaleSubtotal(
   return _round4(unitPrice * qty * (1 - discount / 100))
 }
 
+/**
+ * Inverse of calcSaleSubtotal for the discount-free case: given a desired line
+ * subtotal and quantity, returns the effective unit price (rounded to 4dp).
+ *
+ * Used when the user edits the Subtotal field directly to hit the exact price a
+ * sale closed at (when a % discount can't land on a round number). The result
+ * becomes the stored `amount` (effective unit price); discount resets to 0.
+ *
+ * Guards qty <= 0 → returns 0 to avoid division by zero / Infinity.
+ */
+export function unitPriceFromSubtotal(subtotal: number, qty: number): number {
+  if (qty <= 0) return 0
+  return _round4(subtotal / qty)
+}
+
 // ─── Purchase Cart ────────────────────────────────────────────────────────────
 
 export interface PurchaseCartItem {

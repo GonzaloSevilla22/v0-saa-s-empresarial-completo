@@ -25,6 +25,7 @@ import { PRODUCT_CATEGORIES } from "@/lib/constants"
 import {
   calcPurchaseSubtotal,
   calcCartTotal,
+  unitPriceFromSubtotal,
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
@@ -74,6 +75,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [unitCost, setUnitCost] = useState(0)
   const [quantity, setQuantity] = useState(1)
   const [unitId, setUnitId] = useState("")
+
+  // Subtotal editable: the user can type the line total and we back-compute the
+  // effective unit cost. Focused-draft avoids rounding flicker when qty > 1.
+  const [subtotalFocused, setSubtotalFocused] = useState(false)
+  const [subtotalDraft, setSubtotalDraft] = useState(0)
 
   // ── Global description (one note per operation) ─────────────────────────────
   const [description, setDescription] = useState(() => editingOperation?.description ?? "")
@@ -289,6 +295,21 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     )
   }
 
+  // Edit the subtotal of an item already in the cart: back-compute unit cost.
+  function handleUpdateSubtotal(id: string, newSubtotal: number) {
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              unitCost: unitPriceFromSubtotal(newSubtotal, item.quantity),
+              subtotal: newSubtotal,
+            }
+          : item,
+      ),
+    )
+  }
+
   function handleCreateProduct() {
     if (!newProductName.trim() || !newProductCategory) {
       toast.error("Nombre y categoría son obligatorios")
@@ -406,6 +427,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             }))}
             onRemove={handleRemoveItem}
             onUpdateQty={handleUpdateQty}
+            onUpdateSubtotal={handleUpdateSubtotal}
             unitLabel="Costo unit."
           />
         }
@@ -632,10 +654,26 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <Label className="text-[10px] text-muted-foreground">Subtotal</Label>
-                  <div className="flex h-10 items-center justify-end rounded-md border border-border bg-background px-3 text-sm font-bold text-cyan-400 tabular-nums">
-                    {formatMoney(stagedSubtotal)}
-                  </div>
+                  <Label className="text-[10px] text-muted-foreground flex items-center justify-between">
+                    Subtotal
+                    <span className="text-[9px] text-muted-foreground/70">editable</span>
+                  </Label>
+                  <NumericInput
+                    min={0}
+                    value={subtotalFocused ? subtotalDraft : stagedSubtotal}
+                    onFocus={(e) => {
+                      e.target.select()
+                      setSubtotalDraft(stagedSubtotal)
+                      setSubtotalFocused(true)
+                    }}
+                    onBlur={() => setSubtotalFocused(false)}
+                    onValueChange={(val) => {
+                      setSubtotalDraft(val)
+                      // Fijar el costo efectivo a partir del subtotal tipeado.
+                      setUnitCost(unitPriceFromSubtotal(val, quantity))
+                    }}
+                    className="bg-background border-border text-right font-bold text-cyan-400"
+                  />
                 </div>
               </div>
             </div>

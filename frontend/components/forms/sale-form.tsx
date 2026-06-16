@@ -329,6 +329,23 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     )
   }
 
+  // Edit the subtotal of an item already in the cart: back-compute the effective
+  // unit price and clear the discount (mirrors the staged-item behaviour).
+  function handleUpdateSubtotal(id: string, newSubtotal: number) {
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              unitPrice: unitPriceFromSubtotal(newSubtotal, item.quantity),
+              discount:  0,
+              subtotal:  newSubtotal,
+            }
+          : item,
+      ),
+    )
+  }
+
   function handleCreateClient() {
     if (!newClientName.trim()) {
       toast.error("El nombre del cliente es obligatorio")
@@ -462,6 +479,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             }))}
             onRemove={handleRemoveItem}
             onUpdateQty={handleUpdateQty}
+            onUpdateSubtotal={handleUpdateSubtotal}
             unitLabel="Precio unit."
             currency={currency}
           />

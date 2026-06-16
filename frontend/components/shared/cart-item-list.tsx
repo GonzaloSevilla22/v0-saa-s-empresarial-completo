@@ -35,6 +35,12 @@ interface CartItemListProps {
   items: CartDisplayItem[]
   onRemove: (id: string) => void
   onUpdateQty: (id: string, qty: number) => void
+  /**
+   * When provided, the subtotal cell becomes an editable input. The form is
+   * responsible for back-computing the effective unit price from the new
+   * subtotal (e.g. via unitPriceFromSubtotal). When omitted, subtotal is read-only.
+   */
+  onUpdateSubtotal?: (id: string, subtotal: number) => void
   /** Label shown below the product name. Default: "Precio unit." */
   unitLabel?: string
   currency?: Currency
@@ -48,6 +54,7 @@ export function CartItemList({
   items,
   onRemove,
   onUpdateQty,
+  onUpdateSubtotal,
   unitLabel = "Precio unit.",
   currency = "ARS",
   maxQtyMap,
@@ -111,10 +118,20 @@ export function CartItemList({
             className="bg-background border-border text-foreground text-sm h-8"
           />
 
-          {/* Subtotal */}
-          <div className="text-right text-sm font-bold text-primary tabular-nums">
-            {formatMoney(item.subtotal, currency)}
-          </div>
+          {/* Subtotal — editable when onUpdateSubtotal is provided */}
+          {onUpdateSubtotal ? (
+            <NumericInput
+              min={0}
+              value={item.subtotal}
+              onValueChange={(val) => onUpdateSubtotal(item.id, val)}
+              className="bg-background border-border text-right font-bold text-primary h-8 text-sm"
+              aria-label={`Subtotal de ${item.productName}`}
+            />
+          ) : (
+            <div className="text-right text-sm font-bold text-primary tabular-nums">
+              {formatMoney(item.subtotal, currency)}
+            </div>
+          )}
 
           {/* Remove */}
           <Button

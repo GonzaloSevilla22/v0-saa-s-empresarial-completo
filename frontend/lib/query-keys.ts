@@ -87,4 +87,15 @@ export const queryKeys = {
     all:       () => ["cashMovements"] as const,
     bySession: (sessionId: string) => ["cashMovements", "session", sessionId] as const,
   },
+  // C-29: Quote / SalesOrder
+  quotes: {
+    all:    () => ["quotes"] as const,
+    lists:  () => ["quotes", "list"] as const,
+    detail: (id: string) => ["quotes", "detail", id] as const,
+  },
+  salesOrders: {
+    all:    () => ["salesOrders"] as const,
+    lists:  () => ["salesOrders", "list"] as const,
+    detail: (id: string) => ["salesOrders", "detail", id] as const,
+  },
 } as const

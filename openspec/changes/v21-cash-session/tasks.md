@@ -47,7 +47,7 @@
 
 ## 5. Verificación y cierre
 
-- [ ] 5.1 Smoke transaccional en prod (rollback): crear caja → abrir sesión (`status='open'`) → doble apertura `P0409 cashbox_session_open` → registrar `sale +X`/`expense -Y` (`balance_after` encadenado) → cerrar con arqueo (`difference` correcta) → cerrar cerrada `P0409 session_not_open` → movimiento sin sesión `P0409 no_open_session` → caja en sucursal cerrada `P0422 branch_closed`.
-- [ ] 5.2 PR(s) a main; checks verdes (`gh pr checks` antes de mergear); merge; Render/Vercel deploy. (Ignorar check rojo "Supabase Preview" — el plan no soporta branching.)
+- [ ] 5.1 Smoke transaccional en prod (rollback): **PENDIENTE PARA EL PO POST-MERGE**. Ejecutar como DO block con `RAISE EXCEPTION 'rollback'` al final para que no queden datos. Escenarios: crear caja → abrir sesión → doble apertura `P0409 cashbox_session_open` → movimientos → cerrar con arqueo → cerrar cerrada `P0409 session_not_open` → movimiento sin sesión `P0409 no_open_session` → caja en sucursal cerrada `P0422 branch_closed`.
+- [x] 5.2 PR #190 abierto: https://github.com/GonzaloSevilla22/v0-saa-s-empresarial-completo/pull/190. Ignorar check rojo "Supabase Preview" (plan no soporta branching). El PO decide el merge.
 - [ ] 5.3 `/opsx:archive v21-cash-session` → sync specs (`cash-session`, `cash-movement`).
 - [ ] 5.4 CHANGES.md C-28 `[x]`; CLAUDE.md próximo recomendado (C-29 `v21-quote-salesorder` — ya desbloqueado por C-20 + C-26; consumirá `c28_register_cash_movement`).

@@ -81,6 +81,35 @@ El cierre persiste `expected_balance`, `counted_balance`, `difference`, `closing
 3. Smoke transaccional en prod (DO block + `set_config('request.jwt.claims', …)` + RAISE final para rollback): crear caja → abrir sesión → doble apertura falla `P0409` → registrar movimientos → cerrar con arqueo → diferencia correcta → cierre de sesión cerrada falla → registrar movimiento sin sesión abierta falla → atomicidad del helper (rollback no deja fila).
 4. **Rollback**: `DROP FUNCTION rpc_*_cash_session, rpc_register_cash_movement, c28_register_cash_movement; DROP TABLE cash_movements, cash_sessions, cashboxes` (orden inverso de FKs). Sin pérdida de datos (feature nueva, 0 filas en prod).
 
+## Resolved Decisions
+
+> Resueltas por el PO (2026-06-17) antes del apply de C-28.
+
+### OQ-1 → RLS DERIVADA (sin `account_id` en las nuevas tablas)
+No se agrega `account_id` en `cashboxes`, `cash_sessions` ni `cash_movements`. La pertenencia a la cuenta se deriva 100% por la cadena de FKs:
+`cash_movements.session_id → cash_sessions.cashbox_id → cashboxes.branch_id → branches.account_id`.
+Las políticas RLS usan `current_account_ids()` / `is_account_writer()` con subselects JOIN.
+
+### OQ-2 → SIGNED AMOUNT (signo en `amount`)
+`amount` lleva signo: ingresos positivos (+), egresos negativos (−). El arqueo suma directamente `Σ amount`. La coherencia signo↔tipo (p. ej. `sale` > 0, `expense` < 0) se valida en la capa de servicio Python (no via CHECK en DB).
+
+### OQ-3 → DEFERRED A C-29 (contrato fijado)
+C-29 decide la UX de "venta sin caja abierta". El helper `c28_register_cash_movement` retorna `P0409 no_open_session` cuando no hay sesión `open` — ese es el contrato que C-29 consumirá. No bloquea C-28.
+
+### Contrato del helper `c28_register_cash_movement` (para consumo de C-29)
+```sql
+c28_register_cash_movement(
+  p_session_id   uuid,
+  p_amount       numeric,   -- con signo: + ingreso, − egreso
+  p_type         text,      -- 'sale'|'purchase_payment'|'expense'|'advance'|'withdrawal'
+  p_reference_id uuid       -- nullable; sale_id u otra FK externa
+) RETURNS uuid              -- id del cash_movement insertado
+```
+- Invariantes verificadas: `status='open'` (→ `P0409 no_open_session`), `branch.status='active'` (→ `P0422 branch_closed`).
+- `balance_after = COALESCE(max(balance_after) FROM cash_movements WHERE session_id, opening_balance) + p_amount`.
+- Lock de fila con `SELECT … FOR UPDATE` sobre `cash_sessions` (D3) — serializa movimientos concurrentes.
+- **NO abre transacción propia** — corre en la transacción del llamador.
+
 ## Open Questions (resolver con el PO antes del apply)
 
 - **OQ-1 — `account_id` redundante en `cashboxes`**: ¿dejamos la RLS 100% derivada por joins (recomendado, más limpio y coherente con V2) o desnormalizamos `account_id` en `cashboxes` para acortar la RLS de la tabla raíz? **Recomendación: derivada** — feature nueva, sin presión de escala; materializar después es aditivo.

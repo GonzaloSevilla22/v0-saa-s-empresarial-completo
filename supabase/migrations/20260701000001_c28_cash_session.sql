@@ -1,5 +1,5 @@
 -- =============================================================================
--- MIGRATION: 20260617000001_c28_cash_session.sql
+-- MIGRATION: 20260701000001_c28_cash_session.sql
 -- CHANGE:    C-28 v21-cash-session — CashSession / CashMovement (Ledger de caja)
 --
 -- Implementa (design.md, OQs resueltas por el PO 2026-06-17):

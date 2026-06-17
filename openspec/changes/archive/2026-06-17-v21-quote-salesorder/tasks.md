@@ -61,9 +61,13 @@
 
 - [x] 9.1 Hooks React Query: `use-quotes` (CRUD + accept) y `use-sales-orders` (confirm + quickSale), con invalidación de la query de ventas/stock. Componentes en PascalCase, sin `any`.
 - [x] 9.2 (Opcional) Pantalla POS de quickSale reusando el formulario de venta existente; (opcional) vista de presupuestos.
+  - NOTA: QuickSale POS completado. Vista de presupuestos diferida para change futuro (no bloqueante).
 
 ## 10. Deploy y validación en prod
 
-- [ ] 10.1 PR a `main` (feature branch + PR obligatorio); CI aplica la migración y deploya. Verificar `gh pr checks` verde (ignorar "Supabase Preview" rojo — no bloqueante).
-- [ ] 10.2 Smoke transaccional contra `gxdhpxvdjjkmxhdkkwyb` (BEGIN…RAISE→ROLLBACK): quickSale −2, stock 0 → P0409, accept→SalesOrder, confirm a mitad → rollback total. Gate de validación clave.
-- [ ] 10.3 Actualizar CHANGES.md (marcar C-29) y `mem_save` del cierre del change.
+- [x] 10.1 PR a `main` (feature branch + PR obligatorio); CI aplica la migración y deploya. Verificar `gh pr checks` verde (ignorar "Supabase Preview" rojo — no bloqueante).
+  - PR #193 (feat/c29-quote-salesorder) mergeado 2026-06-17. Hotfix PR #194 aplicado: `events.company_id`/`entity_type` nullable (migración `20260702000002`) — prod `events` tiene esas columnas NOT NULL (drift vs. stub de CI); outbox INSERT funciona correctamente en prod.
+- [x] 10.2 Smoke transaccional contra `gxdhpxvdjjkmxhdkkwyb` (BEGIN…RAISE→ROLLBACK): quickSale −2, stock 0 → P0409, accept→SalesOrder, confirm a mitad → rollback total. Gate de validación clave.
+  - RESULTADO: 4/4 casos OK, cero residuo. Smoke adaptado vs. `scripts/smoke_c29_quote_salesorder.sql` (script comprometido tiene issues conocidos para runs headless: usa `org_members`→correcto `account_members`; rol `user/admin`→prod usa `owner/admin`; SAVEPOINT inválido en DO block; sin JWT claim injection). C-25 debe reconciliar drift de schema `public.events` al formalizar el outbox.
+- [x] 10.3 Actualizar CHANGES.md (marcar C-29) y `mem_save` del cierre del change.
+  - CHANGES.md actualizado durante apply; C-29 marcado [x] en tabla de roadmap; Fase 7 = 4/5.

@@ -841,7 +841,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-29] `v21-quote-salesorder`
-- **Estado**: `[x]` implementado (2026-06-17, branch `feat/c29-quote-salesorder`, PR pendiente revisión PO)
+- **Estado**: `[x]` archivado (2026-06-17, PRs #193 + hotfix #194 mergeados, archivado `2026-06-17-v21-quote-salesorder`)
 - **Scope**:
   - `Quote` — cotización con ciclo de vida: `draft()` / `send()` / `accept()` / `expire()` / `reject()`; referencias `sale_items` via `quote_items`
   - `SalesOrder` — orden de venta con `confirm()` transaccional: en una sola transacción → (a) decrementa `branch_stock` por cada ítem, (b) genera `cash_movement` (si pago en efectivo), (c) genera `DocumentSequence` number (si factura), (d) INSERT en `events` outbox
@@ -942,25 +942,24 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ## Primer change recomendado
 
 **Fase 6: 6/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13) archivados; falta C-25.
-**Fase 7: 4/5 completados** — C-26 (2026-06-12), C-27 (2026-06-12), C-28 (2026-06-17) archivados; **C-29 (2026-06-17) implementado, branch `feat/c29-quote-salesorder` listo para revisión PO + PR**.
+**Fase 7: 4/5 completados** — C-26 (2026-06-12), C-27 (2026-06-12), C-28 (2026-06-17), **C-29 (2026-06-17)** archivados; falta C-30.
 
 ### `C-30` `v21-customer-supplier-accounts` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
 
 Desbloqueado: C-29 ✅. `CustomerAccount` / `SupplierAccount` — ledger append-only para cuentas corrientes; integra con `SalesOrder.confirm()` en la misma transacción.
 
-**Recién implementado (pendiente PR/archive):**
-- **C-29** `v21-quote-salesorder` ✅ (2026-06-17, branch `feat/c29-quote-salesorder`) — `Quote`/`SalesOrder` + `quickSale()` POS; hot path transaccional con `branch_stock` + `cash_movement` + outbox + retrocompat `sales`/`sale_items`; 278 tests pasando; 44 tests nuevos (TDD RED→GREEN→TRIANGULATE→REFACTOR completo); migración `20260702000001`.
+**Recién archivado:**
+- **C-29** `v21-quote-salesorder` ✅ (2026-06-17, archivado `2026-06-17-v21-quote-salesorder`, PRs #193 + #194) — `Quote`/`SalesOrder` + `quickSale()` POS; hot path transaccional con `branch_stock` + `cash_movement` + outbox + retrocompat `sales`/`sale_items`; 278 tests pasando; 44 tests nuevos (TDD RED→GREEN→TRIANGULATE→REFACTOR completo); migraciones `20260702000001` + `20260702000002` (hotfix: `events.company_id`/`entity_type` nullable para prod drift — C-25 reconcilia). Smoke 4/4 OK.
+- **C-28** `v21-cash-session` ✅ (2026-06-17, archivado `2026-06-17-v21-cash-session`, PR #190) — Caja por sucursal: `Cashbox`/`CashSession` (open/close/arqueo)/`CashMovement` append-only; RLS por `account_id` derivado vía `branch_id`; helper intra-transacción `c28_register_cash_movement` listo para que C-29 lo enchufe en el hot path; UI `/sucursales/:id/caja`.
 
 **También disponible:**
-- **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21) · último pendiente de Fase 6.
-
-**Recién archivado:**
-- **C-28** `v21-cash-session` ✅ (2026-06-17, archivado `2026-06-17-v21-cash-session`, PR #190) — Caja por sucursal: `Cashbox`/`CashSession` (open/close/arqueo)/`CashMovement` append-only; RLS por `account_id` derivado vía `branch_id`; helper intra-transacción `c28_register_cash_movement` listo para que C-29 lo enchufe en el hot path; UI `/sucursales/:id/caja`.
+- **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21) · último pendiente de Fase 6. NOTA: debe reconciliar drift de `public.events` (prod tiene `company_id`/`entity_type` NOT NULL; C-29 hotfix los hizo nullable; C-25 debe formalizar el schema canónico del outbox en migration history).
 
 **Pendiente externo (no bloquea):**
 - **C-27 task 5.2** — Verificacion E2E en homologacion ARCA (WSAA ticket → WSFEv1 CAE): pendiente del tramite AFIP del PO (certificado de homologacion). El adaptador `WSFEAdapter` esta implementado y testeado con SOAP mockeado.
 
 **Diferido:**
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
+- **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para C-30 o change propio.
 
-Para arrancar: `/opsx:propose v21-cash-session`
+Para arrancar: `/opsx:propose v21-customer-supplier-accounts`

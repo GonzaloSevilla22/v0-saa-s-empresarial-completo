@@ -59,7 +59,7 @@ CREATE POLICY cashboxes_select
   USING (
     branch_id IN (
       SELECT b.id FROM public.branches b
-      WHERE b.account_id = ANY(public.current_account_ids())
+      WHERE b.account_id IN (SELECT public.current_account_ids())
     )
   );
 
@@ -95,7 +95,7 @@ CREATE POLICY cash_sessions_select
     cashbox_id IN (
       SELECT cb.id FROM public.cashboxes cb
       JOIN public.branches b ON b.id = cb.branch_id
-      WHERE b.account_id = ANY(public.current_account_ids())
+      WHERE b.account_id IN (SELECT public.current_account_ids())
     )
   );
 
@@ -138,7 +138,7 @@ CREATE POLICY cash_movements_select
       SELECT cs.id FROM public.cash_sessions cs
       JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
       JOIN public.branches b  ON b.id  = cb.branch_id
-      WHERE b.account_id = ANY(public.current_account_ids())
+      WHERE b.account_id IN (SELECT public.current_account_ids())
     )
   );
 

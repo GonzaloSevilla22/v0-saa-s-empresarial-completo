@@ -60,7 +60,7 @@
 ## 9. Frontend (mínimo / diferible según apply)
 
 - [x] 9.1 Hooks React Query: `use-quotes` (CRUD + accept) y `use-sales-orders` (confirm + quickSale), con invalidación de la query de ventas/stock. Componentes en PascalCase, sin `any`.
-- [ ] 9.2 (Opcional) Pantalla POS de quickSale reusando el formulario de venta existente; (opcional) vista de presupuestos.
+- [x] 9.2 (Opcional) Pantalla POS de quickSale reusando el formulario de venta existente; (opcional) vista de presupuestos.
 
 ## 10. Deploy y validación en prod
 

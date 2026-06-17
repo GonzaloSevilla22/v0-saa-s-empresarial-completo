@@ -11,7 +11,7 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf
+  CreditCard, FolderDown, Leaf, Scan
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -35,6 +35,7 @@ const navGroups = [
     label: "Operaciones",
     items: [
       { title: "Ventas", href: "/ventas", icon: ShoppingCart, pro: false, proOnly: false },
+      { title: "POS — Venta Rápida", href: "/ventas/pos", icon: Scan, pro: false, proOnly: false },
       { title: "Compras", href: "/compras", icon: ShoppingBag, pro: false, proOnly: false },
       { title: "Gastos", href: "/gastos", icon: Receipt, pro: false, proOnly: false },
     ],

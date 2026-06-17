@@ -4,26 +4,45 @@
 --              en prod con 23502 "null value in column company_id ... violates
 --              not-null constraint" (y luego entity_type), rompiendo TODA venta.
 --
--- Root cause:
---   La tabla public.events NO era el stub simple (id, company_id, title) que
---   asumió C-29 (ese CREATE TABLE IF NOT EXISTS fue no-op porque la tabla ya
---   existía con otra forma). La tabla real (schema original) tiene columnas
---   NOT NULL heredadas de un diseño de eventos viejo basado en company:
---     - company_id  uuid  NOT NULL   ← concepto retirado en V2 (tenancy = account_id)
---     - entity_type text  NOT NULL   ← C-29 usa aggregate_type en su lugar
---   El INSERT del hot path (20260702000001) provee event_type/payload/account_id/
---   aggregate_type/aggregate_id/occurred_at pero NO company_id ni entity_type.
---   pytest mockea asyncpg y no lo detectó; lo cazó el smoke transaccional en prod.
+-- Root cause + DRIFT de schema (importante):
+--   La tabla public.events de PROD NO coincide con la que producen las migraciones.
+--   * En PROD (schema original, fuera del historial de migraciones): events tiene
+--       company_id uuid NOT NULL  y  entity_type text NOT NULL  (diseño de eventos
+--       viejo basado en company). El INSERT del outbox V2 (20260702000001) provee
+--       event_type/payload/account_id/aggregate_type/aggregate_id/occurred_at pero
+--       NO company_id ni entity_type -> 23502.
+--   * En CI (Supabase fresco desde migraciones): events viene del stub
+--       20260517000000_ci_compat_stubs.sql = (id, company_id[NULLABLE], title,
+--       created_at). NO existe entity_type, y company_id ya es nullable. Por eso
+--       C-29 pasó validate-kpis pero rompió en prod (el bug solo se ve en prod).
 --
--- Fix: hacer nullables las dos columnas vestigiales. `events` no tiene productores
---   ni consumers en el código de la app (verificado por grep), y el modelo V2 la
---   trata como outbox vacío a activar (C-25). El outbox V2 usa
---   (account_id, event_type, aggregate_type, aggregate_id, payload, occurred_at).
---   company_id/entity_type/entity_id quedan como columnas legacy nullable; C-25
---   leerá aggregate_*.
+-- Por el drift, esta migración debe ser TOLERANTE: solo afloja columnas que
+--   existan y estén NOT NULL. Idempotente y segura en ambos entornos.
+--   `events` no tiene productores/consumers en el código de la app (verificado por
+--   grep); el modelo V2 la trata como outbox vacío a activar (C-25, que leerá
+--   aggregate_*). company_id/entity_type quedan como columnas legacy nullable.
+--
+-- TODO C-25: reconciliar el drift de `events` prod vs migraciones (formalizar el
+--   schema único del outbox en el historial de migraciones).
 --
 -- APPLY: npx supabase db push  (NUNCA MCP apply_migration)
 -- =============================================================================
 
-ALTER TABLE public.events ALTER COLUMN company_id  DROP NOT NULL;
-ALTER TABLE public.events ALTER COLUMN entity_type DROP NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'events'
+      AND column_name = 'company_id' AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE public.events ALTER COLUMN company_id DROP NOT NULL;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'events'
+      AND column_name = 'entity_type' AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE public.events ALTER COLUMN entity_type DROP NOT NULL;
+  END IF;
+END $$;

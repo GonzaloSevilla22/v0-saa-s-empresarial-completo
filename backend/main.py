@@ -23,7 +23,9 @@ from backend.routers import (
     payments,
     products,
     purchases,
+    quotes,
     sales,
+    sales_orders,
     stock,
     ws,
 )
@@ -78,3 +80,6 @@ app.include_router(organizations.router)
 app.include_router(payments.router)
 # C-28 v21-cash-session
 app.include_router(cash.router)
+# C-29 v21-quote-salesorder
+app.include_router(quotes.router)
+app.include_router(sales_orders.router)

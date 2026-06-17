@@ -841,7 +841,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-29] `v21-quote-salesorder`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` implementado (2026-06-17, branch `feat/c29-quote-salesorder`, PR pendiente revisión PO)
 - **Scope**:
   - `Quote` — cotización con ciclo de vida: `draft()` / `send()` / `accept()` / `expire()` / `reject()`; referencias `sale_items` via `quote_items`
   - `SalesOrder` — orden de venta con `confirm()` transaccional: en una sola transacción → (a) decrementa `branch_stock` por cada ítem, (b) genera `cash_movement` (si pago en efectivo), (c) genera `DocumentSequence` number (si factura), (d) INSERT en `events` outbox
@@ -934,7 +934,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[x]` |
 | C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[x]` |
 | C-28 | v21-cash-session | 7 — V2.1 Operación | MEDIO | C-26 | `[x]` |
-| C-29 | v21-quote-salesorder | 7 — V2.1 Operación | MEDIO | C-20, C-26 | `[ ]` |
+| C-29 | v21-quote-salesorder | 7 — V2.1 Operación | MEDIO | C-20, C-26 | `[x]` |
 | C-30 | v21-customer-supplier-accounts | 7 — V2.1 Operación | MEDIO | C-29 | `[ ]` |
 
 ---
@@ -942,16 +942,19 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ## Primer change recomendado
 
 **Fase 6: 6/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13) archivados; falta C-25.
-**Fase 7: 3/5 completados** — C-26 (2026-06-12), C-27 (2026-06-12) y C-28 (2026-06-17) archivados.
+**Fase 7: 4/5 completados** — C-26 (2026-06-12), C-27 (2026-06-12), C-28 (2026-06-17) archivados; **C-29 (2026-06-17) implementado, branch `feat/c29-quote-salesorder` listo para revisión PO + PR**.
 
-### `C-29` `v21-quote-salesorder` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
+### `C-30` `v21-customer-supplier-accounts` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
 
-Desbloqueado: C-20 ✅ (live en prod) + C-26 ✅. `Quote` (ciclo draft/send/accept/expire/reject) + `SalesOrder` con `confirm()` transaccional (decrementa `branch_stock`, genera `cash_movement` vía el helper `c28_register_cash_movement` de C-28, número fiscal de C-27, INSERT en outbox) + `quickSale()` POS. Desbloquea C-30 (cuentas corrientes).
+Desbloqueado: C-29 ✅. `CustomerAccount` / `SupplierAccount` — ledger append-only para cuentas corrientes; integra con `SalesOrder.confirm()` en la misma transacción.
+
+**Recién implementado (pendiente PR/archive):**
+- **C-29** `v21-quote-salesorder` ✅ (2026-06-17, branch `feat/c29-quote-salesorder`) — `Quote`/`SalesOrder` + `quickSale()` POS; hot path transaccional con `branch_stock` + `cash_movement` + outbox + retrocompat `sales`/`sale_items`; 278 tests pasando; 44 tests nuevos (TDD RED→GREEN→TRIANGULATE→REFACTOR completo); migración `20260702000001`.
 
 **También disponible:**
 - **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21) · último pendiente de Fase 6.
 
-**Recién completado:**
+**Recién archivado:**
 - **C-28** `v21-cash-session` ✅ (2026-06-17, archivado `2026-06-17-v21-cash-session`, PR #190) — Caja por sucursal: `Cashbox`/`CashSession` (open/close/arqueo)/`CashMovement` append-only; RLS por `account_id` derivado vía `branch_id`; helper intra-transacción `c28_register_cash_movement` listo para que C-29 lo enchufe en el hot path; UI `/sucursales/:id/caja`.
 
 **Pendiente externo (no bloquea):**

@@ -73,4 +73,18 @@ export const queryKeys = {
     all:     () => ["fiscalDocuments"] as const,
     pending: () => ["fiscalDocuments", "pending"] as const,
   },
+  // C-28: CashSession / CashMovement
+  cashboxes: {
+    all:      () => ["cashboxes"] as const,
+    byBranch: (branchId: string) => ["cashboxes", "branch", branchId] as const,
+  },
+  cashSessions: {
+    all:           () => ["cashSessions"] as const,
+    byCashbox:     (cashboxId: string) => ["cashSessions", "cashbox", cashboxId] as const,
+    currentOpen:   (cashboxId: string) => ["cashSessions", "current", cashboxId] as const,
+  },
+  cashMovements: {
+    all:       () => ["cashMovements"] as const,
+    bySession: (sessionId: string) => ["cashMovements", "session", sessionId] as const,
+  },
 } as const

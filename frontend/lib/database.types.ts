@@ -994,6 +994,133 @@ export type Database = {
           },
         ]
       }
+      // ── C-28: cashboxes / cash_sessions / cash_movements ───────────────────
+      cashboxes: {
+        Row: {
+          created_at: string
+          currency: string
+          id: string
+          branch_id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          id?: string
+          branch_id: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          id?: string
+          branch_id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cashboxes_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cash_sessions: {
+        Row: {
+          cashbox_id: string
+          closed_at: string | null
+          closed_by: string | null
+          closing_balance: number | null
+          counted_balance: number | null
+          difference: number | null
+          expected_balance: number | null
+          id: string
+          opened_at: string
+          opened_by: string
+          opening_balance: number
+          status: string
+        }
+        Insert: {
+          cashbox_id: string
+          closed_at?: string | null
+          closed_by?: string | null
+          closing_balance?: number | null
+          counted_balance?: number | null
+          difference?: number | null
+          expected_balance?: number | null
+          id?: string
+          opened_at?: string
+          opened_by: string
+          opening_balance: number
+          status?: string
+        }
+        Update: {
+          cashbox_id?: string
+          closed_at?: string | null
+          closed_by?: string | null
+          closing_balance?: number | null
+          counted_balance?: number | null
+          difference?: number | null
+          expected_balance?: number | null
+          id?: string
+          opened_at?: string
+          opened_by?: string
+          opening_balance?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_sessions_cashbox_id_fkey"
+            columns: ["cashbox_id"]
+            isOneToOne: false
+            referencedRelation: "cashboxes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cash_movements: {
+        Row: {
+          amount: number
+          balance_after: number
+          created_at: string
+          created_by: string
+          id: string
+          movement_type: string
+          reference_id: string | null
+          session_id: string
+        }
+        Insert: {
+          amount: number
+          balance_after: number
+          created_at?: string
+          created_by: string
+          id?: string
+          movement_type: string
+          reference_id?: string | null
+          session_id: string
+        }
+        Update: {
+          amount?: number
+          balance_after?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          movement_type?: string
+          reference_id?: string | null
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_movements_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "cash_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       branches: {
         Row: {
           account_id: string

@@ -145,6 +145,62 @@ export interface PlanLimits {
   priceArsAnnual?: number
 }
 
+// ── C-28: CashSession / CashMovement ──────────────────────────────────────
+
+/** Cash movement types (C-28). Distinct from stock MovementType (inventory). */
+export type CashMovementType =
+  | "sale"
+  | "purchase_payment"
+  | "expense"
+  | "advance"
+  | "withdrawal"
+
+/**
+ * A physical cash register assigned to a branch.
+ * Source of truth: cashboxes table (C-28).
+ */
+export interface Cashbox {
+  id: string
+  branchId: string
+  name: string
+  currency: string
+  createdAt: string
+}
+
+/**
+ * An operating session of a cashbox (open → closed lifecycle).
+ * Source of truth: cash_sessions table (C-28).
+ */
+export interface CashSession {
+  id: string
+  cashboxId: string
+  status: "open" | "closed"
+  openingBalance: number
+  closingBalance: number | null
+  countedBalance: number | null
+  expectedBalance: number | null
+  difference: number | null
+  openedBy: string
+  closedBy: string | null
+  openedAt: string
+  closedAt: string | null
+}
+
+/**
+ * A single cash movement entry (append-only ledger).
+ * Source of truth: cash_movements table (C-28).
+ */
+export interface CashMovement {
+  id: string
+  sessionId: string
+  amount: number
+  movementType: CashMovementType
+  referenceId: string | null
+  balanceAfter: number
+  createdBy: string
+  createdAt: string
+}
+
 export type UserRole = "user" | "admin"
 
 export interface User {

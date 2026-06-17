@@ -39,6 +39,10 @@ function translateRpcError(message: string): string {
   if (message.includes("branch_closed"))         return "La sucursal está cerrada."
   if (message.includes("unauthorized"))          return "No tenés permisos para realizar esta acción."
   if (message.includes("branch_not_found"))      return "La sucursal no existe."
+  // C-28: cash session error codes
+  if (message.includes("cashbox_session_open"))  return "Ya hay una sesión de caja abierta para esta caja."
+  if (message.includes("no_open_session"))        return "No hay sesión de caja abierta. Abrí una sesión primero."
+  if (message.includes("session_not_open"))       return "La sesión de caja no está abierta."
   return message || "Ocurrió un error inesperado."
 }
 

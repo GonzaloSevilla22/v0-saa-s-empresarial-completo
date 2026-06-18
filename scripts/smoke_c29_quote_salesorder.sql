@@ -1,281 +1,212 @@
 -- =============================================================================
--- C-29 v21-quote-salesorder — Smoke Transaccional (BEGIN … RAISE → ROLLBACK)
+-- C-29 v21-quote-salesorder — Smoke Transaccional (DO + subtransacciones → RAISE/ROLLBACK)
 -- =============================================================================
 -- INSTRUCCIONES DE USO:
---   npx supabase db push    ← PRIMERO aplicar la migración en prod
---   psql $DATABASE_URL -f scripts/smoke_c29_quote_salesorder.sql
---
--- Este script usa BEGIN/SAVEPOINT + RAISE WARNING (no RAISE EXCEPTION) para
--- que cada caso se evalúe de forma independiente y al final se hace ROLLBACK
--- para no dejar datos basura en la base de producción.
+--   1) Aplicar primero la migración en prod (npx supabase db push).
+--   2) Correr este script contra la DB real. Dos formas:
+--        psql "$DATABASE_URL" -f scripts/smoke_c29_quote_salesorder.sql
+--      o vía el MCP de Supabase: pasar SOLO el bloque DO $$ ... $$ a execute_sql
+--      (el MCP envuelve su propia transacción; el RAISE final hace rollback).
 --
 -- Proyecto prod: gxdhpxvdjjkmxhdkkwyb
+--
+-- DISEÑO (por qué así):
+--   * Corre con un rol admin (psql/MCP) donde auth.uid() es NULL. Los RPCs exigen
+--     un usuario autenticado, así que inyectamos el claim JWT de un owner/admin real
+--     vía set_config('request.jwt.claims', ...). is_account_writer()/current_account_ids()
+--     leen ese claim contra public.account_members (writer = role owner|admin).
+--   * SAVEPOINT / ROLLBACK TO NO son válidos dentro de un bloque PL/pgSQL DO
+--     (dan 42601). La aislación por caso se hace con subtransacciones
+--     BEGIN ... EXCEPTION WHEN OTHERS THEN ... END, y cada caso exitoso termina con
+--     RAISE EXCEPTION 'SMOKE_UNDO' para revertir SUS efectos de DB. Las variables
+--     PL/pgSQL NO se revierten al capturar la excepción, así que v_report se preserva.
+--   * Al final, RAISE EXCEPTION 'C29_SMOKE_RESULTS ...' devuelve el reporte y aborta
+--     toda la transacción (cero datos en prod). El ROLLBACK; de abajo es redundante
+--     (belt-and-suspenders para el modo psql).
+--
+--   >>> El ERROR final "C29_SMOKE_RESULTS" es ESPERADO y contiene el reporte.
+--   >>> El smoke PASA si todas las líneas del reporte dicen [OK].
 -- =============================================================================
 
 BEGIN;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 0. Setup: necesitamos un account_id real, branch_id, product con stock,
---    y un user_id con rol user/admin.
--- Ajustar estas variables según el entorno de prueba.
--- ─────────────────────────────────────────────────────────────────────────────
-
 DO $$
 DECLARE
-  v_account_id      uuid;
-  v_branch_id       uuid;
-  v_product_id      uuid;
-  v_unit_id         uuid;
-  v_initial_stock   numeric(15,4);
-  v_user_id         uuid;
-
-  -- Resultados de los casos de prueba
-  v_result          jsonb;
-  v_quote_id        uuid;
-  v_so_id           uuid;
-  v_stock_after     numeric(15,4);
-  v_op_id1          text;
-  v_op_id2          text;
+  v_account_id  uuid;
+  v_branch_id   uuid;
+  v_product_id  uuid;
+  v_initial     numeric(15,4);
+  v_user_id     uuid;
+  v_result      jsonb;
+  v_quote_id    uuid;
+  v_so_id       uuid;
+  v_after       numeric(15,4);
+  v_op1         text;
+  v_op2         text;
+  v_idem4       text;
+  v_report      text := E'\n';
 BEGIN
-  -- ── Seleccionar datos de prueba de la BD real ──────────────────────────────
-  -- Tomar el primer account que tenga al menos una branch operativa
-  SELECT a.id INTO v_account_id
-  FROM accounts a
+  -- ── Selección robusta de datos de prueba ─────────────────────────────────────
+  -- Un (account, branch activa, product) con stock >= 2 cuya cuenta tenga
+  -- al menos un miembro writer (owner|admin).
+  SELECT bs.account_id, bs.branch_id, bs.product_id, bs.quantity
+    INTO v_account_id, v_branch_id, v_product_id, v_initial
+  FROM public.branch_stock bs
+  JOIN public.branches b ON b.id = bs.branch_id AND b.status = 'active'
+  WHERE bs.quantity >= 2
+    AND EXISTS (
+      SELECT 1 FROM public.account_members am
+      WHERE am.account_id = bs.account_id AND am.role IN ('owner', 'admin')
+    )
   LIMIT 1;
-
-  SELECT b.id INTO v_branch_id
-  FROM branches b
-  WHERE b.account_id = v_account_id
-    AND b.status = 'active'
-  LIMIT 1;
-
-  -- Tomar un producto con stock disponible en esa branch
-  SELECT bs.product_id, bs.unit_id, bs.quantity
-  INTO v_product_id, v_unit_id, v_initial_stock
-  FROM branch_stock bs
-  WHERE bs.branch_id = v_branch_id
-    AND bs.quantity >= 2
-  LIMIT 1;
-
-  -- Tomar un user_id con membresía en esa account
-  SELECT om.user_id INTO v_user_id
-  FROM org_members om
-  WHERE om.account_id = v_account_id
-    AND om.role IN ('user', 'admin')
-  LIMIT 1;
-
-  RAISE NOTICE '=== SMOKE C-29 ===';
-  RAISE NOTICE 'account_id: %, branch_id: %, product_id: %, unit_id: %, initial_stock: %, user_id: %',
-    v_account_id, v_branch_id, v_product_id, v_unit_id, v_initial_stock, v_user_id;
 
   IF v_account_id IS NULL THEN
-    RAISE WARNING '[SKIP] No hay cuentas en la BD. Smoke no puede ejecutarse.';
-    RETURN;
-  END IF;
-  IF v_branch_id IS NULL THEN
-    RAISE WARNING '[SKIP] No hay branch activa para account_id=%', v_account_id;
-    RETURN;
-  END IF;
-  IF v_product_id IS NULL THEN
-    RAISE WARNING '[SKIP] No hay product con stock >= 2 en branch_id=%', v_branch_id;
-    RETURN;
+    RAISE EXCEPTION 'C29_SMOKE_RESULTS %', E'\n[SKIP] No hay (cuenta con writer owner/admin + branch activa + producto con stock>=2) en la BD.';
   END IF;
 
-  -- ─────────────────────────────────────────────────────────────────────────
-  -- CASO 1: Quote.accept() → crea SalesOrder con los mismos ítems
-  -- ─────────────────────────────────────────────────────────────────────────
-  SAVEPOINT sp_case1;
+  SELECT am.user_id INTO v_user_id
+  FROM public.account_members am
+  WHERE am.account_id = v_account_id AND am.role IN ('owner', 'admin')
+  LIMIT 1;
+
+  -- ── Inyección del claim JWT del usuario writer (sino auth.uid() = NULL) ───────
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_id, 'role', 'authenticated')::text, true);
+  PERFORM set_config('request.jwt.claim.sub', v_user_id::text, true);
+
+  v_report := v_report || format('setup acct=%s branch=%s prod=%s stock=%s authuid=%s',
+                                 v_account_id, v_branch_id, v_product_id, v_initial, auth.uid()) || E'\n';
+
+  -- ── CASE 1: Quote.accept() → crea SalesOrder con los mismos ítems ────────────
   BEGIN
-    -- Insertar quote directo (saltamos auth para el smoke)
-    INSERT INTO public.quotes (account_id, branch_id, status, total, created_by)
-    VALUES (v_account_id, v_branch_id, 'sent', 100.00, v_user_id)
+    INSERT INTO public.quotes (account_id, branch_id, status, total, created_by, valid_until)
+    VALUES (v_account_id, v_branch_id, 'sent', 100.00, v_user_id, CURRENT_DATE + 7)
     RETURNING id INTO v_quote_id;
 
     INSERT INTO public.quote_items (quote_id, account_id, product_id, unit_id, quantity, price, subtotal)
-    VALUES (v_quote_id, v_account_id, v_product_id, v_unit_id, 2, 50.00, 100.00);
+    VALUES (v_quote_id, v_account_id, v_product_id, NULL, 2, 50.00, 100.00);
 
-    -- Actualizar valid_until para que no esté vencida
-    UPDATE public.quotes SET valid_until = CURRENT_DATE + 7 WHERE id = v_quote_id;
-
-    -- Llamar al RPC (como si fuera el usuario autenticado)
-    -- Nota: en smoke real, set local jwt = '...' del usuario
     v_result := rpc_accept_quote(v_quote_id);
+    v_so_id  := (v_result->>'sales_order_id')::uuid;
 
-    v_so_id := (v_result->>'sales_order_id')::uuid;
-
-    IF v_so_id IS NOT NULL THEN
-      RAISE NOTICE '[OK] CASO 1: quote.accept() → sales_order_id=%', v_so_id;
-      -- Verificar que los ítems se copiaron
-      IF EXISTS (
-        SELECT 1 FROM public.sales_order_items soi
-        WHERE soi.sales_order_id = v_so_id
-          AND soi.product_id = v_product_id
-          AND soi.quantity = 2
-      ) THEN
-        RAISE NOTICE '[OK] CASO 1: items copiados correctamente (qty=2, product=%)', v_product_id;
-      ELSE
-        RAISE WARNING '[FAIL] CASO 1: items NO copiados en sales_order_id=%', v_so_id;
-      END IF;
-    ELSE
-      RAISE WARNING '[FAIL] CASO 1: rpc_accept_quote devolvió NULL sales_order_id. result=%', v_result;
+    IF v_so_id IS NOT NULL AND EXISTS (
+         SELECT 1 FROM public.sales_order_items
+         WHERE sales_order_id = v_so_id AND product_id = v_product_id AND quantity = 2)
+      THEN v_report := v_report || '[OK] CASE1 accept_quote -> SalesOrder + items copiados' || E'\n';
+      ELSE v_report := v_report || format('[FAIL] CASE1 result=%s', v_result) || E'\n';
     END IF;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING '[FAIL] CASO 1 excepción: % — %', SQLSTATE, SQLERRM;
-  END;
-  ROLLBACK TO sp_case1;
 
-  -- ─────────────────────────────────────────────────────────────────────────
-  -- CASO 2: quickSale de 2 uds → branch_stock decrementado en 2
-  -- ─────────────────────────────────────────────────────────────────────────
-  SAVEPOINT sp_case2;
+    RAISE EXCEPTION 'SMOKE_UNDO';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'SMOKE_UNDO' THEN
+      v_report := v_report || format('[FAIL] CASE1 %s -- %s', SQLSTATE, SQLERRM) || E'\n';
+    END IF;
+  END;
+
+  -- ── CASE 2: quickSale de 2 uds → branch_stock −2 + outbox SaleConfirmed ──────
   BEGIN
     v_result := rpc_quick_sale(
-      p_idempotency_key  := 'smoke-c29-case2-' || gen_random_uuid()::text,
-      p_client_id        := NULL,
-      p_items            := jsonb_build_array(
-                              jsonb_build_object(
-                                'product_id', v_product_id,
-                                'unit_id',    v_unit_id,
-                                'quantity',   2,
-                                'price',      50.00,
-                                'subtotal',   100.00
-                              )
-                            ),
+      p_idempotency_key  := 'smoke-c29-2-' || gen_random_uuid()::text,
+      p_items            := jsonb_build_array(jsonb_build_object(
+                              'product_id', v_product_id, 'unit_id', NULL,
+                              'quantity', 2, 'price', 50.00, 'subtotal', 100.00)),
       p_payment_method   := 'other',
-      p_cash_session_id  := NULL,
-      p_comprobante_type := NULL,
-      p_point_of_sale_id := NULL,
       p_branch_id        := v_branch_id,
-      p_canal            := 'smoke_test'
-    );
+      p_canal            := 'smoke');
 
-    SELECT bs.quantity INTO v_stock_after
-    FROM branch_stock bs
-    WHERE bs.branch_id = v_branch_id AND bs.product_id = v_product_id;
+    SELECT quantity INTO v_after
+    FROM public.branch_stock
+    WHERE branch_id = v_branch_id AND product_id = v_product_id;
 
-    IF v_stock_after = v_initial_stock - 2 THEN
-      RAISE NOTICE '[OK] CASO 2: quickSale 2 uds → stock decrementó de % a %', v_initial_stock, v_stock_after;
-    ELSE
-      RAISE WARNING '[FAIL] CASO 2: stock esperado=%, encontrado=%', v_initial_stock - 2, v_stock_after;
+    IF v_after = v_initial - 2
+      THEN v_report := v_report || format('[OK] CASE2 quickSale 2 uds -> stock %s -> %s + outbox OK', v_initial, v_after) || E'\n';
+      ELSE v_report := v_report || format('[FAIL] CASE2 stock esperado %s, encontrado %s', v_initial - 2, v_after) || E'\n';
     END IF;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING '[FAIL] CASO 2 excepción: % — %', SQLSTATE, SQLERRM;
-  END;
-  ROLLBACK TO sp_case2;
 
-  -- ─────────────────────────────────────────────────────────────────────────
-  -- CASO 3: Stock 0 → P0409 stock_insuficiente
-  -- ─────────────────────────────────────────────────────────────────────────
-  SAVEPOINT sp_case3;
+    RAISE EXCEPTION 'SMOKE_UNDO';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'SMOKE_UNDO' THEN
+      v_report := v_report || format('[FAIL] CASE2 %s -- %s', SQLSTATE, SQLERRM) || E'\n';
+    END IF;
+  END;
+
+  -- ── CASE 3: stock 0 → P0409 stock_insuficiente ──────────────────────────────
   BEGIN
-    -- Temporalmente poner stock en 0
-    UPDATE branch_stock SET quantity = 0 WHERE branch_id = v_branch_id AND product_id = v_product_id;
+    UPDATE public.branch_stock SET quantity = 0
+    WHERE branch_id = v_branch_id AND product_id = v_product_id;
 
     BEGIN
       v_result := rpc_quick_sale(
-        p_idempotency_key  := 'smoke-c29-case3-' || gen_random_uuid()::text,
-        p_client_id        := NULL,
-        p_items            := jsonb_build_array(
-                                jsonb_build_object(
-                                  'product_id', v_product_id,
-                                  'unit_id',    v_unit_id,
-                                  'quantity',   1,
-                                  'price',      50.00,
-                                  'subtotal',   50.00
-                                )
-                              ),
+        p_idempotency_key  := 'smoke-c29-3-' || gen_random_uuid()::text,
+        p_items            := jsonb_build_array(jsonb_build_object(
+                                'product_id', v_product_id, 'unit_id', NULL,
+                                'quantity', 1, 'price', 50.00, 'subtotal', 50.00)),
         p_payment_method   := 'other',
-        p_cash_session_id  := NULL,
-        p_comprobante_type := NULL,
-        p_point_of_sale_id := NULL,
         p_branch_id        := v_branch_id,
-        p_canal            := 'smoke_test'
-      );
-      RAISE WARNING '[FAIL] CASO 3: debería haber lanzado P0409, pero no lo hizo. result=%', v_result;
+        p_canal            := 'smoke');
+      v_report := v_report || format('[FAIL] CASE3 esperaba P0409, devolvio %s', v_result) || E'\n';
     EXCEPTION WHEN OTHERS THEN
-      IF SQLSTATE = 'P0409' OR SQLERRM LIKE '%stock_insuficiente%' THEN
-        RAISE NOTICE '[OK] CASO 3: stock=0 → P0409 stock_insuficiente correctamente';
-      ELSE
-        RAISE WARNING '[FAIL] CASO 3: error inesperado: % — %', SQLSTATE, SQLERRM;
+      IF SQLSTATE = 'P0409' OR SQLERRM LIKE '%stock_insuficiente%'
+        THEN v_report := v_report || '[OK] CASE3 stock=0 -> P0409 stock_insuficiente' || E'\n';
+        ELSE v_report := v_report || format('[FAIL] CASE3 inesperado %s -- %s', SQLSTATE, SQLERRM) || E'\n';
       END IF;
     END;
+
+    RAISE EXCEPTION 'SMOKE_UNDO';
   EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING '[FAIL] CASO 3 excepción outer: % — %', SQLSTATE, SQLERRM;
+    IF SQLERRM <> 'SMOKE_UNDO' THEN
+      v_report := v_report || format('[FAIL] CASE3 outer %s -- %s', SQLSTATE, SQLERRM) || E'\n';
+    END IF;
   END;
-  ROLLBACK TO sp_case3;
 
-  -- ─────────────────────────────────────────────────────────────────────────
-  -- CASO 4: Idempotencia — doble quickSale misma key → replayed=true, sin dup
-  -- ─────────────────────────────────────────────────────────────────────────
-  SAVEPOINT sp_case4;
+  -- ── CASE 4: idempotencia — doble quickSale misma key → replayed=true, sin dup ─
   BEGIN
-    DECLARE v_idem_key text := 'smoke-c29-case4-idempotency';
-    BEGIN
-      v_result := rpc_quick_sale(
-        p_idempotency_key  := v_idem_key,
-        p_client_id        := NULL,
-        p_items            := jsonb_build_array(
-                                jsonb_build_object(
-                                  'product_id', v_product_id,
-                                  'unit_id',    v_unit_id,
-                                  'quantity',   1,
-                                  'price',      50.00,
-                                  'subtotal',   50.00
-                                )
-                              ),
-        p_payment_method   := 'other',
-        p_cash_session_id  := NULL,
-        p_comprobante_type := NULL,
-        p_point_of_sale_id := NULL,
-        p_branch_id        := v_branch_id,
-        p_canal            := 'smoke_test'
-      );
-      v_op_id1 := v_result->>'operation_id';
+    v_idem4 := 'smoke-c29-4-' || gen_random_uuid()::text;
 
-      -- Segunda llamada con la misma key
-      v_result := rpc_quick_sale(
-        p_idempotency_key  := v_idem_key,
-        p_client_id        := NULL,
-        p_items            := jsonb_build_array(
-                                jsonb_build_object(
-                                  'product_id', v_product_id,
-                                  'unit_id',    v_unit_id,
-                                  'quantity',   1,
-                                  'price',      50.00,
-                                  'subtotal',   50.00
-                                )
-                              ),
-        p_payment_method   := 'other',
-        p_cash_session_id  := NULL,
-        p_comprobante_type := NULL,
-        p_point_of_sale_id := NULL,
-        p_branch_id        := v_branch_id,
-        p_canal            := 'smoke_test'
-      );
-      v_op_id2 := v_result->>'operation_id';
+    v_result := rpc_quick_sale(
+      p_idempotency_key  := v_idem4,
+      p_items            := jsonb_build_array(jsonb_build_object(
+                              'product_id', v_product_id, 'unit_id', NULL,
+                              'quantity', 1, 'price', 50.00, 'subtotal', 50.00)),
+      p_payment_method   := 'other',
+      p_branch_id        := v_branch_id,
+      p_canal            := 'smoke');
+    v_op1 := v_result->>'operation_id';
 
-      IF (v_result->>'replayed')::boolean IS TRUE AND v_op_id1 = v_op_id2 THEN
-        RAISE NOTICE '[OK] CASO 4: idempotencia OK — replayed=true, mismo operation_id=%', v_op_id1;
-      ELSE
-        RAISE WARNING '[FAIL] CASO 4: replayed=%, op1=%, op2=%',
-          v_result->>'replayed', v_op_id1, v_op_id2;
-      END IF;
-    EXCEPTION WHEN OTHERS THEN
-      RAISE WARNING '[FAIL] CASO 4 excepción: % — %', SQLSTATE, SQLERRM;
-    END;
+    v_result := rpc_quick_sale(
+      p_idempotency_key  := v_idem4,
+      p_items            := jsonb_build_array(jsonb_build_object(
+                              'product_id', v_product_id, 'unit_id', NULL,
+                              'quantity', 1, 'price', 50.00, 'subtotal', 50.00)),
+      p_payment_method   := 'other',
+      p_branch_id        := v_branch_id,
+      p_canal            := 'smoke');
+    v_op2 := v_result->>'operation_id';
+
+    IF (v_result->>'replayed')::boolean IS TRUE AND v_op1 = v_op2
+      THEN v_report := v_report || format('[OK] CASE4 idempotente -> replayed=true, mismo operation_id=%s', v_op1) || E'\n';
+      ELSE v_report := v_report || format('[FAIL] CASE4 replayed=%s op1=%s op2=%s', v_result->>'replayed', v_op1, v_op2) || E'\n';
+    END IF;
+
+    RAISE EXCEPTION 'SMOKE_UNDO';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'SMOKE_UNDO' THEN
+      v_report := v_report || format('[FAIL] CASE4 %s -- %s', SQLSTATE, SQLERRM) || E'\n';
+    END IF;
   END;
-  ROLLBACK TO sp_case4;
 
-  RAISE NOTICE '=== FIN SMOKE C-29 — ROLLBACK TOTAL (sin efectos en prod) ===';
-
+  -- Devuelve el reporte y aborta toda la transacción (rollback total, 0 datos en prod).
+  RAISE EXCEPTION 'C29_SMOKE_RESULTS %', v_report;
 END $$;
 
 ROLLBACK;
+
 -- ─────────────────────────────────────────────────────────────────────────────
--- Verificación post-ROLLBACK: confirmar que no quedaron datos residuales
+-- Verificación post-ROLLBACK (modo psql): confirmar que no quedaron residuos.
+-- Todos deben ser 0.
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT
-  (SELECT COUNT(*) FROM public.quotes WHERE created_at >= NOW() - INTERVAL '5 minutes') AS quotes_creadas_en_ultimo_minuto,
-  (SELECT COUNT(*) FROM public.sales_orders WHERE created_at >= NOW() - INTERVAL '5 minutes') AS sales_orders_creadas,
-  (SELECT COUNT(*) FROM public.events WHERE occurred_at >= NOW() - INTERVAL '5 minutes' AND event_type = 'SaleConfirmed') AS eventos_outbox;
--- Todos deben ser 0 (el ROLLBACK limpió todo).
+  (SELECT COUNT(*) FROM public.quotes        WHERE created_at  >= now() - interval '5 minutes') AS quotes_recientes,
+  (SELECT COUNT(*) FROM public.sales_orders  WHERE created_at  >= now() - interval '5 minutes') AS sales_orders_recientes,
+  (SELECT COUNT(*) FROM public.events        WHERE occurred_at >= now() - interval '5 minutes' AND event_type = 'SaleConfirmed') AS outbox_saleconfirmed,
+  (SELECT COUNT(*) FROM public.sales         WHERE canal = 'smoke') AS sales_canal_smoke,
+  (SELECT COUNT(*) FROM public.operation_idempotency WHERE idempotency_key LIKE 'smoke-c29-%') AS idempotency_smoke;

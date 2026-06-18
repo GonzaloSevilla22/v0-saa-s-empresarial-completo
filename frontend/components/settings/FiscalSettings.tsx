@@ -381,7 +381,7 @@ function PointsOfSaleSection() {
       await createPv.mutateAsync({ numero: values.numero })
       pvForm.reset()
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al crear el punto de venta."
+      const msg = err instanceof Error ? err.message : "Error al registrar el punto de venta."
       setPvError(msg.includes("409") || msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("duplicado")
         ? `El punto de venta número ${values.numero} ya existe.`
         : msg)
@@ -464,7 +464,7 @@ function PointsOfSaleSection() {
             name="numero"
             render={({ field }) => (
               <FormItem className="flex-1">
-                <FormLabel>Agregar punto de venta</FormLabel>
+                <FormLabel>Registrar punto de venta</FormLabel>
                 <FormControl>
                   <Input
                     type="number"
@@ -475,6 +475,9 @@ function PointsOfSaleSection() {
                     disabled={!profile}
                   />
                 </FormControl>
+                <FormDescription>
+                  El alta del punto de venta se hace en ARCA (AFIP). Acá solo registrás el número que ya creaste allá.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -486,7 +489,7 @@ function PointsOfSaleSection() {
             className="mb-0"
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
-            {createPv.isPending ? "Creando..." : "Agregar"}
+            {createPv.isPending ? "Registrando..." : "Registrar"}
           </Button>
         </form>
       </Form>

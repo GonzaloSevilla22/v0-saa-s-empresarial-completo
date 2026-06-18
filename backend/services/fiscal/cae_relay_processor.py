@@ -119,6 +119,26 @@ class CAERelayProcessor:
                     doc["id"], new_attempts, next_at.isoformat(),
                 )
 
+    async def process_document_by_id(self, doc_id: str) -> None:
+        """Attempt to claim and process a single document by id.
+
+        Anti-double-CAE guard: calls claim_pending first. If claim returns None
+        (another trigger holds the lease), this method is a no-op. Only the caller
+        that successfully claims the lease proceeds to request_cae.
+
+        Safe to call concurrently from:
+          - fire-and-forget BackgroundTask (immediately after emit)
+          - pg_cron batch via process_all_pending_documents
+        """
+        doc = await self._repo.claim_pending(doc_id)
+        if doc is None:
+            logger.debug(
+                "CAERelayProcessor.process_document_by_id: doc %s already claimed — skipping",
+                doc_id,
+            )
+            return
+        await self.process_document(doc)
+
     @staticmethod
     def _next_attempt_at(attempts: int) -> datetime.datetime:
         """Calcula el próximo intento con backoff (minutos según _BACKOFF_MINUTES).

@@ -6,8 +6,11 @@ Design ref: D9 (require_role), D10 (multi-PV), D11 (P0422 ambiguous_point_of_sal
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import HTTPException
 
+import backend.core.database as _db
 from backend.core.guards import require_role
 from backend.repositories.fiscal_profile_repository import FiscalProfileRepository
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
@@ -20,6 +23,8 @@ from backend.schemas.fiscal import (
 from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
 from backend.services.fiscal.fiscal_document_port import FiscalDocumentPort
 from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+logger = logging.getLogger(__name__)
 
 
 # ── FiscalProfile ──────────────────────────────────────────────────────────────
@@ -141,6 +146,8 @@ async def process_pending_documents(
     """Procesa hasta `limit` documentos pending_cae con el relay idempotente.
 
     Retorna un resumen de lo procesado.
+    Usado por el endpoint de usuario POST /fiscal/documents/process-pending (JWT-scoped,
+    single account). No usa claim_pending — el endpoint de usuario ya es single-threaded.
     """
     docs = await doc_repo.list_pending(limit=limit)
     processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
@@ -151,3 +158,89 @@ async def process_pending_documents(
         processed += 1
 
     return {"processed": processed, "total_found": len(docs)}
+
+
+async def process_all_pending_documents(
+    doc_repo: FiscalDocumentRepository,
+    adapter: FiscalDocumentPort,
+    limit: int = 50,
+) -> dict:
+    """Procesa documentos pending_cae de TODAS las cuentas (cross-account, sin RLS).
+
+    Usado exclusivamente por el machine endpoint POST /fiscal/documents/process-pending-cron
+    (pg_cron) con service-role connection.
+
+    Anti-double-CAE guard (D6, OQ-1=A):
+      Para cada doc encontrado con list_pending_all, se llama claim_pending antes de
+      procesar. Si claim_pending retorna None (otro trigger — fire-and-forget — ya reclamó
+      el doc), este caller lo saltea. Esto garantiza que request_cae se llama exactamente
+      una vez por documento por intento, incluso si el pg_cron y el fire-and-forget se
+      superponen.
+
+    Nota: FOR UPDATE SKIP LOCKED no se mantiene durante la llamada SOAP (larga);
+    el lease de 5 minutos en next_attempt_at es el mecanismo de concurrencia.
+    """
+    docs = await doc_repo.list_pending_all(limit=limit)
+    processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
+
+    processed = 0
+    authorized = 0
+    retried = 0
+    rejected = 0
+
+    for doc in docs:
+        doc_id = doc["id"]
+        # Intenta reclamar el doc atómicamente. Si otro trigger ya lo reclamó → skip.
+        claimed = await doc_repo.claim_pending(doc_id)
+        if claimed is None:
+            logger.debug(
+                "[process_all_pending_documents] doc %s already claimed by concurrent trigger — skipping",
+                doc_id,
+            )
+            continue
+
+        # Procesar el doc reclamado (proceso idempotente en estado terminal)
+        await processor.process_document(claimed)
+        processed += 1
+
+    return {
+        "processed": processed,
+        "authorized": authorized,
+        "retried": retried,
+        "rejected": rejected,
+    }
+
+
+async def process_doc_by_id_background(doc_id: str) -> None:
+    """BackgroundTask: procesa un único doc por id abriendo su propia conexión service.
+
+    Diseñado para ser disparado como fire-and-forget inmediatamente después de
+    que emit_pending_cae persiste el documento (OQ-1=A, D6).
+
+    Flujo:
+      1. Adquiere una conexión BYPASSRLS del pool service (postgres user).
+         La conexión del request ya fue liberada al responder.
+      2. Intenta claim_pending en el doc_id — si ya fue reclamado por el cron
+         coincidente, es un no-op seguro.
+      3. Si gana el claim, llama process_document (que llama request_cae).
+
+    TODO: inyectar WSFEAdapter real (por cuenta/ambiente) cuando el certificado
+    AFIP esté disponible vía ARCA. Por ahora el stub simula la autorización.
+    """
+    if _db.pool is None:
+        logger.warning("[process_doc_by_id_background] pool not initialized — skipping doc %s", doc_id)
+        return
+
+    try:
+        async with _db.pool.acquire() as conn:
+            repo = FiscalDocumentRepository(conn)
+            adapter = WSFEStubAdapter()
+            processor = CAERelayProcessor(adapter=adapter, repo=repo)
+            await processor.process_document_by_id(doc_id)
+    except Exception:
+        # Background tasks must not crash the caller — log and swallow.
+        # The pg_cron backstop will retry on the next minute.
+        logger.exception(
+            "[process_doc_by_id_background] error processing doc %s — cron backstop will retry",
+            doc_id,
+        )

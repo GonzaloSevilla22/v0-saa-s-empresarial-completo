@@ -1,8 +1,12 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
 import asyncpg
 
 from backend.repositories.base import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.repositories.outbox_repository import OutboxRepository
 
 
 class StockRepository(BaseRepository):
@@ -53,3 +57,42 @@ class StockRepository(BaseRepository):
             p_product_id=product_id,
             p_quantity=quantity,
         )
+
+    async def adjust_with_event(
+        self,
+        outbox_repo: "OutboxRepository",
+        product_id: str,
+        account_id: str,
+        delta: float,
+        branch_id: str,
+        allow_negative: bool = False,
+    ) -> None:
+        """C-25 producer: apply stock delta + emit StockAdjusted in the SAME transaction.
+
+        Per DEC-20: the StockAdjusted event INSERT is in the same transaction as the
+        rpc_apply_product_stock_delta call. If the stock adjustment fails (e.g. invariant
+        violation: insufficient stock), the event row rolls back with it.
+        """
+        async with self._conn.transaction():
+            await self._conn.fetchrow(
+                "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, $4::boolean)",
+                product_id,
+                delta,
+                branch_id,
+                allow_negative,
+            )
+
+            # C-25 DEC-20: emit StockAdjusted in the same transaction
+            await outbox_repo.emit_event(
+                account_id=account_id,
+                event_type="StockAdjusted",
+                aggregate_type="Product",
+                aggregate_id=product_id,
+                payload={
+                    "account_id": account_id,
+                    "product_id": product_id,
+                    "branch_id": branch_id,
+                    "delta": delta,
+                    "quantity_delta": delta,
+                },
+            )

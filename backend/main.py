@@ -20,6 +20,7 @@ from backend.routers import (
     fiscal,
     health,
     organizations,
+    outbox,
     payments,
     products,
     purchases,
@@ -83,3 +84,5 @@ app.include_router(cash.router)
 # C-29 v21-quote-salesorder
 app.include_router(quotes.router)
 app.include_router(sales_orders.router)
+# C-25 v20-outbox-activation
+app.include_router(outbox.router)

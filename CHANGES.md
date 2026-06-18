@@ -753,7 +753,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-25] `v20-outbox-activation`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-18 (archivado: `openspec/changes/archive/2026-06-18-v20-outbox-activation`)
 - **Scope**:
   - La tabla `events` ya existe con RLS habilitado y 0 filas — esta tarea es de wiring, no de creación de infraestructura
   - Implementar relay: función (Edge Function o backend Python) que lee `events WHERE processed_at IS NULL` periódicamente y dispatcha a consumers vía routing por `event_type`
@@ -930,7 +930,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-22 | v20-fiscal-identity-clients | 6 — V2.0 Retirada deuda | BAJO | — | `[x]` |
 | C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[x]` |
 | C-24 | v20-insights-unification | 6 — V2.0 Retirada deuda | BAJO | C-19 | `[x]` |
-| C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[ ]` |
+| C-25 | v20-outbox-activation | 6 — V2.0 Retirada deuda | MEDIO | C-19 | `[x]` |
 | C-26 | v21-branch-as-root | 7 — V2.1 Operación | ALTO | C-21 | `[x]` |
 | C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[x]` |
 | C-28 | v21-cash-session | 7 — V2.1 Operación | MEDIO | C-26 | `[x]` |
@@ -941,7 +941,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ## Primer change recomendado
 
-**Fase 6: 6/7 completados** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13) archivados; falta C-25.
+**Fase 6: 7/7 completados ✅** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13), **C-25 (2026-06-18)** archivados.
 **Fase 7: 4/5 completados** — C-26 (2026-06-12), C-27 (2026-06-12), C-28 (2026-06-17), **C-29 (2026-06-17)** archivados; falta C-30.
 
 ### `C-30` `v21-customer-supplier-accounts` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
@@ -952,8 +952,8 @@ Desbloqueado: C-29 ✅. `CustomerAccount` / `SupplierAccount` — ledger append-
 - **C-29** `v21-quote-salesorder` ✅ (2026-06-17, archivado `2026-06-17-v21-quote-salesorder`, PRs #193 + #194) — `Quote`/`SalesOrder` + `quickSale()` POS; hot path transaccional con `branch_stock` + `cash_movement` + outbox + retrocompat `sales`/`sale_items`; 278 tests pasando; 44 tests nuevos (TDD RED→GREEN→TRIANGULATE→REFACTOR completo); migraciones `20260702000001` + `20260702000002` (hotfix: `events.company_id`/`entity_type` nullable para prod drift — C-25 reconcilia). Smoke 4/4 OK.
 - **C-28** `v21-cash-session` ✅ (2026-06-17, archivado `2026-06-17-v21-cash-session`, PR #190) — Caja por sucursal: `Cashbox`/`CashSession` (open/close/arqueo)/`CashMovement` append-only; RLS por `account_id` derivado vía `branch_id`; helper intra-transacción `c28_register_cash_movement` listo para que C-29 lo enchufe en el hot path; UI `/sucursales/:id/caja`.
 
-**También disponible:**
-- **C-25** `v20-outbox-activation` [MEDIO] — consumers V2.0: AuditLog + EmailNotification (PA-21) · último pendiente de Fase 6. NOTA: debe reconciliar drift de `public.events` (prod tiene `company_id`/`entity_type` NOT NULL; C-29 hotfix los hizo nullable; C-25 debe formalizar el schema canónico del outbox en migration history).
+**Recién completado:**
+- **C-25** `v20-outbox-activation` ✅ (2026-06-18, archivado `2026-06-18-v20-outbox-activation`) — Transactional outbox V2.0: `AuditLog` (consumer mandatorio, append-only) + `EmailNotification` (sale_created/stock_adjusted/plan_changed) + consumers idempotentes vía `(event_id, consumer_type)` + relay pure-SQL `rpc_process_outbox_dispatch` via pg_cron (sin `service_role`). Schema reconciliation migration (`events`: canonical V2 columns, legacy nullable, partial index). Producers `PurchaseCreated`/`StockAdjusted` same-tx. Backend 218+ tests (TDD RED→GREEN→TRIANGULATE→REFACTOR), migrations idempotentes. Specs `transactional-outbox` sincronizada. Nota: reconcilia drift de `public.events` de C-29 hotfix (company_id/entity_type now nullable).
 
 **Pendiente externo (no bloquea):**
 - **C-27 task 5.2** — Verificacion E2E en homologacion ARCA (WSAA ticket → WSFEv1 CAE): pendiente del tramite AFIP del PO (certificado de homologacion). El adaptador `WSFEAdapter` esta implementado y testeado con SOAP mockeado.

@@ -3,10 +3,14 @@ from __future__ import annotations
 import datetime
 import json
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import asyncpg
 
 from backend.repositories.base import BaseRepository
+
+if TYPE_CHECKING:
+    from backend.repositories.outbox_repository import OutboxRepository
 
 
 class PurchaseRepository(BaseRepository):
@@ -235,3 +239,69 @@ class PurchaseRepository(BaseRepository):
             json.dumps(clean_items, default=_default),
         )
         return dict(row) if row else None
+
+    async def create_operation_with_event(
+        self,
+        outbox_repo: "OutboxRepository",
+        user_id: str,
+        account_id: str,
+        items: list[dict],
+        idempotency_key: str,
+        date: datetime.date | None = None,
+        description: str | None = None,
+    ) -> dict | None:
+        """C-25 producer: create purchase + emit PurchaseCreated in the SAME transaction.
+
+        Per DEC-20: the event INSERT is in the same transaction as the mutation.
+        If the mutation fails, the event row rolls back with it (no orphaned event).
+        On idempotency hit (existing operation), no new event is emitted.
+        """
+        existing = await self.get_idempotency(account_id, idempotency_key)
+        if existing is not None:
+            # Idempotency replay — return existing, do NOT emit a duplicate event
+            return dict(existing)
+
+        def _default(obj):
+            if isinstance(obj, Decimal):
+                return str(obj)
+            raise TypeError(f"Not serializable: {type(obj)}")
+
+        clean_items = [
+            {k: v for k, v in item.items() if k != "description"}
+            for item in items
+        ]
+
+        # Run mutation + event INSERT in the same transaction (DEC-20)
+        async with self._conn.transaction():
+            row = await self._conn.fetchrow(
+                """
+                SELECT
+                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb)->>'operation_id')::uuid
+                        AS operation_id,
+                    'purchase'::text AS operation_kind
+                """,
+                idempotency_key,
+                date or datetime.date.today(),
+                description,
+                json.dumps(clean_items, default=_default),
+            )
+
+            if row is None:
+                return None
+
+            operation_id = str(row["operation_id"])
+
+            # C-25 DEC-20: emit PurchaseCreated in the same transaction
+            await outbox_repo.emit_event(
+                account_id=account_id,
+                event_type="PurchaseCreated",
+                aggregate_type="Purchase",
+                aggregate_id=operation_id,
+                payload={
+                    "account_id": account_id,
+                    "operation_id": operation_id,
+                    "item_count": len(clean_items),
+                },
+            )
+
+        return dict(row)

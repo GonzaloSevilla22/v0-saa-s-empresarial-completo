@@ -77,6 +77,72 @@ class FiscalDocumentRepository(BaseRepository):
             last_error,
         )
 
+    async def claim_pending(self, doc_id: str, max_attempts: int = 10) -> dict | None:
+        """Atomic optimistic claim: sets next_attempt_at +5min lease on the doc.
+
+        Returns the row dict if THIS caller claimed it (i.e. the UPDATE matched and
+        returned the row via RETURNING *), or None if another concurrent trigger already
+        holds the lease (0 rows returned).
+
+        The 5-minute lease prevents a second trigger from re-claiming the same doc while
+        the SOAP call is in flight. When the processor finishes (update_authorized /
+        update_retry / update_rejected) the lease is superseded by the terminal/retry state.
+
+        This is the anti-double-CAE guard (D6, OQ-1=A):
+          - Fire-and-forget on emit: claims immediately after INSERT
+          - pg_cron backstop: claims at each cron tick for any unclaimed/expired docs
+          - Two concurrent callers for the same doc_id → exactly one gets the row
+        """
+        row = await self.fetchrow(
+            """
+            UPDATE public.fiscal_documents
+            SET next_attempt_at = now() + interval '5 minutes'
+            WHERE id = $1
+              AND status = 'pending_cae'
+              AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+              AND attempts < $2
+            RETURNING
+              id, account_id, fiscal_profile_id, point_of_sale_id,
+              comprobante_type, punto_de_venta, number, total,
+              status, cae, cae_due_date, attempts, next_attempt_at,
+              last_error
+            """,
+            doc_id,
+            max_attempts,
+        )
+        if row is None:
+            return None
+        # Also fetch cuit + ambiente from fiscal_profiles (needed by CAERelayProcessor)
+        return dict(row)
+
+    async def list_pending_all(self, limit: int = 50) -> list[dict]:
+        """Lists pending_cae docs from ALL accounts (cross-account, no RLS).
+
+        Intended for service-role connections only (pg_cron / machine endpoint).
+        Orders by next_attempt_at NULLS FIRST, created_at ASC so oldest/unclaimed docs
+        are processed first.
+
+        NOTE: FOR UPDATE SKIP LOCKED is NOT used here because the SOAP call (request_cae)
+        is long-running and must not hold a DB lock across a network round-trip.
+        The claim_pending optimistic lease is the concurrency guard instead.
+        """
+        return await self.fetch(
+            """
+            SELECT
+              fd.*,
+              fp.cuit,
+              fp.ambiente
+            FROM public.fiscal_documents fd
+            JOIN public.fiscal_profiles fp ON fp.id = fd.fiscal_profile_id
+            WHERE fd.status = 'pending_cae'
+              AND (fd.next_attempt_at IS NULL OR fd.next_attempt_at <= now())
+              AND fd.attempts < 10
+            ORDER BY fd.next_attempt_at NULLS FIRST, fd.created_at ASC
+            LIMIT $1
+            """,
+            limit,
+        )
+
     async def update_retry(
         self,
         doc_id: str,

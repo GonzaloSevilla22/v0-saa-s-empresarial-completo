@@ -834,3 +834,43 @@ class TestIdempotencia:
         assert r1["replayed"] is False
         assert r2["replayed"] is True
         assert mock_repo.register_payment_received.call_count == 2
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Section 8: Regresión de migración — whitelist de operation_kind (hotfix prod)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestMigrationOperationKindWhitelist:
+    """Regresión del bug atrapado por el SMOKE transaccional en prod (NO por pytest,
+    que mockea asyncpg): public.operation_idempotency.operation_kind tenía un CHECK
+    limitado a ('sale','purchase'); los RPCs de C-30 usan kinds nuevos →
+    el INSERT violaba el CHECK (23514). El hotfix 20260720000002 extiende el CHECK.
+
+    Invariante verificada: TODO operation_kind que la feature inserta debe estar
+    whitelisted en el CHECK.
+    """
+
+    @staticmethod
+    def _migrations_dir():
+        from pathlib import Path
+        # backend/tests/<file>.py → parents[2] = raíz del repo (robusto ante el CWD)
+        return Path(__file__).resolve().parents[2] / "supabase" / "migrations"
+
+    def test_hotfix_extends_operation_kind_check_with_c30_kinds(self):
+        sql = (self._migrations_dir()
+               / "20260720000002_c30_hotfix_operation_kind_check.sql").read_text(encoding="utf-8")
+        assert "operation_idempotency_operation_kind_check" in sql
+        for kind in ("payment_received", "payment_made", "supplier_charge"):
+            assert f"'{kind}'" in sql, f"operation_kind '{kind}' falta en el CHECK del hotfix"
+        # No debe perder los kinds previos (sale/purchase de C-29).
+        for kind in ("sale", "purchase"):
+            assert f"'{kind}'" in sql, f"el hotfix no debe eliminar el kind previo '{kind}'"
+
+    def test_feature_operation_kinds_are_all_whitelisted(self):
+        mig = (self._migrations_dir()
+               / "20260720000001_c30_customer_supplier_accounts.sql").read_text(encoding="utf-8")
+        hotfix = (self._migrations_dir()
+                  / "20260720000002_c30_hotfix_operation_kind_check.sql").read_text(encoding="utf-8")
+        for kind in ("payment_received", "payment_made", "supplier_charge"):
+            assert f"'{kind}'" in mig, f"la migración de C-30 debería usar operation_kind '{kind}'"
+            assert f"'{kind}'" in hotfix, f"operation_kind '{kind}' usado pero NO whitelisted en el hotfix"

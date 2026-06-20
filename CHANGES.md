@@ -861,7 +861,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-30] `v21-customer-supplier-accounts`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` archivado 2026-06-20
 - **Scope**:
   - `CustomerAccount` — cuenta corriente del cliente con ledger append-only: `AccountMovement(id, customer_account_id, amount, balance_after, movement_type, reference_id, created_at)`. Tipos: `sale`, `payment_received`, `credit_note`, `adjustment`
   - Integrar con `SalesOrder.confirm()` (C-29): si el cliente tiene cuenta corriente habilitada, la venta genera un `AccountMovement` en la misma transacción
@@ -935,24 +935,21 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-27 | v21-fiscal-profile | 7 — V2.1 Operación | CRITICO | C-22, C-26 | `[x]` |
 | C-28 | v21-cash-session | 7 — V2.1 Operación | MEDIO | C-26 | `[x]` |
 | C-29 | v21-quote-salesorder | 7 — V2.1 Operación | MEDIO | C-20, C-26 | `[x]` |
-| C-30 | v21-customer-supplier-accounts | 7 — V2.1 Operación | MEDIO | C-29 | `[ ]` |
+| C-30 | v21-customer-supplier-accounts | 7 — V2.1 Operación | MEDIO | C-29 | `[x]` |
 
 ---
 
-## Primer change recomendado
+## Estado del Roadmap V2 — COMPLETO
 
 **Fase 6: 7/7 completados ✅** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13), **C-25 (2026-06-18)** archivados.
-**Fase 7: 4/5 completados** — C-26 (2026-06-12), C-27 (2026-06-12), C-28 (2026-06-17), **C-29 (2026-06-17)** archivados; falta C-30.
+**Fase 7: 5/5 completados ✅** — C-26 (2026-06-12), C-27 (2026-06-12), C-28 (2026-06-17), C-29 (2026-06-17), **C-30 (2026-06-20)** archivados.
 
-### `C-30` `v21-customer-supplier-accounts` ⭐ — PRÓXIMO RECOMENDADO [MEDIO]
+### 🎉 Roadmap V2 completo — C-30 `v21-customer-supplier-accounts` recién archivado
 
-Desbloqueado: C-29 ✅. `CustomerAccount` / `SupplierAccount` — ledger append-only para cuentas corrientes; integra con `SalesOrder.confirm()` en la misma transacción.
+**C-30** `v21-customer-supplier-accounts` ✅ (2026-06-20, archivado `2026-06-20-v21-customer-supplier-accounts`, PR #199) — `CustomerAccount` / `SupplierAccount` con ledger append-only; `rpc_register_payment_received` / `rpc_register_payment_made` idempotentes; integración con `SalesOrder.confirm()` (`payment_method='credit'` en la misma transacción); specs `customer-account` (nueva) + `supplier-account` (nueva) + `sales-order` (credit añadido) sincronizadas. Migraciones `20260720000001` + `20260720000002` LIVE en prod; 7/7 smoke cases OK.
 
-**Recién archivado:**
+**Recién archivado (anterior):**
 - **C-29** `v21-quote-salesorder` ✅ (2026-06-17, archivado `2026-06-17-v21-quote-salesorder`, PRs #193 + #194) — `Quote`/`SalesOrder` + `quickSale()` POS; hot path transaccional con `branch_stock` + `cash_movement` + outbox + retrocompat `sales`/`sale_items`; 278 tests pasando; 44 tests nuevos (TDD RED→GREEN→TRIANGULATE→REFACTOR completo); migraciones `20260702000001` + `20260702000002` (hotfix: `events.company_id`/`entity_type` nullable para prod drift — C-25 reconcilia). Smoke 4/4 OK.
-- **C-28** `v21-cash-session` ✅ (2026-06-17, archivado `2026-06-17-v21-cash-session`, PR #190) — Caja por sucursal: `Cashbox`/`CashSession` (open/close/arqueo)/`CashMovement` append-only; RLS por `account_id` derivado vía `branch_id`; helper intra-transacción `c28_register_cash_movement` listo para que C-29 lo enchufe en el hot path; UI `/sucursales/:id/caja`.
-
-**Recién completado:**
 - **C-25** `v20-outbox-activation` ✅ (2026-06-18, archivado `2026-06-18-v20-outbox-activation`) — Transactional outbox V2.0: `AuditLog` (consumer mandatorio, append-only) + `EmailNotification` (sale_created/stock_adjusted/plan_changed) + consumers idempotentes vía `(event_id, consumer_type)` + relay pure-SQL `rpc_process_outbox_dispatch` via pg_cron (sin `service_role`). Schema reconciliation migration (`events`: canonical V2 columns, legacy nullable, partial index). Producers `PurchaseCreated`/`StockAdjusted` same-tx. Backend 218+ tests (TDD RED→GREEN→TRIANGULATE→REFACTOR), migrations idempotentes. Specs `transactional-outbox` sincronizada. Nota: reconcilia drift de `public.events` de C-29 hotfix (company_id/entity_type now nullable).
 
 **Pendiente externo (no bloquea):**
@@ -960,6 +957,6 @@ Desbloqueado: C-29 ✅. `CustomerAccount` / `SupplierAccount` — ledger append-
 
 **Diferido:**
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
-- **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para C-30 o change propio.
+- **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-Para arrancar: `/opsx:propose v21-customer-supplier-accounts`
+**Próximo trabajo:** Fases Futuras (V2.5 Finanzas — `BankReconciliation`, `JournalEntry`, `CostCenter` UI, percepciones; V3 Inteligencia — `AIAgent`, `KnowledgeBase`, automatizaciones). Sin changes numerados hasta que las preguntas abiertas estén resueltas.

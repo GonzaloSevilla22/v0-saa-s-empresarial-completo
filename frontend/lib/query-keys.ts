@@ -98,4 +98,15 @@ export const queryKeys = {
     lists:  () => ["salesOrders", "list"] as const,
     detail: (id: string) => ["salesOrders", "detail", id] as const,
   },
+  // C-30: CustomerAccount / SupplierAccount
+  customerAccounts: {
+    all:       () => ["customerAccounts"] as const,
+    byClient:  (clientId: string) => ["customerAccounts", "client", clientId] as const,
+    movements: (accountId: string) => ["customerAccounts", "movements", accountId] as const,
+  },
+  supplierAccounts: {
+    all:         () => ["supplierAccounts"] as const,
+    bySupplier:  (supplierId: string) => ["supplierAccounts", "supplier", supplierId] as const,
+    movements:   (accountId: string) => ["supplierAccounts", "movements", accountId] as const,
+  },
 } as const

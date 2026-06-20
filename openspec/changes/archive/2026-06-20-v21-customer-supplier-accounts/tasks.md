@@ -86,7 +86,7 @@
 
 ## 14. Validación y cierre
 
-- [ ] 14.1 `openspec validate v21-customer-supplier-accounts --strict` PASA.
+- [x] 14.1 `openspec validate v21-customer-supplier-accounts --strict` PASA.
 - [x] 14.2 Backend: `python -m pytest backend/tests` verde (incl. los nuevos + sin regresión de C-29). Frontend: `npm test` verde.
-- [ ] 14.3 Smoke transaccional en prod (`gxdhpxvdjjkmxhdkkwyb`, BEGIN…RAISE→ROLLBACK): crear CustomerAccount; venta a crédito → cargo con `balance_after` correcto; cobro → saldo baja; `cash`/`other` siguen funcionando; SupplierAccount espeja.
-- [ ] 14.4 Merge a `main` (PR; CI aplica la migración vía `npx supabase db push` y deploya). Marcar [x] C-30 en `CHANGES.md` y cerrar el roadmap V2 (Fase 7, 5/5).
+- [x] 14.3 Smoke transaccional en prod (`gxdhpxvdjjkmxhdkkwyb`, BEGIN…RAISE→ROLLBACK): crear CustomerAccount; venta a crédito → cargo con `balance_after` correcto; cobro → saldo baja; `cash`/`other` siguen funcionando; SupplierAccount espeja.
+- [x] 14.4 Merge a `main` (PR; CI aplica la migración vía `npx supabase db push` y deploya). Marcar [x] C-30 en `CHANGES.md` y cerrar el roadmap V2 (Fase 7, 5/5). — PR #199 mergeado 2026-06-20.

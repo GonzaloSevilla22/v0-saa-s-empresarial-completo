@@ -16,6 +16,7 @@ from backend.routers import (
     branches,
     cash,
     clients,
+    customer_accounts,
     expenses,
     fiscal,
     health,
@@ -28,6 +29,7 @@ from backend.routers import (
     sales,
     sales_orders,
     stock,
+    supplier_accounts,
     ws,
 )
 
@@ -86,3 +88,6 @@ app.include_router(quotes.router)
 app.include_router(sales_orders.router)
 # C-25 v20-outbox-activation
 app.include_router(outbox.router)
+# C-30 v21-customer-supplier-accounts
+app.include_router(customer_accounts.router)
+app.include_router(supplier_accounts.router)

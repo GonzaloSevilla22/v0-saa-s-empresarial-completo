@@ -20,9 +20,9 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 # ── Enums ─────────────────────────────────────────────────────────────────────
 
 class PaymentMethod(str, Enum):
-    cash  = "cash"
-    other = "other"
-    # Nota: account/credit es C-30, NO está aquí
+    cash   = "cash"
+    other  = "other"
+    credit = "credit"   # C-30: venta a crédito — postea cargo en CustomerAccount
 
 
 class SalesOrderStatus(str, Enum):
@@ -163,6 +163,9 @@ class QuickSaleIn(BaseModel):
             raise ValueError("idempotency_key no puede estar vacío")
         return v
 
+
+# C-30: alias para los tests (el schema original se llama ConfirmIn)
+ConfirmSalesOrderIn = ConfirmIn
 
 # ── Accept Quote Output ───────────────────────────────────────────────────────
 

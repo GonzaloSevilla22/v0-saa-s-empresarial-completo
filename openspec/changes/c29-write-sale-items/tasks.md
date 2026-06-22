@@ -18,9 +18,9 @@
 
 ## 4. Aplicar y verificar en prod
 
-- [ ] 4.1 ⏸️ CHECKPOINT PO: `npx supabase db push` contra `gxdhpxvdjjkmxhdkkwyb` (NUNCA el MCP `apply_migration`). Hot path de ventas — requiere OK explícito.
-- [ ] 4.2 Gate: `SELECT COUNT(*) FROM sales WHERE product_id IS NOT NULL AND NOT EXISTS (sale_items)` → 0.
-- [ ] 4.3 Smoke: una `quickSale` nueva de POS → confirmar la fila en `sale_items`.
+- [x] 4.1 PO aprobó. `npx supabase db push` aplicó solo `20260721000001` (dry-run + migration list confirmaron que era la única pendiente).
+- [x] 4.2 Gate: `ventas_sin_sale_items = 0`. Verificado además `pg_get_functiondef` → el core en vivo contiene el INSERT a `sale_items`.
+- [x] 4.3 Spot-check de las 2 ventas C-29: ahora tienen sale_items coherente (qty/price/subtotal cuadran, variant_id NULL). E2E POS desde la app queda post-deploy (igual que el smoke del fix anterior).
 
 ## 5. Cierre
 

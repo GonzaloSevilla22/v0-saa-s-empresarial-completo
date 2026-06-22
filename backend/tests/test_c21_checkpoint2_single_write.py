@@ -220,8 +220,7 @@ class TestPurchaseDeleteRevertsBranchStock:
         conn.fetchrow = AsyncMock(
             side_effect=[
                 {"id": PURCHASE_ID, "operation_id": None},          # header
-                {"product_id": PRODUCT_ID},                          # purchase_items
-                {"quantity_delta": Decimal("5"), "branch_id": None}, # stock_movement
+                {"product_id": PRODUCT_ID, "quantity_delta": Decimal("5"), "branch_id": None},  # stock_movement
                 {"quantity_after": "0"},                             # RPC result
             ]
         )
@@ -241,8 +240,7 @@ class TestPurchaseDeleteRevertsBranchStock:
         conn.fetchrow = AsyncMock(
             side_effect=[
                 {"id": PURCHASE_ID, "operation_id": None},
-                {"product_id": PRODUCT_ID},
-                None,  # no stock_movement registered
+                None,  # no stock_movement registered → sin reversa
             ]
         )
 
@@ -257,8 +255,7 @@ class TestPurchaseDeleteRevertsBranchStock:
         conn.fetch = AsyncMock(return_value=[{"id": PURCHASE_ID}])
         conn.fetchrow = AsyncMock(
             side_effect=[
-                {"product_id": PRODUCT_ID},                          # purchase_items
-                {"quantity_delta": Decimal("3"), "branch_id": None}, # stock_movement
+                {"product_id": PRODUCT_ID, "quantity_delta": Decimal("3"), "branch_id": None},  # stock_movement
                 {"quantity_after": "0"},                             # RPC result
             ]
         )

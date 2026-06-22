@@ -634,33 +634,38 @@ def test_purchase_api_row_shape_preserved_for_hook():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Group 6.3 extra: delete_by_id / delete_by_operation read product_id from
-# purchase_items (not from purchases header), preparing for the DROP migration.
+# delete_by_id / delete_by_operation derive the stock reversal from
+# stock_movements (product_id, quantity_delta, branch_id) — NOT from
+# purchase_items. fix-delete-stock-restore: las rutas que no escriben
+# purchase_items (legacy / espejo C-29) deben revertir stock igual.
 # ─────────────────────────────────────────────────────────────────────────────
 
 PURCHASE_ID = "eeee0000-eeee-eeee-eeee-eeeeeeeeeeee"
 OPERATION_ID = "ffff0000-ffff-ffff-ffff-ffffffffffff"
 
 
-async def test_delete_purchase_by_id_reads_product_id_from_items(async_client, mock_pool):
+async def test_delete_purchase_by_id_reads_reversal_from_stock_movements(async_client, mock_pool):
     """
-    6.3 delete_by_id: the stock reversal path must obtain product_id from
-    purchase_items (si JOIN), not from purchases.product_id (flat column to be dropped).
-    When delete endpoint is called, the repo fetches from purchase_items.
+    delete_by_id: la reversa toma product_id/quantity_delta/branch_id desde
+    stock_movements, no desde purchase_items. Una compra es entrada de stock
+    (quantity_delta > 0) → la reversa decrementa (signo opuesto).
     """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
+    purchase_header_row = {"id": PURCHASE_ID, "operation_id": None}
+    reversal_calls: list = []
 
-    # Simulate: the purchases row has the item info
-    purchase_header_row = {
-        "id": PURCHASE_ID,
-        "product_id": PRODUCT_ID,
-        "operation_id": None,
-    }
-    # C-21 checkpoint #2: header → item_row (purchase_items) → movement (None = sin reversa)
-    conn.fetchrow = AsyncMock(
-        side_effect=[purchase_header_row, {"product_id": PRODUCT_ID}, None]
-    )
+    async def fetchrow_side_effect(query, *args):
+        if "rpc_apply_product_stock_delta" in query:
+            reversal_calls.append(args)
+            return {"rpc_apply_product_stock_delta": None}
+        if "FROM purchases WHERE id" in query:
+            return purchase_header_row
+        if "FROM stock_movements" in query:
+            return {"product_id": PRODUCT_ID, "quantity_delta": 4, "branch_id": None}
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
     conn.execute = AsyncMock(return_value="DELETE 1")
     transaction_ctx = AsyncMock()
     transaction_ctx.__aenter__ = AsyncMock(return_value=None)
@@ -672,28 +677,34 @@ async def test_delete_purchase_by_id_reads_product_id_from_items(async_client, m
             f"/purchases/{PURCHASE_ID}",
             headers={"Authorization": f"Bearer {owner_token}"},
         )
-    # 204 No Content on success
     assert resp.status_code == 204
+    assert len(reversal_calls) == 1
+    assert reversal_calls[0][0] == PRODUCT_ID
+    assert reversal_calls[0][1] == -4  # revierte la entrada
 
 
-async def test_delete_purchase_by_operation_reads_product_id_from_items(async_client, mock_pool):
+async def test_delete_purchase_by_operation_reverts_each_movement(async_client, mock_pool):
     """
-    6.3 delete_by_operation: iterates purchase_items to revert stock,
-    not purchases.product_id. When product_id comes from the item, stock is reverted.
-    Two items in the operation, both with product_id → two stock reversals expected.
+    delete_by_operation: revierte el stock de cada línea con movimiento,
+    leyendo cada uno desde stock_movements. Dos compras → dos reversas.
     """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
 
     PURCHASE_ID_2 = "ee220000-ee22-ee22-ee22-ee2200000000"
-
-    # The fetch call returns the 2 purchase rows
-    purchase_rows = [
-        {"id": PURCHASE_ID,   "product_id": PRODUCT_ID},
-        {"id": PURCHASE_ID_2, "product_id": PRODUCT_ID},
-    ]
+    purchase_rows = [{"id": PURCHASE_ID}, {"id": PURCHASE_ID_2}]
     conn.fetch = AsyncMock(return_value=purchase_rows)
-    conn.fetchval = AsyncMock(return_value=Decimal("5"))  # stock delta
+    reversal_calls: list = []
+
+    async def fetchrow_side_effect(query, *args):
+        if "rpc_apply_product_stock_delta" in query:
+            reversal_calls.append(args)
+            return {"rpc_apply_product_stock_delta": None}
+        if "FROM stock_movements" in query:
+            return {"product_id": PRODUCT_ID, "quantity_delta": 5, "branch_id": None}
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
     conn.execute = AsyncMock(return_value="DELETE 1")
     transaction_ctx = AsyncMock()
     transaction_ctx.__aenter__ = AsyncMock(return_value=None)
@@ -706,27 +717,31 @@ async def test_delete_purchase_by_operation_reads_product_id_from_items(async_cl
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 204
+    assert len(reversal_calls) == 2
+    assert all(c[1] == -5 for c in reversal_calls)
 
 
-async def test_delete_purchase_by_id_no_item_skips_stock_reversal(async_client, mock_pool):
+async def test_delete_purchase_by_id_no_movement_skips_stock_reversal(async_client, mock_pool):
     """
-    6.3 TRIANGULATE: if purchase_items has no product_id (e.g. variant-only purchase),
-    delete_by_id must NOT attempt stock reversal (no UPDATE products, no DELETE stock_movements).
+    TRIANGULATE: sin fila en stock_movements (línea de servicio / sin producto),
+    delete_by_id NO intenta reversa (no rpc_apply_product_stock_delta).
     """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
+    purchase_header_row = {"id": PURCHASE_ID, "operation_id": None}
+    reversal_calls: list = []
 
-    # purchases row exists (no flat product_id needed since we now join items)
-    purchase_header_row = {
-        "id": PURCHASE_ID,
-        "product_id": None,   # flat column empty — but we no longer rely on it
-        "operation_id": None,
-    }
-    conn.fetchrow = AsyncMock(side_effect=[
-        purchase_header_row,  # first call: SELECT FROM purchases
-        None,                 # second call: SELECT FROM purchase_items → no item
-    ])
-    conn.fetchval = AsyncMock(return_value=None)
+    async def fetchrow_side_effect(query, *args):
+        if "rpc_apply_product_stock_delta" in query:
+            reversal_calls.append(args)
+            return {}
+        if "FROM purchases WHERE id" in query:
+            return purchase_header_row
+        if "FROM stock_movements" in query:
+            return None  # sin movimiento
+        return None
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
     conn.execute = AsyncMock(return_value="DELETE 1")
     transaction_ctx = AsyncMock()
     transaction_ctx.__aenter__ = AsyncMock(return_value=None)
@@ -739,8 +754,7 @@ async def test_delete_purchase_by_id_no_item_skips_stock_reversal(async_client, 
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 204
-    # stock movements should NOT be queried (fetchval not called for delta)
-    conn.fetchval.assert_not_called()
+    assert reversal_calls == []
 
 
 # ─────────────────────────────────────────────────────────────────────────────

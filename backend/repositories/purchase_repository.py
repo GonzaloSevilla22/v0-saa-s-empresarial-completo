@@ -96,27 +96,29 @@ class PurchaseRepository(BaseRepository):
             )
             if row is None:
                 return False
-            # Read product_id from purchase_items (C-20: source of truth post-migration)
-            item_row = await self._conn.fetchrow(
-                "SELECT product_id FROM purchase_items WHERE purchase_id = $1::uuid AND product_id IS NOT NULL LIMIT 1",
+            # La reversa de stock se deriva de stock_movements (product_id,
+            # quantity_delta, branch_id), que toda ruta de creación escribe. Antes
+            # se gateaba por purchase_items, pero las rutas que no lo escriben
+            # (legacy con flag OFF) dejaban el stock sin revertir al borrar.
+            movement = await self._conn.fetchrow(
+                "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
+                "WHERE reference_id = $1::uuid AND reference_type = 'purchase' LIMIT 1",
                 purchase_id,
             )
-            product_id = item_row["product_id"] if item_row else None
-            if product_id is not None:
-                movement = await self._conn.fetchrow(
-                    "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase' LIMIT 1",
-                    purchase_id,
+            if (
+                movement is not None
+                and movement["product_id"] is not None
+                and movement["quantity_delta"] is not None
+            ):
+                # C-21 checkpoint #2: la reversa va a branch_stock (branch del
+                # movimiento o default). allow_negative + sin movement nuevo =
+                # paridad con el comportamiento previo sobre products.stock.
+                await self._conn.fetchrow(
+                    "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
+                    movement["product_id"],
+                    -movement["quantity_delta"],
+                    movement["branch_id"],
                 )
-                if movement is not None and movement["quantity_delta"] is not None:
-                    # C-21 checkpoint #2: la reversa va a branch_stock (branch del
-                    # movimiento o default). allow_negative + sin movement nuevo =
-                    # paridad con el comportamiento previo sobre products.stock.
-                    await self._conn.fetchrow(
-                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                        product_id,
-                        -movement["quantity_delta"],
-                        movement["branch_id"],
-                    )
                 await self._conn.execute(
                     "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase'",
                     purchase_id,
@@ -147,24 +149,23 @@ class PurchaseRepository(BaseRepository):
                 return False
             for row in rows:
                 purchase_id = row["id"]
-                item_row = await self._conn.fetchrow(
-                    "SELECT product_id FROM purchase_items WHERE purchase_id = $1 AND product_id IS NOT NULL LIMIT 1",
+                movement = await self._conn.fetchrow(
+                    "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
+                    "WHERE reference_id = $1 AND reference_type = 'purchase' LIMIT 1",
                     purchase_id,
                 )
-                product_id = item_row["product_id"] if item_row else None
-                if product_id is not None:
-                    movement = await self._conn.fetchrow(
-                        "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase' LIMIT 1",
-                        purchase_id,
+                if (
+                    movement is not None
+                    and movement["product_id"] is not None
+                    and movement["quantity_delta"] is not None
+                ):
+                    # C-21 checkpoint #2: reversa sobre branch_stock (ver delete_by_id)
+                    await self._conn.fetchrow(
+                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
+                        movement["product_id"],
+                        -movement["quantity_delta"],
+                        movement["branch_id"],
                     )
-                    if movement is not None and movement["quantity_delta"] is not None:
-                        # C-21 checkpoint #2: reversa sobre branch_stock (ver delete_by_id)
-                        await self._conn.fetchrow(
-                            "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                            product_id,
-                            -movement["quantity_delta"],
-                            movement["branch_id"],
-                        )
                     await self._conn.execute(
                         "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase'",
                         purchase_id,

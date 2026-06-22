@@ -85,9 +85,11 @@ class SalesRepository(BaseRepository):
 
     async def delete_by_id(self, sale_id: str, account_id: str) -> bool:
         async with self._conn.transaction():
-            # Espejo de PurchaseRepository.delete_by_id. product_id se lee de
-            # sale_items (fuente de verdad post-C-20); la reversa de stock va a
-            # branch_stock (C-21) con el signo opuesto al movimiento original.
+            # Espejo de PurchaseRepository.delete_by_id. La reversa de stock se
+            # deriva de stock_movements (product_id, quantity_delta, branch_id),
+            # que TODA ruta de creación escribe (v2, legacy y C-29/POS). Antes se
+            # gateaba por sale_items, pero la ruta C-29 (rpc_quick_sale /
+            # rpc_confirm_sales_order) no escribe sale_items → el stock no volvía.
             row = await self._conn.fetchrow(
                 "SELECT id, operation_id FROM sales WHERE id = $1::uuid AND account_id = $2::uuid",
                 sale_id,
@@ -95,26 +97,25 @@ class SalesRepository(BaseRepository):
             )
             if row is None:
                 return False
-            item_row = await self._conn.fetchrow(
-                "SELECT product_id FROM sale_items WHERE sale_id = $1::uuid AND product_id IS NOT NULL LIMIT 1",
+            movement = await self._conn.fetchrow(
+                "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
+                "WHERE reference_id = $1::uuid AND reference_type = 'sale' LIMIT 1",
                 sale_id,
             )
-            product_id = item_row["product_id"] if item_row else None
-            if product_id is not None:
-                movement = await self._conn.fetchrow(
-                    "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'sale' LIMIT 1",
-                    sale_id,
+            if (
+                movement is not None
+                and movement["product_id"] is not None
+                and movement["quantity_delta"] is not None
+            ):
+                # La venta descontó stock (quantity_delta < 0); la reversa devuelve
+                # a la branch original. allow_negative + sin movement nuevo =
+                # paridad con el comportamiento previo.
+                await self._conn.fetchrow(
+                    "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
+                    movement["product_id"],
+                    -movement["quantity_delta"],
+                    movement["branch_id"],
                 )
-                if movement is not None and movement["quantity_delta"] is not None:
-                    # La venta descontó stock (quantity_delta < 0); la reversa
-                    # devuelve a la branch original. allow_negative + sin movement
-                    # nuevo = paridad con el comportamiento previo.
-                    await self._conn.fetchrow(
-                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                        product_id,
-                        -movement["quantity_delta"],
-                        movement["branch_id"],
-                    )
                 await self._conn.execute(
                     "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'sale'",
                     sale_id,
@@ -144,23 +145,22 @@ class SalesRepository(BaseRepository):
                 return False
             for row in rows:
                 sale_id = row["id"]
-                item_row = await self._conn.fetchrow(
-                    "SELECT product_id FROM sale_items WHERE sale_id = $1 AND product_id IS NOT NULL LIMIT 1",
+                movement = await self._conn.fetchrow(
+                    "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
+                    "WHERE reference_id = $1 AND reference_type = 'sale' LIMIT 1",
                     sale_id,
                 )
-                product_id = item_row["product_id"] if item_row else None
-                if product_id is not None:
-                    movement = await self._conn.fetchrow(
-                        "SELECT quantity_delta, branch_id FROM stock_movements WHERE reference_id = $1 AND reference_type = 'sale' LIMIT 1",
-                        sale_id,
+                if (
+                    movement is not None
+                    and movement["product_id"] is not None
+                    and movement["quantity_delta"] is not None
+                ):
+                    await self._conn.fetchrow(
+                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
+                        movement["product_id"],
+                        -movement["quantity_delta"],
+                        movement["branch_id"],
                     )
-                    if movement is not None and movement["quantity_delta"] is not None:
-                        await self._conn.fetchrow(
-                            "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                            product_id,
-                            -movement["quantity_delta"],
-                            movement["branch_id"],
-                        )
                     await self._conn.execute(
                         "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'sale'",
                         sale_id,

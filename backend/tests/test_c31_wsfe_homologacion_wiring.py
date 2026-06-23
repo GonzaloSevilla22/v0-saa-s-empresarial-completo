@@ -42,12 +42,18 @@ class TestWSFEAdapterURLs:
             assert ".gob.ar" in url, f"WSAA URL ({ambiente}) debe usar .gob.ar: {url}"
             assert ".gov.ar" not in url, f"WSAA URL ({ambiente}) no debe usar .gov.ar: {url}"
 
-    def test_wsfev1_urls_use_gob_ar(self):
-        """1.1 RED: todas las URLs de WSFEv1 terminan en .gob.ar."""
+    def test_wsfev1_homologacion_uses_gob_ar(self):
+        """WSFEv1 homologación (wswhomo) usa .gob.ar (corrige el typo de C-27)."""
         from backend.services.fiscal.wsfe_adapter import _WSFEV1_URLS
-        for ambiente, url in _WSFEV1_URLS.items():
-            assert ".gob.ar" in url, f"WSFEv1 URL ({ambiente}) debe usar .gob.ar: {url}"
-            assert ".gov.ar" not in url, f"WSFEv1 URL ({ambiente}) no debe usar .gov.ar: {url}"
+        url = _WSFEV1_URLS["homologacion"]
+        assert ".gob.ar" in url and ".gov.ar" not in url, url
+
+    def test_wsfev1_produccion_uses_gov_ar(self):
+        """WSFEv1 PRODUCCIÓN (servicios1) usa .gov.ar: el cert TLS del server es
+        CN/SAN `servicios1.afip.gov.ar`; apuntar a .gob.ar da hostname mismatch
+        (SSLCertVerificationError). El WSAA de prod sí migró a .gob.ar."""
+        from backend.services.fiscal.wsfe_adapter import _WSFEV1_URLS
+        assert "servicios1.afip.gov.ar" in _WSFEV1_URLS["produccion"]
 
     def test_wsaa_homologacion_host_correct(self):
         """1.3 TRIANGULATE: host exacto de WSAA homologacion."""
@@ -65,9 +71,18 @@ class TestWSFEAdapterURLs:
         assert "wswhomo.afip.gob.ar" in _WSFEV1_URLS["homologacion"]
 
     def test_wsfev1_produccion_host_correct(self):
-        """1.3 TRIANGULATE: host exacto de WSFEv1 produccion."""
+        """1.3 TRIANGULATE: host exacto de WSFEv1 produccion (.gov.ar por el cert TLS)."""
         from backend.services.fiscal.wsfe_adapter import _WSFEV1_URLS
-        assert "servicios1.afip.gob.ar" in _WSFEV1_URLS["produccion"]
+        assert "servicios1.afip.gov.ar" in _WSFEV1_URLS["produccion"]
+
+    def test_afip_ssl_context_keeps_cert_verification(self):
+        """El SSLContext de AFIP baja el security level (DH débil de servicios1 prod
+        → DH_KEY_TOO_SMALL) pero MANTIENE la verificación del certificado."""
+        import ssl as _ssl
+        from backend.services.fiscal.wsfe_adapter import _afip_ssl_context
+        ctx = _afip_ssl_context()
+        assert ctx.check_hostname is True
+        assert ctx.verify_mode == _ssl.CERT_REQUIRED
 
 
 # =============================================================================

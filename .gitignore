@@ -44,3 +44,11 @@ backend/.pytest_cache/
 frontend/.next/
 frontend/node_modules/
 frontend/.env*.local
+
+# AFIP/ARCA homologación — certificados reales (NUNCA commitear la clave privada)
+backend/.afip-homo/
+*.key
+*.crt
+*.pem
+*.p12
+*.pfx

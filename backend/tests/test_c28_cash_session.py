@@ -44,7 +44,10 @@ from backend.tests.conftest import make_token
 # affecting test_payments, test_receipts, test_sales, etc.).  Inject a stub
 # BEFORE the FastAPI app is imported so that conftest.async_client can collect.
 # ---------------------------------------------------------------------------
-if "fpdf" not in sys.modules:
+try:
+    import fpdf  # noqa: F401 — usar el fpdf2 REAL si está instalado (no contaminar receipts.FPDF)
+except ImportError:
+    # Solo si fpdf2 NO está instalado: stub para que backend.main pueda importarse.
     _fpdf_stub = types.ModuleType("fpdf")
     _fpdf_stub.FPDF = MagicMock  # type: ignore[attr-defined]
     sys.modules["fpdf"] = _fpdf_stub

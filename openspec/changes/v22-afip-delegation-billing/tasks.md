@@ -80,7 +80,7 @@
 ## 9. Validación E2E + cierre
 
 - [ ] 9.1 E2E homologación (`@pytest.mark.integration`, manual, fuera del gate): facturar por un CUIT de prueba representado por el cert de plataforma; confirmar CAE.
-- [ ] 9.2 Confirmar regresión completa del gate `pytest -m "not integration"` verde.
+- [x] 9.2 Confirmar regresión completa del gate `pytest -m "not integration"` verde — 586/586 passed.
 - [ ] 9.3 Actualizar `CHANGES.md` (nuevo change V2.x) y la KB fiscal si corresponde.
 - [ ] 9.4 Guardar el resultado del apply en engram (`opsx/v22-afip-delegation-billing/apply`).
-- [ ] 9.5 PR con sign-off CRÍTICO del PO antes de mergear (feature branch, nunca a main directo).
+- [x] 9.5 PR #211 abierto en feat/v22-afip-delegation-billing — HARD STOP (governance CRÍTICO, esperar sign-off PO).

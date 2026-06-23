@@ -2,12 +2,14 @@
 
 /**
  * C-27 v21-fiscal-profile — Contenido reutilizable de configuración fiscal.
+ * C-31 v21-wsfe-homologacion-wiring — CertUploadSection: dos controles (cert + key).
  *
  * Perfil fiscal + CRUD de puntos de venta + upload de certificado AFIP.
  * Se renderiza tanto en la ruta standalone `/configuracion/fiscal` (deep-link)
  * como embebido en la tab "Facturación AFIP" de `/configuracion`.
  *
  * Design ref: OQ-2 (multi-PV), D2 (ambiente por cuenta), D7 (cert en bucket privado)
+ * C-31 Design ref: W1 (dos PEM separados), W2 (signed PUT, .key nunca devuelta)
  */
 
 import { useState } from "react"
@@ -257,57 +259,127 @@ function FiscalProfileForm() {
 }
 
 // ── CertUploadSection ─────────────────────────────────────────────────────────
+// C-31: dos controles separados — certificado (.crt) y clave privada (.key)
+// Cada control llama a cert-upload-url con su `kind` y hace PUT a la signed URL.
+// Solo el .crt (kind=cert) dispara PUT /fiscal/profile/cert-path (W2).
+// El contenido de la .key nunca se expone más allá del PUT al bucket privado (OQ-2).
 
-function CertUploadSection() {
-  const { profile } = useFiscalProfile()
+type CertKind = "cert" | "key"
+
+interface SingleCertUploadProps {
+  kind: CertKind
+  label: string
+  accept: string
+  hint: string
+  disabled: boolean
+  onSuccess?: () => void
+}
+
+function SingleCertUpload({ kind, label, accept, hint, disabled, onSuccess }: SingleCertUploadProps) {
   const [uploading, setUploading] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const [uploadOk, setUploadOk] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [ok, setOk] = useState(false)
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
 
     setUploading(true)
-    setUploadError(null)
-    setUploadOk(false)
+    setError(null)
+    setOk(false)
 
     try {
-      // D7: cert en bucket privado `afip-certs` — signed upload via backend
-      // El backend genera una URL firmada para que el frontend suba directamente a Storage.
+      // D7 / W2: signed upload URL generada server-side; el frontend sube directamente a Storage.
+      // El backend deriva el path canónico del account_id del JWT — el cliente no decide la ruta.
       const { pythonClient } = await import("@/lib/api/python-client")
       const { uploadUrl, path } = await pythonClient.post<{ uploadUrl: string; path: string }>(
         "/fiscal/profile/cert-upload-url",
-        { filename: file.name, content_type: file.type || "application/x-x509-ca-cert" },
+        {
+          filename: file.name,
+          content_type: file.type || "application/x-pem-file",
+          kind,
+        },
       )
 
-      // Upload directo al bucket usando la URL firmada
-      const resp = await fetch(uploadUrl, {
+      // PUT directo al bucket privado — el archivo viaja aquí y solo aquí (W2)
+      const putResp = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type || "application/x-x509-ca-cert" },
+        headers: { "Content-Type": file.type || "application/x-pem-file" },
         body: file,
       })
 
-      if (!resp.ok) {
-        throw new Error("Error al subir el certificado. Intentá de nuevo.")
+      if (!putResp.ok) {
+        throw new Error(`Error al subir el archivo (${putResp.status}). Intentá de nuevo.`)
       }
 
-      // Actualizar el path en el perfil
-      await pythonClient.put("/fiscal/profile/cert-path", { path })
-      setUploadOk(true)
-      setTimeout(() => setUploadOk(false), 4000)
+      // Solo el .crt (kind=cert) setea certificado_afip_path en el perfil (W2).
+      // La .key no toca este campo — su path no se refleja en la API.
+      if (kind === "cert") {
+        await pythonClient.put("/fiscal/profile/cert-path", { path })
+      }
+
+      setOk(true)
+      setTimeout(() => setOk(false), 4000)
+      onSuccess?.()
     } catch (err: unknown) {
-      setUploadError(err instanceof Error ? err.message : "Error al subir el certificado.")
+      setError(err instanceof Error ? err.message : `Error al subir ${label.toLowerCase()}.`)
     } finally {
       setUploading(false)
       e.target.value = ""
     }
   }
 
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">{label}</span>
+      </div>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+      <label className="flex items-center gap-2 cursor-pointer self-start">
+        <input
+          type="file"
+          accept={accept}
+          className="sr-only"
+          disabled={disabled || uploading}
+          onChange={handleChange}
+        />
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          disabled={disabled || uploading}
+          className="pointer-events-none"
+        >
+          <span>
+            <Upload className="h-3.5 w-3.5 mr-1.5" />
+            {uploading ? "Subiendo..." : `Subir ${label.toLowerCase()}`}
+          </span>
+        </Button>
+      </label>
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription className="text-xs">{error}</AlertDescription>
+        </Alert>
+      )}
+      {ok && (
+        <Alert>
+          <AlertDescription className="text-xs text-green-500">
+            {label} cargado correctamente.
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
+  )
+}
+
+function CertUploadSection() {
+  const { profile } = useFiscalProfile()
   const hasCert = Boolean(profile?.certificadoAfipPath)
+  const isDisabled = !profile
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
+      {/* Badge de estado del certificado */}
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium">Certificado AFIP</span>
         {hasCert
@@ -315,46 +387,35 @@ function CertUploadSection() {
           : <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs">Sin certificado</Badge>
         }
       </div>
+
       <p className="text-xs text-muted-foreground">
-        Subí el certificado digital otorgado por AFIP (archivo .p12 o .crt).
-        Se guarda de forma privada; el sistema lo usa solo para firmar el ticket de acceso WSAA.
-        Sin certificado, el relay CAE operará en modo Stub.
+        Subí los dos archivos PEM generados en ARCA: el certificado (.crt) y la clave privada (.key).
+        Ambos son necesarios para firmar el ticket WSAA y solicitar CAE a AFIP.
+        Sin certificado, el relay CAE opera en modo Stub (sin llamar a AFIP).
       </p>
-      <label className="flex items-center gap-2 cursor-pointer self-start">
-        <input
-          type="file"
-          accept=".p12,.crt,.pem,.pfx"
-          className="sr-only"
-          disabled={uploading || !profile}
-          onChange={handleFileChange}
-        />
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          disabled={uploading || !profile}
-          className="pointer-events-none"
-        >
-          <span>
-            <Upload className="h-3.5 w-3.5 mr-1.5" />
-            {uploading ? "Subiendo..." : hasCert ? "Reemplazar certificado" : "Subir certificado"}
-          </span>
-        </Button>
-      </label>
-      {!profile && (
+
+      {/* Control 1: Certificado (.crt) */}
+      <SingleCertUpload
+        kind="cert"
+        label="Certificado (.crt)"
+        accept=".crt,.pem,.cer"
+        hint="Archivo certificado.crt descargado de ARCA (WSASS). Formato PEM (-----BEGIN CERTIFICATE-----)."
+        disabled={isDisabled}
+      />
+
+      <Separator />
+
+      {/* Control 2: Clave privada (.key) */}
+      <SingleCertUpload
+        kind="key"
+        label="Clave privada (.key)"
+        accept=".key,.pem"
+        hint="Archivo clave_privada.key generado al crear el CSR. RSA 2048, PEM sin password. No se almacena en ninguna respuesta de la API."
+        disabled={isDisabled}
+      />
+
+      {isDisabled && (
         <p className="text-xs text-muted-foreground/70">Guardá el perfil fiscal antes de subir el certificado.</p>
-      )}
-      {uploadError && (
-        <Alert variant="destructive">
-          <AlertDescription className="text-xs">{uploadError}</AlertDescription>
-        </Alert>
-      )}
-      {uploadOk && (
-        <Alert>
-          <AlertDescription className="text-xs text-green-500">
-            Certificado cargado correctamente.
-          </AlertDescription>
-        </Alert>
       )}
     </div>
   )

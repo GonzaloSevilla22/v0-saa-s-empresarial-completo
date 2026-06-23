@@ -1,8 +1,10 @@
 """
 C-27 v21-fiscal-profile — Fiscal service: FiscalProfile + PointOfSale + emisión.
+C-31 v21-wsfe-homologacion-wiring — servicios de upload del cert AFIP + factory.
 
 Capa de servicio (lógica de negocio + guards). Sin lógica en los routers.
 Design ref: D9 (require_role), D10 (multi-PV), D11 (P0422 ambiguous_point_of_sale)
+C-31 Design ref: W1 (dos PEM), W2 (signed PUT, key nunca devuelta), W4 (factory)
 """
 from __future__ import annotations
 
@@ -16,6 +18,8 @@ from backend.repositories.fiscal_profile_repository import FiscalProfileReposito
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 from backend.repositories.point_of_sale_repository import PointOfSaleRepository
 from backend.schemas.fiscal import (
+    CertPathUpdate,
+    CertUploadUrlRequest,
     EmitPendingCAERequest,
     FiscalProfileCreate,
     PointOfSaleCreate,
@@ -25,6 +29,73 @@ from backend.services.fiscal.fiscal_document_port import FiscalDocumentPort
 from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
 
 logger = logging.getLogger(__name__)
+
+
+# ── Cert upload service (C-31) ────────────────────────────────────────────────
+
+# Mapping canónico: kind → nombre de objeto en bucket afip-certs (W1)
+# El path SIEMPRE se deriva del account_id server-side, nunca del filename del cliente.
+_CERT_OBJECT_NAME = {
+    "cert": "afip.crt",
+    "key":  "afip.key",
+}
+
+
+async def create_cert_upload_url(
+    account_id: str,
+    auth: dict,
+    payload: CertUploadUrlRequest,
+    storage_service_client,
+) -> dict:
+    """Genera una signed upload URL para subir el cert/key al bucket privado afip-certs.
+
+    El path canónico se deriva siempre del account_id del JWT (W2 — el cliente
+    NO elige la ruta para evitar que un usuario A apunte al path de B).
+
+    Seguridad (OQ-2 / W2):
+      - La .key viaja SOLO en el body del signed PUT al bucket privado.
+      - Nunca se loguea, nunca se devuelve en ningún GET.
+
+    Returns: dict {uploadUrl: str, path: str}
+    """
+    require_role(auth, ["user", "admin"])
+
+    object_name = _CERT_OBJECT_NAME[payload.kind]
+    canonical_path = f"{account_id}/{object_name}"
+
+    # Generar signed upload URL server-side vía service_role (aislado — D7/DEC-13)
+    response = storage_service_client.storage.from_("afip-certs").create_signed_upload_url(
+        canonical_path
+    )
+
+    signed_url = response.get("signedURL") or response.get("signed_url") or response.get("url", "")
+
+    return {
+        "uploadUrl": signed_url,
+        "path": canonical_path,
+    }
+
+
+async def set_cert_path(
+    repo: FiscalProfileRepository,
+    auth: dict,
+    account_id: str,
+    payload: CertPathUpdate,
+) -> dict:
+    """Persiste el path del certificado .crt en fiscal_profiles.certificado_afip_path.
+
+    Solo el .crt dispara este PUT (la .key no toca este campo — W2).
+    Usa el upsert existente del repo (COALESCE — no sobrescribe si ya existe
+    un path y se pasa None).
+
+    Seguridad: la respuesta NO incluye contenido del cert/key.
+    """
+    require_role(auth, ["user", "admin"])
+
+    result = await repo.upsert(account_id, {"certificado_afip_path": payload.path})
+    if result is None:
+        raise HTTPException(status_code=500, detail="Error al persistir el path del certificado")
+    return result
 
 
 # ── FiscalProfile ──────────────────────────────────────────────────────────────
@@ -162,13 +233,18 @@ async def process_pending_documents(
 
 async def process_all_pending_documents(
     doc_repo: FiscalDocumentRepository,
-    adapter: FiscalDocumentPort,
+    adapter: FiscalDocumentPort | None = None,
     limit: int = 50,
+    service_client=None,
 ) -> dict:
     """Procesa documentos pending_cae de TODAS las cuentas (cross-account, sin RLS).
 
     Usado exclusivamente por el machine endpoint POST /fiscal/documents/process-pending-cron
     (pg_cron) con service-role connection.
+
+    C-31 (W4 factory): si `adapter` es None, selecciona el adapter por doc/cuenta:
+      - cuenta con certificado_afip_path → WSFEAdapter real (service_client requerido)
+      - sin cert → WSFEStubAdapter (default seguro, no rompe prod)
 
     Anti-double-CAE guard (D6, OQ-1=A):
       Para cada doc encontrado con list_pending_all, se llama claim_pending antes de
@@ -180,8 +256,9 @@ async def process_all_pending_documents(
     Nota: FOR UPDATE SKIP LOCKED no se mantiene durante la llamada SOAP (larga);
     el lease de 5 minutos en next_attempt_at es el mecanismo de concurrencia.
     """
+    from backend.services.fiscal.adapter_factory import build_cae_adapter
+
     docs = await doc_repo.list_pending_all(limit=limit)
-    processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
 
     processed = 0
     authorized = 0
@@ -199,7 +276,18 @@ async def process_all_pending_documents(
             )
             continue
 
-        # Procesar el doc reclamado (proceso idempotente en estado terminal)
+        # C-31 (W4): elegir adapter por cuenta/doc — real si hay cert, stub si no
+        if adapter is not None:
+            # Legacy: adapter inyectado explícitamente (tests de C-27)
+            _adapter = adapter
+        else:
+            cert_path = claimed.get("certificado_afip_path") if isinstance(claimed, dict) else None
+            _adapter = build_cae_adapter(
+                has_cert=bool(cert_path),
+                service_client=service_client,
+            )
+
+        processor = CAERelayProcessor(adapter=_adapter, repo=doc_repo)
         await processor.process_document(claimed)
         processed += 1
 
@@ -224,8 +312,10 @@ async def process_doc_by_id_background(doc_id: str) -> None:
          coincidente, es un no-op seguro.
       3. Si gana el claim, llama process_document (que llama request_cae).
 
-    TODO: inyectar WSFEAdapter real (por cuenta/ambiente) cuando el certificado
-    AFIP esté disponible vía ARCA. Por ahora el stub simula la autorización.
+    C-31 (W4): el adapter es el stub por defecto (safe) — la cuenta siempre tiene
+    el pg_cron como backstop con la factory real. El fire-and-forget usa stub para
+    no bloquear la respuesta del usuario con una llamada SOAP potencialmente lenta.
+    Si el stub falla, el cron lo reintenta con el adapter correcto.
     """
     if _db.pool is None:
         logger.warning("[process_doc_by_id_background] pool not initialized — skipping doc %s", doc_id)

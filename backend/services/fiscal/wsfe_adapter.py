@@ -25,13 +25,14 @@ from backend.services.fiscal.fiscal_document_port import CAERequest, CAEResponse
 logger = logging.getLogger(__name__)
 
 # URLs de AFIP/ARCA (ambiente resuelto desde el perfil)
+# C-31: corregido .gov.ar → .gob.ar (typo de C-27; sin este fix el E2E real falla)
 _WSAA_URLS = {
-    "homologacion": "https://wsaahomo.afip.gov.ar/ws/services/LoginCms?WSDL",
-    "produccion":   "https://wsaa.afip.gov.ar/ws/services/LoginCms?WSDL",
+    "homologacion": "https://wsaahomo.afip.gob.ar/ws/services/LoginCms?WSDL",
+    "produccion":   "https://wsaa.afip.gob.ar/ws/services/LoginCms?WSDL",
 }
 _WSFEV1_URLS = {
-    "homologacion": "https://wswhomo.afip.gov.ar/wsfev1/service.asmx?WSDL",
-    "produccion":   "https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL",
+    "homologacion": "https://wswhomo.afip.gob.ar/wsfev1/service.asmx?WSDL",
+    "produccion":   "https://servicios1.afip.gob.ar/wsfev1/service.asmx?WSDL",
 }
 
 # Mapping de comprobante_type a código AFIP (CbteTipo)

@@ -33,8 +33,55 @@ _WSAA_URLS = {
 }
 _WSFEV1_URLS = {
     "homologacion": "https://wswhomo.afip.gob.ar/wsfev1/service.asmx?WSDL",
-    "produccion":   "https://servicios1.afip.gob.ar/wsfev1/service.asmx?WSDL",
+    # NOTA: el WSFEv1 de PRODUCCIÓN sigue presentando un cert TLS válido SOLO para
+    # `servicios1.afip.gov.ar` (CN + SAN .gov.ar). Apuntar a .gob.ar da
+    # SSLCertVerificationError (hostname mismatch). El WSAA de prod sí migró a .gob.ar.
+    "produccion":   "https://servicios1.afip.gov.ar/wsfev1/service.asmx?WSDL",
 }
+
+
+def _afip_ssl_context():
+    """SSLContext para los web services de AFIP.
+
+    El server de PRODUCCIÓN (servicios1.afip.gov.ar) negocia una clave
+    Diffie-Hellman corta que OpenSSL moderno rechaza (DH_KEY_TOO_SMALL). Bajamos
+    el security level a 1 para tolerar ese handshake, SIN desactivar la
+    verificación del certificado: hostname y CA se siguen validando.
+    """
+    import ssl
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+    return ctx
+
+
+def _build_zeep_client(url: str):
+    """Cliente zeep con el SSLContext tolerante de AFIP (ver _afip_ssl_context).
+
+    Necesario para producción: sin el security level bajado, el handshake TLS
+    con servicios1.afip.gov.ar falla con DH_KEY_TOO_SMALL. Homologación no lo
+    necesita, pero usar el mismo client para ambos ambientes es inocuo.
+    """
+    import zeep
+    import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.poolmanager import PoolManager
+
+    class _AfipTLSAdapter(HTTPAdapter):
+        def init_poolmanager(self, connections, maxsize, block=False, **kwargs):
+            self.poolmanager = PoolManager(
+                num_pools=connections,
+                maxsize=maxsize,
+                block=block,
+                ssl_context=_afip_ssl_context(),
+            )
+
+    session = requests.Session()
+    session.mount("https://", _AfipTLSAdapter())
+    return zeep.Client(url, transport=zeep.Transport(session=session))
+
 
 # Mapping de comprobante_type a codigo AFIP (CbteTipo)
 _COMPROBANTE_AFIP_CODE = {
@@ -244,9 +291,7 @@ class WSFEAdapter(FiscalDocumentPort):
             (token, sign, expires_at) — el expires_at se extrae del TA XML para
             permitir que _get_wsaa_token lo guarde en la cache (D5).
         """
-        import zeep
-
-        client = zeep.Client(wsaa_url)
+        client = _build_zeep_client(wsaa_url)
         response = client.service.loginCms(in0=cms)
         # Parsear el TA XML
         import xml.etree.ElementTree as ET
@@ -285,10 +330,8 @@ class WSFEAdapter(FiscalDocumentPort):
           (2) Array Iva / AlicIva    — IVA discriminado tipo A/B; tipo C sin IVA (D3)
           (3) Numeracion autoritativa via FECompUltimoAutorizado + 1 (D4)
         """
-        import zeep
-
         wsfev1_url = _WSFEV1_URLS[invoice_data.ambiente]
-        client = zeep.Client(wsfev1_url)
+        client = _build_zeep_client(wsfev1_url)
 
         cbte_tipo = _COMPROBANTE_AFIP_CODE.get(invoice_data.comprobante_type, 6)
         fecha = (invoice_data.fecha_comprobante or datetime.date.today()).strftime("%Y%m%d")

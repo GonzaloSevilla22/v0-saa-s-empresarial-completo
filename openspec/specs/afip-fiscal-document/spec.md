@@ -47,7 +47,7 @@ El sistema SHALL emitir el comprobante en una transaccion corta que resuelve el 
 
 ### Requirement: Adaptador WSFE detras de un ACL (port + impl real/stub)
 
-El sistema SHALL exponer un port `FiscalDocumentPort.request_cae(invoice_data) -> CAEResponse` en la capa de dominio, con al menos dos implementaciones inyectables por DI: `WSFEAdapter` (real, autentica via WSAA para el ticket de acceso y solicita el CAE via WSFEv1, contra el ambiente del perfil de la cuenta) y `WSFEStubAdapter` (devuelve un CAE ficticio deterministico para tests y dev). El dominio y los services SHALL conocer unicamente `CAE`, `CAEDueDate`, `DocumentType` y codigos de error normalizados; el SOAP/XML de AFIP SHALL permanecer encapsulado en el adapter. El `WSFEAdapter` real SHALL apuntar a las URLs oficiales de AFIP bajo el dominio **`.gob.ar`** (WSAA homologación `wsaahomo.afip.gob.ar`, WSAA producción `wsaa.afip.gob.ar`, WSFEv1 homologación `wswhomo.afip.gob.ar`, WSFEv1 producción `servicios1.afip.gob.ar`), resueltas por `CAERequest.ambiente`. El `WSFEAdapter` real SHALL leer el certificado (`{account_id}/afip.crt`) y la clave privada (`{account_id}/afip.key`, PEM sin password) del bucket privado `afip-certs` server-side, y SHALL depender de la librería SOAP `zeep` (importada de forma lazy, de modo que el módulo y el `WSFEStubAdapter` funcionen aunque `zeep` no esté instalado).
+El sistema SHALL exponer un port `FiscalDocumentPort.request_cae(invoice_data) -> CAEResponse` en la capa de dominio, con al menos dos implementaciones inyectables por DI: `WSFEAdapter` (real, autentica via WSAA para el ticket de acceso y solicita el CAE via WSFEv1, contra el ambiente del perfil de la cuenta) y `WSFEStubAdapter` (devuelve un CAE ficticio deterministico para tests y dev). El dominio y los services SHALL conocer unicamente `CAE`, `CAEDueDate`, `DocumentType` y codigos de error normalizados; el SOAP/XML de AFIP SHALL permanecer encapsulado en el adapter. El `WSFEAdapter` real SHALL apuntar a las URLs oficiales de AFIP, resueltas por `CAERequest.ambiente`: WSAA homologación `wsaahomo.afip.gob.ar`, WSAA producción `wsaa.afip.gob.ar`, WSFEv1 homologación `wswhomo.afip.gob.ar` (todas `.gob.ar`); y WSFEv1 **producción** `servicios1.afip.gov.ar` (con **`.gov.ar`**), porque el certificado TLS de ese server es válido únicamente para `servicios1.afip.gov.ar` — apuntar a `.gob.ar` da hostname mismatch (`SSLCertVerificationError`). El server WSFEv1 de producción además negocia una clave Diffie-Hellman corta, por lo que el cliente SOAP SHALL usar un security level de TLS reducido (`SECLEVEL=1`) que tolere ese handshake (`DH_KEY_TOO_SMALL`) SIN desactivar la verificación del certificado (hostname + CA se siguen validando). El `WSFEAdapter` real SHALL leer el certificado (`{account_id}/afip.crt`) y la clave privada (`{account_id}/afip.key`, PEM sin password) del bucket privado `afip-certs` server-side, y SHALL depender de la librería SOAP `zeep` (importada de forma lazy, de modo que el módulo y el `WSFEStubAdapter` funcionen aunque `zeep` no esté instalado).
 
 Para que la solicitud de CAE sea **autorizable en producción** (no solo en homologación), el `WSFEAdapter` real SHALL, al construir cada `FECAEDetRequest`:
 
@@ -69,10 +69,11 @@ Los datos de IVA y de condición del receptor necesarios para (a) y (b) SHALL vi
 - **WHEN** solicita un CAE
 - **THEN** autentica via WSAA y pega al endpoint WSFEv1 de homologacion de ARCA (`wswhomo.afip.gob.ar`)
 
-#### Scenario: Las URLs del adaptador usan el dominio .gob.ar
+#### Scenario: Dominios de los endpoints de AFIP
 
-- **WHEN** se inspeccionan las URLs WSAA y WSFEv1 del `WSFEAdapter` para ambos ambientes
-- **THEN** las cuatro usan el dominio `.gob.ar` y ninguna usa `.gov.ar`
+- **WHEN** se inspeccionan las URLs WSAA y WSFEv1 del `WSFEAdapter`
+- **THEN** WSAA (homologación y producción) y WSFEv1 homologación usan `.gob.ar`
+- **AND** WSFEv1 producción usa `servicios1.afip.gov.ar` (`.gov.ar`), por el hostname de su certificado TLS
 
 #### Scenario: El service no conoce el SOAP de AFIP
 

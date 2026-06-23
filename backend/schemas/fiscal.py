@@ -1,7 +1,9 @@
 """
 C-27 v21-fiscal-profile — Pydantic v2 schemas para fiscal (FiscalProfile + PointOfSale + FiscalDocument).
+C-31 v21-wsfe-homologacion-wiring — schemas de upload del certificado AFIP.
 
 Design ref: D9 (RLS), D10 (multi-PV), D11 (P0422 ambiguous), spec fiscal-profile/spec.md
+C-31 Design ref: W1 (dos PEM separados), W2 (signed PUT, .key nunca devuelta)
 """
 from __future__ import annotations
 
@@ -104,6 +106,50 @@ class EmitPendingCAERequest(BaseModel):
     client_id: uuid.UUID | None = None
     point_of_sale_id: uuid.UUID | None = None  # opcional — D11
 
+
+# ── CertUpload schemas (C-31) ─────────────────────────────────────────────────
+
+class CertUploadUrlRequest(BaseModel):
+    """Request para obtener una signed upload URL del bucket privado afip-certs.
+
+    kind ∈ {cert, key}:
+      - cert → path canónico {account_id}/afip.crt
+      - key  → path canónico {account_id}/afip.key
+
+    El path siempre se deriva server-side del account_id del JWT (W1, W2 — el
+    cliente NO decide la ruta; la decide el backend para evitar rutas de otras cuentas).
+    """
+
+    filename: str
+    content_type: str
+    kind: Literal["cert", "key"]
+
+
+class CertUploadUrlOut(BaseModel):
+    """Respuesta del endpoint cert-upload-url.
+
+    uploadUrl: signed PUT URL de Supabase Storage (expira en minutos).
+    path: ruta canónica del objeto en el bucket (para correlacionar en el PUT
+          posterior de cert-path).
+
+    La .key NUNCA se devuelve en ningún GET posterior (invariante OQ-2 / W2).
+    """
+
+    uploadUrl: str
+    path: str
+
+
+class CertPathUpdate(BaseModel):
+    """Request para persistir el path del certificado .crt en fiscal_profiles.
+
+    Solo el .crt dispara este PUT (el upload de la .key no toca este campo —
+    la .key no se refleja en la API, W2).
+    """
+
+    path: str
+
+
+# ── FiscalDocument schemas ───────────────────────────────────────────────────
 
 class FiscalDocumentOut(BaseModel):
     """Schema de respuesta de un comprobante fiscal."""

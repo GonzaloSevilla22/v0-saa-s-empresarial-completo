@@ -11,6 +11,7 @@ dependencies = [
     "redis>=5.0",
     "tenacity>=8.2",
     "fpdf2>=2.7",
+    "zeep>=4.2,<5",
 ]
 
 [project.optional-dependencies]

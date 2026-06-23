@@ -112,11 +112,21 @@ class TestZeepImport:
 
     @pytest.mark.asyncio
     async def test_wsfe_real_adapter_raises_import_error_without_zeep(self):
-        """2.1 RED: WSFEAdapter._get_wsaa_token lanza ImportError claro si zeep falta (mockeo)."""
+        """2.1 RED: WSFEAdapter._get_wsaa_token lanza ImportError claro si zeep falta (mockeo).
+
+        v22: el adapter requiere un platform_provider configurado; zeep falta → ImportError.
+        """
         import sys
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
         import datetime
         import decimal
+
+        # v22: crear un platform_provider mock configurado (necesario para superar el primer guard)
+        mock_provider = MagicMock()
+        mock_provider.is_configured.return_value = True
+        mock_provider.get_cuit.return_value = "20422662457"
+        mock_provider.get_cert.return_value = b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
+        mock_provider.get_key.return_value  = b"-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----\n"
 
         # Mock zeep as not available
         original = sys.modules.get("zeep", None)
@@ -135,7 +145,8 @@ class TestZeepImport:
                 total = decimal.Decimal("100.00")
                 fecha_comprobante = datetime.date.today()
 
-            adapter = WSFEAdapter(supabase_service_client=MagicMock())
+            # v22: pasar platform_provider para superar el guard de configuración
+            adapter = WSFEAdapter(platform_provider=mock_provider)
 
             with pytest.raises(ImportError):
                 await adapter._get_wsaa_token(_FakeReq())  # type: ignore[arg-type]
@@ -535,13 +546,25 @@ class TestBuildCaeAdapterFactory:
     """6.1 RED → 6.2 GREEN → 6.3–6.4 TRIANGULATE: factory real vs stub."""
 
     def test_factory_returns_real_adapter_when_has_cert_and_service_client(self):
-        """6.1 RED: has_cert=True + service_client → WSFEAdapter."""
+        """6.1 (v22 UPDATED): el gate ahora es platform_provider.is_configured().
+        has_cert + service_client solos (sin platform_provider) → stub (backward-compat seguro).
+        Para obtener el adapter real, pasar platform_provider configurado.
+        """
         from backend.services.fiscal.adapter_factory import build_cae_adapter
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
-        adapter = build_cae_adapter(has_cert=True, service_client=MagicMock())
+        # v22: has_cert=True sin platform_provider → stub (default seguro)
+        adapter_stub = build_cae_adapter(has_cert=True, service_client=MagicMock())
+        assert isinstance(adapter_stub, WSFEStubAdapter), (
+            "v22: sin platform_provider configurado → stub (aunque has_cert=True)"
+        )
 
-        assert isinstance(adapter, WSFEAdapter)
+        # v22: con platform_provider configurado → real (gate nuevo)
+        mock_provider = MagicMock()
+        mock_provider.is_configured.return_value = True
+        adapter_real = build_cae_adapter(platform_provider=mock_provider)
+        assert isinstance(adapter_real, WSFEAdapter)
 
     def test_factory_returns_stub_when_no_cert(self):
         """6.1 RED: has_cert=False → WSFEStubAdapter."""
@@ -571,15 +594,22 @@ class TestBuildCaeAdapterFactory:
         assert isinstance(adapter, WSFEStubAdapter)
 
     def test_factory_real_adapter_has_service_client_injected(self):
-        """6.1 TRIANGULATE: el WSFEAdapter real tiene el service_client inyectado."""
+        """6.1 TRIANGULATE (v22 UPDATED): el WSFEAdapter real tiene el platform_provider inyectado.
+        En v22, el gate es platform_provider.is_configured() — service_client es backward-compat ignorado.
+        """
         from backend.services.fiscal.adapter_factory import build_cae_adapter
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
-        mock_client = MagicMock()
-        adapter = build_cae_adapter(has_cert=True, service_client=mock_client)
+        mock_provider = MagicMock()
+        mock_provider.is_configured.return_value = True
+        mock_cache = MagicMock()
+
+        adapter = build_cae_adapter(platform_provider=mock_provider, ticket_cache=mock_cache)
 
         assert isinstance(adapter, WSFEAdapter)
-        assert adapter._service_client is mock_client
+        # v22: el adapter tiene el platform_provider (no service_client per-account)
+        assert adapter._platform_provider is mock_provider
+        assert adapter._ticket_cache is mock_cache
 
     @pytest.mark.asyncio
     async def test_process_pending_uses_stub_when_no_cert(self, mock_pool):
@@ -593,11 +623,16 @@ class TestBuildCaeAdapterFactory:
 
     @pytest.mark.asyncio
     async def test_process_pending_uses_real_when_cert_present(self, mock_pool):
-        """6.3 RED: process_pending_cae usa WSFEAdapter real cuando hay cert."""
+        """6.3 (v22 UPDATED): process_pending_cae usa WSFEAdapter real cuando hay cert de PLATAFORMA.
+        El gate es platform_provider.is_configured(), no has_cert per-account.
+        """
         from backend.services.fiscal.adapter_factory import build_cae_adapter
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
-        adapter = build_cae_adapter(has_cert=True, service_client=MagicMock())
+        mock_provider = MagicMock()
+        mock_provider.is_configured.return_value = True
+
+        adapter = build_cae_adapter(platform_provider=mock_provider)
         assert isinstance(adapter, WSFEAdapter)
 
 

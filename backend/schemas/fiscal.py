@@ -1,9 +1,11 @@
 """
 C-27 v21-fiscal-profile — Pydantic v2 schemas para fiscal (FiscalProfile + PointOfSale + FiscalDocument).
 C-31 v21-wsfe-homologacion-wiring — schemas de upload del certificado AFIP.
+v22-afip-delegation-billing — delegacion_autorizada + platform_representante_cuit en FiscalProfileOut.
 
 Design ref: D9 (RLS), D10 (multi-PV), D11 (P0422 ambiguous), spec fiscal-profile/spec.md
 C-31 Design ref: W1 (dos PEM separados), W2 (signed PUT, .key nunca devuelta)
+v22 Design ref: D6 (flag atestación), D8 (UI onboarding), spec afip-platform-credential/spec.md
 """
 from __future__ import annotations
 
@@ -20,6 +22,8 @@ class FiscalProfileCreate(BaseModel):
     """Schema de creación/update del perfil fiscal.
 
     Valida iva_condition y ambiente con Literal (rechazo 422 antes de tocar la DB).
+
+    v22: agrega delegacion_autorizada (atestación del usuario sobre la relación ARCA).
     """
 
     cuit: str
@@ -32,6 +36,8 @@ class FiscalProfileCreate(BaseModel):
     iibb_condition: str | None = None
     ambiente: Literal["homologacion", "produccion"] = "homologacion"
     certificado_afip_path: str | None = None
+    # v22: flag de atestación de delegación (OQ-4 — solo owner/admin, guard en el service)
+    delegacion_autorizada: bool = False
 
 
 class FiscalProfileUpdate(BaseModel):
@@ -53,6 +59,8 @@ class FiscalProfileOut(BaseModel):
     """Schema de respuesta del perfil fiscal.
 
     Expone solo el path del certificado, nunca su contenido (D7).
+    v22: agrega delegacion_autorizada + platform_representante_cuit para guiar el onboarding.
+    El material criptográfico del representante NUNCA aparece aquí.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -65,6 +73,11 @@ class FiscalProfileOut(BaseModel):
     certificado_afip_path: str | None = None
     ambiente: str
     created_at: datetime.datetime
+    # v22: delegación ARCA
+    delegacion_autorizada: bool = False
+    # v22: CUIT del representante de plataforma (de config, no de la cuenta)
+    # Expuesto para guiar al usuario en el onboarding ARCA. Solo el CUIT, nunca el cert/key.
+    platform_representante_cuit: str | None = None
 
 
 # ── PointOfSale schemas ──────────────────────────────────────────────────────

@@ -372,6 +372,111 @@ function SingleCertUpload({ kind, label, accept, hint, disabled, onSuccess }: Si
   )
 }
 
+// ── DelegationSection (v22) ──────────────────────────────────────────────────
+// Guía al usuario a autorizar a EmprendeSmart como representante en ARCA.
+// Reemplaza CertUploadSection en el flujo principal (OQ-2: cert-upload queda como fallback).
+
+function DelegationSection() {
+  const { profile, isLoading } = useFiscalProfile()
+  const upsert = useUpsertFiscalProfile()
+  const [localError, setLocalError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const isAuthorized = Boolean(profile?.delegacionAutorizada)
+  const representanteCuit = profile?.platformRepresentanteCuit ?? null
+  const isDisabled = !profile || isLoading
+
+  async function handleAttest(value: boolean) {
+    if (!profile) return
+    setSaving(true)
+    setLocalError(null)
+    try {
+      await upsert.mutateAsync({
+        cuit: profile.cuit,
+        iva_condition: profile.ivaCondition,
+        ambiente: profile.ambiente,
+        iibb_condition: profile.iibbCondition ?? undefined,
+        delegacion_autorizada: value,
+      })
+    } catch (err: unknown) {
+      setLocalError(err instanceof Error ? err.message : "Error al guardar la autorización.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Estado actual */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">Estado de la autorización</span>
+        {isAuthorized
+          ? <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/30 text-xs">Autorizado</Badge>
+          : <Badge variant="outline" className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs">Pendiente</Badge>
+        }
+      </div>
+
+      {/* Pasos del onboarding */}
+      <div className="rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground space-y-2">
+        <p className="font-medium text-foreground">Cómo autorizar a EmprendeSmart en ARCA:</p>
+        <ol className="list-decimal list-inside space-y-1">
+          <li>Ingresá a <strong>ARCA</strong> (arca.gob.ar) con tu CUIT y clave fiscal.</li>
+          <li>Navegá a <strong>Administrador de Relaciones</strong>.</li>
+          <li>Hacé clic en <strong>Agregar relación</strong>.</li>
+          <li>Servicio: <strong>Facturación Electrónica (wsfe)</strong>.</li>
+          <li>
+            CUIT representante:{" "}
+            {representanteCuit
+              ? <code className="bg-muted rounded px-1 font-mono text-xs select-all">{representanteCuit}</code>
+              : <span className="text-muted-foreground/60 italic">(no configurado — contactar soporte)</span>
+            }
+          </li>
+          <li>Confirmá la relación con tu clave fiscal.</li>
+        </ol>
+      </div>
+
+      {/* Atestación */}
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-muted-foreground">
+          Una vez que completaste los pasos en ARCA, marcá la casilla para que EmprendeSmart
+          lo registre y habilite la facturación electrónica en tu cuenta.
+        </p>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            disabled={isDisabled || saving}
+            checked={isAuthorized}
+            onChange={(e) => handleAttest(e.target.checked)}
+            className="rounded border-border h-4 w-4 accent-primary"
+          />
+          <span className="text-sm">
+            Ya autoricé a EmprendeSmart (CUIT {representanteCuit ?? "—"}) como representante en ARCA
+          </span>
+        </label>
+        {saving && <p className="text-xs text-muted-foreground">Guardando...</p>}
+        {localError && <p className="text-xs text-destructive">{localError}</p>}
+        {isDisabled && !isLoading && (
+          <p className="text-xs text-muted-foreground/70">Guardá el perfil fiscal antes de configurar la autorización.</p>
+        )}
+      </div>
+
+      {/* Qué pasa si el CAE falla por delegación no autorizada */}
+      {!isAuthorized && (
+        <div className="rounded-md border border-yellow-500/30 bg-yellow-500/5 p-3 text-xs text-yellow-700 dark:text-yellow-400">
+          <strong>Sin autorización:</strong> si intentás emitir un comprobante, ARCA lo rechazará con un error de representante.
+          El comprobante quedará en estado pendiente y lo podés reintentar después de autorizar.
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ── CertUploadSection (DEPRECATED v22 — fallback avanzado) ───────────────────
+// Este componente se mantiene para integraciones legacy (OQ-2).
+// En el flujo normal (v22+) se usa DelegationSection arriba.
+// NO se renderiza en el layout principal — puede activarse como opción avanzada.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function CertUploadSection() {
   const { profile } = useFiscalProfile()
   const hasCert = Boolean(profile?.certificadoAfipPath)
@@ -601,16 +706,16 @@ export function FiscalSettings() {
         </CardContent>
       </Card>
 
-      {/* Certificado AFIP */}
+      {/* Autorización ARCA (v22: reemplaza CertUploadSection en el flujo principal) */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Certificado digital</CardTitle>
+          <CardTitle className="text-base">Autorización para facturar</CardTitle>
           <CardDescription>
-            Certificado AFIP para firmar el ticket WSAA y solicitar CAE a WSFEv1.
+            Para emitir comprobantes electrónicos, autorizá a EmprendeSmart en ARCA como representante.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CertUploadSection />
+          <DelegationSection />
         </CardContent>
       </Card>
 

@@ -283,14 +283,17 @@ async def process_all_pending_documents(
             continue
 
         # C-31 (W4): elegir adapter por cuenta/doc — real si hay cert, stub si no
+        # v21-wsfe-production-hardening (D5): pasar account_id para la cache del TA.
         if adapter is not None:
-            # Legacy: adapter inyectado explícitamente (tests de C-27)
+            # Legacy: adapter inyectado explicitamente (tests de C-27)
             _adapter = adapter
         else:
-            cert_path = claimed.get("certificado_afip_path") if isinstance(claimed, dict) else None
+            cert_path  = claimed.get("certificado_afip_path") if isinstance(claimed, dict) else None
+            doc_account_id = claimed.get("account_id") if isinstance(claimed, dict) else None
             _adapter = build_cae_adapter(
                 has_cert=bool(cert_path),
                 service_client=service_client,
+                account_id=str(doc_account_id) if doc_account_id else None,
             )
 
         processor = CAERelayProcessor(adapter=_adapter, repo=doc_repo)

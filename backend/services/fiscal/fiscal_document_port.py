@@ -22,19 +22,31 @@ class CAERequest:
 
     Solo tipos de dominio: sin SOAP/XML. El adapter traduce a la estructura
     AFIP correspondiente.
+
+    Campos nuevos (v21-wsfe-production-hardening):
+      - receptor_iva_condition: condicion IVA del receptor (RG 5616, Hueco 1).
+          Valores: "consumidor_final" | "responsable_inscripto" | "monotributista" | "exento"
+      - neto: importe neto gravado (Hueco 2, array Iva para tipo A/B).
+      - iva_amount: importe de IVA (Hueco 2).
+      - iva_alicuota_id: id de la alicuota AFIP (5 = 21%, Hueco 2).
     """
 
     account_id: str
     fiscal_document_id: str
     comprobante_type: str      # "factura_a" | "factura_b" | "factura_c"
-    punto_de_venta: int        # número del PV ante AFIP
-    number: int                # número del comprobante (de rpc_next_document_number)
+    punto_de_venta: int        # numero del PV ante AFIP
+    number: int                # numero del comprobante (de rpc_next_document_number)
     total: float               # importe total del comprobante
     cuit_emisor: str           # CUIT del emisor (de fiscal_profiles.cuit)
     ambiente: str              # "homologacion" | "produccion"
-    # Opcionales — se amplían en C-29 (quickSale)
+    # Opcionales — se amplian en C-29 (quickSale)
     cuit_receptor: str | None = None
     fecha_comprobante: datetime.date | None = None
+    # v21-wsfe-production-hardening (D1, D2, D3)
+    receptor_iva_condition: str | None = None   # "consumidor_final" | "responsable_inscripto" | "monotributista" | "exento"
+    neto: float | None = None                   # importe neto gravado (para array Iva tipo A/B)
+    iva_amount: float | None = None             # importe de IVA
+    iva_alicuota_id: int | None = None          # id de la alicuota AFIP (5 = 21%)
 
 
 @dataclass

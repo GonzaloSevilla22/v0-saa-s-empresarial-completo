@@ -1,27 +1,39 @@
 """
 C-27 v21-fiscal-profile — WSFEAdapter: adaptador real WSAA + WSFEv1.
+v22-afip-delegation-billing — modelo de delegación: cert de plataforma (no per-account).
 
 Implementa FiscalDocumentPort contra los web services de AFIP/ARCA.
 Resuelve el ambiente (homologacion|produccion) desde el perfil de la cuenta (D2).
-Lee el certificado del bucket privado afip-certs server-side (D7 — única excepción
-de service_role en el proyecto: lectura del cert para firmar WSAA).
 
-Dependencia: zeep (SOAP client). No incluido en requirements.txt de prod por defecto;
-se activa cuando el usuario sube su certificado real (trámite del usuario, PA-22).
+v22 CAMBIO DE AUTENTICACIÓN (governance CRÍTICO):
+  En el modelo de delegación, el adapter autentica WSAA con el certificado del
+  REPRESENTANTE de la plataforma (PlatformCredentialProvider), no con el cert
+  per-account del bucket afip-certs. El TA del representante es compartido entre
+  todos los CUIT representados para un ambiente dado (D5, D3).
 
-NOTA: Esta clase NO se carga en el gate de CI. Los tests con el SOAP mockeado
-están en test_c27_wsfe_adapter.py; los de integración real van marcados con
-@pytest.mark.integration y excluidos del gate (homologación intermitente).
+  En cada FECAESolicitar/FECompUltimoAutorizado:
+    Auth.Token / Auth.Sign = del TA del representante
+    Auth.Cuit = CUIT del emisor/representado (de CAERequest.cuit_emisor)
 
-Design refs: D4 (port/adapter ACL), D7 (cert server-side), PA-22 (homologación).
+  El mapping de Auth.Cuit ya estaba correcto en C-31; solo cambia la fuente del cert.
+
+Dependencia: zeep (SOAP client). Import lazy — el módulo y WSFEStubAdapter funcionan
+sin zeep. El ImportError solo se levanta si se llama al path real (_get_wsaa_token).
+
+Design refs: D3 (cert plataforma), D4 (port/adapter ACL), D5 (cache TA plataforma),
+             D7 (retiro del cert per-account), OQ-3 (env vars Render).
 """
 from __future__ import annotations
 
 import datetime
 import logging
+from typing import TYPE_CHECKING
 
 from backend.services.fiscal.fiscal_document_port import CAERequest, CAEResponse, FiscalDocumentPort
 from backend.services.fiscal.ticket_cache_port import TicketCache
+
+if TYPE_CHECKING:
+    from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
 logger = logging.getLogger(__name__)
 
@@ -117,42 +129,111 @@ class WSFEAdapter(FiscalDocumentPort):
     El ambiente (homologacion|produccion) se resuelve desde invoice_data.ambiente
     (que proviene de fiscal_profiles.ambiente de la cuenta), no de una env var global (D2).
 
-    El certificado se lee desde el bucket privado afip-certs server-side (D7).
-    La lectura usa el supabase client con service_role (única excepción del proyecto
-    para job administrativo aislado — DEC-13).
+    v22 — Modelo de delegación:
+      El cert/key para firmar la TRA de WSAA proviene del PlatformCredentialProvider
+      (cert del representante de la plataforma), no del bucket afip-certs per-account.
+      La cache del TA se keyea por (representante_cuit + ambiente), compartida entre
+      todos los CUIT representados para un ambiente dado (D5).
 
-    Para inyectar en tests: mockear el método _get_wsaa_token y _call_wsfe.
+    Para inyectar en tests: mockear _get_wsaa_token y _call_wsfe, o inyectar
+    un PlatformCredentialProvider mock.
     """
 
-    def __init__(self, supabase_service_client=None, ticket_cache: TicketCache | None = None):
+    def __init__(
+        self,
+        platform_provider: "PlatformCredentialProvider | None" = None,
+        ticket_cache: TicketCache | None = None,
+        # Backward-compat: supabase_service_client ya no se usa para el cert;
+        # se mantiene el param para no romper llamadas legacy en tests de C-27/C-31.
+        supabase_service_client=None,
+    ):
         """
         Args:
-            supabase_service_client: cliente Supabase con service_role para leer el cert
-                y para la cache del TA (D5/D7). Si es None se crea lazily en el primer uso.
+            platform_provider: PlatformCredentialProvider con el cert/key/CUIT
+                del representante de la plataforma (v22). Si es None, _get_wsaa_token
+                falla (runtime error). Inyectar desde la factory o tests.
             ticket_cache: puerto de cache del TA de WSAA (D5). Si es None, cada llamada
-                hace un loginCms nuevo (sin cache). Inyectar PostgresTicketCache en prod.
+                hace un loginCms nuevo (sin cache). Inyectar PlatformPostgresTicketCache en prod.
+            supabase_service_client: (backward-compat, ignorado en v22 para el cert).
+                Sigue aceptándose para no romper tests legacy de C-27/C-31. No se usa
+                para leer el cert en el flujo de delegación.
         """
-        self._service_client = supabase_service_client
+        self._platform_provider = platform_provider
         self._ticket_cache = ticket_cache
+        # Backward-compat storage (no se usa para cert en v22, solo para legacy tests)
+        self._service_client = supabase_service_client
+
+    # Palabras clave de AFIP/WSAA que indican que el representante NO está autorizado
+    # para representar al CUIT emisor. En homologación y producción el texto puede
+    # variar; los patrones son defensivos (case-insensitive matcheado en code).
+    _DELEGATION_ERROR_PATTERNS = (
+        "no está autorizado a actuar en nombre",
+        "no autorizado a representar",
+        "no habilitado para representar",
+        "certificado no está habilitado para representar",
+        "representante no autorizado",
+        "auth-token-rejected",      # simulación en tests / algunos errores WSAA
+        "el representante",         # fragmento común en mensajes WSAA de delegación
+    )
+
+    def _is_delegation_error(self, exc: Exception) -> bool:
+        """Determina si la excepción corresponde a un error de delegación no autorizada.
+
+        Distingue el error de "representante no autorizado" del rechazo por datos
+        (Code 10246 — CondicionIVAReceptorId, Code 10016 — número, etc.).
+        """
+        msg = str(exc).lower()
+        return any(pattern.lower() in msg for pattern in self._DELEGATION_ERROR_PATTERNS)
 
     async def request_cae(self, invoice_data: CAERequest) -> CAEResponse:
         """Solicita el CAE a AFIP vía WSAA + WSFEv1.
 
-        Flujo:
-          1. Leer el certificado del bucket privado (service_role, D7).
-          2. Obtener el ticket de acceso WSAA (TA).
-          3. Llamar WSFEv1.FECAESolicitar con los datos del comprobante.
+        v22 — Modelo de delegación:
+          1. Obtener el TA del representante (PlatformCredentialProvider + cache).
+          2. Llamar WSFEv1.FECAESolicitar con Auth.Cuit = CUIT del emisor/representado.
+          3. Si AFIP rechaza por "representante no autorizado", mapear a
+             DELEGATION_NOT_AUTHORIZED (reintentable — D7, OQ-4).
           4. Retornar CAEResponse normalizado.
         """
         try:
-            # 1. Obtener ticket de acceso WSAA
+            # 1. Obtener TA del representante (cache hit o loginCms)
             token, sign = await self._get_wsaa_token(invoice_data)
 
-            # 2. Llamar WSFEv1
+            # 2. Llamar WSFEv1 (Auth.Cuit = cuit_emisor ya estaba correcto en C-31)
             result = await self._call_wsfe(invoice_data, token, sign)
             return result
 
         except Exception as exc:
+            # v22 (D7, OQ-4): distinguir error de delegación de error de datos/red
+            if self._is_delegation_error(exc):
+                representante_cuit = "EmprendeSmart"
+                try:
+                    if self._platform_provider is not None:
+                        representante_cuit = self._platform_provider.get_cuit()
+                except Exception:
+                    pass
+
+                logger.warning(
+                    "WSFEAdapter: delegación no autorizada para doc %s (emisor=%s, representante=%s): %s",
+                    invoice_data.fiscal_document_id,
+                    invoice_data.cuit_emisor,
+                    representante_cuit,
+                    exc,
+                )
+                return CAEResponse(
+                    cae=None,
+                    cae_due_date=None,
+                    is_approved=False,
+                    error_code="DELEGATION_NOT_AUTHORIZED",
+                    error_detail=(
+                        f"La cuenta aún no autorizó a EmprendeSmart (CUIT {representante_cuit}) "
+                        "en ARCA como representante. Para habilitarlo: ingresá a ARCA → "
+                        "Administrador de Relaciones → Agregar relación → "
+                        "Servicio: Facturación Electrónica → CUIT representante: "
+                        f"{representante_cuit}. Una vez autorizado, volvé a intentar."
+                    ),
+                )
+
             logger.warning(
                 "WSFEAdapter.request_cae error for doc %s: %s",
                 invoice_data.fiscal_document_id,
@@ -169,34 +250,50 @@ class WSFEAdapter(FiscalDocumentPort):
     async def _get_wsaa_token(self, invoice_data: CAERequest) -> tuple[str, str]:
         """Obtiene el ticket de acceso WSAA (token + sign), con cache.
 
-        Flujo (D5 — v21-wsfe-production-hardening):
-          1. Construir cache key "{cuit}:wsfe:{ambiente}".
-          2. Si hay TA vigente en cache -> retornarlo SIN llamar a loginCms.
-          3. Si no (cache miss / expirado) -> autenticar y guardar en cache.
+        v22 — Modelo de delegación:
+          La cache key usa el CUIT del REPRESENTANTE (del platform_provider), no el del
+          emisor: todos los CUIT representados comparten el mismo TA en un ambiente dado.
+
+        Flujo (D5 — v22 modelo delegación):
+          1. Resolver el CUIT del representante (del platform_provider).
+          2. Construir cache key "{representante_cuit}:wsfe:{ambiente}".
+          3. Si hay TA vigente en cache -> retornarlo SIN llamar a loginCms.
+          4. Si no (cache miss / expirado) -> leer cert/key del provider, firmar TRA, loginCms.
+          5. Guardar TA en cache.
 
         Returns:
             (token, sign) — credenciales para autenticar en WSFEv1.
 
         Raises:
             ImportError: si zeep no esta instalado.
-            Exception: si el cert no existe o WSAA no responde.
+            RuntimeError: si el platform_provider no está configurado.
+            Exception: si WSAA no responde.
         """
-        # ── (D5) Verificar cache primero ────────────────────────────────────────
-        cache_key = f"{invoice_data.cuit_emisor}:wsfe:{invoice_data.ambiente}"
+        # ── Resolver CUIT del representante (D5 — una entrada de cache por ambiente) ──
+        if self._platform_provider is None:
+            raise RuntimeError(
+                "WSFEAdapter requiere un PlatformCredentialProvider configurado. "
+                "Verificar que AFIP_PLATFORM_CERT/KEY/CUIT están seteados en el backend."
+            )
+
+        representante_cuit = self._platform_provider.get_cuit()
+
+        # ── (D5) Verificar cache primero — keyada por representante+ambiente ────
+        cache_key = f"{representante_cuit}:wsfe:{invoice_data.ambiente}"
         if self._ticket_cache is not None:
             cached = self._ticket_cache.get(cache_key)
             if cached is not None:
                 token, sign, _ = cached
                 logger.debug(
-                    "_get_wsaa_token: TA vigente en cache (cuit=%s, ambiente=%s) — saltando loginCms",
-                    invoice_data.cuit_emisor,
+                    "_get_wsaa_token: TA vigente en cache (representante=%s, ambiente=%s) — saltando loginCms",
+                    representante_cuit,
                     invoice_data.ambiente,
                 )
                 return token, sign
 
-        # ── Cache miss: autenticar vía WSAA ─────────────────────────────────────
+        # ── Cache miss: autenticar vía WSAA con cert del representante ───────────
         try:
-            # zeep es opcional — solo se instala cuando el usuario necesita el adapter real
+            # zeep es opcional — solo se instala cuando se necesita el adapter real
             import zeep  # noqa: F401
         except ImportError as e:
             raise ImportError(
@@ -204,14 +301,11 @@ class WSFEAdapter(FiscalDocumentPort):
                 "Instalalo con: pip install zeep"
             ) from e
 
-        # Leer cert del bucket privado (D7 — service_role aislado)
-        cert_path = f"{invoice_data.account_id}/afip.crt"
-        key_path  = f"{invoice_data.account_id}/afip.key"
+        # v22: leer cert/key del REPRESENTANTE (no del bucket per-account)
+        cert_content = self._platform_provider.get_cert()
+        key_content  = self._platform_provider.get_key()
 
-        cert_content = await self._read_cert_from_storage(cert_path)
-        key_content  = await self._read_cert_from_storage(key_path)
-
-        # Firmar TRA con el cert y obtener CMS
+        # Firmar TRA con el cert del representante y obtener CMS
         cms = self._sign_tra(cert_content, key_content, invoice_data.ambiente)
 
         # Llamar WSAA — retorna (token, sign, expires_at)
@@ -233,10 +327,15 @@ class WSFEAdapter(FiscalDocumentPort):
         return token, sign
 
     async def _read_cert_from_storage(self, path: str) -> bytes:
-        """Lee un objeto del bucket privado afip-certs usando service_role (D7)."""
+        """DEPRECADO (v22): Lee un objeto del bucket privado afip-certs usando service_role.
+
+        En el modelo de delegación (v22) este método ya no se llama — el cert viene
+        del PlatformCredentialProvider. Se mantiene para backward-compat con tests legacy.
+        """
         if self._service_client is None:
             raise RuntimeError(
-                "WSFEAdapter requiere un cliente Supabase con service_role para leer el certificado."
+                "WSFEAdapter: _read_cert_from_storage requiere service_client. "
+                "En el modelo de delegación (v22), usar PlatformCredentialProvider."
             )
         # Supabase Storage download
         response = self._service_client.storage.from_("afip-certs").download(path)

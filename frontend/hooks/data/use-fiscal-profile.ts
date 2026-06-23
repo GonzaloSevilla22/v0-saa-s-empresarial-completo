@@ -2,11 +2,13 @@
 
 /**
  * C-27 v21-fiscal-profile — Hook `useFiscalProfile`.
+ * v22-afip-delegation-billing — agrega delegacion_autorizada + platform_representante_cuit.
  *
  * Select + upsert del perfil fiscal de la cuenta activa vía Python backend.
  * Reusa `isValidCuit` (módulo-11, C-22) para validar el CUIT del emisor (OQ-4).
  *
  * Design ref: D1 (1:1 accounts), D2 (ambiente por cuenta), D7 (cert path solo)
+ * v22 Design ref: D6 (flag atestación), D8 (onboarding ARCA)
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -33,6 +35,9 @@ export interface FiscalProfile {
   certificadoAfipPath: string | null
   ambiente: Ambiente
   createdAt: string
+  // v22: delegación ARCA
+  delegacionAutorizada: boolean
+  platformRepresentanteCuit: string | null
 }
 
 interface FiscalProfileApiRow {
@@ -44,6 +49,9 @@ interface FiscalProfileApiRow {
   certificado_afip_path: string | null
   ambiente: Ambiente
   created_at: string
+  // v22: delegación ARCA
+  delegacion_autorizada: boolean
+  platform_representante_cuit: string | null
 }
 
 interface FiscalProfileInput {
@@ -52,18 +60,23 @@ interface FiscalProfileInput {
   iibb_condition?: string | null
   ambiente?: Ambiente
   certificado_afip_path?: string | null
+  // v22: atestación de delegación ARCA (solo owner/admin)
+  delegacion_autorizada?: boolean
 }
 
 function mapRow(r: FiscalProfileApiRow): FiscalProfile {
   return {
-    id:                  r.id,
-    accountId:           r.account_id,
-    cuit:                r.cuit,
-    ivaCondition:        r.iva_condition,
-    iibbCondition:       r.iibb_condition,
-    certificadoAfipPath: r.certificado_afip_path,
-    ambiente:            r.ambiente,
-    createdAt:           r.created_at,
+    id:                        r.id,
+    accountId:                 r.account_id,
+    cuit:                      r.cuit,
+    ivaCondition:              r.iva_condition,
+    iibbCondition:             r.iibb_condition,
+    certificadoAfipPath:       r.certificado_afip_path,
+    ambiente:                  r.ambiente,
+    createdAt:                 r.created_at,
+    // v22
+    delegacionAutorizada:      r.delegacion_autorizada ?? false,
+    platformRepresentanteCuit: r.platform_representante_cuit ?? null,
   }
 }
 
@@ -78,6 +91,9 @@ function translateFiscalError(message: string): string {
     return "La cuenta no tiene puntos de venta activos."
   if (message.includes("unauthorized"))
     return "No tenés permisos para realizar esta acción."
+  // v22: error de delegación no autorizada (ARCA → Administrador de Relaciones)
+  if (message.includes("DELEGATION_NOT_AUTHORIZED") || message.includes("Administrador de Relaciones") || message.includes("representante"))
+    return "AFIP rechazó la solicitud porque EmprendeSmart aún no está autorizado como representante en tu cuenta ARCA. Configurá la autorización en Ajustes → Datos fiscales → Autorización para facturar."
   return message || "Ocurrió un error inesperado."
 }
 
@@ -135,7 +151,10 @@ export function useUpsertFiscalProfile() {
       if (!isValidCuit(input.cuit)) {
         throw new Error("CUIT inválido: verificá el formato y el dígito verificador (módulo 11).")
       }
-      const data = await pythonClient.post<FiscalProfileApiRow>("/fiscal/profile", input)
+      // v22: delegacion_autorizada se envía explícitamente (true/false, no omitido)
+      // para que el backend lo persista correctamente (false también es un valor válido).
+      const payload: FiscalProfileInput = { ...input }
+      const data = await pythonClient.post<FiscalProfileApiRow>("/fiscal/profile", payload)
       return mapRow(data)
     },
     onSuccess: () => {

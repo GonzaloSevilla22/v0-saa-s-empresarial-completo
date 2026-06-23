@@ -46,7 +46,7 @@ from backend.schemas.fiscal import (
     PointOfSaleOut,
 )
 from backend.services.fiscal import fiscal_profile_service as svc
-from backend.services.fiscal.adapter_factory import build_cae_adapter
+from backend.services.fiscal.adapter_factory import build_cae_adapter, build_cae_adapter_from_settings
 from backend.services.fiscal.fiscal_profile_service import process_doc_by_id_background
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,17 @@ def get_storage_service_client():
         ) from exc
 
 
-@router.post("/profile/cert-upload-url", response_model=CertUploadUrlOut, status_code=200)
+@router.post(
+    "/profile/cert-upload-url",
+    response_model=CertUploadUrlOut,
+    status_code=200,
+    # v22 DEPRECATED: este endpoint es del modelo per-account (pre-delegación).
+    # En el modelo de delegación (v22), el cert vive en AFIP_PLATFORM_CERT (env Render)
+    # y NO se sube por cuenta. Endpoint conservado como fallback avanzado (OQ-2).
+    # No usar en nuevas integraciones — el flujo normal es Administrador de Relaciones ARCA.
+    deprecated=True,
+    summary="[DEPRECATED v22] Generar URL de upload de certificado per-account (fallback avanzado)",
+)
 async def cert_upload_url(
     payload: CertUploadUrlRequest,
     auth: dict = Depends(get_current_user),
@@ -127,6 +137,10 @@ async def cert_upload_url(
     storage_client=Depends(get_storage_service_client),
 ):
     """Genera una signed upload URL para subir el certificado o la clave privada.
+
+    DEPRECADO (v22): el modelo de delegación (v22) usa el cert de plataforma
+    (AFIP_PLATFORM_CERT en env Render), no cert per-account. Este endpoint se
+    conserva como opción avanzada/fallback para integraciones legacy (OQ-2).
 
     El path canónico se deriva server-side del account_id del JWT (W1, W2).
     La .key viaja solo en el PUT al bucket privado — nunca se loguea ni devuelve.
@@ -137,7 +151,14 @@ async def cert_upload_url(
     return result
 
 
-@router.put("/profile/cert-path", response_model=FiscalProfileOut, status_code=200)
+@router.put(
+    "/profile/cert-path",
+    response_model=FiscalProfileOut,
+    status_code=200,
+    # v22 DEPRECATED: idem cert-upload-url — fallback avanzado del modelo per-account.
+    deprecated=True,
+    summary="[DEPRECATED v22] Persistir path del certificado per-account (fallback avanzado)",
+)
 async def update_cert_path(
     payload: CertPathUpdate,
     auth: dict = Depends(get_current_user),
@@ -146,6 +167,7 @@ async def update_cert_path(
 ):
     """Persiste el path del certificado .crt en fiscal_profiles.
 
+    DEPRECADO (v22): el modelo de delegación usa el cert de plataforma (env Render).
     Solo el .crt dispara este PUT. La .key NO toca este campo (W2).
     La respuesta es FiscalProfileOut — sin contenido del cert/key.
     """
@@ -224,26 +246,13 @@ async def process_pending_cae(
     """Procesa documentos pending_cae con el relay idempotente (OQ-1=A).
 
     Endpoint de usuario: JWT-scoped, single-account. Útil como trigger manual.
-    C-31: selecciona adapter real si la cuenta tiene cert cargado; stub si no (W4).
+    v22: el adapter se decide por el gate "platform cert configured?" — ya NO por
+    certificado_afip_path per-account. Si el cert de plataforma no está en env →
+    stub (default seguro). Si está → WSFEAdapter real (delegación).
     """
-    from backend.core.config import settings as _settings
-
-    profile = await fp_repo.get_by_account_id(str(account_id))
-    has_cert = bool(profile and profile.get("certificado_afip_path"))
-    service_client = None
-    if has_cert:
-        try:
-            from supabase import create_client  # type: ignore[import]
-            service_client = create_client(_settings.supabase_url, _settings.supabase_service_role_key)
-        except (ImportError, Exception):
-            has_cert = False  # fallback seguro: sin supabase-py → stub
-    # v21-wsfe-production-hardening (D5): pasar account_id para que la factory
-    # cree el PostgresTicketCache por cuenta (RLS-safe).
-    adapter = build_cae_adapter(
-        has_cert=has_cert,
-        service_client=service_client,
-        account_id=str(account_id),
-    )
+    # v22: gate de plataforma (no per-account cert).
+    # build_cae_adapter_from_settings lee AFIP_PLATFORM_CERT/KEY/CUIT del env.
+    adapter = build_cae_adapter_from_settings()
     return await svc.process_pending_documents(doc_repo, adapter)
 
 
@@ -280,20 +289,13 @@ async def process_pending_cae_cron(
         raise HTTPException(status_code=401, detail="Invalid relay secret")
 
     # ── Process all pending docs cross-account ────────────────────────────────
-    # C-31 (W4 factory): adapter real vs stub por doc/cuenta.
-    # service_client para Storage (cert read) se inyecta aquí si supabase-py está disponible;
-    # si no (env de tests sin supabase-py) cae al stub de forma segura.
+    # v22: adapter real vs stub → gate de plataforma (cert en env vars).
+    # Un único adapter para todos los docs del cron (todos usan el mismo cert de plataforma).
+    # Auth.Cuit = cuit_emisor de cada doc (no el del representante) — ver WSFEAdapter._call_wsfe.
     doc_repo = FiscalDocumentRepository(conn)
 
-    storage_client = None
-    try:
-        from backend.core.config import settings as _settings
-        from supabase import create_client  # type: ignore[import]
-        storage_client = create_client(_settings.supabase_url, _settings.supabase_service_role_key)
-    except (ImportError, Exception):
-        # supabase-py no disponible en este entorno → todas las cuentas usan stub (seguro)
-        pass
-
-    summary = await svc.process_all_pending_documents(doc_repo, service_client=storage_client)
+    # v22: build desde settings (AFIP_PLATFORM_CERT/KEY/CUIT) — no per-account
+    platform_adapter = build_cae_adapter_from_settings()
+    summary = await svc.process_all_pending_documents(doc_repo, adapter=platform_adapter)
     logger.info("[process_pending_cae_cron] %s", summary)
     return summary

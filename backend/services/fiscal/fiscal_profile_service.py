@@ -107,11 +107,29 @@ async def set_cert_path(
 # ── FiscalProfile ──────────────────────────────────────────────────────────────
 
 async def get_fiscal_profile(repo: FiscalProfileRepository, account_id: str) -> dict:
-    """Obtiene el perfil fiscal de la cuenta. 404 si no existe."""
+    """Obtiene el perfil fiscal de la cuenta. 404 si no existe.
+
+    v22: inyecta `platform_representante_cuit` desde la config de plataforma
+    (AFIP_PLATFORM_CUIT en env). Este campo es de lectura — solo el CUIT del
+    representante para guiar al usuario en el onboarding ARCA. El cert/key NUNCA
+    se expone en ningún campo de la respuesta (OQ-3, D8).
+    """
     profile = await repo.get_by_account_id(account_id)
     if profile is None:
         raise HTTPException(status_code=404, detail="Perfil fiscal no encontrado")
-    return profile
+
+    # v22: inyectar el CUIT del representante de plataforma desde settings (read-only).
+    # Si no está configurado (no hay cert de plataforma) → None (no rompe la UI).
+    try:
+        from backend.core.config import settings as _settings
+        platform_cuit = _settings.afip_platform_cuit or None
+    except Exception:
+        platform_cuit = None
+
+    # Crear una copia mutable (el row de asyncpg puede ser inmutable)
+    result = dict(profile)
+    result["platform_representante_cuit"] = platform_cuit
+    return result
 
 
 async def upsert_fiscal_profile(
@@ -120,9 +138,21 @@ async def upsert_fiscal_profile(
     account_id: str,
     payload: FiscalProfileCreate,
 ) -> dict:
-    """Crea o actualiza el perfil fiscal. Solo owner/admin."""
+    """Crea o actualiza el perfil fiscal. Solo owner/admin.
+
+    v22: usa model_dump(exclude_unset=True) para que campos no enviados (como
+    delegacion_autorizada cuando el frontend solo actualiza el perfil base) NO
+    sobreescriban el valor existente en la DB. Solo los campos explícitamente
+    enviados en el payload se actualizan.
+    """
     require_role(auth, ["user", "admin"])
-    result = await repo.upsert(account_id, payload.model_dump(exclude_none=True))
+    # exclude_unset=True: no sobreescribir campos que el frontend no envió.
+    # exclude_none=True además: no enviar nulls explícitos (COALESCE del repo lo maneja).
+    data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    # Caso especial: delegacion_autorizada=False es un valor válido (no None), incluirlo.
+    if "delegacion_autorizada" in payload.model_fields_set:
+        data["delegacion_autorizada"] = payload.delegacion_autorizada
+    result = await repo.upsert(account_id, data)
     if result is None:
         raise HTTPException(status_code=500, detail="Error al guardar el perfil fiscal")
     return result
@@ -241,16 +271,17 @@ async def process_all_pending_documents(
     doc_repo: FiscalDocumentRepository,
     adapter: FiscalDocumentPort | None = None,
     limit: int = 50,
-    service_client=None,
+    service_client=None,   # backward-compat, ignorado en v22
 ) -> dict:
     """Procesa documentos pending_cae de TODAS las cuentas (cross-account, sin RLS).
 
     Usado exclusivamente por el machine endpoint POST /fiscal/documents/process-pending-cron
     (pg_cron) con service-role connection.
 
-    C-31 (W4 factory): si `adapter` es None, selecciona el adapter por doc/cuenta:
-      - cuenta con certificado_afip_path → WSFEAdapter real (service_client requerido)
-      - sin cert → WSFEStubAdapter (default seguro, no rompe prod)
+    v22: si `adapter` es None, se construye el adapter desde la config de plataforma.
+    El gate ya NO es `certificado_afip_path` per-account sino el cert de plataforma
+    (AFIP_PLATFORM_CERT/KEY/CUIT en env). Un solo adapter compartido para todos los docs
+    del mismo run (Auth.Cuit = cuit_emisor de cada doc — no el del representante).
 
     Anti-double-CAE guard (D6, OQ-1=A):
       Para cada doc encontrado con list_pending_all, se llama claim_pending antes de
@@ -262,7 +293,10 @@ async def process_all_pending_documents(
     Nota: FOR UPDATE SKIP LOCKED no se mantiene durante la llamada SOAP (larga);
     el lease de 5 minutos en next_attempt_at es el mecanismo de concurrencia.
     """
-    from backend.services.fiscal.adapter_factory import build_cae_adapter
+    # v22: adapter de plataforma (no per-account cert)
+    if adapter is None:
+        from backend.services.fiscal.adapter_factory import build_cae_adapter_from_settings
+        adapter = build_cae_adapter_from_settings()
 
     docs = await doc_repo.list_pending_all(limit=limit)
 
@@ -282,21 +316,9 @@ async def process_all_pending_documents(
             )
             continue
 
-        # C-31 (W4): elegir adapter por cuenta/doc — real si hay cert, stub si no
-        # v21-wsfe-production-hardening (D5): pasar account_id para la cache del TA.
-        if adapter is not None:
-            # Legacy: adapter inyectado explicitamente (tests de C-27)
-            _adapter = adapter
-        else:
-            cert_path  = claimed.get("certificado_afip_path") if isinstance(claimed, dict) else None
-            doc_account_id = claimed.get("account_id") if isinstance(claimed, dict) else None
-            _adapter = build_cae_adapter(
-                has_cert=bool(cert_path),
-                service_client=service_client,
-                account_id=str(doc_account_id) if doc_account_id else None,
-            )
-
-        processor = CAERelayProcessor(adapter=_adapter, repo=doc_repo)
+        # v22: mismo adapter de plataforma para todos los docs.
+        # El cuit_emisor de cada doc se usa como Auth.Cuit en WSFEAdapter._call_wsfe.
+        processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
         await processor.process_document(claimed)
         processed += 1
 

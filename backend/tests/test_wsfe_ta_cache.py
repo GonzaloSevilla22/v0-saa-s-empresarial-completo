@@ -45,6 +45,16 @@ def _make_request() -> CAERequest:
     )
 
 
+def _make_mock_platform_provider(representante_cuit: str = "20422662457") -> MagicMock:
+    """Crea un PlatformCredentialProvider mock para inyectar en WSFEAdapter (v22)."""
+    provider = MagicMock()
+    provider.is_configured.return_value = True
+    provider.get_cert.return_value = b"-----BEGIN CERTIFICATE-----\nfakecert\n-----END CERTIFICATE-----\n"
+    provider.get_key.return_value  = b"-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----\n"
+    provider.get_cuit.return_value = representante_cuit
+    return provider
+
+
 def _future_expiry(minutes: int = 60) -> datetime.datetime:
     """Return a datetime in the future (within TA validity window)."""
     return datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
@@ -79,21 +89,27 @@ class FakeTicketCache:
 
 
 class TestTAcacheReuse:
-    """5.1 RED -> 5.2 GREEN: reuso del TA vigente sin llamar a loginCms."""
+    """5.1 RED -> 5.2 GREEN: reuso del TA vigente sin llamar a loginCms.
+
+    v22: la cache key usa el CUIT del representante (platform_provider.get_cuit()),
+    no el CUIT del emisor. Una entrada de cache por (representante + ambiente).
+    """
 
     @pytest.mark.asyncio
     async def test_valid_cached_ta_reuses_without_login_cms(self):
         """5.1 RED: TA vigente en cache -> _get_wsaa_token NO llama loginCms.
 
-        Fails today because WSFEAdapter has no cache_store parameter.
+        v22: el adapter requiere un PlatformCredentialProvider; la cache key
+        usa el CUIT del representante (20422662457), no el del emisor.
         """
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
         cache = FakeTicketCache()
         invoice = _make_request()
+        provider = _make_mock_platform_provider(representante_cuit="20422662457")
 
-        # Pre-populate cache with a valid TA
-        cache_key = f"{invoice.cuit_emisor}:wsfe:{invoice.ambiente}"
+        # v22: Pre-populate cache con key del REPRESENTANTE (no del emisor)
+        cache_key = f"20422662457:wsfe:{invoice.ambiente}"
         cache.set(
             cache_key,
             token="cached-token-xyz",
@@ -102,20 +118,18 @@ class TestTAcacheReuse:
         )
 
         adapter = WSFEAdapter(
-            supabase_service_client=MagicMock(),
+            platform_provider=provider,
             ticket_cache=cache,
         )
 
         with patch.object(adapter, "_call_wsaa", new_callable=AsyncMock) as mock_call_wsaa, \
-             patch.object(adapter, "_sign_tra") as mock_sign_tra, \
-             patch.object(adapter, "_read_cert_from_storage", new_callable=AsyncMock) as mock_read:
+             patch.object(adapter, "_sign_tra") as mock_sign_tra:
 
             token, sign = await adapter._get_wsaa_token(invoice)
 
-        # Must NOT call loginCms (no cert read, no TRA sign, no _call_wsaa)
+        # Must NOT call loginCms (TA del representante vigente en cache)
         mock_call_wsaa.assert_not_called()
         mock_sign_tra.assert_not_called()
-        mock_read.assert_not_called()
 
         # Must return the cached values
         assert token == "cached-token-xyz"
@@ -123,46 +137,58 @@ class TestTAcacheReuse:
 
     @pytest.mark.asyncio
     async def test_no_cache_calls_login_cms(self):
-        """5.2 GREEN: sin TA en cache -> llama _call_wsaa (loginCms)."""
+        """5.2 GREEN: sin TA en cache -> llama _call_wsaa (loginCms).
+
+        v22: el adapter usa el cert del platform_provider (no _read_cert_from_storage).
+        """
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
         cache = FakeTicketCache()  # empty
         invoice = _make_request()
+        provider = _make_mock_platform_provider()
 
         adapter = WSFEAdapter(
-            supabase_service_client=MagicMock(),
+            platform_provider=provider,
             ticket_cache=cache,
         )
 
         fresh_expiry = _future_expiry(600)  # 10h TA validity
 
         with patch.object(adapter, "_call_wsaa", new_callable=AsyncMock) as mock_call_wsaa, \
-             patch.object(adapter, "_sign_tra", return_value="cms-base64") as mock_sign, \
-             patch.object(adapter, "_read_cert_from_storage", new_callable=AsyncMock) as mock_read:
+             patch.object(adapter, "_sign_tra", return_value="cms-base64") as mock_sign:
 
-            mock_read.return_value = b"fake-cert"
             mock_call_wsaa.return_value = ("fresh-token", "fresh-sign", fresh_expiry)
 
             token, sign = await adapter._get_wsaa_token(invoice)
 
         mock_call_wsaa.assert_called_once()
+        # v22: el cert viene del platform_provider, no de _read_cert_from_storage
+        provider.get_cert.assert_called_once()
+        provider.get_key.assert_called_once()
         assert token == "fresh-token"
         assert sign  == "fresh-sign"
 
 
 class TestTAcacheExpiry:
-    """5.3 TRIANGULATE: TA expirado fuerza re-autenticacion; cache persiste entre instancias."""
+    """5.3 TRIANGULATE: TA expirado fuerza re-autenticacion; cache persiste entre instancias.
+
+    v22: la cache key es '{representante_cuit}:wsfe:{ambiente}' (plataforma, no emisor).
+    """
 
     @pytest.mark.asyncio
     async def test_expired_ta_forces_login_cms(self):
-        """5.3 TRIANGULATE: TA expirado -> forca nuevo loginCms y actualiza cache."""
+        """5.3 TRIANGULATE: TA expirado -> fuerza nuevo loginCms y actualiza cache.
+
+        v22: usa platform_provider; la cache key es del representante.
+        """
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
         cache = FakeTicketCache()
         invoice = _make_request()
+        provider = _make_mock_platform_provider(representante_cuit="20422662457")
 
-        # Pre-populate with an EXPIRED TA
-        cache_key = f"{invoice.cuit_emisor}:wsfe:{invoice.ambiente}"
+        # v22: Pre-populate con EXPIRED TA keyado por el representante
+        cache_key = "20422662457:wsfe:homologacion"
         cache.set(
             cache_key,
             token="old-token",
@@ -171,17 +197,15 @@ class TestTAcacheExpiry:
         )
 
         adapter = WSFEAdapter(
-            supabase_service_client=MagicMock(),
+            platform_provider=provider,
             ticket_cache=cache,
         )
 
         fresh_expiry = _future_expiry(600)
 
         with patch.object(adapter, "_call_wsaa", new_callable=AsyncMock) as mock_call_wsaa, \
-             patch.object(adapter, "_sign_tra", return_value="cms-base64"), \
-             patch.object(adapter, "_read_cert_from_storage", new_callable=AsyncMock) as mock_read:
+             patch.object(adapter, "_sign_tra", return_value="cms-base64"):
 
-            mock_read.return_value = b"fake-cert"
             mock_call_wsaa.return_value = ("new-token", "new-sign", fresh_expiry)
 
             token, sign = await adapter._get_wsaa_token(invoice)
@@ -190,7 +214,7 @@ class TestTAcacheExpiry:
         assert token == "new-token"
         assert sign  == "new-sign"
 
-        # Cache must be updated with fresh TA
+        # Cache must be updated with fresh TA (usando la key del representante)
         cached = cache.get(cache_key)
         assert cached is not None, "Cache debe actualizarse con el TA fresco"
         assert cached[0] == "new-token"
@@ -199,25 +223,28 @@ class TestTAcacheExpiry:
     @pytest.mark.asyncio
     async def test_cache_persists_across_adapter_instances(self):
         """5.3 TRIANGULATE: la cache no es in-process — un segundo adapter con el mismo
-        store comparte el TA (simula relay cron + background compartiendo cache Postgres)."""
+        store comparte el TA (simula relay cron + background compartiendo cache Postgres).
+
+        v22: dos adapters con el mismo platform_provider y shared_cache comparten el TA.
+        """
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
         shared_cache = FakeTicketCache()
         invoice = _make_request()
-        cache_key = f"{invoice.cuit_emisor}:wsfe:{invoice.ambiente}"
+        # v22: cache key del representante (compartida entre emisores y adapters)
+        cache_key = "20422662457:wsfe:homologacion"
         fresh_expiry = _future_expiry(600)
 
         # First adapter — does loginCms and populates cache
+        provider = _make_mock_platform_provider()
         adapter_1 = WSFEAdapter(
-            supabase_service_client=MagicMock(),
+            platform_provider=provider,
             ticket_cache=shared_cache,
         )
 
         with patch.object(adapter_1, "_call_wsaa", new_callable=AsyncMock) as mock_wsaa_1, \
-             patch.object(adapter_1, "_sign_tra", return_value="cms"), \
-             patch.object(adapter_1, "_read_cert_from_storage", new_callable=AsyncMock) as mock_read:
+             patch.object(adapter_1, "_sign_tra", return_value="cms"):
 
-            mock_read.return_value = b"cert"
             mock_wsaa_1.return_value = ("shared-token", "shared-sign", fresh_expiry)
 
             token_1, sign_1 = await adapter_1._get_wsaa_token(invoice)
@@ -227,13 +254,12 @@ class TestTAcacheExpiry:
 
         # Second adapter with SAME shared_cache — should reuse without calling loginCms
         adapter_2 = WSFEAdapter(
-            supabase_service_client=MagicMock(),
+            platform_provider=_make_mock_platform_provider(),
             ticket_cache=shared_cache,
         )
 
         with patch.object(adapter_2, "_call_wsaa", new_callable=AsyncMock) as mock_wsaa_2, \
-             patch.object(adapter_2, "_sign_tra", return_value="cms"), \
-             patch.object(adapter_2, "_read_cert_from_storage", new_callable=AsyncMock) as mock_read_2:
+             patch.object(adapter_2, "_sign_tra", return_value="cms"):
 
             token_2, sign_2 = await adapter_2._get_wsaa_token(invoice)
 

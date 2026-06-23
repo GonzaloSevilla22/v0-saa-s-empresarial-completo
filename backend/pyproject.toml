@@ -12,6 +12,7 @@ dependencies = [
     "tenacity>=8.2",
     "fpdf2>=2.7",
     "zeep>=4.2,<5",
+    "supabase>=2.0",
 ]
 
 [project.optional-dependencies]

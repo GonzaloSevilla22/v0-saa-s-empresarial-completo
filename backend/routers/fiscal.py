@@ -237,7 +237,13 @@ async def process_pending_cae(
             service_client = create_client(_settings.supabase_url, _settings.supabase_service_role_key)
         except (ImportError, Exception):
             has_cert = False  # fallback seguro: sin supabase-py → stub
-    adapter = build_cae_adapter(has_cert=has_cert, service_client=service_client)
+    # v21-wsfe-production-hardening (D5): pasar account_id para que la factory
+    # cree el PostgresTicketCache por cuenta (RLS-safe).
+    adapter = build_cae_adapter(
+        has_cert=has_cert,
+        service_client=service_client,
+        account_id=str(account_id),
+    )
     return await svc.process_pending_documents(doc_repo, adapter)
 
 

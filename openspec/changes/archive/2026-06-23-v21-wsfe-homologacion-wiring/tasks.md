@@ -53,8 +53,8 @@
 > **Esta es la task de homologación manual.** El gate de CI corre `pytest -m "not integration"` y la SALTEA. La corre el orquestador a mano con el cert del PO: `python -m pytest -m integration backend/tests/...`. Necesita el cert real (OQ-5: vía UI o colocación directa en el bucket) + ARCA homo arriba (intermitente).
 
 - [x] 7.1 Escribir el test `@pytest.mark.integration` que ejecuta el flujo real: leer cert+key del bucket → WSAA `loginCms` (ticket de acceso) → WSFEv1 `FECAESolicitar` → aserta que devuelve un CAE real de homologación (CUIT emisor `20422662457`, ambiente `homologacion`)
-- [ ] 7.2 Colocar el cert real del PO: subir `certificado.crt` a `{account_id}/afip.crt` y `clave_privada.key` a `{account_id}/afip.key` (vía la UI nueva o colocación directa en el bucket — OQ-5)
-- [ ] 7.3 Correr A MANO `python -m pytest -m integration` y validar que obtiene un CAE válido de homologación; documentar el resultado → **cierra C-27 task 5.2**
+- [x] 7.2 Colocar el cert real del PO: subir `certificado.crt` a `{account_id}/afip.crt` y `clave_privada.key` a `{account_id}/afip.key` (vía la UI nueva o colocación directa en el bucket — OQ-5)
+- [x] 7.3 Correr A MANO `python -m pytest -m integration` y validar que obtiene un CAE válido de homologación; documentar el resultado → **cierra C-27 task 5.2** — VALIDADO 2026-06-23 vía script local `backend/.afip-homo/run_homo_e2e.py` (gitignoreado): CAE real `86250464989491`, vto 2026-07-03, PV=1, Factura B nº 1, CUIT 20422662457, ambiente homologacion. (El E2E reveló gaps del adapter para facturar de verdad en prod → follow-up aparte.)
 - [x] 7.4 Confirmar que el invocador del gate de CI excluye `integration` (no se rompió el gate)
 
 ## 8. Frontend — CertUploadSection a dos controles (cert + key)
@@ -68,4 +68,4 @@
 - [x] 9.1 Verificar (read-only) que las Storage policies de `afip-certs` (bucket ya existente en prod `gxdhpxvdjjkmxhdkkwyb`) cubren INSERT/SELECT/UPDATE para ambos objetos (`.crt` y `.key`) scoped por prefijo `{account_id}/`; si una policy fuera por nombre exacto, ajustarla a prefijo (migración menor de Storage solo si la verificación lo exige)
 - [x] 9.2 `python -m pytest backend/tests -m "not integration"` verde (gate completo, sin el E2E real)
 - [x] 9.3 Confirmar que el comportamiento de prod NO cambia para cuentas sin cert (default stub) — smoke del relay con una cuenta sin `certificado_afip_path`
-- [ ] 9.4 Conventional commit + PR; reportar al PO para review/merge (governance CRÍTICO)
+- [x] 9.4 Conventional commit + PR; reportar al PO para review/merge (governance CRÍTICO) — PR #205 mergeado a main (commit `25e25b9`) + hardening post-review (`54eb7e3`)

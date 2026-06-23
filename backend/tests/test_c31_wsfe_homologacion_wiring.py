@@ -275,6 +275,31 @@ class TestCertUploadService:
         assert "certificado_content" not in result
 
     @pytest.mark.asyncio
+    async def test_set_cert_path_ignores_client_path_derives_canonical(self):
+        """Hardening (review C-31): set_cert_path NO confía en el path del cliente;
+        re-deriva la ruta canónica {account_id}/afip.crt server-side. Un cliente que
+        mande la ruta de OTRA cuenta NO puede setear certificado_afip_path apuntando ahí."""
+        from backend.services.fiscal.fiscal_profile_service import set_cert_path
+        from backend.schemas.fiscal import CertPathUpdate
+
+        mock_repo = AsyncMock()
+        mock_repo.upsert.return_value = {
+            "id": str(uuid.uuid4()),
+            "account_id": ACCOUNT_ID,
+            "certificado_afip_path": f"{ACCOUNT_ID}/afip.crt",
+        }
+        auth = {"role": "user"}
+        other_account = "11111111-1111-1111-1111-111111111111"
+        malicious = CertPathUpdate(path=f"{other_account}/afip.crt")
+
+        await set_cert_path(mock_repo, auth, ACCOUNT_ID, malicious)
+
+        call_data = mock_repo.upsert.call_args[0][1]  # second positional arg = data dict
+        # Debe persistir la ruta canónica del account_id del JWT, NO la que mandó el cliente
+        assert call_data.get("certificado_afip_path") == f"{ACCOUNT_ID}/afip.crt"
+        assert other_account not in call_data.get("certificado_afip_path")
+
+    @pytest.mark.asyncio
     async def test_set_cert_path_member_gets_403(self):
         """4.4 TRIANGULATE: member → 403."""
         from fastapi import HTTPException

@@ -88,11 +88,17 @@ async def set_cert_path(
     Usa el upsert existente del repo (COALESCE — no sobrescribe si ya existe
     un path y se pasa None).
 
+    Hardening (review C-31): la ruta se re-deriva server-side del account_id del JWT
+    ({account_id}/afip.crt) — NO se confía en `payload.path` del cliente. Evita que un
+    usuario apunte su certificado_afip_path a la ruta de otra cuenta. El payload se
+    mantiene por compatibilidad con el frontend, pero su valor no decide la ruta.
+
     Seguridad: la respuesta NO incluye contenido del cert/key.
     """
     require_role(auth, ["user", "admin"])
 
-    result = await repo.upsert(account_id, {"certificado_afip_path": payload.path})
+    canonical_path = f"{account_id}/{_CERT_OBJECT_NAME['cert']}"
+    result = await repo.upsert(account_id, {"certificado_afip_path": canonical_path})
     if result is None:
         raise HTTPException(status_code=500, detail="Error al persistir el path del certificado")
     return result

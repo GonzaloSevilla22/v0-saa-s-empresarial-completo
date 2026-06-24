@@ -16,7 +16,7 @@ import { PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
 import type { Plan } from "@/lib/types"
 
 export const metadata = {
-  title: "¡Pago exitoso! — EmprendeSmart",
+  title: "¡Pago exitoso! — Aliadata",
 }
 
 export default async function PlanesSuccessPage() {

@@ -223,7 +223,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           user_id: userId,
           event_type: 'plan_upgraded',
           recipient: recipientEmail,
-          subject: `Tu plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} está activo — EmprendeSmart`,
+          subject: `Tu plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} está activo — Aliadata`,
           metadata: {
             plan,
             amount,

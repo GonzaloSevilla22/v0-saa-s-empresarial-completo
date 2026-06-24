@@ -14,7 +14,7 @@ import { getEffectivePlan } from "@/lib/plan-utils"
 import type { Plan, PlanLimits } from "@/lib/types"
 
 export const metadata = {
-  title: "Planes y precios — EmprendeSmart",
+  title: "Planes y precios — Aliadata",
 }
 
 export default async function PlanesPage() {

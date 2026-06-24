@@ -89,7 +89,7 @@ export async function POST(): Promise<NextResponse> {
         user_id: user.id,
         event_type: 'plan_downgraded',
         recipient: user.email,
-        subject: 'Tu suscripción fue cancelada — EmprendeSmart',
+        subject: 'Tu suscripción fue cancelada — Aliadata',
         metadata: {
           plan: account.billing_plan,
           plan_expires_at: expiresAt,

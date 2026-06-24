@@ -12,10 +12,10 @@ import { XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 export const metadata = {
-  title: "Pago no procesado — EmprendeSmart",
+  title: "Pago no procesado — Aliadata",
 }
 
-const WHATSAPP_URL = "https://wa.me/5492615000000?text=Hola%2C%20tuve%20un%20problema%20con%20mi%20pago%20en%20EmprendeSmart"
+const WHATSAPP_URL = "https://wa.me/5492615000000?text=Hola%2C%20tuve%20un%20problema%20con%20mi%20pago%20en%20Aliadata"
 
 export default function PlanesFailurePage() {
   return (

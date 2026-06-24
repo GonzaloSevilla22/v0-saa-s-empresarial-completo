@@ -19,7 +19,7 @@ import { PLAN_DISPLAY_NAMES, getEffectivePlan } from "@/lib/plan-utils"
 import type { Plan } from "@/lib/types"
 
 export const metadata = {
-  title: "Facturación — EmprendeSmart",
+  title: "Facturación — Aliadata",
 }
 
 const STATUS_LABELS: Record<string, string> = {

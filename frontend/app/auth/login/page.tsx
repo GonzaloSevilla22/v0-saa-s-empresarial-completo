@@ -1,7 +1,7 @@
 ﻿"use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
@@ -20,11 +20,11 @@ export default function LoginPage() {
   const [isMagicLink, setIsMagicLink] = useState(false)
   const { login } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   // Restore the destination the user was trying to reach before being redirected to login
-  const searchParams = typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search)
-    : new URLSearchParams()
   const nextPath = searchParams.get("next") ?? "/dashboard"
+  // reason=idle: session was closed automatically due to inactivity
+  const isIdleLogout = searchParams.get("reason") === "idle"
 
   const [isLoading, setIsLoading] = useState(false)
 
@@ -51,6 +51,15 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold tracking-tight text-foreground">ALIADATA</h1>
           <p className="text-sm text-muted-foreground">Emprender es Inteligente</p>
         </div>
+
+        {isIdleLogout && (
+          <div
+            role="alert"
+            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          >
+            Tu sesión se cerró por inactividad. Por favor, iniciá sesión nuevamente.
+          </div>
+        )}
 
         <Card className="border-border bg-card">
           <CardHeader className="text-center">

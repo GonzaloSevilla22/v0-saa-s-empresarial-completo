@@ -21,6 +21,7 @@ from backend.schemas.fiscal import (
     CertPathUpdate,
     CertUploadUrlRequest,
     EmitPendingCAERequest,
+    EmitSubscriptionPaymentRequest,
     FiscalProfileCreate,
     PointOfSaleCreate,
 )
@@ -238,6 +239,72 @@ async def emit_pending_cae(
     )
     if row is None:
         raise HTTPException(status_code=500, detail="Error al emitir el comprobante")
+
+    result = row["result"]
+    if isinstance(result, str):
+        result = json.loads(result)
+    return dict(result)
+
+
+async def emit_subscription_payment_cae(
+    conn,
+    auth: dict,
+    payload: EmitSubscriptionPaymentRequest,
+) -> dict:
+    """Emite Factura C por un pago de suscripción (flujo admin Aliadata).
+
+    Governance: CRÍTICO — solo admin puede emitir (factura del operador de la plataforma).
+    Idempotency: si ya existe un fiscal_document con subscription_payment_id == receipt_id,
+    retorna el documento existente sin crear uno nuevo.
+
+    El admin Aliadata (monotributista) emite siempre Factura C.
+    El receptor se identifica con CUIT (DocTipo=80) o DNI (DocTipo=96).
+
+    Design ref: v22 admin-subscription-invoicing — PO sign-off 2026-06-24.
+    """
+    import json
+
+    require_role(auth, ["admin"])
+
+    # Idempotency: verificar si ya existe un doc para este receipt_id
+    existing_row = await conn.fetchrow(
+        """
+        SELECT id, status, cae, cae_due_date, comprobante_type, total
+        FROM   public.fiscal_documents
+        WHERE  subscription_payment_id = $1
+        LIMIT  1
+        """,
+        payload.receipt_id,
+    )
+    if existing_row is not None:
+        existing = dict(existing_row)
+        return {
+            "fiscal_document_id": str(existing["id"]),
+            "status":             existing["status"],
+            "cae":                existing.get("cae"),
+            "cae_due_date":       str(existing["cae_due_date"]) if existing.get("cae_due_date") else None,
+            "comprobante_type":   existing["comprobante_type"],
+            "total":              float(existing["total"]),
+            "already_emitted":    True,
+        }
+
+    # Emitir usando rpc_emit_subscription_payment_cae (nueva RPC para admin)
+    row = await conn.fetchrow(
+        """
+        SELECT public.rpc_emit_subscription_payment_cae(
+          p_receipt_id        => $1,
+          p_point_of_sale_id  => $2,
+          p_receptor_doc_tipo => $3,
+          p_receptor_doc_nro  => $4
+        ) AS result
+        """,
+        payload.receipt_id,
+        str(payload.point_of_sale_id) if payload.point_of_sale_id else None,
+        payload.receptor_doc_tipo,
+        payload.receptor_doc_nro,
+    )
+    if row is None:
+        raise HTTPException(status_code=500, detail="Error al emitir el comprobante de suscripción")
 
     result = row["result"]
     if isinstance(result, str):

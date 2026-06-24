@@ -40,6 +40,7 @@ from backend.schemas.fiscal import (
     CertUploadUrlOut,
     CertUploadUrlRequest,
     EmitPendingCAERequest,
+    EmitSubscriptionPaymentRequest,
     FiscalProfileCreate,
     FiscalProfileOut,
     PointOfSaleCreate,
@@ -208,6 +209,45 @@ async def deactivate_point_of_sale(
 
 # ── FiscalDocument endpoints ──────────────────────────────────────────────────
 
+@router.get("/documents/by-receipt/{receipt_id}")
+async def get_fiscal_doc_by_receipt(
+    receipt_id: str,
+    auth: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Retorna el fiscal_document vinculado a un receipt de suscripción (si existe).
+
+    Usado por el admin en admin/pagos para mostrar el CAE status en vez del botón
+    'Enviar al ARCA' en rows ya facturadas (idempotency check on page load).
+    Governance: solo admin puede consultar este endpoint.
+    v22-admin — PO sign-off 2026-06-24.
+    """
+    from backend.core.guards import require_role
+    require_role(auth, ["admin"])
+
+    row = await conn.fetchrow(
+        """
+        SELECT id, status, cae, cae_due_date, comprobante_type, total, subscription_payment_id
+        FROM   public.fiscal_documents
+        WHERE  subscription_payment_id = $1
+        LIMIT  1
+        """,
+        receipt_id,
+    )
+    if row is None:
+        return None
+    doc = dict(row)
+    return {
+        "id":                     str(doc["id"]),
+        "status":                 doc["status"],
+        "cae":                    doc.get("cae"),
+        "cae_due_date":           str(doc["cae_due_date"]) if doc.get("cae_due_date") else None,
+        "comprobante_type":       doc["comprobante_type"],
+        "total":                  float(doc["total"]),
+        "subscription_payment_id": doc["subscription_payment_id"],
+    }
+
+
 @router.post("/documents/emit")
 async def emit_pending_cae(
     payload: EmitPendingCAERequest,
@@ -232,6 +272,34 @@ async def emit_pending_cae(
     if doc_id:
         background_tasks.add_task(process_doc_by_id_background, doc_id)
         logger.debug("[emit_pending_cae] Scheduled background relay for doc %s", doc_id)
+
+    return result
+
+
+@router.post("/documents/emit-subscription-payment", status_code=201)
+async def emit_subscription_payment(
+    payload: EmitSubscriptionPaymentRequest,
+    background_tasks: BackgroundTasks,
+    auth: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Emite Factura C por un pago de suscripción (flujo admin Aliadata).
+
+    Governance: CRÍTICO — solo admin. El service valida el rol antes de tocar la DB.
+    Idempotency: si el receipt_id ya tiene un fiscal_document asociado, retorna el
+    existente con already_emitted=True (HTTP 200 → el frontend muestra el badge).
+
+    Pago identificado por receipt_id; receptor por CUIT (DocTipo=80) o DNI (DocTipo=96).
+    v22-admin — PO sign-off 2026-06-24.
+    """
+    result = await svc.emit_subscription_payment_cae(conn, auth, payload)
+
+    # Fire-and-forget: intenta el CAE de inmediato si el doc es nuevo
+    if not result.get("already_emitted"):
+        doc_id = result.get("fiscal_document_id")
+        if doc_id:
+            background_tasks.add_task(process_doc_by_id_background, doc_id)
+            logger.debug("[emit_subscription_payment] Scheduled background relay for doc %s", doc_id)
 
     return result
 

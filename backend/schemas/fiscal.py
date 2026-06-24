@@ -112,12 +112,38 @@ class PointOfSaleOut(BaseModel):
 # ── FiscalDocument schemas ───────────────────────────────────────────────────
 
 class EmitPendingCAERequest(BaseModel):
-    """Schema de emisión directa de un comprobante pending_cae (OQ-3: maquinaria)."""
+    """Schema de emisión directa de un comprobante pending_cae (OQ-3: maquinaria).
+
+    v22-admin: agrega receptor_doc_tipo + receptor_doc_nro para identificar al
+    receptor cuando no es consumidor final (e.g. pagos de suscripción con CUIT/DNI).
+    Mapeo AFIP: CUIT→DocTipo 80, DNI→DocTipo 96.
+    subscription_payment_id: referencia idempotente para pagos de suscripción.
+    """
 
     comprobante_type: Literal["factura_a", "factura_b", "factura_c"]
     total: float
     client_id: uuid.UUID | None = None
     point_of_sale_id: uuid.UUID | None = None  # opcional — D11
+    # v22-admin: receptor identificado (CUIT=80, DNI=96)
+    receptor_doc_tipo: Literal[80, 96] | None = None  # 80=CUIT, 96=DNI
+    receptor_doc_nro: str | None = None               # sin guiones
+    # v22-admin: referencia idempotente de pago de suscripción
+    subscription_payment_id: str | None = None
+
+
+class EmitSubscriptionPaymentRequest(BaseModel):
+    """Schema para emitir Factura C por un pago de suscripción (flujo admin).
+
+    El admin Aliadata (CUIT 20422662457, monotributista) emite una Factura C
+    al cliente de SaaS por el pago de su plan. El receptor se identifica con
+    CUIT o DNI capturado en el dialog (PO decision 2026-06-24).
+    Governance: CRÍTICO — solo admin puede llamar este endpoint.
+    """
+
+    receipt_id: str                     # ID del PaymentReceipt (idempotency key)
+    point_of_sale_id: uuid.UUID | None = None
+    receptor_doc_tipo: Literal[80, 96]  # 80=CUIT, 96=DNI
+    receptor_doc_nro: str               # sin guiones, validado en el service
 
 
 # ── CertUpload schemas (C-31) ─────────────────────────────────────────────────
@@ -184,3 +210,5 @@ class FiscalDocumentOut(BaseModel):
     last_error: str | None = None
     total: float
     created_at: datetime.datetime
+    # v22-admin: referencia al pago de suscripción (para idempotencia)
+    subscription_payment_id: str | None = None

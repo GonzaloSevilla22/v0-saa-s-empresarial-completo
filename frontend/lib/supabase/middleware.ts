@@ -1,5 +1,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
+import { evaluateIdle } from "@/lib/auth/idle-server"
+import { COOKIE_KEYS } from "@/lib/cookies"
 
 // ── Security Headers ───────────────────────────────────────────────────────
 // Applied to every response. Tune CSP per feature (e.g., add blob: for file previews).
@@ -35,7 +37,9 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
 }
 
 // ── Protected routes ───────────────────────────────────────────────────────
-const PROTECTED_PREFIXES = [
+// Exported for testability (idle-server-enforcement.test.ts verifies that
+// /auth/* routes are not in this list, ensuring no idle-check loop is possible).
+export const PROTECTED_PREFIXES = [
   "/dashboard", "/ventas", "/compras", "/productos", "/stock",
   "/clientes", "/gastos", "/insights", "/simulador", "/comunidad",
   "/cursos", "/configuracion", "/copiloto-ia", "/ferias", "/seguros", "/admin",
@@ -101,6 +105,48 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     const url = request.nextUrl.clone()
     url.pathname = "/auth/verify-email"
     return applySecurityHeaders(NextResponse.redirect(url))
+  }
+
+  // ── Server-side idle enforcement (defense-in-depth) ─────────────────────
+  // Only runs on the protected + authenticated + email-verified happy path.
+  // The client timer writes the auth:last-activity cookie on interaction;
+  // we only read it here (Decision 1). Background traffic never resets the clock.
+  // Scoping: PROTECTED_PREFIXES excludes /auth/*, so /auth/login is never
+  // idle-gated and the redirect cannot loop (Decision 5).
+  if (isProtected && user && user.email_confirmed_at) {
+    const rawCookie = request.cookies.get(COOKIE_KEYS.LAST_ACTIVITY)?.value
+    const idleResult = evaluateIdle(rawCookie, Date.now())
+
+    if (idleResult.action === "logout") {
+      // Session is stale: clear auth cookies, lastActivity, and tenant:active
+      // (parity with the client logout() path), then redirect to login.
+      const url = request.nextUrl.clone()
+      url.pathname = "/auth/login"
+      url.searchParams.set("reason", "idle")
+      url.searchParams.set("next", pathname)
+      const redirect = NextResponse.redirect(url)
+      // Clear Supabase auth cookies (mirror the "Refresh Token Not Found" branch)
+      request.cookies.getAll().forEach((cookie) => {
+        if (cookie.name.startsWith("sb-")) redirect.cookies.delete(cookie.name)
+      })
+      // Clear the activity signal and tenant cookie (parity with client logout)
+      redirect.cookies.delete(COOKIE_KEYS.LAST_ACTIVITY)
+      redirect.cookies.delete(COOKIE_KEYS.TENANT)
+      return applySecurityHeaders(redirect)
+    }
+
+    if (idleResult.action === "seed") {
+      // Cookie missing or unparseable: treat as just-active and seed it so the
+      // next request has a baseline. Never redirect — this is loop-safety (Decision 6).
+      supabaseResponse.cookies.set(COOKIE_KEYS.LAST_ACTIVITY, String(Date.now()), {
+        path: "/",
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7, // WEEK — matches COOKIE_CONFIG
+        httpOnly: false,           // must be readable by client JS (Decision 2)
+        secure: process.env.NODE_ENV === "production",
+      })
+    }
+    // "proceed" → fall through to normal session/admin/auth handling
   }
 
   // Admin routes: server-side role check (defense-in-depth)

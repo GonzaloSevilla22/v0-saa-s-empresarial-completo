@@ -77,3 +77,22 @@ export function msUntilWarning(lastActivity: number, now: number, config: IdleCo
   const warningAt = config.idleTimeoutMs - config.warningBeforeMs
   return Math.max(0, lastActivity + warningAt - now)
 }
+
+/**
+ * Server-side idle decision: returns `true` when the session has been idle
+ * for at least `timeoutMs` milliseconds (i.e. `now - lastActivity >= timeoutMs`).
+ *
+ * Pure: no DOM, no cookies, no network. Call this from middleware after parsing
+ * the `lastActivity` cookie. Pass `IDLE_TIMEOUT_MS` as the threshold — there
+ * must be no second 20-minute literal anywhere in the server path.
+ *
+ * Boundary: `elapsed === timeoutMs` returns `true` (consistent with `computeIdleState`'s
+ * expired boundary).
+ *
+ * @param lastActivity  Absolute timestamp (ms) of the last user interaction (from cookie).
+ * @param now           Current timestamp (ms). Pass `Date.now()` from the caller.
+ * @param timeoutMs     Inactivity threshold in ms. Always pass `IDLE_TIMEOUT_MS`.
+ */
+export function isServerSideIdle(lastActivity: number, now: number, timeoutMs: number): boolean {
+  return now - lastActivity >= timeoutMs
+}

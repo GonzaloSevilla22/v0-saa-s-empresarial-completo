@@ -11,11 +11,18 @@ const IS_PROD = process.env.NODE_ENV === "production"
 const SECURE = IS_PROD ? "; Secure" : ""
 
 export const COOKIE_KEYS = {
-  THEME:    "ui:theme",
-  SIDEBAR:  "ui:sidebar",
-  LOCALE:   "ui:locale",
-  CURRENCY: "ui:currency",
-  TENANT:   "tenant:active",
+  THEME:         "ui:theme",
+  SIDEBAR:       "ui:sidebar",
+  LOCALE:        "ui:locale",
+  CURRENCY:      "ui:currency",
+  TENANT:        "tenant:active",
+  /**
+   * Idle-session enforcement: absolute timestamp (ms) of the user's last
+   * real interaction, written client-side by the idle timer and read server-side
+   * by the middleware. Non-httpOnly by design (Decision 2, idle-server-enforcement
+   * change design.md). SameSite=Lax; path=/; Secure in production.
+   */
+  LAST_ACTIVITY: "auth:last-activity",
 } as const
 
 type CookieKey = (typeof COOKIE_KEYS)[keyof typeof COOKIE_KEYS]
@@ -26,11 +33,14 @@ const MAX_AGE = {
 } as const
 
 const COOKIE_CONFIG: Record<CookieKey, { maxAge: number; sameSite: "Lax" | "Strict" }> = {
-  "ui:theme":    { maxAge: MAX_AGE.YEAR,  sameSite: "Lax"    },
-  "ui:sidebar":  { maxAge: MAX_AGE.WEEK,  sameSite: "Lax"    },
-  "ui:locale":   { maxAge: MAX_AGE.YEAR,  sameSite: "Lax"    },
-  "ui:currency": { maxAge: MAX_AGE.YEAR,  sameSite: "Lax"    },
-  "tenant:active": { maxAge: MAX_AGE.WEEK, sameSite: "Strict" },
+  "ui:theme":          { maxAge: MAX_AGE.YEAR, sameSite: "Lax"    },
+  "ui:sidebar":        { maxAge: MAX_AGE.WEEK, sameSite: "Lax"    },
+  "ui:locale":         { maxAge: MAX_AGE.YEAR, sameSite: "Lax"    },
+  "ui:currency":       { maxAge: MAX_AGE.YEAR, sameSite: "Lax"    },
+  "tenant:active":     { maxAge: MAX_AGE.WEEK, sameSite: "Strict" },
+  // maxAge = WEEK: well above the 20-min idle window; the cookie value (not its
+  // expiry) drives the idle decision, so a longer lifetime is harmless.
+  "auth:last-activity": { maxAge: MAX_AGE.WEEK, sameSite: "Lax"   },
 }
 
 // ── Client-side helpers ────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import {
   type IdleConfig,
 } from "@/lib/auth/idle-config"
 import { createIdleTransport, type IdleTransport } from "@/lib/auth/idle-transport"
+import { setCookie, COOKIE_KEYS } from "@/lib/cookies"
 
 export interface UseIdleTimerReturn {
   /** Current classification of the idle state. */
@@ -90,6 +91,10 @@ export function useIdleTimer(config: IdleConfig = DEFAULT_IDLE_CONFIG): UseIdleT
     const now = Date.now()
     lastActivityRef.current = now
     lastThrottleRef.current = now
+    // Persist activity timestamp for server-side idle enforcement (Decision 1,
+    // idle-server-enforcement change). The middleware reads this cookie and never
+    // writes it — only the client interaction path does (Design Decision 1).
+    setCookie(COOKIE_KEYS.LAST_ACTIVITY, String(now))
     // Broadcast to other tabs
     transportRef.current?.postActivity(now)
     recompute()
@@ -101,6 +106,10 @@ export function useIdleTimer(config: IdleConfig = DEFAULT_IDLE_CONFIG): UseIdleT
     if (now - lastThrottleRef.current < THROTTLE_MS) return
     lastThrottleRef.current = now
     lastActivityRef.current = now
+    // Persist activity timestamp for server-side idle enforcement.
+    // Only written here (user interaction, throttled ~1/sec) — never from
+    // peer/transport messages, visibility changes, or token-refresh paths.
+    setCookie(COOKIE_KEYS.LAST_ACTIVITY, String(now))
     // Broadcast to other tabs (no re-broadcast from peer events)
     transportRef.current?.postActivity(now)
     recompute()

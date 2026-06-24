@@ -206,7 +206,7 @@ class WSFEAdapter(FiscalDocumentPort):
         except Exception as exc:
             # v22 (D7, OQ-4): distinguir error de delegación de error de datos/red
             if self._is_delegation_error(exc):
-                representante_cuit = "EmprendeSmart"
+                representante_cuit = "Aliadata"
                 try:
                     if self._platform_provider is not None:
                         representante_cuit = self._platform_provider.get_cuit()
@@ -226,7 +226,7 @@ class WSFEAdapter(FiscalDocumentPort):
                     is_approved=False,
                     error_code="DELEGATION_NOT_AUTHORIZED",
                     error_detail=(
-                        f"La cuenta aún no autorizó a EmprendeSmart (CUIT {representante_cuit}) "
+                        f"La cuenta aún no autorizó a Aliadata (CUIT {representante_cuit}) "
                         "en ARCA como representante. Para habilitarlo: ingresá a ARCA → "
                         "Administrador de Relaciones → Agregar relación → "
                         "Servicio: Facturación Electrónica → CUIT representante: "

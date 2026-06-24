@@ -15,6 +15,9 @@
  *   does not support .ilike() on joined columns. Filtering on the current page
  *   (≤ 100 rows) is instant and avoids a complex multi-step server query.
  *   Date range filter IS server-side and accurate across all pages.
+ *
+ * v22: "Enviar al ARCA" button in expanded row → EmitirComprobanteDialog →
+ *   useEmitComprobante → FiscalDocumentBadge (Realtime).
  */
 
 import { useState, useMemo, useCallback } from "react"
@@ -34,8 +37,15 @@ import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
   Plus, Trash2, Pencil, ChevronDown, ChevronRight,
   ShoppingCart, Search, PackageOpen, Download, CalendarDays, X, Loader2,
+  FileText,
 } from "lucide-react"
 import { toast } from "sonner"
+// v22: fiscal emission
+import { EmitirComprobanteDialog } from "@/components/fiscal/EmitirComprobanteDialog"
+import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
+import { useEmitComprobante, isDelegationError } from "@/hooks/data/use-emit-comprobante"
+import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
+import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 
 interface SaleOperationsListProps {
   // Paginated data from parent (usePaginatedQuery)
@@ -59,6 +69,13 @@ interface SaleOperationsListProps {
   onRefetch:       () => void
 }
 
+// ── Fiscal emission result tracked per operation key ─────────────────────────
+
+interface FiscalEmissionResult {
+  documentId: string
+  status: FiscalDocumentStatus
+}
+
 export function SaleOperationsList({
   sales, meta, loading, error,
   dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
@@ -69,6 +86,17 @@ export function SaleOperationsList({
   const [search,     setSearch]     = useState("")
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
+
+  // v22: fiscal emission dialog state
+  const [emitDialogOp,  setEmitDialogOp]  = useState<SaleOperation | null>(null)
+  const [emitting,      setEmitting]      = useState(false)
+  // Map op.key → emission result (documentId + status) for FiscalDocumentBadge
+  const [emissionMap,   setEmissionMap]   = useState<Map<string, FiscalEmissionResult>>(new Map())
+
+  // v22: fiscal data — fetched here so the list has full context
+  const { profile: fiscalProfile } = useFiscalProfile()
+  const { pointsOfSale }           = usePointsOfSale()
+  const emitMutation               = useEmitComprobante()
 
   const isDateFilterActive = !!(dateFrom || dateTo)
 
@@ -135,6 +163,39 @@ export function SaleOperationsList({
   const toggleExpand = useCallback((key: string) => {
     setExpandedKey((prev) => (prev === key ? null : key))
   }, [])
+
+  // v22: emit comprobante for an operation
+  async function handleEmitConfirm(pointOfSaleId: string) {
+    if (!emitDialogOp) return
+    setEmitting(true)
+    try {
+      const result = await emitMutation.mutateAsync({
+        comprobante_type: "factura_c", // backend resolves the actual type; passing factura_c as default for monotributista
+        total:            emitDialogOp.total,
+        client_id:        emitDialogOp.clientId || null,
+        point_of_sale_id: pointOfSaleId,
+      })
+      setEmissionMap((prev) => {
+        const next = new Map(prev)
+        next.set(emitDialogOp.key, { documentId: result.id, status: result.status })
+        return next
+      })
+      setEmitDialogOp(null)
+      toast.success("Comprobante enviado a ARCA. El CAE llegará en segundos.")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al emitir"
+      if (isDelegationError(msg)) {
+        toast.error(
+          "Delegación no autorizada en ARCA. Configurá la autorización en Datos fiscales.",
+          { duration: 8000 },
+        )
+      } else {
+        toast.error(msg)
+      }
+    } finally {
+      setEmitting(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -376,7 +437,28 @@ export function SaleOperationsList({
                       </div>
                     )}
                   </div>
-                  <div className="flex justify-end mt-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mt-3" onClick={(e) => e.stopPropagation()}>
+                    {/* v22: FiscalDocumentBadge — muestra el estado si ya se emitió */}
+                    <div className="flex items-center gap-2">
+                      {emissionMap.has(op.key) && (
+                        <FiscalDocumentBadge
+                          documentId={emissionMap.get(op.key)!.documentId}
+                          initialStatus={emissionMap.get(op.key)!.status}
+                          verbose
+                        />
+                      )}
+                      {!emissionMap.has(op.key) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 text-xs border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
+                          onClick={() => setEmitDialogOp(op)}
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                          Enviar al ARCA
+                        </Button>
+                      )}
+                    </div>
                     <SaleReceiptButton
                       op={op}
                       clientPhone={clientMap.get(op.clientId ?? "")?.phone}
@@ -409,6 +491,21 @@ export function SaleOperationsList({
         onSizeChange={onPageSizeChange}
         loading={loading}
         label="ventas"
+      />
+
+      {/* v22: Emission dialog — rendered outside the list so z-index is correct */}
+      <EmitirComprobanteDialog
+        open={emitDialogOp !== null}
+        onOpenChange={(open) => { if (!open) setEmitDialogOp(null) }}
+        operationLabel={
+          emitDialogOp
+            ? `${formatDate(emitDialogOp.date)} — ${formatMoney(emitDialogOp.total, emitDialogOp.currency)}`
+            : ""
+        }
+        pointsOfSale={pointsOfSale}
+        fiscalProfile={fiscalProfile}
+        onConfirm={handleEmitConfirm}
+        isSubmitting={emitting}
       />
     </div>
   )

@@ -373,7 +373,7 @@ function SingleCertUpload({ kind, label, accept, hint, disabled, onSuccess }: Si
 }
 
 // ── DelegationSection (v22) ──────────────────────────────────────────────────
-// Guía al usuario a autorizar a EmprendeSmart como representante en ARCA.
+// Guía al usuario a autorizar a Aliadata como representante en ARCA.
 // Reemplaza CertUploadSection en el flujo principal (OQ-2: cert-upload queda como fallback).
 
 function DelegationSection() {
@@ -418,7 +418,7 @@ function DelegationSection() {
 
       {/* Pasos del onboarding */}
       <div className="rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground space-y-2">
-        <p className="font-medium text-foreground">Cómo autorizar a EmprendeSmart en ARCA:</p>
+        <p className="font-medium text-foreground">Cómo autorizar a Aliadata en ARCA:</p>
         <ol className="list-decimal list-inside space-y-1">
           <li>Ingresá a <strong>ARCA</strong> (arca.gob.ar) con tu CUIT y clave fiscal.</li>
           <li>Navegá a <strong>Administrador de Relaciones</strong>.</li>
@@ -438,7 +438,7 @@ function DelegationSection() {
       {/* Atestación */}
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted-foreground">
-          Una vez que completaste los pasos en ARCA, marcá la casilla para que EmprendeSmart
+          Una vez que completaste los pasos en ARCA, marcá la casilla para que Aliadata
           lo registre y habilite la facturación electrónica en tu cuenta.
         </p>
         <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -450,7 +450,7 @@ function DelegationSection() {
             className="rounded border-border h-4 w-4 accent-primary"
           />
           <span className="text-sm">
-            Ya autoricé a EmprendeSmart (CUIT {representanteCuit ?? "—"}) como representante en ARCA
+            Ya autoricé a Aliadata (CUIT {representanteCuit ?? "—"}) como representante en ARCA
           </span>
         </label>
         {saving && <p className="text-xs text-muted-foreground">Guardando...</p>}
@@ -711,7 +711,7 @@ export function FiscalSettings() {
         <CardHeader>
           <CardTitle className="text-base">Autorización para facturar</CardTitle>
           <CardDescription>
-            Para emitir comprobantes electrónicos, autorizá a EmprendeSmart en ARCA como representante.
+            Para emitir comprobantes electrónicos, autorizá a Aliadata en ARCA como representante.
           </CardDescription>
         </CardHeader>
         <CardContent>

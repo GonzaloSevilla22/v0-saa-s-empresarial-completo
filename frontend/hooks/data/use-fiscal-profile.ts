@@ -93,7 +93,7 @@ function translateFiscalError(message: string): string {
     return "No tenés permisos para realizar esta acción."
   // v22: error de delegación no autorizada (ARCA → Administrador de Relaciones)
   if (message.includes("DELEGATION_NOT_AUTHORIZED") || message.includes("Administrador de Relaciones") || message.includes("representante"))
-    return "AFIP rechazó la solicitud porque EmprendeSmart aún no está autorizado como representante en tu cuenta ARCA. Configurá la autorización en Ajustes → Datos fiscales → Autorización para facturar."
+    return "AFIP rechazó la solicitud porque Aliadata aún no está autorizado como representante en tu cuenta ARCA. Configurá la autorización en Ajustes → Datos fiscales → Autorización para facturar."
   return message || "Ocurrió un error inesperado."
 }
 

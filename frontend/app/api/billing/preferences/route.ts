@@ -69,8 +69,8 @@ export async function POST(req: Request): Promise<NextResponse> {
         items: [
           {
             id: `plan-${plan}-monthly`,
-            title: `EmprendeSmart — Plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} (mensual)`,
-            description: `Suscripción mensual al plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} de EmprendeSmart`,
+            title: `Aliadata — Plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} (mensual)`,
+            description: `Suscripción mensual al plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} de Aliadata`,
             quantity: 1,
             unit_price: planData.price_monthly,
             currency_id: 'ARS',

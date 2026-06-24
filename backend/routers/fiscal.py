@@ -222,8 +222,8 @@ async def get_fiscal_doc_by_receipt(
     Governance: solo admin puede consultar este endpoint.
     v22-admin — PO sign-off 2026-06-24.
     """
-    from backend.core.guards import require_role
-    require_role(auth, ["admin"])
+    from backend.core.guards import require_platform_admin
+    await require_platform_admin(conn, auth)
 
     row = await conn.fetchrow(
         """

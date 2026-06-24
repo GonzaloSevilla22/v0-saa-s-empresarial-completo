@@ -39,7 +39,13 @@ export function useOrgRole(): UseOrgRoleReturn {
     initialData: user?.accountRole ?? null,
   })
 
-  const isWriter = role === "owner" || role === "admin"
+  // Fail-OPEN: solo un 'member' CONFIRMADO es de solo-lectura. Cualquier otro
+  // estado (owner, admin, o role aún desconocido/null por hidratación, error
+  // transitorio del rpc, o cache vencido) se trata como escritor para NO
+  // bloquear falsamente a un owner válido con "Solo lectura — contactá al owner".
+  // La verdadera barrera de permisos es la DB (RLS is_account_writer + el guard
+  // require_role del backend); este gate del front es solo informativo.
+  const isWriter = role !== "member"
 
   return { role: role ?? null, isWriter, isLoading }
 }

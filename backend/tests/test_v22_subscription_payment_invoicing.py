@@ -95,7 +95,8 @@ class TestEmitSubscriptionPaymentRoleGuard:
         from fastapi import HTTPException
 
         mock_conn = AsyncMock()
-        auth = {"role": "user"}
+        auth = {"user_id": "00000000-0000-0000-0000-000000000001", "role": "user"}
+        mock_conn.fetchval.return_value = "user"  # profiles.role en la DB (no admin)
 
         payload = EmitSubscriptionPaymentRequest(
             receipt_id="some-receipt-id",
@@ -120,7 +121,8 @@ class TestEmitSubscriptionPaymentRoleGuard:
         from fastapi import HTTPException
 
         mock_conn = AsyncMock()
-        auth = {"role": "member"}
+        auth = {"user_id": "00000000-0000-0000-0000-000000000001", "role": "member"}
+        mock_conn.fetchval.return_value = "member"  # profiles.role en la DB (no admin)
 
         payload = EmitSubscriptionPaymentRequest(
             receipt_id="some-receipt-id",
@@ -160,7 +162,8 @@ class TestEmitSubscriptionPaymentIdempotency:
         # First fetchrow: existing doc check → returns the existing doc
         mock_conn.fetchrow.return_value = existing_doc
 
-        auth = {"role": "admin"}
+        auth = {"user_id": "00000000-0000-0000-0000-000000000099", "role": "admin"}
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB
         payload = EmitSubscriptionPaymentRequest(
             receipt_id="receipt-already-invoiced",
             receptor_doc_tipo=80,
@@ -191,7 +194,8 @@ class TestEmitSubscriptionPaymentIdempotency:
         }
         mock_conn.fetchrow.return_value = existing_doc
 
-        auth = {"role": "admin"}
+        auth = {"user_id": "00000000-0000-0000-0000-000000000099", "role": "admin"}
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB
         payload = EmitSubscriptionPaymentRequest(
             receipt_id="receipt-pending",
             receptor_doc_tipo=96,
@@ -235,7 +239,8 @@ class TestEmitSubscriptionPaymentNewReceipt:
             {"result": json.dumps(rpc_result)},  # RPC result
         ]
 
-        auth = {"role": "admin"}
+        auth = {"user_id": "00000000-0000-0000-0000-000000000099", "role": "admin"}
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB
         payload = EmitSubscriptionPaymentRequest(
             receipt_id="new-receipt-id",
             receptor_doc_tipo=80,
@@ -274,7 +279,8 @@ class TestEmitSubscriptionPaymentNewReceipt:
             {"result": json.dumps(rpc_result)},
         ]
 
-        auth = {"role": "admin"}
+        auth = {"user_id": "00000000-0000-0000-0000-000000000099", "role": "admin"}
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB
         payload = EmitSubscriptionPaymentRequest(
             receipt_id="receipt-with-pv",
             receptor_doc_tipo=96,
@@ -360,6 +366,7 @@ class TestEmitSubscriptionPaymentRouter:
             None,  # idempotency check
             {"result": json.dumps(rpc_result)},  # RPC result
         ]
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB (guard)
 
         def fake_admin():
             return {"user_id": str(uuid.uuid4()), "role": "admin"}
@@ -411,6 +418,7 @@ class TestGetFiscalDocByReceipt:
 
         mock_conn = AsyncMock()
         mock_conn.fetchrow.return_value = None  # No doc found
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB (guard)
 
         def fake_admin():
             return {"user_id": str(uuid.uuid4()), "role": "admin"}
@@ -440,6 +448,7 @@ class TestGetFiscalDocByReceipt:
         from backend.core.database import get_db_conn
 
         mock_conn = AsyncMock()
+        mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB (guard)
         doc_id = uuid.UUID("cccc3333-3333-3333-3333-333333333333")
         mock_conn.fetchrow.return_value = {
             "id": doc_id,

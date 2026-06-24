@@ -13,7 +13,7 @@ import logging
 from fastapi import HTTPException
 
 import backend.core.database as _db
-from backend.core.guards import require_role
+from backend.core.guards import require_role, require_platform_admin
 from backend.repositories.fiscal_profile_repository import FiscalProfileRepository
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 from backend.repositories.point_of_sale_repository import PointOfSaleRepository
@@ -264,7 +264,9 @@ async def emit_subscription_payment_cae(
     """
     import json
 
-    require_role(auth, ["admin"])
+    # Admin de plataforma verificado contra la DB (profiles.role), no contra el JWT:
+    # el rol no viaja en el token, así que require_role(["admin"]) jamás pasaba (bug v22).
+    await require_platform_admin(conn, auth)
 
     # Idempotency: verificar si ya existe un doc para este receipt_id
     existing_row = await conn.fetchrow(

@@ -464,7 +464,10 @@ class WSFEAdapter(FiscalDocumentPort):
             PtoVta=invoice_data.punto_de_venta,
             CbteTipo=cbte_tipo,
         )
-        ultimo_arca = int(ultimo_resp.Nro) if ultimo_resp.Nro is not None else 0
+        # El campo de la respuesta FECompUltimoAutorizado es CbteNro (no Nro).
+        # Usar .Nro lanzaba "FERecuperaLastCbteResponse instance has no attribute 'Nro'".
+        ultimo_cbte = getattr(ultimo_resp, "CbteNro", None)
+        ultimo_arca = int(ultimo_cbte) if ultimo_cbte is not None else 0
         cbte_numero = ultimo_arca + 1
 
         # Detectar mismatch con el numero local reservado (Code 10016 implicit)

@@ -324,6 +324,45 @@ async def process_pending_cae(
     return await svc.process_pending_documents(doc_repo, adapter)
 
 
+@router.get("/_debug/platform-cert")
+async def debug_platform_cert():
+    """TEMPORARY diagnostic (read-only) — reporta los METADATOS PÚBLICOS del
+    certificado de plataforma que el proceso cargó desde las env vars, por el MISMO
+    camino que usa el relay (build desde settings → PlatformCredentialProvider).
+
+    Devuelve solo info pública del cert (subject/issuer/fingerprint/vigencia) y las
+    longitudes de los PEM para detectar truncado/mangling. NUNCA expone la clave.
+    Sirve para resolver de raíz "Certificado no emitido por AC de confianza":
+    confirma qué cert tiene cargado el backend en producción.
+    REMOVER tras el diagnóstico.
+    """
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.x509 import load_pem_x509_certificate
+
+    from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
+
+    provider = PlatformCredentialProvider(settings=settings)
+    if not provider.is_configured():
+        return {"configured": False}
+    try:
+        cert_pem = provider.get_cert()
+        key_pem = provider.get_key()
+        cert = load_pem_x509_certificate(cert_pem)
+        return {
+            "configured":   True,
+            "cuit":         provider.get_cuit(),
+            "subject":      cert.subject.rfc4514_string(),
+            "issuer":       cert.issuer.rfc4514_string(),
+            "sha256":       cert.fingerprint(hashes.SHA256()).hex(),
+            "not_before":   cert.not_valid_before_utc.isoformat(),
+            "not_after":    cert.not_valid_after_utc.isoformat(),
+            "cert_pem_len": len(cert_pem),
+            "key_pem_len":  len(key_pem),
+        }
+    except Exception as e:  # noqa: BLE001 — diagnostico: queremos el error de carga literal
+        return {"configured": True, "load_error": f"{type(e).__name__}: {e}"}
+
+
 @router.post("/documents/process-pending-cron")
 async def process_pending_cae_cron(
     request: Request,

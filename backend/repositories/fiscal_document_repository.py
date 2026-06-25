@@ -93,26 +93,34 @@ class FiscalDocumentRepository(BaseRepository):
           - pg_cron backstop: claims at each cron tick for any unclaimed/expired docs
           - Two concurrent callers for the same doc_id → exactly one gets the row
         """
+        # IMPORTANTE: el RETURNING DEBE incluir cuit + ambiente del fiscal_profile.
+        # El CAERelayProcessor arma CAERequest con doc["ambiente"] (default
+        # "homologacion" si falta) y doc["cuit"] (Auth.Cuit). Sin el JOIN, todo doc
+        # de PRODUCCIÓN se relayaba contra el endpoint de HOMOLOGACIÓN con el cert
+        # de prod -> AFIP: "Certificado no emitido por AC de confianza".
+        # Por eso usamos UPDATE ... FROM fiscal_profiles ... RETURNING fp.cuit, fp.ambiente.
         row = await self.fetchrow(
             """
-            UPDATE public.fiscal_documents
+            UPDATE public.fiscal_documents fd
             SET next_attempt_at = now() + interval '5 minutes'
-            WHERE id = $1
-              AND status = 'pending_cae'
-              AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-              AND attempts < $2
+            FROM public.fiscal_profiles fp
+            WHERE fd.id = $1
+              AND fp.id = fd.fiscal_profile_id
+              AND fd.status = 'pending_cae'
+              AND (fd.next_attempt_at IS NULL OR fd.next_attempt_at <= now())
+              AND fd.attempts < $2
             RETURNING
-              id, account_id, fiscal_profile_id, point_of_sale_id,
-              comprobante_type, punto_de_venta, number, total,
-              status, cae, cae_due_date, attempts, next_attempt_at,
-              last_error
+              fd.id, fd.account_id, fd.fiscal_profile_id, fd.point_of_sale_id,
+              fd.comprobante_type, fd.punto_de_venta, fd.number, fd.total,
+              fd.status, fd.cae, fd.cae_due_date, fd.attempts, fd.next_attempt_at,
+              fd.last_error,
+              fp.cuit, fp.ambiente
             """,
             doc_id,
             max_attempts,
         )
         if row is None:
             return None
-        # Also fetch cuit + ambiente from fiscal_profiles (needed by CAERelayProcessor)
         return dict(row)
 
     async def list_pending_all(self, limit: int = 50) -> list[dict]:

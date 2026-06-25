@@ -247,6 +247,29 @@ class TestAntiDoubleCAEClaim:
         assert result["id"] == DOC_ID
 
     @pytest.mark.asyncio
+    async def test_claim_pending_query_returns_cuit_and_ambiente(self):
+        """REGRESIÓN: claim_pending DEBE joinear fiscal_profiles y devolver cuit + ambiente.
+
+        Bug histórico: el RETURNING no incluía fp.cuit/fp.ambiente, así que el
+        CAERelayProcessor armaba CAERequest con ambiente=default "homologacion" y
+        cuit_emisor="". Resultado: todo doc de PRODUCCIÓN se relayaba al endpoint de
+        HOMOLOGACIÓN con el cert de prod → AFIP "Certificado no emitido por AC de confianza".
+        """
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(return_value=make_pending_doc())
+        repo = FiscalDocumentRepository(conn)
+        await repo.claim_pending(DOC_ID)
+
+        sql = conn.fetchrow.call_args[0][0]
+        assert "fiscal_profiles" in sql, "claim_pending debe joinear fiscal_profiles"
+        # El RETURNING debe traer cuit + ambiente del perfil (no defaultear a homo).
+        returning = sql.split("RETURNING", 1)[1]
+        assert "fp.ambiente" in returning, "claim_pending debe devolver fp.ambiente"
+        assert "fp.cuit" in returning, "claim_pending debe devolver fp.cuit"
+
+    @pytest.mark.asyncio
     async def test_claim_pending_returns_none_when_already_claimed(self):
         """RED: claim_pending returns None when UPDATE finds 0 rows (another caller holds lease)."""
         from backend.repositories.fiscal_document_repository import FiscalDocumentRepository

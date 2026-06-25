@@ -324,65 +324,6 @@ async def process_pending_cae(
     return await svc.process_pending_documents(doc_repo, adapter)
 
 
-# TEMPORARY diagnostic — boot id para detectar múltiples instancias en Render.
-import os as _os
-import uuid as _uuid
-_BOOT_ID = f"{_uuid.uuid4().hex[:8]}:{_os.getpid()}"
-
-
-@router.get("/_debug/platform-cert")
-async def debug_platform_cert(probe: int = 0):
-    """TEMPORARY diagnostic (read-only) — reporta los METADATOS PÚBLICOS del
-    certificado de plataforma que el proceso cargó desde las env vars, por el MISMO
-    camino que usa el relay (build desde settings → PlatformCredentialProvider).
-
-    Con ?probe=1 ejecuta el loginCms WSAA REAL contra AFIP producción (mismo flujo
-    que el relay) y devuelve la respuesta literal de AFIP — sin exponer la clave.
-    Esto colapsa la pregunta: ¿el proceso de Render autentica o no?
-    REMOVER tras el diagnóstico.
-    """
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.x509 import load_pem_x509_certificate
-
-    from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
-
-    provider = PlatformCredentialProvider(settings=settings)
-    out: dict = {"boot_id": _BOOT_ID, "configured": provider.is_configured()}
-    if not provider.is_configured():
-        return out
-    try:
-        cert_pem = provider.get_cert()
-        key_pem = provider.get_key()
-        cert = load_pem_x509_certificate(cert_pem)
-        out.update({
-            "cuit":         provider.get_cuit(),
-            "subject":      cert.subject.rfc4514_string(),
-            "issuer":       cert.issuer.rfc4514_string(),
-            "sha256":       cert.fingerprint(hashes.SHA256()).hex(),
-            "not_before":   cert.not_valid_before_utc.isoformat(),
-            "not_after":    cert.not_valid_after_utc.isoformat(),
-            "cert_pem_len": len(cert_pem),
-            "key_pem_len":  len(key_pem),
-        })
-    except Exception as e:  # noqa: BLE001
-        out["load_error"] = f"{type(e).__name__}: {e}"
-        return out
-
-    if probe == 1:
-        # Ejecuta el MISMO camino que el relay: firma TRA + loginCms a producción.
-        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
-        try:
-            adapter = WSFEAdapter(platform_provider=provider, ticket_cache=None)
-            cms = adapter._sign_tra(cert_pem, key_pem, "produccion")  # noqa: SLF001
-            token, sign, exp = await adapter._call_wsaa(  # noqa: SLF001
-                "https://wsaa.afip.gob.ar/ws/services/LoginCms?WSDL", cms
-            )
-            out["wsaa_probe"] = {"ok": True, "ta_expires": str(exp)}
-        except Exception as e:  # noqa: BLE001 — queremos el mensaje literal de AFIP
-            out["wsaa_probe"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-    return out
-
-
 @router.post("/documents/process-pending-cron")
 async def process_pending_cae_cron(
     request: Request,

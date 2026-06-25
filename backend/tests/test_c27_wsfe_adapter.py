@@ -73,6 +73,55 @@ class TestWSFEAdapterMocked:
         mock_wsfe.assert_called_once_with(cae_request, "token-fake", "sign-fake")
 
     @pytest.mark.asyncio
+    async def test_call_wsfe_reads_cbtenro_not_nro(self):
+        """REGRESIÓN: FECompUltimoAutorizado devuelve CbteNro (no Nro).
+
+        Bug histórico: el código leía `ultimo_resp.Nro` → AttributeError
+        "FERecuperaLastCbteResponse instance has no attribute 'Nro'", que abortaba
+        TODO pedido de CAE real (ningún comprobante se autorizaba). El campo correcto
+        es CbteNro; el número del comprobante es CbteNro + 1.
+        """
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        req = CAERequest(
+            account_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            fiscal_document_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
+            comprobante_type="factura_c",
+            punto_de_venta=3,
+            number=1,
+            total=69900.0,
+            cuit_emisor="20422662457",
+            ambiente="produccion",
+        )
+        # spec=["CbteNro"] → acceder .Nro lanza AttributeError (caza la regresión).
+        ultimo = MagicMock(spec=["CbteNro"])
+        ultimo.CbteNro = 7
+
+        det = MagicMock()
+        det.Resultado = "A"
+        det.CAE = "99999999999999"
+        det.CAEFchVto = "20260715"
+        fecae = MagicMock()
+        fecae.FeDetResp.FECAEDetResponse = [det]
+
+        mock_client = MagicMock()
+        mock_client.service.FECompUltimoAutorizado.return_value = ultimo
+        mock_client.service.FECAESolicitar.return_value = fecae
+
+        with patch(
+            "backend.services.fiscal.wsfe_adapter._build_zeep_client",
+            return_value=mock_client,
+        ):
+            resp = await adapter._call_wsfe(req, "tok", "sign")  # noqa: SLF001
+
+        assert resp.is_approved is True
+        assert resp.cae == "99999999999999"
+        # CbteDesde debe ser CbteNro + 1 = 8
+        det_req = mock_client.service.FECAESolicitar.call_args.kwargs[
+            "FeCAEReq"
+        ]["FeDetReq"]["FECAEDetRequest"][0]
+        assert det_req["CbteDesde"] == 8, "el número debe ser CbteNro + 1"
+
+    @pytest.mark.asyncio
     async def test_adapter_returns_rejected_when_soap_rejects(self, cae_request):
         """Cuando SOAP retorna rechazo, el adapter retorna CAEResponse is_approved=False."""
         adapter = self._make_adapter_with_mocked_client()

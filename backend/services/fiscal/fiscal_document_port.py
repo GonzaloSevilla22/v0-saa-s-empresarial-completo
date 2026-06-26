@@ -47,6 +47,9 @@ class CAERequest:
     neto: float | None = None                   # importe neto gravado (para array Iva tipo A/B)
     iva_amount: float | None = None             # importe de IVA
     iva_alicuota_id: int | None = None          # id de la alicuota AFIP (5 = 21%)
+    # fiscal-receptor-iva-relay (D2): identificación del receptor (AFIP DocTipo/DocNro)
+    receptor_doc_tipo: int | None = None        # 80=CUIT, 96=DNI, 99=sin identificar (None → derivar)
+    receptor_doc_nro: str | None = None         # número de documento del receptor (sin guiones)
 
 
 @dataclass

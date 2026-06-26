@@ -223,19 +223,31 @@ async def emit_pending_cae(
     import json
     require_role(auth, ["user", "admin"])
 
+    # fiscal-receptor-iva-relay: propagar receptor (DocTipo/DocNro) + desglose de IVA.
+    # Opcionales — NULL = consumidor final sin identificar / sin IVA discriminado (D1).
     row = await conn.fetchrow(
         """
         SELECT public.rpc_emit_pending_cae(
           p_comprobante_type  => $1,
           p_total             => $2,
           p_client_id         => $3,
-          p_point_of_sale_id  => $4
+          p_point_of_sale_id  => $4,
+          p_receptor_doc_tipo => $5,
+          p_receptor_doc_nro  => $6,
+          p_neto              => $7,
+          p_iva_amount        => $8,
+          p_iva_alicuota_id   => $9
         ) AS result
         """,
         payload.comprobante_type,
         payload.total,
         str(payload.client_id) if payload.client_id else None,
         str(payload.point_of_sale_id) if payload.point_of_sale_id else None,
+        payload.receptor_doc_tipo,
+        payload.receptor_doc_nro,
+        payload.neto,
+        payload.iva_amount,
+        payload.iva_alicuota_id,
     )
     if row is None:
         raise HTTPException(status_code=500, detail="Error al emitir el comprobante")

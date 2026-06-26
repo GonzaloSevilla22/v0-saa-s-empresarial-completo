@@ -185,6 +185,21 @@ class WSFEAdapter(FiscalDocumentPort):
         msg = str(exc).lower()
         return any(pattern.lower() in msg for pattern in self._DELEGATION_ERROR_PATTERNS)
 
+    def _resolve_receptor_doc(self, invoice_data: CAERequest) -> tuple[int, int]:
+        """Deriva (DocTipo, DocNro) del receptor — fiscal-receptor-iva-relay (D2).
+
+        Precedencia: receptor_doc_tipo/receptor_doc_nro explícitos (80=CUIT, 96=DNI) →
+        cuit_receptor legacy (→ 80) → sin identificar (99, DocNro=0).
+        Regla AFIP: DocTipo=99 ⇒ DocNro=0 (un 99 con DocNro no nulo es inconsistente).
+        """
+        doc_tipo = invoice_data.receptor_doc_tipo
+        doc_nro_raw = invoice_data.receptor_doc_nro
+        if doc_tipo in (80, 96) and doc_nro_raw:
+            return int(doc_tipo), int(str(doc_nro_raw).replace("-", ""))
+        if invoice_data.cuit_receptor:
+            return 80, int(str(invoice_data.cuit_receptor).replace("-", ""))
+        return 99, 0
+
     async def request_cae(self, invoice_data: CAERequest) -> CAEResponse:
         """Solicita el CAE a AFIP vía WSAA + WSFEv1.
 
@@ -455,6 +470,24 @@ class WSFEAdapter(FiscalDocumentPort):
             )
         condicion_iva_receptor_id = _CONDICION_IVA_RECEPTOR_ID[receptor_condition]
 
+        # ── Identificación del receptor (DocTipo/DocNro) — fiscal-receptor-iva-relay (D2) ──
+        # 80=CUIT, 96=DNI, 99=sin identificar (DocNro=0). Reemplaza el DocTipo=99 hardcodeado.
+        total = float(invoice_data.total)
+        doc_tipo, doc_nro = self._resolve_receptor_doc(invoice_data)
+
+        # ── Umbral de identificación obligatoria del receptor — RG 5824/2026 (D3) ──
+        # A partir del umbral, ARCA exige identificar al consumidor final. Por debajo,
+        # DocTipo=99 es válido y queda como default (Gate 0 OQ-1: receptor opcional).
+        if doc_tipo == 99:
+            from backend.core.config import settings as _settings
+            threshold = _settings.afip_consumidor_final_threshold
+            if total >= threshold:
+                raise ValueError(
+                    f"RECEPTOR_REQUIRED: el comprobante de ${total:,.2f} alcanza el umbral de "
+                    f"identificación obligatoria del receptor (${threshold:,.0f}, RG 5824/2026). "
+                    "Identificá al receptor con CUIT o DNI para emitirlo."
+                )
+
         # ── (3) Numeracion autoritativa: FECompUltimoAutorizado + 1 (D4-B) ─────
         # ARCA es la fuente de verdad del numero. Ignoramos invoice_data.number
         # al momento del CAE y usamos ultimo+1.
@@ -482,15 +515,21 @@ class WSFEAdapter(FiscalDocumentPort):
             )
 
         # ── (2) Array Iva / totales consistentes (D3) ───────────────────────────
-        total = float(invoice_data.total)
         total_conceptos_no_gravados = 0
         total_op_exentas = 0
         total_tributos = 0
 
         if cbte_tipo in _CBTE_CON_IVA:
-            # Tipo A/B: IVA discriminado. Construir array AlicIva.
-            neto = float(invoice_data.neto) if invoice_data.neto is not None else total
-            iva_amount = float(invoice_data.iva_amount) if invoice_data.iva_amount is not None else 0.0
+            # Tipo A/B: IVA discriminado. El desglose lo provee la venta (Gate 0 OQ-2).
+            # fiscal-receptor-iva-relay (D5): NO emitir A/B con ImpIVA=0 silencioso —
+            # un comprobante A/B con IVA en cero es fiscalmente inválido.
+            if invoice_data.neto is None or invoice_data.iva_amount is None:
+                raise ValueError(
+                    "IVA_BREAKDOWN_REQUIRED: Factura A/B requiere el desglose de IVA "
+                    "(neto + iva_amount). La venta debe proveerlo antes de emitir."
+                )
+            neto = float(invoice_data.neto)
+            iva_amount = float(invoice_data.iva_amount)
             iva_alicuota_id = invoice_data.iva_alicuota_id if invoice_data.iva_alicuota_id is not None else 5
             imp_neto = neto
             imp_iva = iva_amount
@@ -510,15 +549,10 @@ class WSFEAdapter(FiscalDocumentPort):
             iva_array = None  # NO incluir el campo Iva
 
         # ── Armar FECAEDetRequest ────────────────────────────────────────────────
-        doc_nro = (
-            int(invoice_data.cuit_receptor.replace("-", ""))
-            if invoice_data.cuit_receptor
-            else 0
-        )
-
+        # DocTipo/DocNro derivados del receptor (D2) — ya resueltos arriba.
         det_request: dict = {
             "Concepto": 1,   # Productos
-            "DocTipo": 99,   # Sin identificar (consumidor final) o CUIT
+            "DocTipo": doc_tipo,   # 80=CUIT, 96=DNI, 99=sin identificar (D2)
             "DocNro": doc_nro,
             "CbteDesde": cbte_numero,
             "CbteHasta": cbte_numero,

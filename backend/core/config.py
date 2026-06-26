@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     afip_platform_key:  str = ""   # PEM de la clave privada — CRÍTICO, nunca loguear
     afip_platform_cuit: str = ""   # CUIT del representante (sin guiones o con)
 
+    # ── fiscal-receptor-iva-relay: umbral de identificación obligatoria del receptor ──
+    # RG 5824/2026 (vigente 12/02/2026): a partir de este importe, ARCA exige identificar
+    # al consumidor final (CUIT/DNI). Por debajo, DocTipo=99 (sin identificar) es válido.
+    # Constante de config (Gate 0 OQ-3): actualizar acá cuando una RG futura cambie el monto.
+    afip_consumidor_final_threshold: int = 10_000_000
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

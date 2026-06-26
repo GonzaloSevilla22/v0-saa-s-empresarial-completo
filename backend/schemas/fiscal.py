@@ -127,6 +127,10 @@ class EmitPendingCAERequest(BaseModel):
     # v22-admin: receptor identificado (CUIT=80, DNI=96)
     receptor_doc_tipo: Literal[80, 96] | None = None  # 80=CUIT, 96=DNI
     receptor_doc_nro: str | None = None               # sin guiones
+    # fiscal-receptor-iva-relay: desglose de IVA para Factura A/B (lo provee la venta, OQ-2)
+    neto: float | None = None                         # neto gravado
+    iva_amount: float | None = None                   # IVA discriminado
+    iva_alicuota_id: int | None = None                # id de alícuota AFIP (5 = 21%)
     # v22-admin: referencia idempotente de pago de suscripción
     subscription_payment_id: str | None = None
 

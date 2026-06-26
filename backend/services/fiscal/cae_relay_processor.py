@@ -68,6 +68,9 @@ class CAERelayProcessor:
         current_attempts = doc.get("attempts", 0)
 
         # Construir request de dominio (sin SOAP)
+        # fiscal-receptor-iva-relay (D1): propagar la identificación del receptor y el
+        # desglose de IVA persistidos en el doc, para que el adapter arme DocTipo/DocNro
+        # y el array AlicIva reales. Campos NULL → None (comportamiento actual: DocTipo=99).
         cae_request = CAERequest(
             account_id=doc["account_id"],
             fiscal_document_id=doc["id"],
@@ -77,6 +80,13 @@ class CAERelayProcessor:
             total=float(doc.get("total", 0)),
             cuit_emisor=doc.get("cuit", ""),
             ambiente=doc.get("ambiente", "homologacion"),
+            cuit_receptor=doc.get("cuit_receptor"),
+            receptor_iva_condition=doc.get("receptor_iva_condition"),
+            receptor_doc_tipo=doc.get("receptor_doc_tipo"),
+            receptor_doc_nro=doc.get("receptor_doc_nro"),
+            neto=float(doc["neto"]) if doc.get("neto") is not None else None,
+            iva_amount=float(doc["iva_amount"]) if doc.get("iva_amount") is not None else None,
+            iva_alicuota_id=doc.get("iva_alicuota_id"),
         )
 
         # Llamar al adapter (stub o real)

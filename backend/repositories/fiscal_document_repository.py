@@ -114,6 +114,9 @@ class FiscalDocumentRepository(BaseRepository):
               fd.comprobante_type, fd.punto_de_venta, fd.number, fd.total,
               fd.status, fd.cae, fd.cae_due_date, fd.attempts, fd.next_attempt_at,
               fd.last_error,
+              -- fiscal-receptor-iva-relay: receptor + IVA para que el relay los propague al CAERequest
+              fd.receptor_doc_tipo, fd.receptor_doc_nro,
+              fd.neto, fd.iva_amount, fd.iva_alicuota_id,
               fp.cuit, fp.ambiente
             """,
             doc_id,

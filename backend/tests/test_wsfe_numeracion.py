@@ -75,7 +75,7 @@ class TestNumeracionArcaAutoritativa:
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
             # FECompUltimoAutorizado returns 41 -> authoritative number = 42
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(Nro=41)
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=41)
             def capture_and_call(**kwargs):
                 captured.update(kwargs)
                 return _make_approved_wsfe_response()
@@ -104,7 +104,7 @@ class TestNumeracionArcaAutoritativa:
         with patch("zeep.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(Nro=0)
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=0)
             def capture_and_call(**kwargs):
                 captured.update(kwargs)
                 return _make_approved_wsfe_response()
@@ -136,7 +136,7 @@ class TestNumeracionMismatchDetected:
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
             # ARCA says last was 50, so authoritative = 51 (mismatch with local 42)
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(Nro=50)
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
             def capture_and_call(**kwargs):
                 captured.update(kwargs)
                 return _make_approved_wsfe_response()
@@ -162,7 +162,7 @@ class TestNumeracionMismatchDetected:
         with patch("zeep.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(Nro=50)
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
             mock_client.service.FECAESolicitar.return_value = _make_approved_wsfe_response()
 
             with patch("backend.services.fiscal.wsfe_adapter.logger") as mock_logger:

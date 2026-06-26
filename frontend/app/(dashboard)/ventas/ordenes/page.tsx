@@ -42,7 +42,7 @@ const STATUS_CLASS: Record<string, string> = {
 
 export default function SalesOrdersPage() {
   const { data: orders, isLoading, error } = useSalesOrders()
-  const { fiscalProfile } = useFiscalProfile()
+  const { profile: fiscalProfile } = useFiscalProfile()
   const { pointsOfSale } = usePointsOfSale()
 
   // Seleccionar el PV por defecto si solo hay uno activo

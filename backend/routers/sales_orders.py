@@ -1,11 +1,12 @@
 """
-Router para C-29 v21-quote-salesorder — SalesOrder endpoints.
+Router para C-29 v21-quote-salesorder + facturar-venta-afip — SalesOrder endpoints.
 
 Routes:
-  GET  /sales-orders              → listar órdenes de venta de la cuenta
-  GET  /sales-orders/{id}         → obtener orden por id
-  POST /sales-orders/{id}/confirm → confirmar orden existente (hot path)
-  POST /sales-orders/quick-sale   → crear + confirmar en un paso (POS)
+  GET  /sales-orders                       → listar órdenes de venta de la cuenta
+  GET  /sales-orders/{id}                  → obtener orden por id
+  POST /sales-orders/quick-sale            → crear + confirmar en un paso (POS)
+  POST /sales-orders/{id}/confirm          → confirmar orden existente (hot path)
+  POST /sales-orders/{id}/emit-invoice     → emitir comprobante AFIP (facturar-venta-afip)
 
 IMPORTANTE: /quick-sale debe ir ANTES de /{id} para que FastAPI
 no trate "quick-sale" como un UUID.
@@ -27,6 +28,8 @@ from backend.repositories.sales_order_repository import SalesOrderRepository
 from backend.schemas.sales_orders import (
     ConfirmIn,
     ConfirmOut,
+    EmitInvoiceIn,
+    EmitInvoiceOut,
     QuickSaleIn,
     SalesOrderOut,
 )
@@ -89,4 +92,29 @@ async def confirm_order(
         auth=auth,
         sales_order_id=sales_order_id,
         payload=payload,
+    )
+
+
+@router.post("/sales-orders/{sales_order_id}/emit-invoice", response_model=EmitInvoiceOut)
+async def emit_invoice(
+    sales_order_id: str,
+    payload: EmitInvoiceIn = EmitInvoiceIn(),
+    auth: dict = Depends(get_current_user),
+    repo: SalesOrderRepository = Depends(get_so_repo),
+):
+    """
+    Emite un comprobante AFIP para una SalesOrder confirmada sin comprobante.
+
+    OQ-2: ruta bajo el router de ventas (cohesión con la orden, espeja /confirm).
+    OQ-3: responde 200 con status='pending_cae' (emisión asíncrona — relay pg_cron).
+    OQ-1: el service rechaza con 403 si el emisor es Responsable Inscripto.
+
+    Idempotente: 409 si la orden ya tiene fiscal_document_id.
+    No acepta comprobante_type del cliente (D3 — el backend lo resuelve).
+    """
+    return await so_service.emit_invoice(
+        repo=repo,
+        auth=auth,
+        sales_order_id=sales_order_id,
+        point_of_sale_id=str(payload.point_of_sale_id) if payload.point_of_sale_id else None,
     )

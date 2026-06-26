@@ -20,8 +20,8 @@ import { renderHook, waitFor, act } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React from "react"
 
-import { useCustomerAccount, useRegisterPayment } from "@/hooks/data/use-customer-account"
-import { useSupplierAccount, useRegisterPaymentMade } from "@/hooks/data/use-supplier-account"
+import { useCustomerAccount, useRegisterPayment, type PaymentReceivedResult } from "@/hooks/data/use-customer-account"
+import { useSupplierAccount, useRegisterPaymentMade, type PaymentMadeResult } from "@/hooks/data/use-supplier-account"
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
@@ -192,7 +192,7 @@ describe("useRegisterPayment", () => {
       { wrapper: makeWrapper() }
     )
 
-    let mutationResult: typeof PAYMENT_RECEIVED_RESULT | undefined
+    let mutationResult: PaymentReceivedResult | undefined
 
     await act(async () => {
       mutationResult = await result.current.mutateAsync({
@@ -225,7 +225,7 @@ describe("useRegisterPayment", () => {
       { wrapper: makeWrapper() }
     )
 
-    let r2: typeof PAYMENT_RECEIVED_RESULT | undefined
+    let r2: PaymentReceivedResult | undefined
     await act(async () => {
       await result.current.mutateAsync({ idempotencyKey: "same-key", amount: 400 })
       r2 = await result.current.mutateAsync({ idempotencyKey: "same-key", amount: 400 })
@@ -325,7 +325,7 @@ describe("useRegisterPaymentMade", () => {
       { wrapper: makeWrapper() }
     )
 
-    let mutationResult: typeof PAYMENT_MADE_RESULT | undefined
+    let mutationResult: PaymentMadeResult | undefined
 
     await act(async () => {
       mutationResult = await result.current.mutateAsync({

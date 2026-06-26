@@ -18,6 +18,20 @@ import { queryKeys } from "@/lib/query-keys"
 export type PaymentMethod = "cash" | "other"
 export type SalesOrderStatus = "draft" | "confirmed" | "canceled"
 
+export interface EmitInvoiceInput {
+  /** Opcional: UUID del punto de venta. Si se omite, el backend auto-selecciona el único PV activo. */
+  point_of_sale_id?: string | null
+}
+
+export interface EmitInvoiceResult {
+  fiscal_document_id: string
+  comprobante_type:   string
+  status:             string   // 'pending_cae'
+  punto_de_venta:     number | null
+  number:             number | null
+  sales_order_id:     string | null
+}
+
 export interface SalesOrderItemApiRow {
   id: string
   sales_order_id: string
@@ -88,6 +102,24 @@ export interface QuickSaleInput {
 }
 
 // ── Error translation ─────────────────────────────────────────────────────────
+
+function translateEmitInvoiceError(message: string): string {
+  if (message.includes("already_invoiced"))
+    return "Esta venta ya tiene un comprobante emitido."
+  if (message.includes("order_not_confirmed"))
+    return "La venta debe estar confirmada para emitir un comprobante."
+  if (message.includes("ri_not_supported") || message.includes("ri_not_supported"))
+    return "La facturación A/B para Responsables Inscriptos aún no está disponible."
+  if (message.includes("fiscal_profile_not_found"))
+    return "No hay perfil fiscal configurado. Configuralo en Ajustes > Fiscal."
+  if (message.includes("no_active_point_of_sale"))
+    return "Sin puntos de venta activos. Configurá uno en Ajustes > Fiscal."
+  if (message.includes("ambiguous_point_of_sale"))
+    return "La cuenta tiene varios puntos de venta activos. Seleccioná cuál usar."
+  if (message.includes("RECEPTOR_REQUIRED") || message.includes("receptor_required"))
+    return "La venta supera el umbral de identificación obligatoria. Asigná un cliente con CUIT."
+  return message || "Error al emitir el comprobante."
+}
 
 function translateSalesOrderError(message: string): string {
   if (message.includes("stock_insuficiente"))   return "Stock insuficiente para completar la venta."
@@ -160,6 +192,40 @@ export function useConfirmSalesOrder() {
       // Confirmar una venta afecta branch_stock y la lista de ventas legacy
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.branchStock.all() })
+    },
+  })
+}
+
+/**
+ * useEmitInvoice — Emite un comprobante AFIP para una SalesOrder confirmada.
+ * POST /sales-orders/{id}/emit-invoice
+ *
+ * facturar-venta-afip (OQ-2/OQ-3):
+ *   - Responde 200 con status='pending_cae'.
+ *   - Invalida la query de la venta (detail) al éxito para refrescar el badge.
+ *   - 409 si la venta ya tiene comprobante (idempotencia D6).
+ *   - 403 si el emisor es RI (OQ-1).
+ *
+ * El tipo de comprobante NO se pasa: el backend lo resuelve (D3).
+ */
+export function useEmitInvoice(salesOrderId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (payload: EmitInvoiceInput = {}): Promise<EmitInvoiceResult> => {
+      try {
+        return await pythonClient.post<EmitInvoiceResult>(
+          `/sales-orders/${salesOrderId}/emit-invoice`,
+          payload
+        )
+      } catch (err) {
+        throw new Error(translateEmitInvoiceError((err as Error).message))
+      }
+    },
+    onSuccess: () => {
+      // Invalidar el detalle de la venta para que el badge y el botón se actualicen
+      queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.detail(salesOrderId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.lists() })
     },
   })
 }

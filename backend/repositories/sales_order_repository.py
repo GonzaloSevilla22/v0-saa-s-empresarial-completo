@@ -133,6 +133,33 @@ class SalesOrderRepository(BaseRepository):
             sales_order_id,
         )
 
+    # ── facturar-venta-afip ───────────────────────────────────────────────────
+
+    async def emit_sale_invoice(
+        self,
+        sales_order_id: str,
+        point_of_sale_id: str | None,
+    ) -> dict:
+        """
+        Invoca rpc_emit_sale_invoice — valida la orden + emite + vincula FK atómicamente.
+
+        Sin lógica de negocio: solo llama el RPC y devuelve el resultado.
+        Design ref: D2 (RPC envolvente), D6 (idempotencia).
+        """
+        row = await self.fetchrow(
+            """
+            SELECT public.rpc_emit_sale_invoice(
+              $1::uuid,   -- p_sales_order_id
+              $2::uuid    -- p_point_of_sale_id
+            ) AS result
+            """,
+            sales_order_id,
+            point_of_sale_id,
+        )
+        if row is None:
+            raise ValueError("rpc_emit_sale_invoice devolvió NULL")
+        return _jsonb(row["result"])
+
     async def list_order_items(self, sales_order_id: str) -> list[dict]:
         """Lista los ítems de una orden de venta."""
         return await self.fetch(

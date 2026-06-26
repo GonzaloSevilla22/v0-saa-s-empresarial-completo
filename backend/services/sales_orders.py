@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from backend.core.guards import require_role
 from backend.repositories.sales_order_repository import SalesOrderRepository
 from backend.schemas.sales_orders import ConfirmIn, QuickSaleIn
+from backend.services.fiscal.invoice_type_resolver import resolve_invoice_type  # noqa: F401 — importado para trazabilidad y tests
 
 
 async def list_orders(
@@ -101,6 +102,42 @@ async def quick_sale(
             point_of_sale_id=str(payload.point_of_sale_id) if payload.point_of_sale_id else None,
             branch_id=str(payload.branch_id) if payload.branch_id else None,
             canal=payload.canal,
+        )
+    except asyncpg.PostgresError as exc:
+        _map_postgres_error(exc)
+
+    return result
+
+
+async def emit_invoice(
+    repo: SalesOrderRepository,
+    auth: dict,
+    sales_order_id: str,
+    point_of_sale_id: str | None,
+) -> dict:
+    """
+    Emite un comprobante AFIP para una SalesOrder confirmada sin comprobante.
+
+    Lógica:
+      - Guard: escritor (user/admin).
+      - El tipo se resuelve en el backend (vía RPC) usando resolve_invoice_type.
+        El cliente NUNCA pasa el tipo (D3).
+      - Llama al repo que invoca rpc_emit_sale_invoice (atómico: valida + emite + FK).
+      - Mapea errores Postgres → HTTP:
+          P0401 → 403 (sin permisos o emisor RI — OQ-1)
+          P0400 → 400 (orden no confirmada)
+          P0404 → 404 (orden no encontrada)
+          P0409 → 409 (ya facturada — idempotencia D6)
+
+    Design ref: D1, D3, D4 (async), D6.
+    Governance: FISCAL = CRÍTICO.
+    """
+    require_role(auth, ["user", "admin"])
+
+    try:
+        result = await repo.emit_sale_invoice(
+            sales_order_id=sales_order_id,
+            point_of_sale_id=point_of_sale_id,
         )
     except asyncpg.PostgresError as exc:
         _map_postgres_error(exc)

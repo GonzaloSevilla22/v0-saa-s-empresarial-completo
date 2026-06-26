@@ -1,5 +1,6 @@
 """
 C-29 v21-quote-salesorder — Schemas Pydantic v2 para SalesOrder / quickSale.
+facturar-venta-afip — EmitInvoiceIn / EmitInvoiceOut (task 2.2).
 
 Reglas duras:
   - NUNCA usar `any` — tipos explícitos o `unknown`
@@ -166,6 +167,38 @@ class QuickSaleIn(BaseModel):
 
 # C-30: alias para los tests (el schema original se llama ConfirmIn)
 ConfirmSalesOrderIn = ConfirmIn
+
+
+# ── Emit Invoice (facturar-venta-afip) ────────────────────────────────────────
+
+class EmitInvoiceIn(BaseModel):
+    """
+    Payload para emitir un comprobante AFIP sobre una SalesOrder confirmada.
+
+    El tipo de comprobante NO se acepta del cliente (D3): se resuelve en el
+    backend según la condición IVA del emisor.
+
+    Campos opcionales: point_of_sale_id puede omitirse si la cuenta tiene
+    un único PV activo (el RPC lo auto-selecciona).
+    """
+    point_of_sale_id: Optional[uuid.UUID] = None
+
+
+class EmitInvoiceOut(BaseModel):
+    """
+    Respuesta de POST /sales-orders/{id}/emit-invoice (OQ-3: HTTP 200).
+
+    Retorna el comprobante en estado 'pending_cae' (emisión asíncrona).
+    El CAE lo obtiene el relay vía pg_cron; el front sigue con FiscalDocumentBadge + Realtime.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    fiscal_document_id: uuid.UUID
+    comprobante_type:   str
+    status:             str   # 'pending_cae'
+    punto_de_venta:     Optional[int] = None
+    number:             Optional[int] = None
+    sales_order_id:     Optional[uuid.UUID] = None
 
 # ── Accept Quote Output ───────────────────────────────────────────────────────
 

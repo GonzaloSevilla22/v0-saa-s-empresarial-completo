@@ -15,9 +15,9 @@
  *   - For 'other' payment, no session needed (cash_session_id omitted).
  */
 
-import { useState, useMemo, useRef, useCallback, useEffect } from "react"
+import { useState, useMemo, useRef, useCallback } from "react"
 import Link from "next/link"
-import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2, FileText, ExternalLink } from "lucide-react"
+import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,6 @@ import { CartItemList } from "@/components/shared/cart-item-list"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
-import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
 
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useProducts } from "@/hooks/data/use-products"
@@ -40,8 +39,6 @@ import { useCurrentSession } from "@/hooks/data/use-cash-session"
 import { useQuickSale, type QuickSaleInput, type PaymentMethod } from "@/hooks/data/use-sales-orders"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
-import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
-import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 
 import { formatMoney } from "@/lib/format"
 import {
@@ -85,9 +82,6 @@ function friendlyError(message: string): string {
 interface LastSaleResult {
   salesOrderId: string
   total: number
-  // v22: fiscal document if emission was requested
-  fiscalDocumentId: string | null
-  fiscalDocumentStatus: FiscalDocumentStatus | null
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -142,33 +136,9 @@ export default function PosPage() {
   // ── Mutation ──────────────────────────────────────────────────────────────────
   const quickSale = useQuickSale()
 
-  // ── v22: Fiscal emission (opt-in) ─────────────────────────────────────────────
-  // The user checks "Emitir comprobante" to include comprobante_type + point_of_sale_id
-  // in the quickSale payload. Emission is NEVER automatic.
-  const { profile: fiscalProfile } = useFiscalProfile()
-  const { pointsOfSale }           = usePointsOfSale()
-
-  const activePVs = useMemo(
-    () => pointsOfSale.filter((pv) => pv.isActive),
-    [pointsOfSale],
-  )
-
-  const [emitirComprobante, setEmitirComprobante] = useState(false)
-  const [selectedPvId,      setSelectedPvId]      = useState<string>("")
-
-  // Auto-select PV when there is exactly one active
-  useEffect(() => {
-    if (activePVs.length === 1 && !selectedPvId) {
-      setSelectedPvId(activePVs[0].id)
-    }
-  }, [activePVs, selectedPvId])
-
-  const canEmit =
-    emitirComprobante &&
-    fiscalProfile !== null &&
-    fiscalProfile.delegacionAutorizada &&
-    activePVs.length > 0 &&
-    selectedPvId !== ""
+  // facturar-venta-afip: el opt-in de emisión del POS fue eliminado.
+  // La emisión ocurre DESPUÉS de confirmar, vía el botón "Facturar" en la lista
+  // de órdenes (/ventas/ordenes). El payload ya no incluye comprobante_type.
 
   // ── Derived: product maps ─────────────────────────────────────────────────────
   const parentProductIds = useMemo(() => {
@@ -344,8 +314,6 @@ export default function PosPage() {
     setQuantity(1)
     setUnitId("")
     setLastSale(null)
-    // v22: reset fiscal emission opt-in (keep PV selection for convenience)
-    setEmitirComprobante(false)
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -372,17 +340,18 @@ export default function PosPage() {
     setSubmitting(true)
     setLastSale(null)
 
+    // facturar-venta-afip: el POS ya NO emite comprobantes inline.
+    // La venta nace sin comprobante; el botón "Facturar" en el detalle
+    // de la venta emite para cualquier SalesOrder confirmada.
+    // Se elimina el hardcode `comprobante_type: "factura_c"` (causa raíz del bug fiscal).
     const payload: QuickSaleInput = {
-      idempotency_key:   idempotencyKey,
-      client_id:         clientId || null,
-      payment_method:    paymentMethod,
-      cash_session_id:   paymentMethod === "cash" ? (currentSession?.id ?? null) : null,
-      branch_id:         activeBranch?.id ?? null,
-      // v22: emisión opt-in — solo se pasa si el usuario activó la opción
-      ...(canEmit && {
-        comprobante_type: "factura_c",  // backend resuelve el tipo real por condición IVA
-        point_of_sale_id: selectedPvId,
-      }),
+      idempotency_key: idempotencyKey,
+      client_id:       clientId || null,
+      payment_method:  paymentMethod,
+      cash_session_id: paymentMethod === "cash" ? (currentSession?.id ?? null) : null,
+      branch_id:       activeBranch?.id ?? null,
+      // comprobante_type y point_of_sale_id se omiten intencionalmente:
+      // la emisión ocurre DESPUÉS de confirmar, vía el endpoint /emit-invoice.
       items: cartItems.map((item) => ({
         product_id: item.productId,
         unit_id:    item.unitId ?? null,
@@ -396,19 +365,15 @@ export default function PosPage() {
       const result = await quickSale.mutateAsync(payload)
       resetIdempotencyKey()
       setLastSale({
-        salesOrderId:          result.sales_order_id,
-        total:                 Number(result.total),
-        // v22: fiscal_doc_id comes back when emission was requested
-        fiscalDocumentId:      result.fiscal_doc_id ?? null,
-        fiscalDocumentStatus:  result.fiscal_doc_id ? "pending_cae" : null,
+        salesOrderId: result.sales_order_id,
+        total:        Number(result.total),
       })
       setCartItems([])
       setClientId("")
-      const fiscalNote = canEmit ? " — Comprobante enviado a ARCA" : ""
       toast.success(
         cartItems.length > 1
-          ? `Venta registrada (${cartItems.length} ítems) — $${Number(result.total).toLocaleString("es-AR")}${fiscalNote}`
-          : `Venta registrada correctamente${fiscalNote}`,
+          ? `Venta registrada (${cartItems.length} ítems) — $${Number(result.total).toLocaleString("es-AR")}`
+          : "Venta registrada correctamente",
       )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error inesperado"
@@ -452,16 +417,13 @@ export default function PosPage() {
             <span className="text-xs text-green-600/70 dark:text-green-500/70 font-mono">
               {lastSale.salesOrderId.slice(0, 8)}…
             </span>
-            {/* v22: fiscal document badge if emission was requested */}
-            {lastSale.fiscalDocumentId && lastSale.fiscalDocumentStatus && (
-              <div className="mt-1">
-                <FiscalDocumentBadge
-                  documentId={lastSale.fiscalDocumentId}
-                  initialStatus={lastSale.fiscalDocumentStatus}
-                  verbose
-                />
-              </div>
-            )}
+            {/* facturar-venta-afip: la emisión ocurre en /ventas/ordenes */}
+            <Link
+              href="/ventas/ordenes"
+              className="text-xs underline underline-offset-2 text-green-600/80 dark:text-green-400/80 hover:opacity-80 mt-0.5"
+            >
+              Facturar esta venta →
+            </Link>
           </div>
           <Button
             size="sm"
@@ -634,83 +596,17 @@ export default function PosPage() {
               </div>
             )}
 
-            {/* v22: Emission opt-in — deliberate, never automatic */}
-            {fiscalProfile && (
-              <div className="flex flex-col gap-2 rounded-md border border-border bg-accent/20 p-3">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={emitirComprobante}
-                    onChange={(e) => {
-                      setEmitirComprobante(e.target.checked)
-                      if (!e.target.checked) setSelectedPvId("")
-                    }}
-                    className="rounded border-border h-4 w-4 accent-primary"
-                  />
-                  <span className="text-sm flex items-center gap-1.5">
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    Emitir comprobante electrónico (ARCA)
-                  </span>
-                </label>
-
-                {emitirComprobante && (
-                  <div className="flex flex-col gap-2 pl-6">
-                    {/* Delegation not authorized warning */}
-                    {!fiscalProfile.delegacionAutorizada && (
-                      <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-                        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                        <span>
-                          Delegación en ARCA no autorizada.{" "}
-                          <Link
-                            href="/configuracion/fiscal"
-                            className="underline underline-offset-2 hover:opacity-80 inline-flex items-center gap-0.5"
-                          >
-                            Configurar <ExternalLink className="h-3 w-3" />
-                          </Link>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* PV selector — only shown when delegation is ok */}
-                    {fiscalProfile.delegacionAutorizada && activePVs.length > 1 && (
-                      <div className="flex flex-col gap-1">
-                        <Label className="text-[10px] text-muted-foreground">Punto de venta</Label>
-                        <Select value={selectedPvId} onValueChange={setSelectedPvId}>
-                          <SelectTrigger className="bg-background border-border text-foreground h-9 text-sm">
-                            <SelectValue placeholder="Seleccioná un PV" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-popover border-border">
-                            {activePVs.map((pv) => (
-                              <SelectItem key={pv.id} value={pv.id}>
-                                PV {String(pv.numero).padStart(5, "0")}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {fiscalProfile.delegacionAutorizada && activePVs.length === 1 && (
-                      <span className="text-xs text-muted-foreground">
-                        PV {String(activePVs[0]?.numero ?? 1).padStart(5, "0")} — seleccionado automáticamente.
-                      </span>
-                    )}
-
-                    {fiscalProfile.delegacionAutorizada && activePVs.length === 0 && (
-                      <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400">
-                        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                        <span>
-                          Sin puntos de venta activos.{" "}
-                          <Link href="/configuracion/fiscal" className="underline underline-offset-2 hover:opacity-80">
-                            Configurar
-                          </Link>
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* facturar-venta-afip: emisión disponible en /ventas/ordenes tras confirmar */}
+            <div className="flex items-center gap-2 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs text-muted-foreground">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                La facturación electrónica se realiza{" "}
+                <Link href="/ventas/ordenes" className="underline underline-offset-2 hover:opacity-80">
+                  después de confirmar la venta
+                </Link>
+                .
+              </span>
+            </div>
           </div>
 
           <div className="border-t border-border" />

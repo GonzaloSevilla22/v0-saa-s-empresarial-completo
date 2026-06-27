@@ -3,9 +3,7 @@
 ## Purpose
 
 Gestión del perfil fiscal AFIP de una organización: datos del emisor (CUIT, condición IVA/IIBB, ambiente homologación/producción), certificado AFIP en Storage privado, y puntos de venta (multi-PV) registrados ante AFIP. Backbone de la emisión de comprobantes electrónicos con CAE (C-27), con wiring al POS en C-29.
-
 ## Requirements
-
 ### Requirement: Persistencia del perfil fiscal de la organización
 
 El sistema SHALL persistir un perfil fiscal por cuenta en la tabla `fiscal_profiles` (`id` UUID PK, `account_id` UUID FK `accounts` con UNIQUE, `cuit` TEXT NOT NULL, `iva_condition` TEXT, `iibb_condition` TEXT, `certificado_afip_path` TEXT, `ambiente` TEXT NOT NULL DEFAULT `'homologacion'`, `created_at` TIMESTAMPTZ). El perfil **no** contiene la columna `punto_de_venta`: los puntos de venta viven en `points_of_sale` (ver "Puntos de venta de la organización"). `iva_condition` MUST estar restringida por CHECK a `'responsable_inscripto'`, `'monotributista'`, `'exento'`, `'consumidor_final'`. `ambiente` MUST estar restringida por CHECK a `'homologacion'`, `'produccion'`. El UNIQUE en `account_id` garantiza a lo sumo un perfil por organización.
@@ -171,76 +169,9 @@ El backend Python SHALL exponer en el router `fiscal` endpoints para listar, cre
 
 ---
 
-### Requirement: API de upload del certificado AFIP
-
-El backend Python SHALL exponer en el router `fiscal` dos endpoints para subir el material criptográfico del emisor al bucket privado `afip-certs`: `POST /fiscal/profile/cert-upload-url` y `PUT /fiscal/profile/cert-path`. `cert-upload-url` SHALL recibir `filename`, `content_type` y `kind` (`'cert'` | `'key'`) y devolver una **signed upload URL** y el **path canónico** del objeto en el bucket privado; el path SHALL derivarse server-side del `account_id` del JWT del request (`{account_id}/afip.crt` para `kind='cert'`, `{account_id}/afip.key` para `kind='key'`), NUNCA de un valor provisto por el cliente. `cert-path` SHALL recibir el `path` del certificado (`.crt`) y persistirlo en `fiscal_profiles.certificado_afip_path`. Los guards de rol (`owner`/`admin`) viven en el service. La generación de la signed URL para el bucket privado SHALL ocurrir server-side; el contenido del certificado y de la clave privada NUNCA SHALL pasar por la respuesta de ningún endpoint.
-
-#### Scenario: Obtener la signed URL para el certificado
-
-- **WHEN** el owner hace `POST /fiscal/profile/cert-upload-url` con `kind = 'cert'`
-- **THEN** la respuesta 200 incluye una `uploadUrl` firmada y `path = '{account_id}/afip.crt'`, con el `account_id` resuelto del JWT
-
-#### Scenario: Obtener la signed URL para la clave privada
-
-- **WHEN** el owner hace `POST /fiscal/profile/cert-upload-url` con `kind = 'key'`
-- **THEN** la respuesta 200 incluye una `uploadUrl` firmada y `path = '{account_id}/afip.key'`
-
-#### Scenario: Kind inválido es rechazado en el endpoint
-
-- **WHEN** se hace `POST /fiscal/profile/cert-upload-url` con `kind = 'otro'`
-- **THEN** la API responde 422 sin generar ninguna URL ni tocar Storage
-
-#### Scenario: El path no puede apuntar a otra cuenta
-
-- **GIVEN** un usuario de la cuenta A
-- **WHEN** solicita una signed URL de upload
-- **THEN** el path devuelto está scoped a `A` (`{A}/afip.crt|afip.key`); el cliente no puede inducir un path de otra cuenta
-
-#### Scenario: Persistir el path del certificado
-
-- **WHEN** el owner hace `PUT /fiscal/profile/cert-path` con el path del `.crt`
-- **THEN** `fiscal_profiles.certificado_afip_path` queda con ese path y la respuesta no incluye el contenido del certificado
-
-#### Scenario: Member no puede subir el certificado
-
-- **GIVEN** un usuario con rol `member` en la cuenta
-- **WHEN** hace `POST /fiscal/profile/cert-upload-url` o `PUT /fiscal/profile/cert-path`
-- **THEN** la API responde 403 (guard `require_role` owner/admin)
-
----
-
-### Requirement: Certificado AFIP en Storage privado
-
-El sistema SHALL almacenar el certificado AFIP en un bucket de Storage privado (no público) como **dos objetos PEM separados** en rutas canónicas scoped por `account_id`: `{account_id}/afip.crt` (certificado X.509) y `{account_id}/afip.key` (clave privada RSA en PEM, **sin password**, cargable con `load_pem_private_key(key, password=None)`). El bucket SHALL tener policies de INSERT, SELECT y UPDATE scoped por `account_id` que cubran **ambos** objetos. `fiscal_profiles.certificado_afip_path` SHALL guardar únicamente la ruta del objeto `.crt` (marcador de "cert cargado"), nunca el contenido de ningún archivo; la ruta de la `.key` se infiere por convención (mismo prefijo `{account_id}/`) y NUNCA se expone en la API. La clave privada (`.key`) es el secreto más sensible del sistema: SHALL viajar únicamente en el body del signed PUT hacia el bucket privado, NUNCA SHALL loguearse y NUNCA SHALL devolverse en ninguna respuesta (GET de perfil incluido). El certificado y la clave SHALL leerse solo server-side (backend, `service_role` aislado — D7/DEC-13) para firmar la autenticación WSAA; nunca SHALL exponerse al cliente.
-
-#### Scenario: El certificado no es accesible públicamente
-
-- **GIVEN** un certificado subido al bucket `afip-certs`
-- **WHEN** se intenta acceder a su URL pública sin autenticación
-- **THEN** el acceso es denegado (bucket privado)
-
-#### Scenario: Solo la cuenta dueña puede subir su certificado
-
-- **GIVEN** dos cuentas A y B
-- **WHEN** un miembro de A intenta subir un objeto a la ruta del certificado de B
-- **THEN** la policy de Storage rechaza el INSERT (scoped por `account_id`)
-
-#### Scenario: La clave privada se sube como segundo objeto PEM
-
-- **GIVEN** una cuenta con perfil fiscal
-- **WHEN** el owner sube el `.crt` a `{account_id}/afip.crt` y la `.key` a `{account_id}/afip.key`
-- **THEN** ambos objetos quedan en el bucket privado bajo el prefijo de la cuenta y el adaptador WSFE puede leer los dos
-
-#### Scenario: La clave privada nunca se devuelve en la API
-
-- **WHEN** se hace `GET /fiscal/profile` para una cuenta con certificado y clave cargados
-- **THEN** la respuesta incluye a lo sumo `certificado_afip_path` (la ruta del `.crt`), nunca el contenido del `.crt` ni del `.key` ni la ruta del `.key`
-
----
-
 ### Requirement: UI de configuración fiscal
 
-El frontend SHALL proveer una página `/configuracion/fiscal` con un formulario del perfil fiscal (CUIT, condición IVA, IIBB, ambiente), un **CRUD mínimo de puntos de venta** (listar / agregar / desactivar, sin límite de cantidad) y controles de upload del material criptográfico AFIP al bucket privado. El upload SHALL constar de **dos controles separados**: uno para el certificado (`.crt`/`.pem`) y otro para la clave privada (`.key`/`.pem`), cada uno enviando su `kind` (`'cert'` | `'key'`) al endpoint `cert-upload-url` y subiendo el archivo a la signed URL devuelta. El CUIT SHALL validarse con el algoritmo módulo 11 (reusando el validador `isValidCuit` de C-22) antes de permitir guardar. El contenido de la clave privada NUNCA SHALL exponerse client-side más allá del PUT a la signed URL.
+El frontend SHALL proveer una página `/configuracion/fiscal` con un formulario del perfil fiscal (CUIT, condición IVA, IIBB, ambiente), un **CRUD mínimo de puntos de venta** (listar / agregar / desactivar, sin límite de cantidad) y una **guía de onboarding de la delegación en ARCA** que reemplaza los controles de upload del certificado. La guía SHALL mostrar el paso a paso para autorizar a EmprendeSmart (con el CUIT representante de la plataforma) en ARCA → Administrador de Relaciones → Facturación Electrónica, y SHALL ofrecer el control para atestiguar que la delegación fue autorizada (flag `delegacion_autorizada`). La sección de upload de certificado/clave privada (`CertUploadSection`) SHALL eliminarse u ocultarse del flujo de delegación. El CUIT SHALL validarse con el algoritmo módulo 11 (reusando el validador `isValidCuit` de C-22) antes de permitir guardar.
 
 #### Scenario: Guardar el perfil fiscal con CUIT válido
 
@@ -263,12 +194,35 @@ El frontend SHALL proveer una página `/configuracion/fiscal` con un formulario 
 - **WHEN** el owner lo desactiva
 - **THEN** la lista lo refleja como inactivo y deja de ofrecerse como PV emisor
 
-#### Scenario: Subir el certificado AFIP
+#### Scenario: La página muestra la guía de delegación en vez del upload de certificado
 
-- **WHEN** el owner selecciona el archivo de certificado (`.crt`) en su control y lo sube
-- **THEN** el archivo va a `{account_id}/afip.crt` en el bucket privado y `certificado_afip_path` se actualiza con la ruta
+- **WHEN** el owner abre la configuración fiscal
+- **THEN** ve los pasos para autorizar a EmprendeSmart (CUIT representante) en ARCA → Administrador de Relaciones → Facturación Electrónica
+- **AND** no ve controles para subir un certificado ni una clave privada
 
-#### Scenario: Subir la clave privada AFIP
+#### Scenario: Atestiguar la delegación desde la UI
 
-- **WHEN** el owner selecciona el archivo de clave privada (`.key`) en su control y lo sube
-- **THEN** el archivo va a `{account_id}/afip.key` en el bucket privado; su contenido no queda expuesto client-side más allá del PUT firmado
+- **WHEN** el owner marca que ya autorizó la delegación en ARCA
+- **THEN** la mutación persiste `delegacion_autorizada = true` y la página refleja el estado "delegación autorizada"
+
+### Requirement: Onboarding de delegación ARCA en el perfil fiscal
+
+El sistema SHALL guiar al usuario para autorizar a EmprendeSmart como **representante** del servicio "Facturación Electrónica" en ARCA (Administrador de Relaciones de Clave Fiscal), reemplazando el trámite de certificado por usuario. El perfil fiscal SHALL persistir una **atestación de delegación** por cuenta (flag booleano, p. ej. `fiscal_profiles.delegacion_autorizada DEFAULT FALSE`), editable solo por `owner`/`admin` (misma RLS que el resto del perfil). La API del perfil (`FiscalProfileOut`) SHALL exponer ese flag y el CUIT representante de la plataforma necesario para mostrar el paso a paso de la autorización. La atestación NO SHALL tratarse como verificación: la confirmación real de que la delegación está vigente es que `FECAESolicitar` se autorice (estrategia "intentar y exponer el error").
+
+#### Scenario: La cuenta atestigua la delegación
+
+- **WHEN** el owner marca que ya autorizó a EmprendeSmart en ARCA
+- **THEN** `fiscal_profiles.delegacion_autorizada` queda en verdadero para esa cuenta
+
+#### Scenario: El perfil expone el flag y el CUIT representante
+
+- **WHEN** se hace `GET /fiscal/profile` para una cuenta
+- **THEN** la respuesta incluye el estado de la delegación (`delegacion_autorizada`) y el CUIT representante de la plataforma para guiar la autorización
+- **AND** nunca incluye material criptográfico (ni de la cuenta ni del representante)
+
+#### Scenario: Member no puede atestiguar la delegación
+
+- **GIVEN** un usuario con rol `member` en la cuenta
+- **WHEN** intenta cambiar el flag de delegación
+- **THEN** la API responde 403 (guard `require_role` owner/admin)
+

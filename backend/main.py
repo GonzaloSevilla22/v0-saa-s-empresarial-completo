@@ -21,6 +21,7 @@ from backend.routers import (
     expenses,
     fiscal,
     health,
+    journal_entries,
     organizations,
     outbox,
     payments,
@@ -94,3 +95,5 @@ app.include_router(outbox.router)
 # C-30 v21-customer-supplier-accounts
 app.include_router(customer_accounts.router)
 app.include_router(supplier_accounts.router)
+# journal-entry-outbox (V2.5 Finanzas — read-only; writes via relay SECURITY DEFINER)
+app.include_router(journal_entries.router)

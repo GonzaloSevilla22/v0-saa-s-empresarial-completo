@@ -110,8 +110,10 @@ Deno.serve(async (req: Request) => {
         intro: "Se registró un nuevo usuario en la app:",
         bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:15px;">
           ${infoRow("Nombre", metadata?.name ?? "-")}
+          ${infoRow("Apellido", metadata?.last_name ?? "-")}
           ${infoRow("Email", metadata?.email ?? "-")}
           ${infoRow("Teléfono", metadata?.phone ?? "-")}
+          ${infoRow("Provincia", metadata?.province ?? "-")}
           ${infoRow("Localidad", metadata?.locality ?? "-")}
         </table>`,
       });

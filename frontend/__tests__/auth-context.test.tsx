@@ -51,6 +51,7 @@ function Consumer() {
           register("Susana", "susana@test.com", "Passw0rd!", {
             phone: "+54 9 261 5555555",
             locality: "Godoy Cruz, Mendoza",
+            province: "Mendoza",
             lastName: "Giménez",
             termsVersion: "2026-06-v1",
             emailOptIn: true,
@@ -113,6 +114,7 @@ describe("auth-context register()", () => {
             last_name: "Giménez",
             phone: "+54 9 261 5555555",
             locality: "Godoy Cruz, Mendoza",
+            province: "Mendoza",
             terms_version: "2026-06-v1",
             email_notifications_opt_in: true,
           }),

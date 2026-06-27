@@ -10,6 +10,7 @@ from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import (
+    PromoteToOrderOut,
     SaleOperationIn,
     SaleOperationOut,
     SaleOperationUpdateIn,
@@ -111,6 +112,25 @@ async def delete_sales_by_operation(
     repo: SalesRepository = Depends(get_repo),
 ):
     await sales_service.delete_sale_operation(repo, auth, str(account_id), operation_id)
+
+
+@router.post("/{operation_id}/promote-to-order", response_model=PromoteToOrderOut)
+async def promote_to_order(
+    operation_id: str,
+    auth: dict = Depends(get_current_user),
+    repo: SalesRepository = Depends(get_repo),
+):
+    """
+    facturar-venta-manual (D6):
+    Materializa una SalesOrder confirmada a partir de una venta legacy
+    (identificada por operation_id), habilitando la facturación AFIP vía emit-invoice.
+
+    Side-effect-free: no descuenta stock, no toca caja, no dispara el outbox.
+    Idempotente: doble llamada devuelve la orden existente con replayed=true.
+
+    Governance: FISCAL = CRÍTICO.
+    """
+    return await sales_service.promote_to_order(repo, auth, operation_id)
 
 
 @router.delete("/{sale_id}", status_code=204)

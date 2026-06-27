@@ -80,6 +80,20 @@ class SalesPageOut(BaseModel):
     total_operations: int
 
 
+# ── Promoción de venta legacy → SalesOrder (facturar-venta-manual) ───────────
+
+class PromoteToOrderOut(BaseModel):
+    """
+    facturar-venta-manual (D6):
+    Respuesta de POST /sales/{operation_id}/promote-to-order.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    sales_order_id:    uuid.UUID
+    sale_operation_id: uuid.UUID
+    replayed:          bool
+
+
 # ── Comprobante de venta en PDF (para compartir por WhatsApp) ─────────────────
 
 class SalesReceiptItemIn(BaseModel):

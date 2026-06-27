@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
@@ -12,15 +12,18 @@ import { Zap, Eye, EyeOff, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { MagicLinkForm } from "@/components/auth/MagicLinkForm"
 import { Separator } from "@/components/ui/separator"
+import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isMagicLink, setIsMagicLink] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState("")
   const { login } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const captchaRef = useRef<CaptchaWidgetHandle>(null)
   // Restore the destination the user was trying to reach before being redirected to login
   const nextPath = searchParams.get("next") ?? "/dashboard"
   // reason=idle: session was closed automatically due to inactivity
@@ -32,9 +35,12 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
     try {
-      await login(email, password)
+      await login(email, password, captchaToken)
       router.push(nextPath)
     } catch (error: any) {
+      // Token de captcha de un solo uso: re-challenge tras un login fallido.
+      captchaRef.current?.reset()
+      setCaptchaToken("")
       toast.error(error.message)
     } finally {
       setIsLoading(false)
@@ -113,7 +119,13 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <CaptchaWidget
+                ref={captchaRef}
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={() => setCaptchaToken("")}
+              />
+              <Button type="submit" className="w-full" disabled={isLoading || !captchaToken}>
                 {isLoading ? "Iniciando sesión..." : "Iniciar sesión"}
               </Button>
             </form>

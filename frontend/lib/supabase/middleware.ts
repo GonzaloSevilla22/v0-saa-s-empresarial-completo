@@ -19,16 +19,21 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
     h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
   }
 
-  // CSP: permissive for now, tighten per module as you build
+  // CSP: permissive for now, tighten per module as you build.
+  // Cloudflare Turnstile (captcha en auth) carga su script desde
+  // challenges.cloudflare.com, renderiza el challenge en un iframe de ese dominio
+  // y hace fetch al mismo → debe permitirse en script-src, connect-src y frame-src,
+  // o el widget queda bloqueado en producción (la CSP de prod sí aplica).
   h.set(
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // loosen for Next.js hydration; tighten later with nonces
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com", // loosen for Next.js hydration; tighten later with nonces
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} ${process.env.NEXT_PUBLIC_BACKEND_URL ?? ""} https://api.resend.com wss:`,
+      `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} ${process.env.NEXT_PUBLIC_BACKEND_URL ?? ""} https://api.resend.com https://challenges.cloudflare.com wss:`,
+      "frame-src https://challenges.cloudflare.com",
       "frame-ancestors 'none'",
     ].join("; ")
   )

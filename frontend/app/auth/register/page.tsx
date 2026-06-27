@@ -1,18 +1,22 @@
-﻿"use client"
+"use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Zap, Eye, EyeOff, ShieldCheck, ShieldAlert, RefreshCw } from "lucide-react"
+import { Eye, EyeOff, ShieldCheck, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
+import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
+import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
 
 export default function RegisterPage() {
   const [name, setName] = useState("")
+  const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [locality, setLocality] = useState("")
@@ -20,8 +24,12 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [emailOptIn, setEmailOptIn] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState("")
   const { register } = useAuth()
   const router = useRouter()
+  const captchaRef = useRef<CaptchaWidgetHandle>(null)
 
   const [isLoading, setIsLoading] = useState(false)
 
@@ -58,6 +66,14 @@ export default function RegisterPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!name.trim()) {
+      toast.error("El nombre es obligatorio")
+      return
+    }
+    if (!lastName.trim()) {
+      toast.error("El apellido es obligatorio")
+      return
+    }
     if (!phone.trim()) {
       toast.error("El teléfono es obligatorio")
       return
@@ -74,17 +90,33 @@ export default function RegisterPage() {
       toast.error("Las contraseñas no coinciden")
       return
     }
+    if (!acceptedTerms) {
+      toast.error("Debés aceptar los Términos y Condiciones para crear la cuenta")
+      return
+    }
+    if (!captchaToken) {
+      toast.error("Completá la verificación anti-bots para continuar")
+      return
+    }
     setIsLoading(true)
     try {
-      await register(name || "Emprendedor", email, password, {
+      await register(name.trim(), email, password, {
         phone: phone.trim(),
         locality: locality.trim(),
+        lastName: lastName.trim(),
+        termsVersion: TERMS_VERSION,
+        emailOptIn,
+        captchaToken,
       })
       // Go directly to the verification screen — no intermediate /dashboard hop.
       // The middleware would catch it anyway, but going direct avoids the extra redirect.
       router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
-    } catch (error: any) {
-      toast.error(error.message)
+    } catch (error: unknown) {
+      // El token de captcha es de un solo uso: tras un signUp fallido (incluido el
+      // rechazo del captcha por Supabase) reseteamos el widget para re-challenge.
+      captchaRef.current?.reset()
+      setCaptchaToken("")
+      toast.error(error instanceof Error ? error.message : "No se pudo crear la cuenta")
     } finally {
       setIsLoading(false)
     }
@@ -108,15 +140,27 @@ export default function RegisterPage() {
           </CardHeader>
           <form onSubmit={handleSubmit} data-testid="register-form">
             <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="name" className="text-foreground">Nombre</Label>
-                <Input
-                  id="name"
-                  placeholder="Tu nombre"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="bg-background border-border text-foreground"
-                />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="name" className="text-foreground">Nombre</Label>
+                  <Input
+                    id="name"
+                    placeholder="Tu nombre"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="bg-background border-border text-foreground"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="lastName" className="text-foreground">Apellido</Label>
+                  <Input
+                    id="lastName"
+                    placeholder="Tu apellido"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className="bg-background border-border text-foreground"
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="email" className="text-foreground">Email</Label>
@@ -228,10 +272,53 @@ export default function RegisterPage() {
                   <p className="text-[10px] text-red-500 font-medium">Las contraseñas no coinciden</p>
                 )}
               </div>
+
+              {/* Consentimiento legal (obligatorio) */}
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="terms"
+                  data-testid="terms-checkbox"
+                  checked={acceptedTerms}
+                  onCheckedChange={(v) => setAcceptedTerms(v === true)}
+                  className="mt-0.5"
+                />
+                <Label htmlFor="terms" className="text-xs font-normal leading-snug text-muted-foreground">
+                  Acepto los{" "}
+                  <Link href={LEGAL_ROUTES.terms} className="text-primary underline-offset-4 hover:underline">
+                    Términos y Condiciones
+                  </Link>{" "}
+                  y la{" "}
+                  <Link href={LEGAL_ROUTES.privacy} className="text-primary underline-offset-4 hover:underline">
+                    Política de Privacidad
+                  </Link>
+                </Label>
+              </div>
+
+              {/* Opt-in de notificaciones (opcional, desmarcado por defecto) */}
+              <div className="flex items-start gap-2">
+                <Checkbox
+                  id="emailOptIn"
+                  data-testid="email-optin-checkbox"
+                  checked={emailOptIn}
+                  onCheckedChange={(v) => setEmailOptIn(v === true)}
+                  className="mt-0.5"
+                />
+                <Label htmlFor="emailOptIn" className="text-xs font-normal leading-snug text-muted-foreground">
+                  Quiero recibir novedades y avisos de cambios de Aliadata por email (opcional)
+                </Label>
+              </div>
+
+              {/* Captcha anti-bots (Cloudflare Turnstile) */}
+              <CaptchaWidget
+                ref={captchaRef}
+                onVerify={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={() => setCaptchaToken("")}
+              />
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full">
-                Crear cuenta
+              <Button type="submit" className="w-full" disabled={!captchaToken || isLoading}>
+                {isLoading ? "Creando cuenta..." : "Crear cuenta"}
               </Button>
               <p className="text-sm text-muted-foreground">
                 {"¿Ya tenés cuenta? "}

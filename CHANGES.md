@@ -891,7 +891,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 - `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes)
 - `JournalEntry` producido vía outbox (contabilidad básica generada automáticamente de las transacciones ERP)
-- `CostCenter` UI (centros de costo por sucursal/departamento, ya posible tras C-26)
+- `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
 - Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino)
 
 ### V3 — Inteligencia
@@ -967,6 +967,15 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ## Post-roadmap V2.x (changes no numerados, post C-30)
 
 > Trabajo dirigido por el PO tras cerrar el roadmap numerado C-01→C-30. No llevan código `C-NN`; viven en `openspec/changes/archive/` con nombre propio. Se listan acá para que CHANGES.md refleje el estado real del repo.
+
+### `cost-center-dimension` — Centro de costo (🎉 abre Fase V2.5 Finanzas)
+- **Estado**: `[x]` archivado 2026-06-27 (`2026-06-27-cost-center-dimension`, PR #238). Migración `20260802000001` aplicada por CI al mergear.
+- **Governance**: BAJO (catálogo CRUD + columna nullable aditiva; no toca dinero, hot path de venta ni fiscal).
+- **Scope**: dimensión analítica opcional `cost_center_id` (modelo de dominio V2 §3.5). Catálogo plano `cost_centers` (account-scoped, RLS lectura=miembros / escritura=owner+admin vía `is_account_writer`, `UNIQUE(account_id, lower(name))`, soft-delete `is_active`); columna nullable `cost_center_id` en `expenses` y `purchases` (`ON DELETE SET NULL`, sin backfill); `rpc_create_purchase_operation` gana `p_cost_center_id` opcional y lo propaga a todas las líneas de la operación. Backend FastAPI 3 capas (`/cost-centers` CRUD, guard owner/admin) + frontend (catálogo + selector opcional en alta de gasto/compra). 44 tests backend + 18 frontend nuevos (TDD RED→GREEN→TRIANGULATE).
+- **Por qué ahora**: de-riskea el próximo change pesado `journal-entry-outbox` (su `JournalLine` referencia `cost_center`) metiendo la columna con volumen bajo, evitando la migración dolorosa que el modelo §3.5 advierte.
+- **Spec sincronizada**: `cost-center` (nueva).
+- **Diferido (fuera de scope)**: jerarquías, distribución porcentual, reporting/agregación por centro (llega con `journal-entry-outbox`/reporting), imputación en ventas (el centro de costo es para costos, no ingresos).
+- **Leer antes**: `modelo-dominio-aliadata-v2.md` §3.5, `knowledge-base/05_reglas_de_negocio.md`.
 
 ### `v22-afip-delegation-billing` — Facturación AFIP por delegación
 - **Estado**: `[x]` archivado 2026-06-26. Código ya en prod; gate externo del PO = **task 9.1** (E2E homologación ARCA, ver "Pendiente externo" arriba).

@@ -890,7 +890,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ### V2.5 — Finanzas
 
 - `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes)
-- `JournalEntry` producido vía outbox (contabilidad básica generada automáticamente de las transacciones ERP)
+- `JournalEntry` ✅ V1 entregado (`journal-entry-outbox`, 2026-06-27 — ver "Post-roadmap V2.x"): partida doble generada async vía Consumer 3 del outbox para ventas/compras/pagos/NC. Falta: plan de cuentas configurable + UI, gastos/cierre de caja, export contable (V2.6)
 - `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
 - Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino)
 
@@ -976,6 +976,16 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Spec sincronizada**: `cost-center` (nueva).
 - **Diferido (fuera de scope)**: jerarquías, distribución porcentual, reporting/agregación por centro (llega con `journal-entry-outbox`/reporting), imputación en ventas (el centro de costo es para costos, no ingresos).
 - **Leer antes**: `modelo-dominio-aliadata-v2.md` §3.5, `knowledge-base/05_reglas_de_negocio.md`.
+
+### `journal-entry-outbox` — Contabilidad partida doble vía outbox (V2.5 #2)
+- **Estado**: `[x]` archivado 2026-06-27 (`2026-06-27-journal-entry-outbox`, PR #240). Migraciones `20260803000001/02/03` aplicadas por CI (deploy success); verificado en prod read-only (tablas + RLS + relay + 1 solo overload de `rpc_create_purchase_operation`).
+- **Governance**: ALTA (registros contables que usa el contador). Diseño firmado por el PO antes del apply.
+- **Scope**: `JournalEntry`/`JournalLine` (partida doble) generados **async** desde documentos ya commiteados, vía un **Consumer 3 nuevo en el relay del outbox C-25** (`rpc_process_outbox_dispatch`, SQL puro, sin service_role/HTTP). 5 eventos V1: `SaleConfirmed`, `PurchaseCreated`, `PaymentReceived`, `PaymentMade`, `CreditNoteIssued`. Plan de cuentas ~10 códigos AR hardcodeados (`account_code TEXT`, sin FK). IVA discriminado en A/B (neto 4100 + IVA DF 4200); Factura C single-line. Idempotencia `UNIQUE(source_event_id)`; balance Σdebe=Σhaber como ASSERT (P0450) con retry. `cost_center_id` propagado desde la compra. NC = asiento espejo (reversal). 2 producers nuevos creados (`PurchaseCreated` —hueco real de C-25— y `CreditNoteIssued`/`rpc_issue_credit_note`). `GET /journal-entries` read-only. 84 tests nuevos (suite outbox 126/126).
+- **Decisiones (PO + técnicas)**: plan de cuentas hardcodeado (tabla+UI → V2.6); scope ventas+compras+pagos+NC (gastos/caja → V2.6); consumer SQL puro; disparador venta = `SaleConfirmed` (no FiscalDocumentIssued, p/ monotributista); discriminar IVA.
+- **Fix en el camino**: bug latente de overload de `rpc_create_purchase_operation` (C-21 lo revirtió a 4 args → cost-center dejó 2 overloads; `42725`). Colapsado a 1 canónico vía DO-block + COMMENT con firma. Ver engram `opsx/journal-entry-outbox/apply`.
+- **Diferido (V2.6)**: plan de cuentas configurable + UI, asientos de gastos/`CashSessionClosed`/`StockAdjusted`, export a Tango/Bejerman/Colppy.
+- **Specs sincronizadas**: `journal-entry` (nueva), `transactional-outbox` (Consumer 3).
+- **Leer antes**: `modelo-dominio-aliadata-v2.md` §5.6/§5.8/§5.9, `openspec/explore/2026-06-27-journal-entry-outbox.md`, `knowledge-base/05_reglas_de_negocio.md`.
 
 ### `v22-afip-delegation-billing` — Facturación AFIP por delegación
 - **Estado**: `[x]` archivado 2026-06-26. Código ya en prod; gate externo del PO = **task 9.1** (E2E homologación ARCA, ver "Pendiente externo" arriba).

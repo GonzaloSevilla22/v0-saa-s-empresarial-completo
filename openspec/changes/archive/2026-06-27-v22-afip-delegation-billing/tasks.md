@@ -79,8 +79,8 @@
 
 ## 9. Validación E2E + cierre
 
-- [ ] 9.1 E2E homologación (`@pytest.mark.integration`, manual, fuera del gate): facturar por un CUIT de prueba representado por el cert de plataforma; confirmar CAE.
+- [ ] 9.1 E2E homologación (`@pytest.mark.integration`, manual, fuera del gate): facturar por un CUIT de prueba representado por el cert de plataforma; confirmar CAE. **— GATE EXTERNO DEL PO (trámite ARCA), no bloquea el archive; mismo estado que C-27 task 5.2/6.2. El código está en prod con regresión verde.**
 - [x] 9.2 Confirmar regresión completa del gate `pytest -m "not integration"` verde — 586/586 passed.
-- [ ] 9.3 Actualizar `CHANGES.md` (nuevo change V2.x) y la KB fiscal si corresponde.
-- [ ] 9.4 Guardar el resultado del apply en engram (`opsx/v22-afip-delegation-billing/apply`).
+- [x] 9.3 Actualizar `CHANGES.md` (nuevo change V2.x) y la KB fiscal si corresponde. — CHANGES.md: sección "Post-roadmap V2.x" + nota "Pendiente externo" (v22 9.1). KB fiscal sin cambios (la fuente de verdad la lleva el sync de specs).
+- [x] 9.4 Guardar el resultado del apply en engram (`opsx/v22-afip-delegation-billing/apply`).
 - [x] 9.5 PR #211 abierto en feat/v22-afip-delegation-billing — HARD STOP (governance CRÍTICO, esperar sign-off PO).

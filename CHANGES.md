@@ -954,9 +954,35 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 **Pendiente externo (no bloquea):**
 - **C-27 task 5.2** — Verificacion E2E en homologacion ARCA (WSAA ticket → WSFEv1 CAE): pendiente del tramite AFIP del PO (certificado de homologacion). El adaptador `WSFEAdapter` esta implementado y testeado con SOAP mockeado.
+- **v22 task 9.1** — E2E homologacion del modelo de delegacion (facturar por un CUIT representado con el cert de plataforma): mismo gate externo del PO (tramite ARCA). El codigo del modelo de delegacion ya esta en prod y con regresion verde; ver "Post-roadmap V2.x" abajo.
 
 **Diferido:**
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
 **Próximo trabajo:** Fases Futuras (V2.5 Finanzas — `BankReconciliation`, `JournalEntry`, `CostCenter` UI, percepciones; V3 Inteligencia — `AIAgent`, `KnowledgeBase`, automatizaciones). Sin changes numerados hasta que las preguntas abiertas estén resueltas.
+
+---
+
+## Post-roadmap V2.x (changes no numerados, post C-30)
+
+> Trabajo dirigido por el PO tras cerrar el roadmap numerado C-01→C-30. No llevan código `C-NN`; viven en `openspec/changes/archive/` con nombre propio. Se listan acá para que CHANGES.md refleje el estado real del repo.
+
+### `v22-afip-delegation-billing` — Facturación AFIP por delegación
+- **Estado**: `[x]` archivado 2026-06-26. Código ya en prod; gate externo del PO = **task 9.1** (E2E homologación ARCA, ver "Pendiente externo" arriba).
+- **Governance**: CRÍTICO (fiscal — la clave privada del cert de plataforma es el secreto más sensible del sistema).
+- **Scope**: migración del modelo **cert-por-usuario → delegación** (como Xubio/Facturante/TusFacturas). La plataforma tiene **un único** certificado representante y factura por cuenta de cada usuario; el usuario sólo autoriza a EmprendeSmart en ARCA (Administrador de Relaciones → "Facturación Electrónica") y atestigua el flag `delegacion_autorizada`.
+  - `WSFEAdapter` autentica SIEMPRE con el cert de plataforma; `Auth.Cuit` = CUIT del emisor/representado por comprobante.
+  - Factory `build_cae_adapter`: gate "¿cert de plataforma configurado?" (no per-account); `WSFEStubAdapter` sigue siendo el default seguro.
+  - Caché del TA WSAA keyada por `(representante + ambiente)` — ~1 TA por ambiente compartido entre CUIT.
+  - Deprecados los endpoints de upload de cert por usuario (`POST /fiscal/profile/cert-upload-url`, `PUT /fiscal/profile/cert-path`).
+  - UI: se reemplaza la sección de upload por la guía de delegación ARCA en `FiscalSettings.tsx`.
+- **Specs sincronizadas**: `afip-platform-credential` (nueva), `afip-fiscal-document` (modificada), `fiscal-profile` (modificada + deprecaciones).
+- **OQ-5 (botón "Enviar al ARCA" en la venta)**: salió como change propio → `facturar-venta-afip` (abajo).
+- **Leer antes**: `knowledge-base/05_reglas_de_negocio.md` (dominio fiscal), engram `opsx/v22-afip-delegation-billing/*`.
+
+### Otros changes post-roadmap (archivados)
+- **`facturar-venta-afip`** ✅ (2026-06-26, PRs #228/#229) — emitir factura AFIP desde la venta (MVP Factura C). Era la OQ-5 de v22.
+- **`fiscal-receptor-iva-relay`** ✅ (2026-06-26, PRs #226/#227) — propaga la identificación del receptor (`DocTipo`/`DocNro`) + desglose de IVA a través del relay del CAE.
+- **`idle-session-timeout`** + **`idle-session-server-enforcement`** ✅ (2026-06-24) — cierre de sesión por inactividad (cliente + enforcement server-side).
+- **`register-name-terms-captcha`** ✅ (2026-06-27, PRs #231–#235) — alta con nombre+apellido, consentimiento legal + opt-in email, captcha Turnstile en toda la auth; + provincia, mail al admin y validación de formato de email/teléfono.

@@ -241,6 +241,7 @@ export interface User {
   businessName?: string
   phone?: string
   locality?: string
+  province?: string
   bio?: string
   // ── Consentimiento legal (change register-name-terms-captcha) ─────────────
   /** Versión de Términos aceptada en el alta (constante TERMS_VERSION). */

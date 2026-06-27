@@ -66,6 +66,7 @@ function fillValidFields() {
   fireEvent.change(screen.getByLabelText("Apellido"), { target: { value: "Giménez" } })
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: "susana@test.com" } })
   fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "+54 9 261 5555555" } })
+  fireEvent.change(screen.getByLabelText("Provincia"), { target: { value: "Mendoza" } })
   fireEvent.change(screen.getByLabelText("Localidad"), { target: { value: "Godoy Cruz, Mendoza" } })
   fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: VALID_PASSWORD } })
   fireEvent.change(screen.getByLabelText("Confirmar contraseña"), { target: { value: VALID_PASSWORD } })
@@ -90,6 +91,25 @@ describe("RegisterPage — nombre/apellido, consentimiento y captcha", () => {
 
     await waitFor(() => {
       expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/apellido/i))
+    })
+    expect(registerMock).not.toHaveBeenCalled()
+  })
+
+  it("bloquea el submit y avisa si falta la provincia", async () => {
+    render(<RegisterPage />)
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Susana" } })
+    fireEvent.change(screen.getByLabelText("Apellido"), { target: { value: "Giménez" } })
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "susana@test.com" } })
+    fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "+54 9 261 5555555" } })
+    fireEvent.change(screen.getByLabelText("Localidad"), { target: { value: "Godoy Cruz, Mendoza" } })
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: VALID_PASSWORD } })
+    fireEvent.change(screen.getByLabelText("Confirmar contraseña"), { target: { value: VALID_PASSWORD } })
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/provincia/i))
     })
     expect(registerMock).not.toHaveBeenCalled()
   })
@@ -136,6 +156,7 @@ describe("RegisterPage — nombre/apellido, consentimiento y captcha", () => {
       expect(registerMock).toHaveBeenCalledWith("Susana", "susana@test.com", VALID_PASSWORD, {
         phone: "+54 9 261 5555555",
         locality: "Godoy Cruz, Mendoza",
+        province: "Mendoza",
         lastName: "Giménez",
         termsVersion: TERMS_VERSION,
         emailOptIn: false,

@@ -13,12 +13,14 @@ import { Eye, EyeOff, ShieldCheck, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
 import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
+import { PROVINCIAS_AR } from "@/lib/provincias"
 
 export default function RegisterPage() {
   const [name, setName] = useState("")
   const [lastName, setLastName] = useState("")
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
+  const [province, setProvince] = useState("")
   const [locality, setLocality] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
@@ -78,6 +80,10 @@ export default function RegisterPage() {
       toast.error("El teléfono es obligatorio")
       return
     }
+    if (!province) {
+      toast.error("Seleccioná tu provincia")
+      return
+    }
     if (!locality.trim()) {
       toast.error("La localidad es obligatoria")
       return
@@ -103,6 +109,7 @@ export default function RegisterPage() {
       await register(name.trim(), email, password, {
         phone: phone.trim(),
         locality: locality.trim(),
+        province,
         lastName: lastName.trim(),
         termsVersion: TERMS_VERSION,
         emailOptIn,
@@ -185,16 +192,32 @@ export default function RegisterPage() {
                   className="bg-background border-border text-foreground"
                 />
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="locality" className="text-foreground">Localidad</Label>
-                <Input
-                  id="locality"
-                  required
-                  placeholder="Ej: Godoy Cruz, Mendoza"
-                  value={locality}
-                  onChange={(e) => setLocality(e.target.value)}
-                  className="bg-background border-border text-foreground"
-                />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="province" className="text-foreground">Provincia</Label>
+                  <select
+                    id="province"
+                    value={province}
+                    onChange={(e) => setProvince(e.target.value)}
+                    className="h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  >
+                    <option value="" disabled>Seleccioná tu provincia</option>
+                    {PROVINCIAS_AR.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="locality" className="text-foreground">Localidad</Label>
+                  <Input
+                    id="locality"
+                    required
+                    placeholder="Ej: Godoy Cruz"
+                    value={locality}
+                    onChange={(e) => setLocality(e.target.value)}
+                    className="bg-background border-border text-foreground"
+                  />
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between">

@@ -39,6 +39,7 @@ interface AuthContextType {
     extras?: {
       phone?: string
       locality?: string
+      province?: string
       lastName?: string
       termsVersion?: string
       emailOptIn?: boolean
@@ -140,6 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           businessName:   profile.business_name ?? undefined,
           phone:          profile.phone         ?? undefined,
           locality:       profile.locality      ?? undefined,
+          province:       profile.province      ?? undefined,
           bio:            profile.bio           ?? undefined,
           termsVersion:        profile.terms_version              ?? undefined,
           termsAcceptedAt:     profile.terms_accepted_at          ?? undefined,
@@ -239,6 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     extras?: {
       phone?: string
       locality?: string
+      province?: string
       lastName?: string
       termsVersion?: string
       emailOptIn?: boolean
@@ -261,6 +264,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           last_name: extras?.lastName || null,
           phone: extras?.phone || null,
           locality: extras?.locality || null,
+          province: extras?.province || null,
           terms_version: extras?.termsVersion || null,
           // Default false: nadie queda suscripto por accidente (espeja el default de la columna).
           email_notifications_opt_in: extras?.emailOptIn ?? false,

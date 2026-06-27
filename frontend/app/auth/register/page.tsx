@@ -15,6 +15,18 @@ import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/Captc
 import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
 import { PROVINCIAS_AR } from "@/lib/provincias"
 
+// Email: chequeo pragmático (algo@algo.algo, sin espacios).
+const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+
+// Teléfono: leniente para formatos AR. Acepta dígitos y separadores comunes
+// (+, espacios, guiones, paréntesis) y exige 10–13 dígitos reales.
+const isValidPhone = (value: string) => {
+  const trimmed = value.trim()
+  if (!/^[\d\s+().-]+$/.test(trimmed)) return false
+  const digits = trimmed.replace(/\D/g, "")
+  return digits.length >= 10 && digits.length <= 13
+}
+
 export default function RegisterPage() {
   const [name, setName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -76,8 +88,20 @@ export default function RegisterPage() {
       toast.error("El apellido es obligatorio")
       return
     }
+    if (!email.trim()) {
+      toast.error("El email es obligatorio")
+      return
+    }
+    if (!isValidEmail(email)) {
+      toast.error("Ingresá un email válido")
+      return
+    }
     if (!phone.trim()) {
       toast.error("El teléfono es obligatorio")
+      return
+    }
+    if (!isValidPhone(phone)) {
+      toast.error("Ingresá un teléfono válido (10 a 13 dígitos)")
       return
     }
     if (!province) {

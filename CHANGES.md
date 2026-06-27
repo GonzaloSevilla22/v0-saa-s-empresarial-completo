@@ -889,7 +889,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ### V2.5 — Finanzas
 
-- `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes) — descompuesto en **3 changes**: C1 `bank-account-ledger` (🔨 propuesto — ledger bancario, carga manual; ver "Post-roadmap V2.x") → C2 `bank-payment-routing` (ruteo de pagos al banco + posteo `1110`) → C3 `bank-reconciliation` (import de extracto + matching)
+- `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes) — descompuesto en **3 changes**: C1 `bank-account-ledger` ✅ (2026-06-27, PR #243 — ledger bancario + carga manual; ver "Post-roadmap V2.x") → C2 `bank-payment-routing` (ruteo de pagos al banco + posteo `1110`) → C3 `bank-reconciliation` (import de extracto + matching)
 - `JournalEntry` ✅ V1 entregado (`journal-entry-outbox`, 2026-06-27 — ver "Post-roadmap V2.x"): partida doble generada async vía Consumer 3 del outbox para ventas/compras/pagos/NC. Falta: plan de cuentas configurable + UI, gastos/cierre de caja, export contable (V2.6)
 - `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
 - Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino)
@@ -988,7 +988,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Leer antes**: `modelo-dominio-aliadata-v2.md` §5.6/§5.8/§5.9, `openspec/explore/2026-06-27-journal-entry-outbox.md`, `knowledge-base/05_reglas_de_negocio.md`.
 
 ### `bank-account-ledger` — Ledger bancario, carga manual (V2.5 #3 · BankReconciliation C1/3)
-- **Estado**: `[ ]` propuesto 2026-06-27 (artefactos en `openspec/changes/bank-account-ledger/`). Sin aplicar.
+- **Estado**: `[x]` archivado 2026-06-27 (`2026-06-27-bank-account-ledger`, PR #243). Migración `20260804000002_bank_account_ledger.sql` aplicada por CI al mergear.
+- **Specs sincronizadas**: `bank-account` (nueva), `bank-movement` (nueva).
 - **Governance**: MEDIO (tablas aisladas nuevas + RPCs manuales; no toca el hot path de venta/pago ni dinero real existente).
 - **Secuencia**: **C1 de 3** de BankReconciliation → C1 `bank-account-ledger` → C2 `bank-payment-routing` → C3 `bank-reconciliation`. C1 entrega un dominio bancario **autónomo, carga manual únicamente**, + costuras documentadas (no construidas) para C2/C3.
 - **Scope**: `bank_accounts` (root **org-level**, tenancy directa por `account_id` — NO branch-scoped como las cajas; `cbu` 22 dígitos validado, `alias`, `currency`, `opening_balance`, `is_active`) + `bank_movements` (ledger append-only espejo de `cash_movements`: `amount` con signo, `balance_after`, `value_date`, `branch_id` nullable analítica; CHECK con el **enum completo ya fijado** `transfer_in/transfer_out/card_settlement/fee/tax_debit/interest/manual_adjustment`). Helper intra-tx `_register_bank_movement` (**contrato C1→C2**, espejo de `c28_register_cash_movement`, REVOKE de PUBLIC). RPCs SECURITY DEFINER `rpc_create_bank_account`/`rpc_update_bank_account`/`rpc_register_bank_movement` (carga manual — solo acepta `transfer_in/transfer_out/manual_adjustment`, rechaza los reservados). RLS: SELECT por `account_id` (denormalizado en `bank_movements`, sin subquery por fila — patrón `journal_lines` D7); escritura solo vía RPC. Migración `20260804000002_bank_account_ledger.sql`. ERRCODEs P0401/P0410/P0411/P0412.

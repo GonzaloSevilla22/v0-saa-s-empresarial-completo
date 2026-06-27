@@ -307,8 +307,10 @@ BEGIN
       USING ERRCODE = 'P0412';
   END IF;
 
-  -- Calcular saldo previo: MAX(balance_after) de la cuenta, o opening_balance si no hay movimientos
-  SELECT COALESCE(MAX(bm.balance_after), v_ba.opening_balance)
+  -- Calcular saldo previo: opening_balance + suma de los amounts de los movimientos previos.
+  -- (SUM(amount), NO MAX(balance_after): el saldo corriente puede bajar tras un egreso,
+  --  y MAX devolvería un saldo previo incorrecto. FOR UPDATE arriba serializa el cálculo.)
+  SELECT v_ba.opening_balance + COALESCE(SUM(bm.amount), 0)
   INTO v_prev_balance
   FROM public.bank_movements bm
   WHERE bm.bank_account_id = p_bank_account_id;
@@ -339,7 +341,7 @@ COMMENT ON FUNCTION public._register_bank_movement IS
   'Espejo exacto de c28_register_cash_movement (C-28) — contrato C1→C2. '
   'NO abre transacción propia; corre en la transacción del llamador. '
   'FOR UPDATE sobre bank_accounts serializa cálculo de balance_after. '
-  'balance_after = MAX(balance_after de la cuenta) + amount (o opening_balance si sin movimientos). '
+  'balance_after = opening_balance + SUM(amount de movimientos previos) + amount (SUM, no MAX: el saldo puede bajar). '
   'account_id denormalizado en el INSERT desde la cabecera (D2). '
   'REVOKE de PUBLIC/anon/authenticated: callable SOLO desde RPCs SECURITY DEFINER de C1 y C2 '
   '(las futuras RPCs de pago de bank-payment-routing la invocarán intra-tx para atomicidad).';
@@ -653,7 +655,9 @@ COMMENT ON FUNCTION public.rpc_register_bank_movement IS
 -- 7. Gates SQL (RED→GREEN→TRIANGULATE validados por este DO-block)
 --
 -- Estilo espejo de c28_cash_session §1.9 y c30_customer_supplier_accounts.
--- SAVEPOINTs por sub-gate; ROLLBACK total de datos de prueba al final.
+-- Sub-bloques BEGIN/EXCEPTION por gate (PL/pgSQL NO admite SAVEPOINT/ROLLBACK TO
+-- SAVEPOINT explícitos); los gates mutantes revierten sus datos vía un sentinel
+-- (RAISE capturado), y al final hay limpieza + invariante de cero filas de prueba.
 -- RAISE NOTICE de resumen para verificación en log de migración.
 --
 -- Gates cubiertos:
@@ -665,7 +669,7 @@ COMMENT ON FUNCTION public.rpc_register_bank_movement IS
 --   (f) RLS bank_movements: INSERT/UPDATE/DELETE directo bloqueado (Task 3.7)
 --   (g) _register_bank_movement calcula balance_after (opening + amount) (Task 4.2)
 --   (h) _register_bank_movement secuencia signada +500/-200/+300 → 1500/1300/1600 (Task 4.3)
---   (i) _register_bank_movement atomicidad: ROLLBACK de SAVEPOINT no deja fila (Task 4.4)
+--   (i) _register_bank_movement atomicidad: revertir sub-bloque no deja fila (Task 4.4)
 --   (j) rpc_create_bank_account: CBU '12345' → P0411 (Task 5.4)
 --   (k) rpc_create_bank_account: CBU NULL → OK; CBU 22 dígitos → OK (Task 5.4)
 --   (l) rpc_update_bank_account: soft-deactivate persiste (Task 5.5)
@@ -735,8 +739,9 @@ BEGIN
 
   -- ── (a) CHECK CBU: formato inválido rechazado ─────────────────────────────
   -- Task 1.2 RED → Task 1.3 GREEN (tabla existe, CHECK rechaza '12345')
+  -- Sub-bloque BEGIN/EXCEPTION: el INSERT fallido se revierte automáticamente
+  -- al capturarse la excepción (savepoint implícito de PL/pgSQL).
   BEGIN
-    SAVEPOINT gate_a;
     INSERT INTO public.bank_accounts
       (account_id, name, currency, cbu)
     VALUES
@@ -744,16 +749,15 @@ BEGIN
     RAISE EXCEPTION 'GATE (a) FAILED: debería haber violado CHECK de CBU';
   EXCEPTION
     WHEN check_violation THEN
-      -- Correcto: el CHECK rechazó el CBU inválido
+      -- Correcto: el CHECK rechazó el CBU inválido (insert revertido)
       v_gate_a := true;
-      ROLLBACK TO SAVEPOINT gate_a;
   END;
 
 
   -- ── (b) CHECK CBU: NULL y 22 dígitos pasan ───────────────────────────────
-  -- Task 1.4 TRIANGULATE
+  -- Task 1.4 TRIANGULATE. Sentinel rollback: los INSERT exitosos se revierten
+  -- vía RAISE de un sentinel capturado, para aislar este gate de los siguientes.
   BEGIN
-    SAVEPOINT gate_b;
     -- CBU NULL debe pasar
     INSERT INTO public.bank_accounts
       (account_id, name, currency, cbu)
@@ -765,18 +769,18 @@ BEGIN
     VALUES
       (v_fake_account_id, 'Test CBU válido', 'ARS', '0720599700000082451246');
     v_gate_b := true;
-    ROLLBACK TO SAVEPOINT gate_b;
+    RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN
+      IF SQLERRM <> 'GATE_ROLLBACK_SENTINEL' THEN RAISE; END IF;
   END;
 
 
   -- ── (c) RLS bank_accounts: INSERT directo de authenticated bloqueado ──────
-  -- Task 2.4 TRIANGULATE: sin policy de INSERT, RLS bloquea la escritura directa
-  -- Simulamos ejecutando como rol authenticated (la ausencia de policy RLS = deny)
+  -- Task 2.4 TRIANGULATE: sin policy de INSERT, RLS bloquea la escritura directa.
+  -- Gate de introspección (no muta): comprobamos que no existe ninguna policy
+  -- de escritura sobre bank_accounts (la ausencia ES la garantía).
   BEGIN
-    SAVEPOINT gate_c;
-    -- El DO-block corre como SECURITY DEFINER (dueño de la función).
-    -- Para verificar que authenticated no puede escribir, comprobamos que no existe
-    -- ninguna policy INSERT sobre bank_accounts (la ausencia ES la garantía).
     SELECT COUNT(*) INTO v_count
     FROM pg_policies
     WHERE schemaname = 'public'
@@ -787,14 +791,12 @@ BEGIN
       RAISE EXCEPTION 'GATE (c) FAILED: existen % polícies de escritura directa en bank_accounts — se esperaba 0', v_count;
     END IF;
     v_gate_c := true;
-    ROLLBACK TO SAVEPOINT gate_c;
   END;
 
 
   -- ── (d) CHECK movement_type: 'foo' rechazado ────────────────────────────
   -- Task 3.1 RED → Task 3.2 GREEN
   BEGIN
-    SAVEPOINT gate_d;
     INSERT INTO public.bank_movements
       (bank_account_id, account_id, amount, balance_after, movement_type)
     VALUES
@@ -803,14 +805,12 @@ BEGIN
   EXCEPTION
     WHEN check_violation THEN
       v_gate_d := true;
-      ROLLBACK TO SAVEPOINT gate_d;
   END;
 
 
   -- ── (e) CHECK movement_type: los 7 tipos pasan a nivel tabla ────────────
-  -- Task 3.3 TRIANGULATE
+  -- Task 3.3 TRIANGULATE. Sentinel rollback para aislar los 7 INSERT de prueba.
   BEGIN
-    SAVEPOINT gate_e;
     INSERT INTO public.bank_movements
       (bank_account_id, account_id, amount, balance_after, movement_type)
     VALUES
@@ -822,14 +822,16 @@ BEGIN
       (v_bank_account_id, v_fake_account_id, 5,   225, 'interest'),
       (v_bank_account_id, v_fake_account_id, 75,  300, 'manual_adjustment');
     v_gate_e := true;
-    ROLLBACK TO SAVEPOINT gate_e;
+    RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN
+      IF SQLERRM <> 'GATE_ROLLBACK_SENTINEL' THEN RAISE; END IF;
   END;
 
 
   -- ── (f) RLS bank_movements: sin policy de escritura directa ─────────────
-  -- Task 3.7 TRIANGULATE (equivalente al gate (c) para bank_movements)
+  -- Task 3.7 TRIANGULATE (equivalente al gate (c) para bank_movements; introspección)
   BEGIN
-    SAVEPOINT gate_f;
     SELECT COUNT(*) INTO v_count
     FROM pg_policies
     WHERE schemaname = 'public'
@@ -840,14 +842,13 @@ BEGIN
       RAISE EXCEPTION 'GATE (f) FAILED: existen % políticas de escritura directa en bank_movements — se esperaba 0', v_count;
     END IF;
     v_gate_f := true;
-    ROLLBACK TO SAVEPOINT gate_f;
   END;
 
 
   -- ── (g) _register_bank_movement calcula balance_after ────────────────────
-  -- Task 4.2 GREEN: opening_balance=10000 + amount=+5000 → balance_after=15000
+  -- Task 4.2 GREEN: opening_balance=10000 + amount=+5000 → balance_after=15000.
+  -- Sentinel rollback: aísla el movimiento de prueba de los gates siguientes.
   BEGIN
-    SAVEPOINT gate_g;
     v_movement_id := public._register_bank_movement(
       v_bank_account_id,
       5000.00,
@@ -862,77 +863,79 @@ BEGIN
       RAISE EXCEPTION 'GATE (g) FAILED: balance_after esperado 15000, obtenido %', v_bal;
     END IF;
     v_gate_g := true;
-    ROLLBACK TO SAVEPOINT gate_g;
+    RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN
+      IF SQLERRM <> 'GATE_ROLLBACK_SENTINEL' THEN RAISE; END IF;
   END;
 
 
   -- ── (h) _register_bank_movement secuencia signada ────────────────────────
-  -- Task 4.3 TRIANGULATE: opening=1000; +500→1500; -200→1300; +300→1600
+  -- Task 4.3 TRIANGULATE: opening=1000; +500→1500; -200→1300; +300→1600.
+  -- (El saldo baja y vuelve a subir → valida que el helper usa opening+SUM(amount),
+  --  no MAX(balance_after). Sentinel rollback aísla la cuenta y sus 3 movimientos.)
+  DECLARE
+    v_test_acct_id uuid;
+    v_m1 uuid; v_m2 uuid; v_m3 uuid;
+    v_b1 numeric; v_b2 numeric; v_b3 numeric;
   BEGIN
-    SAVEPOINT gate_h;
-    -- Usar v_bank_account_id_b que tiene opening_balance=5000 — para aislarlo,
-    -- usamos una nueva cuenta de prueba con opening=1000
-    DECLARE
-      v_test_acct_id uuid;
-      v_m1 uuid; v_m2 uuid; v_m3 uuid;
-      v_b1 numeric; v_b2 numeric; v_b3 numeric;
-    BEGIN
-      INSERT INTO public.bank_accounts
-        (account_id, name, currency, opening_balance, is_active)
-      VALUES
-        (v_fake_account_id, 'Test secuencia', 'ARS', 1000.00, true)
-      RETURNING id INTO v_test_acct_id;
+    INSERT INTO public.bank_accounts
+      (account_id, name, currency, opening_balance, is_active)
+    VALUES
+      (v_fake_account_id, 'Test secuencia', 'ARS', 1000.00, true)
+    RETURNING id INTO v_test_acct_id;
 
-      v_m1 := public._register_bank_movement(v_test_acct_id, 500.00, 'transfer_in');
-      v_m2 := public._register_bank_movement(v_test_acct_id, -200.00, 'transfer_out');
-      v_m3 := public._register_bank_movement(v_test_acct_id, 300.00, 'manual_adjustment');
+    v_m1 := public._register_bank_movement(v_test_acct_id, 500.00, 'transfer_in');
+    v_m2 := public._register_bank_movement(v_test_acct_id, -200.00, 'transfer_out');
+    v_m3 := public._register_bank_movement(v_test_acct_id, 300.00, 'manual_adjustment');
 
-      SELECT bm.balance_after INTO v_b1 FROM public.bank_movements bm WHERE bm.id = v_m1;
-      SELECT bm.balance_after INTO v_b2 FROM public.bank_movements bm WHERE bm.id = v_m2;
-      SELECT bm.balance_after INTO v_b3 FROM public.bank_movements bm WHERE bm.id = v_m3;
+    SELECT bm.balance_after INTO v_b1 FROM public.bank_movements bm WHERE bm.id = v_m1;
+    SELECT bm.balance_after INTO v_b2 FROM public.bank_movements bm WHERE bm.id = v_m2;
+    SELECT bm.balance_after INTO v_b3 FROM public.bank_movements bm WHERE bm.id = v_m3;
 
-      IF v_b1 IS DISTINCT FROM 1500.00 THEN
-        RAISE EXCEPTION 'GATE (h) FAILED: +500 esperaba 1500, obtuvo %', v_b1;
-      END IF;
-      IF v_b2 IS DISTINCT FROM 1300.00 THEN
-        RAISE EXCEPTION 'GATE (h) FAILED: -200 esperaba 1300, obtuvo %', v_b2;
-      END IF;
-      IF v_b3 IS DISTINCT FROM 1600.00 THEN
-        RAISE EXCEPTION 'GATE (h) FAILED: +300 esperaba 1600, obtuvo %', v_b3;
-      END IF;
-      v_gate_h := true;
-    END;
-    ROLLBACK TO SAVEPOINT gate_h;
+    IF v_b1 IS DISTINCT FROM 1500.00 THEN
+      RAISE EXCEPTION 'GATE (h) FAILED: +500 esperaba 1500, obtuvo %', v_b1;
+    END IF;
+    IF v_b2 IS DISTINCT FROM 1300.00 THEN
+      RAISE EXCEPTION 'GATE (h) FAILED: -200 esperaba 1300, obtuvo %', v_b2;
+    END IF;
+    IF v_b3 IS DISTINCT FROM 1600.00 THEN
+      RAISE EXCEPTION 'GATE (h) FAILED: +300 esperaba 1600, obtuvo %', v_b3;
+    END IF;
+    v_gate_h := true;
+    RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN raise_exception THEN
+      IF SQLERRM <> 'GATE_ROLLBACK_SENTINEL' THEN RAISE; END IF;
   END;
 
 
-  -- ── (i) _register_bank_movement atomicidad (ROLLBACK de SAVEPOINT) ───────
-  -- Task 4.4 TRIANGULATE: el helper no abre transacción propia;
-  -- si el SAVEPOINT se revierte, no queda fila
+  -- ── (i) _register_bank_movement atomicidad (rollback de sub-bloque) ──────
+  -- Task 4.4 TRIANGULATE: el helper no abre transacción propia; al revertir el
+  -- sub-bloque que lo invoca (savepoint implícito de BEGIN/EXCEPTION), no queda fila.
+  DECLARE
+    v_count_before int;
+    v_count_after  int;
   BEGIN
-    SAVEPOINT gate_i_outer;
-    DECLARE
-      v_count_before int;
-      v_count_after  int;
-      v_m uuid;
+    SELECT COUNT(*) INTO v_count_before FROM public.bank_movements
+    WHERE bank_account_id = v_bank_account_id;
+
     BEGIN
-      SELECT COUNT(*) INTO v_count_before FROM public.bank_movements
-      WHERE bank_account_id = v_bank_account_id;
-
-      SAVEPOINT gate_i_inner;
-      v_m := public._register_bank_movement(v_bank_account_id, 999.00, 'transfer_in');
-      ROLLBACK TO SAVEPOINT gate_i_inner;  -- revertir el movimiento
-
-      SELECT COUNT(*) INTO v_count_after FROM public.bank_movements
-      WHERE bank_account_id = v_bank_account_id;
-
-      IF v_count_after <> v_count_before THEN
-        RAISE EXCEPTION 'GATE (i) FAILED: el ROLLBACK del SAVEPOINT no revirtió el movimiento; '
-          'antes=%, después=%', v_count_before, v_count_after;
-      END IF;
-      v_gate_i := true;
+      PERFORM public._register_bank_movement(v_bank_account_id, 999.00, 'transfer_in');
+      RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
+    EXCEPTION
+      WHEN raise_exception THEN
+        IF SQLERRM <> 'GATE_ROLLBACK_SENTINEL' THEN RAISE; END IF;
     END;
-    ROLLBACK TO SAVEPOINT gate_i_outer;
+
+    SELECT COUNT(*) INTO v_count_after FROM public.bank_movements
+    WHERE bank_account_id = v_bank_account_id;
+
+    IF v_count_after <> v_count_before THEN
+      RAISE EXCEPTION 'GATE (i) FAILED: el rollback del sub-bloque no revirtió el movimiento; '
+        'antes=%, después=%', v_count_before, v_count_after;
+    END IF;
+    v_gate_i := true;
   END;
 
 
@@ -942,9 +945,8 @@ BEGIN
   -- requieren un JWT real. En el apply-time (sin usuario) la RPC falla antes
   -- de llegar a la validación de CBU (P0403). Verificamos el guard de CBU
   -- directamente a través del CHECK de la tabla (gate a) ya validado.
-  -- Gate (j) = verificación documental: la RPC contiene la condición de CBU.
+  -- Gate (j) = verificación documental: la RPC contiene la condición de CBU. (introspección)
   BEGIN
-    SAVEPOINT gate_j;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -966,14 +968,12 @@ BEGIN
       RAISE EXCEPTION 'GATE (j) FAILED: rpc_create_bank_account no contiene guard P0411';
     END IF;
     v_gate_j := true;
-    ROLLBACK TO SAVEPOINT gate_j;
   END;
 
 
   -- ── (k) rpc_create_bank_account + rpc_update_bank_account: existen ───────
-  -- Task 5.1 RED → 5.2 GREEN (existencia verificada)
+  -- Task 5.1 RED → 5.2 GREEN (existencia verificada; introspección)
   BEGIN
-    SAVEPOINT gate_k;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -984,14 +984,13 @@ BEGIN
       RAISE EXCEPTION 'GATE (k) FAILED: faltan RPCs de cuenta bancaria; encontradas: %', v_count;
     END IF;
     v_gate_k := true;
-    ROLLBACK TO SAVEPOINT gate_k;
   END;
 
 
   -- ── (l) rpc_update_bank_account: contiene guard P0412 y P0401 ───────────
-  -- Task 5.5 GREEN: verificación de contenido funcional
+  -- Task 5.5 GREEN: verificación de contenido funcional + soft-deactivate.
+  -- El UPDATE de prueba deja is_active restaurado a true (estado original).
   BEGIN
-    SAVEPOINT gate_l;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -1016,10 +1015,9 @@ BEGIN
     IF v_gate_l IS DISTINCT FROM false THEN
       RAISE EXCEPTION 'GATE (l) FAILED: soft-deactivate no persistió';
     END IF;
-    -- Reactivar para gates posteriores
+    -- Reactivar (restaura el estado original de la cuenta de setup)
     UPDATE public.bank_accounts SET is_active = true WHERE id = v_bank_account_id_b;
     v_gate_l := true;
-    ROLLBACK TO SAVEPOINT gate_l;
   END;
 
 
@@ -1028,7 +1026,6 @@ BEGIN
   -- (La RPC falla en el guard de account_id antes del tipo cuando no hay JWT;
   --  verificamos el guard de tipo vía introspección del código.)
   BEGIN
-    SAVEPOINT gate_m;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -1041,14 +1038,12 @@ BEGIN
       RAISE EXCEPTION 'GATE (m) FAILED: rpc_register_bank_movement no contiene guard P0410 para card_settlement';
     END IF;
     v_gate_m := true;
-    ROLLBACK TO SAVEPOINT gate_m;
   END;
 
 
   -- ── (n) rpc_register_bank_movement: cuenta inactiva → P0412 ────────────
   -- Task 6.5 TRIANGULATE: verificar que el código contiene el guard de is_active
   BEGIN
-    SAVEPOINT gate_n;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -1061,14 +1056,12 @@ BEGIN
       RAISE EXCEPTION 'GATE (n) FAILED: rpc_register_bank_movement no tiene guard de is_active→P0412';
     END IF;
     v_gate_n := true;
-    ROLLBACK TO SAVEPOINT gate_n;
   END;
 
 
   -- ── (o) rpc_register_bank_movement: idempotencia ────────────────────────
   -- Task 6.6 TRIANGULATE: verificar que el código contiene ON CONFLICT para bank_movement
   BEGIN
-    SAVEPOINT gate_o;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -1082,7 +1075,6 @@ BEGIN
       RAISE EXCEPTION 'GATE (o) FAILED: rpc_register_bank_movement no implementa idempotencia (ON CONFLICT/replayed)';
     END IF;
     v_gate_o := true;
-    ROLLBACK TO SAVEPOINT gate_o;
   END;
 
 
@@ -1091,7 +1083,6 @@ BEGIN
   -- Este gate verifica la separación arquitectónica: el helper _register_bank_movement
   -- NO tiene ninguna referencia a journal_entries/journal_lines ni a '1110'.
   BEGIN
-    SAVEPOINT gate_p;
     SELECT COUNT(*) INTO v_count
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -1125,18 +1116,33 @@ BEGIN
     END IF;
 
     v_gate_p := true;
-    ROLLBACK TO SAVEPOINT gate_p;
   END;
 
 
-  -- ── ROLLBACK total de todos los datos de prueba ───────────────────────────
-  -- Los bank_movements se limpian por CASCADE desde bank_accounts
+  -- ── Limpieza total de los datos de prueba ────────────────────────────────
+  -- Los gates mutantes (b/e/g/h/i) ya revirtieron sus movimientos vía sentinel;
+  -- esto borra las cuentas de setup (sus bank_movements caen por CASCADE).
+  -- Además, la migración entera corre en una transacción: si cualquier gate
+  -- hubiera abortado, NADA se habría aplicado a producción.
   DELETE FROM public.bank_accounts
   WHERE account_id IN (v_fake_account_id, v_fake_account_id_b);
 
   -- Limpiar filas de operation_idempotency del DO-block (user_id ficticio)
   DELETE FROM public.operation_idempotency
   WHERE user_id = v_fake_user_id;
+
+  -- ── Invariante de prod-safety: NO deben quedar filas de prueba ────────────
+  SELECT COUNT(*) INTO v_count FROM public.bank_accounts
+  WHERE account_id IN (v_fake_account_id, v_fake_account_id_b);
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE cleanup FAILED: quedaron % bank_accounts de prueba en prod', v_count;
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.bank_movements
+  WHERE account_id IN (v_fake_account_id, v_fake_account_id_b);
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE cleanup FAILED: quedaron % bank_movements de prueba en prod', v_count;
+  END IF;
 
   -- ── Resumen de gates ─────────────────────────────────────────────────────
   RAISE NOTICE '=== bank-account-ledger C1 SQL gates ===';

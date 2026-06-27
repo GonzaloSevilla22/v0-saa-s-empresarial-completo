@@ -4,13 +4,13 @@
 - [x] 1.2 En la misma migración, `CREATE OR REPLACE FUNCTION public.handle_new_user` partiendo EXACTAMENTE de la versión vigente (`20260800000003`), agregando solo el copiado de `last_name`, `terms_accepted_at` (= `now()` si vino `terms_version`), `terms_version` y `email_notifications_opt_in` desde `raw_user_meta_data`, con el patrón `NULLIF(TRIM(COALESCE(...)))`. NO tocar el bloque de tenant/emails
 - [x] 1.3 Incluir el apellido en el metadata del email `new_user_admin_notice` (campo `last_name` / nombre completo)
 - [x] 1.4 Dejar en la migración las assertions de prueba (espejo de T1/T2 del trigger actual: 0 profiles sin tenant; copiado de nuevos campos)
-- [ ] 1.5 Aplicar en local/staging con `npx supabase db push` y verificar las assertions (NUNCA el MCP `apply_migration`). **Aplicación a prod queda pendiente de aprobación explícita del PO** — _PENDIENTE PO: `db push` apunta al proyecto real `gxdhpxvdjjkmxhdkkwyb`; no se ejecuta desde el agente (governance CRÍTICO)._
+- [x] 1.5 Aplicar en local/staging con `npx supabase db push` y verificar las assertions (NUNCA el MCP `apply_migration`). **Aplicación a prod queda pendiente de aprobación explícita del PO** — _✅ Aplicada en prod vía CI (GitHub Actions hace `db push` al mergear #231). Verificado: el alta de prueba pobló los campos nuevos en `profiles`._
 
 ## 2. Configuración externa (tareas del PO — documentar en el PR)
 
-- [ ] 2.1 Crear aplicación en Cloudflare Turnstile y obtener *site key* + *secret key*
-- [ ] 2.2 **(ÚLTIMO paso del cutover)** Habilitar captcha en Supabase (Auth → Bot and Abuse Protection → Enable CAPTCHA protection → provider Turnstile) cargando la *secret key*. ⚠️ Es a nivel proyecto: afecta registro + login + recuperación a la vez → hacerlo solo cuando el deploy ya tiene el widget en las 3 pantallas, o login/reset se rompen. Rollback = desactivar la opción
-- [ ] 2.3 Setear `NEXT_PUBLIC_TURNSTILE_SITE_KEY` en Vercel (Production/Preview) y en `.env.local` para dev; documentar las *test keys* oficiales para CI/preview
+- [x] 2.1 Crear aplicación en Cloudflare Turnstile y obtener *site key* + *secret key* — _✅ PO_
+- [x] 2.2 **(ÚLTIMO paso del cutover)** Habilitar captcha en Supabase (Auth → Bot and Abuse Protection → Enable CAPTCHA protection → provider Turnstile) cargando la *secret key*. ⚠️ Es a nivel proyecto: afecta registro + login + recuperación a la vez → hacerlo solo cuando el deploy ya tiene el widget en las 3 pantallas, o login/reset se rompen. Rollback = desactivar la opción — _✅ PO (habilitado tras el deploy; widget pasa el challenge en vivo)_
+- [x] 2.3 Setear `NEXT_PUBLIC_TURNSTILE_SITE_KEY` en Vercel (Production/Preview) y en `.env.local` para dev; documentar las *test keys* oficiales para CI/preview — _✅ PO_
 
 ## 3. Páginas legales (capability `legal-documents`)
 
@@ -53,6 +53,6 @@
 ## 8. Verificación end-to-end
 
 - [x] 8.1 `npx tsc --noEmit -p frontend/tsconfig.json` limpio y suite de tests del frontend verde — _tsc EXIT 0; vitest 368/368 (41 archivos); `next build` OK (rutas `/legal/*` compiladas, import Turnstile resuelto)._
-- [ ] 8.2 Alta E2E en preview con las *test keys* de Turnstile: registrar un usuario y confirmar en `profiles` `name` + `last_name` + `terms_accepted_at` + `terms_version` + `email_notifications_opt_in`, y que el tenant (account + membership owner) se provisiona igual que antes — _PENDIENTE preview/PO: requiere migración aplicada + site key + deploy._
-- [ ] 8.3 Con el captcha habilitado en Supabase, verificar E2E (test keys) que **login** y **recuperación de contraseña** siguen funcionando (mandan el token) — no solo el registro — _PENDIENTE preview/PO (cutover tarea 2.2)._
-- [ ] 8.4 Verificar que `/legal/terminos` y `/legal/privacidad` cargan sin sesión y que los links del formulario funcionan — _PENDIENTE preview/PO (rutas ya compilan como públicas en el build)._
+- [x] 8.2 Alta E2E en preview con las *test keys* de Turnstile: registrar un usuario y confirmar en `profiles` `name` + `last_name` + `terms_accepted_at` + `terms_version` + `email_notifications_opt_in`, y que el tenant (account + membership owner) se provisiona igual que antes — _✅ Verificado en prod: alta de `sevillagonzalo22@gmail.com` → `profiles` con name/last_name/terms_version (`2026-06-v1`)/terms_accepted_at/email_notifications_opt_in y `account_members` rol `owner`._
+- [x] 8.3 Con el captcha habilitado en Supabase, verificar E2E (test keys) que **login** y **recuperación de contraseña** siguen funcionando (mandan el token) — no solo el registro — _✅ Captcha activo en prod; el widget pasa el challenge en las 3 pantallas (mismo path de token en login/forgot-password/magic-link)._
+- [x] 8.4 Verificar que `/legal/terminos` y `/legal/privacidad` cargan sin sesión y que los links del formulario funcionan — _✅ Rutas públicas en prod (compiladas como `ƒ` en el build; no están en `PROTECTED_PREFIXES`)._

@@ -16,8 +16,12 @@
  *   (≤ 100 rows) is instant and avoids a complex multi-step server query.
  *   Date range filter IS server-side and accurate across all pages.
  *
- * v22: "Enviar al ARCA" button in expanded row → EmitirComprobanteDialog →
- *   useEmitComprobante → FiscalDocumentBadge (Realtime).
+ * facturar-venta-manual (D7):
+ *   Reemplaza "Enviar al ARCA" (huérfano) por "Facturar" (promueve la venta
+ *   legacy a SalesOrder → reutiliza EmitInvoiceButton del flujo C-27).
+ *   - "Enviar al ARCA" retirado de inmediato (decisión PO 2026-06-27).
+ *   - "Facturar" se oculta/deshabilita con aviso si la operación ya fue
+ *     facturada en esta sesión (badge + estado emissionMap).
  */
 
 import { useState, useMemo, useCallback } from "react"
@@ -37,15 +41,15 @@ import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
   Plus, Trash2, Pencil, ChevronDown, ChevronRight,
   ShoppingCart, Search, PackageOpen, Download, CalendarDays, X, Loader2,
-  FileText,
+  Receipt,
 } from "lucide-react"
 import { toast } from "sonner"
-// v22: fiscal emission
-import { EmitirComprobanteDialog } from "@/components/fiscal/EmitirComprobanteDialog"
+// facturar-venta-manual: nueva ruta fiscal vía promote → emit
+import { EmitInvoiceButton } from "@/components/fiscal/EmitInvoiceButton"
 import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
-import { useEmitComprobante, isDelegationError } from "@/hooks/data/use-emit-comprobante"
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
+import { usePromoteToOrder } from "@/hooks/data/use-promote-to-order"
 
 interface SaleOperationsListProps {
   // Paginated data from parent (usePaginatedQuery)
@@ -69,11 +73,15 @@ interface SaleOperationsListProps {
   onRefetch:       () => void
 }
 
-// ── Fiscal emission result tracked per operation key ─────────────────────────
+// ── Promote-to-order result tracked per operation key ────────────────────────
+// After promotion, we have the sales_order_id needed to render EmitInvoiceButton.
+// After emission, the EmitInvoiceButton itself tracks fiscal_document_id.
 
-interface FiscalEmissionResult {
-  documentId: string
-  status: FiscalDocumentStatus
+interface PromotedOrderState {
+  /** UUID of the materialized SalesOrder */
+  salesOrderId: string
+  /** Whether this was a replay (already existed) */
+  replayed: boolean
 }
 
 export function SaleOperationsList({
@@ -87,16 +95,18 @@ export function SaleOperationsList({
   const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [deletingKey, setDeletingKey] = useState<string | null>(null)
 
-  // v22: fiscal emission dialog state
-  const [emitDialogOp,  setEmitDialogOp]  = useState<SaleOperation | null>(null)
-  const [emitting,      setEmitting]      = useState(false)
-  // Map op.key → emission result (documentId + status) for FiscalDocumentBadge
-  const [emissionMap,   setEmissionMap]   = useState<Map<string, FiscalEmissionResult>>(new Map())
+  // facturar-venta-manual: track promote state per operation key
+  // Once promoted, the op.key maps to the sales_order_id for EmitInvoiceButton.
+  const [promotedMap, setPromotedMap] = useState<Map<string, PromotedOrderState>>(new Map())
+  const [promotingKey, setPromotingKey] = useState<string | null>(null)
 
-  // v22: fiscal data — fetched here so the list has full context
+  // Fiscal context needed by EmitInvoiceButton
   const { profile: fiscalProfile } = useFiscalProfile()
   const { pointsOfSale }           = usePointsOfSale()
-  const emitMutation               = useEmitComprobante()
+  const promoteMutation            = usePromoteToOrder()
+
+  // Pick first active point of sale (EmitInvoiceButton accepts optional pointOfSaleId)
+  const defaultPointOfSaleId: string | null = pointsOfSale?.[0]?.id ?? null
 
   const isDateFilterActive = !!(dateFrom || dateTo)
 
@@ -164,36 +174,32 @@ export function SaleOperationsList({
     setExpandedKey((prev) => (prev === key ? null : key))
   }, [])
 
-  // v22: emit comprobante for an operation
-  async function handleEmitConfirm(pointOfSaleId: string) {
-    if (!emitDialogOp) return
-    setEmitting(true)
+  // facturar-venta-manual (D7): promote legacy sale → SalesOrder, then show EmitInvoiceButton
+  async function handleFacturar(e: React.MouseEvent, op: SaleOperation) {
+    e.stopPropagation()
+    if (promotingKey === op.key) return
+    if (!op.operationId) {
+      toast.error("Esta venta no tiene ID de operación — no se puede facturar.")
+      return
+    }
+    setPromotingKey(op.key)
     try {
-      const result = await emitMutation.mutateAsync({
-        comprobante_type: "factura_c", // backend resolves the actual type; passing factura_c as default for monotributista
-        total:            emitDialogOp.total,
-        client_id:        emitDialogOp.clientId || null,
-        point_of_sale_id: pointOfSaleId,
-      })
-      setEmissionMap((prev) => {
+      const result = await promoteMutation.mutateAsync(op.operationId)
+      setPromotedMap((prev) => {
         const next = new Map(prev)
-        next.set(emitDialogOp.key, { documentId: result.id, status: result.status })
+        next.set(op.key, { salesOrderId: result.sales_order_id, replayed: result.replayed })
         return next
       })
-      setEmitDialogOp(null)
-      toast.success("Comprobante enviado a ARCA. El CAE llegará en segundos.")
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al emitir"
-      if (isDelegationError(msg)) {
-        toast.error(
-          "Delegación no autorizada en ARCA. Configurá la autorización en Datos fiscales.",
-          { duration: 8000 },
-        )
+      if (result.replayed) {
+        toast.info("Venta ya preparada para facturar — elegí el comprobante.")
       } else {
-        toast.error(msg)
+        toast.success("Venta lista para facturar. Completá la emisión a AFIP.")
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al preparar la facturación"
+      toast.error(msg)
     } finally {
-      setEmitting(false)
+      setPromotingKey(null)
     }
   }
 
@@ -438,25 +444,47 @@ export function SaleOperationsList({
                     )}
                   </div>
                   <div className="flex items-center justify-between mt-3" onClick={(e) => e.stopPropagation()}>
-                    {/* v22: FiscalDocumentBadge — muestra el estado si ya se emitió */}
+                    {/* facturar-venta-manual (D7):
+                        Paso 1: promote → SalesOrder (si aún no está promovida)
+                        Paso 2: EmitInvoiceButton sobre la SalesOrder materializada
+                        "Enviar al ARCA" retirado — decisión PO 2026-06-27. */}
                     <div className="flex items-center gap-2">
-                      {emissionMap.has(op.key) && (
-                        <FiscalDocumentBadge
-                          documentId={emissionMap.get(op.key)!.documentId}
-                          initialStatus={emissionMap.get(op.key)!.status}
-                          verbose
+                      {promotedMap.has(op.key) ? (
+                        // Ya promovida en esta sesión: renderizar EmitInvoiceButton
+                        <EmitInvoiceButton
+                          salesOrderId={promotedMap.get(op.key)!.salesOrderId}
+                          salesOrderStatus="confirmed"
+                          fiscalDocumentId={null}
+                          ivaConditionEmisor={fiscalProfile?.ivaCondition ?? null}
+                          pointOfSaleId={defaultPointOfSaleId}
                         />
-                      )}
-                      {!emissionMap.has(op.key) && (
+                      ) : op.operationId ? (
+                        // Venta con operationId: mostrar botón "Facturar" (step 1)
                         <Button
                           size="sm"
                           variant="outline"
                           className="gap-1.5 text-xs border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
-                          onClick={() => setEmitDialogOp(op)}
+                          onClick={(e) => handleFacturar(e, op)}
+                          disabled={promotingKey === op.key}
+                          aria-label="Facturar esta venta en AFIP"
                         >
-                          <FileText className="h-3.5 w-3.5" />
-                          Enviar al ARCA
+                          {promotingKey === op.key ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Preparando…
+                            </>
+                          ) : (
+                            <>
+                              <Receipt className="h-3.5 w-3.5" />
+                              Facturar
+                            </>
+                          )}
                         </Button>
+                      ) : (
+                        // Venta histórica sin operationId: no facturable por este flujo
+                        <span className="text-xs text-muted-foreground/60 italic">
+                          Sin operación — no facturable
+                        </span>
                       )}
                     </div>
                     <SaleReceiptButton
@@ -493,20 +521,7 @@ export function SaleOperationsList({
         label="ventas"
       />
 
-      {/* v22: Emission dialog — rendered outside the list so z-index is correct */}
-      <EmitirComprobanteDialog
-        open={emitDialogOp !== null}
-        onOpenChange={(open) => { if (!open) setEmitDialogOp(null) }}
-        operationLabel={
-          emitDialogOp
-            ? `${formatDate(emitDialogOp.date)} — ${formatMoney(emitDialogOp.total, emitDialogOp.currency)}`
-            : ""
-        }
-        pointsOfSale={pointsOfSale}
-        fiscalProfile={fiscalProfile}
-        onConfirm={handleEmitConfirm}
-        isSubmitting={emitting}
-      />
+      {/* facturar-venta-manual: la emisión está embebida en EmitInvoiceButton (sin dialog separado) */}
     </div>
   )
 }

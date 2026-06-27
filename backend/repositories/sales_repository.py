@@ -201,6 +201,26 @@ class SalesRepository(BaseRepository):
             json.dumps(items, default=_default),
         )
 
+    async def promote_to_order(self, operation_id: str) -> dict:
+        """
+        facturar-venta-manual (D1-D5):
+        Invoca rpc_promote_legacy_sale_to_order para materializar una SalesOrder
+        confirmada a partir de una venta legacy. Side-effect-free.
+        Idempotente: segunda llamada devuelve replayed=true.
+
+        Propaga excepciones asyncpg sin swallowing — el mapeo P→HTTP está en el service.
+        """
+        import json as _json
+
+        row = await self.fetchrow(
+            "SELECT public.rpc_promote_legacy_sale_to_order($1::uuid) AS result",
+            operation_id,
+        )
+        if row is None:
+            raise ValueError("rpc_promote_legacy_sale_to_order devolvió NULL inesperado")
+        result = row["result"]
+        return _json.loads(result) if isinstance(result, str) else result
+
     async def create_operation(
         self,
         user_id: str,

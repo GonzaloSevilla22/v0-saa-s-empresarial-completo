@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 
+import asyncpg
 from fastapi import HTTPException
 
 from backend.core.guards import require_role
@@ -55,6 +56,46 @@ async def update_sale_operation(
         payload.currency,
         items,
     )
+
+
+async def promote_to_order(
+    repo: SalesRepository,
+    auth: dict,
+    operation_id: str,
+) -> dict:
+    """
+    facturar-venta-manual (D6):
+    Promueve una venta legacy a SalesOrder confirmada para habilitar emit-invoice.
+
+    Guard: escritor (user/admin).
+    Mapeo Postgres→HTTP (espejo de sales_orders._map_postgres_error):
+      P0401 → 403, P0400 → 400, P0404 → 404, P0409/P0422 → 409.
+    """
+    require_role(auth, ["user", "admin"])
+
+    try:
+        result = await repo.promote_to_order(operation_id)
+    except asyncpg.PostgresError as exc:
+        _map_postgres_error(exc)
+
+    return result
+
+
+def _map_postgres_error(exc: asyncpg.PostgresError) -> None:
+    """Mapea errores PostgreSQL → HTTPException (misma convención que sales_orders service)."""
+    sqlstate = getattr(exc, "sqlstate", None)
+    message  = str(exc)
+
+    if sqlstate == "P0401":
+        raise HTTPException(status_code=403, detail=f"Sin permiso: {message}")
+    if sqlstate == "P0400":
+        raise HTTPException(status_code=400, detail=f"Payload inválido: {message}")
+    if sqlstate == "P0404":
+        raise HTTPException(status_code=404, detail=f"No encontrado: {message}")
+    if sqlstate in ("P0409", "P0422"):
+        raise HTTPException(status_code=409, detail=f"Conflicto: {message}")
+
+    raise HTTPException(status_code=500, detail=f"Error de base de datos: {message}")
 
 
 async def create_sale_operation(

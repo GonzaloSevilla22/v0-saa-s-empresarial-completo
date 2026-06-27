@@ -86,7 +86,7 @@ En uso hoy: `P0400, P0401, P0403, P0404, P0409, P0422, P0450, P0451`. C1 reclama
 ### D9 — Capability naming del spec: split `bank-account` + `bank-movement`
 El proyecto ya divide el dominio de caja en dos specs: `cash-session` + `cash-movement`. Por consistencia, C1 crea **dos specs**: `bank-account` (el agregado root) y `bank-movement` (el ledger + helper + RPC manual). Mismo formato delta `## ADDED Requirements` con `#### Scenario:`.
 
-### D10 — Migración: `20260804000001_bank_account_ledger.sql`
+### D10 — Migración: `20260804000002_bank_account_ledger.sql`
 Timestamp libre verificado (última existente `20260803000003`). Estructura espejo de `20260701000001_c28_cash_session.sql`: header con CHANGE/ERRCODEs/GOVERNANCE/APPLY/ROLLBACK, tablas → índices → RLS → helper → RPCs → DO-block de gates. **APPLY solo vía `npx supabase db push`** (CI al mergear) — NUNCA MCP `apply_migration` (desincroniza el history). Sin pérdida de datos en rollback (feature nueva, 0 filas en prod).
 
 ## Forward-compat seams (DOCUMENTADAS — NO construidas en C1)
@@ -104,7 +104,7 @@ Timestamp libre verificado (última existente `20260803000003`). Estructura espe
 
 ## Migration Plan
 
-1. **Apply**: la migración `20260804000001_bank_account_ledger.sql` se aplica por CI al mergear el PR (`npx supabase db push`). **No** se aplica manualmente ni vía MCP.
+1. **Apply**: la migración `20260804000002_bank_account_ledger.sql` se aplica por CI al mergear el PR (`npx supabase db push`). **No** se aplica manualmente ni vía MCP.
 2. **Verificación post-push**: `SELECT` de `information_schema.tables` para `bank_accounts`/`bank_movements`; `information_schema.routines` para el helper + 3 RPCs; los gates DO-block del propio archivo validan RED→GREEN en el apply.
 3. **Rollback** (header de la migración): `DROP FUNCTION` de las 3 RPCs + helper, `DROP TABLE bank_movements, bank_accounts` (orden inverso de FKs). Sin pérdida de datos (feature nueva, 0 filas en prod).
 

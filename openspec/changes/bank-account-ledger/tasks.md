@@ -2,12 +2,12 @@
 
 > **DB-level TDD.** Cada tabla/helper/RPC se construye como un ciclo RED→GREEN→TRIANGULATE→REFACTOR usando bloques de aserción SQL (`DO $$ ... $$` con SAVEPOINT/ROLLBACK) dentro del DO-block de gates de la migración, espejando el patrón de `20260701000001_c28_cash_session.sql` §1.9.
 > **APPLY**: la migración se aplica SOLO vía `npx supabase db push` (CI al mergear). NUNCA MCP `apply_migration`. El apply-phase NO ejecuta ningún comando de DB.
-> **Archivo único**: `supabase/migrations/20260804000001_bank_account_ledger.sql` (timestamp libre verificado; última existente `20260803000003`).
+> **Archivo único**: `supabase/migrations/20260804000002_bank_account_ledger.sql` (timestamp libre verificado; última existente `20260803000003`).
 > **ERRCODEs**: P0401 (escritor no autorizado), P0410 (movement_type reservado en RPC manual), P0411 (CBU inválido), P0412 (cuenta no encontrada/inactiva).
 
 ## 1. Migración: esqueleto + tabla `bank_accounts` (capability `bank-account`)
 
-- [x] 1.1 Crear `supabase/migrations/20260804000001_bank_account_ledger.sql` con el header espejo de C-28: CHANGE, principio "dos ledgers" (operacional vs `1110` contable), ERRCODEs (P0401/P0410/P0411/P0412), GOVERNANCE MEDIO, APPLY (`npx supabase db push`, nunca MCP), bloque ROLLBACK (DROP RPCs+helper, DROP `bank_movements` luego `bank_accounts`), VERIFICATION (`information_schema`).
+- [x] 1.1 Crear `supabase/migrations/20260804000002_bank_account_ledger.sql` con el header espejo de C-28: CHANGE, principio "dos ledgers" (operacional vs `1110` contable), ERRCODEs (P0401/P0410/P0411/P0412), GOVERNANCE MEDIO, APPLY (`npx supabase db push`, nunca MCP), bloque ROLLBACK (DROP RPCs+helper, DROP `bank_movements` luego `bank_accounts`), VERIFICATION (`information_schema`).
 - [x] 1.2 **RED**: gate que afirma que `INSERT INTO bank_accounts` con `cbu = '12345'` viola el `CHECK` de CBU (esperar `check_violation`). (Falla: tabla aún no existe.)
 - [x] 1.3 **GREEN**: `CREATE TABLE bank_accounts` (id uuid PK, `account_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE`, name, bank_name, `cbu text`, `alias text`, `currency text DEFAULT 'ARS'`, `opening_balance numeric(14,2) DEFAULT 0`, `opening_date date`, `is_active bool DEFAULT true`, `created_at timestamptz DEFAULT now()`) + `CHECK (cbu IS NULL OR cbu ~ '^[0-9]{22}$')` (D7). Re-ejecutar gate 1.2 → GREEN.
 - [x] 1.4 **TRIANGULATE**: segundo gate — `INSERT` con `cbu = NULL` y `INSERT` con un CBU válido de 22 dígitos ambos PASAN (el CHECK solo rechaza el formato malo, no NULL ni el válido).

@@ -1,5 +1,5 @@
 -- =============================================================================
--- MIGRATION: 20260804000001_bank_account_ledger.sql
+-- MIGRATION: 20260804000002_bank_account_ledger.sql
 -- CHANGE:    bank-account-ledger (C1 de la secuencia BankReconciliation V2.5)
 -- Design ref: openspec/changes/bank-account-ledger/design.md
 --
@@ -21,7 +21,7 @@
 --   D7  CBU validado (22 dígitos numéricos) en RPC + CHECK nivel tabla
 --   D8  ERRCODEs P0401/P0410/P0411/P0412 (espacio P04xx — verificados libres)
 --   D9  Specs split: bank-account + bank-movement
---   D10 Migración 20260804000001 (timestamp libre — última existente 20260803000003)
+--   D10 Migración 20260804000002 (bump por colisión de timestamp con 20260804000001_promote_legacy_sale_to_order)
 --
 -- TDD tasks cubiertos (RED→GREEN→TRIANGULATE→REFACTOR en DO-block §7):
 --   Tasks 1.1-1.6  bank_accounts + CHECK CBU + índice + COMMENT

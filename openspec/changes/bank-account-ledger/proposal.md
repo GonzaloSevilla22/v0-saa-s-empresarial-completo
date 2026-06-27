@@ -24,7 +24,7 @@ Este es el **change C1 de la secuencia de 3 de BankReconciliation** (V2.5 Finanz
 
 ## Impact
 
-- **DB / Supabase Postgres**: nueva migración `supabase/migrations/20260804000001_bank_account_ledger.sql` (timestamp libre verificado; última existente `20260803000003`). 2 tablas nuevas, 1 helper, 3 RPCs, RLS + índices. Aplicada SOLO vía `npx supabase db push` (CI al mergear) — NUNCA MCP `apply_migration`.
+- **DB / Supabase Postgres**: nueva migración `supabase/migrations/20260804000002_bank_account_ledger.sql` (timestamp libre verificado; última existente `20260803000003`). 2 tablas nuevas, 1 helper, 3 RPCs, RLS + índices. Aplicada SOLO vía `npx supabase db push` (CI al mergear) — NUNCA MCP `apply_migration`.
 - **Tablas NUEVAS (greenfield)**: no existe ninguna tabla `bank_*` (confirmado en `supabase/migrations/`). La regla dura "ninguna feature nueva sobre tablas en retirada" (RN-97) **no aplica** — no se toca ninguna tabla legacy ni en retirada.
 - **Plan de cuentas**: ninguno (la cuenta `1110 Banco` queda reservada; C1 no la usa).
 - **Seams forward-compat (documentadas, NO construidas)**: C2 llamará a `_register_bank_movement` desde las RPCs de pago y posteará a `1110`; C3 agregará columnas aditivas nullable (`statement_line_id`, `reconciliation_status`, `reconciled_at`) + tablas de extracto/sesión de conciliación.

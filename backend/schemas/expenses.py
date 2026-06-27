@@ -12,6 +12,8 @@ class ExpenseCreate(BaseModel):
     amount: Decimal
     description: str | None = None
     date: datetime.date
+    # cost-center-dimension: optional analytic dimension
+    cost_center_id: uuid.UUID | None = None
 
 
 class ExpenseUpdate(BaseModel):
@@ -19,6 +21,8 @@ class ExpenseUpdate(BaseModel):
     amount: Decimal | None = None
     description: str | None = None
     date: datetime.date | None = None
+    # cost-center-dimension: optional analytic dimension
+    cost_center_id: uuid.UUID | None = None
 
 
 class ExpenseOut(BaseModel):
@@ -31,6 +35,8 @@ class ExpenseOut(BaseModel):
     description: str | None
     date: datetime.date
     created_at: datetime.datetime
+    # cost-center-dimension: optional analytic dimension (nullable)
+    cost_center_id: uuid.UUID | None = None
 
     @field_validator("date", mode="before")
     @classmethod

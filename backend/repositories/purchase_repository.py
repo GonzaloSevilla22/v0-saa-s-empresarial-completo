@@ -212,7 +212,9 @@ class PurchaseRepository(BaseRepository):
         idempotency_key: str,
         date: datetime.date | None = None,
         description: str | None = None,
+        cost_center_id: str | None = None,
     ) -> dict | None:
+        # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
             return dict(existing)
@@ -230,7 +232,7 @@ class PurchaseRepository(BaseRepository):
         row = await self._conn.fetchrow(
             """
             SELECT
-                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb)->>'operation_id')::uuid
+                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid)->>'operation_id')::uuid
                     AS operation_id,
                 'purchase'::text AS operation_kind
             """,
@@ -238,6 +240,7 @@ class PurchaseRepository(BaseRepository):
             date or datetime.date.today(),
             description,
             json.dumps(clean_items, default=_default),
+            cost_center_id,
         )
         return dict(row) if row else None
 
@@ -250,6 +253,7 @@ class PurchaseRepository(BaseRepository):
         idempotency_key: str,
         date: datetime.date | None = None,
         description: str | None = None,
+        cost_center_id: str | None = None,
     ) -> dict | None:
         """C-25 producer: create purchase + emit PurchaseCreated in the SAME transaction.
 
@@ -273,11 +277,12 @@ class PurchaseRepository(BaseRepository):
         ]
 
         # Run mutation + event INSERT in the same transaction (DEC-20)
+        # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         async with self._conn.transaction():
             row = await self._conn.fetchrow(
                 """
                 SELECT
-                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb)->>'operation_id')::uuid
+                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid)->>'operation_id')::uuid
                         AS operation_id,
                     'purchase'::text AS operation_kind
                 """,
@@ -285,6 +290,7 @@ class PurchaseRepository(BaseRepository):
                 date or datetime.date.today(),
                 description,
                 json.dumps(clean_items, default=_default),
+                cost_center_id,
             )
 
             if row is None:

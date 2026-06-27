@@ -12,6 +12,7 @@ import { CalendarIcon } from "lucide-react"
 import { toast } from "sonner"
 import type { Expense } from "@/lib/types"
 import { BranchSelect } from "@/components/branches/BranchSelect"
+import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 
 interface ExpenseFormProps {
   onSuccess: () => void
@@ -24,11 +25,12 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
   const updateExpenseMutation = useUpdateExpense()
   const isEdit = !!initialData
 
-  const [category,    setCategory]    = useState(initialData?.category    ?? "")
-  const [description, setDescription] = useState(initialData?.description ?? "")
-  const [amount,      setAmount]      = useState(initialData?.amount       ?? 0)
-  const [date,        setDate]        = useState(initialData?.date         ?? new Date().toISOString().split("T")[0])
-  const [branchId,    setBranchId]    = useState<string | null>(initialData?.branchId ?? null)
+  const [category,      setCategory]      = useState(initialData?.category      ?? "")
+  const [description,   setDescription]   = useState(initialData?.description   ?? "")
+  const [amount,        setAmount]        = useState(initialData?.amount         ?? 0)
+  const [date,          setDate]          = useState(initialData?.date           ?? new Date().toISOString().split("T")[0])
+  const [branchId,      setBranchId]      = useState<string | null>(initialData?.branchId      ?? null)
+  const [costCenterId,  setCostCenterId]  = useState<string | null>(initialData?.costCenterId  ?? null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,10 +40,10 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
     }
     try {
       if (isEdit && initialData) {
-        await updateExpenseMutation.mutateAsync({ ...initialData, category, description, amount, date })
+        await updateExpenseMutation.mutateAsync({ ...initialData, category, description, amount, date, costCenterId })
         toast.success("Gasto actualizado")
       } else {
-        await addExpenseMutation.mutateAsync({ date, category, description, amount, branchId })
+        await addExpenseMutation.mutateAsync({ date, category, description, amount, branchId, costCenterId })
         toast.success("Gasto registrado")
       }
       onSuccess()
@@ -111,6 +113,13 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
         value={branchId}
         onChange={setBranchId}
         placeholder="Sin sucursal (general)"
+        className="bg-background border-border text-foreground text-sm"
+      />
+
+      {/* ── Centro de costo (opcional, V2.5) ──────────────────────── */}
+      <CostCenterSelect
+        value={costCenterId}
+        onChange={setCostCenterId}
         className="bg-background border-border text-foreground text-sm"
       />
 

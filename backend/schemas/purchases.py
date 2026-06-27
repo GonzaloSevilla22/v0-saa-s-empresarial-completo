@@ -20,6 +20,8 @@ class PurchaseOperationIn(BaseModel):
     org_id: str
     items: list[PurchaseItemIn]
     date: datetime.date | None = None
+    # cost-center-dimension: optional, shared by all lines of the operation
+    cost_center_id: uuid.UUID | None = None
 
 
 class PurchaseOperationOut(BaseModel):
@@ -56,6 +58,8 @@ class PurchaseItemOut(BaseModel):
     amount: Decimal
     total: Decimal | None = None
     description: str | None = None
+    # cost-center-dimension: optional analytic dimension (nullable)
+    cost_center_id: uuid.UUID | None = None
 
     @field_validator("date", mode="before")
     @classmethod

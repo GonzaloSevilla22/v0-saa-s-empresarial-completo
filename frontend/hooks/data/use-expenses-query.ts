@@ -16,15 +16,18 @@ interface ExpenseApiRow {
   description: string | null
   date: string
   created_at: string
+  // cost-center-dimension: optional analytic dimension
+  cost_center_id?: string | null
 }
 
 function mapExpense(e: ExpenseApiRow): Expense {
   return {
-    id:          e.id,
-    date:        typeof e.date === "string" ? e.date.split("T")[0] : String(e.date),
-    category:    e.category,
-    description: e.description || "",
-    amount:      Number(e.amount),
+    id:            e.id,
+    date:          typeof e.date === "string" ? e.date.split("T")[0] : String(e.date),
+    category:      e.category,
+    description:   e.description || "",
+    amount:        Number(e.amount),
+    costCenterId:  e.cost_center_id ?? null,
   }
 }
 
@@ -48,10 +51,12 @@ export function useExpenses() {
   const addExpenseMutation = useMutation({
     mutationFn: async (expense: Omit<Expense, "id">) => {
       return pythonClient.post<ExpenseApiRow>("/expenses", {
-        category:    expense.category,
-        description: expense.description ?? null,
-        amount:      expense.amount,
-        date:        expense.date,
+        category:        expense.category,
+        description:     expense.description ?? null,
+        amount:          expense.amount,
+        date:            expense.date,
+        // cost-center-dimension: optional analytic dimension
+        cost_center_id:  expense.costCenterId ?? null,
       })
     },
     onSuccess: () => {

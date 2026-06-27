@@ -63,6 +63,8 @@ async def create_purchase_operation(
     # Extract operation-level description from first item (frontend sends it per-item)
     description = payload.items[0].description if payload.items else None
     items = [item.model_dump() for item in payload.items]
+    # cost-center-dimension: pass optional cost_center_id to RPC (propagated to all rows)
+    cost_center_id = str(payload.cost_center_id) if payload.cost_center_id is not None else None
     record = await repo.create_operation(
         auth["user_id"],
         account_id,
@@ -70,6 +72,7 @@ async def create_purchase_operation(
         payload.idempotency_key,
         date=payload.date,
         description=description,
+        cost_center_id=cost_center_id,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de compra")

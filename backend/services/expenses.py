@@ -20,7 +20,12 @@ async def get_expense(repo: ExpenseRepository, account_id: str, expense_id: str)
 
 async def create_expense(repo: ExpenseRepository, auth: dict, account_id: str, payload: ExpenseCreate) -> dict:
     require_role(auth, ["user", "admin"])
-    record = await repo.create(auth["user_id"], account_id, payload.model_dump())
+    # cost-center-dimension: cost_center_id is optional (None → NULL persisted)
+    data = payload.model_dump()
+    # Convert UUID to str for asyncpg compatibility
+    if data.get("cost_center_id") is not None:
+        data["cost_center_id"] = str(data["cost_center_id"])
+    record = await repo.create(auth["user_id"], account_id, data)
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear el gasto")
     return dict(record)

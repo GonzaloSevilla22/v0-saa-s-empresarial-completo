@@ -118,12 +118,16 @@ export function usePurchases() {
         description: string
         branchId?: string | null
         orgId: string
+        /** cost-center-dimension: optional analytic dimension for the whole operation */
+        costCenterId?: string | null
       }
     }): Promise<PurchaseOperationResult> => {
       const payload = {
-        idempotency_key: opMeta.idempotencyKey,
-        org_id:          opMeta.orgId,
-        date:            opMeta.date,
+        idempotency_key:  opMeta.idempotencyKey,
+        org_id:           opMeta.orgId,
+        date:             opMeta.date,
+        // cost-center-dimension: shared by all lines of the operation
+        cost_center_id:   opMeta.costCenterId ?? null,
         items: items.map(item => ({
           product_id:  item.productId,
           amount:      item.unitCost,

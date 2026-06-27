@@ -131,10 +131,12 @@ describe("useExpenses", () => {
     })
 
     expect(pythonClient.post).toHaveBeenCalledWith("/expenses", {
-      category:    "Marketing",
-      description: "Redes sociales",
-      amount:      800,
-      date:        "2026-02-01",
+      category:        "Marketing",
+      description:     "Redes sociales",
+      amount:          800,
+      date:            "2026-02-01",
+      // cost-center-dimension: null when not provided
+      cost_center_id:  null,
     })
     // get should be called again after invalidation
     expect(pythonClient.get).toHaveBeenCalledTimes(2)

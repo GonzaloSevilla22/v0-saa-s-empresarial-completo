@@ -109,4 +109,10 @@ export const queryKeys = {
     bySupplier:  (supplierId: string) => ["supplierAccounts", "supplier", supplierId] as const,
     movements:   (accountId: string) => ["supplierAccounts", "movements", accountId] as const,
   },
+  // cost-center-dimension (V2.5 Finanzas)
+  costCenters: {
+    all:    () => ["costCenters"] as const,
+    lists:  () => ["costCenters", "list"] as const,
+    active: () => ["costCenters", "active"] as const,
+  },
 } as const

@@ -20,10 +20,11 @@ class ExpenseRepository(BaseRepository):
         )
 
     async def create(self, user_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
+        # cost-center-dimension: cost_center_id is optional (None → NULL in DB)
         return await self.fetchrow(
             """
-            INSERT INTO expenses (user_id, account_id, category, amount, description, date)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO expenses (user_id, account_id, category, amount, description, date, cost_center_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             """,
             user_id,
@@ -32,6 +33,7 @@ class ExpenseRepository(BaseRepository):
             data["amount"],
             data.get("description"),
             data["date"],
+            data.get("cost_center_id"),
         )
 
     async def update(self, expense_id: str, account_id: str, data: dict) -> asyncpg.Record | None:

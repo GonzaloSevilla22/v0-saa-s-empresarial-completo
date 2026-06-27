@@ -329,6 +329,8 @@ export interface Purchase {
   unitId?: string
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
+  /** cost-center-dimension: optional analytic dimension (V2.5). */
+  costCenterId?: string | null
 }
 
 export interface UnitOfMeasure {
@@ -349,6 +351,24 @@ export interface Expense {
   description: string
   amount: number
   branchId?: string | null
+  /** cost-center-dimension: optional analytic dimension (V2.5). */
+  costCenterId?: string | null
+}
+
+// ── cost-center-dimension (V2.5 Finanzas) ────────────────────────────────────
+
+/**
+ * A cost center catalog entry (account-scoped, flat catalog, no hierarchies).
+ * Source of truth: cost_centers table (cost-center-dimension).
+ * RLS: SELECT = any account member; INSERT/UPDATE = owner/admin only.
+ */
+export interface CostCenter {
+  id: string
+  accountId: string
+  name: string
+  code: string | null
+  isActive: boolean
+  createdAt: string
 }
 
 export type ClientStatus = "activo" | "inactivo" | "perdido"

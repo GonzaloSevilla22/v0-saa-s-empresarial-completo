@@ -16,6 +16,7 @@ from backend.routers import (
     branches,
     cash,
     clients,
+    cost_centers,
     customer_accounts,
     expenses,
     fiscal,
@@ -71,6 +72,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(health.router)
 app.include_router(ws.router)
+# cost-center-dimension (V2.5 Finanzas)
+app.include_router(cost_centers.router)
 app.include_router(fiscal.router)
 app.include_router(expenses.router)
 app.include_router(clients.router)

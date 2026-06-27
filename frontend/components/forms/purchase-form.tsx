@@ -35,6 +35,7 @@ import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
+import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -95,6 +96,8 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // ── Operation date ──────────────────────────────────────────────────────────
   const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
   const [branchId, setBranchId] = useState<string | null>(null)
+  // cost-center-dimension: optional analytic dimension for the whole operation
+  const [costCenterId, setCostCenterId] = useState<string | null>(null)
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -383,6 +386,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           description,
           branchId,
           orgId: user?.accountId ?? "",
+          costCenterId,
         },
       })
       resetIdempotencyKey()
@@ -498,6 +502,13 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             value={branchId}
             onChange={setBranchId}
             placeholder="Sin sucursal (general)"
+            className="bg-background border-border text-foreground text-sm"
+          />
+
+          {/* ── Centro de costo (opcional, V2.5) ──────────────────────── */}
+          <CostCenterSelect
+            value={costCenterId}
+            onChange={setCostCenterId}
             className="bg-background border-border text-foreground text-sm"
           />
         </div>

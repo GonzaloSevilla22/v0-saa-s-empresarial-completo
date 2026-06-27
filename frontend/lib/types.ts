@@ -242,6 +242,13 @@ export interface User {
   phone?: string
   locality?: string
   bio?: string
+  // ── Consentimiento legal (change register-name-terms-captcha) ─────────────
+  /** Versión de Términos aceptada en el alta (constante TERMS_VERSION). */
+  termsVersion?: string
+  /** ISO timestamp de la aceptación de Términos. */
+  termsAcceptedAt?: string
+  /** Opt-in explícito a comunicaciones por email (default false en DB). */
+  emailNotificationsOptIn?: boolean
   // ── System preferences (editable) ─────────────────────────────────────────
   currency: string         // 'ARS' | 'USD' | 'EUR' | 'BRL' | 'CLP'
   timezone: string         // IANA timezone, e.g. 'America/Argentina/Buenos_Aires'

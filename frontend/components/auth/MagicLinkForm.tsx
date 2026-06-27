@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
 
 interface MagicLinkFormProps {
   onBack: () => void
@@ -17,6 +18,8 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [captchaToken, setCaptchaToken] = useState("")
+  const captchaRef = useRef<CaptchaWidgetHandle>(null)
   const { loginWithMagicLink } = useAuth()
 
   async function handleSubmit(e: React.FormEvent) {
@@ -25,11 +28,14 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
 
     setIsLoading(true)
     setError(null)
-    
+
     try {
-      await loginWithMagicLink(email)
+      // signInWithOtp también está gateado por el captcha a nivel proyecto.
+      await loginWithMagicLink(email, captchaToken)
       setIsSuccess(true)
     } catch (err: any) {
+      captchaRef.current?.reset()
+      setCaptchaToken("")
       setError(err.message || "Ocurrió un error al enviar el enlace.")
     } finally {
       setIsLoading(false)
@@ -79,8 +85,15 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
         </Alert>
       )}
 
+      <CaptchaWidget
+        ref={captchaRef}
+        onVerify={setCaptchaToken}
+        onExpire={() => setCaptchaToken("")}
+        onError={() => setCaptchaToken("")}
+      />
+
       <div className="flex flex-col gap-3 pt-2">
-        <Button type="submit" className="w-full" disabled={isLoading || !email}>
+        <Button type="submit" className="w-full" disabled={isLoading || !email || !captchaToken}>
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

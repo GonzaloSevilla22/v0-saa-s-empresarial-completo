@@ -30,13 +30,20 @@ interface AuthContextType {
   isAdmin: boolean
   /** Effective plan for gating (trial-aware). 'gratis' when logged out. */
   effectivePlan: Plan
-  login: (email: string, password: string) => Promise<void>
-  loginWithMagicLink: (email: string) => Promise<void>
+  login: (email: string, password: string, captchaToken?: string) => Promise<void>
+  loginWithMagicLink: (email: string, captchaToken?: string) => Promise<void>
   register: (
     name: string,
     email: string,
     password: string,
-    extras?: { phone?: string; locality?: string },
+    extras?: {
+      phone?: string
+      locality?: string
+      lastName?: string
+      termsVersion?: string
+      emailOptIn?: boolean
+      captchaToken?: string
+    },
   ) => Promise<void>
   logout: () => Promise<void>
   upgradePlan: () => Promise<void>
@@ -134,6 +141,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           phone:          profile.phone         ?? undefined,
           locality:       profile.locality      ?? undefined,
           bio:            profile.bio           ?? undefined,
+          termsVersion:        profile.terms_version              ?? undefined,
+          termsAcceptedAt:     profile.terms_accepted_at          ?? undefined,
+          emailNotificationsOptIn: profile.email_notifications_opt_in ?? undefined,
           currency:       profile.currency    ?? "ARS",
           timezone:       profile.timezone    ?? "America/Argentina/Buenos_Aires",
           dateFormat:     profile.date_format ?? "DD/MM/YYYY",
@@ -199,19 +209,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return url.replace(/\/$/, '')
   }
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, captchaToken?: string) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    // captchaToken: Supabase Auth lo valida server-side cuando el captcha está
+    // habilitado a nivel proyecto (Turnstile). Sin habilitar, se ignora.
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      options: { captchaToken },
+    })
     if (error) throw error
     await refreshSession()
     router.push("/dashboard")
   }, [supabase, router, refreshSession])
 
-  const loginWithMagicLink = useCallback(async (email: string) => {
+  const loginWithMagicLink = useCallback(async (email: string, captchaToken?: string) => {
     const siteUrl = getSiteUrl()
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${siteUrl}/auth/callback` },
+      options: { emailRedirectTo: `${siteUrl}/auth/callback`, captchaToken },
     })
     if (error) throw error
   }, [supabase])
@@ -220,24 +236,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     name: string,
     email: string,
     password: string,
-    extras?: { phone?: string; locality?: string },
+    extras?: {
+      phone?: string
+      locality?: string
+      lastName?: string
+      termsVersion?: string
+      emailOptIn?: boolean
+      captchaToken?: string
+    },
   ) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
     const siteUrl = getSiteUrl()
     console.log("[Auth] Iniciando registro. URL callback configurada a:", `${siteUrl}/auth/callback`)
 
-    // phone/locality viajan en el user_metadata del signUp; el trigger
-    // handle_new_user los copia a profiles al crear el perfil.
+    // name/last_name/phone/locality + consentimiento viajan en el user_metadata
+    // del signUp; el trigger handle_new_user los copia a profiles al crear el perfil.
+    // captchaToken lo valida Supabase server-side cuando el captcha está habilitado.
     const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: {
           name,
+          last_name: extras?.lastName || null,
           phone: extras?.phone || null,
           locality: extras?.locality || null,
+          terms_version: extras?.termsVersion || null,
+          // Default false: nadie queda suscripto por accidente (espeja el default de la columna).
+          email_notifications_opt_in: extras?.emailOptIn ?? false,
         },
         emailRedirectTo: `${siteUrl}/auth/callback`,
+        captchaToken: extras?.captchaToken,
       },
     })
     if (error) throw error

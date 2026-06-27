@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
@@ -9,11 +9,14 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
 import { ArrowLeft, Mail, CheckCircle } from "lucide-react"
+import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [sent, setSent] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState("")
+  const captchaRef = useRef<CaptchaWidgetHandle>(null)
   const supabase = createClient()
 
   const getSiteUrl = () => {
@@ -32,10 +35,15 @@ export default function ForgotPasswordPage() {
     setIsLoading(true)
     try {
       const redirectTo = `${getSiteUrl()}/auth/callback?next=/auth/reset-password`
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      // captchaToken: Supabase valida el token server-side cuando el captcha está
+      // habilitado a nivel proyecto (esta página llama a Supabase directo).
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo, captchaToken })
       if (error) throw error
       setSent(true)
     } catch (error: any) {
+      // Token de un solo uso: re-challenge tras un fallo (incluido captcha rechazado).
+      captchaRef.current?.reset()
+      setCaptchaToken("")
       toast.error(error.message || "No se pudo enviar el email. Intentá de nuevo.")
     } finally {
       setIsLoading(false)
@@ -90,7 +98,13 @@ export default function ForgotPasswordPage() {
                     autoFocus
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
+                <CaptchaWidget
+                  ref={captchaRef}
+                  onVerify={setCaptchaToken}
+                  onExpire={() => setCaptchaToken("")}
+                  onError={() => setCaptchaToken("")}
+                />
+                <Button type="submit" className="w-full" disabled={isLoading || !captchaToken}>
                   {isLoading ? (
                     "Enviando..."
                   ) : (

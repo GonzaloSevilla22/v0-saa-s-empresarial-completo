@@ -114,6 +114,52 @@ describe("RegisterPage — nombre/apellido, consentimiento y captcha", () => {
     expect(registerMock).not.toHaveBeenCalled()
   })
 
+  it("bloquea el submit si el email no es válido", async () => {
+    render(<RegisterPage />)
+    fillValidFields()
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "no-es-un-mail" } })
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/email/i))
+    })
+    expect(registerMock).not.toHaveBeenCalled()
+  })
+
+  it("bloquea el submit si el teléfono no es un número válido", async () => {
+    render(<RegisterPage />)
+    fillValidFields()
+    fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "no-es-tel" } })
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith(expect.stringMatching(/tel[ée]fono/i))
+    })
+    expect(registerMock).not.toHaveBeenCalled()
+  })
+
+  it("acepta teléfono con prefijo internacional y separadores", async () => {
+    registerMock.mockResolvedValue(undefined)
+    render(<RegisterPage />)
+    fillValidFields()
+    fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "+54 9 261 555-5555" } })
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => expect(registerMock).toHaveBeenCalled())
+    expect(registerMock).toHaveBeenCalledWith(
+      "Susana",
+      "susana@test.com",
+      VALID_PASSWORD,
+      expect.objectContaining({ phone: "+54 9 261 555-5555" }),
+    )
+  })
+
   it("bloquea el submit y avisa si no se aceptan los Términos", async () => {
     render(<RegisterPage />)
     fillValidFields()

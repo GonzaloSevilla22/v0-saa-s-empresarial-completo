@@ -52,3 +52,8 @@ backend/.afip-homo/
 *.pem
 *.p12
 *.pfx
+
+# Comprobantes/recibos REALES exportados al root (contienen PII de usuarios — NUNCA commitear).
+# Las versiones ANONIMIZADAS de muestra viven en docs/ejemplos/.
+/comprobante-ejemplo.pdf
+/recibo-ejemplo.pdf

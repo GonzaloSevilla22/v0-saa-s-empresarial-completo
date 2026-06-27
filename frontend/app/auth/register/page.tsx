@@ -57,6 +57,9 @@ export default function RegisterPage() {
 
   const isPasswordSecure = passwordRequirements.every(req => req.test(password))
   const passwordsMatch = password === confirmPassword && confirmPassword !== ""
+  // Avisos inline: solo cuando hay algo escrito y el formato no es válido.
+  const emailInvalid = email !== "" && !isValidEmail(email)
+  const phoneInvalid = phone.trim() !== "" && !isValidPhone(phone)
 
   const generateSecurePassword = () => {
     const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -201,8 +204,11 @@ export default function RegisterPage() {
                   placeholder="tu@email.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="bg-background border-border text-foreground"
+                  className={`bg-background text-foreground ${emailInvalid ? "border-red-500" : "border-border"}`}
                 />
+                {emailInvalid && (
+                  <p className="text-[10px] text-red-500 font-medium">Ingresá un email válido</p>
+                )}
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="phone" className="text-foreground">Teléfono</Label>
@@ -213,8 +219,13 @@ export default function RegisterPage() {
                   placeholder="+54 9 261 5555555"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="bg-background border-border text-foreground"
+                  className={`bg-background text-foreground ${phoneInvalid ? "border-red-500" : "border-border"}`}
                 />
+                {phoneInvalid && (
+                  <p className="text-[10px] text-red-500 font-medium">
+                    Ingresá un teléfono válido (10 a 13 dígitos)
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-2">

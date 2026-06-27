@@ -160,6 +160,24 @@ describe("RegisterPage — nombre/apellido, consentimiento y captcha", () => {
     )
   })
 
+  it("muestra el aviso inline cuando el teléfono es inválido (mientras se escribe)", () => {
+    render(<RegisterPage />)
+    fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "22369223654757657" } })
+    expect(screen.getByText(/tel[ée]fono válido/i)).toBeInTheDocument()
+  })
+
+  it("no muestra el aviso inline si el teléfono es válido", () => {
+    render(<RegisterPage />)
+    fireEvent.change(screen.getByLabelText("Teléfono"), { target: { value: "2236922365" } })
+    expect(screen.queryByText(/tel[ée]fono válido/i)).not.toBeInTheDocument()
+  })
+
+  it("muestra el aviso inline cuando el email es inválido (mientras se escribe)", () => {
+    render(<RegisterPage />)
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "no-es-un-mail" } })
+    expect(screen.getByText(/email válido/i)).toBeInTheDocument()
+  })
+
   it("bloquea el submit y avisa si no se aceptan los Términos", async () => {
     render(<RegisterPage />)
     fillValidFields()

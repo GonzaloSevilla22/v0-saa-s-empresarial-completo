@@ -23,6 +23,26 @@
 -- Agregar el productor PurchaseCreated como CREATE OR REPLACE de la función
 -- (preservando toda la lógica existente de cost-center-dimension):
 
+-- FIX overloads: C-21 (20260623000001) revirtió la función a la firma de 4 args
+-- (text,date,text,jsonb), así que el DROP de cost-center-dimension —que apuntaba a
+-- (text,date,text,jsonb,uuid)— fue no-op y dejó DOS overloads conviviendo. Eso vuelve
+-- ambiguo cualquier COMMENT/llamada sin firma explícita (42725). Colapsamos a un único
+-- overload canónico dropeando TODOS los existentes antes de recrear. Idempotente.
+DO $collapse$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN
+        SELECT p.oid::regprocedure AS sig
+        FROM pg_proc p
+        WHERE p.proname = 'rpc_create_purchase_operation'
+          AND p.pronamespace = 'public'::regnamespace
+    LOOP
+        EXECUTE format('DROP FUNCTION %s', r.sig);
+    END LOOP;
+END
+$collapse$;
+
 CREATE OR REPLACE FUNCTION public.rpc_create_purchase_operation(
     p_idempotency_key  text,
     p_date             date,
@@ -276,7 +296,7 @@ REVOKE ALL     ON FUNCTION public.rpc_create_purchase_operation(text, date, text
 REVOKE EXECUTE ON FUNCTION public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid) FROM anon;
 GRANT  EXECUTE ON FUNCTION public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid) TO authenticated;
 
-COMMENT ON FUNCTION public.rpc_create_purchase_operation IS
+COMMENT ON FUNCTION public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid) IS
     'cost-center-dimension + journal-entry-outbox (Task 4.1): '
     'Crea una operación de compra multi-línea con idempotencia, stock sobre branch_stock (C-21), '
     'y emite el evento PurchaseCreated al outbox en la MISMA transacción (DEC-20). '

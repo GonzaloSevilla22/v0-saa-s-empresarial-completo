@@ -1,5 +1,7 @@
 """
 Schemas Pydantic v2 para C-30 — CustomerAccount / PaymentReceived.
+bank-payment-routing C2: PaymentReceivedIn gana payment_method + bank_account_id
+(taxonomía {cash,transfer,card,check}, default cash, retrocompatible).
 
 Enums:
   CustomerMovementType: sale | payment_received | credit_note | adjustment
@@ -18,7 +20,7 @@ import uuid
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class CustomerMovementType(str, Enum):
@@ -63,6 +65,10 @@ class PaymentReceivedIn(BaseModel):
     client_id:          uuid.UUID
     amount:             Decimal
     reference_sale_id:  uuid.UUID | None = None
+    # bank-payment-routing C2: taxonomía {cash,transfer,card,check}. Default 'cash'
+    # (aditivo, retrocompatible — mismo criterio que el RPC).
+    payment_method:     str = "cash"
+    bank_account_id:    uuid.UUID | None = None
 
     @field_validator("amount")
     @classmethod
@@ -70,6 +76,21 @@ class PaymentReceivedIn(BaseModel):
         if v <= 0:
             raise ValueError("amount debe ser > 0")
         return v
+
+    @field_validator("payment_method")
+    @classmethod
+    def validate_payment_method(cls, v: str) -> str:
+        if v not in ("cash", "transfer", "card", "check"):
+            raise ValueError("payment_method debe ser uno de: cash, transfer, card, check")
+        return v
+
+    @model_validator(mode="after")
+    def validate_bank_account_required_for_bank_method(self) -> "PaymentReceivedIn":
+        if self.payment_method in ("transfer", "card", "check") and self.bank_account_id is None:
+            raise ValueError(
+                f"payment_method={self.payment_method} exige bank_account_id"
+            )
+        return self
 
 
 class PaymentReceivedOut(BaseModel):

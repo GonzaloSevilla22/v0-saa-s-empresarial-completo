@@ -69,18 +69,26 @@ class SupplierAccountRepository(BaseRepository):
         supplier_id: str,
         amount: float,
         reference_purchase_id: str | None = None,
+        payment_method: str = "cash",
+        bank_account_id: str | None = None,
     ) -> dict:
-        """Invoca rpc_register_payment_made → registra pago a la cuenta del proveedor."""
+        """Invoca rpc_register_payment_made → registra pago a la cuenta del proveedor.
+
+        bank-payment-routing C2: payment_method/bank_account_id son params aditivos
+        trailing (default cash/None) — retrocompatibles con la firma de C-30.
+        """
         row = await self.fetchrow(
             """
             SELECT public.rpc_register_payment_made(
-              $1::text, $2::uuid, $3::numeric, $4::uuid
+              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::text, $6::uuid
             ) AS result
             """,
             idempotency_key,
             supplier_id,
             amount,
             reference_purchase_id,
+            payment_method,
+            bank_account_id,
         )
         return _jsonb(row["result"])
 

@@ -115,4 +115,9 @@ export const queryKeys = {
     lists:  () => ["costCenters", "list"] as const,
     active: () => ["costCenters", "active"] as const,
   },
+  // bank-payment-routing C2 (V2.5 BankReconciliation)
+  bankAccounts: {
+    all:    () => ["bankAccounts"] as const,
+    active: () => ["bankAccounts", "active"] as const,
+  },
 } as const

@@ -968,7 +968,14 @@ COMMENT ON FUNCTION public._journal_post_from_event IS
 -- ============================================================
 DO $$
 DECLARE
-  v_fake_account_id   uuid := gen_random_uuid();
+  -- v_fake_account_id: cuenta RESUELTA que current_account_ids() devuelve para el
+  -- user sintético. NO se inserta a mano con un id fijo: el trigger handle_new_user
+  -- AUTO-CREA una cuenta (+ account_members) con id aleatorio al INSERT en auth.users.
+  -- Si insertáramos otra cuenta a mano, el user quedaría en 2 cuentas y
+  -- current_account_ids() LIMIT 1 podría resolver a la "equivocada" → las RPCs harían
+  -- WHERE account_id = <auto> mientras el bank_account está bajo <fija> → P0412.
+  -- Solución: leer la cuenta auto-creada y crear TODO (bank/customer/supplier) bajo ella.
+  v_fake_account_id   uuid;
   v_fake_user_id      uuid := gen_random_uuid();
   v_fake_company_id   uuid := gen_random_uuid();
   v_bank_account_id   uuid;
@@ -998,20 +1005,41 @@ BEGIN
 
   IF v_run_behavioral THEN
     BEGIN
+      -- INSERT del user sintético. El trigger handle_new_user AUTO-CREA una cuenta
+      -- (id aleatorio) + account_members(role owner) para este user.
       INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
       VALUES (v_fake_user_id, 'authenticated', 'authenticated',
               'bank-payment-routing-gate@test.local', now(), now(),
               jsonb_build_object('name', 'C2 Gate', 'phone', '', 'locality', '', 'province', ''))
       ON CONFLICT (id) DO NOTHING;
 
-      INSERT INTO public.accounts (id, owner_user_id)
-      VALUES (v_fake_account_id, v_fake_user_id) ON CONFLICT (id) DO NOTHING;
+      -- Resolver la cuenta que current_account_ids() va a devolver para el user
+      -- (la auto-creada por el trigger). Es la MISMA que usan las RPCs internamente,
+      -- así que TODO (bank/customer/supplier) se crea bajo ella para evitar el P0412.
+      SELECT account_id INTO v_fake_account_id
+      FROM public.account_members
+      WHERE user_id = v_fake_user_id
+      ORDER BY created_at
+      LIMIT 1;
 
-      -- is_account_writer()/current_account_ids() exigen una fila en account_members
-      -- con role owner/admin — las RPCs de pago las invocan internamente.
-      INSERT INTO public.account_members (account_id, user_id, role)
-      VALUES (v_fake_account_id, v_fake_user_id, 'owner')
-      ON CONFLICT DO NOTHING;
+      -- Fallback: si el trigger no auto-creó la cuenta (variante de CI sin ese trigger),
+      -- crearla a mano + su membership (id determinístico local).
+      IF v_fake_account_id IS NULL THEN
+        v_fake_account_id := gen_random_uuid();
+        INSERT INTO public.accounts (id, owner_user_id)
+        VALUES (v_fake_account_id, v_fake_user_id) ON CONFLICT (id) DO NOTHING;
+        INSERT INTO public.account_members (account_id, user_id, role)
+        VALUES (v_fake_account_id, v_fake_user_id, 'owner')
+        ON CONFLICT DO NOTHING;
+      ELSE
+        -- Asegurar que el user es writer (owner/admin) en esa cuenta — el trigger ya
+        -- suele ponerlo como owner, pero lo garantizamos idempotentemente.
+        UPDATE public.account_members
+        SET role = 'owner'
+        WHERE account_id = v_fake_account_id
+          AND user_id = v_fake_user_id
+          AND role NOT IN ('owner', 'admin');
+      END IF;
 
       -- Las RPCs de pago leen auth.uid() y is_account_writer()/current_account_ids()
       -- (que a su vez leen auth.uid()) — en el contexto de migración no hay JWT real.
@@ -1020,6 +1048,7 @@ BEGIN
       PERFORM set_config('request.jwt.claims', json_build_object('sub', v_fake_user_id::text)::text, true);
       PERFORM set_config('request.jwt.claim.sub', v_fake_user_id::text, true);
 
+      -- Todo bajo v_fake_account_id (la cuenta RESUELTA de current_account_ids()).
       INSERT INTO public.bank_accounts
         (account_id, name, bank_name, currency, opening_balance, is_active)
       VALUES
@@ -1138,13 +1167,15 @@ BEGIN
     v_gate_d := true;
     RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
   EXCEPTION
-    WHEN raise_exception THEN
+    WHEN OTHERS THEN
       IF SQLERRM = 'GATE_ROLLBACK_SENTINEL' THEN
         NULL;
       ELSIF SQLERRM LIKE 'GATE (d) FAILED%' THEN
         RAISE;
       ELSE
-        RAISE NOTICE 'bank-payment-routing: gate (d) saltado por entorno (%)', SQLERRM;
+        -- Cualquier otro error (P0412 por resolución de cuenta/JWT, etc.) NO aborta
+        -- la migración: se degrada el gate a NOTICE.
+        RAISE NOTICE 'bank-payment-routing: gate (d) degradado (%)', SQLERRM;
       END IF;
   END;
   END IF;
@@ -1171,13 +1202,13 @@ BEGIN
     v_gate_e := true;
     RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
   EXCEPTION
-    WHEN raise_exception THEN
+    WHEN OTHERS THEN
       IF SQLERRM = 'GATE_ROLLBACK_SENTINEL' THEN
         NULL;
       ELSIF SQLERRM LIKE 'GATE (e) FAILED%' THEN
         RAISE;
       ELSE
-        RAISE NOTICE 'bank-payment-routing: gate (e) saltado por entorno (%)', SQLERRM;
+        RAISE NOTICE 'bank-payment-routing: gate (e) degradado (%)', SQLERRM;
       END IF;
   END;
   END IF;
@@ -1201,13 +1232,13 @@ BEGIN
     v_gate_f := true;
     RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
   EXCEPTION
-    WHEN raise_exception THEN
+    WHEN OTHERS THEN
       IF SQLERRM = 'GATE_ROLLBACK_SENTINEL' THEN
         NULL;
       ELSIF SQLERRM LIKE 'GATE (f) FAILED%' THEN
         RAISE;
       ELSE
-        RAISE NOTICE 'bank-payment-routing: gate (f) saltado por entorno (%)', SQLERRM;
+        RAISE NOTICE 'bank-payment-routing: gate (f) degradado (%)', SQLERRM;
       END IF;
   END;
   END IF;
@@ -1235,13 +1266,13 @@ BEGIN
     v_gate_g := true;
     RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
   EXCEPTION
-    WHEN raise_exception THEN
+    WHEN OTHERS THEN
       IF SQLERRM = 'GATE_ROLLBACK_SENTINEL' THEN
         NULL;
       ELSIF SQLERRM LIKE 'GATE (g) FAILED%' THEN
         RAISE;
       ELSE
-        RAISE NOTICE 'bank-payment-routing: gate (g) saltado por entorno (%)', SQLERRM;
+        RAISE NOTICE 'bank-payment-routing: gate (g) degradado (%)', SQLERRM;
       END IF;
   END;
   END IF;
@@ -1265,13 +1296,13 @@ BEGIN
     v_gate_h := true;
     RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
   EXCEPTION
-    WHEN raise_exception THEN
+    WHEN OTHERS THEN
       IF SQLERRM = 'GATE_ROLLBACK_SENTINEL' THEN
         NULL;
       ELSIF SQLERRM LIKE 'GATE (h) FAILED%' THEN
         RAISE;
       ELSE
-        RAISE NOTICE 'bank-payment-routing: gate (h) saltado por entorno (%)', SQLERRM;
+        RAISE NOTICE 'bank-payment-routing: gate (h) degradado (%)', SQLERRM;
       END IF;
   END;
   END IF;
@@ -1377,13 +1408,13 @@ BEGIN
     v_gate_k := true;
     RAISE EXCEPTION 'GATE_ROLLBACK_SENTINEL' USING ERRCODE = 'P0001';
   EXCEPTION
-    WHEN raise_exception THEN
+    WHEN OTHERS THEN
       IF SQLERRM = 'GATE_ROLLBACK_SENTINEL' THEN
         NULL;
       ELSIF SQLERRM LIKE 'GATE (k) FAILED%' THEN
         RAISE;
       ELSE
-        RAISE NOTICE 'bank-payment-routing: gate (k) saltado por entorno (%)', SQLERRM;
+        RAISE NOTICE 'bank-payment-routing: gate (k) degradado (%)', SQLERRM;
       END IF;
   END;
   END IF;

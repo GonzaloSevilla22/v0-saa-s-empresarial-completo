@@ -88,10 +88,15 @@ function mapAccount(r: CustomerAccountApi): CustomerAccount {
 // ── Error translation ─────────────────────────────────────────────────────────
 
 function translateError(message: string): string {
-  if (message.includes("overpayment"))           return "El cobro excede el saldo deudor del cliente."
-  if (message.includes("credit_requires_client")) return "Las ventas a crédito requieren un cliente asignado."
-  if (message.includes("account_not_found"))     return "Cuenta corriente no encontrada."
-  if (message.includes("No autorizado"))         return "No tenés permisos para registrar cobros."
+  if (message.includes("overpayment"))            return "El cobro excede el saldo deudor del cliente."
+  if (message.includes("credit_requires_client"))  return "Las ventas a crédito requieren un cliente asignado."
+  // bank-payment-routing C2
+  if (message.includes("bank_account_required"))   return "Elegí una cuenta bancaria para este método de pago."
+  if (message.includes("bank_account_not_found"))  return "La cuenta bancaria seleccionada no existe."
+  if (message.includes("bank_account_inactive"))   return "La cuenta bancaria seleccionada está inactiva."
+  if (message.includes("invalid_payment_method"))  return "Método de pago inválido."
+  if (message.includes("account_not_found"))       return "Cuenta corriente no encontrada."
+  if (message.includes("No autorizado"))           return "No tenés permisos para registrar cobros."
   return message || "Ocurrió un error inesperado."
 }
 
@@ -129,10 +134,16 @@ export function useRegisterPayment(clientId: string) {
       idempotencyKey,
       amount,
       referenceSaleId,
+      paymentMethod,
+      bankAccountId,
     }: {
       idempotencyKey: string
       amount: number
       referenceSaleId?: string
+      /** bank-payment-routing C2: {cash,transfer,card,check}. Omitido → default 'cash' del backend. */
+      paymentMethod?: string
+      /** Requerido cuando paymentMethod es bancario (transfer/card/check). */
+      bankAccountId?: string
     }): Promise<PaymentReceivedResult> => {
       try {
         return await pythonClient.post<PaymentReceivedResult>(
@@ -142,6 +153,8 @@ export function useRegisterPayment(clientId: string) {
             client_id:         clientId,
             amount:            amount.toString(),
             reference_sale_id: referenceSaleId ?? null,
+            ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+            ...(bankAccountId ? { bank_account_id: bankAccountId } : {}),
           }
         )
       } catch (err) {

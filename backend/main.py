@@ -13,6 +13,7 @@ from backend.core.database import close_pool, close_service_pool, init_pool, ini
 from backend.core.errors import asyncpg_error_handler, cors_error_headers
 from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
+    bank_accounts,
     branches,
     cash,
     clients,
@@ -97,3 +98,5 @@ app.include_router(customer_accounts.router)
 app.include_router(supplier_accounts.router)
 # journal-entry-outbox (V2.5 Finanzas — read-only; writes via relay SECURITY DEFINER)
 app.include_router(journal_entries.router)
+# bank-payment-routing C2 (V2.5 BankReconciliation) — read-only picker de cuenta bancaria
+app.include_router(bank_accounts.router)

@@ -96,9 +96,14 @@ function mapAccount(r: SupplierAccountApi): SupplierAccount {
 // ── Error translation ─────────────────────────────────────────────────────────
 
 function translateError(message: string): string {
-  if (message.includes("overpayment"))       return "El pago excede el saldo deudor con el proveedor."
-  if (message.includes("account_not_found")) return "Cuenta corriente del proveedor no encontrada."
-  if (message.includes("No autorizado"))     return "No tenés permisos para registrar pagos."
+  if (message.includes("overpayment"))            return "El pago excede el saldo deudor con el proveedor."
+  // bank-payment-routing C2
+  if (message.includes("bank_account_required"))  return "Elegí una cuenta bancaria para este método de pago."
+  if (message.includes("bank_account_not_found")) return "La cuenta bancaria seleccionada no existe."
+  if (message.includes("bank_account_inactive"))  return "La cuenta bancaria seleccionada está inactiva."
+  if (message.includes("invalid_payment_method")) return "Método de pago inválido."
+  if (message.includes("account_not_found"))      return "Cuenta corriente del proveedor no encontrada."
+  if (message.includes("No autorizado"))          return "No tenés permisos para registrar pagos."
   return message || "Ocurrió un error inesperado."
 }
 
@@ -135,10 +140,16 @@ export function useRegisterPaymentMade(supplierId: string) {
       idempotencyKey,
       amount,
       referencePurchaseId,
+      paymentMethod,
+      bankAccountId,
     }: {
       idempotencyKey: string
       amount: number
       referencePurchaseId?: string
+      /** bank-payment-routing C2: {cash,transfer,card,check}. Omitido → default 'cash' del backend. */
+      paymentMethod?: string
+      /** Requerido cuando paymentMethod es bancario (transfer/card/check). */
+      bankAccountId?: string
     }): Promise<PaymentMadeResult> => {
       try {
         return await pythonClient.post<PaymentMadeResult>(
@@ -148,6 +159,8 @@ export function useRegisterPaymentMade(supplierId: string) {
             supplier_id:           supplierId,
             amount:                amount.toString(),
             reference_purchase_id: referencePurchaseId ?? null,
+            ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+            ...(bankAccountId ? { bank_account_id: bankAccountId } : {}),
           }
         )
       } catch (err) {

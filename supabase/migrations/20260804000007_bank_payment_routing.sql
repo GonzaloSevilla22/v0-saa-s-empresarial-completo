@@ -99,6 +99,11 @@
 -- Firma extendida: agrega p_payment_method (default 'cash') y p_bank_account_id
 -- (default NULL) como PARÁMETROS FINALES — retrocompatible con llamadores previos.
 -- ============================================================
+-- Overload trap (42725): CREATE OR REPLACE con firma nueva (6 args) NO reemplaza la de
+-- C-30 (4 args) — crea un 2º overload → COMMENT/GRANT/llamadas sin firma quedan ambiguos.
+-- Drop explícito del overload viejo (firma C-30 (text,uuid,numeric,uuid)) antes de recrear.
+-- Retrocompat preservada: una llamada de 4 args resuelve al nuevo de 6 vía defaults.
+DROP FUNCTION IF EXISTS public.rpc_register_payment_received(text, uuid, numeric, uuid);
 CREATE OR REPLACE FUNCTION public.rpc_register_payment_received(
   p_idempotency_key   text,
   p_client_id         uuid,
@@ -299,6 +304,8 @@ COMMENT ON FUNCTION public.rpc_register_payment_received IS
 -- ============================================================
 -- 2. RPC: rpc_register_payment_made — ruteo bancario (espejo de 1, D1/D2/D3/D4)
 -- ============================================================
+-- Overload trap (42725): drop del overload viejo (firma C-30) antes de recrear con 6 args.
+DROP FUNCTION IF EXISTS public.rpc_register_payment_made(text, uuid, numeric, uuid);
 CREATE OR REPLACE FUNCTION public.rpc_register_payment_made(
   p_idempotency_key       text,
   p_supplier_id           uuid,

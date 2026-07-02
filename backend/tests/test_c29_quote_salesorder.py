@@ -214,6 +214,68 @@ class TestQuoteRepository:
         assert ACCOUNT_ID in args
 
     @pytest.mark.asyncio
+    async def test_create_quote_item_insert_congeals_snapshot_from_products(self, quote_repo):
+        """v3-snapshot-pattern: el INSERT de quote_items congela name/sku/cost
+        leyendo products en el mismo statement (join), sin un SELECT previo
+        separado — mismo principio D1 que los RPCs del hot path."""
+        repo, conn = quote_repo
+        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
+        conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        await repo.create_quote(
+            account_id=ACCOUNT_ID,
+            branch_id=BRANCH_ID,
+            client_id=CLIENT_ID,
+            valid_until=None,
+            total=Decimal("1500.00"),
+            items=[{
+                "product_id": PRODUCT_ID,
+                "unit_id": None,
+                "quantity": "2.0000",
+                "price": "750.00",
+                "subtotal": "1500.00",
+            }],
+            created_by="11111111-1111-1111-1111-111111111111",
+        )
+
+        # El INSERT del ítem debe unir contra products para traer name/sku/cost
+        # y persistirlos en las columnas snapshot — no debe ser un INSERT plano.
+        item_query = conn.execute.call_args[0][0].lower()
+        assert "quote_items" in item_query
+        assert "products" in item_query
+        assert "name_snapshot" in item_query
+        assert "sku_snapshot" in item_query
+        assert "unit_cost_snapshot" in item_query
+
+    @pytest.mark.asyncio
+    async def test_create_quote_service_line_item_has_no_product_join_failure(self, quote_repo):
+        """Triangulación: línea de servicio (product_id=None) no debe fallar
+        el join contra products — name_snapshot queda NULL (payload no trae
+        nombre de servicio en este schema; sku/cost/iva ya son NULL por diseño)."""
+        repo, conn = quote_repo
+        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
+        conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        await repo.create_quote(
+            account_id=ACCOUNT_ID,
+            branch_id=None,
+            client_id=None,
+            valid_until=None,
+            total=Decimal("500.00"),
+            items=[{
+                "product_id": None,
+                "unit_id": None,
+                "quantity": "1.0",
+                "price": "500.00",
+                "subtotal": "500.00",
+            }],
+            created_by="11111111-1111-1111-1111-111111111111",
+        )
+
+        # No debe reventar; el execute se llamó igual para la línea de servicio.
+        assert conn.execute.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_list_quotes_queries_account(self, quote_repo):
         """list_quotes filtra por account_id."""
         repo, conn = quote_repo

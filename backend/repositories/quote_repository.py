@@ -57,15 +57,25 @@ class QuoteRepository(BaseRepository):
 
         quote_id = str(row["id"])
 
-        # Insertar ítems
+        # Insertar ítems. v3-snapshot-pattern (D1): congelar name_snapshot/
+        # sku_snapshot/unit_cost_snapshot desde products en el MISMO INSERT
+        # (INSERT ... SELECT), sin una lectura previa separada — mismo
+        # principio que los RPCs SQL del hot path. iva_rate_snapshot queda
+        # NULL (D3: products no tiene columna de IVA). Cuando product_id es
+        # NULL (línea de servicio), el LEFT JOIN no aporta fila y los
+        # snapshots quedan NULL sin fallar el INSERT.
         for item in items:
             await self.execute(
                 """
                 INSERT INTO public.quote_items
-                  (quote_id, account_id, product_id, unit_id, quantity, price, subtotal)
-                VALUES
-                  ($1::uuid, $2::uuid, $3::uuid, $4::uuid,
-                   $5::numeric, $6::numeric, $7::numeric)
+                  (quote_id, account_id, product_id, unit_id, quantity, price, subtotal,
+                   name_snapshot, sku_snapshot, unit_cost_snapshot, iva_rate_snapshot)
+                SELECT
+                  $1::uuid, $2::uuid, $3::uuid, $4::uuid,
+                  $5::numeric, $6::numeric, $7::numeric,
+                  p.name, p.sku, p.cost, NULL
+                FROM (SELECT $3::uuid AS product_id) AS item_ref
+                LEFT JOIN public.products p ON p.id = item_ref.product_id
                 """,
                 quote_id,
                 account_id,

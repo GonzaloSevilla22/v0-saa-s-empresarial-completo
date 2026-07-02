@@ -69,6 +69,12 @@ class SalesOrderItemOut(BaseModel):
     quantity:       Decimal
     price:          Decimal
     subtotal:       Decimal
+    # v3-snapshot-pattern: fotografía histórica del maestro al congelar la línea.
+    name_snapshot:       Optional[str] = None
+    sku_snapshot:        Optional[str] = None
+    unit_cost_snapshot:  Optional[Decimal] = None
+    iva_rate_snapshot:   Optional[Decimal] = None
+    snapshot_backfilled: bool = False
 
 
 # ── SalesOrder Output ─────────────────────────────────────────────────────────

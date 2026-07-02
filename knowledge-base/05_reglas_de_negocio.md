@@ -245,3 +245,10 @@ AI Assist consume eventos del outbox y genera insights/conversaciones; jamás es
 
 ### RN-99 — Ledgers append-only con saldo materializado
 Stock, caja y cuentas corrientes usan el patrón contable: movimientos append-only con `balance_after` por fila (como ya hace `stock_movements`). Se consultan por SQL directo — NO es event sourcing, no se "reproducen" eventos.
+
+## Dominio: Modelo V3 (retrofit — adoptado 2026-07-02)
+
+> Fuente: `modelo-dominio-aliadata-v3.md` (§1, §8 RN-D) + `openspec/changes/v3-snapshot-pattern/`. Extiende al V2, no lo reemplaza.
+
+### RN-100 — Líneas de documento inmutables tras confirm()/emisión
+Una vez que un documento pasa a estado confirmado/emitido (venta confirmada, compra registrada, comprobante con CAE), sus líneas (`sale_items`, `purchase_items`/`purchases`, `sales_order_items`) **no se editan nunca** — ni el precio, ni la cantidad, ni los snapshots (`name_snapshot`, `sku_snapshot`, `unit_cost_snapshot`, `iva_rate_snapshot`) congelados en el momento de la escritura. Cualquier corrección posterior es un **documento nuevo** (nota de crédito, ajuste, nueva compra), nunca un `UPDATE` sobre la línea original. Equivalente a RN-04 (mapeo de planes: los cambios son eventos nuevos, no mutaciones del pasado) aplicado a documentos de venta/compra. Ver RN-D2 (`modelo-dominio-aliadata-v3.md`): el reporting de márgenes lee el snapshot congelado, jamás el maestro (`products`) actual — remarcar un producto no debe (ni puede, por esta regla) alterar el costo histórico de una línea ya escrita.

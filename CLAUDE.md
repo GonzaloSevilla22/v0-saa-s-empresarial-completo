@@ -93,11 +93,11 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 
 ## Roadmap de Changes
 
-> Fuente: [CHANGES.md](CHANGES.md) — **roadmap numerado C-01→C-30 COMPLETO** (C-30 archivado 2026-06-20; Fases 1-7 ✅). El trabajo activo es post-roadmap: **Fase V2.5 Finanzas** (cost-center ✅, journal-entry-outbox ✅, BankReconciliation C1 ✅ + C2 ✅, C3 próximo) + **modelo de dominio V3** adoptado 2026-07-02 (`modelo-dominio-aliadata-v3.md`, extiende al V2). **RN-97 sigue vigente** para las columnas legacy aún no dropeadas (header plano de `sales`/`purchases` hasta C-20 Grupo 10).
+> Fuente: [CHANGES.md](CHANGES.md) — **roadmap numerado C-01→C-30 COMPLETO** (C-30 archivado 2026-06-20; Fases 1-7 ✅). El trabajo activo es post-roadmap: **Fase V2.5 Finanzas** (cost-center ✅, journal-entry-outbox ✅, **BankReconciliation COMPLETA: C1 ✅ + C2 ✅ + C3 ✅** 2026-07-02) + **modelo de dominio V3** adoptado 2026-07-02 (`modelo-dominio-aliadata-v3.md`, extiende al V2). **RN-97 sigue vigente** para las columnas legacy aún no dropeadas (header plano de `sales`/`purchases` hasta C-20 Grupo 10).
 
 ### Próximo change recomendado (activo)
-1. **C3 `bank-reconciliation`** [MEDIO] — cierra la secuencia BankReconciliation (C1 `bank-account-ledger` ✅ 2026-06-27 + C2 `bank-payment-routing` ✅ 2026-07-02, ambos live en prod): import de extracto CSV/Excel + matching contra `bank_movements` + `reconciliation_sessions`. Concilia el ledger operacional, nunca el journal. Al proponerlo, aplicar modelo V3: FSM + historial desde el día 1 (RN-A) y fechas con semántica local (RN-D5).
-2. **`v3-snapshot-pattern`** [ALTO] ⭐ — el retrofit V3 de mayor valor: snapshots de nombre/SKU/costo/IVA en líneas de documentos + `FiscalIdentitySnapshot` del receptor. Con inflación semanal, cada semana sin costo-snapshot son márgenes históricos que mienten. **Además desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Secuencia completa y gap-analysis verificado: `CHANGES.md` §"Roadmap Modelo V3".
+1. **`v3-snapshot-pattern`** [ALTO] ⭐ — el retrofit V3 de mayor valor: snapshots de nombre/SKU/costo/IVA en líneas de documentos + `FiscalIdentitySnapshot` del receptor. Con inflación semanal, cada semana sin costo-snapshot son márgenes históricos que mienten. **Además desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Secuencia completa y gap-analysis verificado: `CHANGES.md` §"Roadmap Modelo V3".
+2. Después: `v3-document-status-history` (prerequisito de la matriz rol×transición del RBAC) → `v3-notifications-realtime` → los chicos paralelizables (soft-delete, provisioning, maestros, imágenes) → percepciones (V2.5, depende del snapshot fiscal).
 
 > **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO.
 
@@ -120,7 +120,7 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 | 5 — Backend Python | C-15, C-16, C-17, C-18 | ✅ | Capa de datos + migración API + pagos + desacople DataContext (realtime queda en Supabase, DEC-16) |
 | 6 — V2.0 Retirada de deuda | C-19 → C-25 | ✅ 7/7 | Tenancy única, sale_items (Group 10 DROP diferido — lo desbloquea `v3-snapshot-pattern`), ledger único de stock en branch_stock, FiscalIdentity en clientes, schema community, insights unificados, outbox activo (C-25 ✅ 2026-06-18; revivido en prod 2026-07-01, #248) |
 | 7 — V2.1 Operación | C-26 → C-30 | ✅ 5/5 | Branch como root, FiscalProfile + AFIP CAE async (E2E homologación pendiente PO), CashSession con arqueo, Quote/SalesOrder + quickSale POS (C-29 ✅ 2026-06-17), cuentas corrientes cliente/proveedor (C-30 ✅ 2026-06-20) |
-| V2.5 — Finanzas | post-roadmap | 🔨 en marcha | cost-center ✅ + journal-entry-outbox ✅ (partida doble async vía outbox) + BankReconciliation C1 ✅ / C2 ✅ / **C3 próximo** · después: percepciones. AFIP delegación (v22 ✅) + facturar venta manual ✅ |
+| V2.5 — Finanzas | post-roadmap | 🔨 en marcha | cost-center ✅ + journal-entry-outbox ✅ (partida doble async vía outbox) + **BankReconciliation COMPLETA (C1+C2+C3 ✅, 2026-07-02)** · falta: percepciones. AFIP delegación (v22 ✅) + facturar venta manual ✅ |
 | Modelo V3 (retrofit) | `v3-*` | ⏳ pendiente | Snapshots ⭐, FSM+DocumentStatusHistory, notificaciones realtime, soft delete, RBAC multi-rol (CRÍTICO), provisioning seed, RN-D reporting, estándares API, maestros menores, imágenes — ver `CHANGES.md` §"Roadmap Modelo V3" |
 | V3 — Inteligencia | ⏳ | ⏳ | AIAgent, KnowledgeBase, automatizaciones, predicción + BOM ligera (`v3-product-composition`) |
 

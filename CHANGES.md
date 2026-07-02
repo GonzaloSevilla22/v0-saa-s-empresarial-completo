@@ -889,7 +889,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ### V2.5 — Finanzas
 
-- `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes) — descompuesto en **3 changes**: C1 `bank-account-ledger` ✅ (2026-06-27, PR #243 — ledger bancario + carga manual; ver "Post-roadmap V2.x") → C2 `bank-payment-routing` ✅ (2026-07-02, PR #249 — ruteo de pagos al banco + posteo `1110`; ver "Post-roadmap V2.x") → C3 `bank-reconciliation` (import de extracto + matching, próximo). **Al proponer C3 aplicar modelo V3**: `reconciliation_sessions` nace con FSM + `DocumentStatusHistory` desde el día 1 (RN-A1..A4, ver `v3-document-status-history`), motivo obligatorio en ajustes de conciliación (RN-A5) y filtros de período con semántica de fecha local del tenant (RN-D5)
+- `BankReconciliation` ✅ **COMPLETA (3/3)**: C1 `bank-account-ledger` ✅ (2026-06-27, PR #243) → C2 `bank-payment-routing` ✅ (2026-07-02, PR #249) → **C3 `bank-reconciliation` ✅ (2026-07-02, PRs #252/#253 — import de extracto + sesiones FSM + matching + cierre con diferencia; ver "Post-roadmap V2.x")**. C3 nació con modelo V3 aplicado: FSM open→closed terminal, motivo obligatorio (RN-A5) y fechas locales (RN-D5)
 - `JournalEntry` ✅ V1 entregado (`journal-entry-outbox`, 2026-06-27 — ver "Post-roadmap V2.x"): partida doble generada async vía Consumer 3 del outbox para ventas/compras/pagos/NC. Falta: plan de cuentas configurable + UI, gastos/cierre de caja, export contable (V2.6)
 - `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
 - Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino) — **depende de `v3-snapshot-pattern`**: sin `FiscalIdentitySnapshot` completo del receptor, la percepción calculada no puede justificarse contra la condición fiscal vigente al momento de emisión
@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** V2.5 Finanzas — C3 `bank-reconciliation` (siguiente en la secuencia BankReconciliation) — en paralelo/después, los changes del **modelo de dominio V3** (ver sección "Roadmap Modelo V3" al final de este archivo; `v3-snapshot-pattern` es el de mayor valor y además desbloquea C-20 Grupo 10). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia.
+**Próximo trabajo:** **`v3-snapshot-pattern`** ⭐ (el retrofit V3 de mayor valor; desbloquea C-20 Grupo 10) — BankReconciliation quedó completa (C1+C2+C3 ✅ live en prod, 2026-07-02). Después: resto del Roadmap Modelo V3 (ver sección al final), percepciones (V2.5), V2.6 contable, V3 Inteligencia.
 
 ---
 
@@ -1008,6 +1008,15 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Decisiones (OQ-1..5, PO sign-off 2026-07-01)**: OQ-1 cuenta bancaria por **parámetro explícito** (`p_bank_account_id`, la UI elige, sin default por org); OQ-2 taxonomía `{cash, transfer, card, check}` con **card incluido y bruto** (fee/tax netting → C3); OQ-3 enum de ventas ampliado con `transfer`/`card`, `other` sigue mapeando a `1100`; OQ-4 ruteo del lado de venta es **journal-only** (sin `bank_movement` operacional, `_c29_confirm_order_core` no se toca más allá del CHECK); OQ-5 **sin backfill** (pagos históricos quedan como cash, default retrocompatible).
 - **Specs sincronizadas**: `bank-movement` (ADDED + MODIFIED), `customer-account` (MODIFIED), `supplier-account` (MODIFIED), `journal-entry` (MODIFIED).
 - **Leer antes**: `openspec/changes/archive/2026-07-02-bank-payment-routing/design.md` (D1-D6 + OQ-1..5), `openspec/changes/archive/2026-06-27-bank-account-ledger/` (contrato C1→C2), `knowledge-base/05_reglas_de_negocio.md`.
+
+### `bank-reconciliation` — Conciliación bancaria vs extracto (V2.5 C3 · BankReconciliation C3/3, cierra la secuencia)
+- **Estado**: `[x]` archivado 2026-07-02 (`2026-07-02-bank-reconciliation`, PRs #252 feature + #253 fix deploy). Migración `20260805000001_bank_reconciliation.sql` aplicada en prod (verificado read-only + smoke transaccional con rollback: fee manual → P0410 card_settlement → import → open → match → undo → re-match → close P0431/dif=77 — cero rastros).
+- **Governance**: MEDIO (greenfield sobre el ledger existente; no toca dinero en vuelo, hot path ni journal).
+- **Scope**: `bank_statement_imports`/`bank_statement_lines` (extracto crudo **inmutable**, filas normalizadas jsonb — parseo CSV en el cliente, dedupe por `file_hash`, cap 5000, idempotencia `bank_statement_import`); `reconciliation_sessions` con FSM `open→closed` **terminal** (anti doble-apertura UNIQUE parcial P0409; cierre calcula `difference` con corte por `value_date` RN-D5; diferencia ≠ 0 exige motivo P0431 RN-A5); `reconciliation_matches` como grafo con `match_group` (1:1/1:N/N:1, Σ montos validada P0433, anti doble-match UNIQUE parcial + P0434, **undo con motivo sin borrar**); `bank_movements.reconciliation_status`/`reconciled_at` denormalizados (solo los tocan las RPCs de match); `rpc_register_bank_movement` ampliada a `fee`/`tax_debit`/`interest` ("solo anotar" V1, decisión PO — `card_settlement` sigue reservado). Backend 3 capas + endpoint manual REST (C1 no tenía wiring) + fix gap `errors.py` (P0410/P0411/P0412 caían en 500). Frontend `/finanzas/conciliacion` (parser es-AR + SHA-256, panel doble, sugerencias 1:1 ±3 días, cierre con motivo, "Anotar"). **La conciliación NUNCA toca el journal** (gate negativo). 42 tests backend (suite 810) + 13 frontend (suite 410).
+- **Incidente de deploy (lección/REGLA)**: el primer `db push` falló con 23514 — el DROP+ADD del CHECK de `operation_idempotency.operation_kind` omitía `event_consumer` (hotfix outbox `20260804000005`, con filas en prod); CI no lo atrapa porque su DB nace vacía. **REGLA: al recrear ese CHECK, enumerar la UNIÓN vigente en prod (verificar `pg_get_constraintdef`), no solo los kinds que el change conoce.** Fix transaccional-seguro editando la migración no registrada (#253) + test de regresión.
+- **Specs sincronizadas**: `bank-reconciliation` (nueva), `bank-movement` (MODIFIED taxonomía + RPC manual; ADDED estado de conciliación).
+- **Diferido (fast-follow)**: auto-generación de asientos de ajuste, netting de `card_settlement` (bruto≠neto), sugerencias IA, presets de mapeo CSV por banco, XLSX nativo.
+- **Leer antes**: `openspec/changes/archive/2026-07-02-bank-reconciliation/design.md` (D1-D9), specs `bank-reconciliation`/`bank-movement`.
 
 ### `v22-afip-delegation-billing` — Facturación AFIP por delegación
 - **Estado**: `[x]` archivado 2026-06-26. Código ya en prod; gate externo del PO = **task 9.1** (E2E homologación ARCA, ver "Pendiente externo" arriba).
@@ -1062,8 +1071,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ### Secuencia recomendada
 
 ```
-C3 bank-reconciliation (V2.5, ya en cola — aplicar RN-A/RN-D5 al proponerlo)
-  → v3-snapshot-pattern ⭐            (mayor valor: cada semana sin costo-snapshot son márgenes históricos que mienten;
+C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
+  → v3-snapshot-pattern ⭐ SIGUIENTE  (mayor valor: cada semana sin costo-snapshot son márgenes históricos que mienten;
   │                                    además DESBLOQUEA C-20 Grupo 10)
   → v3-document-status-history       (prerequisito de la matriz rol×transición del RBAC)
   → v3-notifications-realtime        (outbox ya maduro)

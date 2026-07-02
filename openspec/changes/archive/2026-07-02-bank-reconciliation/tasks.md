@@ -39,7 +39,7 @@
 
 - [x] 4.1 Suite backend completa verde desde la raíz del repo (`python -m pytest backend/tests`) — comparar contra baseline 2.1
 - [x] 4.2 Suite frontend completa verde
-- [ ] 4.3 PR `feat/bank-reconciliation` off main actualizado (verificar merges previos — regla rama-nueva-por-cambio); CI `validate-kpis` verde (único validador de la migración)
-- [ ] 4.4 Post-merge: verificación read-only en prod vía MCP (tablas + RLS + RPCs presentes; `rpc_register_bank_movement` acepta `fee` y rechaza `card_settlement`)
-- [ ] 4.5 Smoke transaccional en prod con rollback (patrón DO block + `set_config('request.jwt.claims', ...)`): import chico → open → match 1:1 → undo → close, todo revertido
-- [ ] 4.6 Actualizar CHANGES.md (estado C3) y guardar progreso en engram (`opsx/bank-reconciliation/apply`)
+- [x] 4.3 PR `feat/bank-reconciliation` off main actualizado (verificar merges previos — regla rama-nueva-por-cambio); CI `validate-kpis` verde (único validador de la migración)
+- [x] 4.4 Post-merge: verificación read-only en prod vía MCP (tablas + RLS + RPCs presentes; `rpc_register_bank_movement` acepta `fee` y rechaza `card_settlement`)
+- [x] 4.5 Smoke transaccional en prod con rollback (patrón DO block + `set_config('request.jwt.claims', ...)`): import chico → open → match 1:1 → undo → close, todo revertido
+- [x] 4.6 Actualizar CHANGES.md (estado C3) y guardar progreso en engram (`opsx/bank-reconciliation/apply`)

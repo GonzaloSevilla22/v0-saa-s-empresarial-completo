@@ -2,19 +2,25 @@
 
 ### Requirement: RPC de cálculo de rentabilidad por SKU
 
-El sistema SHALL proveer el RPC `rpc_product_profitability(p_period_days INT DEFAULT 30)` que calcula para cada producto de la cuenta activa: `total_revenue`, `total_cost`, `gross_margin`, `gross_margin_pct`, `units_sold`, `last_sale_date`. El RPC deriva el `account_id` internamente desde `current_account_ids()` — no acepta parámetros de identidad.
+El sistema SHALL proveer el RPC `rpc_product_profitability(p_period_days INT DEFAULT 30)` que calcula para cada producto de la cuenta activa: `total_revenue`, `total_cost`, `gross_margin`, `gross_margin_pct`, `units_sold`, `last_sale_date`. El RPC deriva el `account_id` internamente desde `current_account_ids()` — no acepta parámetros de identidad. El costo SHALL derivarse del snapshot de costo congelado en la línea (`unit_cost_snapshot`), no del maestro actual (RN-D2), con una cascada de fallback: (1) `unit_cost_snapshot` de la línea cuando está presente; (2) `products.cost` actual sólo cuando el snapshot es NULL (líneas muy antiguas no backfilleadas). Las líneas con `snapshot_backfilled = true` SHALL usar su snapshot aunque sea aproximado, en lugar del maestro actual.
 
-#### Scenario: RPC calcula margen para productos con compras y ventas registradas
+#### Scenario: RPC calcula margen desde el snapshot de costo de la línea
 
-- **GIVEN** un producto con `SUM(sales.total) = 1000` y `SUM(purchases.total) = 600` en los últimos 30 días
+- **GIVEN** un producto vendido cuya línea congeló `unit_cost_snapshot = 600` y `SUM(revenue) = 1000` en los últimos 30 días
 - **WHEN** se llama a `rpc_product_profitability(30)`
-- **THEN** el producto aparece con `total_revenue = 1000`, `total_cost = 600`, `gross_margin = 400`, `gross_margin_pct = 40.0`
+- **THEN** el producto aparece con `total_revenue = 1000`, `total_cost` derivado de `unit_cost_snapshot` (no de `products.cost` actual), `gross_margin = 400` y `gross_margin_pct = 40.0`
 
-#### Scenario: RPC usa costo de catálogo como fallback cuando no hay compras
+#### Scenario: Remarcar el maestro no altera el margen histórico
 
-- **GIVEN** un producto con ventas pero sin registros en `purchases` — `products.cost = 50`, `units_sold = 10`
+- **GIVEN** una venta cuya línea congeló `unit_cost_snapshot = 600`
+- **WHEN** `products.cost` sube a `900` y luego se llama a `rpc_product_profitability(30)`
+- **THEN** el `total_cost` del período que contiene esa venta sigue basado en `600`, no en `900`
+
+#### Scenario: Fallback a costo de catálogo cuando la línea no tiene snapshot
+
+- **GIVEN** una venta antigua cuya línea tiene `unit_cost_snapshot = NULL` (no backfilleada), con `products.cost = 50` y `units_sold = 10`
 - **WHEN** se llama a `rpc_product_profitability(30)`
-- **THEN** el producto aparece con `total_cost = 500` (50 × 10) y el margen calculado desde ese costo
+- **THEN** el `total_cost` de esa línea usa `products.cost` como último recurso (50 × 10 = 500)
 
 #### Scenario: Solo se incluyen productos con al menos una venta en el período
 

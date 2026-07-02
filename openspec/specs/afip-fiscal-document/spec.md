@@ -444,3 +444,14 @@ El comprobante SHALL persistir, además de `receptor_doc_tipo`/`receptor_doc_nro
 - **WHEN** se emite el comprobante
 - **THEN** `receptor_legal_name` y `receptor_iva_condition` quedan en NULL y la emisión completa como `DocTipo = 99`, sin exigir identificación
 
+---
+
+### Requirement: Datos del emisor vigentes congelados en el comprobante
+
+El comprobante SHALL conservar los datos del emisor vigentes al emitir suficientes para reconstruir la fotografía fiscal: el número de punto de venta (ya congelado en `punto_de_venta`) y la condición de IVA propia del emisor aplicada. Cuando estos datos ya estén disponibles en la fila (p. ej. `punto_de_venta`), el requisito SHALL considerarse cubierto por los campos existentes; cualquier dato del emisor no persistido y necesario para la reconstrucción SHALL agregarse de forma aditiva y NULLABLE.
+
+#### Scenario: El punto de venta queda congelado en el comprobante
+
+- **WHEN** se emite un comprobante desde un punto de venta cuyo número podría reasignarse después
+- **THEN** la fila `fiscal_documents` conserva `punto_de_venta` con el número vigente al emitir, independiente de cambios posteriores en la configuración del PV
+

@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** **`v3-document-status-history`** (V3 §2 — FSM + historial append-only; prerequisito de la matriz rol×transición del RBAC) — `v3-snapshot-pattern` ✅ completada 2026-07-02. Después: `v3-notifications-realtime`, chicos parallelizables (soft-delete, provisioning, maestros, imágenes), percepciones (V2.5), V2.6 contable, V3 Inteligencia.
+**Próximo trabajo:** **`v3-document-status-history`** (V3 §2 — FSM + historial append-only; prerequisito de la matriz rol×transición del RBAC) — `v3-snapshot-pattern` ✅ completada 2026-07-02. Después: `v3-notifications-realtime`, chicos paralelizables (soft-delete, provisioning, maestros, imágenes), percepciones (V2.5), V2.6 contable, V3 Inteligencia.
 
 ---
 
@@ -1072,9 +1072,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ```
 C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
-  → v3-snapshot-pattern ⭐ SIGUIENTE  (mayor valor: cada semana sin costo-snapshot son márgenes históricos que mienten;
-  │                                    además DESBLOQUEA C-20 Grupo 10)
-  → v3-document-status-history       (prerequisito de la matriz rol×transición del RBAC)
+  → v3-snapshot-pattern ✅ (2026-07-02, PR #255 — DESBLOQUEÓ C-20 Grupo 10)
+  → v3-document-status-history ⭐ SIGUIENTE  (prerequisito de la matriz rol×transición del RBAC)
   → v3-notifications-realtime        (outbox ya maduro)
   → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes   (chicos, paralelizables)
   → v3-reporting-invariants          (después de snapshots, RN-D2)

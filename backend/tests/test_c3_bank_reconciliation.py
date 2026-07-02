@@ -103,6 +103,22 @@ class TestMigrationContent:
         assert "'bank_statement_import'" in sql
         assert "operation_idempotency_operation_kind_check" in sql
 
+    def test_operation_kind_check_preserves_all_existing_kinds(self, sql):
+        """Regresión del incidente de deploy 2026-07-02: el DROP+ADD debe reproducir
+        la UNIÓN de kinds vigente en prod — omitir uno con filas existentes rompe el
+        db push con 23514 (CI no lo atrapa: su DB nace vacía)."""
+        for kind in (
+            "'sale'",
+            "'purchase'",
+            "'payment_received'",
+            "'payment_made'",
+            "'supplier_charge'",
+            "'bank_movement'",
+            "'event_consumer'",  # hotfix outbox 20260804000005 — el que faltó
+            "'bank_statement_import'",
+        ):
+            assert kind in sql, f"falta {kind} en el CHECK de operation_kind"
+
     def test_anti_double_open_unique_partial_index(self, sql):
         assert "reconciliation_sessions_one_open_idx" in sql
         assert "WHERE status = 'open'" in sql

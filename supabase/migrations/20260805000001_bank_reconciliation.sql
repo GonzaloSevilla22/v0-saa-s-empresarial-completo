@@ -81,6 +81,11 @@
 -- 0. Extend operation_idempotency CHECK (+ 'bank_statement_import')
 --    Regla C-30: todo change que agrega operation_kinds DEBE extender
 --    este CHECK en la misma migración.
+--    REGLA NUEVA (incidente deploy 2026-07-02): el DROP+ADD debe reproducir
+--    la UNIÓN de todos los kinds vigentes en prod, no solo los que este
+--    change conoce. El primer intento omitió 'event_consumer' (agregado por
+--    el hotfix 20260804000005 del outbox) → 23514 sobre las filas existentes
+--    de los consumers; CI no lo atrapa porque su DB nace vacía.
 -- ============================================================
 ALTER TABLE public.operation_idempotency
   DROP CONSTRAINT IF EXISTS operation_idempotency_operation_kind_check;
@@ -94,12 +99,14 @@ ALTER TABLE public.operation_idempotency
     'payment_made',
     'supplier_charge',
     'bank_movement',
+    'event_consumer',
     'bank_statement_import'
   ]));
 
 COMMENT ON CONSTRAINT operation_idempotency_operation_kind_check ON public.operation_idempotency IS
   'C-30: sale/purchase/payment_received/payment_made/supplier_charge. '
   'bank-account-ledger (C1): bank_movement. '
+  'outbox hotfix 20260804000005: event_consumer (dedupe de consumers del relay). '
   'bank-reconciliation (C3): bank_statement_import (idempotencia del import de extracto).';
 
 

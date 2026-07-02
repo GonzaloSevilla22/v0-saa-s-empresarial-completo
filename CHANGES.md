@@ -733,7 +733,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-24] `v20-insights-unification`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-13 (archivado; tabla única `insights` + fix bug RLS)
 - **Scope**:
   - Definir schema canónico unificado — decisión: usar el schema de `ai_insights` como base (`message`, `priority`, `type`, `account_id`) por ser el más completo
   - Migrar las 427 filas de `insights` al schema unificado: mapear `content → message`, derivar `account_id` via join `user_id → accounts`, `actionable → priority` ('high' si `actionable = true`)
@@ -821,7 +821,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ---
 
 ### [C-28] `v21-cash-session`
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` completado — 2026-06-17 (archivado, PR #190; helper intra-tx `c28_register_cash_movement`; hotfix saldo MAX→SUM 2026-06-29, PR #245)
 - **Scope**:
   - `Cashbox` — entidad de caja por sucursal: `(id, branch_id, name, currency DEFAULT 'ARS')`
   - `CashSession` — sesión de caja con ciclo de vida: `open(opening_balance)` / `close(closing_balance)` / `arqueo(counted_balance)` → calcula diferencia
@@ -889,16 +889,18 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 ### V2.5 — Finanzas
 
-- `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes) — descompuesto en **3 changes**: C1 `bank-account-ledger` ✅ (2026-06-27, PR #243 — ledger bancario + carga manual; ver "Post-roadmap V2.x") → C2 `bank-payment-routing` ✅ (2026-07-02, PR #249 — ruteo de pagos al banco + posteo `1110`; ver "Post-roadmap V2.x") → C3 `bank-reconciliation` (import de extracto + matching, próximo)
+- `BankReconciliation`: conciliación bancaria (movimientos bancarios vs. caja/cuentas corrientes) — descompuesto en **3 changes**: C1 `bank-account-ledger` ✅ (2026-06-27, PR #243 — ledger bancario + carga manual; ver "Post-roadmap V2.x") → C2 `bank-payment-routing` ✅ (2026-07-02, PR #249 — ruteo de pagos al banco + posteo `1110`; ver "Post-roadmap V2.x") → C3 `bank-reconciliation` (import de extracto + matching, próximo). **Al proponer C3 aplicar modelo V3**: `reconciliation_sessions` nace con FSM + `DocumentStatusHistory` desde el día 1 (RN-A1..A4, ver `v3-document-status-history`), motivo obligatorio en ajustes de conciliación (RN-A5) y filtros de período con semántica de fecha local del tenant (RN-D5)
 - `JournalEntry` ✅ V1 entregado (`journal-entry-outbox`, 2026-06-27 — ver "Post-roadmap V2.x"): partida doble generada async vía Consumer 3 del outbox para ventas/compras/pagos/NC. Falta: plan de cuentas configurable + UI, gastos/cierre de caja, export contable (V2.6)
 - `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
-- Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino)
+- Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino) — **depende de `v3-snapshot-pattern`**: sin `FiscalIdentitySnapshot` completo del receptor, la percepción calculada no puede justificarse contra la condición fiscal vigente al momento de emisión
+- **Del modelo V3 (§11) entran en esta fase**: `v3-notifications-realtime` (§3, el outbox ya está maduro), `v3-reporting-invariants` (§8) y `producto-imagenes` (§7.4) — ver "Roadmap Modelo V3" abajo
 
 ### V3 — Inteligencia
 
 - `AIAgent` configurable (nace aquí una vez que tenga invariantes de negocio reales — ver DEC-21)
 - `KnowledgeBase`/`Embedding` con datos propios del tenant (requiere presupuesto para vector DB)
-- Automatizaciones trigger-based (alertas de stock, resumen mensual proactivo, predicción de demanda)
+- Automatizaciones trigger-based (alertas de stock, resumen mensual proactivo, predicción de demanda) — los triggers consumen del outbox; la infraestructura de aviso llega antes con `v3-notifications-realtime`
+- **Del modelo V3 (§11)**: `v3-product-composition` (BOM ligera de 1 nivel — combos, canastas, elaborados; §7.2) y conversión de unidades del mismo tipo (§7.1, V3.5; el `type` de `units_of_measure` se persiste antes, en `v3-catalog-masters`)
 
 ---
 
@@ -925,7 +927,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | C-17 | backend-payments-migration | 5 — Migración Python | CRITICO | C-16 | `[x]` |
 | C-18 | frontend-decouple-datacontext | 5 — Migración Python | MEDIO | C-16 | `[x]` |
 | C-19 | v20-tenancy-cleanup | 6 — V2.0 Retirada deuda | CRITICO | — | `[x]` |
-| C-20 | v20-sale-items-migration ⭐ | 6 — V2.0 Retirada deuda | ALTO | C-19 | `[ ]` |
+| C-20 | v20-sale-items-migration | 6 — V2.0 Retirada deuda | ALTO | C-19 | `[x]` (Grupo 10 diferido) |
 | C-21 | v20-inventory-unification | 6 — V2.0 Retirada deuda | CRITICO | C-19 | `[x]` |
 | C-22 | v20-fiscal-identity-clients | 6 — V2.0 Retirada deuda | BAJO | — | `[x]` |
 | C-23 | v20-community-schema-split | 6 — V2.0 Retirada deuda | MEDIO | — | `[x]` |
@@ -960,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** Fases Futuras (V2.5 Finanzas — `BankReconciliation`, `JournalEntry`, `CostCenter` UI, percepciones; V3 Inteligencia — `AIAgent`, `KnowledgeBase`, automatizaciones). Sin changes numerados hasta que las preguntas abiertas estén resueltas.
+**Próximo trabajo:** V2.5 Finanzas — C3 `bank-reconciliation` (siguiente en la secuencia BankReconciliation) — en paralelo/después, los changes del **modelo de dominio V3** (ver sección "Roadmap Modelo V3" al final de este archivo; `v3-snapshot-pattern` es el de mayor valor y además desbloquea C-20 Grupo 10). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia.
 
 ---
 
@@ -1021,7 +1023,182 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Leer antes**: `knowledge-base/05_reglas_de_negocio.md` (dominio fiscal), engram `opsx/v22-afip-delegation-billing/*`.
 
 ### Otros changes post-roadmap (archivados)
+- **`c29-write-sale-items`** ✅ (2026-06-22, PRs #203/#204) — el hot path de C-29 escribe `sale_items` (migración `20260721000001`) + backfill de ventas legacy; primer paso hacia el desbloqueo de C-20 Grupo 10.
+- **`fix-delete-stock-restore`** ✅ (2026-06-22, PR #201) — el borrado de una venta repone el stock decrementado (bug de borrado-sin-reponer).
+- **`v21-wsfe-homologacion-wiring`** ✅ (2026-06-23, PRs #205/#207) — wiring WSAA→WSFEv1 contra homologación ARCA; CAE real de homologación obtenido (cierra C-27 task 5.2).
+- **`v21-wsfe-production-hardening`** ✅ (2026-06-23, PRs #208/#209) — los 5 gaps de producción del WSFE: `CondicionIVAReceptorId` (RG 5616), array `Iva`, numeración vía `FECompUltimoAutorizado`, caching del TA en Postgres, supabase-py.
+- **`idle-session-timeout`** + **`idle-session-server-enforcement`** ✅ (2026-06-24) — cierre de sesión por inactividad (cliente + enforcement server-side).
 - **`facturar-venta-afip`** ✅ (2026-06-26, PRs #228/#229) — emitir factura AFIP desde la venta (MVP Factura C). Era la OQ-5 de v22.
 - **`fiscal-receptor-iva-relay`** ✅ (2026-06-26, PRs #226/#227) — propaga la identificación del receptor (`DocTipo`/`DocNro`) + desglose de IVA a través del relay del CAE.
-- **`idle-session-timeout`** + **`idle-session-server-enforcement`** ✅ (2026-06-24) — cierre de sesión por inactividad (cliente + enforcement server-side).
 - **`register-name-terms-captcha`** ✅ (2026-06-27, PRs #231–#235) — alta con nombre+apellido, consentimiento legal + opt-in email, captcha Turnstile en toda la auth; + provincia, mail al admin y validación de formato de email/teléfono.
+- **`facturar-venta-manual`** ✅ (2026-06-27, PR #242) — promoción lazy de una venta legacy de `/ventas` a `SalesOrder` facturable (`rpc_promote_legacy_sale_to_order`, side-effect-free) + botón "Facturar"; cierra la asimetría con el flujo AFIP.
+
+---
+
+## Roadmap Modelo V3 (2026-07-02) — changes derivados de `modelo-dominio-aliadata-v3.md`
+
+> El PO adoptó el **modelo de dominio V3** (`modelo-dominio-aliadata-v3.md`, 2026-07-02): extensión del V2 con patrones extraídos de la spec Food Store — **no reemplaza al V2, lo extiende**. El V3 §11 asignaba sus deltas a fases V2.0/V2.1 que ya cerraron, así que esos ítems entran como **retrofit** sobre el schema vivo. Los changes de esta sección no llevan código `C-NN` (convención post-roadmap). Gap-analysis verificado contra el código el 2026-07-02.
+
+### Gap-analysis (modelo V3 vs. código en prod)
+
+| V3 § | Patrón | Estado verificado en código | Change |
+|---|---|---|---|
+| §1 | Snapshot Pattern | ❌ `sale_items`/`quote_items`/`sales_order_items`/`purchase_items` solo tienen `price`/`subtotal` — sin nombre, SKU, **costo** ni alícuota IVA. `stock_movements` sin costo unitario. `fiscal_documents` solo `receptor_doc_tipo`/`receptor_doc_nro` (sin razón social ni condición IVA del receptor) | `v3-snapshot-pattern` ⭐ |
+| §2 | FSM + historial de estados | ❌ FSMs implícitas en CHECKs por tabla (`quotes.status`, `sales_orders.status`, `fiscal_documents`, `cash_sessions`, `stock_transfers`); sin `DocumentStatusHistory`, sin transiciones válidas como datos, sin motivo obligatorio | `v3-document-status-history` |
+| §3 | Notificación post-commit | ❌ Outbox vivo con 3 consumers (AuditLog, Email, Journal) pero sin read model `Notification` in-app ni canal Realtime. (`sale_notifications` existente ≠ esto: es log de envíos WhatsApp/email al cliente) | `v3-notifications-realtime` |
+| §4 | Soft delete uniforme | ❌ Sin política única: `clients`/`products` con `deleted_at` legacy; `cost_centers`/`bank_accounts`/`branches` con `is_active`; sin `deleted_by`, sin índices únicos parciales | `v3-soft-delete-policy` |
+| §5 | RBAC multi-rol | ❌ `account_members.role` singular, CHECK `('owner','admin','member')`; sin `assigned_by`/`expires_at`, sin roles funcionales (SELLER/CASHIER/STOCK/…) | `v3-rbac-multirole` |
+| §6 | UoW + capas | ⚠️ Layering routers→services→repositories ya existe; la transaccionalidad del hot path vive en **RPCs SQL `SECURITY DEFINER`** (equivalente funcional del UoW — decisión a registrar, no a "corregir"). Falta: `BaseRepository` con soft-delete/paginación, RFC 7807 uniforme | `v3-api-standards` |
+| §6.3 | Idempotencia | ✅ `operation_idempotency` + dedupe de consumers `(event_id, consumer_type)` ya existen. Falta solo generalizar `Idempotency-Key` del cliente | `v3-api-standards` |
+| §7.1 | UnidadMedida tipada | ⚠️ `units_of_measure` existe (name, symbol, is_system) pero sin `type` (peso/volumen/contable) y es per-user | `v3-catalog-masters` |
+| §7.2 | Composición de producto (BOM) | ❌ No existe | fase V3 (`v3-product-composition`) |
+| §7.3 | Direcciones múltiples | ❌ No existe (dirección única en cliente) | `v3-catalog-masters` |
+| §7.4 | Imágenes de producto | ❌ `products` sin imágenes (solo landing usa Storage) | `producto-imagenes` |
+| §7.5 | Seed de provisioning | ⚠️ Parcial: `handle_new_user` provisiona account+membership (fix `20260800000003`) y C-21/C-26 dan branch default; faltan Cashbox, lista de precios, formas de pago, unidades seed | `v3-provisioning-seed` |
+| §8 | Invariantes reporting RN-D | ⚠️ Parcial: timezone fix del dashboard ✅ (RN-D5), DECIMAL ✅ (RN-D4); sin enforcement de cancelados/NC (RN-D1), snapshots (RN-D2) ni devengado-vs-percibido (RN-D3) | `v3-reporting-invariants` |
+| §9 | Endurecimiento plataforma | ⚠️ Captcha ✅, firma de webhooks ✅ (C-17), fixtures por rol ✅ (conftest); rate limiting/refresh token = config de Supabase Auth (tarea PO, no change) | — |
+| §10 | Rechazos explícitos | ✅ Ya alineados: `branch_stock` único ledger (C-21), rol en membership (C-05), Supabase Realtime (DEC-16), Postgres real en CI (validate-kpis) | — (decisiones registradas) |
+
+### Secuencia recomendada
+
+```
+C3 bank-reconciliation (V2.5, ya en cola — aplicar RN-A/RN-D5 al proponerlo)
+  → v3-snapshot-pattern ⭐            (mayor valor: cada semana sin costo-snapshot son márgenes históricos que mienten;
+  │                                    además DESBLOQUEA C-20 Grupo 10)
+  → v3-document-status-history       (prerequisito de la matriz rol×transición del RBAC)
+  → v3-notifications-realtime        (outbox ya maduro)
+  → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes   (chicos, paralelizables)
+  → v3-reporting-invariants          (después de snapshots, RN-D2)
+  → v3-api-standards                 (transversal, cualquier momento)
+  → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir)
+  → percepciones-retenciones         (V2.5, después del snapshot fiscal)
+```
+
+---
+
+### `v3-snapshot-pattern` — Inmutabilidad histórica de documentos (V3 §1) ⭐
+- **Estado**: `[ ]` pendiente
+- **Governance**: ALTO (toca los RPCs del hot path de venta/compra; cambios aditivos, sin drops)
+- **Scope**:
+  - Columnas snapshot en `sale_items`, `purchase_items`, `quote_items`, `sales_order_items`: `name_snapshot TEXT`, `sku_snapshot TEXT`, `unit_cost_snapshot NUMERIC(15,2)`, `iva_rate_snapshot NUMERIC(5,2)`
+  - Los RPCs de escritura (`rpc_create_sale_operation` v2, `rpc_create_purchase_operation`, `_c29_confirm_order_core`, RPCs de quotes) congelan los snapshots desde el maestro **en la misma transacción**
+  - `stock_movements.unit_cost_snapshot` para valuación de inventario (V3 §1: el ledger ya congela `balance_after`; se agrega el costo)
+  - `fiscal_documents`: completar el `FiscalIdentitySnapshot` del receptor — `receptor_legal_name`, `receptor_iva_condition` (hoy solo doc tipo/nro) + datos del emisor vigentes al emitir
+  - Nueva regla de negocio en `knowledge-base/05`: **tras `confirm()` las líneas no se editan** — corrección = documento nuevo (NC, ajuste), nunca UPDATE (equivalente RN-04 Food Store)
+  - Backfill best-effort de líneas históricas desde el maestro actual, marcadas `snapshot_backfilled = true` (reportes distinguen dato exacto vs. aproximado)
+  - Reporting de margen (`rpc_product_profitability`, KPIs de dashboard) migra a leer snapshots (RN-D2)
+- **Desbloquea**: **C-20 Grupo 10** (DROP del header plano) — la línea de servicio pasa a representarse como ítem con `product_id NULL` + `name_snapshot`, que era exactamente el bloqueo registrado
+- **Dependencias**: ninguna (aditivo)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §1 y §8, `modelo-dominio-aliadata-v2.md` §5.3, `knowledge-base/05_reglas_de_negocio.md`
+
+### `v3-document-status-history` — FSM + historial de estados append-only (V3 §2)
+- **Estado**: `[ ]` pendiente
+- **Governance**: MEDIO (tabla nueva + triggers; no cambia semántica de los documentos)
+- **Scope**:
+  - Tabla `document_status_history` genérica append-only: `(id, account_id, document_type, document_id, from_status, to_status, performed_by, reason, occurred_at)`; RLS sin UPDATE/DELETE (RN-A3 enforzado con grants, no convención)
+  - RN-A1: toda transición de Quote/SalesOrder/FiscalDocument/CashSession/StockTransfer (y `reconciliation_sessions` de C3) inserta historial **en la misma transacción**; RN-A2: creación registra `from_status = NULL`
+  - `StatusTransitionPolicy` como datos (tabla o función SQL con mapa de transiciones válidas + `is_terminal`), no `if`s dispersos; RN-A5: `reason` obligatorio en cancelación/anulación/ajuste/diferencia de arqueo
+  - Retrofit: los RPCs existentes que cambian estado (`accept_quote`, `_c29_confirm_order_core`, cierre de caja, transfers, relay CAE) pasan por la validación e insertan historial
+  - UI: timeline "línea de tiempo del documento" en el detalle de venta/presupuesto/factura
+  - La dimensión **por rol** de RN-A4 (ej. cashier no anula factura) queda estructurada pero se activa con `v3-rbac-multirole`
+- **Dependencias**: ninguna
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §2, `knowledge-base/05_reglas_de_negocio.md`, migración `20260702000001_c29_quote_salesorder.sql` (FSMs actuales en CHECKs)
+
+### `v3-notifications-realtime` — Notificaciones in-app post-commit (V3 §3)
+- **Estado**: `[ ]` pendiente
+- **Governance**: MEDIO (consumer nuevo del outbox + tabla read-model; no toca transacciones de negocio)
+- **Scope**:
+  - Tabla `notifications` (read model): `(id, account_id, branch_id, type, severity, payload jsonb, audience uuid[], read boolean)`; RLS por audiencia
+  - **Consumer 4 del relay del outbox** (`rpc_process_outbox_dispatch`, mismo patrón SQL puro de C-25/journal): la notificación **nunca** se crea dentro de la transacción de negocio
+  - Canal Supabase Realtime por organización/branch (badge sin polling) + campana de notificaciones en el header; resincronización por query al reconectar (patrón de resiliencia FS §9.6)
+  - Casos iniciales (eventos que ya se emiten): `StockBelowMinimum` → rol con permiso de compras; `CashSessionClosed` con diferencia ≠ 0 → admin; CAE rechazado → urgente; `QuoteAccepted` → vendedor; `TransferDispatched` → sucursal destino
+  - **No confundir con `sale_notifications`** (log de envíos WhatsApp/email al cliente final — otra cosa, no se toca)
+- **Dependencias**: outbox activo ✅ (C-25 + revival 2026-07-01 #248)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §3, spec `transactional-outbox`, `knowledge-base/09_decisiones_y_supuestos.md` §DEC-16 (Realtime en Supabase)
+
+### `v3-soft-delete-policy` — Política única de borrado (V3 §4)
+- **Estado**: `[ ]` pendiente
+- **Governance**: MEDIO (cambia semántica de borrado de maestros; documentos/ledgers no se tocan)
+- **Scope**:
+  - Política por categoría (V3 §4): maestros → soft delete (`deleted_at` + `deleted_by`); documentos confirmados → jamás se borran, se **anulan** por transición con motivo; ledgers → contra-asiento; drafts → hard delete OK; Membership se revoca, UserAccount se anonimiza
+  - Alinear entidades existentes: `clients`/`products` ya tienen `deleted_at` (agregar `deleted_by`); `suppliers`, `categories`, `price_lists`, `cost_centers`, `cashboxes`, `bank_accounts` migran de `is_active`/nada al patrón
+  - RN-B3: índices únicos parciales (`UNIQUE (account_id, sku) WHERE deleted_at IS NULL`) para recrear un SKU borrado
+  - RN-B4: no se soft-deletea un maestro con referencia activa (producto con stock ≠ 0 o en documentos DRAFT)
+  - RN-B1/B2 en el backend: filtro `deleted_at IS NULL` en `BaseRepository` (una vez, no por query)
+- **Dependencias**: ninguna (sinergia con `v3-api-standards` por `BaseRepository`)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §4, `modelo-dominio-aliadata-v2.md` §2.6.5 (H-riesgo original), `knowledge-base/04_modelo_de_datos.md`
+
+### `v3-rbac-multirole` — Membership multi-rol con expiración (V3 §5)
+- **Estado**: `[ ]` pendiente
+- **Governance**: **CRÍTICO** (auth/RLS — solo análisis hasta sign-off explícito del PO)
+- **Scope**:
+  - Pivot `account_member_roles`: `(member_id, role, assigned_by, assigned_at, expires_at)` reemplaza `account_members.role` singular (verificado: CHECK `('owner','admin','member')`); compat: cada rol legacy se migra a una fila del pivot
+  - Catálogo cerrado y global (se ratifica contra Food Store: sin RBAC dinámico por tenant) ampliado: `OWNER / ADMIN / SELLER / CASHIER / STOCK / PURCHASES / ACCOUNTANT / VIEWER`
+  - `expires_at` (rol temporal: cajero suplente, contador en época de balance) evaluado en `isActive()` — el enforcement ignora roles vencidos
+  - Migrar `require_role` (10+ services del backend) y los helpers RLS (`is_account_writer`, `current_account_ids`) a leer el pivot — con feature flag estilo Strangler Fig
+  - Matriz **rol × transición FSM** (RN-A4): `CASHIER` cobra pero no anula; `STOCK` ajusta con motivo pero no confirma compras — enforcement sobre `StatusTransitionPolicy`
+  - UI `/organizacion/roles`: asignación multi-rol con quién/cuándo/vencimiento
+- **Dependencias**: `v3-document-status-history` (para la matriz por transición); gating por plan a definir con PO (¿roles funcionales solo en avanzado/pro?)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §5 y §10, `knowledge-base/03_actores_y_roles.md`, migración `20260606010000_roles_internos.sql`
+
+### `v3-provisioning-seed` — Aprovisionamiento completo por tenant (V3 §7.5)
+- **Estado**: `[ ]` pendiente
+- **Governance**: MEDIO (toca `handle_new_user` — camino de registro)
+- **Scope**:
+  - Completar el provisioning de cuenta nueva (hoy: account + membership + branch default — ver `20260800000003_fix_new_user_account_provisioning.sql`): Cashbox default en Casa Central, lista de precios default, unidades de medida seed, formas de pago (`EFECTIVO`, `TRANSFERENCIA`, `MERCADOPAGO`, `CTA_CTE`), plan de cuentas mínimo (cuando el plan de cuentas sea tabla — V2.6)
+  - Idempotente y transaccional: un tenant a medio provisionar no puede quedar en estado inválido
+  - Criterio de aceptación V3: **un tenant recién creado puede vender en menos de 5 minutos** (test E2E: registro → quickSale sin configuración manual)
+- **Dependencias**: ninguna
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.5, `supabase/migrations/20260800000003_fix_new_user_account_provisioning.sql`, `knowledge-base/07_flujos_principales.md` §Flujo registro
+
+### `v3-reporting-invariants` — Invariantes RN-D en KPIs y proyecciones (V3 §8)
+- **Estado**: `[ ]` pendiente
+- **Governance**: BAJO-MEDIO (read models; no toca escritura)
+- **Scope**:
+  - Auditar todos los RPCs de reporting (`rpc_dashboard_kpi_summary`, `rpc_product_profitability`, `rpc_period_comparison`, KPIs admin) contra RN-D1..D5 y corregir desvíos
+  - RN-D1: documentos `CANCELED`/anulados jamás suman; notas de crédito **restan**
+  - RN-D2: márgenes sobre `unit_price_snapshot`/`unit_cost_snapshot` (requiere `v3-snapshot-pattern`)
+  - RN-D3: separar ingresos *percibidos* (cobro registrado / `mp_status = approved`) de *devengados* (facturado no cobrado) — métricas distintas en dashboard
+  - RN-D5: todos los filtros de período con fecha local del tenant (el fix de timezone del dashboard 2026-06-08 se generaliza como regla)
+- **Dependencias**: `v3-snapshot-pattern` (para RN-D2)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §8, `knowledge-base/05_reglas_de_negocio.md` §RN-30..34
+
+### `v3-api-standards` — Estándares de plataforma backend (V3 §6)
+- **Estado**: `[ ]` pendiente
+- **Governance**: BAJO (transversal, sin cambio de comportamiento de negocio)
+- **Scope**:
+  - Errores RFC 7807 uniformes (`detail`, `code`, `field`) sobre el mapeo existente de `core/errors.py`; paginación estándar `?page&size → {items, total, page, pages}` en todos los listados
+  - `Idempotency-Key` del cliente generalizado a toda mutación no-idempotente (crear venta, cobrar, emitir, cerrar caja) sobre el `operation_idempotency` existente
+  - `BaseRepository[T]` con `soft_delete()` (RN-B1/B2) y paginación incluidas
+  - **Decisión a registrar (no a "corregir")**: el equivalente del UoW de Food Store en Aliadata son los **RPCs SQL `SECURITY DEFINER`** — la transacción vive en Postgres, no en Python; los services no comitean (RN-C1 ya se cumple por diseño). Documentarlo en `knowledge-base/09` como DEC nueva
+- **Dependencias**: ninguna (sinergia con `v3-soft-delete-policy`)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §6, `backend/core/errors.py`, `knowledge-base/08_arquitectura_propuesta.md`
+
+### `v3-catalog-masters` — Maestros menores: UoM tipada + direcciones (V3 §7.1, §7.3)
+- **Estado**: `[ ]` pendiente
+- **Governance**: BAJO
+- **Scope**:
+  - `units_of_measure.type TEXT CHECK ('peso','volumen','contable')` — se persiste **ahora** para habilitar conversión entre unidades (V3.5) sin migración; evaluar globalización del catálogo (hoy per-user con `is_system`)
+  - `client_addresses`: direcciones múltiples con `alias` e `is_primary` (invariante: exactamente una primaria); la dirección **fiscal** sigue en FiscalIdentity (inmutable por snapshot), estas son operativas/editables
+- **Dependencias**: ninguna
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.1 y §7.3, `knowledge-base/04_modelo_de_datos.md` §clients
+
+### `producto-imagenes` — Imágenes de producto vía Supabase Storage (V3 §7.4)
+- **Estado**: `[ ]` pendiente
+- **Governance**: BAJO-MEDIO (bucket + validación de upload)
+- **Scope**:
+  - `products.images_url TEXT[]` (o tabla `product_images` con orden) + imagen opcional en `categories`
+  - Bucket Storage privado con upload firmado desde backend, validación MIME/tamaño, eliminación del asset al borrar el maestro (flujo completo FS §10, con Supabase Storage en lugar de Cloudinary — no introducir vendor nuevo)
+  - Transformaciones (resize/WebP) vía render endpoint de Storage; UI en catálogo y detalle de producto
+- **Dependencias**: ninguna
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.4, `knowledge-base/08_arquitectura_propuesta.md` §Storage Buckets
+
+### `v3-product-composition` — BOM ligera de un nivel (V3 §7.2, fase V3)
+- **Estado**: `[ ]` pendiente — **fase V3** (no proponer antes de cerrar V2.5)
+- **Governance**: MEDIO (toca el hot path de venta cuando el producto es COMPOSITE)
+- **Scope**:
+  - `Product.kind ('SIMPLE','COMPOSITE')` + tabla `product_components (product_id, component_id, qty, optional)`
+  - Regla de stock: vender un `COMPOSITE` registra movimientos **sobre los componentes** (explosión simple de 1 nivel, dentro de la misma transacción de la venta); sin recursión multi-nivel ni órdenes de producción (eso es manufactura — fuera de alcance)
+  - Casos target: combos, canastas, panadería/rotisería (segmento real)
+- **Dependencias**: `v3-snapshot-pattern` (el componente congela su costo al explotar)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.2 y §10

@@ -96,8 +96,8 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 > Fuente: [CHANGES.md](CHANGES.md) — **roadmap numerado C-01→C-30 COMPLETO** (C-30 archivado 2026-06-20; Fases 1-7 ✅). El trabajo activo es post-roadmap: **Fase V2.5 Finanzas** (cost-center ✅, journal-entry-outbox ✅, **BankReconciliation COMPLETA: C1 ✅ + C2 ✅ + C3 ✅** 2026-07-02) + **modelo de dominio V3** adoptado 2026-07-02 (`modelo-dominio-aliadata-v3.md`, extiende al V2). **RN-97 sigue vigente** para las columnas legacy aún no dropeadas (header plano de `sales`/`purchases` hasta C-20 Grupo 10).
 
 ### Próximo change recomendado (activo)
-1. **`v3-snapshot-pattern`** [ALTO] ⭐ — el retrofit V3 de mayor valor: snapshots de nombre/SKU/costo/IVA en líneas de documentos + `FiscalIdentitySnapshot` del receptor. Con inflación semanal, cada semana sin costo-snapshot son márgenes históricos que mienten. **Además desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Secuencia completa y gap-analysis verificado: `CHANGES.md` §"Roadmap Modelo V3".
-2. Después: `v3-document-status-history` (prerequisito de la matriz rol×transición del RBAC) → `v3-notifications-realtime` → los chicos paralelizables (soft-delete, provisioning, maestros, imágenes) → percepciones (V2.5, depende del snapshot fiscal).
+1. ~~**`v3-snapshot-pattern`**~~ ✅ **COMPLETADA 2026-07-02** (PR #255): snapshots de nombre/SKU/costo/IVA en líneas de documentos + `FiscalIdentitySnapshot` del receptor. **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Specs sinced a main; change archivada.
+2. **`v3-document-status-history`** [MEDIO] — FSM + historial append-only (prerequisito de la matriz rol×transición del RBAC) → después: `v3-notifications-realtime` → los chicos paralelizables (soft-delete, provisioning, maestros, imágenes) → percepciones (V2.5, depende del snapshot fiscal).
 
 > **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO.
 

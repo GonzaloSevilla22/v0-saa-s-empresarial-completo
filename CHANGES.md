@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** **`v3-snapshot-pattern`** ⭐ (el retrofit V3 de mayor valor; desbloquea C-20 Grupo 10) — BankReconciliation quedó completa (C1+C2+C3 ✅ live en prod, 2026-07-02). Después: resto del Roadmap Modelo V3 (ver sección al final), percepciones (V2.5), V2.6 contable, V3 Inteligencia.
+**Próximo trabajo:** **`v3-document-status-history`** (V3 §2 — FSM + historial append-only; prerequisito de la matriz rol×transición del RBAC) — `v3-snapshot-pattern` ✅ completada 2026-07-02. Después: `v3-notifications-realtime`, chicos parallelizables (soft-delete, provisioning, maestros, imágenes), percepciones (V2.5), V2.6 contable, V3 Inteligencia.
 
 ---
 
@@ -1052,7 +1052,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 
 | V3 § | Patrón | Estado verificado en código | Change |
 |---|---|---|---|
-| §1 | Snapshot Pattern | ❌ `sale_items`/`quote_items`/`sales_order_items`/`purchase_items` solo tienen `price`/`subtotal` — sin nombre, SKU, **costo** ni alícuota IVA. `stock_movements` sin costo unitario. `fiscal_documents` solo `receptor_doc_tipo`/`receptor_doc_nro` (sin razón social ni condición IVA del receptor) | `v3-snapshot-pattern` ⭐ |
+| §1 | Snapshot Pattern | ✅ Columnas snapshot congeladas en líneas (`name`, `sku`, `unit_cost`, `iva_rate`) + `stock_movements.unit_cost_snapshot` + `FiscalIdentitySnapshot` del receptor (`receptor_legal_name`, `receptor_iva_condition`). **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Archivada 2026-07-02. | ✅ `v3-snapshot-pattern` |
 | §2 | FSM + historial de estados | ❌ FSMs implícitas en CHECKs por tabla (`quotes.status`, `sales_orders.status`, `fiscal_documents`, `cash_sessions`, `stock_transfers`); sin `DocumentStatusHistory`, sin transiciones válidas como datos, sin motivo obligatorio | `v3-document-status-history` |
 | §3 | Notificación post-commit | ❌ Outbox vivo con 3 consumers (AuditLog, Email, Journal) pero sin read model `Notification` in-app ni canal Realtime. (`sale_notifications` existente ≠ esto: es log de envíos WhatsApp/email al cliente) | `v3-notifications-realtime` |
 | §4 | Soft delete uniforme | ❌ Sin política única: `clients`/`products` con `deleted_at` legacy; `cost_centers`/`bank_accounts`/`branches` con `is_active`; sin `deleted_by`, sin índices únicos parciales | `v3-soft-delete-policy` |
@@ -1086,7 +1086,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 ---
 
 ### `v3-snapshot-pattern` — Inmutabilidad histórica de documentos (V3 §1) ⭐
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` ✅ completada 2026-07-02 (PR #255)
 - **Governance**: ALTO (toca los RPCs del hot path de venta/compra; cambios aditivos, sin drops)
 - **Scope**:
   - Columnas snapshot en `sale_items`, `purchase_items`, `quote_items`, `sales_order_items`: `name_snapshot TEXT`, `sku_snapshot TEXT`, `unit_cost_snapshot NUMERIC(15,2)`, `iva_rate_snapshot NUMERIC(5,2)`

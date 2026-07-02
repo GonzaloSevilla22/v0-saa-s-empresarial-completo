@@ -34,6 +34,15 @@ _BUSINESS_ERRCODE_STATUS = {
     "P0404": 404,
     "P0409": 409,
     "P0422": 422,
+    # bank-account-ledger C1 (gap: no estaban mapeados y caían en 500)
+    "P0410": 422,  # movement_type reservado en la carga manual
+    "P0411": 422,  # CBU inválido
+    "P0412": 404,  # cuenta bancaria no encontrada / inactiva
+    # bank-reconciliation C3
+    "P0431": 422,  # motivo requerido (cierre con diferencia / undo) — RN-A5
+    "P0432": 409,  # sesión cerrada (CLOSED es terminal)
+    "P0433": 422,  # Σ montos de líneas ≠ Σ montos de movimientos
+    "P0434": 409,  # línea/movimiento ya participa de un match activo
 }
 
 

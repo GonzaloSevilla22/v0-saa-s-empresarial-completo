@@ -14,6 +14,7 @@ from backend.core.errors import asyncpg_error_handler, cors_error_headers
 from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
     bank_accounts,
+    bank_reconciliation,
     branches,
     cash,
     clients,
@@ -100,3 +101,4 @@ app.include_router(supplier_accounts.router)
 app.include_router(journal_entries.router)
 # bank-payment-routing C2 (V2.5 BankReconciliation) — read-only picker de cuenta bancaria
 app.include_router(bank_accounts.router)
+app.include_router(bank_reconciliation.router)

@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** **`v3-document-status-history`** (V3 §2 — FSM + historial append-only; prerequisito de la matriz rol×transición del RBAC) — `v3-snapshot-pattern` ✅ completada 2026-07-02. Después: `v3-notifications-realtime`, chicos paralelizables (soft-delete, provisioning, maestros, imágenes), percepciones (V2.5), V2.6 contable, V3 Inteligencia.
+**Próximo trabajo:** **`v3-notifications-realtime`** (V3 §3 — notificaciones in-app post-commit via Realtime) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03. Después: chicos paralelizables (soft-delete, provisioning, maestros, imágenes), percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
 
 ---
 
@@ -1053,7 +1053,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | V3 § | Patrón | Estado verificado en código | Change |
 |---|---|---|---|
 | §1 | Snapshot Pattern | ✅ Columnas snapshot congeladas en líneas (`name`, `sku`, `unit_cost`, `iva_rate`) + `stock_movements.unit_cost_snapshot` + `FiscalIdentitySnapshot` del receptor (`receptor_legal_name`, `receptor_iva_condition`). **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Archivada 2026-07-02. | ✅ `v3-snapshot-pattern` |
-| §2 | FSM + historial de estados | ❌ FSMs implícitas en CHECKs por tabla (`quotes.status`, `sales_orders.status`, `fiscal_documents`, `cash_sessions`, `stock_transfers`); sin `DocumentStatusHistory`, sin transiciones válidas como datos, sin motivo obligatorio | `v3-document-status-history` |
+| §2 | FSM + historial de estados | ✅ Tabla append-only `document_status_history`, catálogo `document_status_transitions` con política como datos, `record_status_transition` helper, `allowed_role` permisivo (inerte hoy, activado por RBAC). Archivada 2026-07-03. Desbloquea matriz rol×transición de RBAC. | ✅ `v3-document-status-history` |
 | §3 | Notificación post-commit | ❌ Outbox vivo con 3 consumers (AuditLog, Email, Journal) pero sin read model `Notification` in-app ni canal Realtime. (`sale_notifications` existente ≠ esto: es log de envíos WhatsApp/email al cliente) | `v3-notifications-realtime` |
 | §4 | Soft delete uniforme | ❌ Sin política única: `clients`/`products` con `deleted_at` legacy; `cost_centers`/`bank_accounts`/`branches` con `is_active`; sin `deleted_by`, sin índices únicos parciales | `v3-soft-delete-policy` |
 | §5 | RBAC multi-rol | ❌ `account_members.role` singular, CHECK `('owner','admin','member')`; sin `assigned_by`/`expires_at`, sin roles funcionales (SELLER/CASHIER/STOCK/…) | `v3-rbac-multirole` |
@@ -1073,12 +1073,12 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 ```
 C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-snapshot-pattern ✅ (2026-07-02, PR #255 — DESBLOQUEÓ C-20 Grupo 10)
-  → v3-document-status-history ⭐ SIGUIENTE  (prerequisito de la matriz rol×transición del RBAC)
-  → v3-notifications-realtime        (outbox ya maduro)
+  → v3-document-status-history ✅ (2026-07-03, PRs #258/#259 — FSM + historial, RBAC-ready)
+  → v3-notifications-realtime ⭐ SIGUIENTE   (outbox ya maduro)
   → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes   (chicos, paralelizables)
   → v3-reporting-invariants          (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)
-  → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir)
+  → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
   → percepciones-retenciones         (V2.5, después del snapshot fiscal)
 ```
 
@@ -1100,17 +1100,20 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §1 y §8, `modelo-dominio-aliadata-v2.md` §5.3, `knowledge-base/05_reglas_de_negocio.md`
 
 ### `v3-document-status-history` — FSM + historial de estados append-only (V3 §2)
-- **Estado**: `[ ]` pendiente
-- **Governance**: MEDIO (tabla nueva + triggers; no cambia semántica de los documentos)
-- **Scope**:
-  - Tabla `document_status_history` genérica append-only: `(id, account_id, document_type, document_id, from_status, to_status, performed_by, reason, occurred_at)`; RLS sin UPDATE/DELETE (RN-A3 enforzado con grants, no convención)
-  - RN-A1: toda transición de Quote/SalesOrder/FiscalDocument/CashSession/StockTransfer (y `reconciliation_sessions` de C3) inserta historial **en la misma transacción**; RN-A2: creación registra `from_status = NULL`
-  - `StatusTransitionPolicy` como datos (tabla o función SQL con mapa de transiciones válidas + `is_terminal`), no `if`s dispersos; RN-A5: `reason` obligatorio en cancelación/anulación/ajuste/diferencia de arqueo
-  - Retrofit: los RPCs existentes que cambian estado (`accept_quote`, `_c29_confirm_order_core`, cierre de caja, transfers, relay CAE) pasan por la validación e insertan historial
-  - UI: timeline "línea de tiempo del documento" en el detalle de venta/presupuesto/factura
-  - La dimensión **por rol** de RN-A4 (ej. cashier no anula factura) queda estructurada pero se activa con `v3-rbac-multirole`
+- **Estado**: `[x]` ✅ completada 2026-07-03 (PRs #258 squash `9adf785`, #259 `fcdb32c`)
+- **Governance**: MEDIO (tabla nueva + RPC de historial; cambios aditivos a otros RPCs)
+- **Scope**: ✅ Implementado
+  - Tabla `document_status_history` genérica append-only: `(id, account_id, document_type, document_id, from_status, to_status, performed_by, reason, occurred_at)`; RLS sin UPDATE/DELETE (RN-A3 enforzado con grants + REVOKE)
+  - RN-A1: toda transición de Quote/SalesOrder/FiscalDocument/CashSession/ReconciliationSession/StockTransfer inserta historial **en la misma transacción**; RN-A2: creación registra `from_status = NULL`
+  - `document_status_transitions` catálogo con datos: transiciones válidas + `is_terminal_to`, `requires_reason`, `allowed_role` (permisivo, inerte)
+  - Helpers STABLE: `is_valid_transition()`, `is_terminal_status()`, `transition_requires_reason()` accesibles a `authenticated`
+  - `record_status_transition()` helper DEFINER: valida transición + exige reason si `requires_reason`, inserta en historial
+  - Retrofit: `rpc_accept_quote`, `_c29_confirm_order_core`, `rpc_open_cash_session`, `rpc_close_cash_session`, `rpc_close_reconciliation_session`, `rpc_emit_pending_cae` + relay CAE (backend)
+  - UI: componente `DocumentTimeline` (Server Component) renderiza historial ordenado por `occurred_at` en detalles de venta/presupuesto/factura
+  - RN-A4 (dimensión por rol) estructurada vía `allowed_role` pero inerte; se activa con `v3-rbac-multirole`
 - **Dependencias**: ninguna
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §2, `knowledge-base/05_reglas_de_negocio.md`, migración `20260702000001_c29_quote_salesorder.sql` (FSMs actuales en CHECKs)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §2, `knowledge-base/05_reglas_de_negocio.md` (RN-A1..A5), migraciones anteriores a `20260807000001` (FSMs en CHECKs, catálogo seed)
+- **PRs**: #258 (Squash apply completo + tests + gates), #259 (post-apply follow-up), migración `20260807000001` aplicada prod + smoke OK
 
 ### `v3-notifications-realtime` — Notificaciones in-app post-commit (V3 §3)
 - **Estado**: `[ ]` pendiente

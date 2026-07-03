@@ -574,3 +574,27 @@ export interface ExportLog {
   status: ExportStatus
   createdAt: string
 }
+
+// ── Document status history (v3-document-status-history — Modelo V3 §2) ──────
+
+export type DocumentTypeSlug =
+  | "quote"
+  | "sales_order"
+  | "fiscal_document"
+  | "cash_session"
+  | "reconciliation_session"
+  | "stock_transfer"
+
+export interface DocumentStatusHistoryEntry {
+  id: string
+  accountId: string
+  documentType: DocumentTypeSlug
+  documentId: string
+  /** NULL = entrada de creación del documento (RN-A2) */
+  fromStatus: string | null
+  toStatus: string
+  /** uuid del actor; 00000000-0000-0000-0000-000000000000 = sistema (relay CAE) */
+  performedBy: string
+  reason: string | null
+  occurredAt: string
+}

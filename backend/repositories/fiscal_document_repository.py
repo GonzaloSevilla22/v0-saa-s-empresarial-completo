@@ -50,32 +50,59 @@ class FiscalDocumentRepository(BaseRepository):
         cae: str,
         cae_due_date: datetime.date,
     ) -> None:
-        """Transiciona el comprobante a authorized con el CAE obtenido."""
-        await self.execute(
-            """
-            UPDATE public.fiscal_documents
-            SET status       = 'authorized',
-                cae          = $2,
-                cae_due_date = $3
-            WHERE id = $1 AND status = 'pending_cae'
-            """,
-            doc_id,
-            cae,
-            cae_due_date,
-        )
+        """Transiciona el comprobante a authorized con el CAE obtenido.
+
+        v3-document-status-history (RN-A1): el registro del historial
+        (pending_cae → authorized) ocurre en la MISMA transacción que el
+        UPDATE de status, vía rpc_record_fiscal_transition (SECURITY DEFINER,
+        GRANT solo service_role). Si el UPDATE no matcheó (otro relay ya lo
+        transicionó — lease de claim_pending), no se registra historial.
+        """
+        async with self._conn.transaction():
+            status = await self.execute(
+                """
+                UPDATE public.fiscal_documents
+                SET status       = 'authorized',
+                    cae          = $2,
+                    cae_due_date = $3
+                WHERE id = $1 AND status = 'pending_cae'
+                """,
+                doc_id,
+                cae,
+                cae_due_date,
+            )
+            if status == "UPDATE 1":
+                await self.execute(
+                    "SELECT public.rpc_record_fiscal_transition($1::uuid, $2, $3)",
+                    doc_id,
+                    "authorized",
+                    None,
+                )
 
     async def update_rejected(self, doc_id: str, last_error: str) -> None:
-        """Transiciona el comprobante a rejected con el detalle del error."""
-        await self.execute(
-            """
-            UPDATE public.fiscal_documents
-            SET status     = 'rejected',
-                last_error = $2
-            WHERE id = $1 AND status = 'pending_cae'
-            """,
-            doc_id,
-            last_error,
-        )
+        """Transiciona el comprobante a rejected con el detalle del error.
+
+        v3-document-status-history (RN-A1): registra pending_cae → rejected en
+        la misma transacción, con el detalle del error como reason.
+        """
+        async with self._conn.transaction():
+            status = await self.execute(
+                """
+                UPDATE public.fiscal_documents
+                SET status     = 'rejected',
+                    last_error = $2
+                WHERE id = $1 AND status = 'pending_cae'
+                """,
+                doc_id,
+                last_error,
+            )
+            if status == "UPDATE 1":
+                await self.execute(
+                    "SELECT public.rpc_record_fiscal_transition($1::uuid, $2, $3)",
+                    doc_id,
+                    "rejected",
+                    last_error,
+                )
 
     async def claim_pending(self, doc_id: str, max_attempts: int = 10) -> dict | None:
         """Atomic optimistic claim: sets next_attempt_at +5min lease on the doc.

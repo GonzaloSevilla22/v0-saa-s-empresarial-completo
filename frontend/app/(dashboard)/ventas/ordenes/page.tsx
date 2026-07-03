@@ -147,9 +147,13 @@ export default function SalesOrdersPage() {
                   <span className="text-sm font-medium tabular-nums">
                     {formatMoney(Number(order.total), "ARS")}
                   </span>
-                  <span className="text-xs text-muted-foreground font-mono">
+                  {/* v3-document-status-history: link al detalle con timeline */}
+                  <Link
+                    href={`/ventas/ordenes/${order.id}`}
+                    className="text-xs text-muted-foreground font-mono hover:text-foreground hover:underline w-fit"
+                  >
                     {order.id.slice(0, 8)}… · {dateLabel}
-                  </span>
+                  </Link>
                 </div>
 
                 {/* Fiscal section: badge OR emit button */}

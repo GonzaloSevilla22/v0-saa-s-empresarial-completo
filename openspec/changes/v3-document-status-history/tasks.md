@@ -53,6 +53,6 @@
 
 - [x] 7.1 Agregar RN-A1..A5 a `knowledge-base/05_reglas_de_negocio.md` en la sección "Dominio: Modelo V3 (retrofit)" (junto a RN-100): A1 historial en la misma transacción; A2 creación con `from_status=NULL`; A3 append-only por grants; A4 política como datos + dimensión rol estructurada (activada por RBAC); A5 `reason` obligatorio en transiciones destructivas.
 - [x] 7.2 Tests (TDD): registrar transición inserta historial; transición inválida rechazada; `reason` obligatorio; append-only no admite UPDATE/DELETE; creación con `from_status=NULL`; idempotencia de confirmación no duplica historial. Cubrir con gates SQL (§5) + tests pytest del lado backend donde aplique (quote/relay CAE).
-- [ ] 7.3 `supabase db advisors` tras el cambio de schema/RPC; resolver hallazgos (verificar `SET search_path` en toda función nueva/reemplazada).
-- [ ] 7.4 Smoke test con plan de rollback antes de mergear: aceptar presupuesto, confirmar orden/quickSale, cerrar caja (con y sin diferencia), cerrar conciliación, emitir comprobante → verificar que cada uno inserta su fila de historial y que stock/caja/idempotencia no regresan.
+- [x] 7.3 `supabase db advisors` tras el cambio de schema/RPC; resolver hallazgos (verificar `SET search_path` en toda función nueva/reemplazada).
+- [x] 7.4 Smoke test con plan de rollback antes de mergear: aceptar presupuesto, confirmar orden/quickSale, cerrar caja (con y sin diferencia), cerrar conciliación, emitir comprobante → verificar que cada uno inserta su fila de historial y que stock/caja/idempotencia no regresan.
 - [ ] 7.5 Tras el archive, actualizar `CHANGES.md` (estado del change) y notar que `v3-rbac-multirole` puede consumir `document_status_transitions.allowed_role`. — Post-archive, fuera de este apply.

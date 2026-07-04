@@ -1128,6 +1128,14 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §3, spec `transactional-outbox`, `knowledge-base/09_decisiones_y_supuestos.md` §DEC-16 (Realtime en Supabase)
 - **PRs**: #262 (apply completo: migraciones `20260808000001`/`20260808000002` + frontend + 5 tests Vitest), cierre con `20260808000003` (REVOKE advisor). Verificado en prod: publicación Realtime ✅, RLS ✅, smoke Consumer 4 con rollback ✅, advisors sin hallazgos nuevos residuales
 
+### `branch-min-stock-realign` — Realineación de min_stock por sucursal (hallazgo de `v3-notifications-realtime`)
+- **Estado**: `[x]` ✅ completada 2026-07-04 (PRs #265 squash `f1fe4e1` + fix `93f9ced`, #266 squash `f43ec3a`)
+- **Governance**: MEDIO (RPC nueva + backfill + vista recreada; no toca dinero ni auth)
+- **Scope**: RPC `rpc_set_product_min_stock` propaga `products.min_stock` a **todas** las filas `branch_stock` del producto en la misma transacción de creación/edición (wired en `product_repository.create()`/`update()`); backfill idempotente `products→branch_stock` con gate de 0 divergencias; vista `v_products_with_stock` recreada exponiendo `min_stock` derivado de `branch_stock` (no de `products.min_stock`); `products.min_stock` queda **DEPRECATED** (comentario en columna, sin DROP — conservada por el dual-write del importador). Nació de un hallazgo durante `v3-notifications-realtime`: el trigger `check_branch_low_stock` ya leía `branch_stock.min_stock`, pero nada lo poblaba desde el formulario — el umbral quedaba frozen en 0.
+- **Specs sincronizadas**: `branch-stock` (2 ADDED: propagación + backfill; 1 MODIFIED: alerta de stock bajo), `inventory-single-ledger` (1 MODIFIED: vista de compatibilidad con `min_stock` derivado).
+- **Dependencias**: ninguna (aditivo; DROP de `products.min_stock` diferido a change destructivo posterior)
+- **Leer antes**: `knowledge-base/05_reglas_de_negocio.md` (RN-23), `modelo-dominio-aliadata-v3.md` §3 (contexto de `v3-notifications-realtime`)
+
 ### `v3-soft-delete-policy` — Política única de borrado (V3 §4)
 - **Estado**: `[ ]` pendiente
 - **Governance**: MEDIO (cambia semántica de borrado de maestros; documentos/ledgers no se tocan)

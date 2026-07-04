@@ -56,5 +56,5 @@
 ## 7. Cierre
 
 - [x] 7.1 `openspec validate --strict` verde
-- [ ] 7.2 Verificación en prod post-merge (MCP read-only): tabla `notifications` presente en `supabase_realtime`, relay procesa un evento in-scope y crea la fila, RLS aísla por audiencia
-- [ ] 7.3 Marcar `v3-notifications-realtime` en CHANGES.md §"Roadmap Modelo V3"
+- [x] 7.2 Verificación en prod post-merge (MCP read-only): tabla `notifications` presente en `supabase_realtime` ✅; ambas migraciones en `list_migrations` ✅; RLS activa con 2 policies (0 INSERT) ✅; cron job + trigger fiscal presentes ✅; 5 producers + Consumer 4 wireados (`pg_get_functiondef`) ✅; smoke transaccional con rollback: evento `CashSessionClosed` sintético → Consumer 4 → notification con audiencia = owners exactos y severity=warning, uuid ajeno fuera de audiencia, 0 residuos ✅; `get_advisors` → 1 hallazgo nuevo (`trg_fiscal_document_rejected` SECURITY DEFINER ejecutable por app roles) corregido con `20260808000003` (REVOKE, patrón `trg_quote_record_creation`)
+- [x] 7.3 Marcar `v3-notifications-realtime` en CHANGES.md §"Roadmap Modelo V3"

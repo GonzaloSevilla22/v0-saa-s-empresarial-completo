@@ -105,8 +105,13 @@ Un `operation_id` no mezcla ventas y compras. Cada operación de carrito es 100%
 ### RN-22 — Movement number secuencial
 Cada movimiento de stock recibe un `movement_number` entero secuencial global (por usuario). Permite detectar huecos en el historial para cumplimiento fiscal y auditoría.
 
-### RN-23 — Alerta de stock bajo
-Se dispara automáticamente cuando `products.stock ≤ products.min_stock`. El trigger `check_low_stock` inserta una fila en `email_logs` con `event_type = 'low_stock_alert'`. La deduplicación garantiza máximo 1 alerta por producto por 24 horas.
+### RN-23 — Alerta de stock bajo (actualizada — `branch-min-stock-realign`, 2026-07-04)
+Se dispara automáticamente cuando `branch_stock.quantity ≤ branch_stock.min_stock`, evaluado **por sucursal** (no contra el stock global del producto). El trigger `check_branch_low_stock` (`AFTER UPDATE ON branch_stock`) inserta una fila en `email_logs` con `event_type = 'low_branch_stock_alert'` y emite el evento `StockBelowMinimum` a la outbox transaccional (notificación in-app post-commit). La deduplicación garantiza máximo 1 alerta por `(product_id, branch_id)` por 24 horas. El trigger legacy `check_low_stock` (sobre `products.stock`/`products.min_stock`) fue retirado en C-21 checkpoint #2.
+
+`branch_stock.min_stock` es la **única fuente de verdad** del umbral de alerta. El campo "Stock Mínimo" del formulario de productos escribe `products.min_stock` (columna DEPRECATED, ver RN-23-bis) y se **propaga** vía `rpc_set_product_min_stock` a `branch_stock.min_stock` de **todas** las sucursales donde el producto tiene filas, en la misma transacción de creación/edición. La edición fina de `min_stock` por sucursal individual está fuera de alcance (follow-up).
+
+### RN-23-bis — Deprecación de `products.min_stock`
+`products.min_stock` queda **deprecada** (`branch-min-stock-realign`, 2026-07-04): ya no es la fuente de verdad de ningún umbral de alerta — esa responsabilidad es exclusiva de `branch_stock.min_stock` (RN-23). La columna se conserva únicamente porque el dual-write del importador (`rpc_bulk_upsert_products`) todavía la escribe; su `DROP` queda diferido a un change destructivo posterior, igual que ocurrió con su hermana `products.stock` (C-21 checkpoint #2). La vista `v_products_with_stock` expone una columna `min_stock` (mismo nombre, para no romper frontend) mediante `COALESCE(MAX(branch_stock.min_stock), 0)` — ya NO lee `products.min_stock`.
 
 ### RN-24 — Stock fraccionario
 El campo `products.stock` es `NUMERIC(15,4)`, soportando cantidades como `0.5 kg`, `2.350 litros`, etc. Las unidades de medida (`units_of_measure`) definen el factor de conversión a la unidad base.

@@ -124,17 +124,38 @@ DECLARE
   v_rpc_result        jsonb;
 BEGIN
   -- Anchor sintético: accounts.owner_user_id es NOT NULL REFERENCES auth.users.
-  -- Patrón C2/C3 (20260805000001_bank_reconciliation.sql:1288-1305): crear un
-  -- auth.users + accounts real y aislado, limpiar al final.
+  -- Patrón C2/C3 (20260805000001_bank_reconciliation.sql:1283-1315): el
+  -- trigger handle_new_user (AFTER INSERT ON auth.users) YA auto-crea una
+  -- account + membership(owner) — NO insertar una accounts manualmente
+  -- (dejaría un accounts huérfano sin poder borrar auth.users al limpiar,
+  -- lección de este mismo gate en CI). Resolver la cuenta auto-creada.
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
   VALUES (v_fake_user_id, 'authenticated', 'authenticated',
           'branch-min-stock-gate-1-3@test.local', now(), now(),
           jsonb_build_object('name', 'Gate 1.3', 'phone', '', 'locality', '', 'province', ''))
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.accounts (id, owner_user_id)
-  VALUES (gen_random_uuid(), v_fake_user_id)
-  RETURNING id INTO v_account_id;
+  SELECT account_id INTO v_account_id
+  FROM public.account_members
+  WHERE user_id = v_fake_user_id
+  ORDER BY created_at
+  LIMIT 1;
+
+  IF v_account_id IS NULL THEN
+    -- Fallback defensivo: si el trigger no auto-creó nada (drift), crear a mano.
+    INSERT INTO public.accounts (id, owner_user_id)
+    VALUES (gen_random_uuid(), v_fake_user_id)
+    RETURNING id INTO v_account_id;
+    INSERT INTO public.account_members (account_id, user_id, role)
+    VALUES (v_account_id, v_fake_user_id, 'owner')
+    ON CONFLICT DO NOTHING;
+  ELSE
+    UPDATE public.account_members
+    SET role = 'owner'
+    WHERE account_id = v_account_id
+      AND user_id = v_fake_user_id
+      AND role NOT IN ('owner', 'admin');
+  END IF;
 
   INSERT INTO public.branches (id, account_id, name)
   VALUES (gen_random_uuid(), v_account_id, '__gate_1_3_branch_a__')
@@ -165,10 +186,6 @@ BEGIN
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_fake_user_id::text)::text, true);
   PERFORM set_config('request.jwt.claim.sub', v_fake_user_id::text, true);
 
-  INSERT INTO public.account_members (account_id, user_id, role)
-  VALUES (v_account_id, v_fake_user_id, 'owner')
-  ON CONFLICT DO NOTHING;
-
   SELECT public.rpc_set_product_min_stock(v_product_id, 7) INTO v_rpc_result;
 
   SELECT min_stock INTO v_min_a FROM public.branch_stock
@@ -190,14 +207,20 @@ BEGIN
       v_min_other;
   END IF;
 
-  -- Limpieza del fixture (no dejar basura en prod).
+  -- Limpieza del fixture (no dejar basura en prod). Se borra por
+  -- owner_user_id (no por v_account_id) para cubrir CUALQUIER account que
+  -- el trigger handle_new_user haya auto-creado para este usuario sintético
+  -- — lección de este mismo gate: dejar una accounts huérfana impide el
+  -- DELETE FROM auth.users final (FK accounts_owner_user_id_fkey).
   PERFORM set_config('request.jwt.claims', '', true);
   PERFORM set_config('request.jwt.claim.sub', '', true);
   DELETE FROM public.branch_stock WHERE account_id = v_account_id;
   DELETE FROM public.products WHERE account_id = v_account_id;
   DELETE FROM public.branches WHERE account_id = v_account_id;
-  DELETE FROM public.account_members WHERE account_id = v_account_id;
-  DELETE FROM public.accounts WHERE id = v_account_id;
+  DELETE FROM public.account_members WHERE user_id = v_fake_user_id;
+  DELETE FROM public.accounts WHERE owner_user_id = v_fake_user_id;
+  DELETE FROM public.profiles WHERE id = v_fake_user_id;
+  DELETE FROM public.operation_idempotency WHERE user_id = v_fake_user_id;
   DELETE FROM auth.users WHERE id = v_fake_user_id;
 
   RAISE NOTICE 'GATE 1.3/1.4 PASSED: rpc_set_product_min_stock propaga a todas las filas branch_stock del producto, sin afectar otros productos.';
@@ -213,8 +236,10 @@ EXCEPTION
       DELETE FROM public.branch_stock WHERE account_id = v_account_id;
       DELETE FROM public.products WHERE account_id = v_account_id;
       DELETE FROM public.branches WHERE account_id = v_account_id;
-      DELETE FROM public.account_members WHERE account_id = v_account_id;
-      DELETE FROM public.accounts WHERE id = v_account_id;
+      DELETE FROM public.account_members WHERE user_id = v_fake_user_id;
+      DELETE FROM public.accounts WHERE owner_user_id = v_fake_user_id;
+      DELETE FROM public.profiles WHERE id = v_fake_user_id;
+      DELETE FROM public.operation_idempotency WHERE user_id = v_fake_user_id;
       DELETE FROM auth.users WHERE id = v_fake_user_id;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
@@ -340,15 +365,30 @@ DECLARE
   v_view_min_stock int;
   v_view_min_stock_no_rows int;
 BEGIN
+  -- El trigger handle_new_user (AFTER INSERT ON auth.users) auto-crea
+  -- account + membership(owner) — resolver esa cuenta, no crear una segunda
+  -- (ver nota en gate 1.3: dejaría accounts huérfana y rompería el
+  -- DELETE FROM auth.users al limpiar).
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
   VALUES (v_fake_user_id, 'authenticated', 'authenticated',
           'branch-min-stock-gate-1-8@test.local', now(), now(),
           jsonb_build_object('name', 'Gate 1.8', 'phone', '', 'locality', '', 'province', ''))
   ON CONFLICT (id) DO NOTHING;
 
-  INSERT INTO public.accounts (id, owner_user_id)
-  VALUES (gen_random_uuid(), v_fake_user_id)
-  RETURNING id INTO v_account_id;
+  SELECT account_id INTO v_account_id
+  FROM public.account_members
+  WHERE user_id = v_fake_user_id
+  ORDER BY created_at
+  LIMIT 1;
+
+  IF v_account_id IS NULL THEN
+    INSERT INTO public.accounts (id, owner_user_id)
+    VALUES (gen_random_uuid(), v_fake_user_id)
+    RETURNING id INTO v_account_id;
+    INSERT INTO public.account_members (account_id, user_id, role)
+    VALUES (v_account_id, v_fake_user_id, 'owner')
+    ON CONFLICT DO NOTHING;
+  END IF;
 
   INSERT INTO public.branches (id, account_id, name)
   VALUES (gen_random_uuid(), v_account_id, '__gate_1_8_branch__')
@@ -387,11 +427,16 @@ BEGIN
       v_view_min_stock_no_rows;
   END IF;
 
-  -- Revertir el fixture.
+  -- Revertir el fixture. Igual que en gate 1.3: borrar por owner_user_id
+  -- para cubrir la accounts auto-creada por handle_new_user (necesario
+  -- para que el DELETE FROM auth.users final no viole la FK).
   DELETE FROM public.branch_stock WHERE account_id = v_account_id;
   DELETE FROM public.products WHERE account_id = v_account_id;
   DELETE FROM public.branches WHERE account_id = v_account_id;
-  DELETE FROM public.accounts WHERE id = v_account_id;
+  DELETE FROM public.account_members WHERE user_id = v_fake_user_id;
+  DELETE FROM public.accounts WHERE owner_user_id = v_fake_user_id;
+  DELETE FROM public.profiles WHERE id = v_fake_user_id;
+  DELETE FROM public.operation_idempotency WHERE user_id = v_fake_user_id;
   DELETE FROM auth.users WHERE id = v_fake_user_id;
 
   RAISE NOTICE 'GATE 1.8 PASSED: v_products_with_stock expone min_stock derivado de branch_stock (con y sin filas).';
@@ -404,7 +449,10 @@ EXCEPTION
       DELETE FROM public.branch_stock WHERE account_id = v_account_id;
       DELETE FROM public.products WHERE account_id = v_account_id;
       DELETE FROM public.branches WHERE account_id = v_account_id;
-      DELETE FROM public.accounts WHERE id = v_account_id;
+      DELETE FROM public.account_members WHERE user_id = v_fake_user_id;
+      DELETE FROM public.accounts WHERE owner_user_id = v_fake_user_id;
+      DELETE FROM public.profiles WHERE id = v_fake_user_id;
+      DELETE FROM public.operation_idempotency WHERE user_id = v_fake_user_id;
       DELETE FROM auth.users WHERE id = v_fake_user_id;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;

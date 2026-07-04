@@ -105,6 +105,7 @@
 ### DEC-19 — Branch como Aggregate Root; stock por (product, branch)
 **Decisión**: `Branch` es root de primer nivel; todo documento operativo lleva `branch_id` obligatorio (Branch "Casa Central" en onboarding, oculta si hay una sola); el stock vive en `branch_stock` por `(product, branch)` como única fuente de verdad; `products.stock` se retira (total = Σ, como vista).
 **Justificación**: El hack del dual-ledger (H4) existe porque el modelo no le dio a la sucursal el lugar que la operación exige. De paso elimina el hot-row de `products.stock` a escala.
+**Nota (2026-07-04, `fix/fk-account-id-line-items`)**: `sales_orders.branch_id` es la única FK a `branches(id)` sin `ON DELETE SET NULL` (a diferencia de `sales`/`purchases`/`quotes`/`stock_movements.branch_id`, que sí lo tienen) — es intencional, no un gap a unificar: `branch_id` es NOT NULL por esta misma decisión (Branch como Aggregate Root), así que SET NULL violaría la invariante. Las branches se cierran, no se borran (lifecycle C-26); el `NO ACTION` implícito no tuvo consecuencia práctica salvo en cleanups de gates de CI (PR #269), ya resuelto. Documentado también como `COMMENT ON CONSTRAINT sales_orders_branch_id_fkey` en `20260810000001_fk_account_id_line_items.sql`.
 
 ### DEC-20 — Consistencia transaccional en el hot path; outbox para el resto
 **Decisión**: Venta+stock+caja+numeración fiscal en la misma transacción; contabilidad/reporting/audit/IA/email vía outbox (tabla `events`). Sin event sourcing, sin broker, sin microservicios.

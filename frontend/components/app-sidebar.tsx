@@ -38,7 +38,7 @@ const navGroups = [
       { title: "POS — Venta Rápida", href: "/ventas/pos", icon: Scan, pro: false, proOnly: false },
       { title: "Compras", href: "/compras", icon: ShoppingBag, pro: false, proOnly: false },
       { title: "Gastos", href: "/gastos", icon: Receipt, pro: false, proOnly: false },
-      { title: "Conciliación bancaria", href: "/finanzas/conciliacion", icon: Landmark, pro: false, proOnly: false },
+      { title: "Bancos", href: "/finanzas/conciliacion", icon: Landmark, pro: false, proOnly: false },
     ],
   },
   {

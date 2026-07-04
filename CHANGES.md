@@ -893,7 +893,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - `JournalEntry` ✅ V1 entregado (`journal-entry-outbox`, 2026-06-27 — ver "Post-roadmap V2.x"): partida doble generada async vía Consumer 3 del outbox para ventas/compras/pagos/NC. Falta: plan de cuentas configurable + UI, gastos/cierre de caja, export contable (V2.6)
 - `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
 - Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino) — **depende de `v3-snapshot-pattern`**: sin `FiscalIdentitySnapshot` completo del receptor, la percepción calculada no puede justificarse contra la condición fiscal vigente al momento de emisión
-- **Del modelo V3 (§11) entran en esta fase**: `v3-notifications-realtime` (§3, el outbox ya está maduro), `v3-reporting-invariants` (§8) y `producto-imagenes` (§7.4) — ver "Roadmap Modelo V3" abajo
+- **Del modelo V3 (§11) entran en esta fase**: `v3-notifications-realtime` (§3, el outbox ya está maduro) y `v3-reporting-invariants` (§8) — ver "Roadmap Modelo V3" abajo
 
 ### V3 — Inteligencia
 
@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** chicos paralelizables del Modelo V3 (`v3-soft-delete-policy`, `v3-provisioning-seed`, `v3-catalog-masters`, `producto-imagenes`) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
+**Próximo trabajo:** chicos paralelizables del Modelo V3 (`v3-soft-delete-policy`, `v3-provisioning-seed`, `v3-catalog-masters`) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
 
 ---
 
@@ -1062,7 +1062,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | §7.1 | UnidadMedida tipada | ⚠️ `units_of_measure` existe (name, symbol, is_system) pero sin `type` (peso/volumen/contable) y es per-user | `v3-catalog-masters` |
 | §7.2 | Composición de producto (BOM) | ❌ No existe | fase V3 (`v3-product-composition`) |
 | §7.3 | Direcciones múltiples | ❌ No existe (dirección única en cliente) | `v3-catalog-masters` |
-| §7.4 | Imágenes de producto | ❌ `products` sin imágenes (solo landing usa Storage) | `producto-imagenes` |
+| §7.4 | Imágenes de producto | ❌ `products` sin imágenes (solo landing usa Storage) | — (descartado por PO 2026-07-04, no se implementa) |
 | §7.5 | Seed de provisioning | ⚠️ Parcial: `handle_new_user` provisiona account+membership (fix `20260800000003`) y C-21/C-26 dan branch default; faltan Cashbox, lista de precios, formas de pago, unidades seed | `v3-provisioning-seed` |
 | §8 | Invariantes reporting RN-D | ⚠️ Parcial: timezone fix del dashboard ✅ (RN-D5), DECIMAL ✅ (RN-D4); sin enforcement de cancelados/NC (RN-D1), snapshots (RN-D2) ni devengado-vs-percibido (RN-D3) | `v3-reporting-invariants` |
 | §9 | Endurecimiento plataforma | ⚠️ Captcha ✅, firma de webhooks ✅ (C-17), fixtures por rol ✅ (conftest); rate limiting/refresh token = config de Supabase Auth (tarea PO, no change) | — |
@@ -1075,7 +1075,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-snapshot-pattern ✅ (2026-07-02, PR #255 — DESBLOQUEÓ C-20 Grupo 10)
   → v3-document-status-history ✅ (2026-07-03, PRs #258/#259 — FSM + historial, RBAC-ready)
   → v3-notifications-realtime ✅ (2026-07-04, PRs #262/#264 — Consumer 4 + campana Realtime + specs synced)
-  → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes ⭐ SIGUIENTES   (chicos, paralelizables)
+  → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters ⭐ SIGUIENTES   (chicos, paralelizables; producto-imagenes §7.4 descartado por PO 2026-07-04)
   → v3-reporting-invariants          (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)
   → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
@@ -1202,16 +1202,6 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   - `client_addresses`: direcciones múltiples con `alias` e `is_primary` (invariante: exactamente una primaria); la dirección **fiscal** sigue en FiscalIdentity (inmutable por snapshot), estas son operativas/editables
 - **Dependencias**: ninguna
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.1 y §7.3, `knowledge-base/04_modelo_de_datos.md` §clients
-
-### `producto-imagenes` — Imágenes de producto vía Supabase Storage (V3 §7.4)
-- **Estado**: `[ ]` pendiente
-- **Governance**: BAJO-MEDIO (bucket + validación de upload)
-- **Scope**:
-  - `products.images_url TEXT[]` (o tabla `product_images` con orden) + imagen opcional en `categories`
-  - Bucket Storage privado con upload firmado desde backend, validación MIME/tamaño, eliminación del asset al borrar el maestro (flujo completo FS §10, con Supabase Storage en lugar de Cloudinary — no introducir vendor nuevo)
-  - Transformaciones (resize/WebP) vía render endpoint de Storage; UI en catálogo y detalle de producto
-- **Dependencias**: ninguna
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.4, `knowledge-base/08_arquitectura_propuesta.md` §Storage Buckets
 
 ### `v3-product-composition` — BOM ligera de un nivel (V3 §7.2, fase V3)
 - **Estado**: `[ ]` pendiente — **fase V3** (no proponer antes de cerrar V2.5)

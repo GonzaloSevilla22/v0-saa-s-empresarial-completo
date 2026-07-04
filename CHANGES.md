@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** **`v3-notifications-realtime`** (V3 §3 — notificaciones in-app post-commit via Realtime) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03. Después: chicos paralelizables (soft-delete, provisioning, maestros, imágenes), percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
+**Próximo trabajo:** chicos paralelizables del Modelo V3 (`v3-soft-delete-policy`, `v3-provisioning-seed`, `v3-catalog-masters`, `producto-imagenes`) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
 
 ---
 
@@ -1074,8 +1074,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-snapshot-pattern ✅ (2026-07-02, PR #255 — DESBLOQUEÓ C-20 Grupo 10)
   → v3-document-status-history ✅ (2026-07-03, PRs #258/#259 — FSM + historial, RBAC-ready)
-  → v3-notifications-realtime ⭐ SIGUIENTE   (outbox ya maduro)
-  → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes   (chicos, paralelizables)
+  → v3-notifications-realtime ✅ (2026-07-04, PR #262 — Consumer 4 + campana Realtime)
+  → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes ⭐ SIGUIENTES   (chicos, paralelizables)
   → v3-reporting-invariants          (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)
   → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
@@ -1116,16 +1116,17 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **PRs**: #258 (Squash apply completo + tests + gates), #259 (post-apply follow-up), migración `20260807000001` aplicada prod + smoke OK
 
 ### `v3-notifications-realtime` — Notificaciones in-app post-commit (V3 §3)
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` ✅ completada 2026-07-04 (PR #262 squash `d0c5f26` + PR de cierre)
 - **Governance**: MEDIO (consumer nuevo del outbox + tabla read-model; no toca transacciones de negocio)
-- **Scope**:
-  - Tabla `notifications` (read model): `(id, account_id, branch_id, type, severity, payload jsonb, audience uuid[], read boolean)`; RLS por audiencia
-  - **Consumer 4 del relay del outbox** (`rpc_process_outbox_dispatch`, mismo patrón SQL puro de C-25/journal): la notificación **nunca** se crea dentro de la transacción de negocio
-  - Canal Supabase Realtime por organización/branch (badge sin polling) + campana de notificaciones en el header; resincronización por query al reconectar (patrón de resiliencia FS §9.6)
-  - Casos iniciales (eventos que ya se emiten): `StockBelowMinimum` → rol con permiso de compras; `CashSessionClosed` con diferencia ≠ 0 → admin; CAE rechazado → urgente; `QuoteAccepted` → vendedor; `TransferDispatched` → sucursal destino
-  - **No confundir con `sale_notifications`** (log de envíos WhatsApp/email al cliente final — otra cosa, no se toca)
+- **Scope**: ✅ Implementado
+  - Tabla `notifications` (read model): `(id, account_id, branch_id, type, severity, payload jsonb, audience uuid[], read, created_at, read_at)`; RLS por audiencia (SELECT/UPDATE con USING+WITH CHECK, sin INSERT policy); índices dropdown + parcial no-leídas; TTL 30 días solo-leídas vía pg_cron
+  - **Consumer 4 del relay del outbox** (`rpc_process_outbox_dispatch`, consumers 1-3 preservados byte-a-byte): helper `_notification_from_event` idempotente por `(event_id,'Notification')`; audiencia resuelta server-side en `_notification_audience` (punto único migrable a `v3-rbac-multirole`)
+  - Canal Supabase Realtime `postgres_changes` sobre `notifications` (primera suscripción Realtime del frontend) — RLS filtra el stream server-side; hook `useNotifications` (React Query, resync FS §9.6, sin polling) + `NotificationBell` en el header
+  - **5 producers nuevos**: `CashSessionClosed` (rpc_close_cash_session), `StockBelowMinimum` (reutiliza trigger `check_branch_low_stock` / `branch_stock.min_stock`), `QuoteAccepted` (rpc_accept_quote, seller=created_by proxy), `TransferDispatched` (rpc_transfer_stock), `FiscalDocumentRejected` (trigger AFTER UPDATE — el rechazo CAE lo persiste el backend Python con service_role, sin RPC)
+  - **No confundir con `sale_notifications`** (log de envíos WhatsApp/email al cliente final — otra cosa, no se tocó)
 - **Dependencias**: outbox activo ✅ (C-25 + revival 2026-07-01 #248)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §3, spec `transactional-outbox`, `knowledge-base/09_decisiones_y_supuestos.md` §DEC-16 (Realtime en Supabase)
+- **PRs**: #262 (apply completo: migraciones `20260808000001`/`20260808000002` + frontend + 5 tests Vitest), cierre con `20260808000003` (REVOKE advisor). Verificado en prod: publicación Realtime ✅, RLS ✅, smoke Consumer 4 con rollback ✅, advisors sin hallazgos nuevos residuales
 
 ### `v3-soft-delete-policy` — Política única de borrado (V3 §4)
 - **Estado**: `[ ]` pendiente

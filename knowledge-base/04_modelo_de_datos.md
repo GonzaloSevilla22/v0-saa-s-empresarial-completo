@@ -89,8 +89,8 @@ name                TEXT
 category            TEXT        -- Electrónica|Ropa|Alimentos|Hogar|Salud|Accesorios|Otros
 price               NUMERIC(15,2)
 cost                NUMERIC(15,2)
-stock               NUMERIC(15,4)   -- fraccionario (ej: 0.5 kg)
-min_stock           INTEGER
+stock               NUMERIC(15,4)   -- fraccionario (ej: 0.5 kg) — DEPRECATED, dropeada en C-21 checkpoint #2; stock real vive en branch_stock.quantity
+min_stock           INTEGER         -- DEPRECATED (branch-min-stock-realign, 2026-07-04): fuente de verdad del umbral de alerta es branch_stock.min_stock (RN-23). Se conserva por el dual-write del importador; DROP diferido
 barcode             TEXT        UNIQUE(user_id, barcode)
 sku                 TEXT        UNIQUE(user_id, sku)
 parent_id           UUID        FK products(id)  -- para variantes
@@ -411,7 +411,7 @@ UNIQUE(user_id, event_type, metadata) NULLS DISTINCT
 
 | Trigger | Tabla | Evento | Acción |
 |---|---|---|---|
-| `check_low_stock` | `products` | AFTER INSERT/UPDATE | Si `stock ≤ min_stock`, inserta `email_logs` (debounce 24h) |
+| `check_branch_low_stock` (reemplaza `check_low_stock`, retirado en C-21 checkpoint #2) | `branch_stock` | AFTER UPDATE | Si `quantity ≤ min_stock` (por sucursal, umbral propagado desde `products.min_stock` vía `rpc_set_product_min_stock` — RN-23), inserta `email_logs` (debounce 24h por `product_id`+`branch_id`) y emite `StockBelowMinimum` a la outbox |
 | `notify_meeting_created` | `meetings` | AFTER INSERT | Inserta `email_logs` con `event_type='meeting_notice'` |
 | `notify_pool_created` | `purchase_pools` | AFTER INSERT | Inserta `email_logs` con `event_type='pool_notice'` |
 | `trg_profiles_updated_at` | `profiles` | BEFORE UPDATE | Auto-actualiza `updated_at` |

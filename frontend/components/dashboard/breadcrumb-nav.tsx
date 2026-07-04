@@ -9,6 +9,7 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb"
+import { NotificationBell } from "@/components/dashboard/NotificationBell"
 
 const PAGE_NAMES: Record<string, string> = {
   "/dashboard":        "Tablero",
@@ -49,6 +50,9 @@ export function BreadcrumbNav() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
+      <div className="ml-auto flex items-center">
+        <NotificationBell />
+      </div>
     </header>
   )
 }

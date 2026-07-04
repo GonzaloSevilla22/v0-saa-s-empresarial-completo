@@ -130,4 +130,9 @@ export const queryKeys = {
     pending:     (sessionId: string) => ["bankReconciliation", "pending", sessionId] as const,
     suggestions: (sessionId: string) => ["bankReconciliation", "suggestions", sessionId] as const,
   },
+  // v3-notifications-realtime (Modelo V3 §3)
+  notifications: {
+    all:    () => ["notifications"] as const,
+    byAccount: (accountId: string) => ["notifications", "account", accountId] as const,
+  },
 } as const

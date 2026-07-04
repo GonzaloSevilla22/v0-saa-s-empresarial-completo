@@ -598,3 +598,36 @@ export interface DocumentStatusHistoryEntry {
   reason: string | null
   occurredAt: string
 }
+
+// ── In-app notifications (v3-notifications-realtime — Modelo V3 §3) ──────────
+
+/**
+ * Tipo semántico del aviso. Coincide 1:1 con el event_type del outbox que lo
+ * origina (Consumer 4 / _notification_from_event).
+ */
+export type NotificationType =
+  | "CashSessionClosed"
+  | "StockBelowMinimum"
+  | "FiscalDocumentRejected"
+  | "QuoteAccepted"
+  | "TransferDispatched"
+
+export type NotificationSeverity = "info" | "warning" | "urgent"
+
+/**
+ * Read model efímero de la campana de notificaciones. Escrito solo por el
+ * relay (Consumer 4, SECURITY DEFINER) — el cliente nunca inserta filas.
+ * Source of truth: notifications table (RLS por audiencia).
+ */
+export interface Notification {
+  id: string
+  accountId: string
+  branchId: string | null
+  type: NotificationType
+  severity: NotificationSeverity
+  /** Payload crudo del evento de dominio que originó el aviso. */
+  payload: Record<string, unknown>
+  read: boolean
+  createdAt: string
+  readAt: string | null
+}

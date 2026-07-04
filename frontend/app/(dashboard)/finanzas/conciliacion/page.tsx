@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useRef, useState } from "react"
+import { Plus } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -15,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import { ReconciliationBoard } from "@/components/bank-reconciliation/ReconciliationBoard"
+import { BankAccountFormDialog } from "@/components/bank-accounts/BankAccountFormDialog"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import {
   useImportStatement,
@@ -53,6 +55,9 @@ export default function ConciliacionPage() {
   const [periodFrom, setPeriodFrom] = useState("")
   const [periodTo, setPeriodTo] = useState("")
   const [statementBalance, setStatementBalance] = useState("")
+
+  // ── Alta de cuenta bancaria (bank-account-crud) ──────────────────────────
+  const [newAccountDialogOpen, setNewAccountDialogOpen] = useState(false)
 
   const activeSession = useMemo(
     () => (sessions ?? []).find((s) => s.status === "open") ?? null,
@@ -130,16 +135,28 @@ export default function ConciliacionPage() {
 
       {/* ── Selector de cuenta bancaria ────────────────────────────────────── */}
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between">
           <CardTitle className="text-base">Cuenta bancaria</CardTitle>
+          {(bankAccounts ?? []).length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setNewAccountDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              Nueva cuenta bancaria
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {loadingAccounts ? (
             <p className="text-sm text-muted-foreground">Cargando cuentas…</p>
           ) : (bankAccounts ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No hay cuentas bancarias activas. Registrá una cuenta para poder conciliar.
-            </p>
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-muted-foreground">
+                No hay cuentas bancarias activas. Registrá una cuenta para poder conciliar.
+              </p>
+              <Button size="sm" onClick={() => setNewAccountDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Nueva cuenta bancaria
+              </Button>
+            </div>
           ) : (
             <Select value={bankAccountId ?? undefined} onValueChange={setBankAccountId}>
               <SelectTrigger className="w-full md:w-96">
@@ -157,6 +174,8 @@ export default function ConciliacionPage() {
           )}
         </CardContent>
       </Card>
+
+      <BankAccountFormDialog open={newAccountDialogOpen} onOpenChange={setNewAccountDialogOpen} />
 
       {bankAccountId && (
         <>

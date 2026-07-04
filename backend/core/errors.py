@@ -45,6 +45,16 @@ _BUSINESS_ERRCODE_STATUS = {
     "P0434": 409,  # línea/movimiento ya participa de un match activo
 }
 
+# bank-account-crud: mapeo específico por endpoint para POST /bank-accounts.
+# rpc_create_bank_account lanza P0400 (name requerido) como error de VALIDACIÓN
+# de payload — 422 es más correcto ahí que el 400 genérico de _BUSINESS_ERRCODE_STATUS
+# (que otras RPCs usan para "bad request" no-validación). Se resuelve en el
+# service/router de bank_accounts, no acá, para no romper el mapeo global de P0400.
+BANK_ACCOUNT_CREATE_ERRCODE_STATUS = {
+    **_BUSINESS_ERRCODE_STATUS,
+    "P0400": 422,  # name requerido (validación de payload)
+}
+
 
 async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) -> JSONResponse:
     headers = cors_error_headers(request)

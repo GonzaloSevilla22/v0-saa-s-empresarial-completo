@@ -98,7 +98,7 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 ### Próximo change recomendado (activo)
 1. ~~**`v3-snapshot-pattern`**~~ ✅ **COMPLETADA 2026-07-02** (PR #255): snapshots de nombre/SKU/costo/IVA en líneas de documentos + `FiscalIdentitySnapshot` del receptor. **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Specs sincronizadas a main; change archivado.
 2. ~~**`v3-document-status-history`**~~ ✅ **COMPLETADA 2026-07-03** (PRs #258/#259): tabla append-only `document_status_history`, catálogo `document_status_transitions`, helpers `record_status_transition`, `allowed_role` RBAC-ready. Specs (1 nueva + 5 modificadas) sincronizadas; change archivado.
-3. **`v3-notifications-realtime`** [MEDIO] — Notificaciones in-app post-commit via Realtime channel → después: chicos paralelizables (soft-delete, provisioning, maestros, imágenes) → percepciones (V2.5, depende del snapshot fiscal) → `v3-rbac-multirole` (CRÍTICO — análisis-sign-off PO).
+3. **`v3-notifications-realtime`** [MEDIO] — Notificaciones in-app post-commit via Realtime channel → después: chicos paralelizables (soft-delete, provisioning, maestros) → percepciones (V2.5, depende del snapshot fiscal) → `v3-rbac-multirole` (CRÍTICO — análisis-sign-off PO).
 
 > **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO (consume matriz de transiciones de `v3-document-status-history`).
 
@@ -122,7 +122,7 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 | 6 — V2.0 Retirada de deuda | C-19 → C-25 | ✅ 7/7 | Tenancy única, sale_items (Group 10 DROP diferido — lo desbloquea `v3-snapshot-pattern`), ledger único de stock en branch_stock, FiscalIdentity en clientes, schema community, insights unificados, outbox activo (C-25 ✅ 2026-06-18; revivido en prod 2026-07-01, #248) |
 | 7 — V2.1 Operación | C-26 → C-30 | ✅ 5/5 | Branch como root, FiscalProfile + AFIP CAE async (E2E homologación pendiente PO), CashSession con arqueo, Quote/SalesOrder + quickSale POS (C-29 ✅ 2026-06-17), cuentas corrientes cliente/proveedor (C-30 ✅ 2026-06-20) |
 | V2.5 — Finanzas | post-roadmap | 🔨 en marcha | cost-center ✅ + journal-entry-outbox ✅ (partida doble async vía outbox) + **BankReconciliation COMPLETA (C1+C2+C3 ✅, 2026-07-02)** · falta: percepciones. AFIP delegación (v22 ✅) + facturar venta manual ✅ |
-| Modelo V3 (retrofit) | `v3-*` | 🔨 en marcha | Snapshots ✅ (2026-07-02), FSM+DocumentStatusHistory ✅ (2026-07-03), notificaciones realtime ⭐, soft delete, RBAC multi-rol (CRÍTICO), provisioning seed, RN-D reporting, estándares API, maestros menores, imágenes — ver `CHANGES.md` §"Roadmap Modelo V3" |
+| Modelo V3 (retrofit) | `v3-*` | 🔨 en marcha | Snapshots ✅ (2026-07-02), FSM+DocumentStatusHistory ✅ (2026-07-03), notificaciones realtime ⭐, soft delete, RBAC multi-rol (CRÍTICO), provisioning seed, RN-D reporting, estándares API, maestros menores — ver `CHANGES.md` §"Roadmap Modelo V3" (producto-imagenes descartado por PO 2026-07-04) |
 | V3 — Inteligencia | ⏳ | ⏳ | AIAgent, KnowledgeBase, automatizaciones, predicción + BOM ligera (`v3-product-composition`) |
 
 ---

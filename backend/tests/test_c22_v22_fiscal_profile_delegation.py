@@ -68,16 +68,18 @@ class TestGetFiscalProfileExposesDelegationFlag:
             "delegacion_autorizada": False,
         }
 
-        with patch.dict("os.environ", {
-            "AFIP_PLATFORM_CUIT": "20422662457",
-        }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            import backend.services.fiscal.fiscal_profile_service as svc_mod
-            reload(svc_mod)
-
-            result = await svc_mod.get_fiscal_profile(mock_repo, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        # No usar importlib.reload(backend.core.config): reconstruye el singleton
+        # `settings` y reasigna el atributo del módulo, pero cualquier módulo que
+        # ya haya hecho `from backend.core.config import settings` a nivel de
+        # módulo (p.ej. backend/routers/payments.py) queda con una referencia
+        # obsoleta al objeto viejo para siempre en sys.modules — lo que rompe
+        # `unittest.mock.patch("backend.core.config.settings.<attr>", ...)` en
+        # tests de OTROS archivos que corran después en el mismo proceso
+        # (bugs/test-payments-count-flake). En cambio, patcheamos el atributo
+        # `afip_platform_cuit` directamente sobre el singleton real: mock.patch
+        # restaura el valor original al salir del `with`, sin tocar sys.modules.
+        with patch("backend.core.config.settings.afip_platform_cuit", "20422662457"):
+            result = await svc.get_fiscal_profile(mock_repo, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 
         # El servicio inyecta el CUIT del representante en la respuesta
         assert result.get("platform_representante_cuit") == "20422662457", (
@@ -88,6 +90,8 @@ class TestGetFiscalProfileExposesDelegationFlag:
     @pytest.mark.asyncio
     async def test_get_profile_platform_cuit_none_when_not_configured(self):
         """7.2 GREEN: platform_representante_cuit = None cuando no hay cert de plataforma."""
+        from backend.services.fiscal import fiscal_profile_service as svc
+
         mock_repo = AsyncMock()
         mock_repo.get_by_account_id.return_value = {
             "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -100,18 +104,10 @@ class TestGetFiscalProfileExposesDelegationFlag:
             "delegacion_autorizada": False,
         }
 
-        with patch.dict("os.environ", {
-            "AFIP_PLATFORM_CUIT": "",
-            "AFIP_PLATFORM_CERT": "",
-            "AFIP_PLATFORM_KEY": "",
-        }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            import backend.services.fiscal.fiscal_profile_service as svc_mod
-            reload(svc_mod)
-
-            result = await svc_mod.get_fiscal_profile(mock_repo, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        # Ver comentario en test_get_profile_includes_platform_representante_cuit_from_settings
+        # sobre por qué NO usamos importlib.reload(backend.core.config) acá.
+        with patch("backend.core.config.settings.afip_platform_cuit", ""):
+            result = await svc.get_fiscal_profile(mock_repo, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 
         # Sin cert de plataforma, el CUIT representante no se expone
         platform_cuit = result.get("platform_representante_cuit")

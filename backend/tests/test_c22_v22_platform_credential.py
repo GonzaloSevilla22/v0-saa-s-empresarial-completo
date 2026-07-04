@@ -15,7 +15,6 @@ Gate: python -m pytest backend/tests -m "not integration"
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
 
 import pytest
 
@@ -34,57 +33,55 @@ class TestPlatformCredentialProviderResolution:
 
     def test_provider_configured_returns_cert_bytes(self):
         """2.2 GREEN: cuando AFIP_PLATFORM_CERT está seteado, get_cert() retorna bytes."""
+        from backend.core.config import Settings
         from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
         fake_cert = b"-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"
         fake_key  = b"-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----\n"
 
-        with patch.dict("os.environ", {
-            "AFIP_PLATFORM_CERT": fake_cert.decode(),
-            "AFIP_PLATFORM_KEY":  fake_key.decode(),
-            "AFIP_PLATFORM_CUIT": "20422662457",
-        }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            from backend.core.config import settings as _settings
-            provider = PlatformCredentialProvider(settings=_settings)
-            cert = provider.get_cert()
+        # Construimos un Settings() aislado en vez de reload(backend.core.config):
+        # reload() reasigna el singleton global `settings` y corrompe las referencias
+        # que otros módulos ya importaron a nivel de módulo (p.ej. routers/payments.py),
+        # lo que rompe tests de OTROS archivos que corran después en el mismo proceso
+        # (bugs/test-payments-count-flake). Settings() explícito no toca estado global.
+        fake_settings = Settings(
+            afip_platform_cert=fake_cert.decode(),
+            afip_platform_key=fake_key.decode(),
+            afip_platform_cuit="20422662457",
+        )
+        provider = PlatformCredentialProvider(settings=fake_settings)
+        cert = provider.get_cert()
 
         assert isinstance(cert, bytes)
         assert b"BEGIN CERTIFICATE" in cert
 
     def test_provider_configured_returns_cuit(self):
         """2.2 GREEN: cuando configurado, get_cuit() retorna el CUIT del representante."""
+        from backend.core.config import Settings
         from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
-        with patch.dict("os.environ", {
-            "AFIP_PLATFORM_CERT": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-            "AFIP_PLATFORM_KEY":  "-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----",
-            "AFIP_PLATFORM_CUIT": "20422662457",
-        }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            provider = PlatformCredentialProvider(settings=cfg_mod.settings)
-            cuit = provider.get_cuit()
+        fake_settings = Settings(
+            afip_platform_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            afip_platform_key="-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----",
+            afip_platform_cuit="20422662457",
+        )
+        provider = PlatformCredentialProvider(settings=fake_settings)
+        cuit = provider.get_cuit()
 
         assert cuit == "20422662457"
 
     def test_provider_is_configured_true_when_all_set(self):
         """2.2 GREEN: is_configured() = True cuando cert+key+CUIT están en settings."""
+        from backend.core.config import Settings
         from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
-        with patch.dict("os.environ", {
-            "AFIP_PLATFORM_CERT": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-            "AFIP_PLATFORM_KEY":  "-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----",
-            "AFIP_PLATFORM_CUIT": "20422662457",
-        }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            provider = PlatformCredentialProvider(settings=cfg_mod.settings)
-            assert provider.is_configured() is True
+        fake_settings = Settings(
+            afip_platform_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            afip_platform_key="-----BEGIN RSA PRIVATE KEY-----\nfakekey\n-----END RSA PRIVATE KEY-----",
+            afip_platform_cuit="20422662457",
+        )
+        provider = PlatformCredentialProvider(settings=fake_settings)
+        assert provider.is_configured() is True
 
 
 # =============================================================================
@@ -95,7 +92,8 @@ class TestPlatformCredentialProviderNotConfigured:
     """2.3 TRIANGULATE: casos donde el cert no está configurado."""
 
     def _make_provider_with_env(self, env_overrides: dict):
-        """Helper: crea un provider con env vars específicas (limpia las del cert primero)."""
+        """Helper: crea un provider con settings aisladas (sin reload de config global)."""
+        from backend.core.config import Settings
         from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
         base_env = {
@@ -105,11 +103,12 @@ class TestPlatformCredentialProviderNotConfigured:
         }
         base_env.update(env_overrides)
 
-        with patch.dict("os.environ", base_env, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            return PlatformCredentialProvider(settings=cfg_mod.settings)
+        fake_settings = Settings(
+            afip_platform_cert=base_env["AFIP_PLATFORM_CERT"],
+            afip_platform_key=base_env["AFIP_PLATFORM_KEY"],
+            afip_platform_cuit=base_env["AFIP_PLATFORM_CUIT"],
+        )
+        return PlatformCredentialProvider(settings=fake_settings)
 
     def test_not_configured_when_cert_missing(self):
         """2.3 TRIANGULATE: sin AFIP_PLATFORM_CERT → is_configured() = False."""
@@ -160,19 +159,17 @@ class TestPlatformKeyNeverExposed:
 
     def test_provider_repr_does_not_contain_key_material(self):
         """2.4: __repr__ y __str__ del provider no filtran el PEM de la key."""
+        from backend.core.config import Settings
         from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
         fake_key = "-----BEGIN RSA PRIVATE KEY-----\nSECRET_KEY_MATERIAL\n-----END RSA PRIVATE KEY-----"
 
-        with patch.dict("os.environ", {
-            "AFIP_PLATFORM_CERT": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-            "AFIP_PLATFORM_KEY":  fake_key,
-            "AFIP_PLATFORM_CUIT": "20422662457",
-        }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            provider = PlatformCredentialProvider(settings=cfg_mod.settings)
+        fake_settings = Settings(
+            afip_platform_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            afip_platform_key=fake_key,
+            afip_platform_cuit="20422662457",
+        )
+        provider = PlatformCredentialProvider(settings=fake_settings)
 
         provider_str = str(provider)
         provider_repr = repr(provider)
@@ -186,20 +183,18 @@ class TestPlatformKeyNeverExposed:
 
     def test_provider_log_does_not_contain_key_material(self, caplog):
         """2.4: el constructor del provider no loguea la key privada."""
+        from backend.core.config import Settings
         from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
         fake_key = "-----BEGIN RSA PRIVATE KEY-----\nSECRET_KEY_LOGTEST\n-----END RSA PRIVATE KEY-----"
 
-        with caplog.at_level(logging.DEBUG, logger="backend"), \
-             patch.dict("os.environ", {
-                 "AFIP_PLATFORM_CERT": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-                 "AFIP_PLATFORM_KEY":  fake_key,
-                 "AFIP_PLATFORM_CUIT": "20422662457",
-             }, clear=False):
-            from importlib import reload
-            import backend.core.config as cfg_mod
-            reload(cfg_mod)
-            PlatformCredentialProvider(settings=cfg_mod.settings)
+        fake_settings = Settings(
+            afip_platform_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+            afip_platform_key=fake_key,
+            afip_platform_cuit="20422662457",
+        )
+        with caplog.at_level(logging.DEBUG, logger="backend"):
+            PlatformCredentialProvider(settings=fake_settings)
 
         all_logs = caplog.text
         assert "SECRET_KEY_LOGTEST" not in all_logs, (

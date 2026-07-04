@@ -1041,6 +1041,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **`fiscal-receptor-iva-relay`** ✅ (2026-06-26, PRs #226/#227) — propaga la identificación del receptor (`DocTipo`/`DocNro`) + desglose de IVA a través del relay del CAE.
 - **`register-name-terms-captcha`** ✅ (2026-06-27, PRs #231–#235) — alta con nombre+apellido, consentimiento legal + opt-in email, captcha Turnstile en toda la auth; + provincia, mail al admin y validación de formato de email/teléfono.
 - **`facturar-venta-manual`** ✅ (2026-06-27, PR #242) — promoción lazy de una venta legacy de `/ventas` a `SalesOrder` facturable (`rpc_promote_legacy_sale_to_order`, side-effect-free) + botón "Facturar"; cierra la asimetría con el flujo AFIP.
+- **`bank-account-crud`** ✅ (2026-07-04, PR #272) — alta de cuentas bancarias: `POST /bank-accounts` (3 capas, sin migraciones — reusa `rpc_create_bank_account`) + `BankAccountFormDialog` (RHF+Zod) accesible desde el empty state y el header de `/finanzas/conciliacion` + rename del ítem de sidebar "Conciliación bancaria"→"Bancos"; cierra el gap de UI de alta que `bank-account-ledger` (C1) había dejado. Spec sincronizada: `bank-account` (MODIFIED).
 
 ---
 

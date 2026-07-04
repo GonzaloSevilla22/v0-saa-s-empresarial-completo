@@ -1054,7 +1054,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 |---|---|---|---|
 | §1 | Snapshot Pattern | ✅ Columnas snapshot congeladas en líneas (`name`, `sku`, `unit_cost`, `iva_rate`) + `stock_movements.unit_cost_snapshot` + `FiscalIdentitySnapshot` del receptor (`receptor_legal_name`, `receptor_iva_condition`). **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Archivada 2026-07-02. | ✅ `v3-snapshot-pattern` |
 | §2 | FSM + historial de estados | ✅ Tabla append-only `document_status_history`, catálogo `document_status_transitions` con política como datos, `record_status_transition` helper, `allowed_role` permisivo (inerte hoy, activado por RBAC). Archivada 2026-07-03. Desbloquea matriz rol×transición de RBAC. | ✅ `v3-document-status-history` |
-| §3 | Notificación post-commit | ❌ Outbox vivo con 3 consumers (AuditLog, Email, Journal) pero sin read model `Notification` in-app ni canal Realtime. (`sale_notifications` existente ≠ esto: es log de envíos WhatsApp/email al cliente) | `v3-notifications-realtime` |
+| §3 | Notificación post-commit | ✅ Consumer 4 (`_notification_from_event` idempotente) + tabla `notifications` read-model RLS-guarded + hook Realtime `useNotifications` + 5 producers (CashSessionClosed, StockBelowMinimum, QuoteAccepted, TransferDispatched, FiscalDocumentRejected). Archivada 2026-07-04. Desbloquea UI realtime. | ✅ `v3-notifications-realtime` |
 | §4 | Soft delete uniforme | ❌ Sin política única: `clients`/`products` con `deleted_at` legacy; `cost_centers`/`bank_accounts`/`branches` con `is_active`; sin `deleted_by`, sin índices únicos parciales | `v3-soft-delete-policy` |
 | §5 | RBAC multi-rol | ❌ `account_members.role` singular, CHECK `('owner','admin','member')`; sin `assigned_by`/`expires_at`, sin roles funcionales (SELLER/CASHIER/STOCK/…) | `v3-rbac-multirole` |
 | §6 | UoW + capas | ⚠️ Layering routers→services→repositories ya existe; la transaccionalidad del hot path vive en **RPCs SQL `SECURITY DEFINER`** (equivalente funcional del UoW — decisión a registrar, no a "corregir"). Falta: `BaseRepository` con soft-delete/paginación, RFC 7807 uniforme | `v3-api-standards` |
@@ -1074,7 +1074,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-snapshot-pattern ✅ (2026-07-02, PR #255 — DESBLOQUEÓ C-20 Grupo 10)
   → v3-document-status-history ✅ (2026-07-03, PRs #258/#259 — FSM + historial, RBAC-ready)
-  → v3-notifications-realtime ✅ (2026-07-04, PR #262 — Consumer 4 + campana Realtime)
+  → v3-notifications-realtime ✅ (2026-07-04, PRs #262/#264 — Consumer 4 + campana Realtime + specs synced)
   → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters · producto-imagenes ⭐ SIGUIENTES   (chicos, paralelizables)
   → v3-reporting-invariants          (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)

@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** chicos paralelizables del Modelo V3 (`v3-soft-delete-policy`, `v3-provisioning-seed`, `v3-catalog-masters`) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
+**Próximo trabajo:** `v3-catalog-masters` (chico, paralelizable) del Modelo V3 — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
 
 ---
 
@@ -1064,7 +1064,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | §7.2 | Composición de producto (BOM) | ❌ No existe | fase V3 (`v3-product-composition`) |
 | §7.3 | Direcciones múltiples | ❌ No existe (dirección única en cliente) | `v3-catalog-masters` |
 | §7.4 | Imágenes de producto | ❌ `products` sin imágenes (solo landing usa Storage) | — (descartado por PO 2026-07-04, no se implementa) |
-| §7.5 | Seed de provisioning | ⚠️ Parcial: `handle_new_user` provisiona account+membership (fix `20260800000003`) y C-21/C-26 dan branch default; faltan Cashbox, lista de precios, formas de pago, unidades seed | `v3-provisioning-seed` |
+| §7.5 | Seed de provisioning | ✅ COMPLETADA 2026-07-06 (PR #279): `handle_new_user` siembra eager branch "Casa Central" + cashbox "Caja Principal" (ARS); backfill de las ~29 cuentas existentes. Lista de precios/formas de pago/plan de cuentas quedan OUT (estructuras no existentes — ver nota en la sección del change) | `v3-provisioning-seed` ✅ |
 | §8 | Invariantes reporting RN-D | ⚠️ Parcial: timezone fix del dashboard ✅ (RN-D5), DECIMAL ✅ (RN-D4); sin enforcement de cancelados/NC (RN-D1), snapshots (RN-D2) ni devengado-vs-percibido (RN-D3) | `v3-reporting-invariants` |
 | §9 | Endurecimiento plataforma | ⚠️ Captcha ✅, firma de webhooks ✅ (C-17), fixtures por rol ✅ (conftest); rate limiting/refresh token = config de Supabase Auth (tarea PO, no change) | — |
 | §10 | Rechazos explícitos | ✅ Ya alineados: `branch_stock` único ledger (C-21), rol en membership (C-05), Supabase Realtime (DEC-16), Postgres real en CI (validate-kpis) | — (decisiones registradas) |
@@ -1077,7 +1077,8 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-document-status-history ✅ (2026-07-03, PRs #258/#259 — FSM + historial, RBAC-ready)
   → v3-notifications-realtime ✅ (2026-07-04, PRs #262/#264 — Consumer 4 + campana Realtime + specs synced)
   → v3-soft-delete-policy ✅ (2026-07-06, PRs #275/#276/#277)
-  → v3-provisioning-seed · v3-catalog-masters ⭐ SIGUIENTES   (chicos, paralelizables; producto-imagenes §7.4 descartado por PO 2026-07-04)
+  → v3-provisioning-seed ✅ (2026-07-06, PR #279)
+  → v3-catalog-masters ⭐ SIGUIENTE   (chico, paralelizable; producto-imagenes §7.4 descartado por PO 2026-07-04)
   → v3-reporting-invariants          (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)
   → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
@@ -1166,14 +1167,12 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §5 y §10, `knowledge-base/03_actores_y_roles.md`, migración `20260606010000_roles_internos.sql`
 
 ### `v3-provisioning-seed` — Aprovisionamiento completo por tenant (V3 §7.5)
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (PR #279)
 - **Governance**: MEDIO (toca `handle_new_user` — camino de registro)
-- **Scope**:
-  - Completar el provisioning de cuenta nueva (hoy: account + membership + branch default — ver `20260800000003_fix_new_user_account_provisioning.sql`): Cashbox default en Casa Central, lista de precios default, unidades de medida seed, formas de pago (`EFECTIVO`, `TRANSFERENCIA`, `MERCADOPAGO`, `CTA_CTE`), plan de cuentas mínimo (cuando el plan de cuentas sea tabla — V2.6)
-  - Idempotente y transaccional: un tenant a medio provisionar no puede quedar en estado inválido
-  - Criterio de aceptación V3: **un tenant recién creado puede vender en menos de 5 minutos** (test E2E: registro → quickSale sin configuración manual)
+- **Qué se implementó**: `handle_new_user` siembra EAGER una sucursal default "Casa Central" + caja default "Caja Principal" (ARS) en el mismo paso de provisioning del signup, en sub-bloque `BEGIN...EXCEPTION WHEN OTHERS THEN RAISE WARNING...END` (un fallo del seed degrada, nunca aborta el registro). Backfill idempotente de las ~29 cuentas existentes en la misma migración (`20260812000001_v3_provisioning_seed.sql`). Behavior gate auto-limpiante verificado en CI (`GATE PROVISIONING-SEED PASSED`).
+- **Scoped OUT (verificado contra el código real, no supuesto — ver design.md)**: lista de precios default (la tabla `price_lists` NO existe — crearla es otro change), formas de pago (`EFECTIVO`/`TRANSFERENCIA`/`MERCADOPAGO`/`CTA_CTE` — hoy solo un CHECK de 2 valores `cash|other` en `sales_orders`, sin tabla ni enum — convertirlo en catálogo es un change propio), plan de cuentas mínimo (diferido a V2.6, un test lo prohíbe activamente), unidades de medida (YA provisionadas globalmente vía `is_system=true` + RLS `uom_account_select` desde `20260509211504` — nada per-tenant que seedear).
 - **Dependencias**: ninguna
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.5, `supabase/migrations/20260800000003_fix_new_user_account_provisioning.sql`, `knowledge-base/07_flujos_principales.md` §Flujo registro
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.5, `supabase/migrations/20260812000001_v3_provisioning_seed.sql`, `openspec/changes/archive/` (una vez archivado), `knowledge-base/07_flujos_principales.md` §Flujo registro
 
 ### `v3-reporting-invariants` — Invariantes RN-D en KPIs y proyecciones (V3 §8)
 - **Estado**: `[ ]` pendiente

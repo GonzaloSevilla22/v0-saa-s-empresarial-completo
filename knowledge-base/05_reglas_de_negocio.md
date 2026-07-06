@@ -272,3 +272,23 @@ Las transiciones válidas viven en el catálogo `document_status_transitions` (`
 
 ### RN-A5 — Las transiciones destructivas exigen un motivo
 Cuando el catálogo marca `requires_reason = true` para el estado destino, `record_status_transition` rechaza con `P0400` todo registro sin `reason` no vacío. Casos vigentes gestionados por el RPC llamador: el cierre de caja con diferencia de arqueo ≠ 0 registra el detalle de la diferencia como `reason` (el catálogo no lo exige estático para no romper cierres sin diferencia — D7); el cierre de conciliación con diferencia exige `close_reason` (`P0431`) y lo propaga al historial. Futuras transiciones destructivas (anulación, cancelación, ajuste) deben sembrarse con `requires_reason = true`.
+
+### RN-B1 — Filtro de soft delete centralizado, una sola vez
+Toda lectura de listado o por id de un maestro excluye las filas con `deleted_at IS NOT NULL` de forma **centralizada** (`BaseRepository.not_deleted_clause()`), no repitiendo el predicado a mano en cada query. Incluir filas borradas es un **opt-in explícito** (`include_deleted=True`, casos de auditoría), nunca el default. Fuente: Modelo V3 §4; implementado en `v3-soft-delete-policy`.
+
+### RN-B2 — El borrado de un maestro registra autor y momento
+El borrado de todo maestro (`clients`, `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts`) es un **soft delete**: `UPDATE ... SET deleted_at = now(), deleted_by = <usuario autenticado>` vía `BaseRepository.soft_delete()` (allowlist cerrada de tablas, anti-inyección; `cashboxes` usa la variante `soft_delete_cashbox` porque su scope de cuenta es indirecto vía `branch_id → branches.account_id`). Nunca `DELETE` físico: las referencias históricas (ventas, compras, movimientos) se preservan y siguen siendo legibles por JOIN. `deleted_at` **convive** con `is_active` donde existe (`cost_centers`, `bank_accounts`): `is_active=false` es baja lógica *reversible*; `deleted_at IS NOT NULL` es borrado (fuera de toda lectura por defecto).
+
+### RN-B3 — Unicidad de claves naturales solo entre filas activas
+Las claves naturales de maestros se protegen con índices únicos **parciales** condicionados a `WHERE deleted_at IS NULL` (además de las condiciones preexistentes): `idx_products_sku_user`, `idx_products_barcode_unique`, `cost_centers_account_name_lower_idx`. Un SKU/código/nombre borrado **se puede recrear** (la fila borrada no ocupa la clave); dos maestros *activos* jamás comparten la clave. Solo aplica donde ya existía unicidad — no se inventan claves naturales nuevas (clients/suppliers/bank_accounts/cashboxes no declaran ninguna todavía).
+
+### RN-B4 — No se borra un maestro con referencia activa
+Un producto **no se puede soft-deletear** si tiene stock ≠ 0 (Σ `branch_stock.quantity`) o aparece como línea de un documento en estado `draft` (`quote_items`→`quotes`, `sales_order_items`→`sales_orders` — unión verificada contra los CHECKs vigentes). El enforcement vive en la **DB** (`fn_guard_product_soft_delete()`, trigger `BEFORE UPDATE` sobre `products`, `ERRCODE P0B04`) para que sea imposible violarlo desde cualquier capa; el service lo traduce a HTTP 409 con mensaje de UX en español. Para el resto de los maestros no hay guard (sus referencias históricas se preservan por diseño del soft delete); extenderlo es incremental si el PO lo pide.
+
+### Política de borrado por categoría de entidad (referencia — Modelo V3 §4)
+Cinco categorías, cada una con su política:
+1. **Maestros** (`clients`, `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts`) → soft delete `deleted_at` + `deleted_by` (RN-B1..RN-B4). **Excepción: `branches` se desactiva (`is_active=false` + su FSM `status`/`opened_at`/`closed_at`), no se soft-deletea** — tiene movimientos referenciándola y guards propios. `categories`/`price_lists` no existen aún como tablas; si se crean, nacen con el patrón.
+2. **Documentos confirmados** (ventas, compras, comprobantes fiscales, sesiones de caja) → nunca se borran; se **anulan por transición de estado con motivo** (RN-A1..RN-A5, `document-status-history`).
+3. **Ledgers append-only** (stock, caja, banco, cuentas corrientes, journal) → nunca se borran ni se editan; se corrigen con **contra-asiento** (RN-99).
+4. **Borradores** (quote/sales_order en `draft`, carritos) → **hard delete permitido** (sin valor probatorio).
+5. **Plataforma** → `Membership` se **revoca por estado**; `UserAccount` con documentos se **anonimiza** (derecho de supresión), jamás se elimina físicamente. Declarado como política; su implementación tiene su propio ciclo.

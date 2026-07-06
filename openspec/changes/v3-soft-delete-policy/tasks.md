@@ -40,11 +40,11 @@
 
 ## 6. Documentación de reglas de negocio
 
-- [ ] 6.1 Agregar RN-B1..RN-B4 a `knowledge-base/05_reglas_de_negocio.md` (filtro centralizado, `deleted_by`, índices parciales, no-referencia-activa), citando V3 §4
-- [ ] 6.2 Documentar la política de las 5 categorías (maestros/documentos/ledgers/drafts/plataforma) como referencia, con la aclaración de que `branches` se desactiva (no se soft-deletea) y que `categories`/`price_lists` no existen aún
+- [x] 6.1 Agregar RN-B1..RN-B4 a `knowledge-base/05_reglas_de_negocio.md` (filtro centralizado, `deleted_by`, índices parciales, no-referencia-activa), citando V3 §4
+- [x] 6.2 Documentar la política de las 5 categorías (maestros/documentos/ledgers/drafts/plataforma) como referencia, con la aclaración de que `branches` se desactiva (no se soft-deletea) y que `categories`/`price_lists` no existen aún
 
 ## 7. Verificación
 
-- [ ] 7.1 Suite backend completa verde (`pytest backend/tests/`)
+- [x] 7.1 Suite backend completa verde (`pytest backend/tests/`)
 - [ ] 7.2 Tras merge (CI aplica la migración): verificación read-only en prod — las 6 tablas tienen `deleted_at`/`deleted_by`, los índices parciales existen, el trigger de `products` existe; un soft delete de prueba se oculta de las lecturas y permite recrear la clave
-- [ ] 7.3 Confirmar que el frontend sigue leyendo `is_active` sin cambios (no hay regresión en `use-cost-centers.ts` / `use-bank-accounts.ts`)
+- [x] 7.3 Confirmar que el frontend sigue leyendo `is_active` sin cambios (no hay regresión en `use-cost-centers.ts` / `use-bank-accounts.ts`)

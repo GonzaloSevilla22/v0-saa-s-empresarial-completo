@@ -14,7 +14,7 @@
 
 ## 3. Verificación en CI y prod
 
-- [ ] 3.1 Abrir PR en feature branch (NUNCA commit a main) y verificar que el job `validate-kpis` corre las migraciones desde cero con el gate nuevo en verde y `accounts=0` al final del reset. Recordar: Actions rojo ≠ migración sin aplicar (auto-apply de Supabase al mergear); el check "Supabase Preview" rojo se ignora (no hay branching en el plan).
+- [x] 3.1 Abrir PR en feature branch (NUNCA commit a main) y verificar que el job `validate-kpis` corre las migraciones desde cero con el gate nuevo en verde y `accounts=0` al final del reset. Recordar: Actions rojo ≠ migración sin aplicar (auto-apply de Supabase al mergear); el check "Supabase Preview" rojo se ignora (no hay branching en el plan). **PR #279**. Log de CI confirma: `Applying migration 20260812000001_v3_provisioning_seed.sql...` → `NOTICE: GATE PROVISIONING-SEED PASSED: ...` → `Started supabase local development setup.` sin errores. `validate-kpis` = pass (1m46s). "Supabase Preview" rojo, ignorado por convención del proyecto.
 - [ ] 3.2 Post-merge, verificar en prod (SQL read-only): (a) 0 cuentas sin branch; (b) 0 cuentas sin cashbox; (c) los conteos del backfill coinciden con el baseline de 1.2; (d) ninguna WARNING de seed en los logs de Postgres.
 - [ ] 3.3 T3 manual (criterio V3 "<5 minutos para vender"): registrar un usuario de prueba en prod y confirmar que puede abrir sesión de caja y hacer una quickSale sin crear branch/caja a mano. Documentar el resultado en el PR.
 

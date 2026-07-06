@@ -20,5 +20,5 @@
 
 ## 4. Docs y cierre
 
-- [ ] 4.1 Marcar el checkbox de `v3-provisioning-seed` en `CHANGES.md` §"Roadmap Modelo V3", con nota de lo scoped OUT (price lists / formas de pago / plan de cuentas / unidades — justificación en design.md).
-- [ ] 4.2 Registrar las preguntas abiertas restantes del PO (nombre de la caja default si quiere otro; catálogo de formas de pago y `price_lists` como changes futuros del roadmap V3).
+- [x] 4.1 Marcar el checkbox de `v3-provisioning-seed` en `CHANGES.md` §"Roadmap Modelo V3", con nota de lo scoped OUT (price lists / formas de pago / plan de cuentas / unidades — justificación en design.md). **Hecho**: sección `v3-provisioning-seed`, tabla de gap-analysis §7.5, secuencia recomendada y "Próximo trabajo" actualizados con ✅ 2026-07-06 (PR #279).
+- [x] 4.2 Registrar las preguntas abiertas restantes del PO (nombre de la caja default si quiere otro; catálogo de formas de pago y `price_lists` como changes futuros del roadmap V3). **Registrado en design.md §"Open Questions"** (ya presente desde propose, sin cambios: nombre "Caja Principal" propuesto/no bloqueante; backfill incluido por diseño; catálogo de formas de pago y `price_lists` quedan como changes futuros del roadmap V3 si el PO los prioriza — ninguno bloquea el cierre de este change).

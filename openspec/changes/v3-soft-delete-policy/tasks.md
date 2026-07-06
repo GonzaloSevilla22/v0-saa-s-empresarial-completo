@@ -22,21 +22,21 @@
 
 ## 4. BaseRepository: soft_delete() + filtro de lectura (TDD)
 
-- [ ] 4.1 RED: test `test_soft_delete_marks_row` — `soft_delete("clients", id, account_id, by)` emite `UPDATE ... SET deleted_at=now(), deleted_by=$ WHERE id=$ AND account_id=$ AND deleted_at IS NULL` (assert sobre `conn.execute.call_args` SQL) y reporta fila afectada
-- [ ] 4.2 GREEN: implementar `soft_delete()` en `backend/repositories/base.py` con allowlist de nombres de tabla de maestro (anti-inyección de identificador)
-- [ ] 4.3 TRIANGULATE: test `test_soft_delete_already_deleted_is_noop` (fila ya borrada → 0 filas afectadas) y `test_soft_delete_wrong_account_noop` (aislamiento por cuenta)
-- [ ] 4.4 RED/GREEN: helper de filtro de lectura `deleted_at IS NULL` reutilizable con opción explícita `include_deleted`; test de que por defecto excluye borrados y con la opción los incluye
-- [ ] 4.5 REFACTOR: limpiar duplicación; correr `pytest backend/tests/test_base_repository.py`
+- [x] 4.1 RED: test `test_soft_delete_marks_row` — `soft_delete("clients", id, account_id, by)` emite `UPDATE ... SET deleted_at=now(), deleted_by=$ WHERE id=$ AND account_id=$ AND deleted_at IS NULL` (assert sobre `conn.execute.call_args` SQL) y reporta fila afectada
+- [x] 4.2 GREEN: implementar `soft_delete()` en `backend/repositories/base.py` con allowlist de nombres de tabla de maestro (anti-inyección de identificador)
+- [x] 4.3 TRIANGULATE: test `test_soft_delete_already_deleted_is_noop` (fila ya borrada → 0 filas afectadas) y `test_soft_delete_wrong_account_noop` (aislamiento por cuenta)
+- [x] 4.4 RED/GREEN: helper de filtro de lectura `deleted_at IS NULL` reutilizable con opción explícita `include_deleted`; test de que por defecto excluye borrados y con la opción los incluye
+- [x] 4.5 REFACTOR: limpiar duplicación; correr `pytest backend/tests/test_base_repository.py`
 
 ## 5. Migrar repos/servicios de maestros al soft delete (TDD por repo)
 
-- [ ] 5.1 RED/GREEN `ClientRepository`: cambiar `delete()` (hard `DELETE FROM clients`) por `soft_delete("clients", ...)`; SELECTs de listado/get filtran `deleted_at IS NULL` vía el helper; tests actualizados
-- [ ] 5.2 RED/GREEN `ProductRepository`: cambiar `delete()` por `soft_delete("products", ...)`; asegurar que las lecturas filtran `deleted_at IS NULL`; test de que el borrado con stock propaga el error del guard (409)
-- [ ] 5.3 RED/GREEN `SupplierRepository`: agregar `soft_delete("suppliers", ...)` + filtro de lectura (si hoy no expone borrado, se agrega alineado al patrón)
-- [ ] 5.4 RED/GREEN `BankAccountRepository`: agregar `soft_delete("bank_accounts", ...)` para el borrado real; `list_active()` sigue filtrando `is_active=true` y ahora también `deleted_at IS NULL`
-- [ ] 5.5 RED/GREEN `CostCenterRepository`: mantener `deactivate()` (is_active) y agregar `soft_delete("cost_centers", ...)` para el borrado; lecturas filtran `deleted_at IS NULL`
-- [ ] 5.6 Propagar el `deleted_by` desde el usuario autenticado (`auth`) en la capa de servicio de cada maestro; el service traduce el error del guard RN-B4 a `HTTPException` 409 con mensaje de UX en español
-- [ ] 5.7 Ajustar routers de maestros que hoy exponen `DELETE /{id}` para que el borrado sea soft (sin cambiar el contrato HTTP 204); correr `pytest backend/tests/` completo
+- [x] 5.1 RED/GREEN `ClientRepository`: cambiar `delete()` (hard `DELETE FROM clients`) por `soft_delete("clients", ...)`; SELECTs de listado/get filtran `deleted_at IS NULL` vía el helper; tests actualizados
+- [x] 5.2 RED/GREEN `ProductRepository`: cambiar `delete()` por `soft_delete("products", ...)`; asegurar que las lecturas filtran `deleted_at IS NULL`; test de que el borrado con stock propaga el error del guard (409)
+- [x] 5.3 RED/GREEN `SupplierRepository`: agregar `soft_delete("suppliers", ...)` + filtro de lectura (si hoy no expone borrado, se agrega alineado al patrón)
+- [x] 5.4 RED/GREEN `BankAccountRepository`: agregar `soft_delete("bank_accounts", ...)` para el borrado real; `list_active()` sigue filtrando `is_active=true` y ahora también `deleted_at IS NULL`
+- [x] 5.5 RED/GREEN `CostCenterRepository`: mantener `deactivate()` (is_active) y agregar `soft_delete("cost_centers", ...)` para el borrado; lecturas filtran `deleted_at IS NULL`
+- [x] 5.6 Propagar el `deleted_by` desde el usuario autenticado (`auth`) en la capa de servicio de cada maestro; el service traduce el error del guard RN-B4 a `HTTPException` 409 con mensaje de UX en español
+- [x] 5.7 Ajustar routers de maestros que hoy exponen `DELETE /{id}` para que el borrado sea soft (sin cambiar el contrato HTTP 204); correr `pytest backend/tests/` completo
 
 ## 6. Documentación de reglas de negocio
 

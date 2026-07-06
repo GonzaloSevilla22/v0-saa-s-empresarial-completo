@@ -34,15 +34,19 @@ class ProductRepository(BaseRepository):
         # C-21: lee de v_products_with_stock para que el campo `stock` refleje
         # COALESCE(Σ branch_stock, 0) en lugar de products.stock.
         # La vista tiene security_invoker=true — respeta RLS.
+        # v3-soft-delete-policy: la vista expone deleted_at → filtro RN-B1.
         return await self.fetch(
-            "SELECT * FROM v_products_with_stock WHERE account_id = $1 ORDER BY name ASC",
+            "SELECT * FROM v_products_with_stock WHERE account_id = $1"
+            + self.not_deleted_clause()
+            + " ORDER BY name ASC",
             account_id,
         )
 
     async def get_by_id(self, product_id: str, account_id: str) -> asyncpg.Record | None:
         # C-21: ídem — usa la vista de compatibilidad para stock consistente.
         return await self.fetchrow(
-            "SELECT * FROM v_products_with_stock WHERE id = $1 AND account_id = $2",
+            "SELECT * FROM v_products_with_stock WHERE id = $1 AND account_id = $2"
+            + self.not_deleted_clause(),
             product_id,
             account_id,
         )
@@ -124,31 +128,29 @@ class ProductRepository(BaseRepository):
                 )
         return await self.get_by_id(product_id, account_id)
 
-    async def delete(self, product_id: str, account_id: str) -> str:
-        return await self.execute(
-            "DELETE FROM products WHERE id = $1 AND account_id = $2",
-            product_id,
-            account_id,
-        )
-
     async def search_by_sku(self, sku: str, account_id: str) -> asyncpg.Record | None:
         # C-21 checkpoint #2: la vista expone stock = Σ branch_stock (ProductOut lo requiere)
         return await self.fetchrow(
-            "SELECT * FROM v_products_with_stock WHERE sku = $1 AND account_id = $2",
+            "SELECT * FROM v_products_with_stock WHERE sku = $1 AND account_id = $2"
+            + self.not_deleted_clause(),
             sku,
             account_id,
         )
 
     async def search_by_barcode(self, barcode: str, account_id: str) -> asyncpg.Record | None:
         return await self.fetchrow(
-            "SELECT * FROM v_products_with_stock WHERE barcode = $1 AND account_id = $2",
+            "SELECT * FROM v_products_with_stock WHERE barcode = $1 AND account_id = $2"
+            + self.not_deleted_clause(),
             barcode,
             account_id,
         )
 
     async def count_by_org(self, account_id: str) -> int:
+        # v3-soft-delete-policy: los borrados no cuentan para el límite de plan
+        # (borrar libera cupo — coherente con que el SKU se pueda recrear).
         row = await self.fetchrow(
-            "SELECT COUNT(*) AS total FROM products WHERE account_id = $1",
+            "SELECT COUNT(*) AS total FROM products WHERE account_id = $1"
+            + self.not_deleted_clause(),
             account_id,
         )
         return int(row["total"]) if row else 0

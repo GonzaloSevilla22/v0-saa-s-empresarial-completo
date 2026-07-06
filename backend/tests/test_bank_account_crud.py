@@ -484,3 +484,41 @@ class TestCreateBankAccountEndpoint:
             )
 
         assert resp.status_code == 401
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v3-soft-delete-policy (5.4): list_active filtra deleted_at; soft delete real
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBankAccountSoftDelete:
+    @pytest.mark.asyncio
+    async def test_list_active_filters_is_active_and_not_deleted(self, bank_account_repo):
+        """list_active mantiene is_active=true (baja logica reversible, D1) y
+        ahora tambien excluye borrados (deleted_at IS NULL, RN-B1)."""
+        repo, conn = bank_account_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_active()
+
+        sql = conn.fetch.call_args.args[0]
+        assert "is_active = true" in sql
+        assert "deleted_at IS NULL" in sql
+
+    @pytest.mark.asyncio
+    async def test_soft_delete_bank_accounts_allowed_and_marks_row(self, bank_account_repo):
+        """"bank_accounts" esta en la allowlist — el borrado real es soft
+        (deleted_at + deleted_by), distinto de la baja logica is_active."""
+        repo, conn = bank_account_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        affected = await repo.soft_delete(
+            "bank_accounts",
+            "55555555-5555-5555-5555-555555555555",
+            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "11111111-1111-1111-1111-111111111111",
+        )
+
+        assert affected is True
+        sql = conn.execute.call_args.args[0]
+        assert "UPDATE bank_accounts" in sql
+        assert "deleted_at = now()" in sql

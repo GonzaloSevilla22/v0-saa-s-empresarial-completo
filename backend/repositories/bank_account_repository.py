@@ -19,12 +19,18 @@ class BankAccountRepository(BaseRepository):
     """Repository de bank_accounts — JWT-passthrough via base.py."""
 
     async def list_active(self) -> list[dict]:
-        """Lista las bank_accounts activas visibles por RLS (cuenta del usuario)."""
+        """Lista las bank_accounts activas visibles por RLS (cuenta del usuario).
+
+        v3-soft-delete-policy (D1): is_active = baja lógica reversible;
+        deleted_at IS NULL excluye además las borradas (RN-B1). El borrado
+        real es soft_delete("bank_accounts", ...) del BaseRepository.
+        """
         return await self.fetch(
             """
             SELECT id, account_id, name, bank_name, cbu, alias, currency, is_active
             FROM public.bank_accounts
             WHERE is_active = true
+              AND deleted_at IS NULL
             ORDER BY name
             """
         )

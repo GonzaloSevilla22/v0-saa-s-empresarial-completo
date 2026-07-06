@@ -1167,12 +1167,13 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §5 y §10, `knowledge-base/03_actores_y_roles.md`, migración `20260606010000_roles_internos.sql`
 
 ### `v3-provisioning-seed` — Aprovisionamiento completo por tenant (V3 §7.5)
-- **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (PR #279)
+- **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (PRs #279/#280)
 - **Governance**: MEDIO (toca `handle_new_user` — camino de registro)
-- **Qué se implementó**: `handle_new_user` siembra EAGER una sucursal default "Casa Central" + caja default "Caja Principal" (ARS) en el mismo paso de provisioning del signup, en sub-bloque `BEGIN...EXCEPTION WHEN OTHERS THEN RAISE WARNING...END` (un fallo del seed degrada, nunca aborta el registro). Backfill idempotente de las ~29 cuentas existentes en la misma migración (`20260812000001_v3_provisioning_seed.sql`). Behavior gate auto-limpiante verificado en CI (`GATE PROVISIONING-SEED PASSED`).
+- **Qué se implementó**: `handle_new_user` siembra EAGER una sucursal default "Casa Central" + caja default "Caja Principal" (ARS) en el mismo paso de provisioning del signup, en sub-bloque `BEGIN...EXCEPTION WHEN OTHERS THEN RAISE WARNING...END` (un fallo del seed degrada, nunca aborta el registro). Backfill idempotente de las ~29 cuentas existentes en la misma migración (`20260812000001_v3_provisioning_seed.sql`, PR #279). PR #280 registra la verificación post-merge en prod (baseline vs. conteos finales).
 - **Scoped OUT (verificado contra el código real, no supuesto — ver design.md)**: lista de precios default (la tabla `price_lists` NO existe — crearla es otro change), formas de pago (`EFECTIVO`/`TRANSFERENCIA`/`MERCADOPAGO`/`CTA_CTE` — hoy solo un CHECK de 2 valores `cash|other` en `sales_orders`, sin tabla ni enum — convertirlo en catálogo es un change propio), plan de cuentas mínimo (diferido a V2.6, un test lo prohíbe activamente), unidades de medida (YA provisionadas globalmente vía `is_system=true` + RLS `uom_account_select` desde `20260509211504` — nada per-tenant que seedear).
+- **Pendiente (no bloqueante)**: task 3.3 (T3 manual, "<5 minutos para vender") queda a cargo del PO — registrar un usuario real en prod y confirmar que puede abrir caja y hacer una quickSale sin crear branch/caja a mano. Requiere el flujo real de signup (captcha + verificación de email); la verificación DB-level equivalente ya fue hecha (branch+cashbox se crean correctamente vía el trigger real). Ver design.md.
 - **Dependencias**: ninguna
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.5, `supabase/migrations/20260812000001_v3_provisioning_seed.sql`, `openspec/changes/archive/` (una vez archivado), `knowledge-base/07_flujos_principales.md` §Flujo registro
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.5, `supabase/migrations/20260812000001_v3_provisioning_seed.sql`, `openspec/changes/archive/2026-07-06-v3-provisioning-seed/`, `knowledge-base/07_flujos_principales.md` §Flujo registro
 
 ### `v3-reporting-invariants` — Invariantes RN-D en KPIs y proyecciones (V3 §8)
 - **Estado**: `[ ]` pendiente

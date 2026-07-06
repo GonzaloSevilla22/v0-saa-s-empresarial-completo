@@ -1056,7 +1056,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | §1 | Snapshot Pattern | ✅ Columnas snapshot congeladas en líneas (`name`, `sku`, `unit_cost`, `iva_rate`) + `stock_movements.unit_cost_snapshot` + `FiscalIdentitySnapshot` del receptor (`receptor_legal_name`, `receptor_iva_condition`). **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Archivada 2026-07-02. | ✅ `v3-snapshot-pattern` |
 | §2 | FSM + historial de estados | ✅ Tabla append-only `document_status_history`, catálogo `document_status_transitions` con política como datos, `record_status_transition` helper, `allowed_role` permisivo (inerte hoy, activado por RBAC). Archivada 2026-07-03. Desbloquea matriz rol×transición de RBAC. | ✅ `v3-document-status-history` |
 | §3 | Notificación post-commit | ✅ Consumer 4 (`_notification_from_event` idempotente) + tabla `notifications` read-model RLS-guarded + hook Realtime `useNotifications` + 5 producers (CashSessionClosed, StockBelowMinimum, QuoteAccepted, TransferDispatched, FiscalDocumentRejected). Archivada 2026-07-04. Desbloquea UI realtime. | ✅ `v3-notifications-realtime` |
-| §4 | Soft delete uniforme | ❌ Sin política única: `clients`/`products` con `deleted_at` legacy; `cost_centers`/`bank_accounts`/`branches` con `is_active`; sin `deleted_by`, sin índices únicos parciales | `v3-soft-delete-policy` |
+| §4 | Soft delete uniforme | ✅ `deleted_at`/`deleted_by` en 6 maestros (`clients`, `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts`); índices únicos parciales RN-B3; guard RN-B4 (trigger en `products`: rechaza borrado con stock ≠ 0 o referencia en documentos `draft`); `BaseRepository.soft_delete()` centralizado; `is_active` conservado en paralelo (no se dropea). `branches` queda fuera de scope (V3 §4: se desactiva, no se borra); `categories`/`price_lists` no existen como tablas. Archivada 2026-07-06. | ✅ `v3-soft-delete-policy` |
 | §5 | RBAC multi-rol | ❌ `account_members.role` singular, CHECK `('owner','admin','member')`; sin `assigned_by`/`expires_at`, sin roles funcionales (SELLER/CASHIER/STOCK/…) | `v3-rbac-multirole` |
 | §6 | UoW + capas | ⚠️ Layering routers→services→repositories ya existe; la transaccionalidad del hot path vive en **RPCs SQL `SECURITY DEFINER`** (equivalente funcional del UoW — decisión a registrar, no a "corregir"). Falta: `BaseRepository` con soft-delete/paginación, RFC 7807 uniforme | `v3-api-standards` |
 | §6.3 | Idempotencia | ✅ `operation_idempotency` + dedupe de consumers `(event_id, consumer_type)` ya existen. Falta solo generalizar `Idempotency-Key` del cliente | `v3-api-standards` |
@@ -1076,7 +1076,8 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-snapshot-pattern ✅ (2026-07-02, PR #255 — DESBLOQUEÓ C-20 Grupo 10)
   → v3-document-status-history ✅ (2026-07-03, PRs #258/#259 — FSM + historial, RBAC-ready)
   → v3-notifications-realtime ✅ (2026-07-04, PRs #262/#264 — Consumer 4 + campana Realtime + specs synced)
-  → v3-soft-delete-policy · v3-provisioning-seed · v3-catalog-masters ⭐ SIGUIENTES   (chicos, paralelizables; producto-imagenes §7.4 descartado por PO 2026-07-04)
+  → v3-soft-delete-policy ✅ (2026-07-06, PRs #275/#276/#277)
+  → v3-provisioning-seed · v3-catalog-masters ⭐ SIGUIENTES   (chicos, paralelizables; producto-imagenes §7.4 descartado por PO 2026-07-04)
   → v3-reporting-invariants          (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)
   → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
@@ -1138,14 +1139,16 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `knowledge-base/05_reglas_de_negocio.md` (RN-23), `modelo-dominio-aliadata-v3.md` §3 (contexto de `v3-notifications-realtime`)
 
 ### `v3-soft-delete-policy` — Política única de borrado (V3 §4)
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` ✅ completada 2026-07-06 (PRs #275 `58688a2`, #276 `0b1b2a6`, #277 `62f5a15`)
 - **Governance**: MEDIO (cambia semántica de borrado de maestros; documentos/ledgers no se tocan)
-- **Scope**:
+- **Scope**: ✅ Implementado
   - Política por categoría (V3 §4): maestros → soft delete (`deleted_at` + `deleted_by`); documentos confirmados → jamás se borran, se **anulan** por transición con motivo; ledgers → contra-asiento; drafts → hard delete OK; Membership se revoca, UserAccount se anonimiza
-  - Alinear entidades existentes: `clients`/`products` ya tienen `deleted_at` (agregar `deleted_by`); `suppliers`, `categories`, `price_lists`, `cost_centers`, `cashboxes`, `bank_accounts` migran de `is_active`/nada al patrón
-  - RN-B3: índices únicos parciales (`UNIQUE (account_id, sku) WHERE deleted_at IS NULL`) para recrear un SKU borrado
-  - RN-B4: no se soft-deletea un maestro con referencia activa (producto con stock ≠ 0 o en documentos DRAFT)
-  - RN-B1/B2 en el backend: filtro `deleted_at IS NULL` en `BaseRepository` (una vez, no por query)
+  - `deleted_at`/`deleted_by` agregados a los 6 maestros: `clients` (solo tenía `deleted_at`, sin `deleted_by` — verificado durante propose/apply), `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts`. `categories`/`price_lists` **no existen como tablas** en el modelo actual (verificado; no había nada que migrar). `branches` queda **fuera de scope** (V3 §4: una sucursal se desactiva, no se borra — `is_active` sigue siendo la política correcta ahí)
+  - RN-B3: índices únicos parciales (`WHERE deleted_at IS NULL`) para recrear claves naturales (ej. SKU) previamente borradas
+  - RN-B4: trigger en `products` rechaza el soft delete con stock ≠ 0 o referencia activa en documentos `draft`
+  - RN-B1/B2 en el backend: `BaseRepository.soft_delete(table, row_id, account_id, deleted_by)` centralizado; filtro `deleted_at IS NULL` no se repite por query concreta
+  - `is_active` se conserva en paralelo en las entidades que ya lo tenían (no se dropea; convive con `deleted_at`)
+- **Specs sincronizadas**: `soft-delete-policy` (NUEVA capability, 5 Requirements ADDED), `base-repositories` (2 Requirements ADDED: `soft_delete()` + lecturas que excluyen borrados por defecto)
 - **Dependencias**: ninguna (sinergia con `v3-api-standards` por `BaseRepository`)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §4, `modelo-dominio-aliadata-v2.md` §2.6.5 (H-riesgo original), `knowledge-base/04_modelo_de_datos.md`
 

@@ -393,6 +393,25 @@ export interface Client {
   legalName?: string
 }
 
+// ── Direcciones operativas del cliente (v3-catalog-masters, V3 §7.3) ─────────
+// Distinta de la dirección FISCAL (vive en FiscalIdentity, inmutable por
+// snapshot). Sin UI en este change — solo el contrato de tipos para la API
+// (GET/POST/PUT/DELETE /clients/{clientId}/addresses + set-primary).
+export interface ClientAddress {
+  id: string
+  accountId: string
+  clientId: string
+  alias: string | null
+  street: string | null
+  city: string | null
+  province: string | null
+  postalCode: string | null
+  notes: string | null
+  isPrimary: boolean
+  createdAt: string
+  updatedAt: string | null
+}
+
 export type InsightPriority = "alta" | "media" | "baja"
 
 export interface Insight {

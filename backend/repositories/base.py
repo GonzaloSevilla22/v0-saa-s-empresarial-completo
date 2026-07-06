@@ -8,8 +8,10 @@ import asyncpg
 # set cerrado. `cashboxes` queda FUERA: su scope de cuenta es indirecto
 # (branch_id → branches.account_id) y su soft delete vive en
 # CashboxRepository.soft_delete_cashbox() (OQ2 del design).
+# v3-catalog-masters: client_addresses tiene account_id DIRECTO (D2 del
+# design) — igual familia que clients/products, se agrega a la allowlist.
 SOFT_DELETE_TABLES: frozenset[str] = frozenset(
-    {"clients", "products", "suppliers", "cost_centers", "bank_accounts"}
+    {"clients", "products", "suppliers", "cost_centers", "bank_accounts", "client_addresses"}
 )
 
 

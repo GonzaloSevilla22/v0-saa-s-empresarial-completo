@@ -17,6 +17,7 @@ from backend.routers import (
     bank_reconciliation,
     branches,
     cash,
+    client_addresses,
     clients,
     cost_centers,
     customer_accounts,
@@ -80,6 +81,8 @@ app.include_router(cost_centers.router)
 app.include_router(fiscal.router)
 app.include_router(expenses.router)
 app.include_router(clients.router)
+# v3-catalog-masters (V3 §7.3) — direcciones operativas anidadas bajo cliente
+app.include_router(client_addresses.router)
 app.include_router(products.router)
 app.include_router(branches.router)
 app.include_router(stock.router)

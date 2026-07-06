@@ -1199,13 +1199,18 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §6, `backend/core/errors.py`, `knowledge-base/08_arquitectura_propuesta.md`
 
 ### `v3-catalog-masters` — Maestros menores: UoM tipada + direcciones (V3 §7.1, §7.3)
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (22/22 tasks, TDD estricto, suite 960 verde — 912 baseline + 48 nuevos)
 - **Governance**: BAJO
 - **Scope**:
-  - `units_of_measure.type TEXT CHECK ('peso','volumen','contable')` — se persiste **ahora** para habilitar conversión entre unidades (V3.5) sin migración; evaluar globalización del catálogo (hoy per-user con `is_system`)
-  - `client_addresses`: direcciones múltiples con `alias` e `is_primary` (invariante: exactamente una primaria); la dirección **fiscal** sigue en FiscalIdentity (inmutable por snapshot), estas son operativas/editables
+  - `units_of_measure`: **spec-only, cero DDL** — se verificó en prod que `type` (`unit|weight|volume|length|custom`) ya es `NOT NULL` con `CHECK` y catálogo mixto (`is_system` global + `account_id` per-tenant) ya vigente. Formalizado en `openspec/specs/units-of-measure/spec.md` (sync a main en el archive), no se migró nada.
+  - `client_addresses`: tabla nueva (additiva, migración `20260813000001_v3_client_addresses.sql`), direcciones operativas múltiples con `alias` e `is_primary` (invariante: exactamente una primaria viva, índice único parcial `idx_client_addresses_primary` + RPC `rpc_set_primary_client_address`); la dirección **fiscal** sigue en FiscalIdentity (inmutable por snapshot), estas son operativas/editables. UI diferida (solo DB + API + tipo TS `ClientAddress`).
+- **Decisiones (D1–D6, ver design.md del change archivado)**: D1 UoM spec-only sin rename de enum; D2 `client_addresses` con `account_id` DIRECTO (scope de tenancy simple, entra a `SOFT_DELETE_TABLES`); D3 invariante "exactamente una primaria" vía índice único parcial + RPC de switch atómico; D4 soft-delete del cliente padre NO propaga (inalcanzable por lectura, reversible al reactivar); D5 API anidada 3 capas bajo `/clients/{client_id}/addresses`; D6 migración idempotente/both-worlds-safe con gate auto-limpiante.
 - **Dependencias**: ninguna
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.1 y §7.3, `knowledge-base/04_modelo_de_datos.md` §clients
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.1 y §7.3, `knowledge-base/04_modelo_de_datos.md` §units_of_measure y §client_addresses, `openspec/changes/archive/2026-07-06-v3-catalog-masters/`
+- **Open Questions para el PO (no bloquean este change, quedan pendientes)**:
+  - **OQ1**: ¿Alinear el enum de `units_of_measure.type` a la nomenclatura canónica del V3 (`peso|volumen|contable`)? Es BREAKING (CHECK + `frontend/lib/types.ts` + colapsar `length`/`custom`). Hoy 0 filas per-tenant → costo de datos mínimo, costo real es frontend/semántico. Si se aprueba, change chico aparte con migración de datos.
+  - **OQ2**: ¿Reactivar un cliente debe dejar sus direcciones operativas intactas (comportamiento actual, sin cascade de soft-delete) o deben borrarse junto con el cliente?
+  - **OQ3**: ¿Alcanza con dirección operativa "plana" (`street`/`city`/`province`/`postal_code`/`notes`) o hace falta georreferencia / campos AR específicos (localidad vs. departamento)?
 
 ### `v3-product-composition` — BOM ligera de un nivel (V3 §7.2, fase V3)
 - **Estado**: `[ ]` pendiente — **fase V3** (no proponer antes de cerrar V2.5)

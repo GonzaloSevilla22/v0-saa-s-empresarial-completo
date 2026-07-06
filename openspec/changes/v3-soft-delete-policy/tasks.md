@@ -46,5 +46,5 @@
 ## 7. Verificación
 
 - [x] 7.1 Suite backend completa verde (`pytest backend/tests/`)
-- [ ] 7.2 Tras merge (CI aplica la migración): verificación read-only en prod — las 6 tablas tienen `deleted_at`/`deleted_by`, los índices parciales existen, el trigger de `products` existe; un soft delete de prueba se oculta de las lecturas y permite recrear la clave
+- [x] 7.2 Tras merge (CI aplica la migración): verificación read-only en prod — las 6 tablas tienen `deleted_at`/`deleted_by`, los índices parciales existen, el trigger de `products` existe; un soft delete de prueba se oculta de las lecturas y permite recrear la clave
 - [x] 7.3 Confirmar que el frontend sigue leyendo `is_active` sin cambios (no hay regresión en `use-cost-centers.ts` / `use-bank-accounts.ts`)

@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** `v3-catalog-masters` (chico, paralelizable) del Modelo V3 — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
+**Próximo trabajo:** `v3-reporting-invariants` (después de snapshots, RN-D2) del Modelo V3 — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279), `v3-catalog-masters` ✅ 2026-07-06 (PR #282). Después: `v3-api-standards`, percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
 
 ---
 
@@ -1060,9 +1060,9 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | §5 | RBAC multi-rol | ❌ `account_members.role` singular, CHECK `('owner','admin','member')`; sin `assigned_by`/`expires_at`, sin roles funcionales (SELLER/CASHIER/STOCK/…) | `v3-rbac-multirole` |
 | §6 | UoW + capas | ⚠️ Layering routers→services→repositories ya existe; la transaccionalidad del hot path vive en **RPCs SQL `SECURITY DEFINER`** (equivalente funcional del UoW — decisión a registrar, no a "corregir"). Falta: `BaseRepository` con soft-delete/paginación, RFC 7807 uniforme | `v3-api-standards` |
 | §6.3 | Idempotencia | ✅ `operation_idempotency` + dedupe de consumers `(event_id, consumer_type)` ya existen. Falta solo generalizar `Idempotency-Key` del cliente | `v3-api-standards` |
-| §7.1 | UnidadMedida tipada | ⚠️ `units_of_measure` existe (name, symbol, is_system) pero sin `type` (peso/volumen/contable) y es per-user | `v3-catalog-masters` |
+| §7.1 | UnidadMedida tipada | ✅ Formalizado como contrato: `type` (`unit\|weight\|volume\|length\|custom`) ya era `NOT NULL` + `CHECK` en prod (10 unidades del sistema tipadas), catálogo mixto global (`is_system`)/per-tenant (`account_id`). Spec-only, cero DDL. Archivada 2026-07-06. | ✅ `v3-catalog-masters` |
 | §7.2 | Composición de producto (BOM) | ❌ No existe | fase V3 (`v3-product-composition`) |
-| §7.3 | Direcciones múltiples | ❌ No existe (dirección única en cliente) | `v3-catalog-masters` |
+| §7.3 | Direcciones múltiples | ✅ Tabla `client_addresses` (operativa, distinta de la fiscal): `alias`, `is_primary` con índice único parcial + RPC `rpc_set_primary_client_address` de switch atómico, soft-delete alineado a V3 §4. UI diferida (solo DB + API + tipo TS). Archivada 2026-07-06. | ✅ `v3-catalog-masters` |
 | §7.4 | Imágenes de producto | ❌ `products` sin imágenes (solo landing usa Storage) | — (descartado por PO 2026-07-04, no se implementa) |
 | §7.5 | Seed de provisioning | ✅ COMPLETADA 2026-07-06 (PR #279): `handle_new_user` siembra eager branch "Casa Central" + cashbox "Caja Principal" (ARS); backfill de las ~29 cuentas existentes. Lista de precios/formas de pago/plan de cuentas quedan OUT (estructuras no existentes — ver nota en la sección del change) | `v3-provisioning-seed` ✅ |
 | §8 | Invariantes reporting RN-D | ⚠️ Parcial: timezone fix del dashboard ✅ (RN-D5), DECIMAL ✅ (RN-D4); sin enforcement de cancelados/NC (RN-D1), snapshots (RN-D2) ni devengado-vs-percibido (RN-D3) | `v3-reporting-invariants` |
@@ -1078,8 +1078,8 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-notifications-realtime ✅ (2026-07-04, PRs #262/#264 — Consumer 4 + campana Realtime + specs synced)
   → v3-soft-delete-policy ✅ (2026-07-06, PRs #275/#276/#277)
   → v3-provisioning-seed ✅ (2026-07-06, PR #279)
-  → v3-catalog-masters ⭐ SIGUIENTE   (chico, paralelizable; producto-imagenes §7.4 descartado por PO 2026-07-04)
-  → v3-reporting-invariants          (después de snapshots, RN-D2)
+  → v3-catalog-masters ✅ (2026-07-06, PR #282 — UoM tipada spec-only + client_addresses)
+  → v3-reporting-invariants ⭐ SIGUIENTE   (después de snapshots, RN-D2)
   → v3-api-standards                 (transversal, cualquier momento)
   → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
   → percepciones-retenciones         (V2.5, después del snapshot fiscal)

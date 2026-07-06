@@ -27,6 +27,9 @@ class CostCenterRepository(BaseRepository):
             active_only: If True (default), only return is_active=true rows.
                          If False, return all rows (for admin management screen).
         """
+        # v3-soft-delete-policy (D1): ambas ramas excluyen filas BORRADAS
+        # (deleted_at IS NULL, RN-B1). active_only=False sigue mostrando las
+        # DESACTIVADAS (is_active=false) — baja lógica reversible, no borrado.
         if active_only:
             return await self.fetch(
                 """
@@ -34,6 +37,7 @@ class CostCenterRepository(BaseRepository):
                 FROM   cost_centers
                 WHERE  account_id = $1
                   AND  is_active = TRUE
+                  AND  deleted_at IS NULL
                 ORDER BY name
                 """,
                 account_id,
@@ -43,6 +47,7 @@ class CostCenterRepository(BaseRepository):
             SELECT id, account_id, name, code, is_active, created_at
             FROM   cost_centers
             WHERE  account_id = $1
+              AND  deleted_at IS NULL
             ORDER BY name
             """,
             account_id,
@@ -59,6 +64,7 @@ class CostCenterRepository(BaseRepository):
             SELECT id, account_id, name, code, is_active, created_at
             FROM   cost_centers
             WHERE  id = $1 AND account_id = $2
+              AND  deleted_at IS NULL
             """,
             cost_center_id,
             account_id,

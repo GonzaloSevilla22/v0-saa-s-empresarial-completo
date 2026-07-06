@@ -210,3 +210,65 @@ class TestCostCenterRepositoryTriangulate:
         assert "DELETE" not in sql, "deactivate must use soft-delete, not DELETE"
         assert "UPDATE" in sql
         assert result["is_active"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v3-soft-delete-policy (5.5): lecturas filtran deleted_at; deactivate se
+# mantiene (is_active, baja logica reversible); el borrado real es soft_delete.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestCostCenterSoftDelete:
+    @pytest.mark.asyncio
+    async def test_list_filters_not_deleted_in_both_branches(self, cost_center_repo):
+        """Ambas ramas del listado (active_only True/False) excluyen borrados:
+        include_inactive muestra desactivadas PERO nunca borradas (D1)."""
+        repo, conn = cost_center_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_by_account(ACCOUNT_ID, active_only=True)
+        sql_active = conn.fetch.call_args.args[0]
+
+        await repo.list_by_account(ACCOUNT_ID, active_only=False)
+        sql_all = conn.fetch.call_args.args[0]
+
+        assert "deleted_at IS NULL" in sql_active
+        assert "deleted_at IS NULL" in sql_all
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_filters_not_deleted(self, cost_center_repo):
+        repo, conn = cost_center_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        await repo.get_by_id(CC_ID, ACCOUNT_ID)
+
+        assert "deleted_at IS NULL" in conn.fetchrow.call_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_deactivate_still_uses_is_active_not_deleted_at(self, cost_center_repo):
+        """deactivate() NO cambia: sigue siendo la baja logica reversible
+        via is_active (D1) — no toca deleted_at."""
+        repo, conn = cost_center_repo
+        conn.fetchrow = AsyncMock(return_value=CC_ROW_INACTIVE)
+
+        await repo.deactivate(CC_ID, ACCOUNT_ID)
+
+        sql = conn.fetchrow.call_args.args[0]
+        assert "is_active = FALSE" in sql
+        assert "deleted_at" not in sql
+
+    @pytest.mark.asyncio
+    async def test_soft_delete_cost_centers_allowed_and_marks_row(self, cost_center_repo):
+        """"cost_centers" esta en la allowlist — el borrado real setea
+        deleted_at + deleted_by (RN-B2)."""
+        repo, conn = cost_center_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        affected = await repo.soft_delete(
+            "cost_centers", CC_ID, ACCOUNT_ID,
+            "11111111-1111-1111-1111-111111111111",
+        )
+
+        assert affected is True
+        sql = conn.execute.call_args.args[0]
+        assert "UPDATE cost_centers" in sql
+        assert "deleted_at = now()" in sql

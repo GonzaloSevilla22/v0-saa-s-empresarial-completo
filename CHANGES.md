@@ -1231,3 +1231,132 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   - Casos target: combos, canastas, panadería/rotisería (segmento real)
 - **Dependencias**: `v3-snapshot-pattern` (el componente congela su costo al explotar)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.2 y §10
+
+---
+
+## Roadmap v3.1 — Remediación de Auditoría (2026-07-07)
+
+> **Origen**: auditoría técnica integral pre-producción del 2026-07-07 (`AUDITORIA_ALIADATA.md` / `.docx`; detalle exhaustivo por dimensión en `audit/*.md`). Metodología: 10 auditores especializados en paralelo + verificación adversarial de cada hallazgo CRÍTICO/ALTO contra la DB de prod (read-only) → 103 hallazgos crudos, 16 confirmados / 24 ajustados / 0 refutados → **34 hallazgos consolidados H-01…H-34**.
+> **Veredicto**: **APTO PARA PRODUCCIÓN CONDICIONAL**. El sistema opera bien a la escala actual (29 cuentas, bajo volumen) y no se halló corrupción activa ni fuga cross-tenant demostrada; la **condición para producción plena es cerrar el bloque P0**. El patrón dominante: la excelente documentación de diseño diverge de lo desplegado, y la brecha se concentra en dominios de gobernanza CRÍTICA (dinero, fiscalidad, aislamiento multi-tenant).
+> **Relación con el resto del roadmap**: esta fase **NO reemplaza** el Modelo V3 en curso — `v3-rbac-multirole` (CRÍTICO), percepciones-retenciones (V2.5) y `v3-product-composition` (fase V3) siguen vigentes. Varios changes v3.1 tienen **sinergia** con ellos (p.ej. `v31-authz-token-hook` ↔ `v3-rbac-multirole`; `v31-tenancy-pool-rls` es prerequisito de seguridad para activar roles funcionales).
+> **Governance**: los changes que tocan dinero / fiscal / auth / aislamiento son **CRÍTICO → solo análisis y diseño hasta sign-off explícito del PO** antes de escribir código (regla dura del proyecto). Los P0 de bajo riesgo (lockdown de superficie, gate de CI, fix de shape) se pueden implementar directo.
+
+### Clasificación por área (auditoría)
+
+| Área | Clasificación | Área | Clasificación |
+|---|---|---|---|
+| Base de datos | **Muy buena** | Arquitectura | Mejorable |
+| Performance | **Buena** | Código Backend | Mejorable |
+| Documentación | **Buena** | Código Frontend | Mejorable |
+| | | Seguridad (OWASP) | Mejorable |
+| | | UX/UI | Mejorable |
+| | | IA / agentes | Mejorable |
+| | | Testing | Mejorable |
+
+> Ninguna área quedó "Crítica" como dimensión (el aislamiento por RLS a nivel DB está íntegro). Las 7 "Mejorable" comparten causa raíz: la ejecución en prod diverge del diseño documentado.
+
+### Mapa hallazgo → change → prioridad
+
+| Hallazgo | Severidad (verif.) | Change v3.1 | Prio | Governance | Esfuerzo |
+|---|---|---|---|---|---|
+| **H-01** Fire-and-forget fiscal usa siempre el adapter STUB → CAE falso ante AFIP | CRÍTICO | `v31-fiscal-cae-real-adapter` | **P0** | CRÍTICO (fiscal) | S |
+| **H-02** Webhook de upgrade MercadoPago roto (route Next.js con cliente anónimo → RLS bloquea) → ningún pago acredita plan | CRÍTICO | `v31-mp-upgrade-webhook-fix` | **P0** | CRÍTICO (dinero) | M |
+| **H-03** Edge Function `send-email` abierta con `service_role` (sin firma/JWT) → phishing/spam desde dominio verificado | CRÍTICO | `v31-send-email-lockdown` | **P0** | CRÍTICO (seguridad) | S |
+| **H-04** CI no ejecuta ninguna suite + lógica de dinero testeada con DB mockeada (journal muerto 9 días con tests verdes) | CRÍTICO/proceso | `v31-ci-test-gate` | **P0** | MEDIO (proceso) | S |
+| **H-05** Pool corre como `postgres` con `BYPASSRLS` → RLS inerte para el backend + endpoints by-id sin filtro `account_id` = IDOR cross-tenant | CRÍTICO/ALTO | `v31-tenancy-pool-rls` | **P0** | CRÍTICO (aislamiento) | L |
+| **H-06** 3 endpoints en 500 en prod (leen claves inexistentes del dict `auth`) — presupuestos y cta cte caídos; tests con fixture de shape falso no lo ven | ALTO | `v31-fix-auth-shape-500` | **P0** | MEDIO | S |
+| **H-08** 5 RPCs admin `SECURITY DEFINER` ejecutables por `anon` (KPIs de negocio + funciones de mantenimiento) | ALTO | `v31-admin-rpc-lockdown` | **P0** | ALTO (seguridad) | S |
+| **H-07** Capa de autorización ficticia (rol nunca viaja en JWT): `require_role` no-op / bloqueo total, `require_plan` dead code, gating fail-open; `cost_centers` = 403 universal | ALTO | `v31-authz-token-hook` | P1 | CRÍTICO (auth) | M |
+| **H-09** Endpoint Python del outbox + `rpc_mark_event_processed` disparables por cualquier JWT → supresión de asientos contables | ALTO | `v31-outbox-endpoint-protect` | P1 | ALTO | S |
+| **H-10** Borrado de ventas/compras fuera de RPC → toca ledger inmutable/contabilidad sin compensación | ALTO | `v31-sales-delete-rpc-reversal` | P1 | ALTO (contable) | M |
+| **H-11** `invoice-ocr` sin techo de costo + sin rate limiting → DoS/costo OpenAI | ALTO | `v31-ia-ratelimit-budget` | P1 | MEDIO | M |
+| **H-34** Sin tier de integración real contra Postgres en CI (arqueo, conciliación, partida doble, webhook) + gates SQL degradables a NOTICE | ALTO | `v31-money-integration-tests` | P1 | MEDIO | L |
+| **H-15** `sale_items` no universal (flag off 3/29, `name_snapshot`/`iva_rate_snapshot` NULL) + `purchase_items` congelada mid-history | MEDIO | `v31-document-lines-consistency` | P1 | MEDIO | M |
+| **H-20** IA sin telemetría (tokens/costo/latencia/calidad) ni evals; `_shared` de Edge Functions no consolidado | MEDIO | `v31-ia-telemetry-evals` | P1 | BAJO | M |
+| **H-12** Frontera del híbrido erosionada (140 `supabase.from` + 31 `.rpc` directos, incl. mutaciones ERP con endpoints backend muertos) | MEDIO | `v31-hybrid-boundary-erp` | P1 | MEDIO | M |
+| **H-17** FSM sin trigger `BEFORE UPDATE` de status (quotes/sales_orders/fiscal_documents) → invariante evadible | MEDIO | `v31-fsm-status-triggers` | P1 | MEDIO | S |
+| **H-18** WSAA sin cache de tickets persistente (`PlatformPostgresTicketCache` sin implementar) → bloquea facturar a volumen | MEDIO | `v31-wsaa-ticket-cache` | P1 | ALTO (fiscal) | M |
+| **H-19** Webhook MP sin transacción envolvente + lookup no determinista (atomicidad de billing) | MEDIO | `v31-mp-webhook-atomic` | P1 | ALTO (dinero) | S |
+| **H-13** Cliente HTTP sin `ApiError` tipado (RFC 7807) + doble vía de lectura FastAPI/Supabase-directo sin coherencia de caché | MEDIO | `v31-http-client-typed-errors` | P1 | BAJO | M |
+| **H-21** A11y: botones-ícono sin `aria-label`; formas de dinero núcleo sin RHF+Zod; 883 clases de color hardcodeadas | MEDIO | `v31-a11y-rhf-forms` | P1 | BAJO | M |
+| **H-22** Doc descriptiva desfasada (KB 02/03/04, README raíz, AGENTS.md) + 15 specs en formato legacy (K6) | MEDIO | `v31-docs-refresh` | P1 | BAJO | S |
+| **H-14** Rutas Supabase-directas sin `.eq('account_id')` explícito + falta de índices `(account_id, date DESC)` | MEDIO | `v31-tenant-scope-indexes` | P2 | MEDIO | M |
+| **H-16** `float` para dinero en fronteras de service pese a schemas `Decimal` | MEDIO | `v31-money-decimal-e2e` | P2 | MEDIO | M |
+| **H-29 / H-30** Índices faltantes en 48 FKs del hot path + índices/policies legacy de tenancy sin dropear | MEDIO | `v31-index-hygiene` | P2 | MEDIO | M |
+| **H-26 / H-27** `platform_wsaa_tickets` sin REVOKE + 8 funciones `SECURITY DEFINER` sin `search_path` fijado | MEDIO | `v31-secdef-hardening` | P2 | ALTO (seguridad) | S |
+| **H-31** Sin telemetría de errores del cliente (0 Sentry) → incidentes de prod (K5) sin traza | MEDIO | `v31-client-observability` | P2 | BAJO | S |
+| **H-33 / H-21** Design system: color no tokenizado, spinner/moneda no unificados, confirmaciones destructivas sin `AlertDialog` | BAJO | `v31-design-system-consistency` | P2 | BAJO | M |
+| **H-23 / H-25** CORS `*`+credentials y HS256 con defaults inseguros sin fail-fast en `app_env=production` | BAJO | `v31-startup-guards` | P3 | MEDIO | S |
+| **H-24** `pyproject`↔`requirements` desalineados + sin ruff/import-linter + dead code | BAJO | `v31-backend-tooling` | P3 | BAJO | M |
+| **H-28** CSV formula injection + CORS por origin en Edge Functions + leaked-password protection de Supabase | BAJO | `v31-owasp-residual` | P3 | MEDIO | S |
+| **H-32** Charts sin code-splitting + `SalesChart` sobre datos sin agregar + catálogos sin paginar | BAJO | `v31-frontend-perf` | P3 | BAJO | M |
+| **H-31 (fe)** Hooks muertos + `sale-form`/`purchase-form` monolíticos + PascalCase incumplido (87/161) | BAJO | `v31-frontend-cleanup` | P3 | BAJO | M |
+| **H-34 (e2e)** Sin E2E Playwright de los 3 flujos de dinero + sin k6 nightly | BAJO | `v31-e2e-money-flows` | P3 | MEDIO | L |
+
+> Esfuerzo: **S** (horas–1 día) · **M** (días) · **L** (semana+).
+
+### P0 — Bloque bloqueante (antes de crecer en usuarios / activar facturación fiscal)
+
+> Estos siete cierran los cuatro CRÍTICOS + los ALTOS que tocan dinero/fiscal/aislamiento. Esfuerzo agregado estimado: **2–3 semanas** de un equipo pequeño — la mayoría son fixes acotados sobre infraestructura **que ya existe** (el webhook backend correcto, el adapter real, el dispatch SQL de 4 consumers). Mientras el P0 esté abierto: **no emitir facturas fiscales reales a volumen** (H-01/H-18) y **no habilitar campañas de upgrade masivas** (H-02).
+
+#### `v31-fiscal-cae-real-adapter` — CAE real en el fire-and-forget fiscal (H-01)
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO (fiscal, AFIP) — solo análisis/diseño hasta sign-off PO
+- **Problema**: la emisión asíncrona (`/fiscal/documents/emit*`) instancia el `WSFEStubAdapter` en vez del real → la factura queda `authorized` con un CAE fabricado que el cron con el certificado real nunca corrige (estado terminal).
+- **Scope**: usar `build_cae_adapter_from_settings()` en el background del fire-and-forget; gate defensivo anti-stub cuando `app_env=production` (fail-closed si por config cae el stub). Verificar que el relay CAE fail-closed + backstop `pg_cron` cubran el reintento.
+- **Leer antes**: `audit/seguridad.md` H-01 + `audit/codigo-backend.md`, `backend` puerto/adaptador AFIP, C-27/v21/v22.
+
+#### `v31-mp-upgrade-webhook-fix` — Reconexión del webhook de upgrade (H-02)
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO (dinero) — requiere sign-off PO (E2E de pago real)
+- **Problema**: el route handler de Next.js que recibe el pago de MercadoPago usa cliente Supabase anónimo + cookies; la RLS de prod bloquea el `UPDATE accounts` y el `INSERT billing_events` → ningún upgrade acredita solo (caso real: pago de $69.900 reconciliado a mano, K5-relacionado). El webhook **backend** (FastAPI) ya es correcto (HMAC, idempotencia) — el flujo apunta al legacy.
+- **Scope**: apuntar `notification_url` de la preferencia al webhook backend funcional (o mover la creación de preferencias al backend) + test E2E webhook→upgrade. Deduplicar el path legacy de Next.js.
+- **Leer antes**: `audit/codigo-frontend.md` H-02, C-10/C-17.
+
+#### `v31-send-email-lockdown` — Cerrar la Edge Function de email (H-03)
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO (seguridad) — implementable directo (lockdown)
+- **Problema**: `send-email` corre con `service_role` sin firma, JWT ni secreto → cualquiera con la URL pública puede spoofear correos desde `no-reply@aliadata.com.ar` a cualquier destinatario o a `recipient="all_users"`.
+- **Scope**: exigir el secreto del DB Webhook (verificación de firma/header compartido), rechazar `recipient` arbitrario (solo IDs internos resueltos server-side), fail-closed, escapar HTML del cuerpo.
+- **Leer antes**: `audit/seguridad.md` H-03, `supabase/functions/send-email`.
+
+#### `v31-ci-test-gate` — Gate de tests en CI (H-04)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO (proceso) — implementable directo
+- **Problema**: ningún workflow corre `pytest`/`vitest` como required check → un PR que rompa los ~1.466 tests igual mergea y deploya. Sumado a que la lógica de dinero vive en RPCs SQL testeados con DB mockeada (ver `v31-money-integration-tests`, P1).
+- **Scope**: workflow de `pull_request` que corra backend `pytest` + frontend `vitest` como **required checks** de branch protection. (El tier de integración con Postgres real es P1.)
+- **Leer antes**: `audit/testing.md` H-04, `.github/workflows/`.
+
+#### `v31-tenancy-pool-rls` — Modelo de tenancy del pool (H-05)
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO (aislamiento multi-tenant) — solo análisis/diseño hasta sign-off PO
+- **Problema**: el pool asyncpg corre como `postgres` con `rolbypassrls=true` (verificado en `pg_roles`) → la "RLS como última línea de defensa" (DEC-13/KB-08) **no aplica al backend**. La tenancy descansa solo en el filtro manual `WHERE account_id`, ausente en varios endpoints by-id (quotes, sales-orders, settings de org, cajas, cta cte) → IDOR de lectura/escritura cross-tenant conociendo un UUID. Probablemente conectado a los 500 intermitentes (K5).
+- **Scope (a diseñar con el PO)**: opción A — rol de app sin `BYPASSRLS` + policies + GUC transaction-local con los claims (JWT-passthrough real); opción B — barrido de repositorios exigiendo `account_id` en todo acceso by-id + tests de aislamiento. Evaluar impacto con pooler transaction-mode (no soporta `SET ROLE` — K10). **Prerequisito de seguridad para `v3-rbac-multirole`.**
+- **Leer antes**: `audit/arquitectura.md` + `audit/seguridad.md` H-05, `audit/base-datos.md`, DEC-13, KB-08, `backend/core` (pool/db).
+
+#### `v31-fix-auth-shape-500` — Fix de los 3 endpoints en 500 (H-06)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO — implementable directo
+- **Problema**: presupuestos y consulta de cta cte cliente/proveedor devuelven 500 en prod por leer claves inexistentes del dict `auth` (`sub`/`account_id`); los 1.023 tests no lo detectan porque los overrides de fixtures usan un shape falso.
+- **Scope**: corregir el acceso (`auth['user_id']` / `Depends(get_account_id)` según el contrato real), **arreglar el fixture de auth para que use el shape real** (o los tests seguirán ciegos), smoke E2E de los 3 endpoints.
+- **Leer antes**: `audit/codigo-backend.md` H-06, K5.
+
+#### `v31-admin-rpc-lockdown` — Cerrar los RPCs admin legacy (H-08)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO (seguridad) — implementable directo
+- **Problema**: 5 RPCs admin `SECURITY DEFINER` ejecutables por `anon` (KPIs confidenciales: conversión, activación, MRR proxy) e incluso funciones de mantenimiento con efectos (`expire_trials`, `process_cancellations`).
+- **Scope**: `REVOKE` a `anon`/`authenticated` + guard `is_admin()` interno + `search_path` fijado en las 5 RPCs y las funciones de mantenimiento.
+- **Leer antes**: `audit/base-datos.md` + `audit/seguridad.md` H-08.
+
+### P1 — Próximo trimestre (14 changes)
+
+> Restaurar la autorización real, la red de test sobre la lógica de dinero, y cerrar la deuda que condiciona la operación segura y el roadmap V3. Detalle de cada uno en el mapa de arriba y en `audit/*.md`.
+
+`v31-authz-token-hook` (H-07, CRÍTICO/auth) · `v31-outbox-endpoint-protect` (H-09) · `v31-sales-delete-rpc-reversal` (H-10) · `v31-ia-ratelimit-budget` (H-11) · `v31-money-integration-tests` (H-04/H-34, red de test sobre dinero) · `v31-document-lines-consistency` (H-15, desbloquea C-20 Grupo 10) · `v31-ia-telemetry-evals` (H-20) · `v31-hybrid-boundary-erp` (H-12) · `v31-fsm-status-triggers` (H-17) · `v31-wsaa-ticket-cache` (H-18, desbloquea facturar a volumen) · `v31-mp-webhook-atomic` (H-19) · `v31-http-client-typed-errors` (H-13) · `v31-a11y-rhf-forms` (H-21) · `v31-docs-refresh` (H-22, incl. K6 + refresco KB 02/03/04 + README).
+
+### P2 — Backlog cercano (6 changes)
+
+`v31-tenant-scope-indexes` (H-14) · `v31-money-decimal-e2e` (H-16) · `v31-index-hygiene` (H-29/H-30) · `v31-secdef-hardening` (H-26/H-27, `search_path` en 8 funciones) · `v31-client-observability` (H-31, Sentry — ayuda a triangular K5) · `v31-design-system-consistency` (H-33/H-21).
+
+### P3 — Deuda de fondo (6 changes)
+
+`v31-startup-guards` (H-23/H-25, fail-fast CORS/HS256) · `v31-backend-tooling` (H-24, ruff/import-linter) · `v31-owasp-residual` (H-28) · `v31-frontend-perf` (H-32) · `v31-frontend-cleanup` (H-31) · `v31-e2e-money-flows` (H-34).
+
+### Pendientes externos del PO (K20 — no bloquean código pero condicionan la operación)
+- Homologación ARCA E2E con certificado real de prod (prerequisito de `v31-fiscal-cae-real-adapter` para facturar de verdad).
+- Configuración de verificación de email en Supabase Auth.
+
+> **Secuencia recomendada**: `v31-ci-test-gate` + `v31-send-email-lockdown` + `v31-admin-rpc-lockdown` + `v31-fix-auth-shape-500` primero (bajo riesgo, alto valor, implementables ya) → en paralelo, análisis/diseño con sign-off PO de `v31-fiscal-cae-real-adapter`, `v31-mp-upgrade-webhook-fix` y `v31-tenancy-pool-rls` (los tres CRÍTICOS de dinero/fiscal/aislamiento) → P1 tras cerrar P0.

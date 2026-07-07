@@ -25,11 +25,20 @@ class CashSessionRepository(BaseRepository):
         )
         return _jsonb(row["result"])
 
-    async def close_session(self, session_id: str, counted_balance: float) -> dict:
+    async def close_session(
+        self,
+        session_id: str,
+        counted_balance: float,
+        idempotency_key: str | None = None,
+    ) -> dict:
+        """v3-api-standards §4: registra idempotencia en la misma transacción
+        de cierre (RPC actualizado — 3er parámetro opcional, DEFAULT NULL en
+        SQL, no rompe llamadas existentes sin clave)."""
         row = await self.fetchrow(
-            "SELECT public.rpc_close_cash_session($1::uuid, $2::numeric) AS result",
+            "SELECT public.rpc_close_cash_session($1::uuid, $2::numeric, $3::text) AS result",
             session_id,
             counted_balance,
+            idempotency_key,
         )
         return _jsonb(row["result"])
 

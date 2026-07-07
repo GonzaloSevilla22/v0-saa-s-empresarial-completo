@@ -19,10 +19,11 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.cashbox_repository import CashboxRepository
 from backend.repositories.cash_session_repository import CashSessionRepository
 from backend.schemas.cash import (
@@ -105,10 +106,14 @@ async def list_sessions(
 @router.post("/sessions/{session_id}/close", response_model=CloseSessionOut)
 async def close_session(
     session_id: str,
+    request: Request,
     payload: CloseSessionIn,
     auth: dict = Depends(get_current_user),
     repo: CashSessionRepository = Depends(get_session_repo),
 ):
+    """v3-api-standards §4: Idempotency-Key por header, con fallback al body
+    (D5 — la única mutación no-idempotente que no tenía idempotencia real)."""
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await cash_service.close_session(repo, auth, session_id, payload)
 
 

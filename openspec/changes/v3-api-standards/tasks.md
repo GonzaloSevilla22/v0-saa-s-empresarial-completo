@@ -33,11 +33,11 @@
 
 ## 4. Idempotencia de cerrar caja (migración gobernada — Lección C3)
 
-- [ ] 4.1 Escribir migración idempotente que recrea `operation_idempotency_operation_kind_check` con la UNIÓN vigente verificada en prod + `cash_session_close` (`DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`)
-- [ ] 4.2 Test de migración (patrón `tests/migrations/`): el CHECK admite `cash_session_close` y conserva los 8 kinds previos; idempotente al re-aplicar
-- [ ] 4.3 Registrar la idempotencia de cierre en el RPC/service de cerrar caja usando `operation_kind='cash_session_close'`, dentro de la transacción de cierre (sin tocar el arqueo)
-- [ ] 4.4 Cablear `require_idempotency_key` en `POST /cash/sessions/{id}/close`
-- [ ] 4.5 Tests: doble cierre con misma clave cierra una sola vez y devuelve el resultado del primero
+- [x] 4.1 Escribir migración idempotente que recrea `operation_idempotency_operation_kind_check` con la UNIÓN vigente verificada en prod + `cash_session_close` (`DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`)
+- [x] 4.2 Test de migración (patrón `tests/migrations/`): el CHECK admite `cash_session_close` y conserva los 8 kinds previos; idempotente al re-aplicar
+- [x] 4.3 Registrar la idempotencia de cierre en el RPC/service de cerrar caja usando `operation_kind='cash_session_close'`, dentro de la transacción de cierre (sin tocar el arqueo)
+- [x] 4.4 Cablear `require_idempotency_key` en `POST /cash/sessions/{id}/close`
+- [x] 4.5 Tests: doble cierre con misma clave cierra una sola vez y devuelve el resultado del primero
 
 ## 5. DEC-24 (UoW = RPCs SECURITY DEFINER)
 

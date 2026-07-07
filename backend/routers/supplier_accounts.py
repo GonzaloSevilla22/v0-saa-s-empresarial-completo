@@ -15,10 +15,11 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.supplier_account_repository import SupplierAccountRepository
 from backend.schemas.supplier_accounts import (
     CreateSupplierAccountOut,
@@ -83,19 +84,29 @@ async def list_supplier_movements(
 
 @router.post("/supplier-accounts/payments", response_model=PaymentMadeOut)
 async def register_payment_made(
+    request: Request,
     payload: PaymentMadeIn,
     auth: dict = Depends(get_current_user),
     repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
 ):
-    """Registra un pago al proveedor. Idempotente."""
+    """Registra un pago al proveedor. Idempotente.
+
+    v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    """
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await supplier_account_service.register_payment_made(repo, auth, payload)
 
 
 @router.post("/supplier-accounts/charges", response_model=SupplierChargeOut)
 async def register_supplier_charge(
+    request: Request,
     payload: SupplierChargeIn,
     auth: dict = Depends(get_current_user),
     repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
 ):
-    """Registra un cargo manual en la cuenta corriente del proveedor. Idempotente."""
+    """Registra un cargo manual en la cuenta corriente del proveedor. Idempotente.
+
+    v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    """
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await supplier_account_service.register_supplier_charge(repo, auth, payload)

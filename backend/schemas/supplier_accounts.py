@@ -71,7 +71,8 @@ class CreateSupplierAccountOut(BaseModel):
 
 
 class PaymentMadeIn(BaseModel):
-    idempotency_key:       str
+    # v3-api-standards §3.2: opcional+deprecado (D4).
+    idempotency_key:       str | None = None
     supplier_id:           uuid.UUID
     amount:                Decimal
     reference_purchase_id: uuid.UUID | None = None
@@ -112,7 +113,8 @@ class PaymentMadeOut(BaseModel):
 
 
 class SupplierChargeIn(BaseModel):
-    idempotency_key: str
+    # v3-api-standards §3.2: opcional+deprecado (D4).
+    idempotency_key: str | None = None
     supplier_id:     uuid.UUID
     amount:          Decimal
     reference_id:    uuid.UUID | None = None

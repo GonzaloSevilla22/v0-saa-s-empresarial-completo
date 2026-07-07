@@ -17,7 +17,10 @@ class SaleItemIn(BaseModel):
 
 
 class SaleOperationIn(BaseModel):
-    idempotency_key: str
+    # v3-api-standards §3.2: opcional+deprecado — la clave viaja preferentemente
+    # por el header `Idempotency-Key` (D4); fallback de body durante la
+    # ventana de compatibilidad (OQ2).
+    idempotency_key: str | None = None
     org_id: str
     items: list[SaleItemIn]
     date: datetime.date | None = None

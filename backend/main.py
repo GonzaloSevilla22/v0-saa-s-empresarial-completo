@@ -70,18 +70,27 @@ app.add_exception_handler(asyncpg.PostgresError, asyncpg_error_handler)
 # shape default de FastAPI ({"detail":[{loc,msg,type}]}). Se emite 7807 con
 # `field` (= loc[-1]) por cada violación; si hay más de una, se listan bajo
 # `errors` y el `detail` top-level resume la primera para mantener un string.
+# Tipos de violación con un `code` propio en vez del genérico
+# "validation_error" (p. ej. v3-api-standards §3: falta Idempotency-Key).
+_VALIDATION_ERROR_CODES: dict[str, str] = {
+    "idempotency_key_required": "idempotency_key_required",
+}
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     violations = exc.errors()
     fields = [str(v["loc"][-1]) if v.get("loc") else None for v in violations]
     first_msg = violations[0]["msg"] if violations else "Error de validación"
+    first_type = violations[0].get("type") if violations else None
+    code = _VALIDATION_ERROR_CODES.get(first_type, "validation_error")
 
     content = {
         "type": "about:blank",
         "title": "Error de validación",
         "status": 422,
         "detail": first_msg,
-        "code": "validation_error",
+        "code": code,
         "field": fields[0] if fields else None,
     }
     if len(violations) > 1:

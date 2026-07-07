@@ -27,7 +27,10 @@ class StatementLineIn(BaseModel):
 
 
 class StatementImportIn(BaseModel):
-    idempotency_key: str = Field(min_length=1, max_length=128)
+    # v3-api-standards §3.2: opcional+deprecado — el header `Idempotency-Key`
+    # es el transporte preferido (D4); fallback de body durante la ventana
+    # de compatibilidad (OQ2).
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     file_name: str = Field(min_length=1, max_length=255)
     file_hash: str = Field(min_length=16, max_length=128)
     lines: list[StatementLineIn] = Field(min_length=1, max_length=5000)
@@ -155,7 +158,8 @@ class ManualMovementIn(BaseModel):
     automáticos de C2 (doble red con el P0410 de la RPC).
     """
 
-    idempotency_key: str = Field(min_length=1, max_length=128)
+    # v3-api-standards §3.2: opcional+deprecado (ver StatementImportIn).
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     amount: Decimal
     movement_type: Literal[
         "transfer_in", "transfer_out", "manual_adjustment", "fee", "tax_debit", "interest"

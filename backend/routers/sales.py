@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.sales_repository import SalesRepository
 from backend.schemas.sales import (
     PromoteToOrderOut,
@@ -84,11 +85,14 @@ async def list_sales(
 
 @router.post("", response_model=SaleOperationOut, status_code=201)
 async def create_sale(
+    request: Request,
     payload: SaleOperationIn,
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
 ):
+    # v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await sales_service.create_sale_operation(repo, auth, str(account_id), payload)
 
 

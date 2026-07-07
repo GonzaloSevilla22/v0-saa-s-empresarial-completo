@@ -16,10 +16,11 @@ import uuid
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.customer_account_repository import CustomerAccountRepository
 from backend.schemas.customer_accounts import (
     AccountMovementPageOut,
@@ -78,9 +79,14 @@ async def list_customer_movements(
 
 @router.post("/customer-accounts/payments", response_model=PaymentReceivedOut)
 async def register_payment_received(
+    request: Request,
     payload: PaymentReceivedIn,
     auth: dict = Depends(get_current_user),
     repo: CustomerAccountRepository = Depends(get_customer_account_repo),
 ):
-    """Registra un cobro en la cuenta corriente del cliente. Idempotente."""
+    """Registra un cobro en la cuenta corriente del cliente. Idempotente.
+
+    v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    """
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await customer_account_service.register_payment_received(repo, auth, payload)

@@ -26,10 +26,10 @@
 
 ## 3. Idempotency-Key por header
 
-- [ ] 3.1 Crear dependency `require_idempotency_key` (lee header `Idempotency-Key`; fallback al `idempotency_key` del body con precedencia del header; 422 `idempotency_key_required` si falta)
-- [ ] 3.2 Marcar `idempotency_key` como opcional+deprecado en los schemas de mutación (deja de ser required en el body) sin cambiar lo que recibe la RPC
-- [ ] 3.3 Cablear el dependency en las mutaciones existentes: crear venta (`sales`), cobrar/pagar (`payments`, `customer_accounts`, `supplier_accounts`), emitir comprobante (`fiscal`), `sales_orders`, `bank_reconciliation`
-- [ ] 3.4 Tests: reintento con misma clave no duplica; header tiene precedencia sobre body; mutación sin clave → 422 `idempotency_key_required`
+- [x] 3.1 Crear dependency `require_idempotency_key` (lee header `Idempotency-Key`; fallback al `idempotency_key` del body con precedencia del header; 422 `idempotency_key_required` si falta)
+- [x] 3.2 Marcar `idempotency_key` como opcional+deprecado en los schemas de mutación (deja de ser required en el body) sin cambiar lo que recibe la RPC
+- [x] 3.3 Cablear el dependency en las mutaciones existentes: crear venta (`sales`), crear compra (`purchases`), cobrar/pagar (`customer_accounts`, `supplier_accounts`), `sales_orders` (confirm/quick-sale), `bank_reconciliation` (import extracto/movimiento manual). **Desviación**: `fiscal` (emit-invoice/emit-pending-cae) NO se cableó — no tienen `idempotency_key` en el body hoy (usan `receipt_id`/`subscription_payment_id`/`fiscal_document_id` como clave natural, ya idempotentes); gobernanza CRÍTICA (AFIP), fuera de foco de este change de transporte. `payments` (webhook MercadoPago) tampoco aplica: no es una mutación de cliente con Idempotency-Key, usa `x-signature`/`x-request-id` de MP.
+- [x] 3.4 Tests: reintento con misma clave no duplica; header tiene precedencia sobre body; mutación sin clave → 422 `idempotency_key_required`
 
 ## 4. Idempotencia de cerrar caja (migración gobernada — Lección C3)
 

@@ -18,7 +18,8 @@ class PurchaseItemIn(BaseModel):
 
 
 class PurchaseOperationIn(BaseModel):
-    idempotency_key: str
+    # v3-api-standards §3.2: opcional+deprecado (ver SaleOperationIn).
+    idempotency_key: str | None = None
     org_id: str
     items: list[PurchaseItemIn]
     date: datetime.date | None = None

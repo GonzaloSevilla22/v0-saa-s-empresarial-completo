@@ -1,0 +1,28 @@
+## Why
+
+El backend FastAPI creció módulo por módulo sin un contrato transversal de plataforma, y la auditoría lo confirma: los errores se devuelven en tres formas distintas, la paginación en tres formas distintas, y la idempotencia — que el proyecto ya tiene (`operation_idempotency`, DEC-06) — se expresa como campo del body en unos endpoints, no existe en otros (cerrar caja) y nunca como el header `Idempotency-Key` que el estándar V3 §6.3 pide. El modelo de dominio V3 (§6 y §9, decisiones 7/8/14 de su tabla) adoptó estas convenciones como "estándares de plataforma". Este change las hace realidad **sin cambiar comportamiento de negocio** — es endurecimiento transversal, gobernanza BAJO.
+
+## What Changes
+
+- **Errores RFC 7807 uniformes.** Un único formato de error `application/problem+json` con `type`, `title`, `status`, `detail`, y las extensiones `code` (código de negocio: el `P04xx` del RPC o un slug) y `field` (para errores de validación). Se construye **sobre el mapeo existente** de `backend/core/errors.py` (que ya traduce `sqlstate P04xx` → HTTP status) — no lo reemplaza, lo envuelve. Se agrega el handler de `RequestValidationError` (hoy ausente → los 422 de Pydantic salen en el shape default de FastAPI) para que las validaciones también emitan 7807 con `field`.
+- **Paginación estándar en todos los listados.** Contrato único `?page&size` → `{items, total, page, pages}`. Hoy conviven `{items, total_operations}` (sales/purchases), `{items, total}` (payments), y listados con `limit/offset` que devuelven listas planas sin envelope (customer_accounts, supplier_accounts, journal_entries). Se unifica el envelope y los nombres de parámetro. **BREAKING** para los pocos consumidores que leen `total_operations`/`total` — se migra el frontend en el mismo change.
+- **`Idempotency-Key` como header transversal.** Toda mutación no-idempotente por naturaleza (crear venta, cobrar, emitir comprobante, cerrar caja) acepta la clave por el header HTTP `Idempotency-Key`, no por el body. La clave se sigue registrando en `operation_idempotency` en la misma transacción (el diseño existente ya es atómico). El body sigue aceptando `idempotency_key` como fallback deprecado durante una ventana de compatibilidad — no se rompe ningún cliente actual.
+- **`BaseRepository` gana paginación.** Se agrega al `BaseRepository` existente (que ya tiene `soft_delete()` y `not_deleted_clause()` desde `v3-soft-delete-policy`) un helper de paginación que calcula `offset`, ejecuta el `SELECT` paginado + el `COUNT(*)` y arma el envelope `{items, total, page, pages}`, para que los repos concretos no repitan el cálculo.
+- **Decisión a registrar (no a "corregir").** El equivalente del Unit of Work de Food Store (§6, RN-C1: "ningún service comitea, el commit vive en el UoW") en Aliadata **ya se cumple por diseño**: la transacción vive en los RPCs SQL `SECURITY DEFINER` de Postgres, no en Python. Los services orquestan y llaman RPCs; el commit/rollback es atómico en la DB. Se documenta como **DEC-24** nueva en `knowledge-base/09_decisiones_y_supuestos.md` — es una decisión arquitectónica a dejar asentada, no un refactor a hacer.
+
+## Capabilities
+
+### New Capabilities
+- `api-standards`: Contrato transversal de la API HTTP del backend FastAPI — formato de error RFC 7807 (`problem+json` con `code`/`field`), paginación estándar (`?page&size` → `{items,total,page,pages}`), y la convención del header `Idempotency-Key` para mutaciones no-idempotentes. Es la capability que define las reglas que el resto de los módulos siguen.
+
+### Modified Capabilities
+- `base-repositories`: se agrega un requirement para el helper de paginación en `BaseRepository` (el envelope `{items,total,page,pages}` y el cálculo de `offset`/`pages`), complementando `soft_delete()` que ya vive ahí.
+
+## Impact
+
+- **Backend (código):** `backend/core/errors.py` (envelope 7807 sobre el mapeo existente), `backend/main.py` (registrar handlers de `RequestValidationError` y `HTTPException` en shape 7807; media type `application/problem+json`), `backend/repositories/base.py` (helper de paginación), y los routers/schemas de los listados y mutaciones afectados (sales, purchases, payments, cash, fiscal, customer_accounts, supplier_accounts, journal_entries, bank_reconciliation, sales_orders).
+- **Idempotencia — dependencia de migración (gobernada).** Generalizar `Idempotency-Key` a **cerrar caja** exige un `operation_kind` nuevo: el CHECK `operation_idempotency_operation_kind_check` en prod enumera hoy exactamente `sale, purchase, payment_received, payment_made, supplier_charge, bank_movement, event_consumer, bank_statement_import` — **`cash_session_close` NO está**. Agregarlo es una migración a ese CHECK. **Lección C3:** al recrear el CHECK, enumerar la UNIÓN vigente en prod con `pg_get_constraintdef` primero (CI no atrapa kinds faltantes: DB vacía). El resto de las mutaciones ya tienen su `operation_kind` y solo cambian el transporte de la clave (body → header), sin migración.
+- **Frontend:** los hooks/servicios que leen `total_operations`/`total` de listados paginados y los que mandan `idempotency_key` en el body deben adaptarse al envelope y al header nuevos. Cambio mecánico, mismo change.
+- **DB:** una migración (idempotente) solo para el `operation_kind` de cerrar caja. Ninguna otra tabla cambia.
+- **KB:** `knowledge-base/09_decisiones_y_supuestos.md` gana DEC-24 (UoW = RPCs SECURITY DEFINER).
+- **Sin cambio de comportamiento de negocio:** los montos, las reglas de stock/caja/fiscales y las transiciones de estado no se tocan. Solo cambia la forma del contrato HTTP y dónde viaja la clave de idempotencia.

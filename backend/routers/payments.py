@@ -92,7 +92,9 @@ async def list_payment_receipts(
 ) -> dict:
     """Lista los pagos aprobados (recibos) de todas las cuentas. Solo admin."""
     rows, total = await repo.list_receipts(page_size, page * page_size)
-    return {"items": [dict(r) for r in rows], "total": total}
+    # v3-api-standards §2: envelope estándar {items,total,page,pages}
+    pages = -(-total // page_size) if total > 0 else 0
+    return {"items": [dict(r) for r in rows], "total": total, "page": page, "pages": pages}
 
 
 @router.get("/receipt/{billing_event_id}")

@@ -6,6 +6,64 @@ from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
 
+# v3-api-standards §1 — RFC 7807 (application/problem+json)
+PROBLEM_JSON_MEDIA_TYPE = "application/problem+json"
+
+# Título legible por status HTTP — usado cuando no se pasa uno explícito.
+_STATUS_TITLES: dict[int, str] = {
+    400: "Solicitud inválida",
+    403: "Prohibido",
+    404: "No encontrado",
+    409: "Conflicto",
+    422: "Error de validación",
+    500: "Error interno del servidor",
+}
+
+
+def problem_detail(
+    *,
+    status: int,
+    detail: str,
+    code: str,
+    title: str | None = None,
+    type_: str = "about:blank",
+    field: str | None = None,
+) -> dict:
+    """v3-api-standards D1/D2 — construye el shape RFC 7807.
+
+    Campos base: `type`, `title`, `status`, `detail`.
+    Extensiones: `code` (código de negocio: sqlstate P04xx o slug estable) y
+    `field` (nombre del campo ofensor, solo en errores de validación).
+    """
+    body: dict = {
+        "type": type_,
+        "title": title or _STATUS_TITLES.get(status, "Error"),
+        "status": status,
+        "detail": detail,
+        "code": code,
+    }
+    if field is not None:
+        body["field"] = field
+    return body
+
+
+def problem_response(
+    *,
+    status: int,
+    detail: str,
+    code: str,
+    title: str | None = None,
+    field: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    """Envuelve `problem_detail` en un `JSONResponse` con el media type 7807."""
+    return JSONResponse(
+        status_code=status,
+        content=problem_detail(status=status, detail=detail, code=code, title=title, field=field),
+        headers=headers,
+        media_type=PROBLEM_JSON_MEDIA_TYPE,
+    )
+
 
 def cors_error_headers(request: Request) -> dict[str, str]:
     """Return CORS headers for error responses.
@@ -57,18 +115,40 @@ BANK_ACCOUNT_CREATE_ERRCODE_STATUS = {
 
 
 async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) -> JSONResponse:
+    """v3-api-standards D1 — envuelve el mapeo sqlstate->status existente en 7807.
+
+    `code` = sqlstate (el P04xx del RPC); `detail` = mensaje del RPC/constraint,
+    preservado tal cual (ya es texto seguro escrito por nuestro propio SQL).
+    """
     headers = cors_error_headers(request)
     code = exc.sqlstate if hasattr(exc, "sqlstate") else None
     if code in _BUSINESS_ERRCODE_STATUS:
-        return JSONResponse(
-            status_code=_BUSINESS_ERRCODE_STATUS[code],
-            content={"detail": str(exc)},
+        status = _BUSINESS_ERRCODE_STATUS[code]
+        return problem_response(status=status, detail=str(exc), code=code, headers=headers)
+    if code == "23503":
+        return problem_response(
+            status=409,
+            detail="Referencia inválida: el recurso relacionado no existe.",
+            code=code,
             headers=headers,
         )
-    if code == "23503":
-        return JSONResponse(status_code=409, content={"detail": "Referencia inválida: el recurso relacionado no existe."}, headers=headers)
     if code == "23505":
-        return JSONResponse(status_code=409, content={"detail": "Ya existe un registro con esos datos."}, headers=headers)
+        return problem_response(
+            status=409,
+            detail="Ya existe un registro con esos datos.",
+            code=code,
+            headers=headers,
+        )
     if code == "23514":
-        return JSONResponse(status_code=422, content={"detail": "Los datos no cumplen las restricciones de la base de datos."}, headers=headers)
-    return JSONResponse(status_code=500, content={"detail": "Error interno de base de datos."}, headers=headers)
+        return problem_response(
+            status=422,
+            detail="Los datos no cumplen las restricciones de la base de datos.",
+            code=code,
+            headers=headers,
+        )
+    return problem_response(
+        status=500,
+        detail="Error interno de base de datos.",
+        code="internal_error",
+        headers=headers,
+    )

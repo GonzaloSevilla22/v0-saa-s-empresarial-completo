@@ -22,10 +22,11 @@ from __future__ import annotations
 import json
 
 import asyncpg
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.bank_reconciliation_repository import (
     BankReconciliationRepository,
 )
@@ -65,11 +66,16 @@ def get_repo(
 @router.post("/bank-accounts/{bank_account_id}/statement-imports", response_model=StatementImportOut)
 async def import_statement(
     bank_account_id: str,
+    request: Request,
     payload: StatementImportIn,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
 ):
-    """Importa un extracto bancario como filas normalizadas (parseo en el cliente, D2)."""
+    """Importa un extracto bancario como filas normalizadas (parseo en el cliente, D2).
+
+    v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    """
+    idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     lines_json = json.dumps(
         [
             {
@@ -86,7 +92,7 @@ async def import_statement(
         repo,
         auth,
         bank_account_id=bank_account_id,
-        idempotency_key=payload.idempotency_key,
+        idempotency_key=idempotency_key,
         file_name=payload.file_name,
         file_hash=payload.file_hash,
         lines_json=lines_json,
@@ -114,16 +120,21 @@ async def list_statement_lines(
 @router.post("/bank-accounts/{bank_account_id}/movements", response_model=ManualMovementOut)
 async def register_manual_movement(
     bank_account_id: str,
+    request: Request,
     payload: ManualMovementIn,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
 ):
-    """Carga manual de movimiento bancario ('solo anotar' V1: fee/tax_debit/interest + transferencias)."""
+    """Carga manual de movimiento bancario ('solo anotar' V1: fee/tax_debit/interest + transferencias).
+
+    v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    """
+    idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await recon_service.register_manual_movement(
         repo,
         auth,
         bank_account_id=bank_account_id,
-        idempotency_key=payload.idempotency_key,
+        idempotency_key=idempotency_key,
         amount=payload.amount,
         movement_type=payload.movement_type,
         value_date=payload.value_date,

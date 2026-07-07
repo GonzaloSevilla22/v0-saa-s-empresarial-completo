@@ -71,11 +71,11 @@ async def get_account(
 async def list_movements(
     repo: CustomerAccountRepository,
     customer_account_id: str,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[dict]:
-    """Historial paginado de movimientos de la cuenta corriente."""
-    return await repo.list_movements(customer_account_id, limit=limit, offset=offset)
+    page: int = 0,
+    size: int = 50,
+) -> dict:
+    """v3-api-standards §2.7: envelope estándar {items,total,page,pages}."""
+    return await repo.list_movements_page(customer_account_id, page=page, size=size)
 
 
 async def register_payment_received(

@@ -128,6 +128,12 @@
 **Justificación**: La Fase 5 (C-15→C-18) ya está completada y en producción — el documento V2 asumía un codebase sin backend Python. Si V2.0 dropea las columnas legacy sin refactorizar el backend primero, el backend se rompe en producción. La deuda de código es tan real como la de esquema.
 **Pendiente**: decidir si va como change atómico o sub-change paralelo con feature flag (PA-16).
 
+### DEC-24 — El Unit of Work de Aliadata son los RPCs SECURITY DEFINER de Postgres
+**Decisión**: El patrón "Router→Service→UoW→Repository, ningún service comitea" (Food Store §6, RN-C1) **ya se cumple por diseño** en Aliadata — no se implementa un UoW de Python. La transacción de escritura vive en los RPCs `SECURITY DEFINER` de Postgres (`rpc_create_sale_operation`, `rpc_close_cash_session`, etc.): el RPC entero corre en una única transacción de la DB, con commit/rollback atómico gestionado por el motor. Los services de FastAPI son stateless — orquestan, aplican guards (`require_role`) y llaman RPCs vía `BaseRepository.call_rpc`/`fetchrow`, pero nunca abren ni comitean una transacción ellos mismos.
+**Justificación**: Duplicar la transacción en un UoW de Python sería redundante con la que ya garantiza Postgres, y contradiría DEC-13 (JWT-passthrough: la conexión del request no gestiona transacciones explícitas fuera del RPC) y el diseño de RPCs atómicos que el proyecto ya usa desde C-01. Es la misma garantía transaccional que RN-C1 pide, solo que materializada en la capa de datos en vez de en una capa de aplicación intermedia.
+**Complementa**: DEC-13 (JWT-passthrough) y DEC-20 (consistencia transaccional en el hot path vía RPC + outbox para el resto).
+**Contexto**: registrada en `v3-api-standards` (2026-07-07) — auditoría de los estándares de plataforma V3 §6/§9 confirmó que este punto ya estaba resuelto por la arquitectura existente; no requirió ningún refactor de código, solo dejarlo asentado como decisión explícita.
+
 ---
 
 ## Supuestos Documentados

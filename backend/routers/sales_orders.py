@@ -19,11 +19,12 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.sales_order_repository import SalesOrderRepository
 from backend.schemas.sales_orders import (
     ConfirmIn,
@@ -58,11 +59,15 @@ async def list_orders(
 # IMPORTANTE: quick-sale antes de /{id} para evitar que "quick-sale" sea interpretado como UUID
 @router.post("/sales-orders/quick-sale", response_model=ConfirmOut)
 async def quick_sale(
+    request: Request,
     payload: QuickSaleIn,
     auth: dict = Depends(get_current_user),
     repo: SalesOrderRepository = Depends(get_so_repo),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
+    # v3-api-standards §3.3: Idempotency-Key por header, con fallback al body
+    # deprecado (D4). El transporte cambia; el backing store no.
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await so_service.quick_sale(
         repo=repo,
         auth=auth,
@@ -83,10 +88,14 @@ async def get_order(
 @router.post("/sales-orders/{sales_order_id}/confirm", response_model=ConfirmOut)
 async def confirm_order(
     sales_order_id: str,
+    request: Request,
     payload: ConfirmIn,
     auth: dict = Depends(get_current_user),
     repo: SalesOrderRepository = Depends(get_so_repo),
 ):
+    # v3-api-standards §3.3: Idempotency-Key por header, con fallback al body
+    # deprecado (D4).
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await so_service.confirm(
         repo=repo,
         auth=auth,

@@ -4,13 +4,14 @@ import logging
 from contextlib import asynccontextmanager
 
 import asyncpg
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
 from backend.core.database import close_pool, close_service_pool, init_pool, init_service_pool
-from backend.core.errors import asyncpg_error_handler, cors_error_headers
+from backend.core.errors import asyncpg_error_handler, cors_error_headers, problem_response
 from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
     bank_accounts,
@@ -65,12 +66,66 @@ app.add_middleware(
 app.add_exception_handler(asyncpg.PostgresError, asyncpg_error_handler)
 
 
+# v3-api-standards §1.3 — los 422 de validación de Pydantic salían con el
+# shape default de FastAPI ({"detail":[{loc,msg,type}]}). Se emite 7807 con
+# `field` (= loc[-1]) por cada violación; si hay más de una, se listan bajo
+# `errors` y el `detail` top-level resume la primera para mantener un string.
+# Tipos de violación con un `code` propio en vez del genérico
+# "validation_error" (p. ej. v3-api-standards §3: falta Idempotency-Key).
+_VALIDATION_ERROR_CODES: dict[str, str] = {
+    "idempotency_key_required": "idempotency_key_required",
+}
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    violations = exc.errors()
+    fields = [str(v["loc"][-1]) if v.get("loc") else None for v in violations]
+    first_msg = violations[0]["msg"] if violations else "Error de validación"
+    first_type = violations[0].get("type") if violations else None
+    code = _VALIDATION_ERROR_CODES.get(first_type, "validation_error")
+
+    content = {
+        "type": "about:blank",
+        "title": "Error de validación",
+        "status": 422,
+        "detail": first_msg,
+        "code": code,
+        "field": fields[0] if fields else None,
+    }
+    if len(violations) > 1:
+        content["errors"] = [
+            {"field": f, "detail": v["msg"]} for f, v in zip(fields, violations)
+        ]
+
+    return JSONResponse(
+        status_code=422,
+        content=content,
+        headers=cors_error_headers(request),
+        media_type="application/problem+json",
+    )
+
+
+# v3-api-standards §1.4 — los `raise HTTPException(...)` dispersos en services
+# también deben salir en 7807, no en el shape default de Starlette.
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    return problem_response(
+        status=exc.status_code,
+        detail=str(exc.detail),
+        code="http_error",
+        headers={**cors_error_headers(request), **(exc.headers or {})},
+    )
+
+
+# v3-api-standards §1.5 — catch-all a 7807 genérico, sin filtrar internals.
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled %s on %s %s", type(exc).__name__, request.method, request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Error interno del servidor"},
+    return problem_response(
+        status=500,
+        detail="Error interno del servidor",
+        code="internal_error",
         headers=cors_error_headers(request),
     )
 

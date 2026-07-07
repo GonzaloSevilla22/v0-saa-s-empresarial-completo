@@ -32,7 +32,11 @@ interface SaleApiRow {
 
 interface SalesPageResponse {
   items: SaleApiRow[]
-  total_operations: number
+  // v3-api-standards §2/§6.1: envelope estándar {items,total,page,pages}
+  // (reemplaza total_operations).
+  total: number
+  page?: number
+  pages?: number
 }
 
 interface SaleOperationResult {
@@ -106,8 +110,8 @@ export function useSales() {
   )
 
   const meta: PaginationMeta = useMemo(
-    () => buildPaginationMeta(page, pageSize, query.data?.total_operations ?? 0),
-    [page, pageSize, query.data?.total_operations],
+    () => buildPaginationMeta(page, pageSize, query.data?.total ?? 0),
+    [page, pageSize, query.data?.total],
   )
 
   // ── Mutations ─────────────────────────────────────────────────────────────
@@ -128,7 +132,6 @@ export function useSales() {
       }
     }): Promise<SaleOperationResult> => {
       const payload = {
-        idempotency_key: opMeta.idempotencyKey,
         org_id:          opMeta.orgId,
         date:            opMeta.date,
         client_id:       opMeta.clientId ?? null,
@@ -141,7 +144,11 @@ export function useSales() {
           unit_id:    item.unitId ?? null,
         })),
       }
-      return pythonClient.post<SaleOperationResult>("/sales", payload)
+      // v3-api-standards §3/§6.2: la clave de idempotencia viaja por el header
+      // Idempotency-Key (D4) — el body ya no la incluye.
+      return pythonClient.post<SaleOperationResult>("/sales", payload, {
+        "Idempotency-Key": opMeta.idempotencyKey,
+      })
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })

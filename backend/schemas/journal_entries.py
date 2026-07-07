@@ -12,6 +12,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
+from backend.schemas.common import PageOut
+
 
 class JournalLineOut(BaseModel):
     """Debit or credit line of a journal entry."""
@@ -50,3 +52,9 @@ class JournalEntryOut(BaseModel):
     reversal_of: uuid.UUID | None
     created_at: datetime.datetime
     lines: list[JournalLineOut] = []
+
+
+# v3-api-standards §2.9: envelope estándar {items,total,page,pages} para
+# GET /journal-entries — reemplaza la lista plana de limit/offset.
+# BREAKING sancionado (OQ1 PO).
+JournalEntryPageOut = PageOut[JournalEntryOut]

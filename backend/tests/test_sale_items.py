@@ -396,7 +396,8 @@ async def test_list_sales_paginated_returns_items_with_product_fields(async_clie
         )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["total_operations"] == 1
+    # v3-api-standards §2: envelope estándar {items,total,page,pages}
+    assert body["total"] == 1
 
 
 async def test_list_purchases_paginated_returns_items_with_product_fields(async_client, mock_pool):

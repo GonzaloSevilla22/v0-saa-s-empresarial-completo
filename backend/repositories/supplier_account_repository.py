@@ -48,7 +48,12 @@ class SupplierAccountRepository(BaseRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict]:
-        """Lista supplier_account_movements paginados por (supplier_account_id, created_at)."""
+        """Lista supplier_account_movements paginados por (supplier_account_id, created_at).
+
+        Usado por `get_account` (vista combinada saldo+historial) — mantiene
+        su firma limit/offset. Para el endpoint dedicado de listado usar
+        `list_movements_page` (v3-api-standards §2.8).
+        """
         return await self.fetch(
             """
             SELECT *
@@ -61,6 +66,33 @@ class SupplierAccountRepository(BaseRepository):
             supplier_account_id,
             limit,
             offset,
+        )
+
+    async def list_movements_page(
+        self,
+        supplier_account_id: str,
+        *,
+        page: int,
+        size: int,
+    ) -> dict:
+        """v3-api-standards §2.8: envelope estándar {items,total,page,pages}
+        para GET /supplier-accounts/{id}/movements (reemplaza limit/offset +
+        lista plana)."""
+        return await self.paginate(
+            """
+            SELECT *
+            FROM public.supplier_account_movements
+            WHERE supplier_account_id = $1::uuid
+            ORDER BY created_at DESC
+            """,
+            """
+            SELECT COUNT(*)
+            FROM public.supplier_account_movements
+            WHERE supplier_account_id = $1::uuid
+            """,
+            supplier_account_id,
+            page=page,
+            size=size,
         )
 
     async def register_payment_made(

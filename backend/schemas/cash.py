@@ -51,6 +51,10 @@ class OpenSessionIn(BaseModel):
 
 class CloseSessionIn(BaseModel):
     counted_balance: Decimal
+    # v3-api-standards §4: opcional+deprecado — la clave viaja preferentemente
+    # por el header `Idempotency-Key` (D4/D5); fallback de body durante la
+    # ventana de compatibilidad (OQ2).
+    idempotency_key: str | None = None
 
 
 class CashSessionOut(BaseModel):

@@ -22,6 +22,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from backend.schemas.common import PageOut
+
 
 class CustomerMovementType(str, Enum):
     sale             = "sale"
@@ -54,6 +56,12 @@ class AccountMovementOut(BaseModel):
     created_at:           datetime.datetime
 
 
+# v3-api-standards §2.7: envelope estándar {items,total,page,pages} para
+# GET /customer-accounts/{id}/movements — reemplaza la lista plana de
+# limit/offset. BREAKING sancionado (OQ1 PO).
+AccountMovementPageOut = PageOut[AccountMovementOut]
+
+
 class CreateCustomerAccountOut(BaseModel):
     customer_account_id: uuid.UUID
     client_id:           uuid.UUID
@@ -61,7 +69,8 @@ class CreateCustomerAccountOut(BaseModel):
 
 
 class PaymentReceivedIn(BaseModel):
-    idempotency_key:    str
+    # v3-api-standards §3.2: opcional+deprecado (D4).
+    idempotency_key:    str | None = None
     client_id:          uuid.UUID
     amount:             Decimal
     reference_sale_id:  uuid.UUID | None = None

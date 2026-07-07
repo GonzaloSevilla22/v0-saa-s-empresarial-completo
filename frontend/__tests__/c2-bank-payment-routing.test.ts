@@ -135,6 +135,8 @@ describe("useRegisterPayment (bank routing)", () => {
       })
     })
 
+    // v3-api-standards §3/§6.2: idempotency_key viaja por el header
+    // Idempotency-Key, no en el body.
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/customer-accounts/payments",
       expect.objectContaining({
@@ -142,7 +144,8 @@ describe("useRegisterPayment (bank routing)", () => {
         amount:            "400",
         payment_method:    "transfer",
         bank_account_id:   BANK_ACCOUNT_ID,
-      })
+      }),
+      { "Idempotency-Key": "test-key-002" }
     )
   })
 
@@ -191,6 +194,8 @@ describe("useRegisterPaymentMade (bank routing)", () => {
       })
     })
 
+    // v3-api-standards §3/§6.2: idempotency_key viaja por el header
+    // Idempotency-Key, no en el body.
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/supplier-accounts/payments",
       expect.objectContaining({
@@ -198,7 +203,8 @@ describe("useRegisterPaymentMade (bank routing)", () => {
         amount:           "400",
         payment_method:   "card",
         bank_account_id:  BANK_ACCOUNT_ID,
-      })
+      }),
+      { "Idempotency-Key": "pay-supplier-002" }
     )
   })
 })

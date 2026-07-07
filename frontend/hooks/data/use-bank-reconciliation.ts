@@ -285,14 +285,15 @@ export function useImportStatement(bankAccountId: string | null) {
       fileHash: string
       lines: NormalizedStatementLine[]
     }) => {
+      // v3-api-standards §3/§6.2: Idempotency-Key por header (D4).
       return pythonClient.post<StatementImportResultApi>(
         `/bank-accounts/${bankAccountId}/statement-imports`,
         {
-          idempotency_key: input.idempotencyKey,
           file_name: input.fileName,
           file_hash: input.fileHash,
           lines: input.lines,
-        }
+        },
+        { "Idempotency-Key": input.idempotencyKey }
       )
     },
     onSuccess: () => invalidate(),
@@ -372,13 +373,17 @@ export function useRegisterManualMovement(bankAccountId: string | null) {
       valueDate: string | null
       description: string | null
     }) => {
-      return pythonClient.post(`/bank-accounts/${bankAccountId}/movements`, {
-        idempotency_key: input.idempotencyKey,
-        amount: input.amount,
-        movement_type: input.movementType,
-        value_date: input.valueDate,
-        description: input.description,
-      })
+      // v3-api-standards §3/§6.2: Idempotency-Key por header (D4).
+      return pythonClient.post(
+        `/bank-accounts/${bankAccountId}/movements`,
+        {
+          amount: input.amount,
+          movement_type: input.movementType,
+          value_date: input.valueDate,
+          description: input.description,
+        },
+        { "Idempotency-Key": input.idempotencyKey }
+      )
     },
     onSuccess: () => invalidate(),
   })

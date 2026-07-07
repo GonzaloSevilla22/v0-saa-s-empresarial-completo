@@ -50,6 +50,6 @@
 
 ## 7. Verificación
 
-- [ ] 7.1 Suite backend completa verde (pytest + pytest-asyncio, ~960→) sin regresiones; sin `importlib.reload` de config en tests
-- [ ] 7.2 `openspec validate --strict --change "v3-api-standards"` pasa
-- [ ] 7.3 Smoke manual: un error de RPC, un 422 de validación, un listado paginado y un reintento idempotente devuelven los shapes esperados
+- [x] 7.1 Suite backend completa verde (pytest + pytest-asyncio, 960→1021) sin regresiones; sin `importlib.reload` de config en tests. Frontend: 441→443 tests verdes + typecheck limpio
+- [x] 7.2 `openspec validate --strict --change "v3-api-standards"` pasa
+- [x] 7.3 Smoke manual: un error de RPC, un 422 de validación, un listado paginado y un reintento idempotente devuelven los shapes esperados — cubierto por los 50 tests de `test_api_standards_*.py` (ver TDD Cycle Evidence)

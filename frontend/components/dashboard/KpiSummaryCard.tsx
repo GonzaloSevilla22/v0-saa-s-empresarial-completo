@@ -20,6 +20,9 @@ interface KpiSummaryCardProps {
   /** Clase de color del ícono (esquina superior izquierda). */
   iconColor?: string
   className?: string
+  /** v3-reporting-invariants (D8): línea secundaria opcional bajo el label
+   *  (p.ej. "Cobrado: $8.000" en Ganancia Neta cuando percibido ≠ devengado). */
+  secondaryLine?: string | null
 }
 
 // Hex del spec §5; fondo semi-transparente del mismo color.
@@ -39,6 +42,7 @@ export function KpiSummaryCard({
   icon: Icon,
   iconColor = "text-primary",
   className,
+  secondaryLine = null,
 }: KpiSummaryCardProps) {
   return (
     <Card className={cn("border-border bg-card rounded-xl", className)}>
@@ -63,6 +67,9 @@ export function KpiSummaryCard({
             {value}
           </span>
           <span className="text-xs text-muted-foreground">{label}</span>
+          {secondaryLine && (
+            <span className="text-xs text-muted-foreground/80">{secondaryLine}</span>
+          )}
         </div>
       </CardContent>
     </Card>

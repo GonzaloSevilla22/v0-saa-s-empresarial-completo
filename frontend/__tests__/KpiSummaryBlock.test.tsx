@@ -35,6 +35,11 @@ const fullData: DashboardKpiSummary = {
   prevStagnantStockValue: 39000,
   salesCount: 27,
   prevSalesCount: 31,
+  // v3-reporting-invariants (RN-D3): cuenta de contado — cobrado = facturado.
+  invoicedRevenue: 184200,
+  prevInvoicedRevenue: 164464,
+  collectedRevenue: 184200,
+  prevCollectedRevenue: 164464,
 }
 
 const channelData = {
@@ -160,5 +165,34 @@ describe("KpiSummaryBlock", () => {
     render(<KpiSummaryBlock periodDate={date} branchId="branch-7" />)
 
     expect(useDashboardKpiSummaryMock).toHaveBeenCalledWith(date, "branch-7")
+  })
+
+  // ── v3-reporting-invariants (D8): línea "Cobrado" en Ganancia Neta ──────────
+
+  it("NO muestra la línea Cobrado cuando collectedRevenue === invoicedRevenue (cuenta de contado)", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({ data: fullData, isLoading: false })
+    render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
+
+    expect(screen.queryByText(/Cobrado/)).toBeNull()
+  })
+
+  it("NO muestra la línea Cobrado cuando invoiced/collected son null (RPC viejo)", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({
+      data: { ...fullData, invoicedRevenue: null, collectedRevenue: null },
+      isLoading: false,
+    })
+    render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
+
+    expect(screen.queryByText(/Cobrado/)).toBeNull()
+  })
+
+  it("muestra Cobrado: $X cuando collectedRevenue difiere de invoicedRevenue (venta a cta cte)", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({
+      data: { ...fullData, invoicedRevenue: 10000, collectedRevenue: 8000 },
+      isLoading: false,
+    })
+    render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
+
+    expect(screen.getByText("Cobrado: $8.000")).toBeInTheDocument()
   })
 })

@@ -22,6 +22,12 @@ export interface DashboardKpiSummary {
   prevStagnantStockCount: number | null
   salesCount: number
   prevSalesCount: number
+  /** v3-reporting-invariants (RN-D3): devengado (Σ ventas del período − NC). */
+  invoicedRevenue: number | null
+  prevInvoicedRevenue: number | null
+  /** v3-reporting-invariants (RN-D3): percibido (devengado − cargos cta cte + cobros). */
+  collectedRevenue: number | null
+  prevCollectedRevenue: number | null
 }
 
 interface RpcRow {
@@ -37,6 +43,12 @@ interface RpcRow {
   prev_stagnant_stock_count: number | null
   sales_count: number | null
   prev_sales_count: number | null
+  // v3-reporting-invariants (RN-D3): ausentes si el frontend corre contra un
+  // RPC viejo (ventana entre deploy de DB y de frontend) — null-safe.
+  invoiced_revenue?: string | number | null
+  prev_invoiced_revenue?: string | number | null
+  collected_revenue?: string | number | null
+  prev_collected_revenue?: string | number | null
 }
 
 const num = (v: string | number | null | undefined): number | null =>
@@ -86,6 +98,10 @@ export function useDashboardKpiSummary(periodDate: Date, branchId: string | null
         prevStagnantStockCount: num(row.prev_stagnant_stock_count),
         salesCount: Number(row.sales_count ?? 0),
         prevSalesCount: Number(row.prev_sales_count ?? 0),
+        invoicedRevenue: num(row.invoiced_revenue),
+        prevInvoicedRevenue: num(row.prev_invoiced_revenue),
+        collectedRevenue: num(row.collected_revenue),
+        prevCollectedRevenue: num(row.prev_collected_revenue),
       }
     },
     staleTime: 5 * 60_000,

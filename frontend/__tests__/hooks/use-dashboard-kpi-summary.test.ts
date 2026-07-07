@@ -38,6 +38,11 @@ const mockRpcRow = {
   prev_stagnant_stock_count: 20,
   sales_count: 27,
   prev_sales_count: 31,
+  // v3-reporting-invariants (RN-D3): devengado/percibido — campos nuevos.
+  invoiced_revenue: "184200",
+  prev_invoiced_revenue: "164464.29",
+  collected_revenue: "184200",
+  prev_collected_revenue: "164464.29",
 }
 
 function makeWrapper() {
@@ -78,7 +83,63 @@ describe("useDashboardKpiSummary", () => {
       prevStagnantStockCount: 20,
       salesCount: 27,
       prevSalesCount: 31,
+      invoicedRevenue: 184200,
+      prevInvoicedRevenue: 164464.29,
+      collectedRevenue: 184200,
+      prevCollectedRevenue: 164464.29,
     })
+  })
+
+  it("mapea invoiced_revenue/collected_revenue (+ prev) a camelCase con null-safety", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: [
+        {
+          ...mockRpcRow,
+          invoiced_revenue: "10000",
+          prev_invoiced_revenue: "9000",
+          collected_revenue: "8000",
+          prev_collected_revenue: "9000",
+        },
+      ],
+      error: null,
+    })
+
+    const { result } = renderHook(
+      () => useDashboardKpiSummary(new Date(2026, 5, 15)),
+      { wrapper: makeWrapper() },
+    )
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.data?.invoicedRevenue).toBe(10000)
+    expect(result.current.data?.prevInvoicedRevenue).toBe(9000)
+    expect(result.current.data?.collectedRevenue).toBe(8000)
+    expect(result.current.data?.prevCollectedRevenue).toBe(9000)
+  })
+
+  it("preserva null en invoiced/collected revenue cuando el RPC no las trae (columnas viejas)", async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: [
+        {
+          ...mockRpcRow,
+          invoiced_revenue: null,
+          prev_invoiced_revenue: null,
+          collected_revenue: null,
+          prev_collected_revenue: null,
+        },
+      ],
+      error: null,
+    })
+
+    const { result } = renderHook(
+      () => useDashboardKpiSummary(new Date(2026, 5, 15)),
+      { wrapper: makeWrapper() },
+    )
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.data?.invoicedRevenue).toBeNull()
+    expect(result.current.data?.collectedRevenue).toBeNull()
   })
 
   it("pasa al RPC la ventana UTC del mes seleccionado y la del mes anterior", async () => {

@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** `v3-api-standards` del Modelo V3 — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279), `v3-catalog-masters` ✅ 2026-07-06 (PR #282), `v3-reporting-invariants` ✅ 2026-07-07 (PRs #284/#285, archivada). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
+**Próximo trabajo:** `v3-rbac-multirole` del Modelo V3 (CRÍTICO — análisis + sign-off PO) — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279), `v3-catalog-masters` ✅ 2026-07-06 (PR #282), `v3-reporting-invariants` ✅ 2026-07-07 (PRs #284/#285, archivada), `v3-api-standards` ✅ 2026-07-07 (PR #287, archivada). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia.
 
 ---
 
@@ -1058,8 +1058,8 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 | §3 | Notificación post-commit | ✅ Consumer 4 (`_notification_from_event` idempotente) + tabla `notifications` read-model RLS-guarded + hook Realtime `useNotifications` + 5 producers (CashSessionClosed, StockBelowMinimum, QuoteAccepted, TransferDispatched, FiscalDocumentRejected). Archivada 2026-07-04. Desbloquea UI realtime. | ✅ `v3-notifications-realtime` |
 | §4 | Soft delete uniforme | ✅ `deleted_at`/`deleted_by` en 6 maestros (`clients`, `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts`); índices únicos parciales RN-B3; guard RN-B4 (trigger en `products`: rechaza borrado con stock ≠ 0 o referencia en documentos `draft`); `BaseRepository.soft_delete()` centralizado; `is_active` conservado en paralelo (no se dropea). `branches` queda fuera de scope (V3 §4: se desactiva, no se borra); `categories`/`price_lists` no existen como tablas. Archivada 2026-07-06. | ✅ `v3-soft-delete-policy` |
 | §5 | RBAC multi-rol | ❌ `account_members.role` singular, CHECK `('owner','admin','member')`; sin `assigned_by`/`expires_at`, sin roles funcionales (SELLER/CASHIER/STOCK/…) | `v3-rbac-multirole` |
-| §6 | UoW + capas | ⚠️ Layering routers→services→repositories ya existe; la transaccionalidad del hot path vive en **RPCs SQL `SECURITY DEFINER`** (equivalente funcional del UoW — decisión a registrar, no a "corregir"). Falta: `BaseRepository` con soft-delete/paginación, RFC 7807 uniforme | `v3-api-standards` |
-| §6.3 | Idempotencia | ✅ `operation_idempotency` + dedupe de consumers `(event_id, consumer_type)` ya existen. Falta solo generalizar `Idempotency-Key` del cliente | `v3-api-standards` |
+| §6 | UoW + capas | ✅ COMPLETADA 2026-07-07 (PR #287): layering routers→services→repositories confirmado; la transaccionalidad del hot path vive en **RPCs SQL `SECURITY DEFINER`** (equivalente funcional del UoW, registrado como DEC-24 — no requería refactor). `BaseRepository` ganó helper de paginación (`soft_delete()` ya existía desde `v3-soft-delete-policy`); RFC 7807 uniforme implementado en `backend/core/errors.py` + `backend/main.py`. | ✅ `v3-api-standards` |
+| §6.3 | Idempotencia | ✅ COMPLETADA 2026-07-07 (PR #287): `operation_idempotency` + dedupe de consumers `(event_id, consumer_type)` ya existían; `Idempotency-Key` del cliente generalizado vía header HTTP (con fallback deprecado a `idempotency_key` en el body), incluyendo `cash_session_close` (`operation_kind` nuevo en el CHECK) | ✅ `v3-api-standards` |
 | §7.1 | UnidadMedida tipada | ✅ Formalizado como contrato: `type` (`unit\|weight\|volume\|length\|custom`) ya era `NOT NULL` + `CHECK` en prod (10 unidades del sistema tipadas), catálogo mixto global (`is_system`)/per-tenant (`account_id`). Spec-only, cero DDL. Archivada 2026-07-06. | ✅ `v3-catalog-masters` |
 | §7.2 | Composición de producto (BOM) | ❌ No existe | fase V3 (`v3-product-composition`) |
 | §7.3 | Direcciones múltiples | ✅ Tabla `client_addresses` (operativa, distinta de la fiscal): `alias`, `is_primary` con índice único parcial + RPC `rpc_set_primary_client_address` de switch atómico, soft-delete alineado a V3 §4. UI diferida (solo DB + API + tipo TS). Archivada 2026-07-06. | ✅ `v3-catalog-masters` |
@@ -1080,8 +1080,8 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   → v3-provisioning-seed ✅ (2026-07-06, PR #279)
   → v3-catalog-masters ✅ (2026-07-06, PR #282 — UoM tipada spec-only + client_addresses)
   → v3-reporting-invariants ✅ (2026-07-07, PRs #284/#285 — revenue de línea, NC restan, devengado/percibido, fecha local, conteo de operaciones unificado)
-  → v3-api-standards ⭐ SIGUIENTE     (transversal, cualquier momento)
-  → v3-rbac-multirole                (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
+  → v3-api-standards ✅ (2026-07-07, PR #287 — RFC 7807, paginación estándar, Idempotency-Key, DEC-24)
+  → v3-rbac-multirole ⭐ SIGUIENTE   (CRÍTICO — análisis + sign-off PO antes de escribir; consume allowed_role de v3-document-status-history)
   → percepciones-retenciones         (V2.5, después del snapshot fiscal)
 ```
 
@@ -1192,15 +1192,21 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §8, `knowledge-base/05_reglas_de_negocio.md` §RN-D1/D3/D5, `openspec/changes/archive/2026-07-07-v3-reporting-invariants/`
 
 ### `v3-api-standards` — Estándares de plataforma backend (V3 §6)
-- **Estado**: `[ ]` pendiente
+- **Estado**: `[x]` ✅ COMPLETADA y ARCHIVADA 2026-07-07 (31/31 tasks, TDD estricto, PR #287 squash `0066e00`, migración `..._v3_api_standards.sql` con `operation_kind` nuevo `cash_session_close`; suite backend 960→1023 verde, frontend 441→443 + `tsc` limpio)
 - **Governance**: BAJO (transversal, sin cambio de comportamiento de negocio)
-- **Scope**:
-  - Errores RFC 7807 uniformes (`detail`, `code`, `field`) sobre el mapeo existente de `core/errors.py`; paginación estándar `?page&size → {items, total, page, pages}` en todos los listados
-  - `Idempotency-Key` del cliente generalizado a toda mutación no-idempotente (crear venta, cobrar, emitir, cerrar caja) sobre el `operation_idempotency` existente
-  - `BaseRepository[T]` con `soft_delete()` (RN-B1/B2) y paginación incluidas
-  - **Decisión a registrar (no a "corregir")**: el equivalente del UoW de Food Store en Aliadata son los **RPCs SQL `SECURITY DEFINER`** — la transacción vive en Postgres, no en Python; los services no comitean (RN-C1 ya se cumple por diseño). Documentarlo en `knowledge-base/09` como DEC nueva
-- **Dependencias**: ninguna (sinergia con `v3-soft-delete-policy`)
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §6, `backend/core/errors.py`, `knowledge-base/08_arquitectura_propuesta.md`
+- **Scope real implementado**:
+  - Errores RFC 7807 uniformes (`application/problem+json` con `type`/`title`/`status`/`detail` + extensiones `code`/`field`) sobre el mapeo existente de `core/errors.py` — lo envuelve, no lo reemplaza. Handler nuevo de `RequestValidationError` (antes ausente: los 422 de Pydantic salían en el shape default de FastAPI).
+  - Paginación estándar `?page&size → {items, total, page, pages}` unificada en todos los listados — reemplaza los shapes divergentes previos (`total_operations` en sales/purchases, `total` suelto en payments, listas planas de `limit/offset` en customer_accounts/supplier_accounts/journal_entries). Frontend migrado en el mismo change (BREAKING intencional, sin consumidores externos).
+  - `Idempotency-Key` por header HTTP generalizado a toda mutación no-idempotente (crear venta, cobrar, emitir comprobante, cerrar caja), con `idempotency_key` en el body como fallback deprecado (header tiene precedencia). Requirió agregar `cash_session_close` al CHECK `operation_idempotency_operation_kind_check` (antes solo cubría `sale, purchase, payment_received, payment_made, supplier_charge, bank_movement, event_consumer, bank_statement_import`) — única migración del change, siguiendo la Lección C3 (enumerar la unión vigente en prod con `pg_get_constraintdef` antes de recrear el CHECK).
+  - `BaseRepository` gana un helper de paginación (calcula `offset`/`pages`, arma el envelope, compatible con `not_deleted_clause()`). `soft_delete()` **ya existía** desde `v3-soft-delete-policy` — no se reimplementó, solo se sumó paginación al lado.
+  - **DEC-24 registrada** en `knowledge-base/09_decisiones_y_supuestos.md`: el equivalente del UoW de Food Store en Aliadata son los **RPCs SQL `SECURITY DEFINER`** — la transacción vive en Postgres, no en Python; los services no comitean (RN-C1 ya se cumplía por diseño, sin refactor).
+- **Scope real vs. plan — desviaciones explícitas**:
+  - Los endpoints fiscales (`emit-invoice`, `emit-pending-cae`) **NO** llevan `require_idempotency_key` — son CRÍTICOS (AFIP) y ya son idempotentes por clave natural (CAE/comprobante), agregar el header hubiera sido gobernanza redundante sin beneficio.
+  - Las vistas combinadas `GET /clientes/{id}/cuenta` y `GET /proveedores/{id}/cuenta` **no** migran a `PageOut` — solo los listados `.../movements` (las vistas combinadas no son un listado paginable).
+  - **Bugfix de paso** (no planeado): `GET /supplier-accounts/{id}/movements` llamaba internamente a `get_account` en vez de listar los movimientos — nunca había funcionado; corregido de paso al migrar el endpoint a paginación.
+- **Specs sincronizadas**: `api-standards` (capability **NUEVA** — RFC 7807, paginación, Idempotency-Key), `base-repositories` (1 Requirement ADDED — helper de paginación)
+- **Dependencias**: ninguna (sinergia con `v3-soft-delete-policy` por `BaseRepository`)
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §6, `backend/core/errors.py`, `knowledge-base/08_arquitectura_propuesta.md`, `openspec/changes/archive/2026-07-07-v3-api-standards/`
 
 ### `v3-catalog-masters` — Maestros menores: UoM tipada + direcciones (V3 §7.1, §7.3)
 - **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (22/22 tasks, TDD estricto, suite 960 verde — 912 baseline + 48 nuevos)

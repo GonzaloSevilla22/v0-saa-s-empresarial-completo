@@ -64,7 +64,17 @@ COMMENT ON CONSTRAINT operation_idempotency_operation_kind_check ON public.opera
 --   (b) el guard de replay (SELECT existente en operation_idempotency),
 --   (c) el INSERT en operation_idempotency antes del RETURN.
 -- Ningún cambio a los cálculos de expected_balance/difference/counted_balance.
+--
+-- NOTA (fix post-CI): agregar un parámetro nuevo con CREATE OR REPLACE no
+-- reemplaza la función — Postgres resuelve por (nombre, tipos de args), así
+-- que (uuid, numeric) y (uuid, numeric, text) quedan como DOS overloads
+-- distintos y el COMMENT ON FUNCTION posterior se vuelve ambiguo (42725: se
+-- detectó en el CI, la DB nace vacía con la versión previa aplicada por las
+-- migraciones anteriores). Se hace DROP explícito del overload de 2
+-- argumentos antes del CREATE OR REPLACE para dejar un solo overload vigente.
 -- =============================================================================
+DROP FUNCTION IF EXISTS public.rpc_close_cash_session(uuid, numeric);
+
 CREATE OR REPLACE FUNCTION public.rpc_close_cash_session(
   p_session_id       uuid,
   p_counted_balance  numeric,

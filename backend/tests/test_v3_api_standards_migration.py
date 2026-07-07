@@ -60,3 +60,23 @@ class TestOperationKindCheckMigration:
         # No debe haber CREATE TABLE sin guard — esta migración no crea tablas
         # nuevas, solo recrea un CHECK existente.
         assert "CREATE TABLE public.operation_idempotency" not in sql
+
+    def test_drops_old_two_arg_overload_before_recreating_function(self, sql):
+        """Regresión CI (2026-07-07): agregar p_idempotency_key con CREATE OR
+        REPLACE no reemplaza rpc_close_cash_session(uuid,numeric) — Postgres
+        resuelve funciones por (nombre, tipos de args), así que queda un
+        segundo overload. El COMMENT ON FUNCTION posterior sin firma
+        explícita se vuelve ambiguo (42725: 'function name ... is not
+        unique'), como reprodujo el job validate-kpis. El fix es un DROP
+        FUNCTION IF EXISTS del overload viejo de 2 argumentos ANTES del
+        CREATE OR REPLACE de 3, para dejar un único overload vigente."""
+        assert "DROP FUNCTION IF EXISTS public.rpc_close_cash_session(uuid, numeric)" in sql
+        drop_idx = sql.index("DROP FUNCTION IF EXISTS public.rpc_close_cash_session")
+        create_idx = sql.index("CREATE OR REPLACE FUNCTION public.rpc_close_cash_session")
+        assert drop_idx < create_idx, "el DROP del overload viejo debe ir ANTES del CREATE OR REPLACE"
+
+    def test_comment_on_function_is_unambiguous_single_overload(self, sql):
+        """TRIANGULATE: tras el DROP, solo debe quedar UNA definición de
+        CREATE FUNCTION para rpc_close_cash_session en el archivo (evita que
+        alguien reintroduzca el overload viejo sin querer)."""
+        assert sql.count("CREATE OR REPLACE FUNCTION public.rpc_close_cash_session") == 1

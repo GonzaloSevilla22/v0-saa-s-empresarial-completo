@@ -1,14 +1,26 @@
-## ADDED Requirements
+# product-profitability Specification
+
+## Purpose
+
+Rentabilidad por SKU: RPC `rpc_product_profitability` (revenue de línea, costo desde snapshot congelado con fallback al maestro), Edge Function `ai-rentabilidad` para análisis IA de márgenes, y la página `/rentabilidad` con tabla, gráfico y sugerencia de precio. Extendido con las invariantes RN-D5 del Modelo V3 (§8): revenue = total de línea (`COALESCE(total, amount)`) y ventana anclada a la fecha local del tenant — ver capability `reporting-invariants`.
+
+## Requirements
 
 ### Requirement: RPC de cálculo de rentabilidad por SKU
 
-El sistema SHALL proveer el RPC `rpc_product_profitability(p_period_days INT DEFAULT 30)` que calcula para cada producto de la cuenta activa: `total_revenue`, `total_cost`, `gross_margin`, `gross_margin_pct`, `units_sold`, `last_sale_date`. El RPC deriva el `account_id` internamente desde `current_account_ids()` — no acepta parámetros de identidad. El costo SHALL derivarse del snapshot de costo congelado en la línea (`unit_cost_snapshot`), no del maestro actual (RN-D2), con una cascada de fallback: (1) `unit_cost_snapshot` de la línea cuando está presente; (2) `products.cost` actual sólo cuando el snapshot es NULL (líneas muy antiguas no backfilleadas). Las líneas con `snapshot_backfilled = true` SHALL usar su snapshot aunque sea aproximado, en lugar del maestro actual.
+El sistema SHALL proveer el RPC `rpc_product_profitability(p_period_days INT DEFAULT 30)` que calcula para cada producto de la cuenta activa: `total_revenue`, `total_cost`, `gross_margin`, `gross_margin_pct`, `units_sold`, `last_sale_date`. El RPC deriva el `account_id` internamente desde `current_account_ids()` — no acepta parámetros de identidad. `total_revenue` SHALL ser la suma del **total de línea** (`COALESCE(total, amount)`) — nunca `amount` solo, que es precio unitario (corrige el margen para líneas con `quantity > 1`). El costo SHALL derivarse del snapshot de costo congelado en la línea (`unit_cost_snapshot`), no del maestro actual (RN-D2), con una cascada de fallback: (1) `unit_cost_snapshot` de la línea cuando está presente; (2) `products.cost` actual sólo cuando el snapshot es NULL (líneas muy antiguas no backfilleadas). Las líneas con `snapshot_backfilled = true` SHALL usar su snapshot aunque sea aproximado, en lugar del maestro actual. La ventana de `p_period_days` SHALL anclarse a la fecha local del tenant (`reporting_local_today()`, RN-D5), no a `CURRENT_DATE` del servidor en UTC. La firma de entrada y las columnas de salida NO cambian.
 
 #### Scenario: RPC calcula margen desde el snapshot de costo de la línea
 
-- **GIVEN** un producto vendido cuya línea congeló `unit_cost_snapshot = 600` y `SUM(revenue) = 1000` en los últimos 30 días
+- **GIVEN** un producto vendido en una línea de 2 unidades a precio unitario $1.000 (`total = 2000`) cuya línea congeló `unit_cost_snapshot = 600` en los últimos 30 días
 - **WHEN** se llama a `rpc_product_profitability(30)`
-- **THEN** el producto aparece con `total_revenue = 1000`, `total_cost` derivado de `unit_cost_snapshot` (no de `products.cost` actual), `gross_margin = 400` y `gross_margin_pct = 40.0`
+- **THEN** el producto aparece con `total_revenue = 2000`, `total_cost = 1200` (snapshot × cantidad, no `products.cost` actual), `gross_margin = 800` y `gross_margin_pct = 40.0`
+
+#### Scenario: El revenue suma totales de línea, no precios unitarios
+
+- **GIVEN** un producto con una única venta de 3 unidades a precio unitario $500 (`amount = 500`, `quantity = 3`, `total = 1500`)
+- **WHEN** se llama a `rpc_product_profitability(30)`
+- **THEN** `total_revenue = 1500` (no 500) y el margen compara revenue y costo en la misma base (× cantidad)
 
 #### Scenario: Remarcar el maestro no altera el margen histórico
 
@@ -27,6 +39,12 @@ El sistema SHALL proveer el RPC `rpc_product_profitability(p_period_days INT DEF
 - **GIVEN** la cuenta tiene 20 productos pero solo 12 tuvieron ventas en los últimos 30 días
 - **WHEN** se llama a `rpc_product_profitability(30)`
 - **THEN** el resultado contiene exactamente 12 productos
+
+#### Scenario: La ventana se ancla a la fecha local del tenant
+
+- **GIVEN** son las 22:00 hora Argentina del 2026-07-15 (01:00 UTC del 16)
+- **WHEN** se llama a `rpc_product_profitability(30)`
+- **THEN** la ventana de 30 días se calcula desde el 2026-07-15 local, no desde el 2026-07-16 UTC
 
 #### Scenario: Usuario sin cuenta activa no puede llamar al RPC
 

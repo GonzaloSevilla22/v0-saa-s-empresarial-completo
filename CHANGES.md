@@ -962,7 +962,7 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **C-20 Grupo 10** — DROP del header plano (`sales.product_id`, etc.) — bloqueado por representación de líneas de servicio. Será un change propio tras aprobación PO.
 - **Vista de presupuestos UI** — pantalla de listado/gestión de presupuestos; diferida del C-29 apply. Candidata para change propio en Fases Futuras.
 
-**Próximo trabajo:** `v3-api-standards` del Modelo V3 — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279), `v3-catalog-masters` ✅ 2026-07-06 (PR #282), `v3-reporting-invariants` ✅ 2026-07-06. Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
+**Próximo trabajo:** `v3-api-standards` del Modelo V3 — `v3-snapshot-pattern` ✅ 2026-07-02, `v3-document-status-history` ✅ 2026-07-03, `v3-notifications-realtime` ✅ 2026-07-04 (PR #262), `v3-soft-delete-policy` ✅ 2026-07-06, `v3-provisioning-seed` ✅ 2026-07-06 (PR #279), `v3-catalog-masters` ✅ 2026-07-06 (PR #282), `v3-reporting-invariants` ✅ 2026-07-06 (PR #284). Después: percepciones (V2.5), V2.6 contable, V3 Inteligencia, `v3-rbac-multirole` (análisis-sign-off PO).
 
 ---
 
@@ -1176,7 +1176,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.5, `supabase/migrations/20260812000001_v3_provisioning_seed.sql`, `openspec/changes/archive/2026-07-06-v3-provisioning-seed/`, `knowledge-base/07_flujos_principales.md` §Flujo registro
 
 ### `v3-reporting-invariants` — Invariantes RN-D en KPIs y proyecciones (V3 §8)
-- **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (18/18 tasks, TDD estricto, migración `20260814000001`)
+- **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (18/18 tasks, TDD estricto, migración `20260814000001`, PR #284 mergeado `041a234`, verificado en prod)
 - **Governance**: BAJO-MEDIO (read models; no toca escritura)
 - **Veredictos de la auditoría (audit-then-fix, read-only vía `pg_get_functiondef` en prod)**:
   - **Revenue inconsistente (defecto transversal)**: `rpc_product_profitability`, `rpc_period_comparison` y `rpc_branch_report` sumaban `sales.amount` (precio unitario) en vez de `COALESCE(total, amount)` (total de línea) — revenue subvaluado 17,53% en prod. Fix: los 3 RPCs pasan a `COALESCE(total, amount)`, alineados con `rpc_dashboard_kpi_summary` (que ya lo hacía bien).
@@ -1185,7 +1185,9 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
   - **RN-D5**: `rpc_period_comparison`/`rpc_branch_report` casteaban el borde superior `DATE` a medianoche UTC (excluía filas con hora real el último día del rango); `rpc_product_profitability` anclaba la ventana relativa a `CURRENT_DATE` (UTC del servidor). Fix: helper `reporting_local_today()` (constante de plataforma `America/Argentina/Mendoza`) + bordes `>= p_start::timestamptz AND < (p_end+1)::timestamptz`.
   - **Conteo de operaciones**: `rpc_period_comparison` contaba filas (`COUNT(*)`, ventas multi-línea contaban N veces); `rpc_branch_report` usaba `COUNT(DISTINCT operation_id)` que ignoraba NULL (18 ventas legacy sin `operation_id` no contaban). Fix: `COUNT(DISTINCT COALESCE(operation_id, id))` unificado con el dashboard.
   - Ya cumplido por trabajo previo (no rehecho): RN-D2 (snapshots, `v3-snapshot-pattern`), RN-D4 (NUMERIC en todos los RPCs), RN-D5 del dashboard principal (fix 2026-06-08).
+- **Descubrimiento durante la verificación** (`npx supabase db reset` local): `customer_account_movements.movement_type` NO tiene un valor `'charge'` como asumía el design original — el CHECK vigente en prod (C-30) es `('sale','payment_received','credit_note','adjustment')`; `'sale'` es el tipo real que incrementa la deuda del cliente. Además, el ledger guarda la NC con `amount` **negativo** (acredita). Corregido en la migración antes del merge (`ABS()` para NC, filtro `movement_type='sale' AND amount>0` para cargos).
 - **Sign-off PO**: OQ1 (shift de números ~+17,5%) y OQ2 (UI mínima "Cobrado") aprobados 2026-07-06 sin comunicación especial (corrección de bug, no cambio de criterio). OQ3 (atribución de NC por canal) queda abierto, no bloqueante.
+- **Verificación post-merge en prod (read-only, MCP)**: los 4 RPCs vivos contienen los predicados nuevos; `rpc_dashboard_kpi_summary` expone las 16 columnas (12 previas + 4 nuevas); delta de revenue confirmado exactamente: `SUM(amount)=$7.905.976,19` vs `SUM(COALESCE(total,amount))=$9.291.711,19` → **+17,53%**; `customer_account_movements` con 0 filas → `collected == invoiced` en todas las cuentas hoy.
 - **Dependencias**: `v3-snapshot-pattern` ✅ (satisfecha)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §8, `knowledge-base/05_reglas_de_negocio.md` §RN-D1/D3/D5, `openspec/changes/archive/2026-07-06-v3-reporting-invariants/` (tras archivar)
 

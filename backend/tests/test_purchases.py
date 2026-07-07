@@ -84,3 +84,39 @@ async def test_delete_purchase_restores_stock_without_purchase_items(async_clien
     assert product_id == "prod-uuid-1"
     assert delta == -5  # revierte la entrada: signo opuesto a quantity_delta = 5
     assert branch_id == "branch-uuid-1"
+
+
+# ── v3-api-standards §2.5: envelope estándar {items,total,page,pages} ───────
+
+
+async def test_list_purchases_ok(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=0)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["page"] == 0
+    assert body["pages"] == 0
+
+
+async def test_list_purchases_envelope_has_page_and_pages(async_client, valid_token, mock_pool):
+    """TRIANGULATE: con resultados, pages = ceil(total/size)."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=30)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases?page=0&page_size=25",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 30
+    assert body["page"] == 0
+    assert body["pages"] == 2

@@ -380,6 +380,25 @@ async def test_list_sales_ok(async_client, valid_token, mock_pool):
         )
     assert resp.status_code == 200
     body = resp.json()
-    # Paginado por operaciones: {items, total_operations}
+    # v3-api-standards §2: envelope estándar {items, total, page, pages}
     assert body["items"] == []
-    assert body["total_operations"] == 0
+    assert body["total"] == 0
+    assert body["page"] == 0
+    assert body["pages"] == 0
+
+
+async def test_list_sales_envelope_has_page_and_pages(async_client, valid_token, mock_pool):
+    """TRIANGULATE: con resultados, pages = ceil(total/size) y page eco del pedido."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=30)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales?page=0&page_size=25",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 30
+    assert body["page"] == 0
+    assert body["pages"] == 2

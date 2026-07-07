@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from backend.schemas.common import PageOut
+
 
 class PurchaseItemIn(BaseModel):
     product_id: str
@@ -72,6 +74,7 @@ class PurchaseItemOut(BaseModel):
         return v
 
 
-class PurchasesPageOut(BaseModel):
-    items: list[PurchaseItemOut]
-    total_operations: int
+# v3-api-standards §2: envelope estándar {items,total,page,pages}, reemplaza
+# el PurchasesPageOut previo ({items,total_operations}) — BREAKING sancionado
+# (OQ1 PO), frontend migrado en el mismo change.
+PurchasesPageOut = PageOut[PurchaseItemOut]

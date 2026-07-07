@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
+from backend.schemas.common import PageOut
+
 
 class MpNotificationData(BaseModel):
     id: str | None = None
@@ -41,6 +43,7 @@ class PaymentReceiptOut(BaseModel):
     customer_name: str | None = None
 
 
-class PaymentReceiptsPageOut(BaseModel):
-    items: list[PaymentReceiptOut]
-    total: int
+# v3-api-standards §2: envelope estándar {items,total,page,pages}, reemplaza
+# el PaymentReceiptsPageOut previo ({items,total}) — BREAKING sancionado
+# (OQ1 PO), frontend migrado en el mismo change.
+PaymentReceiptsPageOut = PageOut[PaymentReceiptOut]

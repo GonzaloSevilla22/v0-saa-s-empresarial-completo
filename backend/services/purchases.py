@@ -22,7 +22,9 @@ async def list_purchases_paginated(
     rows, total = await repo.list_paginated_by_operation(
         account_id, page, page_size, df, dt,
     )
-    return {"items": [dict(r) for r in rows], "total_operations": total}
+    # v3-api-standards §2: envelope estándar {items,total,page,pages}
+    pages = -(-total // page_size) if total > 0 else 0
+    return {"items": [dict(r) for r in rows], "total": total, "page": page, "pages": pages}
 
 
 async def delete_purchase(

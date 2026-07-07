@@ -374,3 +374,58 @@ async def test_resend_receipt_requires_admin(async_client, mock_service_pool):
             headers={"Authorization": f"Bearer {token}"},
         )
     assert resp.status_code == 403
+
+
+# ── v3-api-standards §2.6: envelope estándar {items,total,page,pages} ───────
+
+
+async def test_list_payment_receipts_envelope(async_client, mock_service_pool):
+    pool, conn = mock_service_pool
+    conn.fetchval = AsyncMock(return_value="admin")  # require_admin
+    conn.fetch = AsyncMock(return_value=[])
+    # BillingRepository.list_receipts hace fetchval(count) internamente
+    token = make_token({"role": "admin"})
+
+    async def fetchval_side_effect(query, *args):
+        if "profiles" in query:
+            return "admin"
+        return 0  # COUNT(*)
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/payments/receipts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["page"] == 0
+    assert body["pages"] == 0
+
+
+async def test_list_payment_receipts_envelope_with_results(async_client, mock_service_pool):
+    """TRIANGULATE: con resultados, pages = ceil(total/size)."""
+    pool, conn = mock_service_pool
+    token = make_token({"role": "admin"})
+
+    async def fetchval_side_effect(query, *args):
+        if "profiles" in query:
+            return "admin"
+        return 120  # COUNT(*)
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    conn.fetch = AsyncMock(return_value=[])
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/payments/receipts?page=0&page_size=50",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 120
+    assert body["page"] == 0
+    assert body["pages"] == 3

@@ -59,6 +59,41 @@ class BaseRepository:
         """Execute a statement and return the PostgreSQL status string."""
         return await self._conn.execute(query, *args)
 
+    # ── v3-api-standards §2 — paginación estándar centralizada ──────────────
+
+    async def paginate(
+        self,
+        select_sql: str,
+        count_sql: str,
+        *args,
+        page: int,
+        size: int,
+    ) -> dict:
+        """Ejecuta un SELECT paginado + su COUNT y arma el envelope estándar.
+
+        `select_sql`/`count_sql` deben aceptar los mismos `*args` posicionales
+        de filtro (p. ej. `$1::uuid` para account_id); `select_sql` NO debe
+        incluir su propio LIMIT/OFFSET — este helper les agrega
+        `LIMIT $N OFFSET $N+1` con los siguientes placeholders posicionales
+        después de `*args`.
+
+        `page` es 0-based. Ambas queries corren sobre la misma conexión ya
+        inyectada (JWT-passthrough) — no se abren conexiones nuevas ni se
+        re-inyectan claims. Compatible con `not_deleted_clause()` (se
+        concatena al WHERE de `select_sql`/`count_sql` antes de llamar acá).
+        """
+        offset = page * size
+        limit_placeholder = len(args) + 1
+        offset_placeholder = len(args) + 2
+        paginated_sql = f"{select_sql} LIMIT ${limit_placeholder} OFFSET ${offset_placeholder}"
+
+        total = await self._conn.fetchval(count_sql, *args) or 0
+        rows = await self._conn.fetch(paginated_sql, *args, size, offset)
+        items = [dict(r) for r in rows]
+        pages = -(-total // size) if total > 0 else 0  # ceil division sin math.ceil
+
+        return {"items": items, "total": total, "page": page, "pages": pages}
+
     # ── v3-soft-delete-policy (RN-B1 / RN-B2) ────────────────────────────────
 
     @staticmethod

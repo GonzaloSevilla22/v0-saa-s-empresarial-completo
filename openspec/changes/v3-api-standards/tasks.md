@@ -13,12 +13,12 @@
 
 ## 2. Paginación estándar (`?page&size → {items,total,page,pages}`)
 
-- [ ] 2.1 Definir `PageOut[T]` genérico Pydantic (`items: list[T]; total: int; page: int; pages: int`) en un módulo de schemas compartido
-- [ ] 2.2 Agregar `BaseRepository.paginate(select_sql, count_sql, *args, page, size)` que calcula `offset`, ejecuta SELECT+COUNT y arma el envelope (`pages = ceil(total/size)`, `pages=0` si `total=0`), sobre la conexión inyectada; compatible con `not_deleted_clause`
-- [ ] 2.3 Tests de `paginate`: envelope de una página, `total=0` sin división por cero, aislamiento/JWT-passthrough (misma conexión)
-- [ ] 2.4 Migrar `sales` (`SalesPageOut`→`PageOut`, `page/size`) y su repo/service al helper
-- [ ] 2.5 Migrar `purchases` (`PurchasesPageOut`→`PageOut`) al helper
-- [ ] 2.6 Migrar `payments` (`PaymentReceiptsPageOut`→`PageOut`, `page/size`) al helper
+- [x] 2.1 Definir `PageOut[T]` genérico Pydantic (`items: list[T]; total: int; page: int; pages: int`) en un módulo de schemas compartido
+- [x] 2.2 Agregar `BaseRepository.paginate(select_sql, count_sql, *args, page, size)` que calcula `offset`, ejecuta SELECT+COUNT y arma el envelope (`pages = ceil(total/size)`, `pages=0` si `total=0`), sobre la conexión inyectada; compatible con `not_deleted_clause`
+- [x] 2.3 Tests de `paginate`: envelope de una página, `total=0` sin división por cero, aislamiento/JWT-passthrough (misma conexión)
+- [x] 2.4 Migrar `sales` (`SalesPageOut`→`PageOut`, `page/size`) y su repo/service al helper
+- [x] 2.5 Migrar `purchases` (`PurchasesPageOut`→`PageOut`) al helper
+- [x] 2.6 Migrar `payments` (`PaymentReceiptsPageOut`→`PageOut`, `page/size`) al helper
 - [ ] 2.7 Migrar `customer_accounts` de `limit/offset`+lista plana a `page/size`+`PageOut`
 - [ ] 2.8 Migrar `supplier_accounts` de `limit/offset`+lista plana a `page/size`+`PageOut`
 - [ ] 2.9 Migrar `journal_entries` de `limit/offset` a `page/size`+`PageOut`

@@ -146,16 +146,18 @@ export function useRegisterPayment(clientId: string) {
       bankAccountId?: string
     }): Promise<PaymentReceivedResult> => {
       try {
+        // v3-api-standards §3/§6.2: la clave de idempotencia viaja por el
+        // header Idempotency-Key (D4) — el body ya no la incluye.
         return await pythonClient.post<PaymentReceivedResult>(
           "/customer-accounts/payments",
           {
-            idempotency_key:   idempotencyKey,
             client_id:         clientId,
             amount:            amount.toString(),
             reference_sale_id: referenceSaleId ?? null,
             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
             ...(bankAccountId ? { bank_account_id: bankAccountId } : {}),
-          }
+          },
+          { "Idempotency-Key": idempotencyKey }
         )
       } catch (err) {
         throw new Error(translateError((err as Error).message))

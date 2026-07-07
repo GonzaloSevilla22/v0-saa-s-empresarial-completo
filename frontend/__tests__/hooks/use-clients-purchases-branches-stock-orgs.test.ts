@@ -191,7 +191,7 @@ describe("usePurchases", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("returns mapped purchases from API", async () => {
-    // Paginado por operaciones: el endpoint devuelve {items, total_operations}
+    // v3-api-standards §2: el endpoint devuelve el envelope {items,total,page,pages}
     vi.mocked(pythonClient.get).mockResolvedValueOnce({
       items: [
         {
@@ -205,7 +205,7 @@ describe("usePurchases", () => {
           operation_id: "op-1",
         },
       ],
-      total_operations: 1,
+      total: 1,
     })
 
     const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
@@ -223,7 +223,7 @@ describe("usePurchases", () => {
   })
 
   it("addPurchaseOperation calls POST /purchases with correct payload", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total_operations: 0 })
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
     vi.mocked(pythonClient.post).mockResolvedValueOnce({ operation_id: "op-new" })
 
     const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
@@ -246,10 +246,13 @@ describe("usePurchases", () => {
       })
     })
 
-    expect(pythonClient.post).toHaveBeenCalledWith("/purchases", expect.objectContaining({
-      idempotency_key: "key-abc",
-      org_id:          "org-1",
-    }))
+    // v3-api-standards §3/§6.2: idempotency_key viaja por el header
+    // Idempotency-Key, no en el body.
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      "/purchases",
+      expect.objectContaining({ org_id: "org-1" }),
+      { "Idempotency-Key": "key-abc" },
+    )
     expect(pythonClient.get).toHaveBeenCalledTimes(2) // after invalidation
   })
 })

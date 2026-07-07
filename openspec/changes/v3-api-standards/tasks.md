@@ -41,12 +41,12 @@
 
 ## 5. DEC-24 (UoW = RPCs SECURITY DEFINER)
 
-- [ ] 5.1 Agregar DEC-24 a `knowledge-base/09_decisiones_y_supuestos.md`: el UoW de Aliadata es el RPC `SECURITY DEFINER` (transacción en Postgres, ningún service comitea, RN-C1 por diseño); complementa DEC-13 y DEC-20
+- [x] 5.1 Agregar DEC-24 a `knowledge-base/09_decisiones_y_supuestos.md`: el UoW de Aliadata es el RPC `SECURITY DEFINER` (transacción en Postgres, ningún service comitea, RN-C1 por diseño); complementa DEC-13 y DEC-20
 
 ## 6. Frontend
 
-- [ ] 6.1 Adaptar los hooks/servicios TS que leen `total_operations`/`total` al envelope `{items,total,page,pages}`
-- [ ] 6.2 Adaptar los hooks/servicios de mutación que mandan `idempotency_key` en el body para enviar el header `Idempotency-Key` (mantener el body como fallback hasta la limpieza posterior)
+- [x] 6.1 Adaptar los hooks/servicios TS que leen `total_operations`/`total` al envelope `{items,total,page,pages}` — `use-sales.ts` y `use-purchases.ts` migrados a `total` (con `page?`/`pages?` opcionales en el tipo de respuesta; `buildPaginationMeta` sigue recalculando `pageCount` client-side)
+- [x] 6.2 Adaptar los hooks/servicios de mutación que mandan `idempotency_key` en el body para enviar el header `Idempotency-Key` — `pythonClient.post` gana un 3er parámetro `extraHeaders` opcional; migrados `use-sales.ts`, `use-purchases.ts`, `use-customer-account.ts`, `use-supplier-account.ts`, `use-sales-orders.ts` (confirm + quick-sale) y `use-bank-reconciliation.ts` (import extracto + movimiento manual). El body ya NO manda `idempotency_key` desde el frontend (el fallback de body del backend queda para otros clientes/replay, no para este frontend)
 
 ## 7. Verificación
 

@@ -429,3 +429,44 @@ async def test_list_payment_receipts_envelope_with_results(async_client, mock_se
     assert body["total"] == 120
     assert body["page"] == 0
     assert body["pages"] == 3
+
+
+async def test_list_payment_receipts_page_out_of_range_returns_empty_items(async_client, mock_service_pool):
+    """2.10: página fuera de rango -> 200 con items vacío, no error."""
+    pool, conn = mock_service_pool
+    token = make_token({"role": "admin"})
+
+    async def fetchval_side_effect(query, *args):
+        if "profiles" in query:
+            return "admin"
+        return 3
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    conn.fetch = AsyncMock(return_value=[])
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/payments/receipts?page=50&page_size=50",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["items"] == []
+    assert body["total"] == 3
+    assert body["page"] == 50
+
+
+async def test_list_payment_receipts_page_size_over_max_returns_422(async_client, mock_service_pool):
+    """2.10: page_size sobre la cota máxima (200) -> 422 problem+json."""
+    pool, conn = mock_service_pool
+    token = make_token({"role": "admin"})
+    conn.fetchval = AsyncMock(return_value="admin")
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/payments/receipts?page_size=99999",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    conn.fetch.assert_not_awaited()

@@ -19,10 +19,10 @@
 - [x] 2.4 Migrar `sales` (`SalesPageOut`→`PageOut`, `page/size`) y su repo/service al helper
 - [x] 2.5 Migrar `purchases` (`PurchasesPageOut`→`PageOut`) al helper
 - [x] 2.6 Migrar `payments` (`PaymentReceiptsPageOut`→`PageOut`, `page/size`) al helper
-- [ ] 2.7 Migrar `customer_accounts` de `limit/offset`+lista plana a `page/size`+`PageOut`
-- [ ] 2.8 Migrar `supplier_accounts` de `limit/offset`+lista plana a `page/size`+`PageOut`
-- [ ] 2.9 Migrar `journal_entries` de `limit/offset` a `page/size`+`PageOut`
-- [ ] 2.10 Tests por listado migrado: envelope correcto, página fuera de rango (200 + items vacío), `size` sobre el máximo (422)
+- [x] 2.7 Migrar `customer_accounts` de `limit/offset`+lista plana a `page/size`+`PageOut`
+- [x] 2.8 Migrar `supplier_accounts` de `limit/offset`+lista plana a `page/size`+`PageOut`
+- [x] 2.9 Migrar `journal_entries` de `limit/offset` a `page/size`+`PageOut`
+- [x] 2.10 Tests por listado migrado: envelope correcto, página fuera de rango (200 + items vacío), `size` sobre el máximo (422)
 
 ## 3. Idempotency-Key por header
 

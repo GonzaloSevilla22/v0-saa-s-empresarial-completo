@@ -24,6 +24,8 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from backend.schemas.common import PageOut
+
 
 class SupplierMovementType(str, Enum):
     purchase    = "purchase"
@@ -54,6 +56,12 @@ class SupplierMovementOut(BaseModel):
     reference_id:         uuid.UUID | None = None
     created_by:           uuid.UUID
     created_at:           datetime.datetime
+
+
+# v3-api-standards §2.8: envelope estándar {items,total,page,pages} para
+# GET /supplier-accounts/{id}/movements — reemplaza la lista plana de
+# limit/offset. BREAKING sancionado (OQ1 PO).
+SupplierMovementPageOut = PageOut[SupplierMovementOut]
 
 
 class CreateSupplierAccountOut(BaseModel):

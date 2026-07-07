@@ -27,7 +27,7 @@ from backend.schemas.supplier_accounts import (
     SupplierAccountOut,
     SupplierChargeIn,
     SupplierChargeOut,
-    SupplierMovementOut,
+    SupplierMovementPageOut,
 )
 from backend.services import supplier_accounts as supplier_account_service
 
@@ -62,17 +62,22 @@ async def get_supplier_account(
     return await supplier_account_service.get_account(repo, account_id, str(supplier_id))
 
 
-@router.get("/supplier-accounts/{supplier_account_id}/movements", response_model=list[SupplierMovementOut])
+@router.get("/supplier-accounts/{supplier_account_id}/movements", response_model=SupplierMovementPageOut)
 async def list_supplier_movements(
     supplier_account_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    page: int = Query(0, ge=0),
+    size: int = Query(50, ge=1, le=200),
     auth: dict = Depends(get_current_user),
     repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
 ):
-    """Lista paginada de movimientos de la cuenta corriente del proveedor."""
-    return await supplier_account_service.get_account(
-        repo, str(supplier_account_id), str(supplier_account_id)
+    """v3-api-standards §2.8: envelope estándar {items,total,page,pages}.
+
+    (Fix de paso: el endpoint llamaba a `get_account` con el
+    `supplier_account_id` en lugar del `supplier_id` — nunca devolvía
+    movimientos correctamente. Ahora usa el listado dedicado.)
+    """
+    return await supplier_account_service.list_movements(
+        repo, str(supplier_account_id), page=page, size=size
     )
 
 

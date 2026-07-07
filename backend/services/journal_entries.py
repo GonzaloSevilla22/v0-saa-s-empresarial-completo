@@ -31,3 +31,15 @@ async def list_journal_entries(
         offset: Pagination offset.
     """
     return await repo.list_by_account(account_id, limit=limit, offset=offset)
+
+
+async def list_journal_entries_page(
+    repo: JournalEntryRepository,
+    account_id: str,
+    *,
+    page: int = 0,
+    size: int = 100,
+) -> dict:
+    """v3-api-standards §2.9: envelope estándar {items,total,page,pages}
+    (reemplaza limit/offset + lista plana). No require_role: read-only."""
+    return await repo.list_by_account_page(account_id, page=page, size=size)

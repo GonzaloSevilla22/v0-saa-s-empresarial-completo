@@ -65,6 +65,16 @@ async def get_account(
     return account
 
 
+async def list_movements(
+    repo: SupplierAccountRepository,
+    supplier_account_id: str,
+    page: int = 0,
+    size: int = 50,
+) -> dict:
+    """v3-api-standards §2.8: envelope estándar {items,total,page,pages}."""
+    return await repo.list_movements_page(supplier_account_id, page=page, size=size)
+
+
 async def register_payment_made(
     repo: SupplierAccountRepository,
     auth: dict,

@@ -15,8 +15,16 @@ import { ProductForm } from "@/components/forms/product-form"
 import { Button } from "@/components/ui/button"
 import { SlidersHorizontal, Upload } from "lucide-react"
 import { ExportButton } from "@/components/export/ExportButton"
-import { holdsOwnStock } from "@/lib/product-stock"
+import { holdsOwnStock, getStockStatus, isBelowThreshold, type StockStatus } from "@/lib/product-stock"
 import type { Product } from "@/lib/types"
+
+/** Sort order for the "Estado" column — most urgent first, "sin mínimo" last. */
+const STATUS_SORT_RANK: Record<StockStatus, number> = {
+  critico: 0,
+  bajo: 1,
+  ok: 2,
+  "sin-umbral": 3,
+}
 
 const columns: Column<Product>[] = [
   {
@@ -46,17 +54,13 @@ const columns: Column<Product>[] = [
     header: "Estado",
     cell: (row) => <StockSemaphore stock={row.stock} minStock={row.minStock} />,
     sortable: true,
-    sortValue: (row) => {
-      if (row.stock <= row.minStock) return 0
-      if (row.stock <= row.minStock * 1.5) return 1
-      return 2
-    },
+    sortValue: (row) => STATUS_SORT_RANK[getStockStatus(row.stock, row.minStock)],
   },
   {
     key: "reponer",
     header: "A reponer",
     cell: (row) => {
-      const toOrder = row.stock <= row.minStock ? row.minStock * 2 - row.stock : 0
+      const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
       return toOrder > 0 ? (
         <span className="text-primary font-medium tabular-nums">{toOrder} unidades</span>
       ) : (
@@ -104,10 +108,7 @@ export default function StockPage() {
   // variant_only parents (stock lives in their children) and untracked services
   // are catalogue constructs and would otherwise show bogus "Crítico" rows.
   const inventory = products.filter(holdsOwnStock)
-  const lowStock = inventory.filter(p =>
-    p.minStock > 0 &&
-    p.stock <= p.minStock
-  )
+  const lowStock = inventory.filter(p => isBelowThreshold(p.stock, p.minStock))
   const { isAdmin } = useAuth()
 
   // Quick-edit dialog triggered from the alert panel
@@ -172,7 +173,7 @@ export default function StockPage() {
         searchKey={(row) => `${row.name} ${row.category}`}
         getId={(row) => row.id}
         mobileCard={(row) => {
-          const toOrder = row.stock <= row.minStock ? row.minStock * 2 - row.stock : 0
+          const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
           return (
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex flex-col gap-0.5">

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
 import { useProducts } from "@/hooks/data/use-products"
+import { holdsOwnStock, isBelowThreshold } from "@/lib/product-stock"
 import { createClient } from "@/lib/supabase/client"
 import { utcDayRange } from "@/lib/date-range"
 
@@ -20,12 +21,7 @@ interface AiSummaryCardProps {
 
 export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
   const { products } = useProducts()
-  const lowStock = products.filter(p =>
-    p.stockControlType !== "untracked" &&
-    p.stockControlType !== "variant_only" &&
-    p.minStock > 0 &&
-    p.stock <= p.minStock
-  )
+  const lowStock = products.filter(p => holdsOwnStock(p) && isBelowThreshold(p.stock, p.minStock))
 
   const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)

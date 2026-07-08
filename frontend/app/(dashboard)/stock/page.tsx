@@ -15,6 +15,7 @@ import { ProductForm } from "@/components/forms/product-form"
 import { Button } from "@/components/ui/button"
 import { SlidersHorizontal, Upload } from "lucide-react"
 import { ExportButton } from "@/components/export/ExportButton"
+import { holdsOwnStock } from "@/lib/product-stock"
 import type { Product } from "@/lib/types"
 
 const columns: Column<Product>[] = [
@@ -73,10 +74,8 @@ const columns: Column<Product>[] = [
 /** Inline adjust button rendered per row — declared outside so columns is stable */
 function AdjustButton({ product }: { product: Product }) {
   const [open, setOpen] = useState(false)
-  if (
-    product.stockControlType === "variant_only" ||
-    product.stockControlType === "untracked"
-  ) {
+  // Variant parents and untracked services have no stock to adjust at this level.
+  if (!holdsOwnStock(product)) {
     return null
   }
   return (
@@ -101,9 +100,11 @@ function AdjustButton({ product }: { product: Product }) {
 
 export default function StockPage() {
   const { products } = useProducts()
-  const lowStock = products.filter(p =>
-    p.stockControlType !== "untracked" &&
-    p.stockControlType !== "variant_only" &&
+  // The stock/reposition views operate over real inventory items only —
+  // variant_only parents (stock lives in their children) and untracked services
+  // are catalogue constructs and would otherwise show bogus "Crítico" rows.
+  const inventory = products.filter(holdsOwnStock)
+  const lowStock = inventory.filter(p =>
     p.minStock > 0 &&
     p.stock <= p.minStock
   )
@@ -165,7 +166,7 @@ export default function StockPage() {
 
       {/* ── Full inventory table ──────────────────────────────────────────── */}
       <DataTable
-        data={products}
+        data={inventory}
         columns={columns}
         searchPlaceholder="Buscar productos..."
         searchKey={(row) => `${row.name} ${row.category}`}

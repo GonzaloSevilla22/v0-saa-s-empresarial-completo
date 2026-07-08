@@ -201,18 +201,16 @@ export function ProductCatalog({
     return { groups, standalones }
   }, [products])
 
-  // ── Filter + auto-expand when searching ────────────────────────────────────
-  const { filteredGroups, filteredStandalones, autoExpanded } = useMemo(() => {
+  // ── Filter by search ───────────────────────────────────────────────────────
+  // Groups are NOT auto-expanded on match: parents stay collapsed until the user
+  // toggles them (same as the no-search view). A child-only match still surfaces
+  // its parent — collapsed — with the matching variants revealed on expand.
+  const { filteredGroups, filteredStandalones } = useMemo(() => {
     if (!search.trim()) {
-      return {
-        filteredGroups: groups,
-        filteredStandalones: standalones,
-        autoExpanded: new Set<string>(),
-      }
+      return { filteredGroups: groups, filteredStandalones: standalones }
     }
 
     const q = search.toLowerCase()
-    const autoExpanded = new Set<string>()
 
     const filteredGroups = groups
       .map((g) => {
@@ -229,7 +227,6 @@ export function ProductCatalog({
 
         if (!parentHit && matchingChildren.length === 0) return null
 
-        autoExpanded.add(g.parent.id)
         return { parent: g.parent, children: parentHit ? g.children : matchingChildren }
       })
       .filter(Boolean) as ProductGroup[]
@@ -241,7 +238,7 @@ export function ProductCatalog({
         (p.barcode ?? "").toLowerCase().includes(q),
     )
 
-    return { filteredGroups, filteredStandalones, autoExpanded }
+    return { filteredGroups, filteredStandalones }
   }, [groups, standalones, search])
 
   // ── Expand toggle ─────────────────────────────────────────────────────────
@@ -254,7 +251,7 @@ export function ProductCatalog({
   }
 
   function isExpanded(parentId: string) {
-    return expandedIds.has(parentId) || autoExpanded.has(parentId)
+    return expandedIds.has(parentId)
   }
 
   // ── Delete with loading guard ──────────────────────────────────────────────
@@ -413,6 +410,7 @@ export function ProductCatalog({
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => toggleExpand(g.parent.id)}
+                            aria-label={expanded ? "Colapsar variantes" : "Expandir variantes"}
                             className="text-muted-foreground hover:text-foreground"
                           >
                             {expanded ? (
@@ -670,6 +668,7 @@ export function ProductCatalog({
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                          aria-label={expanded ? "Colapsar variantes" : "Expandir variantes"}
                           onClick={(e) => {
                             e.stopPropagation()
                             toggleExpand(g.parent.id)

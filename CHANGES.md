@@ -892,15 +892,26 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - `BankReconciliation` ✅ **COMPLETA (3/3)**: C1 `bank-account-ledger` ✅ (2026-06-27, PR #243) → C2 `bank-payment-routing` ✅ (2026-07-02, PR #249) → **C3 `bank-reconciliation` ✅ (2026-07-02, PRs #252/#253 — import de extracto + sesiones FSM + matching + cierre con diferencia; ver "Post-roadmap V2.x")**. C3 nació con modelo V3 aplicado: FSM open→closed terminal, motivo obligatorio (RN-A5) y fechas locales (RN-D5)
 - `JournalEntry` ✅ V1 entregado (`journal-entry-outbox`, 2026-06-27 — ver "Post-roadmap V2.x"): partida doble generada async vía Consumer 3 del outbox para ventas/compras/pagos/NC. Falta: plan de cuentas configurable + UI, gastos/cierre de caja, export contable (V2.6)
 - `CostCenter` ✅ dimensión + catálogo entregados (`cost-center-dimension`, 2026-06-27 — ver "Post-roadmap V2.x"): catálogo plano `cost_centers` + columna `cost_center_id` en gastos/compras + CRUD y selector opcional. Falta: reporting/agregación por centro (llega con `JournalEntry`/reporting)
-- Percepciones y retenciones (cálculo automático en `FiscalDocument` para el mercado argentino) — **depende de `v3-snapshot-pattern`**: sin `FiscalIdentitySnapshot` completo del receptor, la percepción calculada no puede justificarse contra la condición fiscal vigente al momento de emisión
+- **`v25-tax-perceptions`** (percepciones y retenciones AR) — promovido a change nombrado con bloque propio (ver "Post-roadmap V2.x" / Roadmap Modelo V3). Governance **CRÍTICO** (fiscal). Dependencia técnica `v3-snapshot-pattern` ✅ satisfecha; dependencia de secuencia `v31-fiscal-cae-real-adapter` (H-01) antes de facturación real.
 - **Del modelo V3 (§11) entran en esta fase**: `v3-notifications-realtime` (§3, el outbox ya está maduro) y `v3-reporting-invariants` (§8) — ver "Roadmap Modelo V3" abajo
 
 ### V3 — Inteligencia
 
-- `AIAgent` configurable (nace aquí una vez que tenga invariantes de negocio reales — ver DEC-21)
-- `KnowledgeBase`/`Embedding` con datos propios del tenant (requiere presupuesto para vector DB)
-- Automatizaciones trigger-based (alertas de stock, resumen mensual proactivo, predicción de demanda) — los triggers consumen del outbox; la infraestructura de aviso llega antes con `v3-notifications-realtime`
-- **Del modelo V3 (§11)**: `v3-product-composition` (BOM ligera de 1 nivel — combos, canastas, elaborados; §7.2) y conversión de unidades del mismo tipo (§7.1, V3.5; el `type` de `units_of_measure` se persiste antes, en `v3-catalog-masters`)
+> **Deja de ser placeholder**: `ROADMAP_MEJORAS_ALIADATA.md` §6.2 (`ia-ml`, 17 mejoras verificadas contra `audit/ia.md`) ya descompuso esta fase. El gate de **DEC-21** (`AIAgent` "nace cuando tenga invariantes de negocio reales") **ya está técnicamente satisfecho**: las invariantes (RPCs `SECURITY DEFINER` con DEC-24, FSM+historial, snapshots) existen desde 2026-07-02/07/07. Lo que falta NO es esperar más invariantes, sino cerrar la **higiene de IA** y la dependencia de **RBAC**.
+
+Orden de secuencia recomendado (dependencias reales, no solo temáticas):
+
+1. **`v3-ia-hygiene-baseline`** — Governance BAJO-MEDIO, esfuerzo M. Bundle de higiene que **ningún `v31-*` cubre hoy**: M-IA-04 (gating/quota del Copiloto, `frontend/app/api/ai/copilot/route.ts` sin ninguno), M-IA-05 (tenancy `ai_conversations` de `user_id` → `account_id`), M-IA-06 (consolidar `_shared/` — hoy solo `ai-quota.ts`, 9 copias del cliente OpenAI), M-IA-07 (sanitizar prompt injection en `ai-simulador`/OCR), M-IA-08 (unificar fuente de métricas a `v_sales_flat` — 3 funciones leen `sales` header), M-IA-09 (unificar persistencia de `insights` a `rpc_atomic_log_ai_insight` — hoy 2 caminos de escritura), M-IA-10 (homogeneizar contrato JSON+gating de `ai-resumen`/`ai-prediccion`/`ai-simulador`). Referenciar (no duplicar) `v31-ia-ratelimit-budget` (H-11, cubre solo `invoice-ocr`) y `v31-ia-telemetry-evals` (H-20, telemetría/evals) como hermanos ya scopeados.
+2. **`v3-outbox-consumer-registry`** — Governance **ALTO** (toca la RPC crítica `rpc_process_outbox_dispatch`). = M-AUTO-01/M-IA-03/M-INT-07/M-ARQ-08 convergentes. Tabla `outbox_consumers(event_type, consumer_name, enabled, order)` + dispatch dinámico reemplazando el `IF event_type IN (...)` **hardcodeado** (agregar el Consumer 4 ya obligó un `CREATE OR REPLACE` de toda la función). Retirar/blindar el relay Python divergente (`OutboxRelayService`, 2/4 consumers, invocable por cualquier autenticado — **H-09**) + guard a `rpc_mark_event_processed`. **Prerequisito bloqueante de toda automatización de esta fase** — no es una nota al pie. Separa de `v31-ia-telemetry-evals` la preocupación "outbox no extensible" (ALTO governance) que hoy convive mal con "telemetría/evals" (BAJO).
+3. **`v3-stock-alert-automation`** — Governance BAJO, quick win. = M-IA-15. Primer caso de uso sobre el registro de consumers: trigger de cruce de umbral `branch_stock.min_stock` → notificación (sin costo LLM). Insumos **ya completados**: `v3-notifications-realtime` ✅ + `branch-min-stock-realign` ✅ — solo falta el consumer/trigger, una vez exista (2).
+4. **`v3-knowledgebase-rag-pgvector`** — Governance MEDIO. = M-IA-12. Habilitar `pgvector` (**revalidar primero el supuesto de costo con el PO**: no hay `CREATE EXTENSION vector` en las migraciones y `pgvector` corre dentro del Postgres ya contratado — el supuesto "requiere presupuesto para vector DB" **no está verificado**) + KB mínima (FAQ, catálogo con embeddings, OCR ya extraído) reemplazando el "RAG" hoy inexistente (snapshot numérico, no retrieval vectorial). Dependencia: `v3-ia-hygiene-baseline` (tenancy correcta antes de indexar).
+5. **`v3-ai-agent-mcp-tools`** — Governance **CRÍTICO/ALTO** (sign-off PO antes de otorgar cualquier tool de escritura). = M-IA-11. AIAgent como capa de tools tipadas sobre los RPCs `SECURITY DEFINER` existentes, vía servidor MCP interno. **Dependencias explícitas: `v3-ia-hygiene-baseline` + `v3-rbac-multirole`** (para que el agente respete permisos por rol al ejecutar acciones de escritura — crear venta, cobrar) — dependencia hoy AUSENTE del placeholder pese a que M-IA-11 la señala.
+6. **`v3-product-composition`** — ya nombrado (ver su ficha propia). Mantiene su lugar en la fase.
+7. **`v3-uom-conversion`** — Governance BAJO. = M-FUNC-10 (§11/V3.5). Conversión entre unidades del mismo `type` (compra en kg, vende por unidad). El `type` ya se persiste desde `v3-catalog-masters` ✅ → sin migración de datos, solo la lógica de conversión.
+
+**Backlog de la fase** (sin urgencia de arranque, explícito para no perderlo): M-IA-14 (forecasting con serie temporal real), M-IA-16 (anomalías en caja/conciliación), M-IA-17 (scoring de clientes).
+
+> **Leer antes** (toda la fase): `ROADMAP_MEJORAS_ALIADATA.md` §6.2 (M-IA-01…17, M-AUTO-01, M-INT-07, M-ARQ-08), `audit/ia.md` (H-09/H-20), `modelo-dominio-aliadata-v3.md` §11, `knowledge-base/09_decisiones_y_supuestos.md` DEC-21.
 
 ---
 
@@ -1017,6 +1028,22 @@ C-19 → C-20 → C-29 → C-30                            ← V2.1 rama ventas/
 - **Specs sincronizadas**: `bank-reconciliation` (nueva), `bank-movement` (MODIFIED taxonomía + RPC manual; ADDED estado de conciliación).
 - **Diferido (fast-follow)**: auto-generación de asientos de ajuste, netting de `card_settlement` (bruto≠neto), sugerencias IA, presets de mapeo CSV por banco, XLSX nativo.
 - **Leer antes**: `openspec/changes/archive/2026-07-02-bank-reconciliation/design.md` (D1-D9), specs `bank-reconciliation`/`bank-movement`.
+
+### `v25-tax-perceptions` — Percepciones y retenciones AR (V2.5 fiscal)
+- **Estado**: `[ ]` pendiente — solo análisis/diseño hasta sign-off explícito del PO
+- **Governance**: **CRÍTICO** (fiscal — alícuotas incorrectas = contingencia impositiva real para el usuario final; señalado por M-FUNC-03, nunca declarado explícito en el CHANGES.md previo).
+- **Por qué tiene bloque propio ahora**: era la única "próxima prioridad" nombrada (líneas 895/965/1085) **sin formato de change** (sin Governance/Scope/Dependencias estructurados), pese a ser dinero + fisco. `v3-snapshot-pattern` ✅ (su única dependencia declarada) está satisfecha desde 2026-07-02.
+- **Scope**:
+  - Cálculo automático de percepciones/retenciones en `FiscalDocument` para el mercado argentino, justificado contra el `FiscalIdentitySnapshot` completo del receptor (condición fiscal vigente al momento de emisión).
+  - **Alícuotas como catálogo versionado desde el día uno**: `tax_perception_rates(jurisdiction, regime, rate, valid_from, valid_to)` — **explícitamente para NO repetir el patrón de plan-de-cuentas-hardcodeado de `journal-entry-outbox`**. Acá el costo de un hardcode desactualizado es **legal**, no solo contable: IIBB/percepciones cambian por norma provincial con frecuencia.
+  - **Soporte del array `Tributos` en `WSFEAdapter`/`WSFEStubAdapter`** — percepciones/retenciones van en un array separado del de IVA en el esquema WSFEv1 de AFIP. Trabajo estructuralmente igual al array `Iva` que `v21-wsfe-production-hardening` ya construyó.
+  - **Tratamiento sobre notas de crédito** (reversión proporcional) como parte del scope, no como nota lateral.
+- **Dependencias**:
+  - `v3-snapshot-pattern` ✅ (satisfecha).
+  - `v3-reporting-invariants` ✅ — **dependencia de datos**: la distinción devengado/percibido (RN-D3, ya implementada) es relevante si las retenciones se calculan al cobro y no a la facturación.
+  - `v31-fiscal-cae-real-adapter` (H-01) — **dependencia de secuencia**: recomendar cerrarla antes de habilitar percepciones en facturación real, o la primera percepción calculada se valida contra un CAE **fabricado** (el fire-and-forget fiscal usa hoy siempre el adapter STUB).
+  - `v31-wsaa-ticket-cache` (H-18) — **dependencia de escala**: si el volumen con percepciones supera 1 comprobante/día por ambiente, choca con el mismo cooldown WSAA que ya bloquea facturación en volumen (sin `PlatformPostgresTicketCache`).
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §1 (FiscalIdentitySnapshot), `ROADMAP_MEJORAS_ALIADATA.md` §M-FUNC-03, `audit/seguridad.md` H-01 + estado WSAA/H-18, C-27/v21/v22 (WSFE), `knowledge-base/05_reglas_de_negocio.md` §fiscal.
 
 ### `v22-afip-delegation-billing` — Facturación AFIP por delegación
 - **Estado**: `[x]` archivado 2026-06-26. Código ya en prod; gate externo del PO = **task 9.1** (E2E homologación ARCA, ver "Pendiente externo" arriba).
@@ -1154,17 +1181,26 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `modelo-dominio-aliadata-v3.md` §4, `modelo-dominio-aliadata-v2.md` §2.6.5 (H-riesgo original), `knowledge-base/04_modelo_de_datos.md`
 
 ### `v3-rbac-multirole` — Membership multi-rol con expiración (V3 §5)
-- **Estado**: `[ ]` pendiente
-- **Governance**: **CRÍTICO** (auth/RLS — solo análisis hasta sign-off explícito del PO)
+- **Estado**: `[ ]` pendiente — **BLOQUEADO por prerequisitos de auditoría** (ver Dependencias duras)
+- **Governance**: **CRÍTICO** (auth/RLS — solo análisis y diseño hasta sign-off explícito del PO). El scope ampliado no baja el nivel: lo hace más honesto — el sign-off del PO en la práctica cubre **3 changes** (este + `v31-authz-token-hook` + la decisión de `v31-tenancy-pool-rls`).
+- **Hallazgo que reescribe el scope (auditoría 2026-07-07)**: el bloque original diseña la capa 3 (RBAC/DB) sobre una capa 2 (autorización de aplicación) que la auditoría **confirmó ficticia** (H-07) y una capa de aislamiento (RLS) que confirmó **inerte para el backend** (H-05). Migrar el pivot de roles y reescribir `require_role` para leerlo **no cambia nada en prod** si el rol nunca llega al JWT.
 - **Scope**:
-  - Pivot `account_member_roles`: `(member_id, role, assigned_by, assigned_at, expires_at)` reemplaza `account_members.role` singular (verificado: CHECK `('owner','admin','member')`); compat: cada rol legacy se migra a una fila del pivot
-  - Catálogo cerrado y global (se ratifica contra Food Store: sin RBAC dinámico por tenant) ampliado: `OWNER / ADMIN / SELLER / CASHIER / STOCK / PURCHASES / ACCOUNTANT / VIEWER`
-  - `expires_at` (rol temporal: cajero suplente, contador en época de balance) evaluado en `isActive()` — el enforcement ignora roles vencidos
-  - Migrar `require_role` (10+ services del backend) y los helpers RLS (`is_account_writer`, `current_account_ids`) a leer el pivot — con feature flag estilo Strangler Fig
-  - Matriz **rol × transición FSM** (RN-A4): `CASHIER` cobra pero no anula; `STOCK` ajusta con motivo pero no confirma compras — enforcement sobre `StatusTransitionPolicy`
-  - UI `/organizacion/roles`: asignación multi-rol con quién/cuándo/vencimiento
-- **Dependencias**: `v3-document-status-history` (para la matriz por transición); gating por plan a definir con PO (¿roles funcionales solo en avanzado/pro?)
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §5 y §10, `knowledge-base/03_actores_y_roles.md`, migración `20260606010000_roles_internos.sql`
+  - Pivot `account_member_roles`: `(member_id, role, assigned_by, assigned_at, expires_at)` reemplaza `account_members.role` singular (verificado: CHECK `('owner','admin','member')` en `20260606010000_roles_internos.sql`); compat: cada rol legacy migra a una fila del pivot.
+  - Catálogo cerrado y global (sin RBAC dinámico por tenant): `OWNER / ADMIN / SELLER / CASHIER / STOCK / PURCHASES / ACCOUNTANT / VIEWER`.
+  - `expires_at` (rol temporal: cajero suplente, contador en balance) evaluado en `isActive()` — el enforcement ignora roles vencidos. **Incluye estrategia de invalidación de cache/sesión** (M-ARQ-04): resolución determinística de la cuenta activa (`backend/core/deps.py` hoy sin `ORDER BY`) + invalidación de la membresía cacheada; si se decide NO cachear, documentar explícitamente que el vencimiento se resuelve por re-lectura por request (latencia de hasta 1 request de margen).
+  - **Fix del fixture de auth (pre-tarea bloqueante, mismo PR)**: `TypedDict AuthContext` con el shape real `{user_id, role, plan}` — sin esto, los tests nuevos de RBAC heredan la ceguera de H-06 (fixture con shape falso `{sub, role}` que ya ocultó 3 endpoints en 500).
+  - Migrar `require_role` (10+ services) y los helpers RLS (`is_account_writer`, `current_account_ids`) a leer el pivot — con feature flag estilo Strangler Fig. **La forma de esta tarea depende de la decisión de `v31-tenancy-pool-rls`**: si se elige Opción B (barrido manual de `account_id`), se reemplaza "migrar helpers RLS" por "propagar el chequeo de rol al filtro manual de cada repository".
+  - **Criterios de aceptación explícitos** (no solo consecuencia esperada): (a) `cost_centers` deja de dar 403 universal (H-07) para roles habilitados; (b) gating de plan **fail-closed** (`accounts.billing_plan` con default `'gratis'`, reemplazando el fail-open actual de "999999 para todos").
+  - Matriz **rol × transición FSM** (RN-A4): `CASHIER` cobra pero no anula; `STOCK` ajusta con motivo pero no confirma compras — enforcement sobre `StatusTransitionPolicy`. **Secuenciar después de `v31-fsm-status-triggers`** (H-17): sin el trigger `BEFORE UPDATE`, RN-A4 queda evadible por `UPDATE` directo vía PostgREST — si se implementa antes, documentarlo como brecha conocida hasta que el trigger exista.
+  - **Gancho de datos maker-checker** (M-SEC-13): dejar `requires_second_approval` en `document_status_transitions`/`account_member_roles` en el mismo DDL si el costo marginal es bajo — evita una segunda migración destructiva sobre la misma tabla.
+  - UI `/organizacion/roles`: asignación multi-rol con quién/cuándo/vencimiento.
+- **Dependencias DURAS (bloqueantes, nuevas — no estaban en el bloque original)**:
+  - `v31-authz-token-hook` (H-07) — **prerequisito real**, no "sinergia en prosa": el `custom_access_token_hook` existe en DB pero está DESHABILITADO en Supabase Auth de prod (`config.toml:267-272`; 29 usuarios, 0 con claim de rol). Debe estar cerrado y verificado en prod (claim de rol viajando en el JWT de al menos 1 usuario de prueba) **antes de mergear** el pivot.
+  - `v31-tenancy-pool-rls` (H-05) — **decisión de plataforma con sign-off** (Opción A: rol sin `BYPASSRLS` + policies + GUC con claims vs Opción B: barrido de repos con `account_id`) **antes** de tocar `is_account_writer`/`current_account_ids`. El pool corre hoy como `postgres` con `rolbypassrls=true` → RLS inerte para el backend.
+  - `v31-fix-auth-shape-500` (H-06) — corregir el fixture de auth antes de escribir los tests de la matriz rol×transición.
+- **Dependencias (secuencia / ya satisfechas)**: `v3-document-status-history` ✅ (matriz por transición — consume `allowed_role`); `v31-fsm-status-triggers` (H-17) para enforcement DB de RN-A4.
+- **Bloqueante de diseño a resolver ANTES de escribir código**: gating por plan (¿roles funcionales solo en `avanzado`/`pro`?) — con fecha y owner (PO). No es un detalle menor: "roles internos avanzados" ya es promesa comercial del plan PRO (M-ARQ-03).
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §5 y §10, `knowledge-base/03_actores_y_roles.md`, migración `20260606010000_roles_internos.sql`, `audit/seguridad.md` (H-05/H-06/H-07) + `audit/arquitectura.md` (H-05), `ROADMAP_MEJORAS_ALIADATA.md` §M-ARQ-03/M-ARQ-04/M-SEC-13.
 
 ### `v3-provisioning-seed` — Aprovisionamiento completo por tenant (V3 §7.5)
 - **Estado**: `[x]` ✅ COMPLETADA 2026-07-06 (PRs #279/#280)
@@ -1224,13 +1260,21 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 
 ### `v3-product-composition` — BOM ligera de un nivel (V3 §7.2, fase V3)
 - **Estado**: `[ ]` pendiente — **fase V3** (no proponer antes de cerrar V2.5)
-- **Governance**: MEDIO (toca el hot path de venta cuando el producto es COMPOSITE)
+- **Governance**: MEDIO (toca el hot path de venta cuando el producto es COMPOSITE). **Gobernanza efectiva sube a ALTO** mientras H-15 y/o H-10 sigan abiertos al momento de proponer — ver Dependencias.
 - **Scope**:
-  - `Product.kind ('SIMPLE','COMPOSITE')` + tabla `product_components (product_id, component_id, qty, optional)`
-  - Regla de stock: vender un `COMPOSITE` registra movimientos **sobre los componentes** (explosión simple de 1 nivel, dentro de la misma transacción de la venta); sin recursión multi-nivel ni órdenes de producción (eso es manufactura — fuera de alcance)
-  - Casos target: combos, canastas, panadería/rotisería (segmento real)
-- **Dependencias**: `v3-snapshot-pattern` (el componente congela su costo al explotar)
-- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.2 y §10
+  - `Product.kind ('SIMPLE','COMPOSITE')` + tabla `product_components (product_id, component_id, qty, optional)`.
+  - Regla de stock: vender un `COMPOSITE` registra movimientos **sobre los componentes** (explosión simple de 1 nivel, dentro de la misma transacción de la venta); sin recursión multi-nivel ni órdenes de producción (eso es manufactura — fuera de alcance).
+  - **Costeo en `Decimal`/`NUMERIC` end-to-end**: la suma de N costos de componentes se hace sin pasar por el `float` intermedio que la auditoría (H-16) encontró en fronteras de service (`cash.py`, `customer_accounts.py`).
+  - **Orden determinístico de lock de componentes** (`ORDER BY component_id`) en la explosión de stock, para prevenir deadlocks cuando dos ventas simultáneas comparten componentes (el hot path ya usa `FOR UPDATE` en otros puntos).
+  - **Nueva invariante de reporting** (extensión, NO cubierta por `v3-reporting-invariants` ✅): margen de un COMPOSITE = `precio de línea − Σ costos de componentes explotados` (no el RN-D2 "precio − costo snapshot de línea"). Ampliar `rpc_product_profitability` para esa agregación.
+  - Casos target: combos, canastas, panadería/rotisería (segmento real).
+- **Dependencias**:
+  - `v3-snapshot-pattern` ✅ (el componente congela su costo al explotar) — satisfecha.
+  - `v31-document-lines-consistency` (H-15) — **dependencia real, nueva**: `sale_items` no es universal (flag `sale_items_rpc_v2` off en 3/29 cuentas; 50/293 `name_snapshot` NULL; 293/293 `iva_rate_snapshot` NULL). Vender un COMPOSITE en una cuenta sin el flag heredaría el mismo hueco de snapshot que causó el bug de revenue del 17,53%. Activar el flag en las 3 cuentas + backfill **antes o junto con** este change.
+  - `v31-sales-delete-rpc-reversal` (H-10) — **dependencia recomendada / gate "no habilitar en prod hasta"**: el borrado de una venta COMPOSITE fuera del patrón RPC-as-UoW **multiplica el daño por N** (un movimiento huérfano por componente en vez de uno; agrava los 79 huecos verificados de `movement_number` y el descuadre contable).
+- **Riesgo de calidad de dato (documentar, no bloqueante)**: K8 / M-FUNC-05 — `rpc_create_purchase_operation` **no escribe `purchase_items`** (compras = header plano). Si un componente se adquirió sin línea de compra con costo unitario, el `unitCostSnapshot` al explotar solo tiene el header agregado, no el costo por línea.
+- **Nota de diseño (no bloqueante)**: prorrateo de descuentos a componentes — si en el futuro existe un motor de descuentos (M-FUNC-07), definir si el descuento a la línea del COMPOSITE se prorratea a los componentes explotados o vive solo a nivel del compuesto. Dejarlo anotado para no reabrir el modelo de datos.
+- **Leer antes**: `modelo-dominio-aliadata-v3.md` §7.2 y §10, `audit/codigo-backend.md` (H-10/H-15/H-16), `ROADMAP_MEJORAS_ALIADATA.md` §M-FUNC-05/M-FUNC-07, `supabase/migrations/` (estado de `sale_items_rpc_v2`).
 
 ---
 
@@ -1360,3 +1404,1138 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - Configuración de verificación de email en Supabase Auth.
 
 > **Secuencia recomendada**: `v31-ci-test-gate` + `v31-send-email-lockdown` + `v31-admin-rpc-lockdown` + `v31-fix-auth-shape-500` primero (bajo riesgo, alto valor, implementables ya) → en paralelo, análisis/diseño con sign-off PO de `v31-fiscal-cae-real-adapter`, `v31-mp-upgrade-webhook-fix` y `v31-tenancy-pool-rls` (los tres CRÍTICOS de dinero/fiscal/aislamiento) → P1 tras cerrar P0.
+
+---
+
+## Fase V4 — Profesionalización Integral (Backend + Frontend + Plataforma)
+
+> **Adoptada 2026-07-09.** Bloque de 55 changes (`v4-*`) organizados en 6 pistas y 4 sub-olas (V4.0 → V4.3). Fuente de verdad del scope por change: `v4/track-backend.md`, `v4/track-frontend.md`, `v4/track-plataforma.md`, `v4/track-seguridad.md`, `v4/track-ia.md`, `v4/track-producto-calidad.md`.
+
+Con el roadmap numerado (C-01→C-30) cerrado, la Fase V2.5 Finanzas casi completa y el Modelo V3 en retrofit, ALIADATA ya **funciona** a la escala actual (~29 cuentas, bajo volumen). La Fase V4 no agrega superficie funcional nueva: cierra la brecha entre **"funciona"** y **"es un producto profesional que aguanta crecer"**. Para ALIADATA, "profesional" significa cuatro cosas concretas: (1) el backend arranca fail-fast, se versiona, se observa y se resiste a fallos transitorios; (2) el frontend no tiene `any`, tiene error boundaries en las 63 rutas, cumple WCAG AA y funciona offline en el POS; (3) la plataforma tiene CI real, staging, IaC, backups verificados, secretos rotables y feature flags operables sin deploy; y (4) la IA deja de ser un conjunto de Edge Functions sin telemetría para volverse un agente con guardrails, memoria y herramientas auditadas.
+
+**Relación con v3.1 (Ola 0 previa, prerequisito).** La Fase V4 **no reemplaza ni reimplementa** la remediación v3.1 (H-01…H-34): la **asume cerrada o en curso** y construye encima. Cada change v4 declara explícitamente qué `v31-*` extiende, detalla o consume como dependencia dura. Los P0 de v3.1 (gate de CI, lockdown de superficie, fix de auth, tenancy del pool, webhook de upgrade, CAE real) son la base sobre la que V4 apila madurez. Donde v3.1 dejó un stub (fila de tabla sin bloque de Scope — p.ej. `v31-e2e-money-flows`, `v31-a11y-rhf-forms`, `v31-design-system-consistency`), el change v4 correspondiente le da el contenido accionable sin duplicar la intención.
+
+**Relación con V3 — Inteligencia.** La Pista 5 (IA) desarrolla la fase placeholder "V3 — Inteligencia" del roadmap: registro dinámico de consumers del outbox, higiene y tenancy del Copiloto, guardrails anti prompt-injection, evals de calidad, memoria conversacional real, automatizaciones proactivas, forecasting, RAG con pgvector y, como techo, la capa de herramientas MCP para el agente. Todo lo que ejecuta acciones reales de dinero/stock queda **duro-bloqueado** por el sign-off de `v3-rbac-multirole` + `v31-authz-token-hook` (rol real en el JWT); sin eso la segregación de funciones y el agente con tools serían decorativos.
+
+### Nota metodológica — `hecho_verificado` vs `recomendación`
+
+Cada change se etiqueta por el tipo de evidencia que lo sostiene:
+
+- **`hecho_verificado`** — el gap fue confirmado leyendo código real de esta sesión (`main.py`, `core/config.py`, `core/database.py`, `core/redis_client.py`, `core/errors.py`, `conftest.py`, `frontend/`, `supabase/migrations/*`, `.github/workflows/*`) con evidencia `path:línea`. Se puede proponer y ejecutar con la governance indicada.
+- **`recomendación`** — apuesta anticipatoria o decisión de costo/producto sin incidente real hoy; requiere validación/sign-off del PO antes de escribir código. Son: `v4-backend-09` (cola de trabajos pesados), `v4-frontend-09` (i18n), `v4-plataforma-05` (DR drill), `v4-seguridad-08` (pentest periódico) y `v4-producto-calidad-10` (portal del cliente).
+
+Ningún change v4 duplica un `v31-*`: lo **referencia** en el campo **Consolida** y en **Dependencias**. Los changes que tocan dinero / fiscal / auth / aislamiento heredan la regla dura: **CRÍTICO → solo análisis y diseño hasta sign-off explícito del PO**.
+
+---
+
+### Pista 1 — Backend profesional (FastAPI / Python)
+
+> 9 changes. Config fail-fast, versionado de API, taxonomía de errores madura, harness de integración real, observabilidad propia, resiliencia de conexión, rate limiting y cache Redis. Detalle: `v4/track-backend.md`.
+
+#### `v4-backend-01` — Config fail-fast en producción (extiende `v31-startup-guards`)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.0 · **Esfuerzo**: S · **Evidencia**: hecho_verificado
+- **Objetivo**: que el backend rechace arrancar en `app_env=production` si falta cualquier secreto/config crítico, extendiendo `v31-startup-guards` (hoy solo CORS/HS256) a toda la superficie de `Settings`.
+- **Scope**:
+  - `model_validator(mode='after')` en `Settings`: exigir no-vacío/no-default en `database_url`, `supabase_jwt_secret` (≠`'dev-secret'`), `redis_url`, `service_role_key`, `supabase_url`, `mercadopago_webhook_secret`, `mercadopago_access_token`, `relay_secret` cuando `app_env=='production'`.
+  - Compartir el mismo validador que introduce `v31-startup-guards` (un solo lugar de validación, no dos).
+  - `afip_platform_cert/key/cuit` exigibles solo si un flag de facturación delegada está activo (documentar la condición).
+  - Test unitario de `Settings`: `app_env=production` + envs vacíos → falla antes de aceptar tráfico.
+  - Documentar checklist de env vars requeridas por ambiente en `backend/README`.
+  - Al fallar, loguear solo el nombre de la variable faltante, nunca su valor.
+- **Criterios de aceptación**:
+  - Con `APP_ENV=production` y cualquiera de las 8 variables críticas vacía, el proceso falla en startup con mensaje de qué falta.
+  - Con `APP_ENV=development` el comportamiento actual no cambia.
+  - Test cubre: todas presentes (pasa) / 1 crítica faltante (falla) / AFIP ausente sin flag activo (pasa).
+  - `README` backend documenta env vars requeridas por ambiente.
+- **Dependencias**: `v31-startup-guards` (H-23/H-25) — extiende el mismo validador, no lo duplica.
+- **Consolida**: H-23/H-25 (extiende `v31-startup-guards` más allá de CORS/HS256).
+
+#### `v4-backend-02` — Versionado `/api/v1` + OpenAPI docs versionada
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: versionar la API bajo `/api/v1` con OpenAPI publicado y política de deprecación, sin romper el webhook público de MercadoPago ni el `/health` de keep-warm.
+- **Scope**:
+  - Prefijar los 23 routers de negocio de `backend/main.py` bajo `/api/v1`.
+  - Excepción explícita: `POST /payments/webhook` (URL ya registrada en MercadoPago) y `GET /health` mantienen ruta actual sin cambios.
+  - Publicar `GET /api/v1/openapi.json` + Swagger UI en `/api/v1/docs`.
+  - Rutas legacy de negocio: header `Deprecation` o redirect 308 durante la ventana de transición mientras el frontend migra sus ~140 fetches directos (H-12).
+  - Coordinar con `v31-http-client-typed-errors` (mismo punto de contacto: cliente HTTP del frontend).
+  - Documentar política de versionado (cuándo abriría `/api/v2`).
+- **Criterios de aceptación**:
+  - Los 23 routers responden bajo `/api/v1/*`; `GET /api/v1/openapi.json` devuelve schema válido con `info.version`.
+  - `POST /payments/webhook` sigue respondiendo 200 en su URL exacta — test que simula la `notification_url` actual.
+  - `GET /health` sigue en la misma URL que usa `keep-backend-warm.yml`.
+  - Rutas legacy de negocio devuelven `Deprecation`/redirect documentado, no 404 inmediato.
+  - Módulos de mayor tráfico (ventas, dashboard) migrados a `/api/v1` sin regresión en la suite frontend.
+- **Dependencias**: `v31-http-client-typed-errors` (H-13); `v31-hybrid-boundary-erp` (H-12).
+- **Consolida**: M-ARQ-07 (versionado decidido, no implementado); coordina con H-12/H-13.
+
+#### `v4-backend-03` — Taxonomía de errores RFC 7807 v2 (`instance`, `type` real, registro único)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: madurar el RFC 7807 de `v3-api-standards` agregando `instance` (correlation-id), `type` como URI real y un registro único de códigos — contrato estable para el cliente tipado del frontend (H-13).
+- **Scope**:
+  - Agregar `instance` (mismo request-id del middleware de `v4-backend-05`) a los 4 puntos que emiten `problem_response` en `main.py`/`errors.py`.
+  - Reemplazar `type_='about:blank'` (default actual, sin overrides en todo el repo) por URI real por código, ej. `/api/v1/errors/{code}`.
+  - Consolidar `_BUSINESS_ERRCODE_STATUS` + `BANK_ACCOUNT_CREATE_ERRCODE_STATUS` + `_VALIDATION_ERROR_CODES` (hoy 3 diccionarios dispersos) en un único `error_codes.py`, clasificado en `client_error`/`domain_error`/`infra_error`.
+  - Test de contrato: falla si un sqlstate `P04xx` usado en una RPC no tiene entrada registrada (previene el gotcha de overloads ya vivido 2× en el proyecto).
+  - Declarar que `v31-http-client-typed-errors` depende de este change, no al revés.
+- **Criterios de aceptación**:
+  - Todo `problem_response` incluye `instance` = request-id de logs y del header `X-Request-Id`.
+  - `error_codes.py` es la única fuente de verdad: test de contrato falla si un `P04xx` de RPC no está registrado.
+  - `type` deja de ser siempre `about:blank` para los 15 códigos `P04xx` + `validation_error` + `http_error` + `internal_error`.
+  - `test_api_standards_errors.py` sigue en verde tras el cambio.
+- **Dependencias**: `v3-api-standards` (extiende); coordina con `v4-backend-05` (mismo request-id); prerequisito de `v31-http-client-typed-errors` (H-13).
+- **Consolida**: extiende `v3-api-standards` (archivado); prerequisito de H-13.
+
+#### `v4-backend-04` — Harness de integration tests contra Postgres real (generalizado más allá de dinero)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: generalizar el harness de integración contra Postgres real que construirá `v31-money-integration-tests` (hoy 100% mockeado) a routers/RPCs no-dinero, con contract tests de firmas de RPC.
+- **Scope**:
+  - Reutilizar (no reconstruir) el fixture Postgres real que introduce `v31-money-integration-tests`.
+  - Extender el marker `integration` (ya declarado en `pyproject.toml`, hoy sin consumidores) a routers no-dinero: products, clients, client_addresses, stock, branches, quotes/sales_orders (fuera del flujo de pago), fiscal (contra `WSFEStubAdapter`).
+  - Contract tests de RPCs `SECURITY DEFINER`: verificar firma contra lo que el repository Python invoca — detecta el gotcha ya vivido 2× ("CREATE OR REPLACE agregando parámetro crea 2º overload 42725").
+  - Guardrail en `conftest.py`: raise duro si la `DATABASE_URL` de integración no contiene `localhost`/`127.0.0.1`.
+  - Job de CI separado (no-required en la primera iteración) que corra `pytest -m integration`.
+- **Criterios de aceptación**:
+  - Al menos 5 routers no-dinero tienen tests `-m integration` corriendo contra Postgres real, no mocks.
+  - Un test de contrato detecta un mismatch deliberado de firma de RPC (spike de prueba) antes de mergear.
+  - `conftest.py` rechaza explícitamente si la `DATABASE_URL` de integración no apunta a `localhost`/`127.0.0.1`.
+  - El job de integración corre en CI (documentado el plan para volverlo required).
+- **Dependencias**: `v31-money-integration-tests` (construye el fixture base); `v31-ci-test-gate` (gate de CI previo).
+- **Consolida**: generaliza M-OPS-02/H-04/H-34 más allá de dinero; mismo prerequisito M-OPS-01.
+
+#### `v4-backend-05` — Observabilidad backend: Sentry + OpenTelemetry + logs estructurados + correlation-id
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dar al backend Python ojos propios — Sentry, logging JSON estructurado, correlation-id cross-stack y tracing OTel de FastAPI+asyncpg — gap que C-15 prometió y nunca cumplió.
+- **Scope**:
+  - `sentry-sdk` en el lifespan de `main.py` con `before_send` que redacta `Authorization`/`afip_platform_key`/`afip_platform_cert`/`mercadopago_access_token`/`mercadopago_webhook_secret`/`service_role_key`.
+  - Middleware ASGI que genera/propaga `X-Request-Id`, consumido por `instance` (`v4-backend-03`) y por el log JSON.
+  - Migrar `logger.getLogger('app')` de texto plano a JSON estructurado (timestamp, level, request_id, account_id, ruta, mensaje).
+  - Capturar en Sentry con contexto: ruta, método, account_id, `release`=git sha.
+  - Fuera de scope: elegir sink de agregación centralizada (decisión de costo con el PO, documentar la opción elegida).
+- **Criterios de aceptación**:
+  - Excepción no manejada disparada en dev/staging aparece en Sentry con stack trace + ruta + método + account_id (sin secrets) en <1 min.
+  - `X-Request-Id` de la respuesta = `instance` del `problem+json` = `request_id` del log JSON de la misma request.
+  - Test confirma que `before_send` redacta los 6 secrets listados — si aparecen en un evento simulado, el test falla.
+  - Logs de producción son JSON parseable línea por línea en el catch-all handler.
+- **Dependencias**: ninguna dura; coordina con `v4-backend-03` (mismo request-id); complementario de `v31-client-observability` (H-31, solo frontend).
+- **Consolida**: M-OPS-03 (Sentry+correlation-id backend, nueva) + M-OPS-07 (logging estructurado, nueva).
+
+#### `v4-backend-06` — Resiliencia asyncpg (tenacity) + salida del cold-start de Render
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dar resiliencia real a la conexión asyncpg con tenacity (declarada en `requirements.txt`, 0 usos reales) y resolver el cold-start de Render de raíz en vez de sostenerlo con un cron al 97% de las horas gratis.
+- **Scope**:
+  - Envolver `init_pool()` con `tenacity.retry` (backoff exponencial, 3-5 intentos) para tolerar fallos transitorios Render↔Supabase.
+  - Extender `GET /health` a readiness real (`SELECT 1` + PING Redis, 503 con detalle si falla) manteniendo un liveness liviano separado para el ping de `keep-backend-warm.yml`.
+  - Paso de decisión con el PO: (a) Render plan pago always-on, (b) Fly.io/Railway, (c) mantener parche actual — costo no verificable desde el repo.
+  - Si se mantiene (c): alerta cuando el consumo del workflow supere el 90% de las 750h/mes.
+- **Criterios de aceptación**:
+  - `init_pool()` reintenta con backoff ante un fallo transitorio simulado, en vez de crashear en el primer intento.
+  - Endpoint de readiness devuelve 503 con detalle cuando se simula Redis caído o pool no inicializado; liveness sigue liviano.
+  - Documento de decisión de costos entregado al PO comparando las 3 opciones — sign-off registrado antes de migrar plan.
+  - Si se mantiene Render free: alerta configurada antes de superar 90% de las 750h/mes.
+- **Dependencias**: coordina con `v4-backend-05` (logging/reporte consistente del readiness check).
+- **Consolida**: K10 (cold-start) + M-OPS-11 (migrar de free tier, nueva) + M-OPS-05 (readiness real, nueva).
+
+#### `v4-backend-07` — Rate limiting general sobre Redis (más allá de IA)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: rate limiting general para mutaciones, login/reset-password y (con cuidado) el webhook de pagos, sobre el Redis/Upstash ya provisionado y hoy sin uso (`redis_client.py` advierte "rate limiting unavailable").
+- **Scope**:
+  - Middleware ASGI de rate limiting sobre Redis (sliding window/token bucket), parametrizable por ruta/grupo.
+  - Reusar la conexión Redis ya inicializada en el lifespan (`backend/core/redis_client.py`) — no crear un segundo cliente.
+  - Excepción documentada y con límite específico (no exclusión ciega) para `POST /payments/webhook` (IP variable de MercadoPago).
+  - 429 en shape RFC 7807 (reusa `problem_response` de `v4-backend-03`) con header `Retry-After`.
+  - Reusar la primitiva de token bucket de `v31-ia-ratelimit-budget` en vez de reimplementarla.
+- **Criterios de aceptación**:
+  - Test que dispara N+1 requests a una ruta de mutación recibe 429 RFC 7807 + `Retry-After` en el intento N+1.
+  - Límite del webhook de pagos documentado (valor+justificación); test confirma que el volumen normal de MercadoPago no dispara 429.
+  - Login/reset-password con límite más estricto que rutas de negocio, verificado por test.
+  - No se crea una segunda conexión Redis (verificado por code review).
+- **Dependencias**: `v31-ia-ratelimit-budget` (H-11, reusa primitiva Redis); `backend/core/redis_client.py`.
+- **Consolida**: M-SEC-03 + M-ARQ-09 (rate limiting general); complementa H-11.
+
+#### `v4-backend-08` — Cache Redis de lecturas calientes (dashboard/reporting)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: cachear en Redis las lecturas calientes de dashboard/reporting con TTL corto, bajando carga de Postgres sin reintroducir el riesgo de datos financieros stale del bug de revenue subvaluado 17,53% ya corregido en `v3-reporting-invariants`.
+- **Scope**:
+  - Cache-aside en service layer para `rpc_dashboard_kpi_summary` y RPCs de reporting corregidos por `v3-reporting-invariants`, clave `(account_id, período, versión_rpc)`.
+  - TTL corto (60-120s) priorizando frescura sobre hit-rate, dado el precedente del bug de revenue.
+  - Invalidación activa en mutaciones relevantes (venta/compra/pago), no solo expiración pasiva.
+  - Métrica de hit-rate mínima antes de extender el patrón.
+  - Explícitamente fuera de scope: endpoints fiscales (CAE) y de caja/arqueo en curso — siempre lectura en vivo.
+- **Criterios de aceptación**:
+  - KPI summary del dashboard sirve desde cache en la 2ª request dentro del TTL y recalcula tras expirar.
+  - Una venta nueva invalida el cache de KPI de esa `account_id` (test: crea venta, confirma que el próximo GET no devuelve el valor viejo).
+  - Ningún endpoint de `fiscal/` o `cash/` (arqueo en curso) tiene cache-aside aplicado — verificado por code review.
+  - Métrica de hit-rate expuesta tras 1 semana de uso real.
+- **Dependencias**: `v3-reporting-invariants` (cachear sobre RPCs ya corregidos); `backend/core/redis_client.py`; coordina con `v4-backend-07`.
+- **Consolida**: M-DASH-05 + M-OPS-10 (cache Redis de dashboard/reporting); construye sobre `v3-reporting-invariants`.
+
+#### `v4-backend-09` — Cola de trabajos pesados (OCR/exports/IA) — revisita DEC-15 con análisis de costo
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.3 · **Esfuerzo**: L · **Evidencia**: recomendación
+- **Objetivo**: desacoplar procesamiento pesado (exports, simulador de IA, patrón aplicable a invoice-ocr) del ciclo síncrono en Render free, evaluando con el PO si reabrir DEC-15 (ARQ) o adoptar la alternativa de menor costo recomendada por M-ARQ-13 (QStash o `pg_cron`+outbox).
+- **Scope**:
+  - Paso 0 obligatorio: documento de costo comparando (a) ARQ+worker dedicado, (b) Upstash QStash, (c) extender `pg_cron`+outbox ya operando — sign-off explícito del PO antes de cualquier implementación.
+  - Si se aprueba (b)/(c): primer caso de uso end-to-end sobre `generate-export` o simulador de IA con endpoint 202+polling.
+  - Si se aprueba (a): scaffolding mínimo de worker ARQ sobre el mismo Redis Upstash, arrancando por export/simulador (no invoice-ocr, que vive en Edge Functions Deno).
+  - Los endpoints síncronos actuales no deben romperse durante la transición (feature-flag/rollout gradual).
+- **Criterios de aceptación**:
+  - Documento de análisis de costo con las 3 opciones + recomendación entregado al PO; sign-off registrado antes de mergear implementación.
+  - El primer caso de uso elegido responde 202+polling con test que verifica finalización asíncrona.
+  - Ningún endpoint síncrono existente cambia contrato/comportamiento para clientes que no opten por el flujo async.
+  - Si se elige QStash/`pg_cron`+outbox: cero compute dedicado nuevo; si se elige ARQ: costo documentado y aprobado explícitamente.
+- **Dependencias**: `v31-ia-ratelimit-budget` (mismo dominio de costo IA); `v4-backend-07`/`v4-backend-08` (mismo Redis, coordinar cuotas); M-ARQ-13 (recomendación base).
+- **Consolida**: M-ARQ-13 (recomienda no reabrir DEC-15 sino QStash/`pg_cron`+outbox).
+
+---
+
+### Pista 2 — Frontend profesional (Next.js / React)
+
+> 9 changes. Design tokens con gate, erradicación de `any`, error boundaries + Sentry, WCAG AA transversal, kit RHF+Zod, arquitectura de estado, performance/bundle, PWA offline-first y i18n. Detalle: `v4/track-frontend.md`.
+
+#### `v4-frontend-01` — Design tokens & consistencia del design system
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: formalizar un contrato único de design tokens (color/spacing/radius) sobre shadcn/Tailwind con gate anti-regresión, cerrando la duplicación de `globals.css` y las fugas de estilos hardcodeados.
+- **Scope**:
+  - Eliminar `frontend/styles/globals.css` (0 importadores verificados por grep) o fusionar contenido único; dejar `app/globals.css` como única fuente.
+  - Registrar `success`/`warning` (ya declarados en `:root` de `app/globals.css:41-44,75-78`) en `tailwind.config.ts` `theme.extend.colors`.
+  - Reemplazar los 83 literales `#hex` en 19 archivos (charts, HeroSection, CTASection, client-form, KpiSummaryCard, sale-receipt-button) por tokens semánticos, con allowlist documentada para las limitaciones reales de Recharts.
+  - Documentar el contrato de tokens (token → uso → contraste mínimo) en `frontend/docs/design-tokens.md`.
+  - Agregar lint (ESLint custom rule / stylelint) que falle ante nuevos `#hex` fuera de la allowlist.
+  - Catalogar y unificar variantes shadcn/Radix duplicadas a la API de `cva` ya existente en `components/ui/*`.
+- **Criterios de aceptación**:
+  - 1 solo `globals.css` activo en el repo.
+  - `bg-success`/`text-warning`/`border-warning` compilan como utilities de Tailwind, no arbitrary value.
+  - 0 literales `#hex` fuera de la allowlist documentada (baseline: 83 en 19 archivos).
+  - El lint de color corre en CI y falla el PR ante regresión.
+- **Dependencias**: ninguna (fundacional). Prerequisito de `v4-frontend-04` (contraste) y `v4-frontend-07` (mismos archivos de charts).
+- **Consolida**: H-21, H-33 — extiende `v31-design-system-consistency` (P2, hoy solo fila de tabla).
+
+#### `v4-frontend-02` — Erradicación de `any` + gate de tipado en CI
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.0 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: cumplir la regla dura del proyecto (NUNCA usar `any`) con un mecanismo sostenible que impida la regresión, dado que hoy no existe ningún gate.
+- **Scope**:
+  - Crear `frontend/eslint.config.mjs` (flat config) con `@typescript-eslint/no-explicit-any: error` — hoy 0 archivos de config ESLint en todo el repo pese a `"lint": "next lint"` en `package.json`.
+  - Inventariar y tipar los 133 usos verificados (120 `: any` + 13 `as any`) por dominio: admin/analytics, admin/copilot-ia, clientes, comunidad, insights, simulador, charts admin, forms.
+  - Definir tipos explícitos en `lib/types.ts` para payloads de Supabase/backend sin tipo generado (regla ya existente en CLAUDE.md).
+  - Regenerar tipos de Supabase y verificar que `hooks/data/*` (40+ archivos) no folee `any` en las respuestas.
+  - Integrar `pnpm lint` como paso required de `v31-ci-test-gate` (P0).
+- **Criterios de aceptación**:
+  - grep de `: any` + `as any` en `frontend/` = 0 (baseline: 133).
+  - `eslint.config.mjs` con `no-explicit-any` en error, corriendo en CI.
+  - `pnpm lint` sale con exit code 0 en main.
+- **Dependencias**: `v31-ci-test-gate` (P0) para que el lint corra como required check.
+- **Consolida**: H-21 (erradicación sistemática no cubierta por ningún change nombrado).
+
+#### `v4-frontend-03` — Error boundaries + Sentry frontend + telemetría de errores del cliente
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: que ningún error de render/runtime en las 63 rutas del App Router llegue a pantalla en blanco sin trazabilidad, con visibilidad de errores de prod sin depender del reporte manual del usuario.
+- **Scope**:
+  - Instalar/configurar `@sentry/nextjs` (SDK base = scope de `v31-client-observability`, P2, S; este change asume esa instalación y construye la capa de resiliencia encima).
+  - Crear `error.tsx` en layout raíz + grupos de ruta de dinero (ventas, compras, gastos, caja, productos) + `global-error.tsx` + `not-found.tsx` globales — hoy 0 de 63 rutas cubiertas.
+  - Propagar correlation-id/request-id desde `hooks/data/*` hacia `Sentry.setContext`, cruzando con el formato RFC 7807 que el backend emite desde `v3-api-standards` (✅).
+  - Definir alerta mínima (Sentry issue → email/webhook) para errores en rutas de dinero.
+- **Criterios de aceptación**:
+  - `error.tsx`/`global-error.tsx`/`not-found.tsx` existen; un throw forzado en cada ruta de dinero muestra el boundary, no pantalla en blanco.
+  - Un error forzado aparece en Sentry en <1 min con stack trace + contexto de cuenta.
+  - 0 rutas de dinero sin `error.tsx` propio o heredado documentado.
+- **Dependencias**: `v31-client-observability` (prerequisito directo, SDK base); `v3-api-standards` (✅, RFC 7807 para el correlation-id).
+- **Consolida**: H-31 — extiende `v31-client-observability` (solo cubre el SDK, no boundaries ni correlación cross-stack).
+
+#### `v4-frontend-04` — Accesibilidad WCAG 2.1 AA transversal
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.1 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: ir más allá del parche puntual de `aria-label` en botones-ícono y cubrir teclado, foco visible, contraste y estructura semántica en todo el dashboard.
+- **Scope**:
+  - Auditoría de contraste de los tokens consolidados en `v4-frontend-01` contra WCAG AA (4.5:1 texto, 3:1 UI).
+  - `aria-label`/`aria-labelledby` en el universo completo de botones-ícono sin texto visible (H-21 midió un subconjunto de 59; barrido completo del dashboard).
+  - Foco visible y orden de tabulación en modales compuestos (verificar que composiciones custom sobre Radix Dialog/Sheet no rompan el focus-trap nativo).
+  - Skip-link "Saltar al contenido principal" en el layout raíz — no existe hoy.
+  - Activar `use-command-palette.ts` (164 líneas, 0 importadores reales fuera del barrel `hooks/index.ts`) como atajo Cmd/Ctrl+K global.
+  - `aria-live=polite` en toasts de éxito/error de las formas financieras núcleo.
+  - Gate de a11y en CI: `@axe-core/playwright` sobre smoke de rutas de dinero, integrado a `v31-ci-test-gate`.
+- **Criterios de aceptación**:
+  - axe-core sobre las 5 rutas de dinero núcleo + dashboard principal = 0 violaciones críticas/serias.
+  - 100% de botones `size=icon` con `aria-label` o texto `sr-only`.
+  - Cmd/Ctrl+K abre el command palette desde cualquier ruta autenticada.
+  - Contraste de todos los tokens semánticos ≥ AA.
+- **Dependencias**: `v4-frontend-01` (tokens/contraste); `v31-a11y-rhf-forms` (prerequisito parcial — asume FormMessage/aria-invalid wireados).
+- **Consolida**: H-21 — extiende `v31-a11y-rhf-forms`; M-UX-01, M-UX-03.
+
+#### `v4-frontend-05` — Kit de formularios RHF+Zod unificado (dinero-safe)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dejar un patrón reutilizable de formularios con validación uniforme, más allá de la migración puntual de las 5 formas núcleo ya declarada en `v31-a11y-rhf-forms`.
+- **Scope**:
+  - Usar los 7 componentes ya migrados a react-hook-form (BankAccountFormDialog, AdjustStockModal, BranchForm, TransferStockModal, RegisterPaymentForm, FiscalSettings, RegisterPaymentMadeForm) + `components/ui/form.tsx` como base del patrón.
+  - Extraer hook `useMoneyForm` que envuelva `useForm` + `zodResolver` + manejo Decimal/ARS + mapeo de errores 422 RFC 7807 del backend a `setError` por campo.
+  - Definir Zod schemas compartidos en `lib/schemas/*` (venta, compra, gasto, producto, cliente) alineados a los límites de Pydantic v2 del backend.
+  - No reconstruir la migración de las 5 formas núcleo en sí (eso es `v31-a11y-rhf-forms`) — construir el kit reutilizable como capa sobre esa migración.
+- **Criterios de aceptación**:
+  - `lib/schemas/` con ≥5 schemas Zod versionados y testeados en Vitest (casos límite: monto negativo, IVA fuera de rango).
+  - Los 5 formularios núcleo usan `useMoneyForm` (0 `useState` manual para campos validables; baseline hoy: 15+ en `sale-form.tsx`).
+  - Un 422 RFC 7807 del backend se refleja como error inline por campo, no solo `toast.error` global.
+- **Dependencias**: `v31-a11y-rhf-forms` (ejecutar junto o inmediatamente después); `v4-frontend-02` (schemas sin `any`).
+- **Consolida**: H-21 (formas de dinero núcleo sin RHF+Zod) — complementa `v31-a11y-rhf-forms`.
+
+#### `v4-frontend-06` — Consolidación de arquitectura de estado (Zustand real o remoción + convención Context/RQ)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: resolver la ambigüedad de Zustand instalado con 0 usos reales mediante una decisión explícita, y fijar convención clara Context vs React Query vs estado local.
+- **Scope**:
+  - Decisión de plataforma (checkpoint con PO/eng lead): Opción A adoptar Zustand para estado UI cliente-only hoy disperso en `useState` de `sale-form.tsx` (785L)/`purchase-form.tsx` (707L); Opción B remover `zustand` de `package.json` (verificado: 0 imports reales pese a estar declarado como dependencia).
+  - Documentar la decisión en `frontend/docs/state-architecture.md`.
+  - Auditar `auth-context.tsx` (389 líneas, único Context real que queda tras el retiro ya completado de DataContext) y separar responsabilidades si mezcla sesión con lógica de dominio.
+  - Introducir `lib/query-keys.ts` como factory compartido — hoy 30 archivos de `hooks/data/*` arman keys inline sin convención común.
+  - Afinar QueryProvider con `refetchOnReconnect` explícito, pensando en el escenario offline de `v4-frontend-08`.
+- **Criterios de aceptación**:
+  - Decisión ejecutada: `zustand` en `package.json` refleja uso real (≥1 store) o fue removido.
+  - `lib/query-keys.ts` existe y ≥80% de los hooks de `hooks/data/*` lo consumen.
+  - `auth-context.tsx` con responsabilidad única documentada (sesión/JWT), sin lógica de dominio mezclada.
+- **Dependencias**: `v4-frontend-02` (tipado de stores/contexts). Prerequisito de `v4-frontend-08` (la cola offline necesita un lugar claro).
+- **Consolida**: brecha nueva sin H-xx/M-xx dedicado — verificado por grep (0 imports de zustand pese a estar en dependencies).
+
+#### `v4-frontend-07` — Performance: code-splitting, bundle budget y afinado de React Query
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: bajar el costo de carga inicial para el público mobile-first y dar visibilidad a regresiones de bundle que hoy no se miden en ningún lado.
+- **Scope**:
+  - `next/dynamic` con `ssr:false` para los 5 componentes que usan recharts (0 code-splitting hoy) y d3 donde aplique.
+  - Agregar `@next/bundle-analyzer` a `next.config.mjs` (hoy mínimo, 23 líneas) + script `pnpm analyze`.
+  - Definir bundle-size budget (`size-limit` o el propio analyzer) como check de CI, no bloqueante al inicio.
+  - `loading.tsx` por ruta en grupos de dinero núcleo (ventas, compras, gastos, caja, productos) — 0 de 63 rutas lo tienen hoy.
+  - Coordinar con `v31-frontend-perf` (H-32, P3) sin duplicar: ese cubre paginación de catálogos y agregación de SalesChart; este cubre bundle/code-splitting/loading-states.
+- **Criterios de aceptación**:
+  - First Load JS de rutas con chart baja de forma medible (baseline documentado antes/después).
+  - Los 5 componentes con recharts cargan vía `next/dynamic`.
+  - `loading.tsx` presente en las rutas de dinero núcleo.
+  - Bundle-size check corre en CI y reporta delta por PR.
+- **Dependencias**: `v31-frontend-perf` (H-32, coordinación de scope); `v4-frontend-01` (mismos archivos de charts).
+- **Consolida**: H-32 — extiende `v31-frontend-perf` con bundle/code-splitting/loading-states.
+
+#### `v4-frontend-08` — PWA offline-first para el POS
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.3 · **Esfuerzo**: XL · **Evidencia**: hecho_verificado
+- **Objetivo**: dar resiliencia de red real al flujo de cobro para microemprendedores en locales/ferias con conectividad intermitente, hoy con manifest instalable pero cero soporte offline.
+- **Scope**:
+  - Service Worker (Workbox o librería compatible con Next 16 App Router) que cachee shell de la app + assets estáticos.
+  - Conectar `use-online-status.ts` (ya escrito, 0 importadores reales) a un banner de conectividad en el layout raíz.
+  - Cola de ventas offline: al perder conexión durante quickSale/POS, encolar en IndexedDB (o localStorage v1) en vez de fallar; reintentar automáticamente al reconectar (Background Sync API con fallback a evento `online`).
+  - Usar el `Idempotency-Key` ya existente (`v3-api-standards`, ✅) como base anti-duplicación de la cola offline.
+  - Definir explícitamente qué NO se soporta offline en v1 (IA/OCR, reportes, exportaciones).
+  - Telemetría de fallos de sync vía `v4-frontend-03`/Sentry.
+- **Criterios de aceptación**:
+  - Con la red desactivada, registrar una venta la encola de forma visible y local (no falla silenciosamente).
+  - Al reconectar, la venta sincroniza automáticamente sin duplicados (verificado con `Idempotency-Key`).
+  - Banner de sin conexión visible en <2s tras perder red.
+  - Sentry recibe evento si una venta queda en cola por más de N minutos sin sincronizar.
+- **Dependencias**: `v4-frontend-06` (lugar claro para la cola); `v4-frontend-03` (telemetría); `v3-api-standards` (✅, Idempotency-Key).
+- **Consolida**: M-UX-06 — única mejora del catálogo de 149 sin H-xx ni change v3.1, pese a ser el caso de uso central del POS mobile.
+
+#### `v4-frontend-09` — i18n es-AR robusto y centralización de formato
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.3 · **Esfuerzo**: M · **Evidencia**: recomendación
+- **Objetivo**: preparar el frontend para localización real (hoy sin ninguna librería de i18n) y centralizar el formato de moneda/fecha disperso en literales ad hoc.
+- **Scope**:
+  - Adoptar `next-intl` (u otra librería compatible con App Router/Server Components de Next 16) — 0 librerías de i18n instaladas hoy.
+  - Extraer strings hardcodeados a diccionario es-AR como paso 1 (sin lanzar segundo idioma todavía).
+  - Centralizar formato de moneda (`Intl.NumberFormat es-AR/ARS`) y fecha (`Intl.DateTimeFormat es-AR`) en `lib/format.ts`, auditando duplicación actual.
+  - Dejar arquitectura lista para un segundo locale sin reescritura.
+- **Criterios de aceptación**:
+  - `next-intl` instalado y configurado; es-AR sirviendo strings desde diccionario en dashboard principal.
+  - 0 formateos de moneda/fecha ad hoc fuera de `lib/format.ts`.
+- **Dependencias**: `v4-frontend-01` (mismo barrido transversal de componentes).
+- **Consolida**: brecha nueva sin H-xx/M-xx dedicado — recomendación anticipatoria.
+
+---
+
+### Pista 3 — Plataforma / DevOps / Observabilidad
+
+> 9 changes. CI ampliado, staging real, IaC, monitoreo cross-stack, backups/DR, gestión de secretos, feature flags, deploy con smoke-test y panel interno consolidado. Detalle: `v4/track-plataforma.md`.
+
+#### `v4-plataforma-01` — CI de plataforma: lint/typecheck/drift/bundle/k6/supply-chain
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: madurar el pipeline de CI más allá del gate base (`v31-ci-test-gate`: solo pytest+vitest) agregando gates que hoy no existen: lint/typecheck, drift-check entre los 2 proyectos Supabase, presupuesto de bundle, k6 nightly desacoplado y escaneo de dependencias.
+- **Scope**:
+  - `tsc --noEmit` + eslint (frontend) y ruff/mypy (backend, coordinando con `v31-backend-tooling`) en modo warn-only con baseline, escalando a bloqueante.
+  - Job de migration-drift-check entre prod (`gxdhpxvdjjkmxhdkkwyb`) y staging (`v4-plataforma-02`) antes de mergear PRs que toquen `supabase/migrations/`.
+  - Desacoplar `k6-baseline.js` (hoy 100% manual) en cron nocturno contra staging con umbral p95≤500ms bloqueante.
+  - `@next/bundle-analyzer` + job de CI que falle si el first-load JS crece >10% sin justificación.
+  - Dependabot (alerts+security updates) + SBOM mínimo (pip-audit/pnpm audit) como artifact de CI.
+  - Marcar los jobs nuevos como required checks de branch protection, con ventana de warn-only documentada.
+- **Criterios de aceptación**:
+  - El workflow de PR bloquea el merge si tsc/eslint/drift-check fallan tras la ventana de warn-only.
+  - `k6-baseline.js` corre en cron nocturno sin intervención manual y falla si p95>500ms.
+  - Un PR que aumente el first-load JS >10% sin justificación falla el job de bundle-budget.
+  - Dependabot tiene al menos 1 alert triaged; SBOM se genera como artifact en cada build de main.
+- **Dependencias**: `v31-ci-test-gate` (prerequisito duro), `v31-backend-tooling` (coordina baseline ruff), `v4-plataforma-02` (drift-check y k6 nightly necesitan staging).
+- **Consolida**: M-OPS-01 (vía `v31-ci-test-gate`, no se reimplementa), M-OPS-12, M-OPS-16 (parcial), M-OPS-19, M-SEC-11; H-04, H-24, K19.
+
+#### `v4-plataforma-02` — Entorno de staging real (cierra el drift K19)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.0 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar K19: cada cambio de schema/RPC se valida hoy directo contra prod en el merge; construir un ambiente representativo intermedio dado que el plan de Supabase no soporta branching.
+- **Scope**:
+  - Auditar y reconciliar el drift actual del proyecto `pudaxiwqhwsxuaofsqda` antes de adoptarlo como staging (no asumir que "más avanzado" es superset seguro).
+  - Aplicar las mismas migraciones de prod, mismo orden, vía CI sobre ese proyecto.
+  - Sembrar datos sintéticos (nunca copiar datos reales de cuentas/usuarios de prod, Ley 25.326).
+  - Extender el pipeline: PR contra main dispara migraciones + Edge Functions + smoke test a staging antes del deploy directo a prod actual.
+  - Verificar y documentar qué Supabase URL usa cada ambiente de Vercel (Production/Preview).
+  - Definir scope v1 mínimo explícito (solo migraciones+seeds sintéticos); runbook de reset/resync.
+- **Criterios de aceptación**:
+  - Staging tiene las mismas migraciones que prod en el mismo orden, verificado por el drift-check en verde.
+  - Un cambio de schema se prueba de punta a punta contra staging sin tocar las ~29 cuentas reales.
+  - Runbook de reset/resync documentado y ejecutado al menos una vez.
+  - Ningún dato real de prod fue copiado a staging (solo sintético), verificado por revisión.
+- **Dependencias**: ninguna dura previa; coordina con `v4-plataforma-01`; prerequisito recomendado de `v4-plataforma-08`.
+- **Consolida**: K19 (confirmado por CLAUDE.md y MEMORY.md), M-OPS-13.
+
+#### `v4-plataforma-03` — IaC y reproducibilidad de infraestructura
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: eliminar la dependencia de configuración manual dispersa en 3 dashboards (Vercel/Render/Supabase) — hoy 0 IaC en el repo — para reconstruir el ambiente completo de forma auditable.
+- **Scope**:
+  - `render.yaml` (Blueprint) versionado: build/start command, health-check path, nombres de env vars (nunca valores).
+  - Documentar configuración completa de Vercel por ambiente y verificar que `supabase/config.toml` no diverja de lo aplicado en prod.
+  - Script de bootstrap (`scripts/bootstrap-env.sh`) que deje un proyecto Supabase vacío funcional (migraciones+Edge Functions+seed mínimo) en un comando.
+  - Checklist único "cómo levantar ALIADATA desde cero" en el repo, reemplazando conocimiento disperso en la memoria del equipo.
+- **Criterios de aceptación**:
+  - `render.yaml` reconstruye el servicio backend con el mismo build/start/health-check configurado hoy manualmente, verificado por comparación.
+  - El script de bootstrap deja funcional un proyecto Supabase de prueba en un solo comando documentado.
+  - `docs/infrastructure.md` enumera las 3 plataformas con su configuración y dueño de cada env var, sin exponer valores.
+- **Dependencias**: coordina con `v4-backend-06` (la decisión de tier de Render se materializa en el `render.yaml`); insumo de `v4-plataforma-02` y `v4-plataforma-05`.
+- **Consolida**: gap sin M-xx propia (ausencia total de IaC, pedida por el encargo); apoya M-OPS-11 y M-OPS-13.
+
+#### `v4-plataforma-04` — Monitoreo, alerting y uptime cross-stack
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dar visibilidad proactiva de disponibilidad cross-stack (Vercel+Render+Supabase+outbox) — hoy inexistente; el journal contable estuvo muerto 9 días y se detectó por revisión manual, no por alerta.
+- **Scope**:
+  - Uptime check externo (UptimeRobot/BetterStack) sobre `GET /health`, frontend Vercel y disponibilidad de Supabase, con alerta a canal del equipo.
+  - Job programado que mida el lag real del outbox (`processed_at IS NULL AND occurred_at < now()-5min`) y dispare alerta específica + dashboard de eventos por consumer/hora.
+  - Status page interna: uptime 30d, lag del outbox, % de horas de keep-warm consumidas del mes (hoy ~730/750 sin visibilidad de margen).
+  - Política mínima de alerting por escrito (severidad → canal → tiempo de respuesta) y runbook de escenarios.
+  - Coordinar con `v4-backend-05`/`v4-frontend-03`: consumir sus correlation-ids, no reimplementar la instrumentación.
+- **Criterios de aceptación**:
+  - Una caída simulada de `/health` dispara alerta al canal del equipo en menos de 5 minutos.
+  - Un lag artificial del outbox (>5 min) dispara alerta específica distinguible de la de uptime.
+  - Status page muestra uptime 30d, lag del outbox y % de horas de keep-warm consumidas.
+  - Runbook con al menos 3 escenarios documentados (backend caído, outbox estancado, límite de horas cerca).
+- **Dependencias**: coordina con `v4-backend-05`, `v4-frontend-03` (reusa correlation-ids), `v4-backend-06` (mismo endpoint de readiness).
+- **Consolida**: M-OPS-04, M-OPS-07 (parcial, agregación cross-stack), K10 (visibilidad de consumo de horas).
+
+#### `v4-plataforma-05` — Backups y DR verificados (runbook + restore drill)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: recomendación
+- **Objetivo**: cerrar el único punto ciego que ningún auditor evaluó — no hay runbook de DR ni evidencia de un restore probado para un SaaS con dinero y datos fiscales reales.
+- **Scope**:
+  - Documentar el mecanismo de backup real del plan de Supabase contratado (PITR, retención, RPO/RTO) confirmándolo contra el proveedor, no asumiéndolo.
+  - Ejecutar al menos un restore drill controlado contra un proyecto Supabase descartable (usando el script de bootstrap de `v4-plataforma-03`), documentando tiempo real y gaps encontrados.
+  - Backup lógico complementario (`pg_dump` programado a almacenamiento externo) como seguro adicional al PITR nativo.
+  - Runbook de DR con RPO/RTO objetivo explícito y pasos concretos de quién ejecuta qué.
+  - Alcance explícito: NO cubre secretos fiscales (eso es `v4-plataforma-06`) ni código (ya en git).
+- **Criterios de aceptación**:
+  - Documento con el RPO/RTO real del plan contratado, confirmado con el proveedor (no supuesto).
+  - Al menos 1 restore drill ejecutado y documentado contra un proyecto descartable, nunca contra prod.
+  - Backup lógico (`pg_dump`) corriendo en cron con al menos 1 ejecución exitosa verificable.
+  - Runbook de DR con pasos accionables y sign-off del PO registrado.
+- **Dependencias**: `v4-plataforma-03` (reutiliza el script de bootstrap para el proyecto descartable).
+- **Consolida**: M-OPS-17 (recomendación explícita del catálogo, sin evidencia verificable desde el repo).
+
+#### `v4-plataforma-06` — Gestión de secretos + rotación + secret-scanning
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: pasar de env vars planas sin rotación (incluido el certificado AFIP de facturación delegada, el secreto de mayor criticidad del sistema) a un proceso auditable de inventario, rotación y detección de fugas.
+- **Scope**:
+  - Inventario completo de secretos por plataforma (Vercel/Render/GitHub Actions), reutilizando el listado de `v4-backend-01`.
+  - Runbook de rotación priorizado: JWT/service_role/MercadoPago/relay primero (sin downtime); `AFIP_PLATFORM_KEY`/`CERT` último y coordinado con la homologación ARCA pendiente del PO.
+  - Gate de CI de secret-scanning (gitleaks o equivalente) sobre cada PR.
+  - Documentar explícitamente qué secretos no se rotan todavía y por qué (dependencia externa ARCA).
+- **Criterios de aceptación**:
+  - Documento de inventario de secretos con dueño y última fecha de rotación (o "nunca rotado") por secreto.
+  - Runbook de rotación ejecutado al menos una vez sin downtime para los 4 secretos de menor riesgo.
+  - Rotación del certificado AFIP explícitamente bloqueada hasta sign-off del PO y coordinación con ARCA.
+  - gitleaks corre en cada PR y bloquea el merge si detecta un secreto nuevo en el diff.
+- **Dependencias**: `v4-backend-01` (reusa inventario de env vars críticas); externa: homologación ARCA pendiente del PO (bloquea solo la rotación del cert AFIP).
+- **Consolida**: M-SEC-02 (`backend/core/config.py:19-28`).
+
+#### `v4-plataforma-07` — Feature flags como plataforma (kill-switch centralizado)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: consolidar los ≥3 mecanismos de feature flag hoy dispersos en un servicio único operable sin deploy, cerrando la fricción que mantiene a 3/29 cuentas sin `sale_items_rpc_v2` activado meses después (K4).
+- **Scope**:
+  - Consolidar env vars Strangler Fig (`NEXT_PUBLIC_USE_PYTHON_API`, `V2_TENANCY_ACCOUNT_ID`) y la tabla `account_feature_flags` en un servicio único con UI mínima de administración gateada a rol interno.
+  - Kill-switch operable sin deploy: activar/desactivar un flag por cuenta o globalmente desde la UI.
+  - Dar al PO la herramienta para cerrar K4 (activar `sale_items_rpc_v2` en las 3 cuentas restantes) sin tomar la decisión de cuándo/cuáles por su cuenta.
+  - Documentar el rol de este servicio como punto único de control para futuros rollouts graduales (p.ej. `v3-rbac-multirole`).
+- **Criterios de aceptación**:
+  - Un flag se activa/desactiva por cuenta o globalmente desde la UI sin deploy ni cambio de env var.
+  - Los 3 mecanismos dispersos quedan documentados como consumidores del servicio único o migrados a él.
+  - Activar `sale_items_rpc_v2` en una cuenta de prueba vía la UI no requiere cambio de código ni deploy.
+  - La UI de administración de flags está gateada a rol interno.
+- **Dependencias**: ninguna dura; coordina con `v3-rbac-multirole` (gating de la UI); decisión pendiente del PO sobre K4.
+- **Consolida**: M-OPS-14, K4 (coordinación, no resuelve la decisión del PO).
+
+#### `v4-plataforma-08` — Deploy con smoke-test + rollback runbook
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dar un paso intermedio de bajo esfuerzo/alto retorno hacia canary/blue-green: hoy `deploy.yml` aplica migraciones y Edge Functions directo a prod sin ningún gate posterior que verifique que el deploy funcionó.
+- **Scope**:
+  - Job posterior al deploy que ejecute un smoke test mínimo contra prod: readiness profundo (pool+Redis) de `v4-backend-06` + 2-3 flujos de solo lectura críticos.
+  - Si falla: notificar al canal de alertas de `v4-plataforma-04` y documentar rollback manual (Vercel nativo; Supabase requiere migración compensatoria manual, no undo automático; Edge Functions redeploy del commit anterior).
+  - Runbook de rollback escrito (`docs/deploy-rollback.md`), hoy inexistente.
+  - Dejar el canary/blue-green real fuera de este change (ola posterior) dado el volumen actual de ~29 cuentas.
+- **Criterios de aceptación**:
+  - Un deploy a prod que rompe el readiness check dispara alerta en menos de 2 minutos post-deploy.
+  - Runbook de rollback documentado y probado al menos una vez (simulación) para Vercel, migración Supabase y Edge Function.
+  - El smoke test cubre al menos 3 flujos de solo lectura de rutas críticas.
+- **Dependencias**: `v4-backend-06` (reusa readiness check), `v4-plataforma-04` (canal de alertas); se beneficia de `v4-plataforma-02`.
+- **Consolida**: M-OPS-18, K19 (reduce riesgo del patrón directo-a-prod).
+
+#### `v4-plataforma-09` — Panel interno de plataforma seguro y consolidado
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dar al equipo un único panel interno de "estado de la plataforma" (negocio + salud técnica), seguro por diseño, reemplazando las 2 rutas admin duplicadas y hoy inseguras (H-08).
+- **Scope**:
+  - Consolidar `/admin/metricas` y `/admin/analytics` en un único panel, DESPUÉS de que `v31-admin-rpc-lockdown` cierre el acceso anon a las 5 RPCs legacy (prerequisito, no se reimplementa).
+  - Mover el gating de rol admin del cliente a verificación server-side real, coordinando con `v31-authz-token-hook`/`v3-rbac-multirole` para el rol real en el JWT.
+  - Agregar widgets de salud de plataforma de `v4-plataforma-04` (uptime, lag del outbox, horas de keep-warm) junto a los KPIs de negocio.
+  - Dejar explícitamente fuera el fix de contenido del MRR hardcodeado (M-DASH-01) — de otro track, solo se construye el contenedor seguro.
+- **Criterios de aceptación**:
+  - Existe un único panel interno (no dos rutas duplicadas) para métricas de negocio + salud de plataforma.
+  - El gate de acceso al panel es verificado server-side, no solo por el componente cliente.
+  - El panel muestra al menos 2 widgets de salud de plataforma además de los KPIs de negocio existentes.
+  - Ningún RPC legacy `get_admin_*` sigue siendo ejecutable por anon (hereda el criterio de `v31-admin-rpc-lockdown`).
+- **Dependencias**: `v31-admin-rpc-lockdown` (prerequisito duro); coordina con `v4-plataforma-04` y M-DASH-01/M-DASH-03 (otro track).
+- **Consolida**: H-08 (extiende `v31-admin-rpc-lockdown` con la capa de plataforma), M-DASH-03.
+
+---
+
+### Pista 4 — Seguridad y cumplimiento
+
+> 9 changes. Hardening SECDEF completo, supply chain, perímetro/CSP, audit trail visible, MFA, cifrado de secretos, cumplimiento Ley 25.326, programa de pentest y segregación de funciones. Detalle: `v4/track-seguridad.md`.
+
+#### `v4-seguridad-01` — Hardening sistemático de funciones SECURITY DEFINER + gate de CI anti-regresión
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: extender `v31-secdef-hardening` (que fija `search_path` solo en las 8 funciones detectadas por el advisor) a un barrido completo de las 119 funciones `SECURITY DEFINER` del proyecto, más un gate de CI que impida la recurrencia.
+- **Scope**:
+  - Barrido completo de las 119 funciones definidas en `supabase/migrations/`: fijar `SET search_path` en toda `SECURITY DEFINER` viva en prod.
+  - Verificar que el REVOKE de `platform_wsaa_tickets` (H-26, `v31-secdef-hardening`) quedó aplicado.
+  - Gate de CI que corra `supabase db lint` (o query read-only a `pg_proc`/`pg_settings`) y falle el PR ante `SECURITY DEFINER` sin `search_path`.
+  - Documentar la convención en README/CONTRIBUTING de backend con ejemplo.
+  - Generalizar el gate para detectar `SECURITY DEFINER` ejecutable por anon/authenticated sin REVOKE documentado (extiende H-08).
+- **Criterios de aceptación**:
+  - El advisor de seguridad reporta 0 funciones `function_search_path_mutable` (hoy ≥8).
+  - Un PR de prueba con `SECURITY DEFINER` sin `search_path` falla el gate de CI.
+  - Suite completa (backend ~1023, frontend ~443) en verde tras el ALTER de las 119 funciones.
+  - README/CONTRIBUTING documenta la convención.
+- **Dependencias**: extiende `v31-secdef-hardening` (H-26/H-27); coordina con el harness de integración de la pista backend.
+- **Consolida**: H-26/H-27 (extiende `v31-secdef-hardening`); M-SEC-07 (cierra el remanente sistemático).
+
+#### `v4-seguridad-02` — Supply chain: Dependabot + SBOM + secret-scanning + CodeQL
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.0 · **Esfuerzo**: S · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar la cadena de suministro (dependencias vulnerables, secretos commiteados, vulnerabilidades de código conocidas) que hoy no tiene ningún control automático.
+- **Scope**:
+  - Agregar `.github/dependabot.yml` (pip, npm/pnpm, github-actions) con cadencia semanal.
+  - Habilitar GitHub secret scanning + push protection, o gitleaks en CI como fallback si el plan no incluye Advanced Security.
+  - Workflow de CodeQL (JS/TS + Python) semanal y en cada PR a main.
+  - Generar SBOM (cyclonedx-py / cyclonedx-npm) como artefacto de CI.
+  - Publicar `SECURITY.md` con política de disclosure.
+  - Triage inicial del backlog de Dependabot por severidad (sin resolver todo en este change).
+- **Criterios de aceptación**:
+  - Dependabot mergeado y abre al menos 1 PR de actualización en la primera semana.
+  - Secret scanning bloquea ante patrón de secreto conocido en CI.
+  - CodeQL corre semanalmente + en PRs sin falsos positivos sin triar.
+  - SBOM generado en al menos 1 build de CI.
+  - `SECURITY.md` publicado.
+- **Dependencias**: ninguna dura; prerequisito informal de `v4-seguridad-08`.
+- **Consolida**: M-SEC-11 (Dependabot/SBOM); prerequisito de M-SEC-15.
+
+#### `v4-seguridad-03` — Perímetro: Vercel WAF/BotID + CSP con nonces
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar el perímetro público más allá de Cloudflare Turnstile (hoy solo en 3 flujos de auth) y eliminar `unsafe-inline`/`unsafe-eval` de la CSP, que el propio código marca como temporal.
+- **Scope**:
+  - Evaluar Vercel Firewall (managed + custom rules) confirmando primero el plan contratado (custom rules suele requerir Pro+).
+  - Activar BotID en endpoints de riesgo no cubiertos por Turnstile: webhook MercadoPago, reporting/export, `/api/ai/copilot`.
+  - Migrar CSP a nonces por request eliminando `unsafe-inline`/`unsafe-eval` de `script-src`.
+  - Agregar headers ausentes: `Strict-Transport-Security`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`.
+  - No duplicar Turnstile donde ya existe (register/login/forgot-password).
+- **Criterios de aceptación**:
+  - CSP en prod sin `unsafe-inline`/`unsafe-eval` en `script-src` (verificable con scan de cabeceras).
+  - HSTS, `X-Content-Type-Options`, `Referrer-Policy` presentes en al menos una ruta pública.
+  - BotID activo y verificado en los 3 endpoints de mayor riesgo.
+  - Suite de frontend que testea Turnstile sigue en verde tras el cambio de CSP.
+- **Dependencias**: ninguna dura de código; depende de decisión de plan de Vercel para reglas de Firewall custom.
+- **Consolida**: M-SEC-09 (Vercel WAF/BotID), M-SEC-17 (CSP con nonces).
+
+#### `v4-seguridad-04` — Audit trail inmutable y visible al usuario
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: convertir `audit_logs` (append-only por proceso pero opaco, con RLS aparentemente legacy y accesible solo a admin) en un audit trail real consultable por el dueño de cuenta.
+- **Scope**:
+  - Verificar en prod si la policy de `audit_logs` sigue basada en `company_id`/`company_users` legacy; corregir a `account_id`/`current_account_ids()`.
+  - Cambiar policy de solo-SELECT-admin a SELECT del propio miembro de cuenta sobre sus eventos.
+  - Trigger `BEFORE UPDATE OR DELETE` que bloquee a nivel de motor (hoy solo garantizado por tests de migración).
+  - Enriquecer payload: `entity_type`, `entity_id`, `actor_role` (vía `v31-authz-token-hook`), diff mínimo before/after para campos sensibles.
+  - UI paginada bajo configuración de cuenta reusando el patrón `{items,total,page,pages}` de `v3-api-standards`.
+  - Documentar retención (debe sobrevivir al borrado de datos personales, coordinar con `v4-seguridad-07`).
+- **Criterios de aceptación**:
+  - Policy filtra por `account_id` (o mecanismo V2/V3 vigente), verificado con test de aislamiento cross-tenant.
+  - Trigger de DB rechaza UPDATE/DELETE directo sobre `audit_logs`.
+  - Usuario final ve la lista paginada de eventos de auditoría de su propia cuenta desde la UI.
+  - Al menos 3 tipos de evento sensible llevan `entity_type`/`entity_id` poblados.
+- **Dependencias**: sinergia con `v31-authz-token-hook`; prerequisito de `v4-seguridad-07` y de M-SEC-12.
+- **Consolida**: M-SEC-04 (audit trail enriquecido y visible); prerequisito de M-SEC-05.
+
+#### `v4-seguridad-05` — MFA/2FA + gestión de sesiones
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: exponer al usuario final la autenticación multifactor TOTP que Supabase Auth ya soporta pero la aplicación no enrola ni exige, más listado/revocación individual de sesiones.
+- **Scope**:
+  - UI de enrolamiento TOTP (QR + verificación) vía `supabase.auth.mfa.enroll/challenge/verify`.
+  - Gate de AAL2 para acciones sensibles: cambio de rol, borrado/exportación de datos (`v4-seguridad-07`), acciones de aprobador (`v4-seguridad-09`).
+  - Opt-in, no obligatorio día 1; evaluar obligatoriedad para owner/admin en planes superiores.
+  - Listado de sesiones activas + revocación individual (complementa el cierre global ya existente en prod).
+  - Confirmar plan de Supabase contratado antes de comprometer esfuerzo de TOTP.
+- **Criterios de aceptación**:
+  - Usuario enrola factor TOTP y el login exige el código (test E2E).
+  - Al menos 1 acción sensible exige AAL2 y la rechaza sin MFA completado.
+  - Usuario ve sus sesiones activas y revoca una individual sin cerrar las demás.
+  - Documentado si el plan de Supabase soporta MFA sin upgrade; si no, change queda bloqueado y documentado.
+- **Dependencias**: confirmar plan de Supabase (Pro vs Free); sinergia con `v3-rbac-multirole`/`v4-seguridad-09`.
+- **Consolida**: M-SEC-01 (MFA/2FA), M-SEC-08 (listado de sesiones + revocación).
+
+#### `v4-seguridad-06` — Gestión de secretos + cifrado en reposo (certificado AFIP, CBU, CUIT)
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO · **Sub-ola**: V4.1 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: eliminar el almacenamiento en texto plano de secretos/datos sensibles (cert/clave AFIP como env var sin rotación, CBU validado solo por formato) e introducir rotación documentada.
+- **Scope**:
+  - Runbook + automatización de rotación de `supabase_jwt_secret`, `mercadopago_webhook_secret`, `relay_secret` con ventana dual sin downtime.
+  - Evaluar mover cert/clave AFIP a secret manager con cifrado nativo; documentar renovación con alerta proactiva de expiración.
+  - Evaluar pgsodium/pgcrypto para cifrar `bank_accounts.cbu` y campos fiscales sensibles de `clients`/`FiscalIdentitySnapshot`; decisión de backfill con sign-off PO.
+  - Auditar los ~8 secretos de `Settings` (`backend/core/config.py`): cuáles requieren rotación periódica.
+  - Coordinar con `v4-seguridad-04`: todo acceso/rotación de secreto crítico debe quedar auditado.
+- **Criterios de aceptación**:
+  - Runbook de rotación publicado y aplicado al menos una vez sobre un secreto no crítico sin downtime.
+  - Cert/clave AFIP fuera de env var plana, o justificación documentada + alerta de expiración configurada.
+  - Decisión documentada con sign-off PO sobre cifrado de columna CBU/CUIT en este ciclo o postergado.
+  - Si se implementa: backfill verificado (0 texto plano) sin regresión en conciliación bancaria/facturación AFIP.
+- **Dependencias**: coordina con `v31-fiscal-cae-real-adapter` y `v31-startup-guards`; sign-off PO prerequisito de cualquier escritura.
+- **Consolida**: M-SEC-02 (gestión de secretos + rotación), M-SEC-10 (cifrado de columna CBU/CUIT).
+
+#### `v4-seguridad-07` — Cumplimiento Ley 25.326: exportación y borrado self-service
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.2 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: dar soporte técnico real a los derechos de acceso/rectificación/supresión que la política de privacidad ya promete por escrito (hoy 100% manual vía email), dentro de la tensión de retención fiscal obligatoria.
+- **Scope**:
+  - Endpoint de exportación self-service reutilizando la infraestructura de `generate-export` Edge Function.
+  - Flujo de borrado: datos sin retención fiscal → borrado real; datos con retención fiscal → soft-delete (`v3-soft-delete-policy`) + anonimización de campos personales preservando el registro fiscal.
+  - Tabla `data_subject_requests` (tipo, estado, fechas, ejecutor) trazable hacia `v4-seguridad-04`.
+  - UI mínima de solicitud (export/borrado), inicialmente semi-manual evolucionando a automático.
+  - Actualizar `privacidad/page.tsx` para reflejar el mecanismo real una vez exista.
+- **Criterios de aceptación**:
+  - Usuario descarga export completo de sus datos desde la UI sin intervención manual.
+  - Usuario solicita borrado; datos sin retención fiscal se eliminan/anonimizan; datos con retención quedan soft-deleted + anonimizados en campos personales.
+  - Toda solicitud queda en `data_subject_requests` y referenciada en el audit trail.
+  - `privacidad/page.tsx` actualizada para describir el mecanismo real.
+- **Dependencias**: `v4-seguridad-04` (audit trail); `v3-soft-delete-policy` (✅); requiere definición legal/contable externa del plazo de retención.
+- **Consolida**: M-SEC-05 (cumplimiento Ley 25.326); depende de M-SEC-04.
+
+#### `v4-seguridad-08` — Programa de pentest + security-review periódico + SECURITY.md
+- **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.2 · **Esfuerzo**: S · **Evidencia**: recomendación
+- **Objetivo**: institucionalizar una cadencia recurrente de revisión de seguridad más allá de la auditoría puntual del 2026-07-07, evitando acumulación silenciosa de hallazgos.
+- **Scope**:
+  - `SECURITY.md` con política de disclosure (contacto, alcance, SLA), reusando el de `v4-seguridad-02`.
+  - Cadencia de security-review interno (ej. trimestral): re-correr el advisor + revisar el mapa hallazgo→change para detectar regresiones.
+  - Evaluar y presupuestar pentest externo (alcance: 3 flujos de dinero + auth/tenancy) como decisión de presupuesto del PO.
+  - Checklist de seguridad pre-release para releases mayores.
+  - Registrar la cadencia en CHANGES.md/KB.
+- **Criterios de aceptación**:
+  - `SECURITY.md` publicado con política de disclosure.
+  - Cadencia de security-review interno documentada con checklist reproducible.
+  - Decisión explícita del PO documentada sobre presupuesto/alcance del pentest externo.
+  - Primera corrida del security-review interno documentada con fecha y hallazgos.
+- **Dependencias**: se apoya en `v4-seguridad-01`/`02` como primera línea de defensa continua.
+- **Consolida**: M-SEC-15 (pentest periódico); complementa M-SEC-11.
+
+#### `v4-seguridad-09` — Segregación de funciones (maker-checker) sobre RBAC
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO · **Sub-ola**: V4.3 · **Esfuerzo**: XL · **Evidencia**: hecho_verificado
+- **Objetivo**: introducir aprobación dual para acciones de alto impacto financiero/fiscal, construido explícitamente encima de `v3-rbac-multirole` (no en paralelo), dado que sin rol real en el JWT la segregación sería decorativa.
+- **Scope**:
+  - Bloqueado por diseño hasta sign-off de `v3-rbac-multirole` + activación de `v31-authz-token-hook` en prod: solo análisis mientras tanto.
+  - Diseñar matriz de acciones con doble aprobación: reversión de venta facturada, ajuste de conciliación bancaria, cierre forzado de caja con descuadre, cambio de rol a owner/admin, borrado de cuenta.
+  - Modelo de datos `approval_requests`: la RPC de efecto no corre hasta que exista una aprobación de un checker con rol distinto al maker.
+  - Integrar con `v4-seguridad-04`: cada solicitud/aprobación/rechazo es evento auditable.
+  - Evaluar exigir AAL2 (`v4-seguridad-05`) para actuar como checker; sinergia con accesos temporales (M-ARQ-15).
+- **Criterios de aceptación**:
+  - Matriz de acciones con doble aprobación documentada y validada explícitamente por el PO.
+  - Diseño de `approval_requests` completo (schema + flujo de estados) sin código de enforcement hasta sign-off.
+  - Una vez autorizado: al menos 1 acción de la matriz bloqueada hasta aprobación de un segundo usuario con rol distinto.
+  - Cada solicitud/aprobación/rechazo aparece en el audit trail.
+- **Dependencias**: bloqueante dura: `v3-rbac-multirole` (sign-off PO) + `v31-authz-token-hook` (rol real en JWT); sinergia con `v4-seguridad-04` y `v4-seguridad-05`.
+- **Consolida**: M-SEC-13 (aprobación dual maker-checker); depende de M-ARQ-03; sinergia con M-ARQ-15.
+
+---
+
+### Pista 5 — IA y agentes profesionales
+
+> 9 changes. Desarrolla la fase placeholder "V3 — Inteligencia": registro dinámico del outbox, higiene del Copiloto, guardrails, evals de calidad, memoria conversacional, automatizaciones proactivas, forecasting real, RAG con pgvector y capa de herramientas MCP. Detalle: `v4/track-ia.md`.
+
+#### `v4-ia-01` — Registro de consumers del outbox (dispatch dinámico)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.0 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: reemplazar el dispatch hardcodeado `IF event_type IN(...)` de `rpc_process_outbox_dispatch` por una tabla `outbox_consumers` + lookup dinámico, para que cada automatización de IA nueva sea una fila, no cirugía de una RPC `SECURITY DEFINER` crítica del hot path.
+- **Scope**:
+  - Tabla `outbox_consumers(event_type, consumer_name, handler_kind, priority, is_active)`.
+  - Reescribir `rpc_process_outbox_dispatch` para iterar consumers registrados vía EXECUTE con allowlist, no SQL dinámico desde datos de usuario.
+  - Backfill de los consumers actuales (journal, notification, 2 restantes) sin cambiar comportamiento observable.
+  - Test de regresión: cada `event_type` debe seguir disparando el mismo efecto post-refactor.
+  - Documentar el contrato de alta de consumer nuevo (1 INSERT + 1 función registrada).
+- **Criterios de aceptación**:
+  - Agregar un consumer nuevo no requiere CREATE OR REPLACE de `rpc_process_outbox_dispatch`.
+  - Los consumers existentes producen el mismo efecto observable (0 diffs en gates de regresión).
+  - Un `event_type` sin consumer activo no rompe el dispatch (no-op documentado).
+  - Test que inserta un consumer de prueba confirma ejecución sin tocar la función principal.
+- **Dependencias**: coordinar con `v31-fsm-status-triggers` (H-17) y `v31-money-integration-tests` (H-04/H-34) — mismo relay y gates SQL.
+- **Consolida**: M-IA-03 = M-AUTO-01 = M-ARQ-08 = M-INT-07 (convergencia explícita); sub-hallazgo de H-20 sin change v31 propio.
+
+#### `v4-ia-02` — Higiene + tenancy del Copiloto (`/api/ai/copilot`)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar el segundo vector de costo de IA sin control (el Copiloto, ruta Next.js fuera del alcance declarado de la auditoría de IA) y migrar `ai_conversations` de tenancy por `user_id` a `account_id` antes de que evolucione a memoria/agente de equipo.
+- **Scope**:
+  - Adaptar `checkAiQuota`/`incrementAiUsage` a un helper server-side para Next.js Route Handlers, reusando `billing_plan`/`plan_limits`/`rpc_increment_ai_usage`.
+  - Insertar el gating antes de la llamada a OpenAI en `route.ts` (mismo shape 429 que las Edge Functions).
+  - Migrar `ai_conversations`: columna `account_id` + backfill vía `account_members` + policy RLS por `account_id` (`user_id` retenido como actor).
+  - Documentar explícitamente si el historial es compartido por cuenta o por usuario-dentro-de-cuenta.
+  - Sumar el Copiloto como 10ª superficie instrumentada por la telemetría de `v31-ia-telemetry-evals`.
+- **Criterios de aceptación**:
+  - Usuario que agota cuota recibe 429 con el mismo shape que las Edge Functions, sin llamar a OpenAI.
+  - `count(*)` de `ai_conversations` con `account_id` NULL = 0 post-backfill.
+  - Comportamiento de historial compartido/por-usuario documentado y verificado.
+  - `ai_queries_used` se incrementa igual que en las Edge Functions tras una llamada exitosa del Copiloto.
+- **Dependencias**: `v31-ia-ratelimit-budget` (mismo patrón de gating/contrato 429 a reusar).
+- **Consolida**: M-IA-04 (Copiloto sin quota/gating/telemetría) + M-IA-05 (tenancy user_id→account_id).
+
+#### `v4-ia-03` — Guardrails anti prompt-injection (OCR + simulador)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: S · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar la superficie de inyección de prompt sobre datos no confiables del tenant (scenario libre del simulador, JSON extraído de facturas por OCR) antes de que un agente con herramientas (`v4-ia-09`) la herede con blast radius de acciones reales.
+- **Scope**:
+  - `ai-simulador`: delimitar `scenario` con marcadores explícitos + instrucción de sistema reforzada + cap de longitud (~500 chars) + bajar temperature.
+  - `invoice-ocr`: validación de JSON-schema estricta server-side post-respuesta (no confiar solo en `response_format json_object`), allowlist de campos, límite de longitud por campo.
+  - Rechazo/flag de patrones de instrucción embebidos ("ignora las instrucciones anteriores", "system:") antes de que el texto derivado de OCR viaje a un prompt de segunda etapa.
+  - Flag `requiere_revision_humana` cuando el JSON de OCR no pasa validación estricta, en vez de autocompletar silenciosamente.
+  - Documentar la política "todo texto OCR/usuario libre es no confiable" en el módulo consolidado de prompts.
+- **Criterios de aceptación**:
+  - Un `scenario` con instrucción de inyección conocida no cambia el comportamiento del system prompt (test con 3+ payloads).
+  - JSON de `invoice-ocr` con campo que excede longitud o contiene patrón de instrucción se marca `requiere_revision=true`.
+  - `scenario` truncado a ~500 caracteres server-side, no solo client-side.
+  - Facturas legítimas del golden-set (`v4-ia-04`) siguen procesándose sin falsos positivos de bloqueo.
+- **Dependencias**: `v31-ia-telemetry-evals` (mismo lugar de cambio: `_shared/prompt-builder.ts`, coordinar para no tocarlo 2 veces).
+- **Consolida**: M-IA-07 (sanitizar prompt injection antes de dar herramientas a un agente).
+
+#### `v4-ia-04` — Harness de evals de calidad + unificación de contrato/fuente
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: construir el harness de evals de CALIDAD (golden-set + regresión) que complementa la telemetría básica de `v31-ia-telemetry-evals`, y unificar las 3 inconsistencias de fuente/contrato entre las 9 funciones de IA.
+- **Scope**:
+  - Golden-set: 15-20 facturas etiquetadas para `invoice-ocr` + 10-15 preguntas tipo con rango esperado para Copiloto/ai-precio/ai-insights.
+  - Migrar `ai-resumen`/`ai-prediccion`/`ai-simulador` de `public.sales` (header plano) a `v_sales_flat`, misma fuente que `ai-insights`/`ai-precio`.
+  - Migrar `ai-insights`/`ai-precio`/`ai-comparativo`/`ai-rentabilidad` (INSERT directo a `insights`) al RPC `rpc_atomic_log_ai_insight` que ya usan las otras 3.
+  - Aplicar `response_format json_object` + gating de plan explícito a `ai-resumen`/`ai-prediccion`/`ai-simulador` (hoy sin ninguno).
+  - Unificar los 3 valores de `AI_TIMEOUT_MS` (8s/25s/55s verificados) a uno por tipo de llamada documentado en `_shared`.
+- **Criterios de aceptación**:
+  - Golden-set de 15+ casos por función crítica con script de regresión corrible manualmente.
+  - Las 9 funciones reportan el mismo total de "ventas del mes" sobre el mismo dataset de prueba.
+  - 0 `INSERT INTO insights` directo remanente (grep = 0), todas usan `rpc_atomic_log_ai_insight`.
+  - Un solo valor de `AI_TIMEOUT_MS` documentado por tipo de llamada.
+- **Dependencias**: `v31-ia-telemetry-evals` (extiende); `v3-reporting-invariants` (✅, `v_sales_flat` ya corregida).
+- **Consolida**: M-IA-02 (parte "evals golden" no detallada por `v31-ia-telemetry-evals`) + M-IA-08 + M-IA-09 + M-IA-10.
+
+#### `v4-ia-05` — Memoria conversacional real (`conversation_kind`, ventana por sesión)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: evolucionar `ai_conversations` agregando discriminador `conversation_kind` y ventana de memoria acotada por sesión (no por total acumulado), corrigiendo la caracterización exacta del gap: sí hay recuperación de historial hoy (`MAX_HISTORY_TURNS=6`), pero sin acotar por sesión ni tipificar.
+- **Scope**:
+  - Agregar `conversation_kind` + `session_id` a `ai_conversations`.
+  - Cambiar la ventana de "últimos 6 mensajes totales" a "últimos N mensajes de la sesión activa".
+  - Resumen rolling del historial que excede la ventana para no perder contexto de sesiones previas.
+  - Backfill de `session_id` sintético para el historial existente, documentando el criterio de corte.
+  - Exponer la memoria en el mismo formato para `v4-ia-09` (AIAgent), no una estructura paralela.
+- **Criterios de aceptación**:
+  - Una sesión nueva no arrastra mensajes de sesiones de días anteriores en su ventana de contexto.
+  - `conversation_kind` permite filtrar historial por superficie.
+  - Backfill asigna `session_id` sin pérdida de datos (`count(*)` idéntico antes/después).
+  - El Copiloto mantiene contexto coherente en conversaciones de más de 6 mensajes dentro de la misma sesión.
+- **Dependencias**: `v4-ia-02` (tenancy `account_id` resuelta antes de agregar `session_id`/`conversation_kind`).
+- **Consolida**: M-IA-13 (memoria conversacional real, evolucionando `ai_conversations` en vez de crear AIConversation desde cero).
+
+#### `v4-ia-06` — Automatizaciones proactivas: stock + anomalías de caja
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: entregar los primeros 2 casos reales de "automatizaciones trigger-based" de la fase V3-Inteligencia, reusando infraestructura ya completada (`v3-notifications-realtime`, `branch-min-stock-realign`, BankReconciliation) sin costo de LLM.
+- **Scope**:
+  - Alertas de stock: consumer registrado en `outbox_consumers` para `StockBelowMinimum` que dispare la notificación ya construida, puro trigger de umbral per-branch.
+  - Anomalías de caja: función que consume la diferencia de cierre de CashSession + matches/no-matches de BankReconciliation como features de un detector estadístico simple (z-score/IQR por cajero/sucursal).
+  - Ambas se registran como consumers en `outbox_consumers` (`v4-ia-01`), no como cirugía adicional del relay.
+  - Documentar que ninguna requiere LLM (costo marginal ~0), diferenciándolas de `v4-ia-07`.
+- **Criterios de aceptación**:
+  - Un producto que cruza `min_stock` per-branch dispara notificación real end-to-end sin intervención manual.
+  - Un cierre de caja con diferencia fuera de rango histórico genera insight/notificación; uno normal no genera ruido.
+  - Ninguna automatización incrementa consumo de tokens de OpenAI (verificable en `ai_telemetry`).
+  - Ambas quedan como filas en `outbox_consumers`, no como código dentro de `rpc_process_outbox_dispatch`.
+- **Dependencias**: `v4-ia-01` (registro de consumers); `v3-notifications-realtime` (✅); `branch-min-stock-realign` (✅); BankReconciliation C1-C3 (✅).
+- **Consolida**: M-IA-15 (alertas de stock) + M-IA-16 (anomalías de caja/conciliación).
+
+#### `v4-ia-07` — Forecasting de demanda con serie temporal real
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: reemplazar el promedio diario simple de `ai-prediccion` (pasado directo al LLM) por forecasting calculado en código (patrón DEC-05 ya usado en la elasticidad de Pearson de `ai-precio`), usando el LLM solo para narrar el resultado.
+- **Scope**:
+  - Suavizado exponencial o regresión lineal sobre la serie histórica de ventas (`v_sales_flat`, post `v4-ia-04`) calculado 100% en código.
+  - El LLM se usa exclusivamente para narrar el número ya calculado, nunca para inventarlo.
+  - Reencuadrar/renombrar la función si seguía sobreprometiendo respecto a lo que un promedio simple podía entregar.
+  - Consumer opcional del outbox para recalcular ante eventos relevantes (cierre de mes, `StockBelowMinimum`).
+- **Criterios de aceptación**:
+  - El número de la predicción se calcula en código; el prompt al LLM nunca pide "estimar" un valor.
+  - La serie usada es la misma (`v_sales_flat`) que el resto de funciones de IA para el mismo período.
+  - Golden-set de `v4-ia-04` incluye 3+ casos de forecasting con resultado verificable matemáticamente.
+- **Dependencias**: `v4-ia-04` (fuente de datos unificada `v_sales_flat`).
+- **Consolida**: M-IA-14 (forecasting de demanda con serie temporal real).
+
+#### `v4-ia-08` — KnowledgeBase + RAG con pgvector
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.2 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: habilitar RAG real sobre datos propios del tenant reemplazando el snapshot numérico del Copiloto (etiquetado en la documentación como RAG sin serlo), revalidando primero con el PO el supuesto de costo que hoy difiere la capability sin verificación.
+- **Scope**:
+  - `CREATE EXTENSION vector` — condicionado a sign-off explícito del PO sobre el supuesto de costo (pgvector corre en el mismo Postgres ya contratado, no un servicio externo).
+  - Tabla `knowledge_chunks(account_id, source_type, source_id, content, embedding, created_at)` — catálogo, FAQ, JSON de OCR ya guardrailed (`v4-ia-03`).
+  - Función de retrieval por similarity search con aislamiento estricto de `account_id` (nunca cruzar tenants).
+  - Comparación A/B contra el golden-set de `v4-ia-04`: reemplazar el snapshot solo si RAG iguala o mejora la calidad medida, no por intuición.
+  - Pipeline de indexado incremental, no reindexado completo por request.
+- **Criterios de aceptación**:
+  - Sign-off explícito del PO sobre el supuesto de costo antes de habilitar la extensión.
+  - Una búsqueda de similitud nunca devuelve `knowledge_chunks` de otro `account_id` (test de aislamiento cross-tenant).
+  - RAG iguala o mejora la calidad de respuesta vs. snapshot actual en 80%+ de los casos del golden-set, si no se mantiene el snapshot como fallback.
+  - Reindexado incremental no reprocesa el catálogo completo en cada request.
+- **Dependencias**: `v4-ia-02` (tenancy del Copiloto); `v4-ia-04` (golden-set para medir mejora).
+- **Consolida**: M-IA-12 (KnowledgeBase + RAG con pgvector, plan gratuito de Supabase).
+
+#### `v4-ia-09` — Capa de herramientas MCP para AIAgent/Copiloto
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO · **Sub-ola**: V4.3 · **Esfuerzo**: XL · **Evidencia**: hecho_verificado
+- **Objetivo**: evolucionar el Copiloto ya en producción (higienizado por `v4-ia-02`/`03`/`05`) hacia un agente que ejecute acciones reales (crear venta, ajustar precio, registrar gasto) vía herramientas MCP tipadas sobre los RPCs `SECURITY DEFINER` existentes, respetando permisos por rol.
+- **Scope**:
+  - Diseño del catálogo de tools (cada una envuelve un RPC `SECURITY DEFINER` ya existente) con schema Pydantic de input/output y gate de rol explícito por tool — solo análisis mientras `v3-rbac-multirole` no tenga sign-off.
+  - Servidor MCP interno consumido por el backend Python; el Copiloto orquesta contra ese servidor en vez de llamar OpenAI directo.
+  - Tools de solo-lectura (cta cte, comparar períodos, sugerir precio) pueden prototiparse antes del sign-off de RBAC.
+  - Tools de escritura quedan explícitamente BLOQUEADAS hasta sign-off de `v3-rbac-multirole` + JWT con rol real (`v31-authz-token-hook`, H-07).
+  - Reusar memoria conversacional (`v4-ia-05`), guardrails anti-injection (`v4-ia-03`) y RAG (`v4-ia-08`) como parte constitutiva del pipeline, no capas separadas.
+- **Criterios de aceptación**:
+  - Documento de diseño MCP + catálogo de tools con sign-off explícito del PO antes de código de tools de escritura.
+  - Tools de solo-lectura (si se prototipan) nunca mutan datos, verificado por revisión de código.
+  - Ninguna tool de escritura se activa en producción hasta que `require_role` deje de ser no-op (mismo test que valida el cierre de H-07).
+  - Cada tool de escritura respeta RPC-as-UoW (DEC-24) — 0 mutaciones de dinero/stock fuera de un RPC `SECURITY DEFINER` auditado.
+- **Dependencias**: `v3-rbac-multirole` (CRÍTICO, bloqueante); `v31-authz-token-hook` (H-07, prerequisito real); `v4-ia-02`, `v4-ia-03`, `v4-ia-05`, `v4-ia-08`.
+- **Consolida**: M-IA-11 (AIAgent conversacional con MCP como capa de herramientas); dependencia de `v3-rbac-multirole`.
+
+---
+
+### Pista 6 — Producto y calidad (QA + negocio maduro)
+
+> 10 changes. E2E Playwright de dinero, k6 de correctitud, estrategia de testing del hot path, onboarding, invitaciones maduras, confianza operativa (MRR/crédito/escalamiento), percepciones, NC/ND AFIP, presupuestos UI y portal del cliente. Detalle: `v4/track-producto-calidad.md`.
+
+#### `v4-producto-calidad-01` — E2E Playwright de los 3 flujos de dinero (venta/caja/conciliación/fiscal)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: dar contenido accionable al stub `v31-e2e-money-flows` (H-34, P3, hoy sin Scope propio) con la primera suite Playwright de ALIADATA sobre venta POS, caja/arqueo, conciliación bancaria y emisión fiscal.
+- **Scope**:
+  - Instalar `@playwright/test` + config con guardrail que falla duro si `BASE_URL` apunta a prod (`gxdhpxvdjjkmxhdkkwyb`).
+  - Escenario 1: venta POS completa con `Idempotency-Key` + asserts de invariante de datos (`stock_movements`, `iva_rate_snapshot` no NULL).
+  - Escenario 1b: doble submit del mismo `Idempotency-Key` → assert de 1 sola venta creada.
+  - Escenario 2: apertura de caja → N ventas → cierre con arqueo → assert de no doble cierre.
+  - Escenario 3: conciliación bancaria → match de movimiento → assert estado `matched`.
+  - Escenario 4: emisión fiscal contra `WSFEStubAdapter` → poll hasta `authorized` → assert CAE presente.
+  - Helper reutilizable de assert de invariante contable (ledger balanceado) compartido con `v4-producto-calidad-03`.
+  - Job de CI no-required en la primera iteración, apoyado en `v31-ci-test-gate`/`v4-plataforma-01`.
+- **Criterios de aceptación**:
+  - Los 4 escenarios corren de punta a punta contra un entorno no-prod, con guardrail de entorno verificado.
+  - El escenario de doble-submit confirma 1 sola venta creada.
+  - Cada escenario incluye al menos 1 assert de invariante de datos, no solo de UI.
+  - La suite corre en CI (puede ser no-required en la primera iteración).
+- **Dependencias**: `v4-plataforma-02` (staging, recomendado); `v3-api-standards` (✅); `v31-money-integration-tests` (capa distinta); coordina con `v4-producto-calidad-03`.
+- **Consolida**: H-34/`v31-e2e-money-flows` (detalla el scope faltante, no lo reimplementa).
+
+#### `v4-producto-calidad-02` — k6 de correctitud bajo concurrencia en el hot path de dinero
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.2 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: agregar a la infraestructura k6 ya desacoplada por `v4-plataforma-01` escenarios de escritura concurrente que verifiquen correctitud (no solo latencia) en venta, cierre de caja, idempotencia y dispatch del outbox.
+- **Scope**:
+  - Nuevo script `money-concurrency.js` reusando auth/JWT de `k6-baseline.js` sin reimplementarla.
+  - Escenario A: venta concurrente sobre stock bajo → assert de no sobreventa/no stock negativo.
+  - Escenario B: 20 submits concurrentes del mismo `Idempotency-Key` → assert de 1 solo registro.
+  - Escenario C: 2 cierres de caja simultáneos de la misma sesión → assert de 1 solo éxito, el otro error tipado no 500.
+  - Escenario D: ráfaga de eventos en el outbox → assert de 0 asientos contables duplicados (SKIP LOCKED).
+  - Agregar como segundo job del mismo workflow que `v4-plataforma-01` desacopla, sin pipeline paralelo.
+  - Mismo guardrail de entorno que `v4-producto-calidad-01` (nunca contra prod).
+- **Criterios de aceptación**:
+  - Escenario A: `branch_stock.quantity` nunca negativo y `stock_movements` cuadra exacto tras concurrencia.
+  - Escenario B: 20 submits concurrentes del mismo `Idempotency-Key` producen exactamente 1 registro.
+  - Escenario C: de 2 cierres simultáneos, exactamente 1 tiene éxito y el otro recibe error tipado.
+  - Escenario D: 0 asientos contables duplicados tras la ráfaga.
+  - El script corre en el cron ya desacoplado por `v4-plataforma-01`, nunca contra prod.
+- **Dependencias**: `v4-plataforma-01` (reusa CI/cron de k6); `v4-plataforma-02` (staging); `v3-api-standards`; coordina con `v4-producto-calidad-03`.
+- **Consolida**: extiende H-34/`v31-e2e-money-flows` (tramo de correctitud bajo carga, no cubierto por el k6 de perf genérica).
+
+#### `v4-producto-calidad-03` — Estrategia de testing del hot path de dinero (property-based + mutation + contract)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: definir la pirámide de testing y agregar property-based testing, mutation testing periódico y factories reutilizables para el dominio de dinero, evitando que percepciones/product-composition reinventen el enfoque.
+- **Scope**:
+  - Documento `MONEY_TESTING.md` con la pirámide explícita: unit → contrato de RPC → integración real → E2E → carga/correctitud.
+  - Introducir `hypothesis` (Python) para redondeo de IVA, partida doble, costeo y alícuotas futuras.
+  - Mutation testing periódico (`mutmut`/`cosmic-ray`) sobre `cash.py`, `customer_accounts.py`, `fiscal/`, `sales_repository.py` con score baseline.
+  - Test data builders/factories reutilizables (`backend/tests/factories.py`) para montos Decimal.
+  - Checklist de PR documentado para cambios que toquen el hot path de dinero.
+- **Criterios de aceptación**:
+  - Documento de estrategia publicado y referenciado desde `backend/tests/` o CLAUDE.md.
+  - Al menos 3 invariantes financieras con test property-based de ≥100 casos aleatorios cada una.
+  - Primer reporte de mutation testing sobre al menos 2 módulos críticos con score baseline.
+  - `factories.py` reutilizado por al menos 2 suites distintas.
+- **Dependencias**: `v31-money-integration-tests`; `v4-backend-04` (integración real); `v31-money-decimal-e2e` (H-16); coordina con `v4-producto-calidad-01`/`02`.
+- **Consolida**: complementa `v31-money-integration-tests` (H-04/H-34) y `v4-backend-04` con el método de testing; blinda `v31-money-decimal-e2e` (H-16).
+
+#### `v4-producto-calidad-04` — Onboarding guiado / product tour (primer login)
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.0 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: dar a un usuario nuevo un tour contextual de 4-5 pasos en su primer login en vez de aterrizarlo directo en un dashboard de ~35 rutas sin guía.
+- **Scope**:
+  - Elegir librería de tour liviana client-side (`driver.js` o `react-joyride`) y documentar la decisión.
+  - Tour de 5 pasos: bienvenida+branch/caja auto-provisionadas, primer producto, abrir caja, primera venta POS, ver dashboard.
+  - Detección de primer login vía flag en `profiles`/`account_members`.
+  - Checklist de activación dismissible, no bloqueante.
+  - Instrumentación mínima de evento por paso completado/saltado.
+  - Explícitamente sin backend nuevo — opera sobre datos/endpoints ya existentes.
+- **Criterios de aceptación**:
+  - Un usuario nuevo ve el tour de 5 pasos en su primer login y puede completarlo o descartarlo, sin reaparecer después.
+  - El tour referencia correctamente la sucursal/caja ya auto-provisionadas.
+  - Al menos 1 evento de analytics por paso queda registrado.
+  - 0 cambios de backend nuevos requeridos.
+- **Dependencias**: coordina con `v4-frontend-06` (mismo `contexts/auth-context.tsx`); se apoya en `v3-provisioning-seed` (✅).
+- **Consolida**: M-UX-10 (Onboarding guiado / product tour).
+
+#### `v4-producto-calidad-05` — Invitaciones maduras + selector de cuenta activa (multiusuario práctico)
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar la brecha práctica de multiusuario/multiempresa (invitación masiva + selector de cuenta activa determinístico) sobre la infraestructura N:M ya existente, sin tocar el pivot completo de `v3-rbac-multirole`.
+- **Scope**:
+  - Fix de `get_account_id()` (`backend/core/deps.py:11-24`): agregar ORDER BY determinístico, respetar cookie de tenant activo.
+  - Selector de cuenta activa en la UI sobre `account_members` N:M ya existente.
+  - UI de invitación masiva (CSV/multi-línea) invocando `rpc_invite_member` ya existente N veces, sin RPC nueva.
+  - Pantalla de gestión de miembros con revocación explícita de acceso.
+  - Gatear explícitamente detrás de `v3-rbac-multirole` (sign-off PO) la porción de accesos temporales con `expires_at`.
+  - Recordatorio de vencimiento vía job `pg_cron` simple + tabla `notifications` ya existente.
+- **Criterios de aceptación**:
+  - `get_account_id()` resuelve la cuenta activa de forma determinística y respeta la cookie de tenant.
+  - Un owner puede invitar 10 emails en una sola operación UI con feedback por fila.
+  - Un usuario con 2+ cuentas puede cambiar de cuenta activa desde un selector, con persistencia entre requests.
+  - Un owner puede revocar el acceso de un miembro existente desde la UI.
+  - La porción de `expires_at` queda documentada como bloqueada hasta sign-off de `v3-rbac-multirole`.
+- **Dependencias**: `rpc_invite_member` (✅, se reusa); `v3-notifications-realtime` (✅); bloqueante parcial: `v3-rbac-multirole` (sign-off PO) solo para `expires_at`.
+- **Consolida**: M-ARQ-15 (invitaciones masivas + higiene de accesos temporales) + M-ARQ-04 (parcial: resolución determinística de cuenta activa).
+
+#### `v4-producto-calidad-06` — Confianza operativa: MRR real + límite de crédito + escalamiento de notificaciones críticas
+- **Estado**: `[ ]` pendiente · **Governance**: ALTO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar 3 asimetrías de "el producto miente o no cumple lo que promete": MRR placeholder en el único panel de negocio, cuentas corrientes de clientes sin techo, y notificaciones críticas sin escalar.
+- **Scope**:
+  - Fix de `rpc_admin_business_kpis`: reemplazar `v_mrr := v_pro_users*15` por cálculo real desde `accounts.billing_plan` y los 4 precios reales.
+  - Reemplazar el placeholder `active_pools` por valor real o removerlo con justificación.
+  - Agregar `credit_limit` a `customer_accounts` + validación en `confirm()`/`quickSale()` con rechazo u override por rol autorizado.
+  - Job `pg_cron` de escalamiento de notificaciones `severity='urgent'` sin leer por N horas, reenvío por email o marcado de escalada.
+- **Criterios de aceptación**:
+  - El panel admin muestra MRR calculado desde `accounts.billing_plan` real.
+  - Una venta a crédito que excede `credit_limit` es rechazada o requiere override explícito.
+  - Una notificación `urgent` sin leer por más de N horas dispara escalamiento.
+  - `active_pools` deja de ser un placeholder hardcodeado.
+- **Dependencias**: ninguna dura; MRR asignado explícitamente por `track-plataforma.md`; crédito coordina con `v3-rbac-multirole` solo para override por rol; escalamiento reusa `v3-notifications-realtime` (✅).
+- **Consolida**: M-DASH-01 (MRR real) + M-FUNC-06 (límite de crédito) + M-AUTO-11 (escalamiento).
+
+#### `v4-producto-calidad-07` — Percepciones y retenciones fiscales (V2.5) — promoción a `v25-tax-perceptions`
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO · **Sub-ola**: V4.3 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: dar a percepciones-retenciones (hoy una línea de prosa en CHANGES.md) un bloque de change completo, formalizando el scope mejorado ya construido en `v4/changes-pending.md` sin reabrir ese análisis.
+- **Scope**:
+  - Promover a bloque de change completo (Estado/Governance/Scope/Dependencias) con nombre `v25-tax-perceptions`.
+  - Modelar alícuotas como catálogo versionado (`tax_perception_rates` con jurisdiction/regime/rate/valid_from/valid_to).
+  - Motor de cálculo usando `FiscalIdentitySnapshot` completo del receptor (✅).
+  - Soporte del array `Tributos` en `WSFEAdapter`/`WSFEStubAdapter` (mismo patrón que el array `Iva` ya construido).
+  - Tratamiento de percepciones sobre Notas de Crédito, secuenciado después de `v4-producto-calidad-08`.
+  - UI de configuración de alícuotas por jurisdicción sin requerir deploy.
+- **Criterios de aceptación**:
+  - CHANGES.md tiene un bloque completo `v25-tax-perceptions` con Estado/Governance/Scope/Dependencias.
+  - Las alícuotas viven en un catálogo versionado consultable, no hardcodeado.
+  - Un comprobante con percepción incluye el array `Tributos` correctamente poblado contra el stub.
+  - Sign-off explícito del PO registrado antes de cualquier código.
+- **Dependencias**: `v3-snapshot-pattern` (✅); recomienda `v31-fiscal-cae-real-adapter` (H-01) cerrado antes de facturar real; `v31-wsaa-ticket-cache` si hay volumen; secuenciar después de `v4-producto-calidad-08`.
+- **Consolida**: promueve percepciones-retenciones (V2.5) usando el scope mejorado de `v4/changes-pending.md` §3; M-FUNC-03; H-01/H-18.
+
+#### `v4-producto-calidad-08` — NC/ND AFIP + devolución de venta con reposición de stock
+- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO · **Sub-ola**: V4.2 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Objetivo**: cerrar la asimetría fiscal de mayor impacto del catálogo — "el sistema factura pero no puede corregir" — exponiendo el flujo de Nota de Crédito que hoy existe solo a medias.
+- **Scope**:
+  - Extender `comprobante_type` en `backend/schemas/fiscal.py:123` para incluir `nota_credito_a`/`nota_credito_b` (códigos AFIP ya mapeados en `wsfe_adapter.py:104,106`).
+  - Endpoint que emita NC asociada a un comprobante original (`CbteAsoc`), reusando el patrón fire-and-forget + relay `pg_cron`.
+  - Exponer `rpc_issue_credit_note` (✅ ya existe) vía router/UI real — hoy sin ningún caller HTTP.
+  - UI de Ventas: acción Anular/Corregir que dispare NC + reversión contable + reposición de stock vía movimiento inverso, no DELETE.
+  - Diferir Nota de Débito si NC cubre el caso de uso dominante.
+- **Criterios de aceptación**:
+  - El endpoint fiscal acepta `nota_credito_a`/`nota_credito_b` y genera el payload WSFE con `CbteAsoc`.
+  - La UI de Ventas permite anular/corregir una venta facturada en una sola operación (NC + reversión + stock).
+  - La reposición de stock usa movimiento inverso, no DELETE.
+  - Sign-off explícito del PO registrado antes de escribir código.
+- **Dependencias**: `rpc_issue_credit_note` (✅, se expone); coordina con `v31-sales-delete-rpc-reversal` (H-10); secuenciar antes de `v4-producto-calidad-07`; relacionado no bloqueante `v31-fiscal-cae-real-adapter` (H-01).
+- **Consolida**: M-FUNC-01/M-INT-01 (NC/ND AFIP + devolución, hallazgo #7 de mayor impacto del catálogo).
+
+#### `v4-producto-calidad-09` — Presupuestos UI (Quotes) completo + fix del endpoint roto
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.1 · **Esfuerzo**: M · **Evidencia**: hecho_verificado
+- **Objetivo**: construir la pantalla de gestión de presupuestos diferida de C-29 sobre una FSM y backend ya completos, cerrando una capability diseñada pero sin UI.
+- **Scope**:
+  - Pantalla de listado/gestión de presupuestos: crear, enviar, ver estado, convertir a venta.
+  - Consumir (no reimplementar) el fix de `v31-fix-auth-shape-500` sobre `routers/quotes.py:60` como prerequisito duro.
+  - Reusar componentes de línea de documento (patrón `sale_items`/snapshots) ya construidos para ventas.
+  - Notificación al cliente cuando el presupuesto se envía/vence.
+  - Exponer en UI el flujo de conversión presupuesto→venta ya implementado por C-29.
+- **Criterios de aceptación**:
+  - `POST /quotes` funciona en prod (post-fix) y la UI crea un presupuesto sin error 500.
+  - Un usuario puede listar, filtrar por estado y ver el detalle de un presupuesto desde una ruta nueva.
+  - Un presupuesto `accepted` puede convertirse a venta desde la UI en 1 acción.
+  - El cliente recibe notificación cuando el presupuesto se envía.
+- **Dependencias**: `v31-fix-auth-shape-500` (P0, prerequisito duro); `v3-document-status-history` (✅); C-29 quote-salesorder (✅).
+- **Consolida**: M-FUNC-02 (UI de Presupuestos + fix del endpoint de creación roto).
+
+#### `v4-producto-calidad-10` — Portal del cliente (autoservicio, solo-lectura) — gateado a validación de demanda
+- **Estado**: `[ ]` pendiente · **Governance**: MEDIO · **Sub-ola**: V4.3 · **Esfuerzo**: L · **Evidencia**: recomendación
+- **Objetivo**: dejar diseñado (no construido de entrada) un portal mínimo de autoservicio para que el cliente consulte saldo y presupuestos, condicionado explícitamente a que el PO valide demanda real antes de cualquier código.
+- **Scope**:
+  - Gate previo obligatorio no técnico: validar demanda real con el PO antes de cualquier diseño de UI/backend.
+  - Si se aprueba: V1 solo-lectura de saldo de cta-cte + presupuestos pendientes + historial, vía link con token sin cuenta de usuario completa.
+  - Fase 2 opcional: aceptar/rechazar presupuesto desde el portal, requiere auth liviana por token con expiración.
+  - Explícitamente fuera de scope: cualquier acción de pago o escritura de dinero en la V1 (eso es M-INT-02, change distinto).
+- **Criterios de aceptación**:
+  - Sign-off explícito del PO sobre validación de demanda, registrado antes de cualquier código.
+  - Si se aprueba: un cliente ve saldo de cta-cte y presupuestos pendientes vía link con token, sin credenciales completas.
+  - Ninguna acción de escritura de dinero existe en la V1.
+  - El acceso por token expira y no permite enumerar otras cuentas.
+- **Dependencias**: gate no técnico: validación de demanda con el PO (obligatorio); `v4-producto-calidad-09` (Presupuestos UI del lado dueño primero); reusa C-30 y C-29 (✅).
+- **Consolida**: M-FUNC-12 (Portal del cliente); apuesta de largo plazo con demanda no validada.
+
+---
+
+### Cuadro resumen — 55 changes de la Fase V4
+
+| ID | Título | Pista | Governance | Esfuerzo | Sub-ola | Consolida |
+|---|---|---|---|---|---|---|
+| `v4-backend-01` | Config fail-fast en producción | Backend | ALTO | S | V4.0 | H-23/H-25 |
+| `v4-backend-02` | Versionado `/api/v1` + OpenAPI | Backend | ALTO | M | V4.0 | M-ARQ-07 |
+| `v4-backend-03` | RFC 7807 v2 (instance/type/registro) | Backend | MEDIO | M | V4.0 | ext. `v3-api-standards` |
+| `v4-backend-04` | Integration tests Postgres real | Backend | MEDIO | L | V4.0 | M-OPS-02/H-34 |
+| `v4-backend-05` | Observabilidad backend (Sentry/OTel) | Backend | ALTO | M | V4.1 | M-OPS-03/M-OPS-07 |
+| `v4-backend-06` | Resiliencia asyncpg + cold-start | Backend | ALTO | M | V4.1 | K10/M-OPS-11/M-OPS-05 |
+| `v4-backend-07` | Rate limiting general Redis | Backend | ALTO | M | V4.2 | M-SEC-03/M-ARQ-09 |
+| `v4-backend-08` | Cache Redis lecturas calientes | Backend | ALTO | M | V4.2 | M-DASH-05/M-OPS-10 |
+| `v4-backend-09` | Cola de trabajos pesados (DEC-15) | Backend | ALTO | L | V4.3 | M-ARQ-13 |
+| `v4-frontend-01` | Design tokens & design system | Frontend | BAJO | M | V4.0 | H-21/H-33 |
+| `v4-frontend-02` | Erradicación de `any` + gate CI | Frontend | BAJO | L | V4.0 | H-21 |
+| `v4-frontend-03` | Error boundaries + Sentry frontend | Frontend | BAJO | M | V4.0 | H-31 |
+| `v4-frontend-04` | Accesibilidad WCAG 2.1 AA | Frontend | BAJO | L | V4.1 | H-21/M-UX-01/M-UX-03 |
+| `v4-frontend-05` | Kit RHF+Zod (dinero-safe) | Frontend | MEDIO | M | V4.1 | H-21 |
+| `v4-frontend-06` | Arquitectura de estado (Zustand/RQ) | Frontend | MEDIO | M | V4.2 | gap nuevo |
+| `v4-frontend-07` | Performance / bundle / code-split | Frontend | BAJO | M | V4.2 | H-32 |
+| `v4-frontend-08` | PWA offline-first POS | Frontend | ALTO | XL | V4.3 | M-UX-06 |
+| `v4-frontend-09` | i18n es-AR + formato | Frontend | BAJO | M | V4.3 | gap nuevo (rec.) |
+| `v4-plataforma-01` | CI ampliado (lint/drift/bundle/k6) | Plataforma | MEDIO | M | V4.0 | M-OPS-12/16/19/M-SEC-11 |
+| `v4-plataforma-02` | Staging real (cierra K19) | Plataforma | ALTO | L | V4.0 | K19/M-OPS-13 |
+| `v4-plataforma-03` | IaC y reproducibilidad | Plataforma | ALTO | M | V4.0 | gap IaC/M-OPS-11 |
+| `v4-plataforma-04` | Monitoreo + alerting cross-stack | Plataforma | MEDIO | M | V4.1 | M-OPS-04/M-OPS-07 |
+| `v4-plataforma-05` | Backups + DR verificados | Plataforma | ALTO | M | V4.1 | M-OPS-17 (rec.) |
+| `v4-plataforma-06` | Secretos + rotación + scanning | Plataforma | CRÍTICO | M | V4.1 | M-SEC-02 |
+| `v4-plataforma-07` | Feature flags (kill-switch, K4) | Plataforma | MEDIO | M | V4.1 | M-OPS-14/K4 |
+| `v4-plataforma-08` | Deploy smoke-test + rollback | Plataforma | ALTO | M | V4.2 | M-OPS-18/K19 |
+| `v4-plataforma-09` | Panel interno consolidado | Plataforma | ALTO | M | V4.2 | H-08/M-DASH-03 |
+| `v4-seguridad-01` | Hardening SECDEF + gate CI | Seguridad | ALTO | M | V4.0 | H-26/H-27/M-SEC-07 |
+| `v4-seguridad-02` | Supply chain (Dependabot/SBOM/CodeQL) | Seguridad | BAJO | S | V4.0 | M-SEC-11 |
+| `v4-seguridad-03` | Perímetro: WAF/BotID + CSP nonces | Seguridad | MEDIO | M | V4.0 | M-SEC-09/M-SEC-17 |
+| `v4-seguridad-04` | Audit trail inmutable y visible | Seguridad | MEDIO | M | V4.1 | M-SEC-04 |
+| `v4-seguridad-05` | MFA/2FA + gestión de sesiones | Seguridad | ALTO | M | V4.1 | M-SEC-01/M-SEC-08 |
+| `v4-seguridad-06` | Secretos + cifrado en reposo | Seguridad | CRÍTICO | L | V4.1 | M-SEC-02/M-SEC-10 |
+| `v4-seguridad-07` | Cumplimiento Ley 25.326 | Seguridad | ALTO | L | V4.2 | M-SEC-05 |
+| `v4-seguridad-08` | Pentest + security-review periódico | Seguridad | BAJO | S | V4.2 | M-SEC-15 (rec.) |
+| `v4-seguridad-09` | Segregación de funciones (maker-checker) | Seguridad | CRÍTICO | XL | V4.3 | M-SEC-13/M-ARQ-03 |
+| `v4-ia-01` | Registro de consumers del outbox | IA | ALTO | L | V4.0 | M-IA-03/M-AUTO-01/M-ARQ-08 |
+| `v4-ia-02` | Higiene + tenancy del Copiloto | IA | MEDIO | M | V4.0 | M-IA-04/M-IA-05 |
+| `v4-ia-03` | Guardrails anti prompt-injection | IA | MEDIO | S | V4.0 | M-IA-07 |
+| `v4-ia-04` | Evals de calidad + unificación fuente | IA | MEDIO | M | V4.1 | M-IA-02/08/09/10 |
+| `v4-ia-05` | Memoria conversacional real | IA | MEDIO | M | V4.1 | M-IA-13 |
+| `v4-ia-06` | Automatizaciones proactivas (stock/caja) | IA | ALTO | M | V4.1 | M-IA-15/M-IA-16 |
+| `v4-ia-07` | Forecasting con serie temporal real | IA | MEDIO | M | V4.2 | M-IA-14 |
+| `v4-ia-08` | KnowledgeBase + RAG con pgvector | IA | MEDIO | L | V4.2 | M-IA-12 |
+| `v4-ia-09` | Capa de herramientas MCP (AIAgent) | IA | CRÍTICO | XL | V4.3 | M-IA-11 |
+| `v4-producto-calidad-01` | E2E Playwright flujos de dinero | Producto/QA | ALTO | L | V4.1 | H-34/`v31-e2e-money-flows` |
+| `v4-producto-calidad-02` | k6 de correctitud bajo concurrencia | Producto/QA | ALTO | M | V4.2 | ext. H-34 |
+| `v4-producto-calidad-03` | Estrategia testing hot path dinero | Producto/QA | MEDIO | M | V4.0 | H-04/H-16/H-34 |
+| `v4-producto-calidad-04` | Onboarding guiado / product tour | Producto/QA | MEDIO | M | V4.0 | M-UX-10 |
+| `v4-producto-calidad-05` | Invitaciones + selector de cuenta | Producto/QA | ALTO | M | V4.1 | M-ARQ-15/M-ARQ-04 |
+| `v4-producto-calidad-06` | MRR real + crédito + escalamiento | Producto/QA | ALTO | M | V4.1 | M-DASH-01/M-FUNC-06/M-AUTO-11 |
+| `v4-producto-calidad-07` | Percepciones → `v25-tax-perceptions` | Producto/QA | CRÍTICO | L | V4.3 | M-FUNC-03/H-01/H-18 |
+| `v4-producto-calidad-08` | NC/ND AFIP + devolución con stock | Producto/QA | CRÍTICO | L | V4.2 | M-FUNC-01/M-INT-01 |
+| `v4-producto-calidad-09` | Presupuestos UI + fix endpoint | Producto/QA | MEDIO | M | V4.1 | M-FUNC-02 |
+| `v4-producto-calidad-10` | Portal del cliente (solo-lectura) | Producto/QA | MEDIO | L | V4.3 | M-FUNC-12 (rec.) |
+
+> Esfuerzo: **S** (horas–1 día) · **M** (días) · **L** (semana+) · **XL** (semanas, alto riesgo). **(rec.)** = tipo de evidencia `recomendación` (requiere validación/sign-off PO antes de código).
+
+---
+
+### Secuencia de sub-olas
+
+> **Ola 0 (previa, prerequisito): v3.1** — cierre del bloque P0 (gate de CI, lockdown de superficie, fix de auth, tenancy del pool, webhook de upgrade, CAE real) + avance de P1/P2/P3. **V4 asume v3.1 cerrada o en curso**; ningún change v4 arranca su parte dependiente antes de que su `v31-*` prerequisito esté listo.
+
+**Sub-ola V4.0 — Fundamentos (CI real, observabilidad de arranque, contrato de API, tenancy determinística).** Todo lo que baja el riesgo de las olas siguientes y no depende de nada avanzado.
+`v4-backend-01` · `v4-backend-02` · `v4-backend-03` · `v4-backend-04` · `v4-frontend-01` · `v4-frontend-02` · `v4-frontend-03` · `v4-plataforma-01` · `v4-plataforma-02` · `v4-plataforma-03` · `v4-seguridad-01` · `v4-seguridad-02` · `v4-seguridad-03` · `v4-ia-01` · `v4-ia-02` · `v4-ia-03` · `v4-producto-calidad-03` · `v4-producto-calidad-04`.
+
+**Sub-ola V4.1 — Madurez operativa (observabilidad completa, resiliencia, a11y, secretos, evals, negocio confiable).**
+`v4-backend-05` · `v4-backend-06` · `v4-frontend-04` · `v4-frontend-05` · `v4-plataforma-04` · `v4-plataforma-05` · `v4-plataforma-06` · `v4-plataforma-07` · `v4-seguridad-04` · `v4-seguridad-05` · `v4-seguridad-06` · `v4-ia-04` · `v4-ia-05` · `v4-ia-06` · `v4-producto-calidad-01` · `v4-producto-calidad-05` · `v4-producto-calidad-06` · `v4-producto-calidad-09`.
+
+**Sub-ola V4.2 — Optimización y correctitud bajo carga (cache, rate-limit, deploy seguro, cumplimiento, RAG).**
+`v4-backend-07` · `v4-backend-08` · `v4-frontend-06` · `v4-frontend-07` · `v4-plataforma-08` · `v4-plataforma-09` · `v4-seguridad-07` · `v4-seguridad-08` · `v4-ia-07` · `v4-ia-08` · `v4-producto-calidad-02` · `v4-producto-calidad-08`.
+
+**Sub-ola V4.3 — Avanzado (agentes con tools, multiempresa, offline, apuestas de largo plazo).** Casi todo aquí depende de sign-off explícito del PO (`v3-rbac-multirole`, DEC-15, demanda del portal).
+`v4-backend-09` · `v4-frontend-08` · `v4-frontend-09` · `v4-seguridad-09` · `v4-ia-09` · `v4-producto-calidad-07` · `v4-producto-calidad-10`.
+
+---
+
+### Ruta crítica de V4
+
+```mermaid
+graph LR
+  V31["Ola 0 · v3.1 P0<br/>ci-test-gate · authz-token-hook<br/>api-standards ✅ · rbac-multirole"]
+
+  subgraph W0["V4.0 — Fundamentos"]
+    B01["backend-01<br/>config fail-fast"]
+    B03["backend-03<br/>RFC 7807 v2"]
+    B04["backend-04<br/>integration tests"]
+    P01["plataforma-01<br/>CI ampliado"]
+    P02["plataforma-02<br/>staging"]
+    F02["frontend-02<br/>anti-any + lint"]
+    IA01["ia-01<br/>outbox consumers"]
+    QA03["prod-cal-03<br/>estrategia testing"]
+  end
+
+  subgraph W1["V4.1 — Madurez"]
+    B05["backend-05<br/>observabilidad"]
+    B06["backend-06<br/>resiliencia+cold-start"]
+    P06["plataforma-06<br/>secretos"]
+    SEC04["seguridad-04<br/>audit trail"]
+    IA04["ia-04<br/>evals calidad"]
+    QA01["prod-cal-01<br/>E2E dinero"]
+  end
+
+  subgraph W2["V4.2 — Optimización"]
+    B08["backend-08<br/>cache Redis"]
+    P08["plataforma-08<br/>deploy smoke+rollback"]
+    QA08["prod-cal-08<br/>NC/ND AFIP"]
+    IA08["ia-08<br/>RAG pgvector"]
+  end
+
+  subgraph W3["V4.3 — Avanzado"]
+    IA09["ia-09<br/>tools MCP"]
+    SEC09["seguridad-09<br/>maker-checker"]
+    QA07["prod-cal-07<br/>percepciones"]
+    F08["frontend-08<br/>PWA offline"]
+  end
+
+  V31 --> B01 & P01 & F02 & IA01 & B03
+  P01 --> P02
+  B03 --> B05
+  B05 --> B06 & SEC04
+  B04 --> QA03
+  P02 --> QA01
+  QA03 --> QA01
+  IA01 --> IA04
+  B08 --> P08
+  IA04 --> IA08
+  SEC04 --> SEC09
+  QA08 --> QA07
+  V31 --> SEC09 & IA09
+  IA08 --> IA09
+  QA01 --> QA08
+  P06 --> P08
+```
+
+> **Cuellos de botella de la ruta crítica**: (1) el bloque P0 de v3.1 es prerequisito duro de todo; (2) `v3-rbac-multirole` (CRÍTICO, solo análisis hasta sign-off PO) gobierna `v4-seguridad-09` y las tools de escritura de `v4-ia-09`; (3) `v4-plataforma-01`→`02` desbloquea el tier de integración/E2E de dinero (`v4-producto-calidad-01`/`02`); (4) los changes CRÍTICO/fiscal (`v4-producto-calidad-07`/`08`, `v4-seguridad-06`) requieren sign-off del PO antes de código.

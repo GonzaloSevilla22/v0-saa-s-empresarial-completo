@@ -48,8 +48,10 @@ export const pythonClient = {
     return handleResponse<T>(response);
   },
 
-  async post<T>(path: string, body: unknown): Promise<T> {
-    const headers = await getAuthHeaders();
+  async post<T>(path: string, body: unknown, extraHeaders?: HeadersInit): Promise<T> {
+    // v3-api-standards §6.2: extraHeaders permite enviar Idempotency-Key sin
+    // tocar la firma de las llamadas existentes (parámetro opcional).
+    const headers = { ...(await getAuthHeaders()), ...(extraHeaders ?? {}) };
     const response = await fetch(`${BACKEND_URL as string}${path}`, {
       method: "POST",
       headers,

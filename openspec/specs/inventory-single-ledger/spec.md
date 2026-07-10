@@ -47,7 +47,7 @@ El sistema SHALL reconciliar, de forma idempotente, el stock visible histórico 
 - **THEN** el `SUM(branch_stock.quantity)` por producto es idéntico tras la segunda corrida
 
 ### Requirement: Vista de compatibilidad de stock total con security_invoker
-El sistema SHALL exponer una vista `v_products_with_stock` que reconstruye el stock total de cada producto como `COALESCE(SUM(branch_stock.quantity), 0)`, para los consumidores que aún leen el stock como un escalar del producto. La vista MUST declararse `WITH (security_invoker = true)` para no bypassar RLS. La vista SHALL conservarse tras el retiro de `products.stock`.
+El sistema SHALL exponer una vista `v_products_with_stock` que reconstruye el stock total de cada producto como `COALESCE(SUM(branch_stock.quantity), 0)`, para los consumidores que aún leen el stock como un escalar del producto. La vista MUST declararse `WITH (security_invoker = true)` para no bypassar RLS. La vista SHALL conservarse tras el retiro de `products.stock`. Además, la vista SHALL exponer una columna `min_stock` **derivada de `branch_stock`** (no de `products.min_stock`): dado que la semántica de propagación deja el `min_stock` uniforme entre las filas `branch_stock` de un producto, la vista computa `min_stock` como una subconsulta correlacionada sobre `branch_stock` (p. ej. `MAX(branch_stock.min_stock)`), espejando el patrón de la subconsulta de `stock`. El **nombre** de la columna SHALL seguir siendo `min_stock` para que ningún consumidor de frontend (hook `use-products`, `low-stock-alert.tsx`, tipos) requiera cambios. Con esto, las alertas y KPIs que leen la vista quedan consistentes con el trigger `check_branch_low_stock`, que lee `branch_stock.min_stock`.
 
 #### Scenario: la vista respeta RLS por cuenta
 - **WHEN** un usuario consulta `v_products_with_stock`
@@ -56,6 +56,16 @@ El sistema SHALL exponer una vista `v_products_with_stock` que reconstruye el st
 #### Scenario: la vista expone el total desde branch_stock
 - **WHEN** se consulta `v_products_with_stock` para un producto con 6 y 4 unidades en dos branches
 - **THEN** el stock total expuesto es 10, calculado desde `branch_stock`, no desde la columna `products.stock`
+
+#### Scenario: la vista expone min_stock derivado de branch_stock
+- **GIVEN** un producto con `branch_stock.min_stock = 5` en sus filas (uniforme por propagación) y `products.min_stock` con cualquier valor legacy
+- **WHEN** se consulta `v_products_with_stock` para ese producto
+- **THEN** la columna `min_stock` expuesta es 5 (derivada de `branch_stock`), consistente con el umbral del trigger de alerta
+
+#### Scenario: un producto sin filas branch_stock expone min_stock 0
+- **GIVEN** un producto sin ninguna fila en `branch_stock`
+- **WHEN** se consulta `v_products_with_stock`
+- **THEN** `min_stock` expuesto es 0 (`COALESCE`), sin error
 
 #### Scenario: la vista sobrevive al DROP de products.stock
 - **WHEN** se elimina la columna `products.stock`
@@ -135,4 +145,25 @@ Al eliminar una venta o una compra, el sistema SHALL revertir el movimiento de s
 - **GIVEN** una compra con `product_id` y fila en `stock_movements` (`reference_type = 'purchase'`, `quantity_delta > 0`, una entrada de stock)
 - **WHEN** se elimina la compra
 - **THEN** `branch_stock` de `(product_id, branch_id)` se decrementa en `quantity_delta` (revierte la entrada) y la fila de `stock_movements` se elimina
+
+### Requirement: Costo unitario congelado en stock_movements para valuación
+
+El sistema SHALL agregar `unit_cost_snapshot NUMERIC(15,2)` NULLABLE a `stock_movements` y SHALL congelar el costo unitario del producto al registrar cada movimiento generado por una venta o compra, dentro de la misma transacción que ya escribe `quantity_before`/`quantity_after`. Este costo congelado SHALL habilitar la valuación de inventario histórica sin depender de `products.cost` actual, y SHALL respetar la inmutabilidad del ledger (append-only) ya especificada: el valor se escribe una única vez en el INSERT del movimiento.
+
+#### Scenario: El movimiento generado por una venta congela el costo
+
+- **GIVEN** un producto con `products.cost = 600`
+- **WHEN** una venta genera un movimiento `type = 'sale'` en `stock_movements`
+- **THEN** el movimiento tiene `unit_cost_snapshot = 600`, escrito en la misma transacción que `quantity_after`, y no se modifica luego
+
+#### Scenario: Movimientos históricos conservan NULL sin romper el ledger
+
+- **WHEN** la migración agrega `unit_cost_snapshot` a `stock_movements`
+- **THEN** los movimientos previos quedan con `unit_cost_snapshot = NULL` y el carácter append-only del ledger se mantiene (ni UPDATE ni DELETE)
+
+#### Scenario: La reversa de stock preserva el costo del movimiento original
+
+- **GIVEN** un movimiento de venta con `unit_cost_snapshot = 600`
+- **WHEN** se elimina la venta y se genera el contra-movimiento de reversa
+- **THEN** el contra-movimiento congela su propio `unit_cost_snapshot` sin alterar el `unit_cost_snapshot` del movimiento original
 

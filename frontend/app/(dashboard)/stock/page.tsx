@@ -15,7 +15,16 @@ import { ProductForm } from "@/components/forms/product-form"
 import { Button } from "@/components/ui/button"
 import { SlidersHorizontal, Upload } from "lucide-react"
 import { ExportButton } from "@/components/export/ExportButton"
+import { holdsOwnStock, getStockStatus, isBelowThreshold, type StockStatus } from "@/lib/product-stock"
 import type { Product } from "@/lib/types"
+
+/** Sort order for the "Estado" column — most urgent first, "sin mínimo" last. */
+const STATUS_SORT_RANK: Record<StockStatus, number> = {
+  critico: 0,
+  bajo: 1,
+  ok: 2,
+  "sin-umbral": 3,
+}
 
 const columns: Column<Product>[] = [
   {
@@ -45,17 +54,13 @@ const columns: Column<Product>[] = [
     header: "Estado",
     cell: (row) => <StockSemaphore stock={row.stock} minStock={row.minStock} />,
     sortable: true,
-    sortValue: (row) => {
-      if (row.stock <= row.minStock) return 0
-      if (row.stock <= row.minStock * 1.5) return 1
-      return 2
-    },
+    sortValue: (row) => STATUS_SORT_RANK[getStockStatus(row.stock, row.minStock)],
   },
   {
     key: "reponer",
     header: "A reponer",
     cell: (row) => {
-      const toOrder = row.stock <= row.minStock ? row.minStock * 2 - row.stock : 0
+      const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
       return toOrder > 0 ? (
         <span className="text-primary font-medium tabular-nums">{toOrder} unidades</span>
       ) : (
@@ -73,10 +78,8 @@ const columns: Column<Product>[] = [
 /** Inline adjust button rendered per row — declared outside so columns is stable */
 function AdjustButton({ product }: { product: Product }) {
   const [open, setOpen] = useState(false)
-  if (
-    product.stockControlType === "variant_only" ||
-    product.stockControlType === "untracked"
-  ) {
+  // Variant parents and untracked services have no stock to adjust at this level.
+  if (!holdsOwnStock(product)) {
     return null
   }
   return (
@@ -101,12 +104,11 @@ function AdjustButton({ product }: { product: Product }) {
 
 export default function StockPage() {
   const { products } = useProducts()
-  const lowStock = products.filter(p =>
-    p.stockControlType !== "untracked" &&
-    p.stockControlType !== "variant_only" &&
-    p.minStock > 0 &&
-    p.stock <= p.minStock
-  )
+  // The stock/reposition views operate over real inventory items only —
+  // variant_only parents (stock lives in their children) and untracked services
+  // are catalogue constructs and would otherwise show bogus "Crítico" rows.
+  const inventory = products.filter(holdsOwnStock)
+  const lowStock = inventory.filter(p => isBelowThreshold(p.stock, p.minStock))
   const { isAdmin } = useAuth()
 
   // Quick-edit dialog triggered from the alert panel
@@ -165,13 +167,13 @@ export default function StockPage() {
 
       {/* ── Full inventory table ──────────────────────────────────────────── */}
       <DataTable
-        data={products}
+        data={inventory}
         columns={columns}
         searchPlaceholder="Buscar productos..."
         searchKey={(row) => `${row.name} ${row.category}`}
         getId={(row) => row.id}
         mobileCard={(row) => {
-          const toOrder = row.stock <= row.minStock ? row.minStock * 2 - row.stock : 0
+          const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
           return (
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex flex-col gap-0.5">

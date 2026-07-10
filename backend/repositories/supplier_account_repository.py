@@ -48,7 +48,12 @@ class SupplierAccountRepository(BaseRepository):
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict]:
-        """Lista supplier_account_movements paginados por (supplier_account_id, created_at)."""
+        """Lista supplier_account_movements paginados por (supplier_account_id, created_at).
+
+        Usado por `get_account` (vista combinada saldo+historial) — mantiene
+        su firma limit/offset. Para el endpoint dedicado de listado usar
+        `list_movements_page` (v3-api-standards §2.8).
+        """
         return await self.fetch(
             """
             SELECT *
@@ -63,24 +68,59 @@ class SupplierAccountRepository(BaseRepository):
             offset,
         )
 
+    async def list_movements_page(
+        self,
+        supplier_account_id: str,
+        *,
+        page: int,
+        size: int,
+    ) -> dict:
+        """v3-api-standards §2.8: envelope estándar {items,total,page,pages}
+        para GET /supplier-accounts/{id}/movements (reemplaza limit/offset +
+        lista plana)."""
+        return await self.paginate(
+            """
+            SELECT *
+            FROM public.supplier_account_movements
+            WHERE supplier_account_id = $1::uuid
+            ORDER BY created_at DESC
+            """,
+            """
+            SELECT COUNT(*)
+            FROM public.supplier_account_movements
+            WHERE supplier_account_id = $1::uuid
+            """,
+            supplier_account_id,
+            page=page,
+            size=size,
+        )
+
     async def register_payment_made(
         self,
         idempotency_key: str,
         supplier_id: str,
         amount: float,
         reference_purchase_id: str | None = None,
+        payment_method: str = "cash",
+        bank_account_id: str | None = None,
     ) -> dict:
-        """Invoca rpc_register_payment_made → registra pago a la cuenta del proveedor."""
+        """Invoca rpc_register_payment_made → registra pago a la cuenta del proveedor.
+
+        bank-payment-routing C2: payment_method/bank_account_id son params aditivos
+        trailing (default cash/None) — retrocompatibles con la firma de C-30.
+        """
         row = await self.fetchrow(
             """
             SELECT public.rpc_register_payment_made(
-              $1::text, $2::uuid, $3::numeric, $4::uuid
+              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::text, $6::uuid
             ) AS result
             """,
             idempotency_key,
             supplier_id,
             amount,
             reference_purchase_id,
+            payment_method,
+            bank_account_id,
         )
         return _jsonb(row["result"])
 

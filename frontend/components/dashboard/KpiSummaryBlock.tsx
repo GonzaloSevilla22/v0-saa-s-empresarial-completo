@@ -39,6 +39,19 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
   const empty = isLoading || data === null
   const noActivity = empty || (data.salesCount === 0 && data.netProfit === 0)
 
+  // v3-reporting-invariants (D8): línea "Cobrado: $X" solo cuando difiere de
+  // lo facturado (percibido ≠ devengado — cuenta con movimientos de cta
+  // cte). Con degradación: si el RPC todavía no expone las columnas nuevas
+  // (ventana entre deploy de DB y de frontend), ambos son null y no se
+  // muestra nada.
+  const collectedLine =
+    !empty &&
+    data.collectedRevenue != null &&
+    data.invoicedRevenue != null &&
+    data.collectedRevenue !== data.invoicedRevenue
+      ? `Cobrado: ${formatKpiCurrency(data.collectedRevenue)}`
+      : null
+
   const netDelta = empty ? null : kpiDeltaPct(data.netProfit, data.prevNetProfit)
   const ticketDelta = empty ? null : kpiDeltaPct(data.avgTicket, data.prevAvgTicket)
   const costDelta = empty ? null : kpiDeltaPct(data.costPerSale, data.prevCostPerSale)
@@ -66,6 +79,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
         tone={kpiBadgeTone(netDelta, "up_good")}
         icon={TrendingUp}
         iconColor="text-emerald-400"
+        secondaryLine={noActivity ? null : collectedLine}
       />
       <KpiSummaryCard
         label="Margen por Canal"

@@ -59,7 +59,9 @@ async def close_session(
     payload: CloseSessionIn,
 ) -> dict:
     require_role(auth, ["user", "admin"])
-    return await repo.close_session(session_id, float(payload.counted_balance))
+    return await repo.close_session(
+        session_id, float(payload.counted_balance), idempotency_key=payload.idempotency_key
+    )
 
 
 async def current_session(

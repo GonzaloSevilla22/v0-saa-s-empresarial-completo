@@ -16,13 +16,14 @@ import uuid
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.customer_account_repository import CustomerAccountRepository
 from backend.schemas.customer_accounts import (
-    AccountMovementOut,
+    AccountMovementPageOut,
     CreateCustomerAccountOut,
     CustomerAccountOut,
     PaymentReceivedIn,
@@ -62,25 +63,30 @@ async def get_customer_account(
     return await customer_account_service.get_account(repo, account_id, str(client_id))
 
 
-@router.get("/customer-accounts/{customer_account_id}/movements", response_model=list[AccountMovementOut])
+@router.get("/customer-accounts/{customer_account_id}/movements", response_model=AccountMovementPageOut)
 async def list_customer_movements(
     customer_account_id: uuid.UUID,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    page: int = Query(0, ge=0),
+    size: int = Query(50, ge=1, le=200),
     auth: dict = Depends(get_current_user),
     repo: CustomerAccountRepository = Depends(get_customer_account_repo),
 ):
-    """Lista paginada de movimientos de la cuenta corriente."""
+    """v3-api-standards §2.7: envelope estándar {items,total,page,pages}."""
     return await customer_account_service.list_movements(
-        repo, str(customer_account_id), limit=limit, offset=offset
+        repo, str(customer_account_id), page=page, size=size
     )
 
 
 @router.post("/customer-accounts/payments", response_model=PaymentReceivedOut)
 async def register_payment_received(
+    request: Request,
     payload: PaymentReceivedIn,
     auth: dict = Depends(get_current_user),
     repo: CustomerAccountRepository = Depends(get_customer_account_repo),
 ):
-    """Registra un cobro en la cuenta corriente del cliente. Idempotente."""
+    """Registra un cobro en la cuenta corriente del cliente. Idempotente.
+
+    v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    """
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await customer_account_service.register_payment_received(repo, auth, payload)

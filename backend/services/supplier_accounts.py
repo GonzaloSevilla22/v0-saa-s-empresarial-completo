@@ -15,12 +15,14 @@ from backend.schemas.supplier_accounts import (
     SupplierChargeIn,
 )
 
+# bank-payment-routing C2: P0412 (bank_account no encontrada/inactiva) → 400.
 _ERRCODE_STATUS = {
     "P0400": 400,
     "P0401": 403,
     "P0403": 403,
     "P0404": 404,
     "P0409": 409,
+    "P0412": 400,
     "P0422": 422,
 }
 
@@ -63,12 +65,25 @@ async def get_account(
     return account
 
 
+async def list_movements(
+    repo: SupplierAccountRepository,
+    supplier_account_id: str,
+    page: int = 0,
+    size: int = 50,
+) -> dict:
+    """v3-api-standards §2.8: envelope estándar {items,total,page,pages}."""
+    return await repo.list_movements_page(supplier_account_id, page=page, size=size)
+
+
 async def register_payment_made(
     repo: SupplierAccountRepository,
     auth: dict,
     payload: PaymentMadeIn,
 ) -> dict:
-    """Registra un pago al proveedor. Guard is_account_writer. Idempotente."""
+    """Registra un pago al proveedor. Guard is_account_writer. Idempotente.
+
+    bank-payment-routing C2: propaga payment_method/bank_account_id al repo.
+    """
     require_role(auth, ["user", "admin"])
     try:
         return await repo.register_payment_made(
@@ -76,6 +91,8 @@ async def register_payment_made(
             supplier_id=str(payload.supplier_id),
             amount=float(payload.amount),
             reference_purchase_id=str(payload.reference_purchase_id) if payload.reference_purchase_id else None,
+            payment_method=payload.payment_method,
+            bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
         )
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc

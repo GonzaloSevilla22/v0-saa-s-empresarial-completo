@@ -69,6 +69,12 @@ class SalesOrderItemOut(BaseModel):
     quantity:       Decimal
     price:          Decimal
     subtotal:       Decimal
+    # v3-snapshot-pattern: fotografía histórica del maestro al congelar la línea.
+    name_snapshot:       Optional[str] = None
+    sku_snapshot:        Optional[str] = None
+    unit_cost_snapshot:  Optional[Decimal] = None
+    iva_rate_snapshot:   Optional[Decimal] = None
+    snapshot_backfilled: bool = False
 
 
 # ── SalesOrder Output ─────────────────────────────────────────────────────────
@@ -101,7 +107,10 @@ class ConfirmIn(BaseModel):
     Validación cross-field (OQ-2 resuelto):
       payment_method='cash' ⇒ cash_session_id REQUERIDO (no puede ser None).
     """
-    idempotency_key:   str
+    # v3-api-standards §3.2: opcional+deprecado — la clave viaja preferentemente
+    # por el header `Idempotency-Key` (D4). Se mantiene como fallback de body
+    # durante la ventana de compatibilidad (OQ2: limpieza diferida).
+    idempotency_key:   Optional[str] = None
     payment_method:    PaymentMethod
     cash_session_id:   Optional[uuid.UUID] = None
     comprobante_type:  Optional[str] = None  # nullable = sin comprobante (OQ-1)
@@ -119,8 +128,8 @@ class ConfirmIn(BaseModel):
 
     @field_validator("idempotency_key")
     @classmethod
-    def validate_idempotency_key_not_empty(cls, v: str) -> str:
-        if not v or not v.strip():
+    def validate_idempotency_key_not_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
             raise ValueError("idempotency_key no puede estar vacío")
         return v
 
@@ -133,7 +142,8 @@ class QuickSaleIn(BaseModel):
 
     Validación cross-field: cash ⇒ cash_session_id requerido.
     """
-    idempotency_key:   str
+    # v3-api-standards §3.2: opcional+deprecado (ver ConfirmIn más arriba).
+    idempotency_key:   Optional[str] = None
     client_id:         Optional[uuid.UUID] = None
     items:             list[SalesOrderItemIn]
     payment_method:    PaymentMethod = PaymentMethod.other
@@ -159,8 +169,8 @@ class QuickSaleIn(BaseModel):
 
     @field_validator("idempotency_key")
     @classmethod
-    def validate_idempotency_key_not_empty(cls, v: str) -> str:
-        if not v or not v.strip():
+    def validate_idempotency_key_not_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
             raise ValueError("idempotency_key no puede estar vacío")
         return v
 

@@ -37,8 +37,10 @@ async def update_client(
 
 
 async def delete_client(repo: ClientRepository, auth: dict, account_id: str, client_id: str) -> None:
+    """v3-soft-delete-policy: borrado soft (RN-B1/RN-B2) — la fila persiste
+    con deleted_at + deleted_by y sale de todas las lecturas por defecto."""
     require_role(auth, ["user", "admin"])
     existing = await repo.get_by_id(client_id, account_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    await repo.delete(client_id, account_id)
+    await repo.soft_delete("clients", client_id, account_id, auth["user_id"])

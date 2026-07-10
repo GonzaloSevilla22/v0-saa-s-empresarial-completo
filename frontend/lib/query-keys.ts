@@ -115,4 +115,24 @@ export const queryKeys = {
     lists:  () => ["costCenters", "list"] as const,
     active: () => ["costCenters", "active"] as const,
   },
+  // bank-payment-routing C2 (V2.5 BankReconciliation)
+  bankAccounts: {
+    all:    () => ["bankAccounts"] as const,
+    active: () => ["bankAccounts", "active"] as const,
+  },
+  // bank-reconciliation C3 (V2.5 BankReconciliation)
+  bankReconciliation: {
+    all:         () => ["bankReconciliation"] as const,
+    imports:     (bankAccountId: string) => ["bankReconciliation", "imports", bankAccountId] as const,
+    importLines: (importId: string) => ["bankReconciliation", "importLines", importId] as const,
+    sessions:    (bankAccountId: string) => ["bankReconciliation", "sessions", bankAccountId] as const,
+    session:     (sessionId: string) => ["bankReconciliation", "session", sessionId] as const,
+    pending:     (sessionId: string) => ["bankReconciliation", "pending", sessionId] as const,
+    suggestions: (sessionId: string) => ["bankReconciliation", "suggestions", sessionId] as const,
+  },
+  // v3-notifications-realtime (Modelo V3 §3)
+  notifications: {
+    all:    () => ["notifications"] as const,
+    byAccount: (accountId: string) => ["notifications", "account", accountId] as const,
+  },
 } as const

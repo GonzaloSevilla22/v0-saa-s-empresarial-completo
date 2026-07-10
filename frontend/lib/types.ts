@@ -393,6 +393,25 @@ export interface Client {
   legalName?: string
 }
 
+// ── Direcciones operativas del cliente (v3-catalog-masters, V3 §7.3) ─────────
+// Distinta de la dirección FISCAL (vive en FiscalIdentity, inmutable por
+// snapshot). Sin UI en este change — solo el contrato de tipos para la API
+// (GET/POST/PUT/DELETE /clients/{clientId}/addresses + set-primary).
+export interface ClientAddress {
+  id: string
+  accountId: string
+  clientId: string
+  alias: string | null
+  street: string | null
+  city: string | null
+  province: string | null
+  postalCode: string | null
+  notes: string | null
+  isPrimary: boolean
+  createdAt: string
+  updatedAt: string | null
+}
+
 export type InsightPriority = "alta" | "media" | "baja"
 
 export interface Insight {
@@ -573,4 +592,61 @@ export interface ExportLog {
   signedUrlExpiresAt: string | null
   status: ExportStatus
   createdAt: string
+}
+
+// ── Document status history (v3-document-status-history — Modelo V3 §2) ──────
+
+export type DocumentTypeSlug =
+  | "quote"
+  | "sales_order"
+  | "fiscal_document"
+  | "cash_session"
+  | "reconciliation_session"
+  | "stock_transfer"
+
+export interface DocumentStatusHistoryEntry {
+  id: string
+  accountId: string
+  documentType: DocumentTypeSlug
+  documentId: string
+  /** NULL = entrada de creación del documento (RN-A2) */
+  fromStatus: string | null
+  toStatus: string
+  /** uuid del actor; 00000000-0000-0000-0000-000000000000 = sistema (relay CAE) */
+  performedBy: string
+  reason: string | null
+  occurredAt: string
+}
+
+// ── In-app notifications (v3-notifications-realtime — Modelo V3 §3) ──────────
+
+/**
+ * Tipo semántico del aviso. Coincide 1:1 con el event_type del outbox que lo
+ * origina (Consumer 4 / _notification_from_event).
+ */
+export type NotificationType =
+  | "CashSessionClosed"
+  | "StockBelowMinimum"
+  | "FiscalDocumentRejected"
+  | "QuoteAccepted"
+  | "TransferDispatched"
+
+export type NotificationSeverity = "info" | "warning" | "urgent"
+
+/**
+ * Read model efímero de la campana de notificaciones. Escrito solo por el
+ * relay (Consumer 4, SECURITY DEFINER) — el cliente nunca inserta filas.
+ * Source of truth: notifications table (RLS por audiencia).
+ */
+export interface Notification {
+  id: string
+  accountId: string
+  branchId: string | null
+  type: NotificationType
+  severity: NotificationSeverity
+  /** Payload crudo del evento de dominio que originó el aviso. */
+  payload: Record<string, unknown>
+  read: boolean
+  createdAt: string
+  readAt: string | null
 }

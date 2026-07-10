@@ -89,8 +89,8 @@ name                TEXT
 category            TEXT        -- Electrónica|Ropa|Alimentos|Hogar|Salud|Accesorios|Otros
 price               NUMERIC(15,2)
 cost                NUMERIC(15,2)
-stock               NUMERIC(15,4)   -- fraccionario (ej: 0.5 kg)
-min_stock           INTEGER
+stock               NUMERIC(15,4)   -- fraccionario (ej: 0.5 kg) — DEPRECATED, dropeada en C-21 checkpoint #2; stock real vive en branch_stock.quantity
+min_stock           INTEGER         -- DEPRECATED (branch-min-stock-realign, 2026-07-04): fuente de verdad del umbral de alerta es branch_stock.min_stock (RN-23). Se conserva por el dual-write del importador; DROP diferido
 barcode             TEXT        UNIQUE(user_id, barcode)
 sku                 TEXT        UNIQUE(user_id, sku)
 parent_id           UUID        FK products(id)  -- para variantes
@@ -162,21 +162,59 @@ phone       TEXT
 created_at  TIMESTAMP
 ```
 > El campo `status` (activo/inactivo/perdido) y `category` se manejan en la lógica de app, no confirmados como columnas en la DB.
+> Además de estas columnas legacy documentadas acá, `clients` en prod ya tiene `account_id`, `tax_id`, `iva_condition`, `legal_name`, `credit_limit`, `company_id`, `deleted_at`/`deleted_by` (soft delete, v3-soft-delete-policy) — ficha completa pendiente de actualización (fuera de alcance de v3-catalog-masters).
+
+#### `client_addresses` — Direcciones operativas del cliente (v3-catalog-masters, V3 §7.3)
+```sql
+id            UUID        PK
+account_id    UUID        FK accounts(id)  -- scope de tenancy DIRECTO (D2)
+client_id     UUID        FK clients(id)   -- SIN ON DELETE CASCADE
+alias         TEXT
+street        TEXT
+city          TEXT
+province      TEXT
+postal_code   TEXT
+notes         TEXT
+is_primary    BOOLEAN     NOT NULL DEFAULT false
+created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+updated_at    TIMESTAMPTZ
+deleted_at    TIMESTAMPTZ
+deleted_by    UUID
+```
+Tabla nueva, pura-additiva (nace vacía — nadie tenía dirección antes). Direcciones **operativas/editables**, distintas de la dirección **fiscal** (vive en `FiscalIdentity`, inmutable por snapshot en los documentos).
+
+**Invariante "exactamente una primaria viva por cliente"**: índice único parcial `UNIQUE (client_id) WHERE is_primary AND deleted_at IS NULL` + RPC `rpc_set_primary_client_address(p_address_id, p_account_id)` que hace el switch atómico (baja la vigente, sube la nueva) en una transacción. La primera dirección de un cliente se marca primaria automáticamente (service layer); borrar la única/primaria no auto-promueve otra.
+
+**RLS** (idéntica al patrón de `clients`): SELECT `account_id IN current_account_ids()`; INSERT/UPDATE/DELETE `is_account_writer(account_id)`.
+
+**Soft-delete del cliente padre**: NO propaga a las direcciones (sin cascade). Las lecturas de direcciones siempre parten de un cliente vivo (enforced en el service) — las direcciones de un cliente borrado quedan lógicamente inalcanzables sin tocarles `deleted_at`, y vuelven a ser alcanzables si el cliente se reactiva.
+
+**API**: `GET/POST /clients/{client_id}/addresses`, `PUT/DELETE /clients/{client_id}/addresses/{address_id}`, `POST /clients/{client_id}/addresses/{address_id}/set-primary`. Sin UI (diferida) — solo el tipo TS `ClientAddress` en `frontend/lib/types.ts`.
 
 ---
 
 ### `units_of_measure` — Unidades de Medida
 ```sql
 id              UUID    PK
-user_id         UUID    FK auth.users  NULLABLE  -- NULL = unidad del sistema
-name            TEXT
-symbol          TEXT
-type            TEXT    -- unit|weight|volume|length|custom
-factor          NUMERIC -- factor de conversión respecto a la unidad base
-base_unit_id    UUID    FK units_of_measure(id) SELF-REF
-is_system       BOOLEAN DEFAULT FALSE
+user_id         UUID    FK auth.users  NULLABLE  -- NULL = unidad del sistema (legacy; ver account_id)
+account_id      UUID    FK accounts(id)  NULLABLE  -- NULL en unidades is_system=true
+name            TEXT    NOT NULL
+symbol          TEXT    NOT NULL
+type            TEXT    NOT NULL  CHECK (type IN ('unit','weight','volume','length','custom'))
+factor          NUMERIC NOT NULL DEFAULT 1.0  -- relativo a la unidad base del MISMO type
+base_unit_id    UUID    FK units_of_measure(id) SELF-REF NULLABLE
+is_system       BOOLEAN NOT NULL DEFAULT FALSE
+created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 ```
-**Unidades del sistema seed**: Unidad, Docena, Ciento, Gramo, Kilogramo, Litro, Mililitro, Metro, Centímetro.
+**Unidades del sistema seed** (10 filas, `is_system=true`, `account_id NULL`): Unidad, Docena, Ciento, Gramo, Kilogramo, Litro, Mililitro, Metro, Centímetro (+1).
+
+**Catálogo mixto (capability `units-of-measure`, v3-catalog-masters):** las filas `is_system=true` son globales (visibles a todo tenant); las filas `is_system=false` son per-tenant (scope directo por `account_id`). RLS org-based ya vigente:
+- SELECT: `is_system = true OR account_id IN current_account_ids()`
+- INSERT/UPDATE/DELETE: `is_system = false AND account_id IN current_account_ids()`
+
+**Invariante de tipo:** toda unidad porta un `type` no nulo del conjunto cerrado (`unit`=conteo, `weight`=peso, `volume`=volumen, `length`=longitud, `custom`=otro). `factor` es relativo a la unidad base (`base_unit_id`) del **mismo** `type` — la conversión entre unidades (capability V3.5, no implementada aún) solo opera dentro de un mismo `type`.
+
+> **OQ1 (pendiente del PO, ver CHANGES.md):** el Modelo V3 §7.1 nombra los tipos como `peso|volumen|contable`. Ese rename NO se ejecutó — es BREAKING (toca el CHECK, `frontend/lib/types.ts` y colapsaría `length`/`custom` sin destino claro) y hoy no aporta valor funcional (0 filas per-tenant). El enum físico vigente sigue siendo `unit|weight|volume|length|custom`.
 
 ---
 
@@ -411,7 +449,7 @@ UNIQUE(user_id, event_type, metadata) NULLS DISTINCT
 
 | Trigger | Tabla | Evento | Acción |
 |---|---|---|---|
-| `check_low_stock` | `products` | AFTER INSERT/UPDATE | Si `stock ≤ min_stock`, inserta `email_logs` (debounce 24h) |
+| `check_branch_low_stock` (reemplaza `check_low_stock`, retirado en C-21 checkpoint #2) | `branch_stock` | AFTER UPDATE | Si `quantity ≤ min_stock` (por sucursal, umbral propagado desde `products.min_stock` vía `rpc_set_product_min_stock` — RN-23), inserta `email_logs` (debounce 24h por `product_id`+`branch_id`) y emite `StockBelowMinimum` a la outbox |
 | `notify_meeting_created` | `meetings` | AFTER INSERT | Inserta `email_logs` con `event_type='meeting_notice'` |
 | `notify_pool_created` | `purchase_pools` | AFTER INSERT | Inserta `email_logs` con `event_type='pool_notice'` |
 | `trg_profiles_updated_at` | `profiles` | BEFORE UPDATE | Auto-actualiza `updated_at` |
@@ -451,6 +489,7 @@ auth.users
     ├── expenses (1:N)
     │
     ├── clients (1:N)
+    │       └── client_addresses (1:N)  -- v3-catalog-masters, direcciones operativas
     │
     ├── stock_movements (1:N) ── operation_group_id
     │       └── products (N:1)

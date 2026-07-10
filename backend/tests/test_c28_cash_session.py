@@ -408,7 +408,10 @@ class TestCashEndpoints:
             resp = await async_client.post(
                 f"/sessions/{SESSION_ID}/close",
                 json={"counted_balance": 6200.0},
-                headers={"Authorization": f"Bearer {owner_token}"},
+                headers={
+                    "Authorization": f"Bearer {owner_token}",
+                    "Idempotency-Key": "close-key-1",
+                },
             )
         assert resp.status_code == 200
         body = resp.json()
@@ -429,7 +432,10 @@ class TestCashEndpoints:
             resp = await async_client.post(
                 f"/sessions/{SESSION_ID}/close",
                 json={"counted_balance": 7500.0},
-                headers={"Authorization": f"Bearer {owner_token}"},
+                headers={
+                    "Authorization": f"Bearer {owner_token}",
+                    "Idempotency-Key": "close-key-shortage",
+                },
             )
         assert resp.status_code == 200
         assert float(resp.json()["difference"]) == -500.0
@@ -540,7 +546,10 @@ class TestCashEndpoints:
             resp = await async_client.post(
                 f"/sessions/{SESSION_ID}/close",
                 json={"counted_balance": 0.0},
-                headers={"Authorization": f"Bearer {owner_token}"},
+                headers={
+                    "Authorization": f"Bearer {owner_token}",
+                    "Idempotency-Key": "close-key-409",
+                },
             )
         assert resp.status_code == 409
 

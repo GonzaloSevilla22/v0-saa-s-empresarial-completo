@@ -39,8 +39,35 @@ class JournalEntryRepository(BaseRepository):
             limit: Page size (default 100).
             offset: Page offset for pagination.
         """
-        # Fetch entry headers
-        entries = await self.fetch(
+        entries = await self._fetch_entries(account_id, limit=limit, offset=offset)
+        return await self._attach_lines(entries)
+
+    async def list_by_account_page(
+        self,
+        account_id: str,
+        *,
+        page: int,
+        size: int,
+    ) -> dict:
+        """v3-api-standards §2.9: envelope estándar {items,total,page,pages}
+        (reemplaza limit/offset + lista plana)."""
+        total: int = await self._conn.fetchval(
+            "SELECT COUNT(*) FROM public.journal_entries WHERE account_id = $1::uuid",
+            account_id,
+        ) or 0
+
+        offset = page * size
+        entries = await self._fetch_entries(account_id, limit=size, offset=offset)
+        items = await self._attach_lines(entries)
+        pages = -(-total // size) if total > 0 else 0
+
+        return {"items": items, "total": total, "page": page, "pages": pages}
+
+    async def _fetch_entries(
+        self, account_id: str, *, limit: int, offset: int
+    ) -> list[dict]:
+        """Fetch entry headers (sin líneas)."""
+        return await self.fetch(
             """
             SELECT
                 id,
@@ -61,10 +88,11 @@ class JournalEntryRepository(BaseRepository):
             offset,
         )
 
+    async def _attach_lines(self, entries: list[dict]) -> list[dict]:
+        """Batch-fetch journal_lines para las entries dadas y las agrupa por entry_id."""
         if not entries:
             return []
 
-        # Batch-fetch lines for all returned entries
         entry_ids = [e["id"] for e in entries]
         lines = await self.fetch(
             """
@@ -83,13 +111,11 @@ class JournalEntryRepository(BaseRepository):
             entry_ids,
         )
 
-        # Group lines by entry_id
         lines_by_entry: dict[uuid.UUID, list[dict]] = {}
         for line in lines:
             eid = line["entry_id"]
             lines_by_entry.setdefault(eid, []).append(dict(line))
 
-        # Assemble result
         result = []
         for entry in entries:
             entry_dict = dict(entry)

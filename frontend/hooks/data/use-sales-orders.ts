@@ -177,10 +177,14 @@ export function useConfirmSalesOrder() {
       salesOrderId: string
       payload: ConfirmOrderInput
     }): Promise<ConfirmApiResult> => {
+      // v3-api-standards §3/§6.2: la clave de idempotencia viaja por el header
+      // Idempotency-Key (D4) — se extrae del payload y no se manda en el body.
+      const { idempotency_key, ...body } = payload
       try {
         return await pythonClient.post<ConfirmApiResult>(
           `/sales-orders/${salesOrderId}/confirm`,
-          payload
+          body,
+          { "Idempotency-Key": idempotency_key }
         )
       } catch (err) {
         throw new Error(translateSalesOrderError((err as Error).message))
@@ -240,10 +244,13 @@ export function useQuickSale() {
 
   return useMutation({
     mutationFn: async (payload: QuickSaleInput): Promise<ConfirmApiResult> => {
+      // v3-api-standards §3/§6.2: Idempotency-Key por header (D4).
+      const { idempotency_key, ...body } = payload
       try {
         return await pythonClient.post<ConfirmApiResult>(
           "/sales-orders/quick-sale",
-          payload
+          body,
+          { "Idempotency-Key": idempotency_key }
         )
       } catch (err) {
         throw new Error(translateSalesOrderError((err as Error).message))

@@ -7,18 +7,39 @@ import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useRegisterPaymentMade } from "@/hooks/data/use-supplier-account"
+import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 
-const schema = z.object({
-  amount: z
-    .string()
-    .min(1, "Ingresá el importe")
-    .refine((v) => !isNaN(Number(v)) && Number(v) > 0, {
-      message: "El importe debe ser mayor a 0",
-    }),
-})
+// bank-payment-routing C2: taxonomía { cash, transfer, card, check }.
+const PAYMENT_METHODS = [
+  { value: "cash",     label: "Efectivo" },
+  { value: "transfer", label: "Transferencia" },
+  { value: "card",     label: "Tarjeta" },
+  { value: "check",    label: "Cheque" },
+] as const
+
+const BANK_METHODS = new Set(["transfer", "card", "check"])
+
+const schema = z
+  .object({
+    amount: z
+      .string()
+      .min(1, "Ingresá el importe")
+      .refine((v) => !isNaN(Number(v)) && Number(v) > 0, {
+        message: "El importe debe ser mayor a 0",
+      }),
+    paymentMethod: z.enum(["cash", "transfer", "card", "check"]),
+    bankAccountId: z.string().optional(),
+  })
+  .refine(
+    (data) => !BANK_METHODS.has(data.paymentMethod) || !!data.bankAccountId,
+    { message: "Elegí una cuenta bancaria para este método de pago", path: ["bankAccountId"] }
+  )
 
 type FormValues = z.infer<typeof schema>
 
@@ -30,15 +51,22 @@ interface RegisterPaymentMadeFormProps {
 export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPaymentMadeFormProps) {
   const [submitting, setSubmitting] = useState(false)
   const { mutateAsync: registerPayment } = useRegisterPaymentMade(supplierId)
+  const { data: bankAccounts, isLoading: bankAccountsLoading } = useBankAccounts()
 
   const {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
+    defaultValues: { paymentMethod: "cash" },
   })
+
+  const paymentMethod = watch("paymentMethod")
+  const isBankMethod = BANK_METHODS.has(paymentMethod)
 
   async function onSubmit(values: FormValues) {
     setSubmitting(true)
@@ -47,13 +75,15 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
       const result = await registerPayment({
         idempotencyKey,
         amount: Number(values.amount),
+        paymentMethod: values.paymentMethod,
+        bankAccountId: isBankMethod ? values.bankAccountId : undefined,
       })
       if (result.replayed) {
         toast.info("Pago ya registrado (idempotente)")
       } else {
         toast.success("Pago al proveedor registrado")
       }
-      reset()
+      reset({ paymentMethod: "cash" })
       onSuccess?.()
     } catch (err) {
       toast.error((err as Error).message || "Error al registrar el pago")
@@ -86,6 +116,54 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
           <p className="text-xs text-destructive">{errors.amount.message}</p>
         )}
       </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="payment-method-made" className="text-sm text-foreground">
+          Método de pago
+        </Label>
+        <Select
+          value={paymentMethod}
+          onValueChange={(v) => setValue("paymentMethod", v as FormValues["paymentMethod"])}
+        >
+          <SelectTrigger id="payment-method-made" className="bg-background border-border text-foreground">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAYMENT_METHODS.map((m) => (
+              <SelectItem key={m.value} value={m.value}>
+                {m.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {isBankMethod && (
+        <div className="space-y-1.5">
+          <Label htmlFor="bank-account-made" className="text-sm text-foreground">
+            Cuenta bancaria
+          </Label>
+          <Select
+            value={watch("bankAccountId") ?? ""}
+            onValueChange={(v) => setValue("bankAccountId", v)}
+            disabled={bankAccountsLoading}
+          >
+            <SelectTrigger id="bank-account-made" className="bg-background border-border text-foreground">
+              <SelectValue placeholder="Elegí una cuenta bancaria" />
+            </SelectTrigger>
+            <SelectContent>
+              {(bankAccounts ?? []).map((ba) => (
+                <SelectItem key={ba.id} value={ba.id}>
+                  {ba.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors.bankAccountId && (
+            <p className="text-xs text-destructive">{errors.bankAccountId.message}</p>
+          )}
+        </div>
+      )}
 
       <Button
         type="submit"

@@ -175,6 +175,32 @@ La RPC SHALL ser idempotente por `sale_operation_id` (ver requisito "Idempotenci
 - **WHEN** se promueve esa venta
 - **THEN** las `sales_order_items` se reconstruyen desde el header plano vía `COALESCE`, con la misma cantidad, precio y subtotal
 
+### Requirement: Snapshot congelado en las líneas de la orden de venta
+
+El sistema SHALL agregar a `sales_order_items`, de forma aditiva y NULLABLE, las columnas `name_snapshot TEXT`, `sku_snapshot TEXT`, `unit_cost_snapshot NUMERIC(15,2)` e `iva_rate_snapshot NUMERIC(5,2)`, más `snapshot_backfilled BOOLEAN NOT NULL DEFAULT false`. `_c29_confirm_order_core` (y las rutas de `confirm()` / `quickSale()` que lo invocan) SHALL congelar el nombre, SKU, costo y alícuota de IVA del maestro en la misma transacción atómica de la confirmación, sin alterar la atomicidad, la idempotencia ni el descuento de `branch_stock` ya especificados.
+
+#### Scenario: confirm() congela el snapshot en la transacción atómica
+
+- **GIVEN** un producto con `products.cost = 600` y una `SalesOrder` en DRAFT
+- **WHEN** se confirma la orden vía `_c29_confirm_order_core`
+- **THEN** cada `sales_order_items` de la orden queda con `unit_cost_snapshot = 600` y los demás snapshots congelados, en la misma transacción que descuenta `branch_stock` y escribe `sale_items`
+
+#### Scenario: quickSale() congela el snapshot en un solo paso
+
+- **WHEN** se ejecuta `quickSale()` (crear + confirmar)
+- **THEN** las líneas resultantes quedan con los snapshots congelados desde el maestro, sin una escritura posterior
+
+#### Scenario: La idempotencia de la confirmación se preserva
+
+- **WHEN** se invoca `_c29_confirm_order_core` dos veces con la misma clave de idempotencia
+- **THEN** la orden se confirma una sola vez con un único set de snapshots, y la segunda llamada devuelve el resultado original sin re-descontar stock
+
+#### Scenario: Una venta promovida desde legacy admite snapshot backfilled
+
+- **GIVEN** una venta legacy promovida a `SalesOrder`
+- **WHEN** se le aplica el backfill de snapshots
+- **THEN** sus `sales_order_items` quedan con snapshots completados desde el maestro actual y `snapshot_backfilled = true`
+
 #### Scenario: validación de tenencia rechaza una operación ajena o inexistente
 
 - **WHEN** se invoca `rpc_promote_legacy_sale_to_order` con un `operation_id` que no existe o pertenece a otra cuenta
@@ -201,6 +227,22 @@ El sistema SHALL garantizar la unicidad de la `SalesOrder` materializada por ope
 - **GIVEN** múltiples `sales_orders` con `sale_operation_id IS NULL` (p.ej. órdenes en `draft` desde `Quote.accept()`)
 - **WHEN** coexisten en la cuenta
 - **THEN** el índice parcial las permite todas (solo indexa filas con `sale_operation_id IS NOT NULL`)
+
+### Requirement: La orden de venta registra sus transiciones de estado en el historial
+
+El sistema SHALL registrar en `document_status_history` (con `document_type = 'sales_order'`) tanto la creación de la orden (`from_status = NULL`, `to_status = 'draft'`) como su transición a `confirmed` durante `_c29_confirm_order_core`, en la misma transacción atómica de la confirmación (junto con stock, caja, fiscal y outbox).
+
+#### Scenario: Crear una orden de venta registra su estado inicial
+- **WHEN** se crea una orden de venta en estado `draft` (incluyendo la creación implícita de `quickSale`)
+- **THEN** el sistema inserta una fila de historial con `document_type = 'sales_order'`, `from_status = NULL`, `to_status = 'draft'`
+
+#### Scenario: Confirmar una orden registra la transición atómicamente
+- **WHEN** `_c29_confirm_order_core` transiciona la orden de `draft` a `confirmed`
+- **THEN** el sistema inserta una fila de historial con `from_status = 'draft'`, `to_status = 'confirmed'` en la misma transacción, y si el registro falla toda la confirmación (stock, caja, fiscal, outbox) se revierte
+
+#### Scenario: La idempotencia de la confirmación no duplica el historial
+- **WHEN** una confirmación se reejecuta con la misma `idempotency_key` y devuelve la operación original sin re-ejecutar
+- **THEN** no se inserta una nueva fila de historial para la transición ya registrada
 
 ## Implementation Notes
 

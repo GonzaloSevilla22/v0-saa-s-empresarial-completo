@@ -69,11 +69,11 @@ describe("useSales", () => {
     vi.clearAllMocks()
   })
 
-  // ── Hook returns mapped sales (paginado por operaciones: {items, total_operations}) ──
+  // ── Hook returns mapped sales (v3-api-standards §2: envelope {items,total,page,pages}) ──
   it("returns mapped sales when API responds", async () => {
     vi.mocked(pythonClient.get).mockResolvedValueOnce({
       items: mockSaleRows,
-      total_operations: 1,
+      total: 1,
     })
 
     const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })
@@ -91,13 +91,13 @@ describe("useSales", () => {
     })
     // La página se pide con los params de paginación por defecto
     expect(pythonClient.get).toHaveBeenCalledWith("/sales?page=0&page_size=25")
-    // total_operations alimenta la meta de paginación (operaciones, no filas)
+    // total alimenta la meta de paginación
     expect(result.current.meta.totalCount).toBe(1)
   })
 
   // ── TRIANGULATE: empty sales list ───────────────────────────────────────
   it("returns empty array when no sales exist", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValueOnce({ items: [], total_operations: 0 })
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({ items: [], total: 0 })
 
     const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })
 
@@ -108,7 +108,7 @@ describe("useSales", () => {
 
   // ── addSaleOperation calls POST /sales with correct payload ──────────────
   it("addSaleOperation calls POST /sales with correct payload", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue({ items: mockSaleRows, total_operations: 1 })
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: mockSaleRows, total: 1 })
     vi.mocked(pythonClient.post).mockResolvedValueOnce({
       operation_id:   "op-new",
       operation_kind: "sale",
@@ -132,25 +132,30 @@ describe("useSales", () => {
       })
     })
 
-    expect(pythonClient.post).toHaveBeenCalledWith("/sales", {
-      idempotency_key: "key-123",
-      org_id:          "org-1",
-      date:            "2026-02-01",
-      client_id:       "client-1",
-      currency:        "ARS",
-      canal:           null, // sin canal elegido → "Sin canal"
-      items: [{
-        product_id: "prod-1",
-        amount:     1500,
-        quantity:   2,
-        unit_id:    null,
-      }],
-    })
+    // v3-api-standards §3/§6.2: idempotency_key viaja por el header
+    // Idempotency-Key, no en el body.
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      "/sales",
+      {
+        org_id:    "org-1",
+        date:      "2026-02-01",
+        client_id: "client-1",
+        currency:  "ARS",
+        canal:     null, // sin canal elegido → "Sin canal"
+        items: [{
+          product_id: "prod-1",
+          amount:     1500,
+          quantity:   2,
+          unit_id:    null,
+        }],
+      },
+      { "Idempotency-Key": "key-123" },
+    )
   })
 
   // ── Canal de venta (Fase B): viaja en el payload hacia el backend ─────────
   it("addSaleOperation incluye el canal elegido en el payload", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total_operations: 0 })
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
     vi.mocked(pythonClient.post).mockResolvedValueOnce({
       operation_id:   "op-canal",
       operation_kind: "sale",
@@ -178,6 +183,7 @@ describe("useSales", () => {
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/sales",
       expect.objectContaining({ canal: "instagram" }),
+      { "Idempotency-Key": "key-canal" },
     )
   })
 
@@ -185,7 +191,7 @@ describe("useSales", () => {
   //    la query y se refetchea la página al settle (la fila nueva puede ni
   //    pertenecer a la página visible). ────────────────────────────────────
   it("addSaleOperation refetches the page after settle (no optimistic entries)", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total_operations: 0 })
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
 
     // Delay the POST to observe intermediate state
     let resolveMutation!: (v: unknown) => void
@@ -228,7 +234,7 @@ describe("useSales", () => {
 
   // ── deleteSale calls DELETE /sales/:id ───────────────────────────────────
   it("deleteSale calls DELETE and invalidates", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue({ items: mockSaleRows, total_operations: 1 })
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: mockSaleRows, total: 1 })
     vi.mocked(pythonClient.delete).mockResolvedValueOnce(undefined)
 
     const { result } = renderHook(() => useSales(), { wrapper: makeWrapper() })

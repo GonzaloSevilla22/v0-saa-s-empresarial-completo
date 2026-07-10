@@ -55,6 +55,7 @@ Leé estos archivos antes de cualquier change. Son la fuente de verdad del siste
 | 09 | [knowledge-base/09_decisiones_y_supuestos.md](knowledge-base/09_decisiones_y_supuestos.md) | 15 decisiones + 7 supuestos (incl. DEC-12..15 backend Python) — leer antes de proponer. |
 | 10 | [knowledge-base/10_preguntas_abiertas.md](knowledge-base/10_preguntas_abiertas.md) | Inconsistencias conocidas — revisá antes de implementar. |
 | — | [modelo-dominio-aliadata-v2.md](modelo-dominio-aliadata-v2.md) | Modelo de dominio V2 adoptado (2026-06-09). Leer antes de cualquier change V2 (C-19+), junto a `openspec/explore/2026-06-09-modelo-dominio-v2.md`. |
+| — | [modelo-dominio-aliadata-v3.md](modelo-dominio-aliadata-v3.md) | **Modelo V3 adoptado (2026-07-02)** — extensión del V2 (NO lo reemplaza): snapshots, FSM+historial, notificaciones post-commit, soft delete, RBAC multi-rol, estándares de plataforma. Leer junto al V2 para todo change V2.5+/V3; los changes derivados viven en `CHANGES.md` §"Roadmap Modelo V3". |
 
 ---
 
@@ -92,12 +93,15 @@ Los compact rules de cada skill los resuelve el orquestador desde `.atl/skill-re
 
 ## Roadmap de Changes
 
-> Fuente: [CHANGES.md](CHANGES.md) — 30 changes en 7 fases. **Fases 1-5 (C-01→C-18) completadas** (backend Python en producción desde 2026-06-07). El PO adoptó el **modelo de dominio V2** (`modelo-dominio-aliadata-v2.md`, 2026-06-09; validado en `openspec/explore/2026-06-09-modelo-dominio-v2.md`): la Fase 6 (V2.0 retirada de deuda) es el trabajo activo. **Regla dura: ninguna feature nueva sobre tablas en retirada (RN-97, `knowledge-base/05`).**
+> Fuente: [CHANGES.md](CHANGES.md) — **roadmap numerado C-01→C-30 COMPLETO** (C-30 archivado 2026-06-20; Fases 1-7 ✅). El trabajo activo es post-roadmap: **Fase V2.5 Finanzas** (cost-center ✅, journal-entry-outbox ✅, **BankReconciliation COMPLETA: C1 ✅ + C2 ✅ + C3 ✅** 2026-07-02) + **modelo de dominio V3** adoptado 2026-07-02 (`modelo-dominio-aliadata-v3.md`, extiende al V2). **RN-97 sigue vigente** para las columnas legacy aún no dropeadas (header plano de `sales`/`purchases` hasta C-20 Grupo 10).
 
 ### Próximo change recomendado (activo)
-**`C-29 v21-quote-salesorder`** [MEDIO] — desbloqueado por C-20 ✅ + C-26 ✅. `Quote` + `SalesOrder.confirm()` transaccional (decrementa stock + `cash_movement` vía el helper `c28_register_cash_movement` de C-28 + nº fiscal C-27 + INSERT outbox) + `quickSale()` POS; desbloquea C-30. **C-28 v21-cash-session ✅ (2026-06-17, PR #190 mergeado + archivado)** — caja + arqueo por sucursal; helper intra-transacción listo para el hot path de C-29. C-26 ✅ (2026-06-12) y C-27 ✅ (2026-06-12, AFIP PR #170) archivados; **C-27 task 5.2 (E2E homologacion ARCA) pendiente del tramite AFIP del PO — no bloquea**. C-24 ✅ (2026-06-13). En Fase 6 queda solo C-25 (MEDIO, outbox-activation).
+1. ~~**`v3-snapshot-pattern`**~~ ✅ **COMPLETADA 2026-07-02** (PR #255): snapshots de nombre/SKU/costo/IVA en líneas de documentos + `FiscalIdentitySnapshot` del receptor. **Desbloquea C-20 Grupo 10** (línea de servicio = `product_id NULL` + `name_snapshot`). Specs sincronizadas a main; change archivado.
+2. ~~**`v3-document-status-history`**~~ ✅ **COMPLETADA 2026-07-03** (PRs #258/#259): tabla append-only `document_status_history`, catálogo `document_status_transitions`, helpers `record_status_transition`, `allowed_role` RBAC-ready. Specs (1 nueva + 5 modificadas) sincronizadas; change archivado.
+3. ~~**`v3-notifications-realtime`**~~ ✅ **COMPLETADA 2026-07-04** (PR #262) · ~~**`v3-soft-delete-policy`**~~ ✅ 2026-07-06 · ~~**`v3-provisioning-seed`**~~ ✅ 2026-07-06 (PR #279) · ~~**`v3-catalog-masters`**~~ ✅ 2026-07-06 (PR #282) · ~~**`v3-reporting-invariants`**~~ ✅ 2026-07-07 (PRs #284/#285) · ~~**`v3-api-standards`**~~ ✅ **COMPLETADA 2026-07-07** (PR #287): RFC 7807 uniforme, paginación estándar `{items,total,page,pages}`, `Idempotency-Key` por header (incl. cierre de caja), DEC-24 (UoW = RPCs `SECURITY DEFINER`). Specs (`api-standards` nueva + `base-repositories` modificada) sincronizadas; change archivado.
+4. **`v3-rbac-multirole`** [CRÍTICO — solo análisis hasta sign-off PO] → después: percepciones (V2.5, depende del snapshot fiscal ya completo).
 
-> **Fase 6: 6/7 ✅** — C-19 (2026-06-09), C-20/C-22/C-23 (2026-06-10), C-21 (2026-06-12), C-24 (2026-06-13) archivados. **C-21**: `branch_stock` es el único ledger de inventario (`products.stock` y el Sistema B eliminados); gate de venta = Σ branch_stock (global, decisión PO); las escrituras de stock del backend van vía `rpc_apply_product_stock_delta`. Las tablas community viven en el schema `community` (acceso vía `.schema("community")`; embedding a `profiles` vía vista puente). **Todas las preguntas abiertas de la fase están resueltas** (PA-19/PA-20/PA-21 + C-24 Opción A, `knowledge-base/10`). **C-20 Grupo 10 (DROP header plano) diferido** — bloqueado por representación de líneas de servicio.
+> **Pendientes externos del PO (no bloquean código)**: trámite ARCA homologación (C-27 5.2 / v22 9.1) y config de verificación de email en Supabase. **`v3-rbac-multirole` es CRÍTICO** — análisis solamente hasta sign-off explícito del PO (consume matriz de transiciones de `v3-document-status-history`).
 
 ### Camino crítico (Fases 6-7)
 ```
@@ -116,9 +120,11 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 | 3 — Multi-tenant | C-05, C-06, C-07, C-08 | ✅ | Arquitectura multi-usuario + roles + sucursales + stock multisucursal |
 | 4 — Upgrade UX | C-10, C-14 | ✅ | UI de upgrade de plan + módulo de exportaciones |
 | 5 — Backend Python | C-15, C-16, C-17, C-18 | ✅ | Capa de datos + migración API + pagos + desacople DataContext (realtime queda en Supabase, DEC-16) |
-| 6 — V2.0 Retirada de deuda | C-19 → C-25 | 🔨 6/7 ✅ (falta C-25) | Tenancy única, sale_items (C-20 live en prod, Group 10 DROP diferido), ledger único de stock en branch_stock (C-21 ✅), FiscalIdentity en clientes, schema community, insights unificados (C-24 ✅: tabla única + fix bug RLS), outbox activo |
-| 7 — V2.1 Operación | C-26 → C-30 | 🔨 3/5 ✅ (C-26, C-27, C-28) | Branch como root (C-26 ✅: lifecycle + StockTransfer + invariante onHand ≥ 0), FiscalProfile + AFIP CAE async (C-27 ✅: multi-PV + relay pg_cron + WSFEAdapter; E2E homologacion pendiente PO), CashSession con arqueo (C-28 ✅: Cashbox/CashSession/CashMovement + helper intra-tx para el hot path de C-29), Quote/SalesOrder + quickSale POS, cuentas corrientes |
-| Futuras | V2.5 / V3 | ⏳ | Finanzas (BankReconciliation, JournalEntry, CostCenter UI, percepciones) / Inteligencia (AIAgent, KnowledgeBase, automatizaciones) |
+| 6 — V2.0 Retirada de deuda | C-19 → C-25 | ✅ 7/7 | Tenancy única, sale_items (Group 10 DROP diferido — lo desbloquea `v3-snapshot-pattern`), ledger único de stock en branch_stock, FiscalIdentity en clientes, schema community, insights unificados, outbox activo (C-25 ✅ 2026-06-18; revivido en prod 2026-07-01, #248) |
+| 7 — V2.1 Operación | C-26 → C-30 | ✅ 5/5 | Branch como root, FiscalProfile + AFIP CAE async (E2E homologación pendiente PO), CashSession con arqueo, Quote/SalesOrder + quickSale POS (C-29 ✅ 2026-06-17), cuentas corrientes cliente/proveedor (C-30 ✅ 2026-06-20) |
+| V2.5 — Finanzas | post-roadmap | 🔨 en marcha | cost-center ✅ + journal-entry-outbox ✅ (partida doble async vía outbox) + **BankReconciliation COMPLETA (C1+C2+C3 ✅, 2026-07-02)** · falta: percepciones. AFIP delegación (v22 ✅) + facturar venta manual ✅ |
+| Modelo V3 (retrofit) | `v3-*` | 🔨 en marcha | Snapshots ✅ (2026-07-02), FSM+DocumentStatusHistory ✅ (2026-07-03), notificaciones realtime ⭐, soft delete, RBAC multi-rol (CRÍTICO), provisioning seed, RN-D reporting, estándares API, maestros menores — ver `CHANGES.md` §"Roadmap Modelo V3" (producto-imagenes descartado por PO 2026-07-04) |
+| V3 — Inteligencia | ⏳ | ⏳ | AIAgent, KnowledgeBase, automatizaciones, predicción + BOM ligera (`v3-product-composition`) |
 
 ---
 

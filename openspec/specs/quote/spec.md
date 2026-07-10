@@ -60,6 +60,40 @@ El sistema SHALL permitir marcar un presupuesto como `expired` cuando su `valid_
 - **WHEN** se intenta `accept()` un presupuesto con `valid_until` anterior a hoy
 - **THEN** la operación falla indicando que el presupuesto está vencido
 
+### Requirement: Snapshot congelado en las líneas de presupuesto
+
+El sistema SHALL agregar a `quote_items`, de forma aditiva y NULLABLE, las columnas `name_snapshot TEXT`, `sku_snapshot TEXT`, `unit_cost_snapshot NUMERIC(15,2)` e `iva_rate_snapshot NUMERIC(5,2)`, más `snapshot_backfilled BOOLEAN NOT NULL DEFAULT false`. La ruta de creación del presupuesto SHALL congelar el nombre, SKU, costo y alícuota de IVA del maestro en la misma transacción en que persiste la línea, de modo que un presupuesto aceptado días después honre los valores cotizados y no los remarcados. Al aceptar el presupuesto (`Quote.accept()` que crea la `SalesOrder`), los snapshots de las líneas SHALL propagarse a `sales_order_items` sin re-leer el maestro.
+
+#### Scenario: El presupuesto congela el precio cotizado
+
+- **GIVEN** un producto con precio y costo vigentes al cotizar
+- **WHEN** se crea un presupuesto con ese producto
+- **THEN** la fila `quote_items` queda con `name_snapshot`, `sku_snapshot`, `unit_cost_snapshot` e `iva_rate_snapshot` congelados en la transacción de creación
+
+#### Scenario: Aceptar el presupuesto propaga el snapshot a la orden
+
+- **GIVEN** un presupuesto con líneas que congelaron `unit_cost_snapshot`
+- **WHEN** el presupuesto se acepta y se crea la `SalesOrder`
+- **THEN** las `sales_order_items` resultantes heredan los mismos valores snapshot del `quote_items`, sin re-leer `products`
+
+#### Scenario: Remarcar el maestro tras cotizar no cambia el presupuesto
+
+- **GIVEN** un presupuesto que congeló el precio y costo al momento de emitirse
+- **WHEN** el maestro se remarca antes de aceptar el presupuesto
+- **THEN** el presupuesto conserva los valores cotizados originales en sus columnas snapshot
+
+### Requirement: El presupuesto registra sus transiciones de estado en el historial
+
+El sistema SHALL registrar en `document_status_history` (con `document_type = 'quote'`) tanto la creación del presupuesto (`from_status = NULL`, `to_status = 'draft'`) como su transición a `accepted` durante `rpc_accept_quote`, en la misma transacción que la operación de negocio.
+
+#### Scenario: Crear un presupuesto registra su estado inicial
+- **WHEN** se crea un presupuesto en estado `draft`
+- **THEN** el sistema inserta una fila de historial con `document_type = 'quote'`, `from_status = NULL`, `to_status = 'draft'` y `performed_by` = el usuario que lo creó
+
+#### Scenario: Aceptar un presupuesto registra la transición
+- **WHEN** `rpc_accept_quote` transiciona el presupuesto a `accepted`
+- **THEN** el sistema inserta una fila de historial con `from_status` = estado previo (`draft` o `sent`) y `to_status = 'accepted'` en la misma transacción, y la aceptación no se confirma si el registro falla
+
 ## Implementation Notes
 
 - **Tablas**: `quotes` + `quote_items` (migración `20260702000001_c29_quote_salesorder.sql`)

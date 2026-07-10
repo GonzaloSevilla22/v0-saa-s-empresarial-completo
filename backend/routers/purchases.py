@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.purchase_repository import PurchaseRepository
 from backend.schemas.purchases import (
     PurchaseOperationIn,
@@ -61,11 +62,14 @@ async def delete_purchase(
 
 @router.post("", response_model=PurchaseOperationOut, status_code=201)
 async def create_purchase(
+    request: Request,
     payload: PurchaseOperationIn,
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: PurchaseRepository = Depends(get_repo),
 ):
+    # v3-api-standards §3.3: Idempotency-Key por header, con fallback al body.
+    payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await purchases_service.create_purchase_operation(repo, auth, str(account_id), payload)
 
 

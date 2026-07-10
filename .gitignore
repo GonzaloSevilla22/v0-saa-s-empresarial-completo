@@ -57,3 +57,14 @@ backend/.afip-homo/
 # Las versiones ANONIMIZADAS de muestra viven en docs/ejemplos/.
 /comprobante-ejemplo.pdf
 /recibo-ejemplo.pdf
+
+# Entregables de consultoría (auditoría técnica + roadmap de mejoras) — NO versionar en el repo.
+# Se generan bajo demanda; viven solo en la máquina local.
+/AUDITORIA_ALIADATA.md
+/AUDITORIA_ALIADATA.docx
+/ROADMAP_MEJORAS_ALIADATA.md
+/ROADMAP_MEJORAS_ALIADATA.docx
+/PLAN_IMPLEMENTACION_ALIADATA.md
+/PLAN_IMPLEMENTACION_ALIADATA.docx
+/audit/
+/v4/

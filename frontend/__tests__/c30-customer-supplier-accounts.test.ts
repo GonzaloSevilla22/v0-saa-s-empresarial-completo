@@ -203,13 +203,15 @@ describe("useRegisterPayment", () => {
 
     expect(mutationResult?.replayed).toBe(false)
     expect(mutationResult?.balance_after).toBe("600.00")
+    // v3-api-standards §3/§6.2: idempotency_key viaja por el header
+    // Idempotency-Key, no en el body.
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/customer-accounts/payments",
       expect.objectContaining({
-        client_id:       CLIENT_ID,
-        amount:          "400",
-        idempotency_key: "test-key-001",
-      })
+        client_id: CLIENT_ID,
+        amount:    "400",
+      }),
+      { "Idempotency-Key": "test-key-001" }
     )
   })
 
@@ -336,13 +338,15 @@ describe("useRegisterPaymentMade", () => {
 
     expect(mutationResult?.replayed).toBe(false)
     expect(mutationResult?.balance_after).toBe("1600.00")
+    // v3-api-standards §3/§6.2: idempotency_key viaja por el header
+    // Idempotency-Key, no en el body.
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/supplier-accounts/payments",
       expect.objectContaining({
-        supplier_id:     SUPPLIER_ID,
-        amount:          "400",
-        idempotency_key: "pay-supplier-001",
-      })
+        supplier_id: SUPPLIER_ID,
+        amount:      "400",
+      }),
+      { "Idempotency-Key": "pay-supplier-001" }
     )
   })
 

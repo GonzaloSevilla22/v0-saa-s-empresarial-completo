@@ -8,14 +8,20 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 import type { LandingSection } from "@/lib/landing"
+import { getAvailableTutorials } from "@/lib/tutorials"
+import { TutorialsSection } from "@/components/landing/TutorialsSection"
 
 function Navbar() {
   const [open, setOpen] = useState(false)
+  // El link a #tutoriales solo tiene sentido si la sección se va a renderizar
+  // (hay al menos un tutorial con video disponible) — ver TutorialsSection.
+  const hasTutorials = getAvailableTutorials().length > 0
   const links = [
     { label: "Funcionalidades", href: "#features" },
     { label: "Precios", href: "#pricing" },
     { label: "Testimonios", href: "#testimonials" },
     { label: "IA", href: "#ai" },
+    ...(hasTutorials ? [{ label: "Aprendé a usar ALIADATA", href: "#tutoriales" }] : []),
   ]
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-slate-800/60 bg-slate-950/90 backdrop-blur-md">
@@ -578,6 +584,7 @@ export function LandingPageFull({ sections = [] }: { sections?: LandingSection[]
       <Hero section={heroSection} />
       <StatsStrip />
       <Features section={featuresSection} />
+      <TutorialsSection />
       <HowItWorks />
       <AISection />
       <Pricing />

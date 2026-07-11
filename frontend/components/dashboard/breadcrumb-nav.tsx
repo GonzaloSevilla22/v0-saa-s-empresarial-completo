@@ -1,8 +1,11 @@
 "use client"
 
+import { useState } from "react"
 import { usePathname } from "next/navigation"
+import { PlayCircle } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -10,6 +13,9 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb"
 import { NotificationBell } from "@/components/dashboard/NotificationBell"
+import { ResponsiveModal } from "@/components/shared/responsive-modal"
+import { TutorialVideo } from "@/components/shared/TutorialVideo"
+import { getTutorialByPathname, hasTutorialVideo } from "@/lib/tutorials"
 
 const PAGE_NAMES: Record<string, string> = {
   "/dashboard":        "Tablero",
@@ -36,6 +42,10 @@ const PAGE_NAMES: Record<string, string> = {
 export function BreadcrumbNav() {
   const pathname = usePathname()
   const name = PAGE_NAMES[pathname] ?? "ALIADATA"
+  const [tutorialOpen, setTutorialOpen] = useState(false)
+
+  const tutorialEntry = getTutorialByPathname(pathname)
+  const tutorial = tutorialEntry && hasTutorialVideo(tutorialEntry) ? tutorialEntry : undefined
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
@@ -50,9 +60,25 @@ export function BreadcrumbNav() {
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex items-center gap-2">
+        {tutorial && (
+          <Button variant="outline" size="sm" onClick={() => setTutorialOpen(true)}>
+            <PlayCircle className="h-4 w-4" />
+            <span className="hidden sm:inline">Ver tutorial</span>
+          </Button>
+        )}
         <NotificationBell />
       </div>
+      {tutorial && (
+        <ResponsiveModal
+          open={tutorialOpen}
+          onOpenChange={setTutorialOpen}
+          title={tutorial.title}
+          contentClassName="sm:max-w-3xl"
+        >
+          <TutorialVideo youtubeVideoId={tutorial.youtubeVideoId} title={tutorial.title} />
+        </ResponsiveModal>
+      )}
     </header>
   )
 }

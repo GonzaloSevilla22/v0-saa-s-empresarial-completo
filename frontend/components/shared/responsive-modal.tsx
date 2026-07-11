@@ -1,6 +1,7 @@
 "use client"
 
 import { useIsMobile } from "@/hooks/use-is-mobile"
+import { cn } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,13 @@ interface ResponsiveModalProps {
   onOpenChange: (open: boolean) => void
   title: string
   children: React.ReactNode
+  /**
+   * Clases opcionales para el `DialogContent` de escritorio (p. ej.
+   * `"sm:max-w-3xl"` para contenido 16:9 como un video). Se mergean con
+   * `cn()` sobre las clases por defecto (`sm:max-w-xl`), así que los usos
+   * existentes que no la pasan mantienen el ancho actual sin cambios.
+   */
+  contentClassName?: string
 }
 
 /**
@@ -34,6 +42,7 @@ export function ResponsiveModal({
   onOpenChange,
   title,
   children,
+  contentClassName,
 }: ResponsiveModalProps) {
   const isMobile = useIsMobile()
 
@@ -55,7 +64,7 @@ export function ResponsiveModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card border-border overflow-hidden sm:max-w-xl">
+      <DialogContent className={cn("bg-card border-border overflow-hidden sm:max-w-xl", contentClassName)}>
         <DialogHeader>
           <DialogTitle className="text-card-foreground">{title}</DialogTitle>
         </DialogHeader>

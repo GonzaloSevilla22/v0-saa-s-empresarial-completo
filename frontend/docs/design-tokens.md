@@ -61,3 +61,11 @@ No se introduce una escala de spacing paralela: la app ya usa consistentemente l
 ## Tema claro/oscuro
 
 Todo token semántico introducido en esta fase tiene valor en `:root` y en `.dark` (color, elevación) o es tema-agnóstico y se declara igual en ambos por explicitud (motion). El contraste WCAG AA de los tokens de color lo audita `v4-frontend-04` — este change no introduce ningún valor de color nuevo (solo expone `success`/`warning` ya existentes), por lo que no debería alterar los resultados de esa auditoría.
+
+## Colores 3D (Fases B–D — fuente paralela, no CSS)
+
+Los materiales de las escenas 3D (`lib/three/heroSceneTheme.ts`, `lib/three/celebrationTheme.ts`) usan valores hex hardcodeados en TypeScript, no CSS custom properties — Three.js/`meshStandardMaterial` recibe colores como valores JS (`string`/`number`), no puede leer `var(--token)`. Mismo trade-off ya documentado para `lib/motion-tokens.ts` (Framer Motion tiene la misma limitación). Estos NO son clases de Tailwind y quedan **fuera** del alcance del lint anti-regresión de color de `v4-frontend-01` (ese lint apunta a `className`, no a props de materiales WebGL ni a `fill`/`stroke` de SVG) — documentados y testeados en su propio archivo (`heroSceneTheme.test.ts`, `celebrationTheme.test.ts`) en su lugar. Si se retoca la paleta de marca (`--primary` etc.), estos archivos deben revisarse manualmente — no se actualizan solos.
+
+## Barrido de color — estado al cierre de Fase D (task 4.1)
+
+Este change **no reimplementa** el lint de color transversal (`v4-frontend-01`, aún no ejecutado como change propio en este repo al momento de escribir esto). Alcance de esta Fase D: verificado que ninguna de las superficies/archivos que este change tocó (landing, `auth/login`, `auth/register`, POS, dashboard, `components/three/*`) introduce clases Tailwind de color hardcodeadas nuevas (`grep` dirigido, 0 matches) — la migración transversal de las ~883 clases originales de la auditoría UX/UI sigue siendo alcance de `v4-frontend-01`, no de este change.

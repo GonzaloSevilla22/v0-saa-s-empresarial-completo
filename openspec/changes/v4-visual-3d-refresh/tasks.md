@@ -19,9 +19,9 @@
 
 ## 2. Fase B — Infraestructura 3D (R3F) + guardrails + escena piloto
 
-- [ ] 2.1 Instalar `@react-three/fiber` y `@react-three/drei`; confirmar compatibilidad con React 19 / Next 16 App Router
-- [ ] 2.2 Crear el gate de capacidad `lib/three/capabilityGate.ts` (reduced-motion, mobile/gama-baja por `hardwareConcurrency`/`deviceMemory`/`pointer:coarse`, detección WebGL, `saveData`/conexión lenta) con umbrales documentados y sin `any`
-- [ ] 2.3 Escribir tests (Vitest) del gate de capacidad cubriendo cada condición de fallback (reduced-motion, sin WebGL, mobile, save-data) y el caso "califica"
+- [x] 2.1 Instalar `@react-three/fiber` y `@react-three/drei`; confirmar compatibilidad con React 19 / Next 16 App Router
+- [x] 2.2 Crear el gate de capacidad `lib/three/capabilityGate.ts` (reduced-motion, mobile/gama-baja por `hardwareConcurrency`/`deviceMemory`/`pointer:coarse`, detección WebGL, `saveData`/conexión lenta) con umbrales documentados y sin `any`
+- [x] 2.3 Escribir tests (Vitest) del gate de capacidad cubriendo cada condición de fallback (reduced-motion, sin WebGL, mobile, save-data) y el caso "califica"
 - [ ] 2.4 Crear el wrapper `components/three/Lazy3DCanvas.tsx`: consume el gate, monta el `<Canvas>` por IntersectionObserver, pausa/desmonta el loop fuera de viewport (`frameloop="demand"`), envuelve en `<Suspense>` con poster de fallback
 - [ ] 2.5 Crear el error boundary `components/three/SceneErrorBoundary.tsx` que degrada a poster estático ante fallo de render/contexto WebGL perdido
 - [ ] 2.6 Configurar el patrón de carga `next/dynamic({ ssr:false, loading: Poster })` como helper/convención para las escenas y verificar con el analyzer de `v4-frontend-07` que el chunk 3D NO entra al first-load de rutas no-3D

@@ -489,10 +489,10 @@ export function ProductCatalog({
                         )}
                       </div>
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-emerald-400 font-medium">{formatMoney(child.price)}</span>
+                        <span className="text-success font-medium">{formatMoney(child.price)}</span>
                         <span className={cn(
                           "font-medium",
-                          child.margin >= 50 ? "text-emerald-400" : child.margin >= 30 ? "text-yellow-400" : "text-red-400"
+                          child.margin >= 50 ? "text-success" : child.margin >= 30 ? "text-warning" : "text-destructive"
                         )}>
                           {child.margin}% margen
                         </span>
@@ -551,10 +551,10 @@ export function ProductCatalog({
                     {p.category}
                   </Badge>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-emerald-400 font-medium">{formatMoney(p.price)}</span>
+                    <span className="text-success font-medium">{formatMoney(p.price)}</span>
                     <span className={cn(
                       "font-medium",
-                      p.margin >= 50 ? "text-emerald-400" : p.margin >= 30 ? "text-yellow-400" : "text-red-400"
+                      p.margin >= 50 ? "text-success" : p.margin >= 30 ? "text-warning" : "text-destructive"
                     )}>
                       {p.margin}%
                     </span>
@@ -807,7 +807,7 @@ export function ProductCatalog({
 
                             {/* Price */}
                             <TableCell>
-                              <span className="text-sm font-medium text-emerald-400">
+                              <span className="text-sm font-medium text-success">
                                 {formatMoney(child.price)}
                               </span>
                             </TableCell>
@@ -818,10 +818,10 @@ export function ProductCatalog({
                                 className={cn(
                                   "text-xs font-medium",
                                   child.margin >= 50
-                                    ? "text-emerald-400"
+                                    ? "text-success"
                                     : child.margin >= 30
-                                      ? "text-yellow-400"
-                                      : "text-red-400",
+                                      ? "text-warning"
+                                      : "text-destructive",
                                 )}
                               >
                                 {child.margin}%
@@ -919,7 +919,7 @@ export function ProductCatalog({
 
                   {/* Price */}
                   <TableCell>
-                    <span className="font-medium text-emerald-400">
+                    <span className="font-medium text-success">
                       {formatMoney(p.price)}
                     </span>
                   </TableCell>
@@ -930,10 +930,10 @@ export function ProductCatalog({
                       className={cn(
                         "text-xs font-medium",
                         p.margin >= 50
-                          ? "text-emerald-400"
+                          ? "text-success"
                           : p.margin >= 30
-                            ? "text-yellow-400"
-                            : "text-red-400",
+                            ? "text-warning"
+                            : "text-destructive",
                       )}
                     >
                       {p.margin}%

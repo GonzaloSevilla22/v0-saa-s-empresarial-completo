@@ -25,11 +25,14 @@ interface KpiSummaryCardProps {
   secondaryLine?: string | null
 }
 
-// Hex del spec §5; fondo semi-transparente del mismo color.
+// v4-visual-3d-refresh Fase A (task 1.9): los hex literales del spec §5
+// (equivalentes a emerald-400/red-400/amber-400) migrados a tokens
+// semánticos (frontend/docs/design-tokens.md), ya cubiertos por
+// success/destructive/warning. Fondo semi-transparente del mismo color.
 const TONE_CLASSES: Record<KpiBadgeTone, string> = {
-  green: "text-[#34D399] bg-[#34D399]/15",
-  red: "text-[#F87171] bg-[#F87171]/15",
-  yellow: "text-[#FBBF24] bg-[#FBBF24]/15",
+  green: "text-success bg-success/15",
+  red: "text-destructive bg-destructive/15",
+  yellow: "text-warning bg-warning/15",
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

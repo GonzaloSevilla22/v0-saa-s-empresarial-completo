@@ -86,8 +86,8 @@ export default function ProductosPage() {
       )}
 
       {isAtLimit && (
-        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-          <p className="text-sm text-yellow-400">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 p-4">
+          <p className="text-sm text-warning">
             Llegaste al límite de {maxProducts} productos de tu plan. Actualizá tu plan para tener más capacidad.
           </p>
         </div>

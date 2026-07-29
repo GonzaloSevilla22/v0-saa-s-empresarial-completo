@@ -95,7 +95,7 @@ export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
           <span>Ventas hoy: <span className="text-primary font-medium">${todaySales.toLocaleString()}</span></span>
-          <span>Stock bajo: <span className={`font-medium ${lowStock.length > 0 ? "text-red-400" : "text-emerald-400"}`}>{lowStock.length} productos</span></span>
+          <span>Stock bajo: <span className={`font-medium ${lowStock.length > 0 ? "text-destructive" : "text-success"}`}>{lowStock.length} productos</span></span>
         </div>
       </CardContent>
     </Card>

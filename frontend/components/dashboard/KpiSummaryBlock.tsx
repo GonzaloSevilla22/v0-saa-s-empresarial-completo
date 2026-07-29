@@ -78,7 +78,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
         badge={formatKpiDelta(netDelta)}
         tone={kpiBadgeTone(netDelta, "up_good")}
         icon={TrendingUp}
-        iconColor="text-emerald-400"
+        iconColor="text-success"
         secondaryLine={noActivity ? null : collectedLine}
       />
       <KpiSummaryCard
@@ -99,7 +99,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
         badge={empty || data.stagnantStockCount == null ? "—" : `${data.stagnantStockCount} productos`}
         tone={kpiBadgeTone(stockDelta, "up_bad")}
         icon={PackageX}
-        iconColor="text-amber-400"
+        iconColor="text-warning"
       />
       <KpiSummaryCard
         label="Costo por Venta"
@@ -107,7 +107,7 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
         badge={formatKpiDelta(costDelta)}
         tone={kpiBadgeTone(costDelta, "up_bad")}
         icon={Receipt}
-        iconColor="text-red-400"
+        iconColor="text-destructive"
       />
       <KpiSummaryCard
         label="Ticket Promedio"

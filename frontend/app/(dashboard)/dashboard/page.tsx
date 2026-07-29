@@ -156,7 +156,7 @@ export default function DashboardPage() {
           title="Gastos hoy"
           value={loadingKpis ? "—" : `$${todayExpenses.toLocaleString()}`}
           icon={TrendingDown}
-          iconColor="text-red-400"
+          iconColor="text-destructive"
         />
         <KpiCard
           title="Ganancia neta hoy"
@@ -167,7 +167,7 @@ export default function DashboardPage() {
           title="Productos en alerta"
           value={lowStock.length.toString()}
           icon={AlertTriangle}
-          iconColor="text-yellow-400"
+          iconColor="text-warning"
         />
       </div>
 

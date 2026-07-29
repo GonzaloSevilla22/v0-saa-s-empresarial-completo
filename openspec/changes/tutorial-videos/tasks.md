@@ -25,8 +25,8 @@
 
 ## 5. Tarea manual del PO (fuera de código)
 
-- [ ] 5.1 **PO**: crear el canal de YouTube, subir los **10** `.mp4` (grabados con OBS) como **unlisted** (no hace falta re-encodear antes; YouTube transcodifica), y pasar los 10 `youtubeVideoId`. (No bloquea el merge del andamiaje; sin IDs, cards/botón no se renderizan por diseño.) — **PENDIENTE, manual del PO, fuera de este apply.** *(Ampliado de 5 → 10 videos por el cambio de scope 2026-07-29.)*
-- [ ] 5.2 Completar los `youtubeVideoId` reales en `frontend/lib/tutorials.ts` (cambio de datos, sin tocar UI) una vez que el PO entregue 5.1. — **PENDIENTE, bloqueado por 5.1.**
+- [x] 5.1 **PO**: crear el canal de YouTube, subir los **10** `.mp4` (grabados con OBS) como **unlisted** (no hace falta re-encodear antes; YouTube transcodifica), y pasar los 10 `youtubeVideoId`. *(Ampliado de 5 → 10 videos por el cambio de scope 2026-07-29.)* — **COMPLETADO por el PO 2026-07-29**: entregó los 10 IDs (URLs `youtu.be/<id>`).
+- [x] 5.2 Completar los `youtubeVideoId` reales en `frontend/lib/tutorials.ts` (cambio de datos, sin tocar UI) una vez que el PO entregue 5.1. — **COMPLETADO 2026-07-29**: los 10 IDs cargados con mapeo verificado por test (mapeo exacto por módulo + formato 11 chars + unicidad); la feature pasa a ser visible tras el deploy.
 
 ## 7. Extensión de scope 2026-07-29 — catálogo de 10 tutoriales (PO)
 
@@ -39,4 +39,4 @@
 
 - [x] 6.1 Correr `cd frontend && pnpm test` (vitest) — suite completa verde, incluidos los tests nuevos de `tutorials`, `TutorialVideo` y (si aplica) `breadcrumb-nav`. Resultado: 57 archivos / 481 tests verdes (baseline previo al change: 464 tests).
 - [x] 6.2 Correr `cd frontend && pnpm build` — build de Next 16 OK (resuelve `@next/third-parties`, sin errores de tipos ni `any`). `✓ Compiled successfully`.
-- [ ] 6.3 QA manual mínimo (idealmente con al menos un `youtubeVideoId` real): en `/` el link "Aprendé a usar ALIADATA" hace scroll a la sección y las cards con video reproducen tras el click (facade); en el dashboard, el botón "Ver tutorial" aparece solo en rutas con tutorial y abre el modal 16:9. Confirmar que la landing below-the-fold no penaliza el LCP. — **PENDIENTE, bloqueado por 5.1/5.2** (sin `youtubeVideoId` real la feature es invisible por diseño; el estado "todo null" — sección oculta, botón oculto, landing no rompe — está cubierto por los tests automáticos).
+- [ ] 6.3 QA manual mínimo (idealmente con al menos un `youtubeVideoId` real): en `/` el link "Aprendé a usar ALIADATA" hace scroll a la sección y las cards con video reproducen tras el click (facade); en el dashboard, el botón "Ver tutorial" aparece solo en rutas con tutorial y abre el modal 16:9. Confirmar que la landing below-the-fold no penaliza el LCP. — **PENDIENTE**: desbloqueado (IDs cargados 2026-07-29); lo ejecuta el orquestador en prod post-deploy.

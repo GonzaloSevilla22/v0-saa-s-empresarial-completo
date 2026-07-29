@@ -7,6 +7,11 @@
  * (general, no dashboard route) + 9 modules (Tablero, Ventas, Compras,
  * Productos, Stock, Gastos, Clientes, Consejos IA, Simulador de Precios).
  *
+ * Estado 2026-07-29 (PO entregó los videos): los 10 `youtubeVideoId` están
+ * cargados — la feature pasa a ser visible. El comportamiento con `null`
+ * (tutorial pendiente) se sigue cubriendo con fixtures, no con el catálogo
+ * real.
+ *
  * Cycle: RED → GREEN → TRIANGULATE
  */
 
@@ -18,6 +23,20 @@ import {
   getTutorialByPathname,
   type Tutorial,
 } from "@/lib/tutorials"
+
+/** Mapeo oficial entregado por el PO (URLs youtu.be/<id>, 2026-07-29). */
+const EXPECTED_VIDEO_IDS: Record<Tutorial["moduleKey"], string> = {
+  onboarding: "C_SUggjXdkw",
+  dashboard: "U6qli8FlMh4",
+  ventas: "ozpyvm5BXqE",
+  compras: "53aV89Pikdc",
+  productos: "c33ZUWjCoHA",
+  stock: "QXFTEBCLMZo",
+  gastos: "5OV88rvz-MU",
+  clientes: "Ak9as52T3c8",
+  insights: "AmKOe8w3f90",
+  simulador: "FL6sRkKp3xQ",
+}
 
 describe("TUTORIALS catalog", () => {
   it("has exactly the 10 entries in landing order: onboarding first, then the 9 modules", () => {
@@ -59,39 +78,62 @@ describe("TUTORIALS catalog", () => {
     expect(byKey.get("insights")).toBe("/insights")
     expect(byKey.get("simulador")).toBe("/simulador")
   })
+
+  // ── Estado post-entrega del PO: los 10 IDs cargados, mapeo exacto ──────
+  it("every entry carries exactly the youtubeVideoId the PO delivered for that module (no crossed IDs)", () => {
+    for (const t of TUTORIALS) {
+      expect(t.youtubeVideoId).toBe(EXPECTED_VIDEO_IDS[t.moduleKey])
+    }
+  })
+
+  it("all 10 youtubeVideoIds are 11-character YouTube ids and unique", () => {
+    const ids = TUTORIALS.map((t) => t.youtubeVideoId)
+    ids.forEach((id) => {
+      expect(id).not.toBeNull()
+      expect(id).toHaveLength(11)
+      expect(id).toMatch(/^[A-Za-z0-9_-]{11}$/)
+    })
+    expect(new Set(ids).size).toBe(10)
+  })
 })
 
 describe("hasTutorialVideo", () => {
-  // ── RED → GREEN: happy path ───────────────────────────────────────────
+  // ── RED → GREEN: happy path (fixture) ─────────────────────────────────
   it("returns true when youtubeVideoId is a non-null string", () => {
-    expect(hasTutorialVideo({ youtubeVideoId: "abc123XYZ" } as Tutorial)).toBe(true)
+    expect(hasTutorialVideo({ youtubeVideoId: "abc123XYZ99" } as Tutorial)).toBe(true)
   })
 
-  // ── TRIANGULATE: pending video is not available ───────────────────────
+  // ── TRIANGULATE: pending video is not available (fixture keeps the null
+  //    contract covered even though the real catalog no longer has nulls) ──
   it("returns false when youtubeVideoId is null (video not yet uploaded)", () => {
     expect(hasTutorialVideo({ youtubeVideoId: null } as Tutorial)).toBe(false)
   })
 })
 
 describe("getAvailableTutorials", () => {
-  // ── RED → GREEN: today, no real IDs exist yet → catalog is all-null ──
-  it("returns only tutorials whose youtubeVideoId is not null", () => {
+  // ── RED → GREEN: with the delivered catalog, all 10 are available ─────
+  it("returns the full catalog of 10 now that every youtubeVideoId is loaded", () => {
     const available = getAvailableTutorials()
-    expect(available.every((t) => t.youtubeVideoId !== null)).toBe(true)
+    expect(available).toHaveLength(10)
+    expect(available.map((t) => t.moduleKey)).toEqual(TUTORIALS.map((t) => t.moduleKey))
   })
 
-  // ── TRIANGULATE: with the current all-placeholder catalog, the result is empty ──
-  it("returns an empty array today, since every catalog entry is still a null placeholder", () => {
-    expect(getAvailableTutorials()).toEqual([])
+  // ── TRIANGULATE: the availability invariant holds entry by entry ───────
+  it("returns only tutorials whose youtubeVideoId is not null", () => {
+    const available = getAvailableTutorials()
+    expect(available.length).toBeGreaterThan(0)
+    expect(available.every((t) => t.youtubeVideoId !== null)).toBe(true)
   })
 })
 
 describe("getTutorialByPathname", () => {
-  // ── RED → GREEN: known pathname resolves to its entry ─────────────────
-  it("returns the matching entry for a pathname present in the catalog", () => {
+  // ── RED → GREEN: known pathname resolves to its entry, now with video ──
+  it("returns the matching entry — with its delivered video id — for a catalog pathname", () => {
     const found = getTutorialByPathname("/ventas")
     expect(found).toBeDefined()
     expect(found?.moduleKey).toBe("ventas")
+    expect(found?.youtubeVideoId).toBe("ozpyvm5BXqE")
+    expect(found && hasTutorialVideo(found)).toBe(true)
   })
 
   // ── TRIANGULATE: the 4 routes added in the 10-tutorial extension resolve too ──
@@ -113,12 +155,5 @@ describe("getTutorialByPathname", () => {
     for (const route of routes) {
       expect(getTutorialByPathname(route)?.moduleKey).not.toBe("onboarding")
     }
-  })
-
-  // ── TRIANGULATE: pathname exists but video is null → still returns the raw entry ──
-  it("returns the entry even when its youtubeVideoId is null (consumer decides via hasTutorialVideo)", () => {
-    const found = getTutorialByPathname("/stock")
-    expect(found).toBeDefined()
-    expect(found?.youtubeVideoId).toBeNull()
   })
 })

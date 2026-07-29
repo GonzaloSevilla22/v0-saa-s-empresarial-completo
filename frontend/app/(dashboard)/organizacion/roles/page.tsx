@@ -30,7 +30,7 @@ const ROLE_LABELS: Record<OrgRole, string> = {
   member: "Miembro",
 }
 
-const ROLE_ICONS: Record<OrgRole, React.ElementType> = {
+const ROLE_ICONS: Record<OrgRole, React.ComponentType<{ className?: string }>> = {
   owner:  Crown,
   admin:  Shield,
   member: User,

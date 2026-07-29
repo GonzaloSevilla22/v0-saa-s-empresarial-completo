@@ -10,6 +10,7 @@ import { useState } from "react"
 import type { LandingSection } from "@/lib/landing"
 import { getAvailableTutorials } from "@/lib/tutorials"
 import { TutorialsSection } from "@/components/landing/TutorialsSection"
+import { HeroSceneMount } from "@/components/three/HeroSceneMount"
 
 function Navbar() {
   const [open, setOpen] = useState(false)
@@ -73,6 +74,13 @@ function Hero({ section }: { section?: LandingSection }) {
         <div className="absolute -top-[15%] -left-[10%] h-[50%] w-[40%] rounded-full bg-emerald-500 opacity-10 blur-[130px]" />
         <div className="absolute top-[30%] -right-[10%] h-[40%] w-[35%] rounded-full bg-blue-600 opacity-10 blur-[120px]" />
         <div className="absolute bottom-0 left-[30%] h-[30%] w-[30%] rounded-full bg-emerald-700 opacity-10 blur-[100px]" />
+      </div>
+      {/* v4-visual-3d-refresh 3.1: hero 3D — bloque decorativo sobre la estructura
+          editable existente (D8/sign-off PO), oculto en mobile (hidden lg:block:
+          además del gate de capacidad, evita competir con el texto centrado en
+          viewports chicos, coherente con "mobile-first" del proyecto). */}
+      <div className="pointer-events-none absolute right-[2%] top-[8%] hidden h-[420px] w-[420px] lg:block">
+        <HeroSceneMount />
       </div>
       <div className="container relative z-10 mx-auto px-4 text-center">
         <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-4 py-1.5 text-sm text-emerald-400">

@@ -12,7 +12,7 @@ interface Props {
   error?:   string | null
 }
 
-const STEPS: { key: OcrStep; label: string; icon: React.ElementType }[] = [
+const STEPS: { key: OcrStep; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: "uploading",   label: "Subiendo",      icon: Upload   },
   { key: "processing",  label: "Leyendo",        icon: Brain    },
   { key: "matching",    label: "Buscando",       icon: Search   },

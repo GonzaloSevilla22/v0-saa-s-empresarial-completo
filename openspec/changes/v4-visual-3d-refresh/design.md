@@ -110,8 +110,10 @@ El refresh cubre light y dark (ya soportado por `next-themes`). Las escenas 3D l
 
 ## Open Questions
 
-1. **Profundidad del rediseño de marca**: ¿este change incluye **nueva identidad/logo** o se limita al **sistema visual** (paleta, tipografía, motion, 3D) sobre la marca ALIADATA actual? *Default propuesto: solo sistema visual; marca/logo fuera de alcance salvo indicación del PO.*
-2. **Modo oscuro en este change o después**: dark mode ya existe técnicamente (`next-themes`). ¿El refresh **pule y garantiza** ambos temas ahora, o se prioriza claro y se difiere el dark? *Default propuesto: cubrir ambos, apoyándose en la auditoría de contraste de `v4-frontend-04`.*
-3. **Presupuesto de esfuerzo por fase**: ¿se ejecutan las 4 fases seguidas o el PO quiere cortar después de la Fase A/B (refresh 2D + piloto 3D) y evaluar impacto antes de invertir en todas las escenas 3D?
-4. **La landing 3D, ¿reemplaza la actual?** `LandingPageFull` es editable por admin (`LandingManager`). ¿La nueva hero 3D **reemplaza** la landing actual, **convive** como variante, o se limita a un bloque hero sobre la estructura editable existente? *Default propuesto: bloque hero 3D sobre la estructura editable actual, sin romper el editor de landing.*
-5. **Inventario y origen de assets 3D**: ¿modelos glTF a medida (encargo de diseño), librería con licencia, o geometría procedural? Afecta esfuerzo y presupuesto de peso. *Default propuesto: procedural/low-poly propio para el piloto; encargo de diseño solo si el PO lo aprueba.*
+> **Resueltas — sign-off del PO 2026-07-29.** Las 5 quedan cerradas con decisión vinculante; se ejecutan las Fases B→C→D seguidas, sin checkpoint intermedio.
+
+1. **Profundidad del rediseño de marca** — ✅ **RESUELTA (2026-07-29)**: **solo sistema visual**. El logo/identidad de ALIADATA NO se tocan en este change.
+2. **Modo oscuro en este change o después** — ✅ **RESUELTA (2026-07-29)**: se **garantizan AMBOS temas** (claro y oscuro) en todo lo que se construya, incluida cada escena 3D (cada escena lee el tema activo — task 3.7). No se difiere el dark mode.
+3. **Presupuesto de esfuerzo por fase** — ✅ **RESUELTA (2026-07-29)**: se ejecutan las **4 fases seguidas (B→C→D)**, sin checkpoint de evaluación intermedio entre fases.
+4. **La landing 3D, ¿reemplaza la actual?** — ✅ **RESUELTA (2026-07-29)**: el hero 3D es un **bloque sobre la estructura editable existente** (`LandingPageFull`/`HeroSection`); el editor `LandingManager` sigue funcionando intacto. No reemplaza ni convive como variante separada.
+5. **Inventario y origen de assets 3D** — ✅ **RESUELTA (2026-07-29)**: **solo geometría procedural/low-poly propia generada por código**. Nada de descargar modelos de librerías externas ni encargos de diseño. Esto simplifica D6: no hay glTF/Draco reales en este change (no hay nada que decodificar); `worker-src 'self' blob:` (D7) se añade igual de forma defensiva/futura-proof porque el guardrail de infraestructura (task 2.7) lo pide explícitamente para cuando existan assets comprimidos, pero no se self-hostean decoders Draco/KTX2 porque no hay geometría comprimida que decodificar todavía.

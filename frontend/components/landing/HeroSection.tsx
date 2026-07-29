@@ -1,6 +1,7 @@
 ﻿import { Button } from "@/components/ui/button"
 import { LandingSection } from "@/lib/landing"
 import Link from "next/link"
+import { HeroSceneMount } from "@/components/three/HeroSceneMount"
 
 export function HeroSection({ section }: { section: LandingSection }) {
     return (
@@ -9,6 +10,11 @@ export function HeroSection({ section }: { section: LandingSection }) {
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none opacity-20">
                 <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-500 rounded-full blur-[120px]" />
                 <div className="absolute top-[40%] -right-[10%] w-[30%] h-[30%] bg-blue-500 rounded-full blur-[100px]" />
+            </div>
+            {/* v4-visual-3d-refresh 3.1: mismo bloque hero 3D que LandingPageFull.tsx
+                (variante de renderer, D8 — mismo tratamiento). */}
+            <div className="pointer-events-none absolute right-[2%] top-[10%] hidden h-[380px] w-[380px] lg:block">
+                <HeroSceneMount />
             </div>
 
             <div className="container relative z-10 mx-auto px-4 text-center">

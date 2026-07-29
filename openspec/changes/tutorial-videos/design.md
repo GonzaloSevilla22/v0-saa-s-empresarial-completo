@@ -34,18 +34,22 @@ Estado actual verificado del código que se toca:
 ## Decisions
 
 ### D1 — Fuente de datos: mapa estático tipado en `lib/tutorials.ts`
-Un `Record`/array de solo lectura, tipado explícitamente (sin `any`), es la única fuente de verdad. Forma de cada entrada:
+Un `Record`/array de solo lectura, tipado explícitamente (sin `any`), es la única fuente de verdad. Forma de cada entrada (**ampliado a 10 tutoriales por el PO 2026-07-29**; el orden del array es el orden de la landing, Onboarding primero):
 ```ts
-export type TutorialModuleKey = "ventas" | "compras" | "productos" | "stock" | "gastos"
+export type TutorialModuleKey =
+  | "onboarding" | "dashboard" | "ventas" | "compras" | "productos"
+  | "stock" | "gastos" | "clientes" | "insights" | "simulador"
 export interface Tutorial {
   moduleKey: TutorialModuleKey
   title: string
   description: string
   durationLabel: string        // p. ej. "3 min"
   youtubeVideoId: string | null // null = video aún no subido
-  pathname: string              // ruta del dashboard donde es contextual (p. ej. "/ventas")
+  pathname: string | null       // ruta del dashboard donde es contextual (p. ej. "/ventas");
+                                // null = tutorial general (onboarding): landing sí, botón contextual no
 }
 ```
+Mapeo de rutas (claves reales de `PAGE_NAMES` en `breadcrumb-nav.tsx`): Tablero → `/dashboard`, Clientes → `/clientes`, Consejos IA → `/insights`, Simulador de Precios → `/simulador`; los 5 originales conservan su ruta. `getTutorialByPathname` excluye las entradas con `pathname: null`.
 Helpers puros (fáciles de testear en TDD): `hasTutorialVideo(t)`, `getAvailableTutorials()`, `getTutorialByPathname(pathname)`.
 - **Por qué**: desacopla las superficies del hosting; migrar a R2 = cambiar datos + player, no consumidores. Testeable sin DOM.
 - **Alternativas descartadas**: (a) leer de `community.landing_sections`/DB — rechazado por la restricción "sin DB / sin queries"; (b) hardcodear IDs en cada componente — rompe la fuente única y dificulta la migración de hosting.

@@ -25,8 +25,15 @@
 
 ## 5. Tarea manual del PO (fuera de código)
 
-- [ ] 5.1 **PO**: crear el canal de YouTube, subir los 5 `.mp4` (grabados con OBS) como **unlisted** (no hace falta re-encodear antes; YouTube transcodifica), y pasar los 5 `youtubeVideoId`. (No bloquea el merge del andamiaje; sin IDs, cards/botón no se renderizan por diseño.) — **PENDIENTE, manual del PO, fuera de este apply.**
+- [ ] 5.1 **PO**: crear el canal de YouTube, subir los **10** `.mp4` (grabados con OBS) como **unlisted** (no hace falta re-encodear antes; YouTube transcodifica), y pasar los 10 `youtubeVideoId`. (No bloquea el merge del andamiaje; sin IDs, cards/botón no se renderizan por diseño.) — **PENDIENTE, manual del PO, fuera de este apply.** *(Ampliado de 5 → 10 videos por el cambio de scope 2026-07-29.)*
 - [ ] 5.2 Completar los `youtubeVideoId` reales en `frontend/lib/tutorials.ts` (cambio de datos, sin tocar UI) una vez que el PO entregue 5.1. — **PENDIENTE, bloqueado por 5.1.**
+
+## 7. Extensión de scope 2026-07-29 — catálogo de 10 tutoriales (PO)
+
+- [x] 7.1 (TDD RED) Actualizar `frontend/__tests__/lib/tutorials.test.ts`: catálogo de 10 en orden de landing (Onboarding primero), solo Onboarding con `pathname: null`, mapeo de rutas nuevas (`/dashboard`, `/clientes`, `/insights`, `/simulador`), y garantía de que el lookup por ruta nunca devuelve Onboarding.
+- [x] 7.2 (TDD GREEN) Extender `frontend/lib/tutorials.ts`: `TutorialModuleKey` con las 10 claves, `pathname: string | null` (null = tutorial general sin botón contextual), catálogo de 10 entradas todas con `youtubeVideoId: null` (sigue invisible en prod), copys provisorios en voseo, `getTutorialByPathname` excluye `pathname: null`.
+- [x] 7.3 Verificar que `TutorialsSection` y el botón de `breadcrumb-nav` no requieren cambios (data-driven): confirmado — la sección itera `getAvailableTutorials()` sin asumir cantidad y el lookup por ruta ya filtra los null; suites de ambos consumidores verdes sin tocar.
+- [x] 7.4 Actualizar artefactos del change (proposal, design D1, spec delta: catálogo de 10 + scenario de tutorial general sin ruta + scenario de lookup que excluye null) y validar con `openspec validate tutorial-videos --strict`.
 
 ## 6. Verificación
 

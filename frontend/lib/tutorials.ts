@@ -9,12 +9,26 @@
  * Cloudflare R2) es un cambio de datos + implementación del player, sin
  * tocar las superficies que consumen este catálogo.
  *
+ * Alcance (PO 2026-07-29): 10 tutoriales — Onboarding (video general de
+ * inicio, sin ruta de dashboard) + 9 módulos. El orden del array ES el
+ * orden de las cards en la landing: Onboarding primero.
+ *
  * `youtubeVideoId: null` significa "tutorial aún no grabado/subido": ni la
  * landing ni el dashboard deben intentar renderizar su video mientras sea
  * null (ver `hasTutorialVideo`).
  */
 
-export type TutorialModuleKey = "ventas" | "compras" | "productos" | "stock" | "gastos"
+export type TutorialModuleKey =
+  | "onboarding"
+  | "dashboard"
+  | "ventas"
+  | "compras"
+  | "productos"
+  | "stock"
+  | "gastos"
+  | "clientes"
+  | "insights"
+  | "simulador"
 
 export interface Tutorial {
   moduleKey: TutorialModuleKey
@@ -23,11 +37,31 @@ export interface Tutorial {
   durationLabel: string
   /** `null` = video aún no subido a YouTube; el tutorial no se renderiza. */
   youtubeVideoId: string | null
-  /** Ruta del dashboard donde este tutorial es contextualmente relevante. */
-  pathname: string
+  /**
+   * Ruta del dashboard donde este tutorial es contextualmente relevante.
+   * `null` = tutorial general (p. ej. onboarding): aparece en la landing
+   * pero no tiene botón "Ver tutorial" en ninguna ruta del dashboard.
+   */
+  pathname: string | null
 }
 
 export const TUTORIALS: readonly Tutorial[] = [
+  {
+    moduleKey: "onboarding",
+    title: "Empezá por acá: primeros pasos con ALIADATA",
+    description: "El recorrido inicial completo: configurá tu cuenta, conocé los módulos y dejá tu negocio listo para operar.",
+    durationLabel: "5 min",
+    youtubeVideoId: null,
+    pathname: null,
+  },
+  {
+    moduleKey: "dashboard",
+    title: "Cómo leer tu tablero",
+    description: "Entendé de un vistazo las métricas clave de tu negocio: ventas, compras, stock y rentabilidad en tiempo real.",
+    durationLabel: "3 min",
+    youtubeVideoId: null,
+    pathname: "/dashboard",
+  },
   {
     moduleKey: "ventas",
     title: "Cómo registrar una venta",
@@ -68,6 +102,30 @@ export const TUTORIALS: readonly Tutorial[] = [
     youtubeVideoId: null,
     pathname: "/gastos",
   },
+  {
+    moduleKey: "clientes",
+    title: "Cómo gestionar tus clientes",
+    description: "Cargá tus clientes, mirá su historial de compras y llevá su cuenta corriente sin planillas.",
+    durationLabel: "3 min",
+    youtubeVideoId: null,
+    pathname: "/clientes",
+  },
+  {
+    moduleKey: "insights",
+    title: "Cómo aprovechar los Consejos IA",
+    description: "Descubrí los insights que la IA genera con tus datos y convertilos en decisiones concretas.",
+    durationLabel: "2 min",
+    youtubeVideoId: null,
+    pathname: "/insights",
+  },
+  {
+    moduleKey: "simulador",
+    title: "Cómo usar el Simulador de Precios",
+    description: "Probá precios y márgenes antes de decidir: simulá escenarios con tus costos reales.",
+    durationLabel: "3 min",
+    youtubeVideoId: null,
+    pathname: "/simulador",
+  },
 ] as const
 
 /** Tutorial cuyo `youtubeVideoId` está confirmado no nulo (ver `hasTutorialVideo`). */
@@ -92,8 +150,10 @@ export function getAvailableTutorials(): TutorialWithVideo[] {
 /**
  * Busca el tutorial contextual de una ruta del dashboard. Devuelve la
  * entrada del catálogo exista o no el video (el consumidor decide si
- * ofrecer el botón usando `hasTutorialVideo` sobre el resultado).
+ * ofrecer el botón usando `hasTutorialVideo` sobre el resultado). Los
+ * tutoriales generales (`pathname: null`, p. ej. onboarding) nunca se
+ * devuelven por ruta.
  */
 export function getTutorialByPathname(pathname: string): Tutorial | undefined {
-  return TUTORIALS.find((t) => t.pathname === pathname)
+  return TUTORIALS.find((t) => t.pathname !== null && t.pathname === pathname)
 }

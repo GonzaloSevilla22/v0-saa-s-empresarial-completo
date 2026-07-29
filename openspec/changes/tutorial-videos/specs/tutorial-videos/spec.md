@@ -2,12 +2,17 @@
 
 ### Requirement: Catálogo estático tipado de tutoriales
 
-El sistema SHALL exponer un catálogo de tutoriales en `frontend/lib/tutorials.ts` como estructura tipada de solo lectura, con una entrada por módulo cubierto (Ventas, Compras, Productos, Stock, Gastos). Cada entrada MUST tener la forma `{ moduleKey, title, description, durationLabel, youtubeVideoId, pathname }`, donde `youtubeVideoId` es `string | null` y `pathname` es la ruta del dashboard donde ese tutorial es contextualmente relevante. El catálogo MUST ser la única fuente de verdad del feature: ni la landing ni el dashboard pueden hardcodear IDs de video por fuera de él. El tipo NO debe usar `any`.
+El sistema SHALL exponer un catálogo de tutoriales en `frontend/lib/tutorials.ts` como estructura tipada de solo lectura, con 10 entradas (alcance PO 2026-07-29): Onboarding (video general de inicio) más una por cada módulo cubierto (Tablero, Ventas, Compras, Productos, Stock, Gastos, Clientes, Consejos IA, Simulador de Precios). Cada entrada MUST tener la forma `{ moduleKey, title, description, durationLabel, youtubeVideoId, pathname }`, donde `youtubeVideoId` es `string | null` y `pathname` es `string | null`: la ruta del dashboard donde ese tutorial es contextualmente relevante, o `null` para tutoriales generales sin ruta (Onboarding). El orden del catálogo ES el orden de las cards en la landing, con Onboarding primero. El catálogo MUST ser la única fuente de verdad del feature: ni la landing ni el dashboard pueden hardcodear IDs de video por fuera de él. El tipo NO debe usar `any`.
 
-#### Scenario: Cada módulo tiene su entrada tipada
+#### Scenario: Cada tutorial tiene su entrada tipada
 
 - **WHEN** se importa el catálogo desde `frontend/lib/tutorials.ts`
-- **THEN** existe exactamente una entrada por cada módulo (Ventas, Compras, Productos, Stock, Gastos), cada una con `moduleKey`, `title`, `description`, `durationLabel`, `youtubeVideoId` y `pathname` con los tipos declarados
+- **THEN** existen exactamente 10 entradas — Onboarding, Tablero, Ventas, Compras, Productos, Stock, Gastos, Clientes, Consejos IA, Simulador de Precios — cada una con `moduleKey`, `title`, `description`, `durationLabel`, `youtubeVideoId` y `pathname` con los tipos declarados, con Onboarding en primer lugar
+
+#### Scenario: Tutorial general sin ruta de dashboard
+
+- **WHEN** una entrada del catálogo tiene `pathname: null` (tutorial general, p. ej. Onboarding)
+- **THEN** la entrada participa de la landing como cualquier otra, pero ninguna ruta del dashboard la ofrece como tutorial contextual (el lookup por ruta nunca la devuelve)
 
 #### Scenario: Tolerancia a video pendiente
 
@@ -21,7 +26,7 @@ El sistema SHALL exponer un catálogo de tutoriales en `frontend/lib/tutorials.t
 
 ### Requirement: Búsqueda de tutorial por ruta del dashboard
 
-El sistema SHALL proveer una función pura de lookup (p. ej. `getTutorialByPathname(pathname)`) que, dada una ruta del dashboard, devuelva la entrada de tutorial cuyo `pathname` coincide, o `undefined` si no hay ninguna. La función MUST devolver una entrada únicamente cuando la ruta tiene un tutorial cuyo video está disponible (`youtubeVideoId` no nulo), o exponer de forma clara la disponibilidad para que el consumidor decida.
+El sistema SHALL proveer una función pura de lookup (p. ej. `getTutorialByPathname(pathname)`) que, dada una ruta del dashboard, devuelva la entrada de tutorial cuyo `pathname` coincide, o `undefined` si no hay ninguna. Las entradas con `pathname: null` (tutoriales generales, p. ej. Onboarding) MUST quedar excluidas del lookup: ninguna ruta las devuelve. La función MUST devolver una entrada únicamente cuando la ruta tiene un tutorial cuyo video está disponible (`youtubeVideoId` no nulo), o exponer de forma clara la disponibilidad para que el consumidor decida.
 
 #### Scenario: Ruta con tutorial disponible
 
@@ -32,6 +37,11 @@ El sistema SHALL proveer una función pura de lookup (p. ej. `getTutorialByPathn
 
 - **WHEN** se invoca el lookup con una ruta que no figura en el catálogo
 - **THEN** devuelve `undefined`
+
+#### Scenario: Tutorial general nunca se resuelve por ruta
+
+- **WHEN** se invoca el lookup con cualquier ruta del dashboard
+- **THEN** nunca devuelve una entrada cuyo `pathname` es `null` (p. ej. Onboarding), por lo que esas entradas no generan botón "Ver tutorial" en ninguna página
 
 #### Scenario: Ruta con tutorial pendiente de video
 

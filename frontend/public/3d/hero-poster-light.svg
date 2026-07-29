@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-hidden="true" focusable="false">
+  <title></title>
+  <defs>
+    <linearGradient id="core-light" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22c55e" />
+      <stop offset="100%" stop-color="#0d9488" />
+    </linearGradient>
+  </defs>
+  <!-- Low-poly icosahedron-style core (faceted triangles fanning from center) -->
+  <g fill="url(#core-light)" stroke="#0f766e" stroke-width="1.5" stroke-linejoin="round">
+    <polygon points="200,90 260,150 200,200" opacity="0.95" />
+    <polygon points="260,150 260,240 200,200" opacity="0.85" />
+    <polygon points="260,240 200,300 200,200" opacity="0.95" />
+    <polygon points="200,300 140,240 200,200" opacity="0.8" />
+    <polygon points="140,240 140,150 200,200" opacity="0.9" />
+    <polygon points="140,150 200,90 200,200" opacity="0.75" />
+  </g>
+  <!-- Orbiting satellites (small octahedron-style diamonds) -->
+  <g fill="#16a34a" stroke="#0f766e" stroke-width="1.2" stroke-linejoin="round">
+    <polygon points="330,150 348,168 330,186 312,168" opacity="0.9" />
+    <polygon points="78,260 94,276 78,292 62,276" opacity="0.85" />
+    <polygon points="230,340 244,354 230,368 216,354" opacity="0.8" />
+  </g>
+</svg>

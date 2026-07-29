@@ -35,6 +35,14 @@
 - [x] 7.3 Verificar que `TutorialsSection` y el botón de `breadcrumb-nav` no requieren cambios (data-driven): confirmado — la sección itera `getAvailableTutorials()` sin asumir cantidad y el lookup por ruta ya filtra los null; suites de ambos consumidores verdes sin tocar.
 - [x] 7.4 Actualizar artefactos del change (proposal, design D1, spec delta: catálogo de 10 + scenario de tutorial general sin ruta + scenario de lookup que excluye null) y validar con `openspec validate tutorial-videos --strict`.
 
+## 8. Fix post-QA 2026-07-29 — CSP bloqueaba la reproducción (D8, decisión PO)
+
+- [x] 8.1 (TDD RED) Reescribir `frontend/__tests__/components/TutorialVideo.test.tsx` para el facade propio: miniatura `i.ytimg.com/vi/{id}/hqdefault.jpg` + botón accesible sin iframe inicial; click → iframe `youtube-nocookie.com/embed/{id}?autoplay=1&rel=0` con `allowFullScreen`; contenedor 16:9. Nuevo `frontend/__tests__/lib/csp-frame-src.test.ts`: `youtube-nocookie` SOLO en `frame-src`, sin `jsdelivr`, resto de directivas intactas.
+- [x] 8.2 (TDD GREEN) Reescribir `frontend/components/shared/TutorialVideo.tsx` como facade propio sin scripts externos (client component, cero `any`, sin dependencias nuevas).
+- [x] 8.3 Remover `@next/third-parties` de `frontend/` (`pnpm remove`); verificado por grep: cero imports restantes (solo menciones en comentarios).
+- [x] 8.4 `frontend/lib/supabase/middleware.ts`: `frame-src` pasa a `https://challenges.cloudflare.com https://www.youtube-nocookie.com` — ninguna otra directiva cambia; CSP extraída a `buildContentSecurityPolicy()` exportada para testearla (patrón "exported for testability" del propio archivo).
+- [x] 8.5 Actualizar design.md (D8 + D2 supersedida + riesgo CSP materializado) y validar `openspec validate tutorial-videos --strict`.
+
 ## 6. Verificación
 
 - [x] 6.1 Correr `cd frontend && pnpm test` (vitest) — suite completa verde, incluidos los tests nuevos de `tutorials`, `TutorialVideo` y (si aplica) `breadcrumb-nav`. Resultado: 57 archivos / 481 tests verdes (baseline previo al change: 464 tests).

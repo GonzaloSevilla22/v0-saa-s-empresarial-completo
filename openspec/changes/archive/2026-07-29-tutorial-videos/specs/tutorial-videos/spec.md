@@ -50,17 +50,36 @@ El sistema SHALL proveer una función pura de lookup (p. ej. `getTutorialByPathn
 
 ### Requirement: Componente de player de video compartido
 
-El sistema SHALL proveer un componente React reutilizable `TutorialVideo` (PascalCase, en `frontend/components/shared/`) que reciba un `youtubeVideoId: string` y renderice el video mediante `YouTubeEmbed` de `@next/third-parties/google`. El embed MUST usar el patrón *facade* (solo carga la miniatura hasta el primer click) y MUST pasar `params="rel=0"` para limitar las sugerencias al propio canal. El componente MUST renderizar el video con relación de aspecto 16:9.
+El sistema SHALL proveer un componente React reutilizable `TutorialVideo` (PascalCase, en `frontend/components/shared/`) que reciba un `youtubeVideoId: string` y renderice el video mediante un **facade propio sin scripts externos** (decisión PO 2026-07-29, D8 — reemplaza el `YouTubeEmbed` de `@next/third-parties/google` inicial: su script se cargaba desde `cdn.jsdelivr.net`, bloqueado por la CSP del proyecto). El estado inicial MUST mostrar solo la miniatura (`https://i.ytimg.com/vi/{id}/hqdefault.jpg`) con un botón accesible; al click MUST montar un `<iframe>` de `https://www.youtube-nocookie.com/embed/{id}?autoplay=1&rel=0` con `allowFullScreen`, limitando las sugerencias al propio canal (`rel=0`). El componente MUST renderizar el video con relación de aspecto 16:9 y no debe depender de `@next/third-parties` (removido del proyecto).
 
 #### Scenario: Render con video disponible
 
 - **WHEN** se monta `TutorialVideo` con un `youtubeVideoId` válido
-- **THEN** renderiza el `YouTubeEmbed` con ese id, con `params="rel=0"`, dentro de un contenedor de relación de aspecto 16:9
+- **THEN** muestra la miniatura de `i.ytimg.com` con un botón accesible dentro de un contenedor de relación de aspecto 16:9, sin iframe hasta el click
+
+#### Scenario: Click reproduce el video embebido
+
+- **WHEN** el usuario hace click en el botón de reproducción
+- **THEN** se monta un `<iframe>` de `youtube-nocookie.com/embed/{id}?autoplay=1&rel=0` con `allowFullScreen`, dentro del mismo contenedor 16:9
 
 #### Scenario: Facade below-the-fold sin impacto en LCP
 
 - **WHEN** la landing con la sección de tutoriales carga por primera vez
-- **THEN** los players no descargan el reproductor de YouTube hasta que el usuario hace click (solo se muestra la miniatura), de modo que la sección no penaliza el LCP de la landing
+- **THEN** los players no descargan ningún script ni iframe de YouTube hasta que el usuario hace click (solo se muestra la miniatura estática), de modo que la sección no penaliza el LCP de la landing
+
+### Requirement: Content Security Policy allows the YouTube facade iframe
+
+The application's Content Security Policy SHALL permit the `TutorialVideo` facade's `youtube-nocookie.com` iframe to render. Specifically, `https://www.youtube-nocookie.com` MUST be allowed in `frame-src`. Because the facade uses no external scripts (D8), `script-src` MUST NOT be relaxed for this feature (e.g. no `cdn.jsdelivr.net`).
+
+#### Scenario: Video iframe renders under production CSP
+
+- **WHEN** a dashboard or landing page with `TutorialVideo` is served with the production security headers and the user clicks to play
+- **THEN** the `youtube-nocookie.com` iframe loads without being blocked by the CSP
+
+#### Scenario: script-src stays unchanged
+
+- **WHEN** the CSP is inspected (`buildContentSecurityPolicy()`)
+- **THEN** `frame-src` includes `https://www.youtube-nocookie.com` alongside the pre-existing `https://challenges.cloudflare.com`, and no other directive (`script-src`, `style-src`, etc.) is relaxed to add a third-party CDN for video
 
 ### Requirement: Sección de tutoriales en la landing pública
 

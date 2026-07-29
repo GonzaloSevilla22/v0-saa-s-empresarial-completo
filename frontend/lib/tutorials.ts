@@ -13,9 +13,11 @@
  * inicio, sin ruta de dashboard) + 9 módulos. El orden del array ES el
  * orden de las cards en la landing: Onboarding primero.
  *
- * `youtubeVideoId: null` significa "tutorial aún no grabado/subido": ni la
- * landing ni el dashboard deben intentar renderizar su video mientras sea
- * null (ver `hasTutorialVideo`).
+ * Los 10 `youtubeVideoId` fueron entregados por el PO el 2026-07-29
+ * (videos unlisted en su canal de YouTube) — la feature está VISIBLE.
+ * `youtubeVideoId: null` sigue significando "tutorial aún no grabado/
+ * subido": ni la landing ni el dashboard renderizan su video mientras sea
+ * null (ver `hasTutorialVideo`) — aplica a entradas futuras del catálogo.
  */
 
 export type TutorialModuleKey =
@@ -51,7 +53,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Empezá por acá: primeros pasos con ALIADATA",
     description: "El recorrido inicial completo: configurá tu cuenta, conocé los módulos y dejá tu negocio listo para operar.",
     durationLabel: "5 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "C_SUggjXdkw",
     pathname: null,
   },
   {
@@ -59,7 +61,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo leer tu tablero",
     description: "Entendé de un vistazo las métricas clave de tu negocio: ventas, compras, stock y rentabilidad en tiempo real.",
     durationLabel: "3 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "U6qli8FlMh4",
     pathname: "/dashboard",
   },
   {
@@ -67,7 +69,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo registrar una venta",
     description: "Aprendé a cargar una venta, asignarle un cliente y ver el impacto en tu caja al instante.",
     durationLabel: "3 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "ozpyvm5BXqE",
     pathname: "/ventas",
   },
   {
@@ -75,7 +77,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo registrar una compra",
     description: "Sumá mercadería a tu stock cargando una compra a un proveedor en un par de clicks.",
     durationLabel: "3 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "53aV89Pikdc",
     pathname: "/compras",
   },
   {
@@ -83,7 +85,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo cargar tus productos",
     description: "Dale de alta a tu catálogo: precios, variantes y unidades de medida, paso a paso.",
     durationLabel: "4 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "c33ZUWjCoHA",
     pathname: "/productos",
   },
   {
@@ -91,7 +93,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo controlar tu stock",
     description: "Configurá el stock mínimo por sucursal y recibí alertas antes de que se te acabe un producto.",
     durationLabel: "3 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "QXFTEBCLMZo",
     pathname: "/stock",
   },
   {
@@ -99,7 +101,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo registrar tus gastos",
     description: "Llevá el control de los gastos de tu negocio para conocer tu rentabilidad real.",
     durationLabel: "2 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "5OV88rvz-MU",
     pathname: "/gastos",
   },
   {
@@ -107,7 +109,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo gestionar tus clientes",
     description: "Cargá tus clientes, mirá su historial de compras y llevá su cuenta corriente sin planillas.",
     durationLabel: "3 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "Ak9as52T3c8",
     pathname: "/clientes",
   },
   {
@@ -115,7 +117,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo aprovechar los Consejos IA",
     description: "Descubrí los insights que la IA genera con tus datos y convertilos en decisiones concretas.",
     durationLabel: "2 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "AmKOe8w3f90",
     pathname: "/insights",
   },
   {
@@ -123,7 +125,7 @@ export const TUTORIALS: readonly Tutorial[] = [
     title: "Cómo usar el Simulador de Precios",
     description: "Probá precios y márgenes antes de decidir: simulá escenarios con tus costos reales.",
     durationLabel: "3 min",
-    youtubeVideoId: null,
+    youtubeVideoId: "FL6sRkKp3xQ",
     pathname: "/simulador",
   },
 ] as const

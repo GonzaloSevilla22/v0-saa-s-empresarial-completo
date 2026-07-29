@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-hidden="true" focusable="false">
+  <title></title>
+  <g fill="none" stroke-linejoin="round">
+    <circle cx="200" cy="200" r="70" stroke="#34d399" stroke-width="6" opacity="0.85" />
+    <circle cx="200" cy="200" r="105" stroke="#2dd4bf" stroke-width="5" opacity="0.7" />
+    <circle cx="200" cy="200" r="140" stroke="#34d399" stroke-width="4" opacity="0.55" />
+  </g>
+</svg>

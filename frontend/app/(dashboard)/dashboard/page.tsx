@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation"
 import { useProducts } from "@/hooks/data/use-products"
 import { useInsights } from "@/hooks/data/use-insights"
 import { useGreeting } from "@/hooks/use-greeting"
+import { useGoalMilestone } from "@/hooks/three/useGoalMilestone"
+import { Celebration3D } from "@/components/three/Celebration3D"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { SalesChart } from "@/components/dashboard/sales-chart"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
@@ -27,6 +29,11 @@ interface DashboardFinancials {
   total_purchases: number
   net_profit:      number
 }
+
+// Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) — umbrales redondos
+// de "ventas hoy". Referencia estable a nivel de módulo (useGoalMilestone la
+// usa como dependencia de efecto).
+const GOAL_MILESTONES = [50_000, 100_000, 250_000, 500_000, 1_000_000] as const
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -123,9 +130,22 @@ export default function DashboardPage() {
   const todayExpenses = financials?.total_expenses ?? 0
   const netProfit     = financials?.net_profit     ?? 0
 
+  // ── Celebración "meta alcanzada" (v4-visual-3d-refresh 3.6) ───────────────────
+  // Puramente presentacional: deriva de `todaySales`/`loadingKpis`, que YA existen
+  // (no toca el fetch ni las queries). `useGoalMilestone` nunca celebra la
+  // primera lectura tras cargar (evita "festejar" en cada reload); solo un
+  // incremento posterior que cruce un umbral, dentro de la misma sesión de página.
+  const crossedMilestone = useGoalMilestone(todaySales, GOAL_MILESTONES, loadingKpis)
+
   return (
     <div className="flex flex-col gap-6">
       <TrialBanner />
+
+      <Celebration3D
+        key={crossedMilestone ?? "none"}
+        show={crossedMilestone !== null}
+        variant="goal"
+      />
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>

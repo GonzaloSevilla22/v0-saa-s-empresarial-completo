@@ -20,6 +20,7 @@ import Link from "next/link"
 import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { Celebration3D } from "@/components/three/Celebration3D"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -405,6 +406,11 @@ export default function PosPage() {
 
       {/* Write access guard */}
       {!isWriter && <NoWriteAccessBanner />}
+
+      {/* Celebración "venta cerrada" (v4-visual-3d-refresh 3.5) — puramente
+          presentacional, efímera, `key` por venta re-dispara el burst en cada
+          venta nueva; JAMÁS bloquea el flujo de cobro (overlay pointer-events-none). */}
+      <Celebration3D key={lastSale?.salesOrderId ?? "none"} show={!!lastSale} variant="sale" />
 
       {/* Last-sale success card */}
       {lastSale && (

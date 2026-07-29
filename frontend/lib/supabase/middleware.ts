@@ -32,7 +32,11 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
 // Los tutoriales en video (tutorial-videos) embeben el iframe de
 // youtube-nocookie.com → permitido SOLO en frame-src (el facade propio de
 // TutorialVideo no usa scripts externos, así que script-src no cambia).
-// Exported for testability (csp-frame-src.test.ts).
+// v4-visual-3d-refresh (D7): worker-src no estaba declarado → heredaba
+// default-src 'self', que bloquea Web Workers instanciados desde blob: URLs
+// (el mecanismo que usan los decoders Draco/KTX2 de R3F/drei, self-hosted en
+// /public — sin host de terceros). Diff mínimo: solo se agrega esta línea.
+// Exported for testability (csp-frame-src.test.ts, csp-worker-src.test.ts).
 export function buildContentSecurityPolicy(): string {
   return [
     "default-src 'self'",
@@ -42,6 +46,7 @@ export function buildContentSecurityPolicy(): string {
     "font-src 'self' data:",
     `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} ${process.env.NEXT_PUBLIC_BACKEND_URL ?? ""} https://api.resend.com https://challenges.cloudflare.com wss:`,
     "frame-src https://challenges.cloudflare.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
     "frame-ancestors 'none'",
   ].join("; ")
 }

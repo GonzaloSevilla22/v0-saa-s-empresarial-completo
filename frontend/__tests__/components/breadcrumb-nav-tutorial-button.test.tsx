@@ -45,11 +45,6 @@ vi.mock("@/components/dashboard/NotificationBell", () => ({
   NotificationBell: () => <div data-testid="notification-bell" />,
 }))
 
-// Aísla el test del player real de YouTube.
-vi.mock("@next/third-parties/google", () => ({
-  YouTubeEmbed: () => <div data-testid="youtube-embed" />,
-}))
-
 // Controla el lookup de tutorial por ruta; hasTutorialVideo se mantiene real
 // (es pura y trivial: youtubeVideoId !== null).
 vi.mock("@/lib/tutorials", async () => {

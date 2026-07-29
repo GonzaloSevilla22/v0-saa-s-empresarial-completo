@@ -55,6 +55,8 @@ Helpers puros (fáciles de testear en TDD): `hasTutorialVideo(t)`, `getAvailable
 - **Alternativas descartadas**: (a) leer de `community.landing_sections`/DB — rechazado por la restricción "sin DB / sin queries"; (b) hardcodear IDs en cada componente — rompe la fuente única y dificulta la migración de hosting.
 
 ### D2 — Hosting: YouTube unlisted vía `@next/third-parties` (`YouTubeEmbed`), patrón facade
+> **SUPERSEDIDA 2026-07-29 por D8** (fix post-QA en prod): `YouTubeEmbed` quedó descartado — su script de `lite-youtube` se carga desde `cdn.jsdelivr.net` y la CSP del proyecto lo bloquea (el custom element nunca se definía y el click no hacía nada); el iframe de `youtube-nocookie.com` tampoco estaba en `frame-src`. Se mantiene el hosting YouTube unlisted y el patrón facade, pero con implementación propia (ver D8).
+
 `YouTubeEmbed` usa `lite-youtube-embed`: renderiza solo la miniatura hasta el click, sirve desde `youtube-nocookie.com` y evita cargar el player pesado en el primer paint. Siempre `params="rel=0"`.
 - **Por qué**: cero costo de storage/CDN, transcodificación y calidades adaptativas gratis de YouTube, y el facade protege el LCP de la landing (la sección va below-the-fold).
 - **Alternativas descartadas**: (a) `<iframe>` de YouTube plano — carga el player pesado siempre, penaliza LCP; (b) hosting propio (R2 + `<video>`) — más control y sin marca YouTube, pero implica storage, transcodificación y ancho de banda; se pospone (Non-Goal), la abstracción D1 lo habilita.
@@ -81,8 +83,18 @@ Se agrega a `frontend/` con pnpm (`pnpm add @next/third-parties` dentro de `fron
 
 ### D7 — Estrategia de tests (Strict TDD en el apply)
 - **`lib/tutorials.ts`** (lógica pura, ideal para RED→GREEN→TRIANGULATE): tests en `frontend/__tests__/lib/tutorials.test.ts` para `hasTutorialVideo`, `getAvailableTutorials`, `getTutorialByPathname` (ruta con video / ruta inexistente / ruta con `null`).
-- **`TutorialVideo`**: test de render (`@testing-library/react`) que verifica que con un id se renderiza el embed y que el contenedor es 16:9; se puede mockear `@next/third-parties/google` para asertar que recibe `params="rel=0"`.
+- **`TutorialVideo`**: test de render (`@testing-library/react`) que verifica que con un id se renderiza el embed y que el contenedor es 16:9; se puede mockear `@next/third-parties/google` para asertar que recibe `params="rel=0"`. *(Actualizado por D8: tests del facade propio — miniatura + botón accesible sin iframe inicial, click → iframe de youtube-nocookie con `autoplay=1&rel=0` y `allowFullScreen`.)*
 - **Botón contextual** (opcional pero recomendado): test de `breadcrumb-nav` que, con un pathname con tutorial, muestra el botón, y con uno sin tutorial, no.
+- **CSP** *(agregado por D8)*: test de `buildContentSecurityPolicy` (`csp-frame-src.test.ts`) — `youtube-nocookie.com` SOLO en `frame-src`, sin `jsdelivr` en ninguna directiva, resto de directivas intactas.
+
+### D8 — Fix post-QA 2026-07-29: facade propio sin scripts externos + `frame-src` mínimo (decisión PO, governance CRÍTICO resuelto)
+El QA en prod encontró que los videos no reproducían: la CSP (definida en `frontend/lib/supabase/middleware.ts`) bloqueaba (1) el script de `lite-youtube` que `@next/third-parties` carga desde `cdn.jsdelivr.net` — `script-src` no lo permite, el custom element `lite-youtube` nunca se definía y el click no hacía nada — y (2) el iframe de `youtube-nocookie.com` — `frame-src` solo permitía `challenges.cloudflare.com`.
+
+**Decisión (PO, explícita)**: reemplazar `YouTubeEmbed` por un **facade propio sin scripts externos** y tocar la CSP lo MÍNIMO:
+- `TutorialVideo` reescrito: estado inicial = botón accesible con la miniatura `https://i.ytimg.com/vi/{id}/hqdefault.jpg` (`img-src` ya permite `https:`) + ícono de play; al click monta `<iframe src="https://www.youtube-nocookie.com/embed/{id}?autoplay=1&rel=0">` con `allowFullScreen` en el mismo contenedor 16:9. Sin dependencias nuevas; se **removió** `@next/third-parties` (solo se usaba acá).
+- CSP: `frame-src` pasa a `https://challenges.cloudflare.com https://www.youtube-nocookie.com`. **Ninguna otra directiva cambia** — explícitamente NO se agrega `jsdelivr` a `script-src`/`style-src`.
+- La lista de directivas se extrajo a `buildContentSecurityPolicy()` exportada (mismo patrón "exported for testability" que ya usa el archivo) para poder asertar el header en tests.
+- **Alternativa descartada**: permitir `cdn.jsdelivr.net` en `script-src` para conservar `lite-youtube-embed` — rechazada por el PO: amplía la superficie de la CSP hacia un CDN de terceros para un beneficio marginal frente a un facade de ~30 líneas propio.
 
 ## Risks / Trade-offs
 
@@ -92,7 +104,7 @@ Se agrega a `frontend/` con pnpm (`pnpm add @next/third-parties` dentro de `fron
 - **[LCP de la landing]** → Mitigado por el facade (solo miniatura hasta el click) y por ubicar la sección below-the-fold. Verificar que no se importe el player pesado en el primer paint.
 - **[Editar `ResponsiveModal` afecta otros usos]** → Mitigado haciendo el cambio retrocompatible (prop opcional; el default preserva `sm:max-w-xl`). Cubrir con el test existente/nuevo que los usos previos no cambian de ancho.
 - **[Dependencia nueva `@next/third-parties`]** → Paquete oficial de Vercel/Next, bajo riesgo; se instala solo en `frontend/`. Verificar que el build de Next 16 lo resuelva.
-- **[CSP / dominios de YouTube]** → El embed carga de `youtube-nocookie.com` y `ytimg.com`. Si hubiese una CSP estricta, habría que permitir esos orígenes. Verificar en el build/preview (hoy no se detecta CSP que lo bloquee, pero conviene chequear en QA).
+- **[CSP / dominios de YouTube]** → El embed carga de `youtube-nocookie.com` y `ytimg.com`. Si hubiese una CSP estricta, habría que permitir esos orígenes. **Riesgo MATERIALIZADO en el QA de prod 2026-07-29**: la CSP del middleware bloqueaba el script de jsdelivr y el iframe. Resuelto con D8 (facade propio + `youtube-nocookie` solo en `frame-src`; `ytimg` ya pasaba por `img-src https:`).
 
 ## Migration Plan
 

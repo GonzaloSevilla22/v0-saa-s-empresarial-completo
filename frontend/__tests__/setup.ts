@@ -31,3 +31,24 @@ if (typeof globalThis.matchMedia === 'undefined') {
       dispatchEvent: () => false,
     }) as MediaQueryList
 }
+
+// jsdom no implementa IntersectionObserver, que usa
+// components/three/Lazy3DCanvas.tsx (v4-visual-3d-refresh Fase B) para montar
+// el <Canvas> solo cuando la superficie entra en viewport. Default
+// conservador: nunca "entra en viewport" (no dispara el callback) — los
+// tests que necesiten simular visibilidad instalan su propio stub controlable
+// (ver __tests__/components/three/Lazy3DCanvas.test.tsx).
+if (typeof globalThis.IntersectionObserver === 'undefined') {
+  globalThis.IntersectionObserver = class IntersectionObserver {
+    constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return []
+    }
+    root = null
+    rootMargin = ''
+    thresholds: ReadonlyArray<number> = []
+  } as unknown as typeof IntersectionObserver
+}

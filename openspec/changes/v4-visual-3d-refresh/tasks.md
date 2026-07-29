@@ -14,7 +14,7 @@
 - [x] 1.7 Escribir tests (Vitest) de las envolturas de motion: animan con tokens cuando no hay reduced-motion, y degradan cuando `prefers-reduced-motion: reduce`
 - [x] 1.8 Aplicar el refresh de tokens a los componentes base shadcn/Radix vía `cva` (Button, Card, Input, Badge, Dialog, Table) sin bifurcar componentes de `components/ui/`
 - [x] 1.9 Migrar las clases de color hardcodeadas a tokens semánticos en las superficies `refresh-only`/`2d-motion` de mayor tráfico (dashboard, ventas/listados, productos), verificando que el lint de color de `v4-frontend-01` no reporte nuevas violaciones
-- [ ] 1.10 Aplicar micro-animaciones 2D (entrada de listas/cards, feedback de estado, hover/press, skeleton animado tokenizado) en las superficies `2d-motion`, incluido el POS, sin tocar handlers/queries/mutaciones
+- [x] 1.10 Aplicar micro-animaciones 2D (entrada de listas/cards, feedback de estado, hover/press, skeleton animado tokenizado) en las superficies `2d-motion`, incluido el POS, sin tocar handlers/queries/mutaciones
 - [ ] 1.11 Verificar tema claro y oscuro en las superficies refrescadas de la Fase A (toggle `next-themes` sin colores fuera de tema)
 
 ## 2. Fase B — Infraestructura 3D (R3F) + guardrails + escena piloto

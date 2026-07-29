@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useSales } from "@/hooks/data/use-sales"
 import { useExpenses } from "@/hooks/data/use-expenses-query"
+import { MotionList, MotionListItem } from "@/components/motion/MotionList"
 import { ShoppingCart, Receipt } from "lucide-react"
 
 export function RecentActivity() {
@@ -39,8 +40,11 @@ export function RecentActivity() {
         </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        {/* v4-visual-3d-refresh Fase A (task 1.10): entrada animada
+            tokenizada, degrada con prefers-reduced-motion. */}
+        <MotionList staggerDelay={0.05}>
         {combined.map((item) => (
-          <div key={item.id} className="flex items-center gap-3">
+          <MotionListItem key={item.id} className="flex items-center gap-3">
             <div
               className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
                 item.type === "venta" ? "bg-success/10" : "bg-destructive/10"
@@ -63,8 +67,9 @@ export function RecentActivity() {
             >
               {item.type === "venta" ? "+" : "-"}${item.amount}
             </span>
-          </div>
+          </MotionListItem>
         ))}
+        </MotionList>
       </CardContent>
     </Card>
   )

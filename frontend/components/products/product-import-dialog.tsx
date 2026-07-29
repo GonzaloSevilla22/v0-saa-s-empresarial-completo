@@ -101,9 +101,9 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 function RowStatusIcon({ row }: { row: ValidatedImportRow }) {
   const hasError   = row.errors.length > 0
   const hasWarning = !hasError && row.warnings.length > 0
-  if (hasError)   return <XCircle   className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" />
-  if (hasWarning) return <AlertTriangle className="h-3.5 w-3.5 text-yellow-400 mt-0.5 shrink-0" />
-  return              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />
+  if (hasError)   return <XCircle   className="h-3.5 w-3.5 text-destructive mt-0.5 shrink-0" />
+  if (hasWarning) return <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 shrink-0" />
+  return              <CheckCircle2 className="h-3.5 w-3.5 text-success mt-0.5 shrink-0" />
 }
 
 // ── Component props ────────────────────────────────────────────────────────────
@@ -361,11 +361,11 @@ export function ProductImportDialog({
                 </span>
                 {preview && (
                   <div className="flex items-center gap-2 ml-auto flex-wrap">
-                    {preview.standalone > 0 && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30 text-xs">{preview.standalone} simple{preview.standalone !== 1 ? "s" : ""}</Badge>}
+                    {preview.standalone > 0 && <Badge variant="outline" className="text-success border-success/30 text-xs">{preview.standalone} simple{preview.standalone !== 1 ? "s" : ""}</Badge>}
                     {preview.parents    > 0 && <Badge variant="outline" className="text-blue-400 border-blue-500/30 text-xs">{preview.parents} padre{preview.parents !== 1 ? "s" : ""}</Badge>}
                     {preview.variants   > 0 && <Badge variant="outline" className="text-purple-400 border-purple-500/30 text-xs">{preview.variants} variante{preview.variants !== 1 ? "s" : ""}</Badge>}
-                    {preview.warnings   > 0 && <Badge variant="outline" className="text-yellow-400 border-yellow-500/30 text-xs">{preview.warnings} advertencia{preview.warnings !== 1 ? "s" : ""}</Badge>}
-                    {preview.errors     > 0 && <Badge variant="outline" className="text-red-400 border-red-500/30 text-xs">{preview.errors} error{preview.errors !== 1 ? "es" : ""}</Badge>}
+                    {preview.warnings   > 0 && <Badge variant="outline" className="text-warning border-warning/30 text-xs">{preview.warnings} advertencia{preview.warnings !== 1 ? "s" : ""}</Badge>}
+                    {preview.errors     > 0 && <Badge variant="outline" className="text-destructive border-destructive/30 text-xs">{preview.errors} error{preview.errors !== 1 ? "es" : ""}</Badge>}
                   </div>
                 )}
               </div>
@@ -388,14 +388,14 @@ export function ProductImportDialog({
                       const typeLabel  = row.rowType === "Padre"    ? "PADRE"    :
                                          row.rowType === "Variante" ? "VARIANTE" : "PRODUCTO"
                       const typeColor  = row.rowType === "Padre"    ? "text-blue-400"   :
-                                         row.rowType === "Variante" ? "text-purple-400" : "text-emerald-400"
+                                         row.rowType === "Variante" ? "text-purple-400" : "text-success"
                       return (
                         <div
                           key={row.lineNumber}
                           className={cn(
                             "flex items-start gap-2 px-2 py-2 rounded text-xs",
-                            hasError   ? "bg-red-500/5"    : "",
-                            hasWarning ? "bg-yellow-500/5" : "",
+                            hasError   ? "bg-destructive/5" : "",
+                            hasWarning ? "bg-warning/5"     : "",
                           )}
                         >
                           <RowStatusIcon row={row} />
@@ -414,12 +414,12 @@ export function ProductImportDialog({
                             {(row.errors.length > 0 || row.warnings.length > 0) && (
                               <div className="mt-0.5 space-y-0.5">
                                 {row.errors.map((e, i) => (
-                                  <p key={i} className="text-red-400 flex items-center gap-1">
+                                  <p key={i} className="text-destructive flex items-center gap-1">
                                     <XCircle className="h-2.5 w-2.5 shrink-0" />{e}
                                   </p>
                                 ))}
                                 {row.warnings.map((w, i) => (
-                                  <p key={i} className="text-yellow-400 flex items-center gap-1">
+                                  <p key={i} className="text-warning flex items-center gap-1">
                                     <AlertTriangle className="h-2.5 w-2.5 shrink-0" />{w}
                                   </p>
                                 ))}
@@ -449,7 +449,7 @@ export function ProductImportDialog({
               {preview && preview.errors > 0 && (
                 <div className="px-6 py-2.5 border-t border-border bg-muted/10 shrink-0">
                   <p className="text-xs text-muted-foreground">
-                    <span className="text-red-400 font-medium">{preview.errors} fila{preview.errors !== 1 ? "s" : ""} con error</span>
+                    <span className="text-destructive font-medium">{preview.errors} fila{preview.errors !== 1 ? "s" : ""} con error</span>
                     {" "}— se omitirán al importar.
                     {validCount > 0 && <span> Se importarán las <span className="font-medium text-foreground">{validCount}</span> filas válidas.</span>}
                   </p>
@@ -463,11 +463,11 @@ export function ProductImportDialog({
             <div className="flex flex-col h-full">
               <div className="flex flex-col items-center justify-center gap-3 px-6 py-6 border-b border-border shrink-0">
                 {totalErr === 0 ? (
-                  <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+                  <CheckCircle2 className="h-10 w-10 text-success" />
                 ) : totalOk === 0 ? (
-                  <XCircle className="h-10 w-10 text-red-400" />
+                  <XCircle className="h-10 w-10 text-destructive" />
                 ) : (
-                  <AlertTriangle className="h-10 w-10 text-yellow-400" />
+                  <AlertTriangle className="h-10 w-10 text-warning" />
                 )}
                 <div className="text-center">
                   <p className="text-base font-semibold text-foreground">
@@ -484,12 +484,12 @@ export function ProductImportDialog({
                   )}
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                  {result.inserted  > 0 && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">{result.inserted} nuevo{result.inserted !== 1 ? "s" : ""}</Badge>}
+                  {result.inserted  > 0 && <Badge variant="outline" className="text-success border-success/30">{result.inserted} nuevo{result.inserted !== 1 ? "s" : ""}</Badge>}
                   {result.updated   > 0 && <Badge variant="outline" className="text-blue-400 border-blue-500/30">{result.updated} actualizado{result.updated !== 1 ? "s" : ""}</Badge>}
                   {result.parents   > 0 && <Badge variant="outline" className="text-blue-400 border-blue-500/30">{result.parents} padre{result.parents !== 1 ? "s" : ""}</Badge>}
                   {result.variants  > 0 && <Badge variant="outline" className="text-purple-400 border-purple-500/30">{result.variants} variante{result.variants !== 1 ? "s" : ""}</Badge>}
-                  {result.standalone > 0 && <Badge variant="outline" className="text-emerald-400 border-emerald-500/30">{result.standalone} simple{result.standalone !== 1 ? "s" : ""}</Badge>}
-                  {totalErr         > 0 && <Badge variant="outline" className="text-red-400 border-red-500/30">{totalErr} error{totalErr !== 1 ? "es" : ""}</Badge>}
+                  {result.standalone > 0 && <Badge variant="outline" className="text-success border-success/30">{result.standalone} simple{result.standalone !== 1 ? "s" : ""}</Badge>}
+                  {totalErr         > 0 && <Badge variant="outline" className="text-destructive border-destructive/30">{totalErr} error{totalErr !== 1 ? "es" : ""}</Badge>}
                 </div>
                 {totalOk === 0 && totalErr === 0 && (
                   <p className="text-sm text-muted-foreground">
@@ -512,7 +512,7 @@ export function ProductImportDialog({
                         {e.name && (
                           <span className="font-medium text-foreground shrink-0 truncate max-w-[160px]">{e.name}</span>
                         )}
-                        <span className="text-red-400">{e.message}</span>
+                        <span className="text-destructive">{e.message}</span>
                       </div>
                     ))}
                   </div>

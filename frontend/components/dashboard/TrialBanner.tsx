@@ -42,15 +42,22 @@ export function TrialBanner() {
     <div
       role="alert"
       className={[
+        // v4-visual-3d-refresh Fase A (task 1.9): red-50/amber-50 + shade
+        // scale (200/500/600/700/800) migrados a destructive/warning con
+        // opacidad (fondo/borde) — el cuerpo del mensaje queda en
+        // text-foreground (no text-destructive/text-warning) para no perder
+        // el contraste AA que las variantes 800 garantizaban sobre el fondo
+        // claro; el ícono y el link sí usan el tono semántico pleno, igual
+        // que en el original (500/700).
         "flex items-center justify-between gap-3 rounded-lg px-4 py-2.5 text-sm",
         isUrgent
-          ? "bg-red-50 border border-red-200 text-red-800"
-          : "bg-amber-50 border border-amber-200 text-amber-800",
+          ? "bg-destructive/10 border border-destructive/25 text-foreground"
+          : "bg-warning/10 border border-warning/25 text-foreground",
       ].join(" ")}
     >
       <div className="flex items-center gap-2 min-w-0">
         <AlertTriangle
-          className={["h-4 w-4 shrink-0", isUrgent ? "text-red-500" : "text-amber-500"].join(" ")}
+          className={["h-4 w-4 shrink-0", isUrgent ? "text-destructive" : "text-warning"].join(" ")}
           aria-hidden="true"
         />
         <span className="truncate">{label}</span>
@@ -61,7 +68,7 @@ export function TrialBanner() {
           href="/planes"
           className={[
             "font-medium underline underline-offset-2 hover:no-underline whitespace-nowrap",
-            isUrgent ? "text-red-700" : "text-amber-700",
+            isUrgent ? "text-destructive" : "text-warning",
           ].join(" ")}
         >
           Ver planes
@@ -71,7 +78,7 @@ export function TrialBanner() {
           aria-label="Cerrar aviso de prueba"
           className={[
             "rounded p-0.5 hover:bg-black/10 transition-colors",
-            isUrgent ? "text-red-600" : "text-amber-600",
+            isUrgent ? "text-destructive" : "text-warning",
           ].join(" ")}
         >
           <X className="h-4 w-4" aria-hidden="true" />

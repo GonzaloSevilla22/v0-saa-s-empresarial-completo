@@ -28,7 +28,7 @@ export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-pr
               <span
                 className={cn(
                   "text-xs font-medium",
-                  change >= 0 ? "text-emerald-400" : "text-red-400"
+                  change >= 0 ? "text-success" : "text-destructive"
                 )}
               >
                 {change >= 0 ? "+" : ""}

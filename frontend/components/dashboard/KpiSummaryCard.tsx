@@ -1,6 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
+import { FadeIn } from "@/components/motion/FadeIn"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 import type { KpiBadgeTone } from "@/lib/kpi-format"
@@ -25,11 +26,14 @@ interface KpiSummaryCardProps {
   secondaryLine?: string | null
 }
 
-// Hex del spec §5; fondo semi-transparente del mismo color.
+// v4-visual-3d-refresh Fase A (task 1.9): los hex literales del spec §5
+// (equivalentes a emerald-400/red-400/amber-400) migrados a tokens
+// semánticos (frontend/docs/design-tokens.md), ya cubiertos por
+// success/destructive/warning. Fondo semi-transparente del mismo color.
 const TONE_CLASSES: Record<KpiBadgeTone, string> = {
-  green: "text-[#34D399] bg-[#34D399]/15",
-  red: "text-[#F87171] bg-[#F87171]/15",
-  yellow: "text-[#FBBF24] bg-[#FBBF24]/15",
+  green: "text-success bg-success/15",
+  red: "text-destructive bg-destructive/15",
+  yellow: "text-warning bg-warning/15",
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -45,33 +49,41 @@ export function KpiSummaryCard({
   secondaryLine = null,
 }: KpiSummaryCardProps) {
   return (
-    <Card className={cn("border-border bg-card rounded-xl", className)}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10", iconColor)}>
-            <Icon className="h-4 w-4" />
+    // v4-visual-3d-refresh Fase A (task 1.10): entrada animada tokenizada
+    // (FadeIn, no MotionList — este card vive en un grid CSS y MotionList
+    // agregaría un wrapper extra que dejaría de ser el hijo directo del
+    // grid, rompiendo grid-cols-*/col-span-*). `className` (col-span de
+    // KpiSummaryBlock) va acá, en el hijo directo del grid; Card conserva
+    // su propio estilo fijo.
+    <FadeIn className={className}>
+      <Card className="border-border bg-card rounded-xl">
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10", iconColor)}>
+              <Icon className="h-4 w-4" />
+            </div>
+            <span
+              data-testid="kpi-badge"
+              data-tone={tone}
+              className={cn(
+                "rounded-md px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
+                TONE_CLASSES[tone],
+              )}
+            >
+              {badge}
+            </span>
           </div>
-          <span
-            data-testid="kpi-badge"
-            data-tone={tone}
-            className={cn(
-              "rounded-md px-1.5 py-0.5 text-[11px] font-medium whitespace-nowrap",
-              TONE_CLASSES[tone],
+          <div className="mt-3 flex flex-col gap-0.5 min-w-0">
+            <span className="text-xl font-bold text-card-foreground tracking-tight truncate">
+              {value}
+            </span>
+            <span className="text-xs text-muted-foreground">{label}</span>
+            {secondaryLine && (
+              <span className="text-xs text-muted-foreground/80">{secondaryLine}</span>
             )}
-          >
-            {badge}
-          </span>
-        </div>
-        <div className="mt-3 flex flex-col gap-0.5 min-w-0">
-          <span className="text-xl font-bold text-card-foreground tracking-tight truncate">
-            {value}
-          </span>
-          <span className="text-xs text-muted-foreground">{label}</span>
-          {secondaryLine && (
-            <span className="text-xs text-muted-foreground/80">{secondaryLine}</span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+        </CardContent>
+      </Card>
+    </FadeIn>
   )
 }

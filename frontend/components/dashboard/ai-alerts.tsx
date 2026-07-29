@@ -71,8 +71,8 @@ export function AiAlerts() {
             <CardContent className="flex flex-col gap-3">
                 {allAlerts.map((alert: any) => (
                     <div key={alert.id} className="flex gap-3 rounded-lg border border-border p-3 bg-muted/30">
-                        <div className={`p-2 rounded-md ${alert.type === 'danger' ? 'bg-red-500/10 text-red-400' :
-                            alert.type === 'warning' ? 'bg-yellow-500/10 text-yellow-400' :
+                        <div className={`p-2 rounded-md ${alert.type === 'danger' ? 'bg-destructive/10 text-destructive' :
+                            alert.type === 'warning' ? 'bg-warning/10 text-warning' :
                                 'bg-blue-500/10 text-blue-400'
                             }`}>
                             <alert.icon className="h-4 w-4" />

@@ -58,7 +58,9 @@ const TableRow = React.forwardRef<
   <tr
     ref={ref}
     className={cn(
-      'border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted',
+      // v4-visual-3d-refresh Fase A (task 1.8): duración/curva tokenizadas
+      // para la transición de fondo en hover.
+      'border-b transition-colors duration-base ease-standard hover:bg-muted/50 data-[state=selected]:bg-muted',
       className,
     )}
     {...props}

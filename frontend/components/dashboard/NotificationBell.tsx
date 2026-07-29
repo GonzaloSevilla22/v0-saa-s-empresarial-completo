@@ -18,7 +18,7 @@ import type { Notification, NotificationSeverity } from "@/lib/types"
 
 const SEVERITY_DOT_CLASS: Record<NotificationSeverity, string> = {
   info: "bg-blue-500",
-  warning: "bg-amber-500",
+  warning: "bg-warning",
   urgent: "bg-destructive",
 }
 

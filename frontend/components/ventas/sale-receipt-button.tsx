@@ -215,7 +215,7 @@ export function SaleReceiptButton({
             onSelect={handleCopy}
           >
             {copied
-              ? <Check className="h-4 w-4 text-emerald-500" />
+              ? <Check className="h-4 w-4 text-success" />
               : <Copy className="h-4 w-4 text-muted-foreground" />}
             <span>{copied ? "¡Copiado!" : "Copiar texto"}</span>
           </DropdownMenuItem>

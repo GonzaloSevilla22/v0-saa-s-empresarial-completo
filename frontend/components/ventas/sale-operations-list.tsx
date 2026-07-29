@@ -343,7 +343,7 @@ export function SaleOperationsList({
                     <span className="text-xs text-muted-foreground tabular-nums">{formatDate(op.date)}</span>
                     <div className="flex items-center gap-1.5">
                       {op.isGrouped && (
-                        <Badge variant="secondary" className="text-[10px] bg-emerald-500/15 text-emerald-400 border-emerald-500/25 border font-semibold">
+                        <Badge variant="secondary" className="text-[10px] bg-success/15 text-success border-success/25 border font-semibold">
                           <ShoppingCart className="h-2.5 w-2.5 mr-1" />{op.items.length}
                         </Badge>
                       )}
@@ -373,7 +373,7 @@ export function SaleOperationsList({
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
-                    <span className="text-sm font-bold text-emerald-400 tabular-nums">{formatMoney(op.total, op.currency)}</span>
+                    <span className="text-sm font-bold text-success tabular-nums">{formatMoney(op.total, op.currency)}</span>
                   </div>
                 </div>
 
@@ -393,13 +393,13 @@ export function SaleOperationsList({
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                   <div className="flex justify-center">
                     {op.isGrouped
-                      ? <Badge variant="secondary" className="text-[10px] bg-emerald-500/15 text-emerald-400 border-emerald-500/25 border font-semibold">
+                      ? <Badge variant="secondary" className="text-[10px] bg-success/15 text-success border-success/25 border font-semibold">
                           <ShoppingCart className="h-2.5 w-2.5 mr-1" />{op.items.length}
                         </Badge>
                       : <span className="text-sm text-muted-foreground">1</span>
                     }
                   </div>
-                  <span className="text-right text-sm font-bold text-emerald-400 tabular-nums">
+                  <span className="text-right text-sm font-bold text-success tabular-nums">
                     {formatMoney(op.total, op.currency)}
                   </span>
                   {onEditOperation
@@ -433,7 +433,7 @@ export function SaleOperationsList({
                         <ProductDisplay mode="table" name={item.productName} />
                         <span className="text-center text-muted-foreground tabular-nums">{item.quantity}</span>
                         <span className="text-right text-muted-foreground tabular-nums">{formatMoney(item.unitPrice, op.currency)}</span>
-                        <span className="text-right font-semibold text-emerald-400 tabular-nums">{formatMoney(item.total, op.currency)}</span>
+                        <span className="text-right font-semibold text-success tabular-nums">{formatMoney(item.total, op.currency)}</span>
                       </div>
                     ))}
                     {op.isGrouped && (

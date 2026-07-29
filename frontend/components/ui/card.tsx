@@ -9,7 +9,11 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      'rounded-lg border bg-card text-card-foreground shadow-sm',
+      // v4-visual-3d-refresh Fase A (task 1.8): shadow-sm -> shadow-elevation-1
+      // (frontend/docs/design-tokens.md: "Cards en reposo, inputs"), más el
+      // duration/ease tokenizado por si un caller agrega una transición de
+      // sombra dinámica vía className (p. ej. hover) sin reinventar timings.
+      'rounded-lg border bg-card text-card-foreground shadow-elevation-1 transition-shadow duration-base ease-standard',
       className,
     )}
     {...props}

@@ -3,6 +3,7 @@
 import { Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { NumericInput } from "@/components/ui/numeric-input"
+import { MotionList, MotionListItem } from "@/components/motion/MotionList"
 import { formatMoney, type Currency } from "@/lib/format"
 import { parseProductName } from "@/lib/product-labels"
 
@@ -71,9 +72,12 @@ export function CartItemList({
         <span />
       </div>
 
-      {/* Item rows */}
+      {/* Item rows — v4-visual-3d-refresh Fase A (task 1.10): entrada
+          animada tokenizada (MotionList/MotionListItem), degrada con
+          prefers-reduced-motion; no toca onRemove/onUpdateQty. */}
+      <MotionList>
       {items.map((item, idx) => (
-        <div
+        <MotionListItem
           key={item.id}
           className={[
             "grid grid-cols-[1fr_76px_88px_36px] gap-2 px-3 py-2.5 items-center",
@@ -99,7 +103,7 @@ export function CartItemList({
                     {unitLabel}: {formatMoney(item.unitValue, currency)}
                   </span>
                   {item.badge && (
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/15 text-warning border border-warning/25">
                       {item.badge}
                     </span>
                   )}
@@ -144,8 +148,9 @@ export function CartItemList({
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
-        </div>
+        </MotionListItem>
       ))}
+      </MotionList>
     </div>
   )
 }

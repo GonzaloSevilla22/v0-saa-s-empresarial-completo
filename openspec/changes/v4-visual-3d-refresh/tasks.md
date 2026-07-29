@@ -5,17 +5,17 @@
 
 ## 1. Fase A — Fundaciones visuales y refresh 2D (sin 3D)
 
-- [ ] 1.1 Definir la matriz de clasificación de superficies (3d / 2d-motion / refresh-only) como documento vivo en `frontend/docs/surface-matrix.md`, con cada ruta del App Router clasificada; confirmar que POS, tablas y listados quedan en 2d-motion/refresh-only
-- [ ] 1.2 Añadir tokens de motion (`--motion-duration-fast/base/slow`, `--motion-ease-standard/emphasized`) en `app/globals.css` (`:root` y `.dark`) y exponerlos en `tailwind.config.ts theme.extend` (transitionDuration/transitionTimingFunction)
-- [ ] 1.3 Añadir tokens semánticos de elevación/sombra y escala tipográfica del refresh en `app/globals.css` + `tailwind.config.ts`, verificando que no dupliquen los base de `v4-frontend-01`
-- [ ] 1.4 Documentar el contrato de tokens del refresh (token → uso → tema claro/oscuro) en `frontend/docs/design-tokens.md` (extendiendo el de `v4-frontend-01` si ya existe)
-- [ ] 1.5 Instalar `framer-motion` y crear las envolturas reutilizables en `components/motion/` (`FadeIn.tsx`, `MotionList.tsx` con stagger, `Celebrate.tsx`), en PascalCase y sin `any`
-- [ ] 1.6 Crear el hook SSR-safe `hooks/ui/usePrefersReducedMotion.ts` y cablearlo en las envolturas de `components/motion/` para degradar a fundido mínimo/nulo
-- [ ] 1.7 Escribir tests (Vitest) de las envolturas de motion: animan con tokens cuando no hay reduced-motion, y degradan cuando `prefers-reduced-motion: reduce`
-- [ ] 1.8 Aplicar el refresh de tokens a los componentes base shadcn/Radix vía `cva` (Button, Card, Input, Badge, Dialog, Table) sin bifurcar componentes de `components/ui/`
-- [ ] 1.9 Migrar las clases de color hardcodeadas a tokens semánticos en las superficies `refresh-only`/`2d-motion` de mayor tráfico (dashboard, ventas/listados, productos), verificando que el lint de color de `v4-frontend-01` no reporte nuevas violaciones
-- [ ] 1.10 Aplicar micro-animaciones 2D (entrada de listas/cards, feedback de estado, hover/press, skeleton animado tokenizado) en las superficies `2d-motion`, incluido el POS, sin tocar handlers/queries/mutaciones
-- [ ] 1.11 Verificar tema claro y oscuro en las superficies refrescadas de la Fase A (toggle `next-themes` sin colores fuera de tema)
+- [x] 1.1 Definir la matriz de clasificación de superficies (3d / 2d-motion / refresh-only) como documento vivo en `frontend/docs/surface-matrix.md`, con cada ruta del App Router clasificada; confirmar que POS, tablas y listados quedan en 2d-motion/refresh-only
+- [x] 1.2 Añadir tokens de motion (`--motion-duration-fast/base/slow`, `--motion-ease-standard/emphasized`) en `app/globals.css` (`:root` y `.dark`) y exponerlos en `tailwind.config.ts theme.extend` (transitionDuration/transitionTimingFunction)
+- [x] 1.3 Añadir tokens semánticos de elevación/sombra y escala tipográfica del refresh en `app/globals.css` + `tailwind.config.ts`, verificando que no dupliquen los base de `v4-frontend-01`
+- [x] 1.4 Documentar el contrato de tokens del refresh (token → uso → tema claro/oscuro) en `frontend/docs/design-tokens.md` (extendiendo el de `v4-frontend-01` si ya existe)
+- [x] 1.5 Instalar `framer-motion` y crear las envolturas reutilizables en `components/motion/` (`FadeIn.tsx`, `MotionList.tsx` con stagger, `Celebrate.tsx`), en PascalCase y sin `any`
+- [x] 1.6 Crear el hook SSR-safe `hooks/ui/usePrefersReducedMotion.ts` y cablearlo en las envolturas de `components/motion/` para degradar a fundido mínimo/nulo
+- [x] 1.7 Escribir tests (Vitest) de las envolturas de motion: animan con tokens cuando no hay reduced-motion, y degradan cuando `prefers-reduced-motion: reduce`
+- [x] 1.8 Aplicar el refresh de tokens a los componentes base shadcn/Radix vía `cva` (Button, Card, Input, Badge, Dialog, Table) sin bifurcar componentes de `components/ui/`
+- [x] 1.9 Migrar las clases de color hardcodeadas a tokens semánticos en las superficies `refresh-only`/`2d-motion` de mayor tráfico (dashboard, ventas/listados, productos), verificando que el lint de color de `v4-frontend-01` no reporte nuevas violaciones
+- [x] 1.10 Aplicar micro-animaciones 2D (entrada de listas/cards, feedback de estado, hover/press, skeleton animado tokenizado) en las superficies `2d-motion`, incluido el POS, sin tocar handlers/queries/mutaciones
+- [x] 1.11 Verificar tema claro y oscuro en las superficies refrescadas de la Fase A (toggle `next-themes` sin colores fuera de tema)
 
 ## 2. Fase B — Infraestructura 3D (R3F) + guardrails + escena piloto
 

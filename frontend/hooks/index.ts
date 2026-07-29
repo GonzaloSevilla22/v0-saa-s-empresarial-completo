@@ -6,6 +6,7 @@ export { usePrevious } from "./ui/use-previous"
 export { useMediaQuery, useIsDesktop, useIsTablet, useIsMobile } from "./ui/use-media-query"
 export { useClickOutside } from "./ui/use-click-outside"
 export { useHotkeys } from "./ui/use-hotkeys"
+export { usePrefersReducedMotion } from "./ui/usePrefersReducedMotion"
 
 // Network
 export { useRequestState } from "./network/use-request-state"

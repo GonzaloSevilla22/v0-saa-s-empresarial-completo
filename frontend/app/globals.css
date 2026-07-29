@@ -42,6 +42,41 @@
     --warning-foreground: 0 0% 3.9%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 3.9%;
+
+    /* ── v4-visual-3d-refresh: tokens de motion (Fase A, task 1.2) ──
+       Contrato compartido 2D/3D (design.md D4): mismos valores expuestos acá
+       como CSS vars y en lib/motion-tokens.ts como constantes JS para
+       Framer Motion (que no puede leer custom properties en su prop
+       `transition`). No varían por tema; se declaran también en `.dark`
+       por explicitud y para permitir overrides futuros sin tocar `:root`. */
+    --motion-duration-fast: 120ms;
+    --motion-duration-base: 200ms;
+    --motion-duration-slow: 320ms;
+    --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+    /* ── tokens de elevación/sombra (task 1.3) ── */
+    --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.05), 0 1px 3px 0 rgb(0 0 0 / 0.06);
+    --elevation-2: 0 2px 4px -1px rgb(0 0 0 / 0.06), 0 4px 6px -1px rgb(0 0 0 / 0.08);
+    --elevation-3: 0 4px 8px -2px rgb(0 0 0 / 0.08), 0 8px 16px -4px rgb(0 0 0 / 0.1);
+    --elevation-4: 0 8px 16px -4px rgb(0 0 0 / 0.1), 0 16px 32px -8px rgb(0 0 0 / 0.12);
+
+    /* ── escala tipográfica del refresh (task 1.3) ──
+       Complementa la escala default de Tailwind (text-xs..text-5xl, ya en
+       uso consistente en la app) con una escala semántica para momentos de
+       marca (hero/landing/onboarding). No reemplaza ni duplica la default. */
+    --font-size-display: clamp(2rem, 1.5rem + 2vw, 3rem);
+    --line-height-display: 1.1;
+    --font-size-heading-1: 1.875rem;
+    --line-height-heading-1: 1.2;
+    --font-size-heading-2: 1.5rem;
+    --line-height-heading-2: 1.25;
+    --font-size-heading-3: 1.25rem;
+    --line-height-heading-3: 1.3;
+    --font-size-body-lg: 1.125rem;
+    --line-height-body-lg: 1.5;
+    --font-size-caption: 0.75rem;
+    --line-height-caption: 1.4;
   }
 
   .dark {
@@ -76,6 +111,19 @@
     --warning-foreground: 0 0% 3.9%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 3.9%;
+
+    /* ── tokens de motion (task 1.2) — mismos valores que :root, ver nota arriba ── */
+    --motion-duration-fast: 120ms;
+    --motion-duration-base: 200ms;
+    --motion-duration-slow: 320ms;
+    --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+
+    /* ── elevación/sombra (task 1.3) — más opacas para contrastar sobre fondo oscuro ── */
+    --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.24), 0 1px 3px 0 rgb(0 0 0 / 0.28);
+    --elevation-2: 0 2px 4px -1px rgb(0 0 0 / 0.28), 0 4px 6px -1px rgb(0 0 0 / 0.32);
+    --elevation-3: 0 4px 8px -2px rgb(0 0 0 / 0.32), 0 8px 16px -4px rgb(0 0 0 / 0.36);
+    --elevation-4: 0 8px 16px -4px rgb(0 0 0 / 0.36), 0 16px 32px -8px rgb(0 0 0 / 0.4);
   }
 }
 

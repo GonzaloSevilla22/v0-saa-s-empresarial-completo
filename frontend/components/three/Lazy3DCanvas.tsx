@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react"
 import { Canvas, type CanvasProps } from "@react-three/fiber"
+import { AdaptiveDpr, AdaptiveEvents } from "@react-three/drei"
 import { useCapabilityGate } from "@/hooks/three/useCapabilityGate"
 import { SceneErrorBoundary } from "./SceneErrorBoundary"
 import { cn } from "@/lib/utils"
@@ -37,6 +38,13 @@ export interface Lazy3DCanvasProps {
  *  - `<SceneErrorBoundary fallback={poster}>` covers render failures.
  *  - The container is always `aria-hidden="true"` (Requirement
  *    "Accesibilidad del contenido 3D") — decorative only, in every state.
+ *  - `<AdaptiveDpr>` + `<AdaptiveEvents>` (drei) on every scene automatically:
+ *    when R3F detects dropped frames it "regresses" performance, and these
+ *    respond by lowering the device pixel ratio (rendering fewer physical
+ *    pixels) and throttling pointer-event raycasting — degrading RESOLUTION
+ *    before FRAME RATE (spec Requirement "Presupuesto de performance",
+ *    Scenario "Degradación de calidad antes que de FPS"). Applied here, not
+ *    per-scene, so no scene author needs to remember to add it.
  */
 export function Lazy3DCanvas({
   poster,
@@ -75,6 +83,8 @@ export function Lazy3DCanvas({
         <SceneErrorBoundary fallback={poster} onError={onSceneError}>
           <Suspense fallback={poster}>
             <Canvas frameloop="demand" dpr={[1, 2]} {...canvasProps}>
+              <AdaptiveDpr pixelated />
+              <AdaptiveEvents />
               {children}
             </Canvas>
           </Suspense>

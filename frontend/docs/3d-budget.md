@@ -40,3 +40,36 @@ Esto **supera** el objetivo especulativo de design.md D5 (~180 KB gz), documenta
 | Save-Data / conexión lenta | `connection.saveData === true` o `effectiveType` en `{slow-2g, 2g}` | — |
 
 Repetido de `capabilityGate.ts` a propósito: es el resumen de referencia rápida; la fuente de verdad y el detalle del razonamiento ("por qué esta combinación", "por qué ausente ≠ descalifica") vive en los comentarios del código y en `__tests__/lib/three/capabilityGate.test.ts`.
+
+## Cierre — Fase D (2026-07-29)
+
+### Degradación de calidad antes que FPS (D5 / spec "Degradación de calidad antes que de FPS")
+
+`Lazy3DCanvas` monta `<AdaptiveDpr pixelated />` + `<AdaptiveEvents />` (drei) automáticamente en **toda** escena — no era así en el cierre de Fase B (`drei` estaba instalado pero sin ningún import real). Cuando R3F detecta frames lentos, baja el device-pixel-ratio (menos píxeles físicos por frame) y frena el raycasting de eventos de puntero, antes de que el frame-rate caiga. Aplicado en el wrapper compartido, no por escena — ninguna escena nueva puede "olvidarlo". Impacto en bundle: nulo medible (~233KB gz antes y después — `AdaptiveDpr`/`AdaptiveEvents` son componentes mínimos, la mayoría de `drei` sigue sin importarse).
+
+### Verificación de aislamiento — 6 superficies operativas (task 3.8/4.4, ampliada Fase D)
+
+Repetido con el build final de Fase D (tras agregar `AdaptiveDpr`/`AdaptiveEvents`): grep de contenido (`react-three|THREE\.|three/build`) sobre TODOS los chunks de los client-reference-manifest de `/ventas/pos`, `/dashboard`, `/stock`, `/clientes`, `/ventas/ordenes`, `/facturacion` — **0 matches**, sin regresión. `/legal/privacidad` (ruta pública sin 3D) también confirmada limpia.
+
+### Accesibilidad de las superficies 3D (task 4.2 — sin gate axe formal, ver nota)
+
+`v4-frontend-04` (el change dueño del gate axe/WCAG transversal) no existe todavía como código en este repo — no se reimplementa aquí (regla dura del change). Verificación hecha con las herramientas disponibles en esta Fase D:
+- **Code review**: `grep` sobre `components/three/*.tsx` — 0 elementos focalizables/interactivos (`tabIndex`, `onClick`, `<button>`, `<input>`, `autoFocus`) dentro de ninguna escena/canvas; los 4 wrappers (`Lazy3DCanvas`, `Poster`, `GatedSceneMount`, `Celebration3D`) tienen `aria-hidden="true"` confirmado.
+- **Browser real** (`/`, landing): 0 elementos focalizables dentro del contenedor 3D (`querySelectorAll('a, button, input, select, textarea, [tabindex]')` sobre el contenedor → longitud 0).
+- **Contenido/acciones fuera del canvas**: por arquitectura — el texto, los CTAs, el formulario de login/registro y el feedback de "venta confirmada" son siempre hermanos del contenedor 3D en el DOM, nunca hijos (`Lazy3DCanvas` solo renderiza el `<Canvas>` o el poster, nada más).
+- **Pendiente real**: una corrida de axe-core/Lighthouse contra las 6 superficies con y sin 3D, con puntaje 0 violaciones críticas/serias, queda para cuando `v4-frontend-04` se ejecute (o como verificación manual puntual fuera de esta sesión).
+
+### Performance — FPS en gama media (task 4.3)
+
+No se pudo benchmarkear FPS real en hardware de gama media dentro de esta sesión (sandbox sin GPU real accesible para profiling). Mitigado por diseño: las escenas son deliberadamente livianas (≤17 mallas low-poly por escena, sin texturas, sin post-procesado), `frameloop="demand"` evita renders desperdiciados, `AdaptiveDpr`/`AdaptiveEvents` degradan resolución antes que frame-rate (arriba). **Pendiente recomendado**: medición real en un dispositivo de gama media antes/después de exponer esto a usuarios reales.
+
+### LCP (task 2.10/4.3)
+
+No medido con Lighthouse/web-vitals real en esta sesión. Por diseño no debería regresionar: el poster (elemento `next/image`, candidato natural a LCP) se sirve inmediatamente; el 3D se monta después, vía `next/dynamic({ssr:false})` + gate + `IntersectionObserver`, fuera del critical path. **Pendiente recomendado**: medición real (Lighthouse CI o Vercel Analytics) en `/` y `/auth/login` antes/después de este change.
+
+### Resumen de gaps conocidos (honesto, no resueltos en esta sesión)
+
+1. Camino "gate qualifies=true → Canvas real monta y renderiza sin errores" no verificado en un browser real dentro de esta sesión (sandbox con `hardwareConcurrency=4` fijo, umbral de descalificación). Cubierto por 29+ tests unitarios deterministas + `tsc` limpio contra tipos reales de R3F.
+2. FPS y LCP no medidos con herramientas de profiling reales (Lighthouse/DevTools Performance) — mitigado por diseño (escenas livianas, `AdaptiveDpr`, `frameloop="demand"`, gate de capacidad), no por medición.
+3. Gate axe/WCAG formal no corrido (la infraestructura, `v4-frontend-04`, no existe todavía en este repo) — verificación manual/code-review hecha en su lugar.
+4. Barrido de color transversal (883 clases de la auditoría original) sigue siendo alcance de `v4-frontend-01` — este change solo garantiza no haber introducido clases nuevas hardcodeadas en las superficies que tocó (ver `design-tokens.md`).

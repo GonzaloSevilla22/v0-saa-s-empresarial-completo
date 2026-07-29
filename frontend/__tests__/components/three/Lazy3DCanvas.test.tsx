@@ -33,6 +33,14 @@ vi.mock("@/hooks/three/useCapabilityGate", () => ({
   useCapabilityGate: () => mockUseCapabilityGate(),
 }))
 
+// AdaptiveDpr/AdaptiveEvents call R3F's `useThree()` internally, which throws
+// outside a real `<Canvas>` provider — since `@react-three/fiber` is mocked
+// below (a plain div, not a real R3F context), these need stubbing too.
+vi.mock("@react-three/drei", () => ({
+  AdaptiveDpr: () => null,
+  AdaptiveEvents: () => null,
+}))
+
 vi.mock("@react-three/fiber", () => ({
   Canvas: (props: { frameloop?: string; children?: React.ReactNode }) => (
     <div data-testid="r3f-canvas" data-frameloop={props.frameloop}>

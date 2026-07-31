@@ -59,7 +59,7 @@ export default async function FacturacionPage() {
   // ── Account billing state ──────────────────────────────────────────────────
   const { data: memberRow } = await supabase
     .from("account_members")
-    .select("account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, created_at)")
+    .select("account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, created_at, billing_exempt)")
     .eq("user_id", user.id)
     .maybeSingle()
 
@@ -70,6 +70,7 @@ export default async function FacturacionPage() {
     trial_expires_at: string | null
     plan_expires_at: string | null
     created_at: string
+    billing_exempt: boolean | null
   } | null
 
   const billingPlan: Plan = accountData?.billing_plan ?? "gratis"
@@ -77,12 +78,16 @@ export default async function FacturacionPage() {
   const trialPlan = accountData?.trial_plan ?? null
   const trialExpiresAt = accountData?.trial_expires_at ?? null
   const planExpiresAt = accountData?.plan_expires_at ?? null
+  const billingExempt = accountData?.billing_exempt ?? false
 
+  // billing-pro-trial (D1/D6): getEffectivePlan NO lee billing_status — es
+  // descriptivo, no autoritativo. billingStatus se conserva más abajo solo
+  // para el badge de la UI de facturación (STATUS_LABELS/STATUS_COLORS).
   const effectivePlan = getEffectivePlan({
     billingPlan,
-    billingStatus: billingStatus as "active" | "trialing" | "expired" | "cancelled",
-    trialPlan: trialPlan ?? undefined,
-    trialExpiresAt: trialExpiresAt ?? undefined,
+    trialPlan,
+    trialExpiresAt,
+    billingExempt,
   })
 
   // ── billing_events (last 20) ──────────────────────────────────────────────

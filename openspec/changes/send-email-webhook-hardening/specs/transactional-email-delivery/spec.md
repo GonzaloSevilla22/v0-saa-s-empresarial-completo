@@ -141,3 +141,25 @@ La suite SHALL importar el archivo real del módulo y NOT SHALL re-declarar la l
 - **GIVEN** que el test importa el archivo real en lugar de reimplementar la regla
 - **WHEN** alguien modifica la regla de verificación en el módulo compartido
 - **THEN** la suite refleja el cambio sin necesidad de editar el test para que siga pasando
+
+### Requirement: El fan-out a `recipient = 'all_users'` SHALL restringirse a una allowlist de `event_type`
+
+> Añadido durante el apply (sign-off PO 2026-07-31, OQ3 = sí — ver `design.md` §Risks y §Open Questions). Antes de este sign-off el fan-out masivo era alcanzable desde afuera del sistema (relay abierto); tras la autenticación del webhook deja de serlo, pero persiste como riesgo de accidente interno: un `INSERT` erróneo en `email_logs` dispararía un envío a todos los usuarios reales sin confirmación.
+
+Cuando una fila insertada en `email_logs` tenga `recipient = 'all_users'`, la Edge Function `send-email` SHALL verificar que su `event_type` pertenezca a una allowlist explícita (`meeting_notice`, `pool_notice`) antes de resolver la lista de destinatarios. Un `event_type` fuera de la allowlist NOT SHALL producir ningún envío de correo.
+
+La lógica de la allowlist SHALL residir en un módulo puro bajo `supabase/functions/_shared/`, con las mismas restricciones de testabilidad (sin `Deno.*` en scope de módulo) que la verificación del secreto.
+
+#### Scenario: Fan-out a todos los usuarios con un event_type permitido
+
+- **GIVEN** una fila en `email_logs` con `recipient = 'all_users'` y `event_type = 'meeting_notice'` (o `'pool_notice'`)
+- **WHEN** la Edge Function procesa la fila
+- **THEN** se resuelve la lista completa de usuarios reales y se envía el correo normalmente
+
+#### Scenario: Fan-out a todos los usuarios con un event_type no permitido es rechazado
+
+- **GIVEN** una fila en `email_logs` con `recipient = 'all_users'` y un `event_type` que no está en la allowlist (p. ej. `welcome`)
+- **WHEN** la Edge Function procesa la fila
+- **THEN** no se invoca la resolución de usuarios ni el proveedor de correo
+- **AND** la fila de `email_logs` queda en un estado terminal (`failed`) con la causa del rechazo
+- **AND** se registra la causa en el log de la función sin exponer datos de usuarios

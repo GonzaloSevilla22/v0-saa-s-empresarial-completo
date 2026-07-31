@@ -1,34 +1,32 @@
-# Spec: backend-auth
+# backend-auth — Spec
 
-## Overview
+## Purpose
 
 Middleware de autenticación para FastAPI que valida JWTs emitidos por Supabase. FastAPI no emite tokens propios — actúa como resource server que verifica la firma del token.
 
 ## Requirements
 
-### REQ-BA-01: Validación de JWT de Supabase
-El middleware debe decodificar y verificar tokens usando `SUPABASE_JWT_SECRET` y algoritmo `HS256`.
+### Requirement: Validación de JWT de Supabase
 
-### REQ-BA-02: Claims extraídos
-Tras validación exitosa, el dependency debe retornar:
-```python
-{"user_id": str, "role": str}
-```
-Donde `user_id` = claim `sub` y `role` = claim `role` (default: `"authenticated"` si ausente).
+El middleware SHALL decodificar y verificar tokens usando `SUPABASE_JWT_SECRET` y algoritmo `HS256`.
+
+### Requirement: Claims extraídos
+
+El dependency SHALL retornar, tras una validación exitosa, el objeto `{"user_id": str, "role": str}`, donde `user_id` = claim `sub` y `role` = claim `role` (default: `"authenticated"` si ausente).
 
 > **Superado por "Contrato tipado del contexto de autenticación" (más abajo, `v31-fix-auth-shape-500`, 2026-07-31).** El shape real incluye una tercera clave (`plan`) y el default de `role` cuando el claim está ausente es `"user"`, no `"authenticated"`. Se conserva este requisito legacy sin editar para no perder historial; el requisito nuevo es la fuente normativa vigente. Normalizar el resto del archivo al formato canónico es trabajo de `v31-docs-refresh` (H-22), fuera de alcance de este sync.
 
-### REQ-BA-03: Token inválido → 401
-Si el token tiene firma incorrecta, ha expirado, o está malformado: HTTP 401 con body `{"detail": "Invalid token"}`.
+### Requirement: Token inválido → 401
 
-### REQ-BA-04: Sin verificación de audience
-Supabase emite `aud: "authenticated"` (string no-URL). La verificación de `aud` debe estar desactivada (`verify_aud: False`) para evitar falsos 401.
+Si el token tiene firma incorrecta, ha expirado, o está malformado, el middleware SHALL responder HTTP 401 con body `{"detail": "Invalid token"}`.
 
-### REQ-BA-05: Header Bearer en HTTP, query param en WebSocket
-- Endpoints HTTP: `Authorization: Bearer <token>`
-- Endpoints WebSocket: query param `?token=<token>` (los browsers no envían headers custom en WS handshake)
+### Requirement: Sin verificación de audience
 
-<!-- Requisitos siguientes en formato canónico, agregados por `v31-fix-auth-shape-500` (2026-07-31). Ver nota sobre REQ-BA-02 más arriba. -->
+La verificación de `aud` SHALL estar desactivada (`verify_aud: False`), dado que Supabase emite `aud: "authenticated"` (string no-URL) y de lo contrario se producirían falsos 401.
+
+### Requirement: Header Bearer en HTTP, query param en WebSocket
+
+El middleware SHALL aceptar el token vía `Authorization: Bearer <token>` en endpoints HTTP y vía query param `?token=<token>` en endpoints WebSocket (los browsers no envían headers custom en el WS handshake).
 
 ### Requirement: Contrato tipado del contexto de autenticación
 

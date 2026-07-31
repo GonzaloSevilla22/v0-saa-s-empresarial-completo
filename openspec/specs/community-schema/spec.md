@@ -1,4 +1,10 @@
-﻿## ADDED Requirements
+﻿# community-schema — Spec
+
+## Purpose
+
+Separación del dominio no-ERP (cursos, comunidad, seguros, compras colectivas, landing, IA copiloto) en un schema Postgres propio (`community`), desacoplado del ERP, expuesto vía Data API y accedido desde frontend/Edge Functions con schema explícito.
+
+## Requirements
 
 ### Requirement: Tablas de comunidad viven en el schema `community`
 Las 16 tablas del dominio no-ERP (`courses`, `course_modules`, `course_lessons`, `course_enrollments`, `course_progress`, `lesson_progress`, `posts`, `replies`, `post_likes`, `meetings`, `seguros`, `purchase_pools`, `landing_sections`, `fair_recommendations`, `fair_ai_tools`, `copilot_prompts`) SHALL residir en el schema Postgres `community`, no en `public`. La migraciÃ³n MUST usar `ALTER TABLE ... SET SCHEMA` preservando datos, FKs, Ã­ndices, triggers y polÃ­ticas RLS.

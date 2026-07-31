@@ -1,4 +1,10 @@
-## ADDED Requirements
+# idle-session-timeout — Spec
+
+## Purpose
+
+Client-side idle-session timeout: a fixed 20-minute inactivity threshold with a 1-minute warning modal, activity tracking, idle logout matching the existing sign-out flow, and cross-tab synchronization.
+
+## Requirements
 
 ### Requirement: Fixed idle threshold and warning lead time
 

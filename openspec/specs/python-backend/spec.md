@@ -1,33 +1,30 @@
-# Spec: python-backend
+# python-backend — Spec
 
-## Overview
+## Purpose
 
 Servicio FastAPI independiente del frontend Next.js. Corre como proceso separado, expone una API HTTP + WebSocket, y se integra con Supabase como fuente de verdad de la base de datos.
 
 ## Requirements
 
-### REQ-PB-01: Estructura de proyecto
-El backend debe organizarse en:
-- `backend/main.py` — punto de entrada FastAPI
-- `backend/routers/` — handlers HTTP y WebSocket
-- `backend/core/` — config, auth, ws_manager
-- `backend/tests/` — suite pytest
+### Requirement: Estructura de proyecto
 
-### REQ-PB-02: Configuración via entorno
-Toda configuración sensible (secrets, URLs) debe cargarse desde variables de entorno usando `pydantic-settings`. Sin valores hard-codeados en código fuente.
+El backend SHALL organizarse en: `backend/main.py` (punto de entrada FastAPI), `backend/routers/` (handlers HTTP y WebSocket), `backend/core/` (config, auth, ws_manager) y `backend/tests/` (suite pytest).
 
-### REQ-PB-03: Health check
-`GET /health` debe retornar `{"status": "ok"}` con HTTP 200. Sin autenticación requerida.
+### Requirement: Configuración via entorno
 
-### REQ-PB-04: Ejecutable con uvicorn
-El servicio debe poder iniciarse con:
-```bash
-uvicorn backend.main:app --reload
-```
-desde la raíz del proyecto.
+Toda configuración sensible (secrets, URLs) SHALL cargarse desde variables de entorno usando `pydantic-settings`, sin valores hard-codeados en código fuente.
 
-### REQ-PB-05: Tests cubren happy path y error path
-Cada router debe tener al mínimo: 1 test de happy path + 1 test de error (auth fallida, input inválido).
+### Requirement: Health check
+
+`GET /health` SHALL retornar `{"status": "ok"}` con HTTP 200, sin autenticación requerida.
+
+### Requirement: Ejecutable con uvicorn
+
+El servicio SHALL poder iniciarse con `uvicorn backend.main:app --reload` desde la raíz del proyecto.
+
+### Requirement: Tests cubren happy path y error path
+
+Cada router SHALL tener al mínimo 1 test de happy path y 1 test de error (auth fallida, input inválido).
 
 ### Requirement: Routers de datos registrados en main.py
 El sistema SHALL registrar los 9 routers de dominio (expenses, clients, products, branches, stock, sales, purchases, organizations, payments) en `backend/main.py` con sus prefijos correspondientes y el tag OpenAPI apropiado.

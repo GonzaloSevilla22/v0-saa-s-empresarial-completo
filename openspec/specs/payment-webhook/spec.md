@@ -1,6 +1,6 @@
-# Spec: payment-webhook
+# payment-webhook — Spec
 
-## Overview
+## Purpose
 
 Endpoint FastAPI `POST /payments/webhook` que recibe notificaciones de pago de MercadoPago, verifica la firma HMAC-SHA256, consulta la API de MP para obtener detalles del pago y actualiza el plan de la cuenta en la base de datos.
 
@@ -29,8 +29,6 @@ Comparison: constant-time (`hmac.compare_digest`).
 
 - **WHEN** `MERCADOPAGO_WEBHOOK_SECRET` is not set in the environment
 - **THEN** the endpoint returns HTTP 400 and logs a configuration error
-
----
 
 ### Requirement: Process payment notification with idempotency
 
@@ -68,8 +66,6 @@ The endpoint SHALL fetch payment details from MercadoPago API and update the org
 - **THEN** the endpoint returns HTTP 200 with `{"ok": true, "skipped": true}`
 - **AND** no database write occurs
 
----
-
 ### Requirement: Shadow mode for safe migration
 
 The endpoint SHALL support a `?shadow=true` query parameter that runs all validation and lookup logic without writing to the database.
@@ -88,8 +84,6 @@ The endpoint SHALL support a `?shadow=true` query parameter that runs all valida
 - **WHEN** the request includes `?shadow=true` but has an invalid signature
 - **THEN** the endpoint returns HTTP 400 regardless of shadow mode
 
----
-
 ### Requirement: Service-role DB access for webhook
 
 The payment webhook endpoint SHALL use the Supabase service_role key to access the database, as MercadoPago notifications are server-to-server and carry no user JWT.
@@ -99,8 +93,6 @@ The payment webhook endpoint SHALL use the Supabase service_role key to access t
 - **WHEN** MercadoPago sends a webhook notification
 - **THEN** the endpoint connects to Supabase using the pool regular (usuario postgres con BYPASSRLS)
 - **AND** NOT using any user JWT or asyncpg JWT-passthrough pool
-
----
 
 ### Requirement: external_reference decoding
 

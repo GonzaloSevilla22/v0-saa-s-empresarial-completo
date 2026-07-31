@@ -144,9 +144,9 @@ La suite SHALL importar el archivo real del módulo y NOT SHALL re-declarar la l
 
 ### Requirement: El fan-out a `recipient = 'all_users'` SHALL restringirse a una allowlist de `event_type`
 
-> Añadido durante el apply (sign-off PO 2026-07-31, OQ3 = sí — ver `design.md` §Risks y §Open Questions). Antes de este sign-off el fan-out masivo era alcanzable desde afuera del sistema (relay abierto); tras la autenticación del webhook deja de serlo, pero persiste como riesgo de accidente interno: un `INSERT` erróneo en `email_logs` dispararía un envío a todos los usuarios reales sin confirmación.
-
 Cuando una fila insertada en `email_logs` tenga `recipient = 'all_users'`, la Edge Function `send-email` SHALL verificar que su `event_type` pertenezca a una allowlist explícita (`meeting_notice`, `pool_notice`) antes de resolver la lista de destinatarios. Un `event_type` fuera de la allowlist NOT SHALL producir ningún envío de correo.
+
+> Añadido durante el apply (sign-off PO 2026-07-31, OQ3 = sí — ver `design.md` §Risks y §Open Questions). Antes de este sign-off el fan-out masivo era alcanzable desde afuera del sistema (relay abierto); tras la autenticación del webhook deja de serlo, pero persiste como riesgo de accidente interno: un `INSERT` erróneo en `email_logs` dispararía un envío a todos los usuarios reales sin confirmación.
 
 La lógica de la allowlist SHALL residir en un módulo puro bajo `supabase/functions/_shared/`, con las mismas restricciones de testabilidad (sin `Deno.*` en scope de módulo) que la verificación del secreto.
 

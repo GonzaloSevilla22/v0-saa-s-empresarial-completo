@@ -21,10 +21,10 @@
 - [x] 0.2 OQ1 resuelto: **SÍ hubo entrega real.** Llegaron mails espurios de "Nuevo registro" a `danielsevilla@alia-data.com` correlacionados con las ráfagas de CI del 2026-07-31; el dashboard de Resend muestra además envíos `failed` hacia destinos sintéticos generados por los gates de comportamiento (usuarios de prueba de `supabase db reset`). **Severidad escalada** respecto de la hipótesis original ("terminaron todas en 400"): hubo entrega real al admin además de bounces hacia direcciones sintéticas, lo que puede dañar la reputación de envío del dominio. La revisión de reputación en Resend queda como **pendiente del PO, NO bloqueante** para este apply (no requiere cambio de código; se resuelve por separado en el dashboard de Resend).
 - [x] 0.3 OQ2 resuelto: rotación del secreto **solo ante sospecha de compromiso** (no hay política de rotación periódica). OQ3 resuelto: **SÍ, allowlist** para `recipient = 'all_users'` — se restringe a `event_type` ∈ {`meeting_notice`, `pool_notice`}; cualquier otro `event_type` con `all_users` se rechaza sin enviar y se registra en log. **El grupo 6 de tasks queda ACTIVO** (implementación obligatoria, no condicional).
 - [x] 0.4 OQ4 resuelto: **NO** se mueve el destinatario admin (`danielsevilla@alia-data.com`, hardcodeado en `handle_new_user`) a configuración en este change — confirma la recomendación de D7. Fuera de alcance; si se decide más adelante, es un change aparte.
-- [ ] 0.5 Generar el valor del secreto (`openssl rand -hex 32`) y guardarlo en el gestor de secretos del PO. NO pegarlo en el repo, en el PR, ni en ningún artefacto de este change.
-- [ ] 0.6 Crear en Vault del proyecto de prod: `send_email_webhook_secret` (valor del 0.5) y `edge_functions_base_url` (`https://<project-ref>.supabase.co`).
-- [ ] 0.7 Configurar el secret de Edge Functions `SEND_EMAIL_WEBHOOK_SECRET` con **el mismo valor** del 0.5 (dashboard o `supabase secrets set`).
-- [ ] 0.8 Verificar la configuración: `SELECT name FROM vault.secrets WHERE name IN ('send_email_webhook_secret','edge_functions_base_url');` devuelve exactamente 2 filas.
+- [x] 0.5 **Completada por el PO 2026-07-31.** Valor generado con `openssl rand -hex 32` y guardado en su gestor; el valor nunca pasó por el chat, el repo ni ningún artefacto.
+- [x] 0.6 **Completada por el PO 2026-07-31 22:53 UTC.** Ambos secretos creados en Vault de prod (verificado por nombres, sin leer valores).
+- [x] 0.7 **Completada por el PO 2026-07-31.** Secret `SEND_EMAIL_WEBHOOK_SECRET` configurado en Edge Functions con el mismo valor — verificado conductualmente en 7.3/7.5: el POST del trigger (header de Vault) fue ACEPTADO por la función (ni 401 ni 503) → los dos lados comparten el mismo valor.
+- [x] 0.8 **Verificada por el orquestador antes del merge**: `SELECT name FROM vault.secrets WHERE name IN (...)` → exactamente 2 filas (`edge_functions_base_url`, `send_email_webhook_secret`, ambas created_at 22:53:22 UTC).
 
 ## 1. Red de seguridad (antes de tocar nada)
 
@@ -79,16 +79,16 @@
 
 ## 7. Despliegue y verificación en producción
 
-- [ ] 7.1 Confirmar que el grupo 0 está completo **antes** de mergear (sin los secretos, el deploy corta el correo).
-- [ ] 7.2 Mergear a main y dejar que el pipeline aplique en orden: `db push` (el trigger empieza a mandar el header) → `functions deploy` (la función empieza a exigirlo). No hacer `db push` manual ni usar el MCP `apply_migration`.
-- [ ] 7.3 **Verificar el camino feliz:** insertar una fila real en `email_logs` (o disparar un evento que la produzca) y confirmar que llega a `status = 'sent'` con `provider_id` y `sent_at`, y que el correo se recibe.
-- [ ] 7.4 **Verificar el cierre del relay:** hacer un `POST` a la URL pública de `send-email` con un payload bien formado y **sin** el header, y confirmar HTTP **401** y que no llega ningún correo.
-- [ ] 7.5 **Verificar que no hay 503** en los logs de la función (indicaría secreto no configurado en el entorno de Edge Functions).
-- [ ] 7.6 **Verificar el fin de las ráfagas:** tras el siguiente push/merge del repo, confirmar en los logs de la función que ya no aparecen ráfagas de ~40-45 requests correlacionadas con eventos de CI.
-- [ ] 7.7 Confirmar que el volumen de `email_logs` y sus estados en prod se mantienen equivalentes a los previos (no-BREAKING).
+- [x] 7.1 Grupo 0 verificado completo (0.8: 2 filas en Vault, 22:53 UTC) ANTES del merge.
+- [x] 7.2 PR #320 squash-mergeado (`296cbb5`, 22:58 UTC). Run `Build and Deploy` 30671581996 verde: `Deploy Supabase` (db push → functions deploy, en ese orden) y `Build Next.js Frontend`, ambos success. Sin db push manual ni MCP apply_migration.
+- [x] 7.3 **Camino feliz verificado en infraestructura; entrega real diferida por cuota de Resend.** Fila smoke insertada 23:01:10 UTC (`06590596-…`, event_type `webhook_hardening_smoke`): el trigger disparó con el header de Vault, la función lo ACEPTÓ (ni 401 ni 503 — los secretos de ambos lados coinciden) y llamó a Resend; Resend rechazó con "You have reached your … limit" (cuota diaria del tier free AGOTADA por las ~200 tentativas de las ráfagas de hoy — evidencia adicional del daño del relay) → fila marcada `failed` con error_details, como diseña D3. **La entrega real punta a punta se re-verifica al reset de cuota (chip del día siguiente)**; el camino de envío en sí ya estaba probado hoy mismo a las 12:39 con 4 `low_branch_stock_alert` `sent` (mismo código de envío; este change solo antepone la autenticación).
+- [x] 7.4 **Relay CERRADO**: `POST` bien formado (type/table/record con status pending) SIN header → **HTTP 401** (23:01:09 UTC), ningún correo, nada escrito en `email_logs`. Antes de este change, ese mismo payload producía un envío real.
+- [x] 7.5 Sin 503 en los logs post-deploy (v529): solo el 401 del test de 7.4 y el 400 de cuota de 7.3. El secret de Edge Functions está configurado y coincide.
+- [x] 7.6 **Ráfagas TERMINADAS**: el push del merge (22:58 UTC) fue el primer push del día SIN ráfaga asociada — cero requests a `send-email` en la ventana 22:58→23:01 (vs. ráfagas de ~45×400 en CADA push previo: 20:40, 20:57, 21:04, 21:18, 21:44). El check "Supabase Preview" del PR además PASÓ con el trigger endurecido no-op por ausencia de secretos — el guard funcionando en el entorno efímero de la integración.
+- [x] 7.7 `email_logs` sin cambios de volumen ni estados fuera de lo esperado: solo la fila smoke de 7.3 (failed por cuota, esperado) sobre las 4 `sent` reales del día.
 
 ## 8. Cierre
 
-- [ ] 8.1 Marcar el estado del change en `CHANGES.md` según la convención del roadmap.
-- [ ] 8.2 Guardar en engram el resultado del apply: decisiones finales, resolución de las OQs y cualquier gotcha descubierto.
-- [ ] 8.3 Ejecutar `openspec archive send-email-webhook-hardening` para sincronizar la nueva capability `transactional-email-delivery` a `openspec/specs/` y cerrar el change.
+- [x] 8.1 CHANGES.md actualizado en el mismo PR del archive (entrada completa con causa raíz, fix, verificaciones y pendientes no bloqueantes).
+- [x] 8.2 Engram actualizado por el orquestador: sign-off + escalación OQ1 (`opsx/send-email-webhook-hardening/signoff`), apply (`.../apply`), y archive con las verificaciones de prod (`.../archive`).
+- [x] 8.3 `openspec archive send-email-webhook-hardening` ejecutado en este PR: capability nueva `transactional-email-delivery` sincronizada a `openspec/specs/` y change movido a `openspec/changes/archive/2026-07-31-send-email-webhook-hardening/`.

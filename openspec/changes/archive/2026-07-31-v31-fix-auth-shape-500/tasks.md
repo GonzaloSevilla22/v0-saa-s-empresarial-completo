@@ -42,3 +42,4 @@
 - [x] 6.3 Confirmar que `backend/core/auth.py` no cambió el cómputo de `role` ni de `plan` — solo se agregó la declaración de tipo (Non-Goal explícito: el hook de rol es `v31-authz-token-hook`).
 - [x] 6.4 Abrir el PR con la tabla de evidencia del ciclo TDD (tarea / archivo de test / safety net / RED / GREEN / TRIANGULATE / REFACTOR) y el antes/después del barrido de auditoría.
 - [ ] 6.5 Verificación post-merge en el backend desplegado: ejercitar `POST /quotes`, `GET /clientes/{id}/cuenta` y `GET /proveedores/{id}/cuenta` con un usuario real y confirmar 2xx en lugar de 500. Registrar el resultado.
+      PENDIENTE MANUAL PO (no bloqueante): verificar con sesión real contra Render — ver proposal.

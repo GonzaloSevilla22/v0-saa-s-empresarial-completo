@@ -53,12 +53,43 @@ function calculateElasticity(weeklyData: SaleRow[]): number {
 
 // ─── Quota / plan logic helpers ───────────────────────────────────────────────
 
-type Plan = "gratis" | "inicial" | "avanzado" | "pro"
+// billing-edge-effective-plan (task 5.2): el gate de esta función dejó de
+// comparar contra un array hardcodeado de planes (`allowedPlans =
+// ['avanzado','pro']`) — ahora lee el flag canónico
+// `plan_limits.has_price_suggestion` del plan efectivo (D4). El plan efectivo
+// en sí se resuelve con `resolveEffectivePlan` (supabase/functions/_shared/
+// effective-plan.ts), cuya cobertura completa —incluida la escena de task 5.1
+// "cuenta pro con profiles.billing_plan stale en gratis"— vive en
+// frontend/__tests__/edge-effective-plan.test.ts: ai-precio delega el 100%
+// de esa resolución, así que repetir esos casos acá sería una duplicación
+// sin valor. Lo que SÍ es lógica propia de esta función es la decisión de
+// gating a partir del flag ya resuelto.
+interface PriceSuggestionLimits {
+  has_price_suggestion: boolean
+}
 
-const ALLOWED_PLANS: Plan[] = ["avanzado", "pro"]
+function isPriceSuggestionAllowed(limits: PriceSuggestionLimits | null): boolean {
+  return limits?.has_price_suggestion === true
+}
 
-function isPlanAllowed(plan: Plan): boolean {
-  return ALLOWED_PLANS.includes(plan)
+// task 5.4: reemplaza el `.single()` sobre account_members (lanzaba si el
+// usuario tenía 2+ membresías) por la MISMA regla determinista de D2 (más
+// antigua por created_at, desempate por account_id) — ver el comentario
+// `resolveAccountId` en supabase/functions/ai-precio/index.ts. Esta es la
+// porción pura y testeable de esa resolución.
+interface MembershipRow {
+  account_id: string
+  created_at: string
+}
+
+function pickOldestMembership(rows: MembershipRow[]): string | null {
+  if (rows.length === 0) return null
+  const sorted = [...rows].sort((a, b) => {
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1
+    if (a.account_id === b.account_id) return 0
+    return a.account_id < b.account_id ? -1 : 1
+  })
+  return sorted[0].account_id
 }
 
 interface ProfileForQuota {
@@ -127,23 +158,71 @@ describe("ai-precio: quota_exceeded check (task 5.2)", () => {
   })
 })
 
-// ─── task 5.3: 403 when plan is 'gratis' ─────────────────────────────────────
+// ─── task 5.2/5.3: gate por flag canónico plan_limits.has_price_suggestion ───
 
-describe("ai-precio: plan check (task 5.3)", () => {
-  it("returns 403 for plan 'gratis'", () => {
-    expect(isPlanAllowed("gratis")).toBe(false)
+describe("ai-precio: plan check via has_price_suggestion flag (task 5.2/5.3)", () => {
+  it("returns 403 when the resolved plan's has_price_suggestion is false ('gratis'/'inicial')", () => {
+    expect(isPriceSuggestionAllowed({ has_price_suggestion: false })).toBe(false)
   })
 
-  it("returns 403 for plan 'inicial'", () => {
-    expect(isPlanAllowed("inicial")).toBe(false)
+  it("allows when has_price_suggestion is true", () => {
+    expect(isPriceSuggestionAllowed({ has_price_suggestion: true })).toBe(true)
   })
 
-  it("allows plan 'avanzado'", () => {
-    expect(isPlanAllowed("avanzado")).toBe(true)
+  it("returns 403 (fail-closed) when the plan_limits row could not be resolved at all", () => {
+    expect(isPriceSuggestionAllowed(null)).toBe(false)
   })
 
-  it("allows plan 'pro'", () => {
-    expect(isPlanAllowed("pro")).toBe(true)
+  it("la habilitación proviene de la tabla, no de un array hardcodeado en el código: cambiar el flag cambia la decisión sin tocar esta función", () => {
+    // Antes: `['avanzado', 'pro'].includes(effectivePlan)` — cambiar la
+    // política de planes exigía un redeploy. Ahora la MISMA función produce
+    // resultados distintos según el valor leído de plan_limits, sin cambiar
+    // una sola línea de código — eso es exactamente lo que se prueba acá.
+    const flagOff: PriceSuggestionLimits = { has_price_suggestion: false }
+    const flagOn: PriceSuggestionLimits = { has_price_suggestion: true }
+    expect(isPriceSuggestionAllowed(flagOff)).not.toBe(isPriceSuggestionAllowed(flagOn))
+  })
+})
+
+// ─── task 5.4: resolución determinista de cuenta (reemplaza el .single() que
+//      lanzaba con 2+ membresías) ────────────────────────────────────────────
+
+describe("ai-precio: pickOldestMembership — resolución determinista multi-cuenta (task 5.4)", () => {
+  it("returns null when the user has no membership at all", () => {
+    expect(pickOldestMembership([])).toBeNull()
+  })
+
+  it("returns the only account when there is exactly one membership", () => {
+    const rows: MembershipRow[] = [{ account_id: "acc-1", created_at: "2026-01-01T00:00:00Z" }]
+    expect(pickOldestMembership(rows)).toBe("acc-1")
+  })
+
+  it("returns the account with the OLDEST created_at when the user has 2+ memberships (no longer throws, D2)", () => {
+    const rows: MembershipRow[] = [
+      { account_id: "acc-new", created_at: "2026-02-01T00:00:00Z" },
+      { account_id: "acc-old", created_at: "2026-01-01T00:00:00Z" },
+    ]
+    expect(pickOldestMembership(rows)).toBe("acc-old")
+  })
+
+  it("breaks a created_at tie by the SMALLEST account_id", () => {
+    const rows: MembershipRow[] = [
+      { account_id: "zzz-later-alphabetically", created_at: "2026-01-01T00:00:00Z" },
+      { account_id: "aaa-earlier-alphabetically", created_at: "2026-01-01T00:00:00Z" },
+    ]
+    expect(pickOldestMembership(rows)).toBe("aaa-earlier-alphabetically")
+  })
+
+  it("is deterministic across repeated calls with the same input (no reliance on array/iteration order)", () => {
+    const rows: MembershipRow[] = [
+      { account_id: "b", created_at: "2026-01-01T00:00:00Z" },
+      { account_id: "a", created_at: "2026-01-01T00:00:00Z" },
+      { account_id: "c", created_at: "2025-12-31T00:00:00Z" },
+    ]
+    const first = pickOldestMembership(rows)
+    const second = pickOldestMembership([...rows].reverse())
+    expect(first).toBe("c")
+    expect(second).toBe("c")
   })
 })
 

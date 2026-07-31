@@ -1,5 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { resolveEffectivePlan } from '../_shared/effective-plan.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -58,6 +59,56 @@ async function fetchWithTimeout(url: string, options: RequestInit): Promise<Resp
   }
 }
 
+interface AccountMembershipRow {
+  account_id: string
+  created_at: string
+}
+
+interface AccountResolutionClient {
+  from(table: 'account_members'): {
+    select(columns: string): {
+      eq(column: string, value: string): {
+        order(column: string, opts: { ascending: boolean }): {
+          order(column: string, opts: { ascending: boolean }): {
+            limit(n: number): Promise<{ data: AccountMembershipRow[] | null; error: { message: string } | null }>
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Resolves the caller's account for TENANCY purposes using the SAME
+ * deterministic rule as `rpc_my_effective_plan()`'s D2 (billing-edge-
+ * effective-plan): the membership with the oldest `created_at`, tie-broken
+ * by the smallest `account_id`. There is no authorized way to ask the RPC
+ * for the account_id it resolved internally (D1 — it deliberately returns
+ * only the plan, never an account identifier), so this mirrors the same
+ * rule locally over `account_members` (readable by the user via RLS) for
+ * the same user, which in practice always agrees with the account the plan
+ * gate below resolves (task 5.5 — same rule, same table, same user, same
+ * request).
+ *
+ * Replaces the old `.single()` (task 5.4), which threw for a user with 2+
+ * memberships instead of resolving deterministically.
+ */
+async function resolveAccountId(
+  supabase: AccountResolutionClient,
+  userId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('account_members')
+    .select('account_id, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .order('account_id', { ascending: true })
+    .limit(1)
+
+  if (error || !data || data.length === 0) return null
+  return data[0].account_id
+}
+
 /**
  * Calculates implicit elasticity: Pearson correlation between weekly avg price
  * and weekly units sold. Returns a value in [-1, 1] or 0 if insufficient data.
@@ -107,47 +158,47 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'No autorizado' }, 401)
     }
 
-    // Resolve account_id for tenancy-aware queries (C-19)
-    const { data: memberData, error: memberErr } = await supabase
-      .from('account_members')
-      .select('account_id')
-      .eq('user_id', user.id)
-      .single()
+    // Resolve account_id for tenancy-aware queries (C-19). billing-edge-
+    // effective-plan (task 5.4): reemplaza el `.single()` que lanzaba si el
+    // usuario pertenecía a 2+ cuentas por la MISMA regla determinista que usa
+    // rpc_my_effective_plan() en la DB (D2 — membresía más antigua por
+    // created_at, desempate por account_id). No hay una vía autorizada para
+    // pedirle el account_id resuelto al RPC (deliberado, D1: el RPC solo
+    // devuelve el plan, nunca el identificador de cuenta), así que esta
+    // función resuelve la cuenta LOCALMENTE con la misma regla, sobre la
+    // misma tabla (account_members), para el mismo usuario — en la práctica
+    // siempre coincide con la cuenta que usa el gate de plan más abajo.
+    const accountId = await resolveAccountId(supabase, user.id)
 
-    if (memberErr || !memberData) {
+    if (!accountId) {
       console.error('[ai-precio] No active account for user:', user.id)
       return jsonResponse({ ok: false, error: 'No se encontró cuenta activa' }, 403)
     }
-    const accountId = memberData.account_id
 
     const openAiKey = Deno.env.get('OPENAI_API_KEY')
     if (!openAiKey) {
       return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY' }, 500)
     }
 
-    // 2. Plan check — only avanzado/pro
-    const { data: profile, error: profErr } = await supabase
-      .from('profiles')
-      .select('billing_plan, billing_status, trial_plan, trial_expires_at')
-      .eq('id', user.id)
+    // 2. Plan check — flag canónico plan_limits.has_price_suggestion del plan
+    // efectivo (D4). El plan efectivo se resuelve vía la definición normativa
+    // de la DB (_shared/effective-plan.ts, billing-edge-effective-plan) — ya
+    // NO se reimplementa la lógica de trial acá ni se lee profiles.
+    const effectivePlan = await resolveEffectivePlan(supabase)
+
+    const { data: priceLimits, error: priceLimitsErr } = await supabase
+      .from('plan_limits')
+      .select('has_price_suggestion')
+      .eq('plan', effectivePlan)
       .single()
 
-    if (profErr || !profile) {
-      console.error('[ai-precio] Profile fetch error:', profErr?.message)
+    if (priceLimitsErr || !priceLimits) {
+      console.error('[ai-precio] plan_limits fetch error:', priceLimitsErr?.message)
       return jsonResponse({ ok: false, error: 'No se pudo verificar el plan' }, 500)
     }
 
-    const now          = new Date()
-    const trialActive  =
-      profile.billing_status === 'trialing' &&
-      profile.trial_plan != null &&
-      profile.trial_expires_at != null &&
-      new Date(profile.trial_expires_at) > now
-    const effectivePlan = (trialActive ? profile.trial_plan : profile.billing_plan) ?? 'gratis'
-
-    const allowedPlans = ['avanzado', 'pro']
-    if (!allowedPlans.includes(effectivePlan)) {
-      console.warn('[ai-precio] Plan not allowed:', effectivePlan)
+    if (!priceLimits.has_price_suggestion) {
+      console.warn('[ai-precio] Plan not allowed (has_price_suggestion=false):', effectivePlan)
       return jsonResponse(
         { ok: false, error: 'plan_required', required_plan: 'avanzado' },
         403

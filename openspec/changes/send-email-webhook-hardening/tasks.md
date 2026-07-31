@@ -9,13 +9,18 @@
 > **Strict TDD aplica** a los grupos 2 y 3: RED → GREEN → TRIANGULATE → REFACTOR, con ejecución
 > real de la suite en cada gate. Antes de modificar archivos existentes, capturar la red de
 > seguridad (suite verde previa) y reportar cualquier fallo preexistente sin arreglarlo.
+>
+> **ESTADO 2026-07-31:** sign-off del PO obtenido (0.1-0.4 abajo). El apply de código (grupos
+> 1-6) queda desbloqueado. El **merge** del PR sigue retenido hasta que el PO complete 0.5-0.8
+> (secretos en Vault + Edge Functions) — sin ellos el deploy corta el correo transaccional de
+> prod. OQ3 = sí: el grupo 6 (allowlist `all_users`) pasa de condicional a **activo**.
 
 ## 0. Sign-off y configuración fuera de banda (PO — bloqueante)
 
-- [ ] 0.1 Obtener sign-off explícito del PO para pasar de análisis a implementación (governance CRÍTICO).
-- [ ] 0.2 Registrar la resolución de OQ1 (¿llegaron mails espurios de "Nuevo registro" a `danielsevilla@alia-data.com` el 2026-07-31 ~20:40/20:57/21:04/21:18 UTC?) revisando la casilla y el dashboard de Resend. Si hubo entrega real, escalar severidad y revisar reputación del dominio antes de continuar.
-- [ ] 0.3 Registrar la resolución de OQ2 (política de rotación) y OQ3 (¿allowlist para el fan-out `all_users`?). Si OQ3 = sí, activar el grupo 6.
-- [ ] 0.4 Registrar la resolución de OQ4 (destinatario admin a configuración). Recomendación: **no** en este change (D7); si el PO decide lo contrario, abrir un change aparte y **no** ampliar el alcance de éste.
+- [x] 0.1 Sign-off explícito del PO obtenido 2026-07-31 para pasar de análisis a implementación (governance CRÍTICO). Autoriza avanzar con los grupos 1-6 de este change; el merge queda retenido hasta que el PO complete el grupo 0 (0.5-0.8, secretos en Vault + Edge Functions).
+- [x] 0.2 OQ1 resuelto: **SÍ hubo entrega real.** Llegaron mails espurios de "Nuevo registro" a `danielsevilla@alia-data.com` correlacionados con las ráfagas de CI del 2026-07-31; el dashboard de Resend muestra además envíos `failed` hacia destinos sintéticos generados por los gates de comportamiento (usuarios de prueba de `supabase db reset`). **Severidad escalada** respecto de la hipótesis original ("terminaron todas en 400"): hubo entrega real al admin además de bounces hacia direcciones sintéticas, lo que puede dañar la reputación de envío del dominio. La revisión de reputación en Resend queda como **pendiente del PO, NO bloqueante** para este apply (no requiere cambio de código; se resuelve por separado en el dashboard de Resend).
+- [x] 0.3 OQ2 resuelto: rotación del secreto **solo ante sospecha de compromiso** (no hay política de rotación periódica). OQ3 resuelto: **SÍ, allowlist** para `recipient = 'all_users'` — se restringe a `event_type` ∈ {`meeting_notice`, `pool_notice`}; cualquier otro `event_type` con `all_users` se rechaza sin enviar y se registra en log. **El grupo 6 de tasks queda ACTIVO** (implementación obligatoria, no condicional).
+- [x] 0.4 OQ4 resuelto: **NO** se mueve el destinatario admin (`danielsevilla@alia-data.com`, hardcodeado en `handle_new_user`) a configuración en este change — confirma la recomendación de D7. Fuera de alcance; si se decide más adelante, es un change aparte.
 - [ ] 0.5 Generar el valor del secreto (`openssl rand -hex 32`) y guardarlo en el gestor de secretos del PO. NO pegarlo en el repo, en el PR, ni en ningún artefacto de este change.
 - [ ] 0.6 Crear en Vault del proyecto de prod: `send_email_webhook_secret` (valor del 0.5) y `edge_functions_base_url` (`https://<project-ref>.supabase.co`).
 - [ ] 0.7 Configurar el secret de Edge Functions `SEND_EMAIL_WEBHOOK_SECRET` con **el mismo valor** del 0.5 (dashboard o `supabase secrets set`).
@@ -23,53 +28,54 @@
 
 ## 1. Red de seguridad (antes de tocar nada)
 
-- [ ] 1.1 Ejecutar la suite de vitest del frontend y anotar el baseline (`N tests passing`). Reportar fallos preexistentes sin corregirlos.
-- [ ] 1.2 Confirmar el estado vigente en prod antes del cambio: `email_logs` recientes con `status = 'sent'` y ausencia de errores en los logs de `send-email`.
-- [ ] 1.3 Confirmar que `deploy.yml` sigue ejecutando `db push` (paso "Deploy Database Migrations") **antes** de `functions deploy` (paso "Deploy Edge Functions") en el mismo job — es la propiedad que hace seguro el orden de despliegue (design.md §Migration Plan).
+- [x] 1.1 Baseline vitest del frontend: **638/638 tests passing** (85 test files), sin fallos preexistentes. Ruido no bloqueante: warnings `HTMLCanvasElement.getContext` de jsdom (recharts), no son fallos.
+- [x] 1.2 Estado vigente en prod confirmado (MCP read-only, proyecto `gxdhpxvdjjkmxhdkkwyb`): `email_logs` recientes (últimos 10) todos `status = 'sent'` con `provider_id`/`sent_at` poblados — el flujo real funciona. Logs de `edge-function` (`send-email`) muestran ráfagas masivas de `POST | 400` (decenas por ráfaga, varias ráfagas en las últimas 24h) — confirma en vivo el defecto descrito en el proposal: las ráfagas de CI siguen llegando a prod y solo las frena la validación de forma (400), no un control de origen.
+- [x] 1.3 Confirmado en `.github/workflows/deploy.yml`: línea 59-60 `Deploy Database Migrations` (`supabase db push --include-all`) corre **antes** que línea 62-63 `Deploy Edge Functions` (`supabase functions deploy --no-verify-jwt`), mismo job. El orden que hace seguro el Migration Plan (D-mismo-PR) está vigente.
 
 ## 2. Módulo compartido de verificación (TDD)
 
-- [ ] 2.1 **RED** — Crear `frontend/__tests__/send-email-webhook-auth.test.ts` importando por ruta relativa el archivo real `../../supabase/functions/_shared/webhook-auth.ts` (todavía inexistente) y afirmando que un secreto correcto devuelve `{ ok: true }`. Ejecutar: debe fallar.
-- [ ] 2.2 **GREEN** — Crear `supabase/functions/_shared/webhook-auth.ts` con `verifyWebhookSecret(provided, expected)` y el tipo `WebhookAuthResult`, sin ninguna referencia a `Deno.*` en scope de módulo (D5). Implementar lo mínimo para pasar. Ejecutar: verde.
-- [ ] 2.3 **TRIANGULATE** — Agregar casos que quiebren cualquier implementación de conveniencia: secreto incorrecto → `{ ok:false, status:401 }`; header ausente (`null`) → 401; `expected` ausente (`undefined`) → `{ ok:false, status:503, reason:'misconfigured' }`; `expected` cadena vacía → 503 (una configuración vacía NO es un secreto válido); provisto vacío contra esperado no vacío → 401. Ejecutar tras cada caso.
-- [ ] 2.4 **TRIANGULATE** — Cubrir explícitamente que valores de igual longitud pero distinto contenido, y de distinta longitud, den ambos 401 (la comparación en tiempo constante no debe cambiar el resultado funcional).
-- [ ] 2.5 **REFACTOR** — Extraer la comparación en tiempo constante a un helper interno con nombre claro; documentar en comentario por qué no se usa `===`. Suite verde después de cada paso.
+- [x] 2.1 **RED** — Creado `frontend/__tests__/send-email-webhook-auth.test.ts` importando por ruta relativa `../../supabase/functions/_shared/webhook-auth.ts` (inexistente en ese momento) y afirmando que un secreto correcto devuelve `{ ok: true }`. Ejecutado: falló con `Failed to resolve import ... Does the file exist?` (confirmado, no test spuriamente verde).
+- [x] 2.2 **GREEN** — Creado `supabase/functions/_shared/webhook-auth.ts` con `verifyWebhookSecret(provided, expected)` y el tipo `WebhookAuthResult`, sin ninguna referencia a `Deno.*` en scope de módulo (D5). Ejecutado: verde (1/1).
+- [x] 2.3 **TRIANGULATE** — Agregados: secreto incorrecto → 401; header ausente (`null`) → 401; `expected` ausente (`undefined`) → 503 `misconfigured`; `expected` cadena vacía → 503; provisto vacío contra esperado no vacío → 401. Ejecutado tras cada caso: verde.
+- [x] 2.4 **TRIANGULATE** — Cubierto: mismo largo/distinto contenido → 401; más corto → 401; más largo → 401 (la comparación en tiempo constante no cambia el resultado funcional). 9/9 verde.
+- [x] 2.5 **REFACTOR** — La comparación en tiempo constante ya vive en un helper interno (`constantTimeEquals`) con comentario explicando por qué no se usa `===`/`!==` (short-circuit en el primer byte distinto filtraría timing). Sin cambios adicionales necesarios — la implementación GREEN ya siguió D3/D5 al pie de la letra dado que el diseño especifica la forma exacta. Suite re-ejecutada tras la revisión: 9/9 verde.
 
 ## 3. Edge Function `send-email` (TDD sobre el módulo, cambio mínimo en el handler)
 
-- [ ] 3.1 Modificar `supabase/functions/send-email/index.ts` para que la **primera** operación del handler lea el header `x-webhook-secret` y `Deno.env.get('SEND_EMAIL_WEBHOOK_SECRET')`, invoque `verifyWebhookSecret` y traduzca el resultado a `Response` (401 `unauthorized` / 503 `misconfigured`), **antes** de `req.text()` y antes de cualquier uso de Resend.
-- [ ] 3.2 Verificar que el rechazo no escribe en `email_logs`: el `return` ocurre antes de construir cualquier `UPDATE` (cierra el vector "UPDATE con id ajeno" descrito en design.md §Context).
-- [ ] 3.3 Dejar intacto el resto del handler: plantillas, adjuntos, fan-out y actualizaciones de estado no cambian (no-BREAKING).
-- [ ] 3.4 Registrar en log el rechazo con su causa distinguible (401 vs 503) y sin volcar el secreto ni el valor recibido.
-- [ ] 3.5 Ejecutar la suite completa: verde, sin regresiones respecto del baseline de 1.1.
+- [x] 3.1 Modificado `supabase/functions/send-email/index.ts`: la primera operación dentro del `try` del handler lee `req.headers.get("x-webhook-secret")` y `Deno.env.get('SEND_EMAIL_WEBHOOK_SECRET')`, invoca `verifyWebhookSecret` (importado del módulo probado en el grupo 2) y traduce el resultado a `Response` (401/503) **antes** de `const rawBody = await req.text()` y antes de cualquier uso de Resend.
+- [x] 3.2 Verificado: el `return` del rechazo ocurre antes de `record`/`id` siquiera existir — no hay ningún `UPDATE` posible en esa rama (cierra el vector "UPDATE con id ajeno").
+- [x] 3.3 Resto del handler intacto: plantillas, adjuntos y actualizaciones de estado sin cambios funcionales (no-BREAKING) salvo la allowlist del grupo 6 (ver abajo, activo por sign-off).
+- [x] 3.4 Log del rechazo: `console.error` con `authResult.reason` y `authResult.status` únicamente — nunca `providedSecret` ni `expectedSecret`.
+- [x] 3.5 Suite completa ejecutada: **654/654** verde (638 baseline + 16 nuevos: 9 de `send-email-webhook-auth.test.ts` + 7 de `send-email-fanout-policy.test.ts`, grupo 6). Sin regresiones.
 
 ## 4. Migración: trigger endurecido + gates SQL
 
-- [ ] 4.1 Crear el archivo de migración con `supabase migration new send_email_webhook_hardening` (nunca inventar el timestamp a mano).
-- [ ] 4.2 Reescribir `public.send_email_log_webhook()` con `CREATE OR REPLACE`: `SECURITY DEFINER`, `SET search_path TO 'public','vault'`, leyendo `send_email_webhook_secret` y `edge_functions_base_url` de `vault.decrypted_secrets`.
-- [ ] 4.3 Implementar el guard de entorno (D2): si cualquiera de los dos valores es `NULL` → `RAISE NOTICE` y `RETURN NEW` sin emitir HTTP. Verificar que la ausencia de configuración jamás aborta el `INSERT` del productor.
-- [ ] 4.4 Implementar el corte por estado (D6): si `NEW.status IS DISTINCT FROM 'pending'` → `RETURN NEW` sin emitir HTTP.
-- [ ] 4.5 Emitir `net.http_post` hacia `<edge_functions_base_url>/functions/v1/send-email` con los headers `Content-Type: application/json` y `x-webhook-secret: <secreto>`, y el mismo body `{type, table, record}` de hoy (contrato de payload sin cambios).
-- [ ] 4.6 Recrear el trigger con `DROP TRIGGER IF EXISTS on_email_log_insert ON public.email_logs;` + `CREATE TRIGGER ... AFTER INSERT ... FOR EACH ROW`.
-- [ ] 4.7 Confirmar que la migración **no** contiene ninguna URL de proyecto literal, ningún valor de secreto, ni ninguna llamada a `vault.create_secret` (fallaría en la segunda pasada del pipeline y obligaría a poner el valor en el repo).
-- [ ] 4.8 Verificar re-aplicabilidad: aplicar la migración **dos veces** seguidas sobre la misma base local y comprobar que el resultado es idéntico (el pipeline la aplica dos veces por diseño: integración GitHub + `db push` de Actions).
-- [ ] 4.9 Añadir el encabezado de comentario con contexto, governance CRÍTICO, orden de despliegue e idempotencia, siguiendo la convención de `20260819000001_billing_edge_effective_plan.sql`.
+- [x] 4.1 Migración creada con `supabase migration new send_email_webhook_hardening` → `supabase/migrations/20260731222521_send_email_webhook_hardening.sql`.
+- [x] 4.2 `public.send_email_log_webhook()` reescrita con `CREATE OR REPLACE`: `SECURITY DEFINER`, `SET search_path TO 'public', 'vault'`, leyendo `send_email_webhook_secret` y `edge_functions_base_url` de `vault.decrypted_secrets`.
+- [x] 4.3 Guard de entorno (D2) implementado: `IF v_webhook_secret IS NULL OR v_base_url IS NULL THEN RAISE NOTICE ...; RETURN NEW; END IF;`. Verificado en local (gate f): el `INSERT` del productor se confirma con `status = 'pending'` intacto — la ausencia de configuración nunca aborta la transacción.
+- [x] 4.4 Corte por estado (D6) implementado: `IF NEW.status IS DISTINCT FROM 'pending' THEN RETURN NEW; END IF;`, ANTES de leer Vault (más barato). Verificado (gate g).
+- [x] 4.5 `net.http_post` hacia `v_base_url || '/functions/v1/send-email'` con headers `Content-Type: application/json` y `x-webhook-secret: <secreto de Vault>`, mismo body `{type, table, record}` de hoy — contrato de payload sin cambios.
+- [x] 4.6 Trigger recreado: `DROP TRIGGER IF EXISTS on_email_log_insert ON public.email_logs;` + `CREATE TRIGGER ... AFTER INSERT ... FOR EACH ROW`.
+- [x] 4.7 Confirmado por grep sobre el archivo: los únicos `supabase.co` son (i) un placeholder `<project-ref>.supabase.co` dentro de un comentario `--` instructivo, y (ii)-(iv) la lógica del propio gate (b) que verifica la AUSENCIA de esa cadena. Los únicos `vault.create_secret` son comentarios `--` documentando el setup fuera de banda del PO (mismo patrón que `20260719000001_c27_cae_relay_trigger.sql`) — cero SQL ejecutable crea secretos.
+- [x] 4.8 Re-aplicabilidad verificada en local (Docker, `supabase_db_v0-saa-s-empresarial-completo`): (1) `supabase db reset --local` completo (replay de TODA la historia de migraciones) — gates a-g PASSED; (2) el archivo de esta migración re-ejecutado DIRECTAMENTE vía `psql -f` DOS VECES MÁS seguidas sobre la misma base ya migrada (sin reset entre medio) — sin errores, `pg_proc`/`pg_trigger` muestran exactamente 1 función y 1 trigger tras las 3 aplicaciones acumuladas (CREATE OR REPLACE + DROP TRIGGER IF EXISTS confirmado sin efecto acumulativo, lección 42725). Las reaplicaciones directas mostraron (e)/(f)/(g) en `f` porque `accounts` ya no estaba vacía en ese punto (3 cuentas remanentes de migraciones posteriores) — esperado, no es un fallo (mismo comportamiento degrade-sin-abortar que el resto del repo). Reset final limpio re-confirma a-g en `t`.
+- [x] 4.9 Encabezado añadido siguiendo la convención de `20260819000001_billing_edge_effective_plan.sql`: contexto, governance CRÍTICO + sign-off, decisiones D1/D2/D4/D6, idempotencia, orden de despliegue, pre-requisito fuera de banda, rollback, verification.
 
 ## 5. Gates SQL embebidos en la migración
 
-- [ ] 5.1 **Estructurales (siempre, prod y CI):** `send_email_log_webhook` existe con exactamente **una** definición (lección 42725), es `SECURITY DEFINER` y tiene `search_path` fijado.
-- [ ] 5.2 **Estructural:** el cuerpo de la función **no** contiene ninguna URL literal `*.supabase.co` ni la cadena del secreto — verificable con `pg_get_functiondef` (`prosrc NOT LIKE '%supabase.co%'`).
-- [ ] 5.3 **Estructural:** el cuerpo referencia `vault.decrypted_secrets` y el header `x-webhook-secret`.
-- [ ] 5.4 **Estructural:** el trigger `on_email_log_insert` existe, es `AFTER INSERT ... FOR EACH ROW` sobre `public.email_logs`, y hay exactamente uno.
-- [ ] 5.5 **Comportamiento (solo con `public.accounts` vacía = CI):** insertar una fila `pending` en `email_logs` sin secretos en Vault y comprobar que **no** se creó ninguna fila nueva en `net.http_request_queue` / `net._http_response` — es la prueba directa de que las ráfagas se terminaron. Limpieza best-effort del anchor sintético.
-- [ ] 5.6 **Comportamiento (solo con `accounts` vacía):** el `INSERT` de 5.5 se confirma igual (la fila queda en `email_logs`), demostrando que el guard no aborta la transacción del productor.
-- [ ] 5.7 **Comportamiento (solo con `accounts` vacía):** control negativo del corte por estado — insertar una fila con `status = 'sent'` y comprobar que tampoco genera tráfico.
+- [x] 5.1 **Estructural:** gate (a) — `send_email_log_webhook` con exactamente 1 definición (lección 42725), `SECURITY DEFINER` y `search_path` fijado (verificado vía `proconfig`). PASSED.
+- [x] 5.2 **Estructural:** gate (b) — `pg_get_functiondef` del cuerpo NOT ILIKE `%supabase.co%`. PASSED.
+- [x] 5.3 **Estructural:** gate (c) — el cuerpo referencia `vault.decrypted_secrets` Y `x-webhook-secret`. PASSED.
+- [x] 5.4 **Estructural:** gate (d) — trigger `on_email_log_insert`, `AFTER INSERT ... FOR EACH ROW` sobre `public.email_logs`, exactamente 1 (vía `information_schema.triggers`). PASSED.
+- [x] 5.5 **Comportamiento (solo `accounts` vacía):** gate (e) — INSERT `pending` sin secretos en Vault; `net.http_request_queue` no creció (conteo antes/después idéntico). PASSED — prueba directa de que las ráfagas de CI se terminan en el trigger, antes de llegar a la función. Anchor con `event_type` propio (`gate_send_email_webhook_hardening_pending`) para no chocar con `UNIQUE NULLS NOT DISTINCT (user_id, event_type, metadata)` de `email_logs` (20250101000008) — **gotcha encontrado y corregido en TDD** (ver desviaciones). Limpieza best-effort al final del bloque.
+- [x] 5.6 **Comportamiento:** gate (f) — la fila del anchor de 5.5 persiste con `status = 'pending'` intacto tras el guard. PASSED.
+- [x] 5.7 **Comportamiento:** gate (g) — control negativo, INSERT con `status = 'sent'` (anchor con `event_type` distinto, mismo motivo que 5.5): `net.http_request_queue` tampoco creció. PASSED.
+- [x] **Verificación adicional (no listada explícitamente en tasks, cubre el escenario normativo "El trigger envía el header de autenticación" de `spec.md`):** con ambos secretos presentes en Vault (creados y borrados manualmente en local, fuera de la migración), un `INSERT pending` SÍ encola una request en `net.http_request_queue` con `url` = `<edge_functions_base_url>/functions/v1/send-email` y `headers->>'x-webhook-secret'` = el valor de Vault. Confirma D1/D4 end-to-end.
 
-## 6. Fan-out `all_users` — CONDICIONAL a OQ3 = sí
+## 6. Fan-out `all_users` — ACTIVO (OQ3 = sí, sign-off PO 2026-07-31)
 
-- [ ] 6.1 Si el PO aprueba OQ3: restringir en `send-email` el fan-out `recipient = 'all_users'` a una allowlist de `event_type` (`meeting_notice`, `pool_notice`); cualquier otro `event_type` con ese destinatario se rechaza sin enviar y se registra en log.
-- [ ] 6.2 Si el PO aprueba OQ3: cubrir la allowlist con tests en el módulo compartido siguiendo el mismo ciclo TDD del grupo 2.
-- [ ] 6.3 Si OQ3 = no: dejar constancia en el PR de que el riesgo queda **aceptado** y documentado en `design.md` §Risks. No implementar nada.
+- [x] 6.1 Implementado: nuevo módulo puro `supabase/functions/_shared/email-fanout-policy.ts` con `isAllUsersFanoutAllowed(eventType)` (allowlist `meeting_notice`/`pool_notice`). Wireado en `send-email/index.ts` — dentro de la rama `recipient === "all_users"`, si el `event_type` no está en la allowlist: NO se llama `auth.admin.listUsers()` ni se envía ningún correo, se actualiza `email_logs` a `status: "failed"` con `error_details` describiendo el rechazo (decisión de implementación: da estado terminal a la fila en vez de dejarla `pending` para siempre — no especificado explícitamente en tasks.md, documentado acá), se loguea con `console.error` (incluye `event_type`, nunca datos de usuarios), y se responde HTTP 403.
+- [x] 6.2 Cobertura TDD en `frontend/__tests__/send-email-fanout-policy.test.ts` (mismo ciclo RED→GREEN→TRIANGULATE que el grupo 2): RED confirmado (`Failed to resolve import`), GREEN (7/7), triangulación cubre ambos event_type permitidos, dos rechazados explícitos (`welcome`, `new_user_admin_notice`), uno arbitrario, cadena vacía y sensibilidad a mayúsculas/minúsculas.
+- [x] 6.3 No aplica (OQ3 = sí).
 
 ## 7. Despliegue y verificación en producción
 

@@ -1,5 +1,7 @@
 import { Resend } from "npm:resend";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { verifyWebhookSecret } from "../_shared/webhook-auth.ts";
+import { isAllUsersFanoutAllowed } from "../_shared/email-fanout-policy.ts";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -65,6 +67,26 @@ function infoRow(label: string, value: string): string {
 
 Deno.serve(async (req: Request) => {
   try {
+    // send-email-webhook-hardening (D3/D4): the FIRST operation of the
+    // handler authenticates the caller, before parsing the body and before
+    // any use of Resend. Only the production trigger (via pg_net) knows the
+    // secret it reads from Supabase Vault; verify_jwt cannot be used here
+    // (design.md §Restricción central). A rejection returns immediately —
+    // no `email_logs` row is read or written, closing the "UPDATE with an
+    // attacker-chosen id" vector (design.md §Context).
+    const providedSecret = req.headers.get("x-webhook-secret");
+    const expectedSecret = Deno.env.get("SEND_EMAIL_WEBHOOK_SECRET");
+    const authResult = verifyWebhookSecret(providedSecret, expectedSecret);
+    if (!authResult.ok) {
+      // Log the cause (401 vs 503) for observability, WITHOUT ever logging
+      // the provided or expected secret values.
+      console.error(`[send-email] webhook auth rejected: ${authResult.reason} (HTTP ${authResult.status})`);
+      return new Response(JSON.stringify({ error: authResult.reason }), {
+        status: authResult.status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const rawBody = await req.text();
     console.log("Raw Webhook Payload:", rawBody);
 
@@ -239,6 +261,28 @@ Deno.serve(async (req: Request) => {
     // Recipient logic
     let toAddresses: string[] = [];
     if (recipient === "all_users") {
+      // send-email-webhook-hardening group 6 (ACTIVO, sign-off PO 2026-07-31,
+      // OQ3 = sí): tras la autenticación del webhook, el fan-out masivo deja
+      // de ser alcanzable desde afuera pero sigue siendo un riesgo de
+      // accidente interno — un INSERT equivocado en email_logs dispararía un
+      // envío a TODOS los usuarios reales sin confirmación. Se restringe a
+      // los event_type pensados para llegar a todos (avisos de comunidad).
+      if (!isAllUsersFanoutAllowed(event_type)) {
+        console.error(`[send-email] all_users fan-out rejected for disallowed event_type: ${event_type}`);
+        await supabase.from("email_logs").update({
+          status: "failed",
+          error_details: JSON.stringify({
+            error: "all_users fan-out not allowed for this event_type",
+            event_type,
+          }),
+        }).eq("id", id);
+
+        return new Response(
+          JSON.stringify({ error: "all_users fan-out not allowed for this event_type" }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
       const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers();
       if (!usersError && usersData?.users) {
         toAddresses = usersData.users.map((u: any) => u.email).filter(Boolean) as string[];

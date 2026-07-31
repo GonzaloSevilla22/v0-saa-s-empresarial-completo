@@ -40,5 +40,5 @@
 - [x] 6.1 Ejecutar la suite backend completa dos veces seguidas (descarta flake) y confirmar el conteo de tests nuevos respecto del baseline de 1.1.
 - [x] 6.2 Confirmar que **no** se agregó ninguna migración SQL en `supabase/migrations/` (este change no toca la base de datos).
 - [x] 6.3 Confirmar que `backend/core/auth.py` no cambió el cómputo de `role` ni de `plan` — solo se agregó la declaración de tipo (Non-Goal explícito: el hook de rol es `v31-authz-token-hook`).
-- [ ] 6.4 Abrir el PR con la tabla de evidencia del ciclo TDD (tarea / archivo de test / safety net / RED / GREEN / TRIANGULATE / REFACTOR) y el antes/después del barrido de auditoría.
+- [x] 6.4 Abrir el PR con la tabla de evidencia del ciclo TDD (tarea / archivo de test / safety net / RED / GREEN / TRIANGULATE / REFACTOR) y el antes/después del barrido de auditoría.
 - [ ] 6.5 Verificación post-merge en el backend desplegado: ejercitar `POST /quotes`, `GET /clientes/{id}/cuenta` y `GET /proveedores/{id}/cuenta` con un usuario real y confirmar 2xx en lugar de 500. Registrar el resultado.

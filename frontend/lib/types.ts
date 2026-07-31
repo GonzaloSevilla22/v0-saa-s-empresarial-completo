@@ -25,6 +25,12 @@ export interface Account {
   trialPlan: Plan | null
   trialStartedAt: string | null
   trialExpiresAt: string | null
+  /**
+   * billing-pro-trial (D4): exención de cortesía explícita y auditable.
+   * Cuando es true, get_effective_plan()/getEffectivePlan() resuelven 'pro'
+   * sin importar billing_plan/trial_plan. Source of truth: accounts.billing_exempt.
+   */
+  billingExempt: boolean
   ownerUserId: string
   createdAt: string
 }
@@ -219,6 +225,8 @@ export interface User {
   trialPlan?: Plan
   /** ISO timestamp when the trial expires. Undefined for beta/active users. */
   trialExpiresAt?: string
+  /** billing-pro-trial (D4): exención de cortesía de la cuenta. */
+  billingExempt?: boolean
   /**
    * Computed plan used for all gating decisions (C-02/C-05). Derived from the
    * account's billingPlan with an override to trialPlan while a trial is active.
@@ -630,6 +638,7 @@ export type NotificationType =
   | "FiscalDocumentRejected"
   | "QuoteAccepted"
   | "TransferDispatched"
+  | "PlanLimitExceeded"
 
 export type NotificationSeverity = "info" | "warning" | "urgent"
 

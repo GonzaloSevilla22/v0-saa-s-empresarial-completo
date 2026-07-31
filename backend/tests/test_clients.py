@@ -39,10 +39,25 @@ async def test_get_clients_empty(async_client, valid_token, mock_pool):
     assert resp.json() == []
 
 
+def _plan_limits_row(max_products: int = 100, max_clients: int = 50, max_suppliers: int = 20) -> dict:
+    return {"max_products": max_products, "max_clients": max_clients, "max_suppliers": max_suppliers}
+
+
+def _client_create_fetchrow_side_effect(count: int = 0, max_clients: int = 50):
+    async def _side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row(max_clients=max_clients)
+        if "COUNT" in query:
+            return {"total": count}
+        return CLIENT_ROW
+
+    return _side_effect
+
+
 async def test_create_client_ok(async_client, mock_pool):
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
-    conn.fetchrow = AsyncMock(return_value=CLIENT_ROW)
+    conn.fetchrow = AsyncMock(side_effect=_client_create_fetchrow_side_effect(count=5))
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
             "/clients",
@@ -64,6 +79,79 @@ async def test_create_client_member_forbidden(async_client, mock_pool):
             headers={"Authorization": f"Bearer {member_token}"},
         )
     assert resp.status_code == 403
+
+
+# ── billing-pro-trial (D5, tasks 6.3/6.4): límite de clientes por plan ───────
+
+
+async def test_create_client_plan_gratis_over_limit_returns_403(async_client, mock_pool):
+    """Plan gratis: max_clients=50 (plan_limits). El cliente 51 se rechaza."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user", "app_metadata": {"plan": "gratis"}})
+    conn.fetchrow = AsyncMock(side_effect=_client_create_fetchrow_side_effect(count=50, max_clients=50))
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={"name": "Cliente 51"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 403
+    assert "límite" in resp.json()["detail"].lower() or "plan" in resp.json()["detail"].lower()
+
+
+async def test_create_client_ok_under_limit(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user", "app_metadata": {"plan": "gratis"}})
+    conn.fetchrow = AsyncMock(side_effect=_client_create_fetchrow_side_effect(count=49, max_clients=50))
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={"name": "Cliente 50"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+
+
+async def test_create_client_excess_of_other_resource_does_not_block(async_client, mock_pool):
+    """TRIANGULATE (6.6.a): excedente de PRODUCTOS no bloquea la creación de un
+    CLIENTE — el guard es por recurso, no global a la cuenta."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user", "app_metadata": {"plan": "gratis"}})
+    # 9 clientes, muy por debajo del límite — el excedente sería en productos,
+    # que este endpoint ni consulta.
+    conn.fetchrow = AsyncMock(side_effect=_client_create_fetchrow_side_effect(count=9, max_clients=50))
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={"name": "Cliente nuevo"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+
+
+async def test_client_count_for_plan_limit_excludes_soft_deleted(async_client, mock_pool):
+    """El contador del límite de plan no cuenta clientes borrados."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    count_sql = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row()
+        if "COUNT" in query:
+            count_sql["sql"] = query
+            return {"total": 5}
+        return CLIENT_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/clients",
+            json={"name": "Cliente"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "deleted_at IS NULL" in count_sql["sql"]
 
 
 async def test_get_client_cross_org_returns_404(async_client, mock_pool):
@@ -89,10 +177,21 @@ FISCAL_CLIENT_ROW = {
 }
 
 
+def _fiscal_fetchrow_side_effect(insert_row: dict):
+    async def _side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row()
+        if "COUNT" in query:
+            return {"total": 5}
+        return insert_row
+
+    return _side_effect
+
+
 async def test_create_client_with_fiscal_identity(async_client, mock_pool):
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
-    conn.fetchrow = AsyncMock(return_value=FISCAL_CLIENT_ROW)
+    conn.fetchrow = AsyncMock(side_effect=_fiscal_fetchrow_side_effect(FISCAL_CLIENT_ROW))
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
             "/clients",
@@ -118,7 +217,7 @@ async def test_create_client_without_fiscal_identity_returns_nulls(async_client,
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     row = {**CLIENT_ROW, "tax_id": None, "iva_condition": None, "legal_name": None}
-    conn.fetchrow = AsyncMock(return_value=row)
+    conn.fetchrow = AsyncMock(side_effect=_fiscal_fetchrow_side_effect(row))
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
             "/clients",

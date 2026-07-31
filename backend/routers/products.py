@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_repository import ProductRepository
 from backend.schemas.products import ProductCreate, ProductOut, ProductUpdate
 from backend.services import products as product_service
@@ -17,6 +18,10 @@ router = APIRouter(prefix="/products", tags=["products"])
 
 def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> ProductRepository:
     return ProductRepository(conn)
+
+
+def get_plan_limits_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PlanLimitsRepository:
+    return PlanLimitsRepository(conn)
 
 
 @router.get("", response_model=list[ProductOut])
@@ -44,8 +49,9 @@ async def create_product(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: ProductRepository = Depends(get_repo),
+    plan_limits_repo: PlanLimitsRepository = Depends(get_plan_limits_repo),
 ):
-    return await product_service.create_product(repo, auth, str(account_id), payload)
+    return await product_service.create_product(repo, auth, str(account_id), payload, plan_limits_repo)
 
 
 @router.put("/{product_id}", response_model=ProductOut)

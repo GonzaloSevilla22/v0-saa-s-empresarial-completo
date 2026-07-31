@@ -28,6 +28,8 @@ const TYPE_LABELS: Record<Notification["type"], string> = {
   FiscalDocumentRejected: "Comprobante fiscal rechazado",
   QuoteAccepted: "Presupuesto aceptado",
   TransferDispatched: "Transferencia despachada",
+  // billing-pro-trial (D9): aviso de excedente de plan.
+  PlanLimitExceeded: "Límite de plan excedido",
 }
 
 /**

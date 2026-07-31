@@ -4,6 +4,7 @@ import asyncpg
 from fastapi import HTTPException
 
 from backend.core.guards import require_role
+from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_repository import ProductRepository
 from backend.schemas.products import ProductCreate, ProductUpdate
 
@@ -11,12 +12,11 @@ from backend.schemas.products import ProductCreate, ProductUpdate
 # (fn_guard_product_soft_delete, migración 20260811000001).
 _RN_B4_SQLSTATE = "P0B04"
 
-PLAN_PRODUCT_LIMITS = {
-    "gratis": 100,
-    "inicial": 500,
-    "avanzado": 2000,
-    "pro": 999999,
-}
+# billing-pro-trial (D5): PLAN_PRODUCT_LIMITS retirado — el diccionario decía
+# avanzado=2000 mientras plan_limits en la DB decía 1500 (divergencia real,
+# invisible mientras el gating fue fail-open). El límite se lee ahora de
+# plan_limits en runtime (spec plan-gating), alineado a 2000 en la misma
+# migración que este change trae (20260817000001).
 
 
 async def list_products(repo: ProductRepository, account_id: str) -> list:
@@ -30,15 +30,22 @@ async def get_product(repo: ProductRepository, account_id: str, product_id: str)
     return dict(record)
 
 
-async def create_product(repo: ProductRepository, auth: dict, account_id: str, payload: ProductCreate) -> dict:
+async def create_product(
+    repo: ProductRepository,
+    auth: dict,
+    account_id: str,
+    payload: ProductCreate,
+    plan_limits_repo: PlanLimitsRepository,
+) -> dict:
     require_role(auth, ["user", "admin"])
     plan = auth.get("plan", "pro")
-    limit = PLAN_PRODUCT_LIMITS.get(plan, 100)
+    limits = await plan_limits_repo.get_limits(plan)
+    limit = limits["max_products"]
     current_count = await repo.count_by_org(account_id)
     if current_count >= limit:
         raise HTTPException(
             status_code=403,
-            detail=f"Límite de productos alcanzado para el plan {plan} ({limit} máx.)",
+            detail=f"Límite de productos alcanzado para el plan {plan} ({limit} máx.). Borrá productos existentes o subí de plan.",
         )
     record = await repo.create(auth["user_id"], account_id, payload.model_dump())
     if record is None:

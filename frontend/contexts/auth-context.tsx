@@ -92,12 +92,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .single(),
         supabase
           .from("account_members")
-          .select("account_id, role, accounts(billing_plan, billing_status, trial_plan, trial_started_at, trial_expires_at)")
+          .select("account_id, role, accounts(billing_plan, billing_status, trial_plan, trial_started_at, trial_expires_at, billing_exempt)")
           .eq("user_id", authUser.id)
           .single(),
       ])
 
-      // ── Resolve billing state from account (C-05 D5) ───────────────────────
+      // ── Resolve billing state from account (C-05 D5, billing-pro-trial D4) ─
       // Prefer the account's billing data; fall back to profile columns for
       // legacy compatibility while both sources are maintained in parallel.
       // Supabase infers the join as an array type; cast via unknown to get
@@ -108,12 +108,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         trial_plan: string | null
         trial_started_at: string | null
         trial_expires_at: string | null
+        billing_exempt: boolean | null
       } | null
 
       const billingPlan    = (accountRow?.billing_plan as Plan)    ?? (profile?.billing_plan as Plan) ?? "gratis"
       const billingStatus  = (accountRow?.billing_status as BillingStatus) ?? (profile?.billing_status as BillingStatus) ?? "trialing"
       const trialPlan      = (accountRow?.trial_plan as Plan | undefined) ?? (profile?.trial_plan as Plan | undefined)
       const trialExpiresAt = accountRow?.trial_expires_at ?? profile?.trial_expires_at ?? undefined
+      // billing-pro-trial (D4): ausente en profiles (legacy) → false. Solo
+      // accounts es la fuente — nunca se derivó de un default implícito.
+      const billingExempt  = accountRow?.billing_exempt ?? false
 
       const accountId   = membership?.account_id ?? ""
       const accountRole = (membership?.role as "owner" | "admin" | "member") ?? "owner"
@@ -131,7 +135,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           billingStatus,
           trialPlan,
           trialExpiresAt,
-          effectivePlan:  getEffectivePlan({ billingPlan, billingStatus, trialPlan, trialExpiresAt }),
+          billingExempt,
+          effectivePlan:  getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
           aiQueriesUsed:  profile.ai_queries_used ?? 0,
           aiAdviceUsed:   profile.ai_advice_used  ?? 0,
           role:           profile.role as UserRole,
@@ -162,7 +167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           billingStatus,
           trialPlan,
           trialExpiresAt,
-          effectivePlan: getEffectivePlan({ billingPlan, billingStatus, trialPlan, trialExpiresAt }),
+          billingExempt,
+          effectivePlan: getEffectivePlan({ billingPlan, trialPlan, trialExpiresAt, billingExempt }),
           aiQueriesUsed: 0,
           aiAdviceUsed:  0,
           role:          "user",

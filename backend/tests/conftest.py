@@ -26,6 +26,18 @@ def valid_token():
     return make_token()
 
 
+@pytest.fixture(autouse=True)
+def _clear_plan_limits_cache():
+    """billing-pro-trial: PlanLimitsRepository cachea en proceso (D5). Sin este
+    reset, un valor mockeado en un test filtraría al siguiente (mismo proceso
+    pytest, mismo dict a nivel de módulo)."""
+    from backend.repositories.plan_limits_repository import clear_cache
+
+    clear_cache()
+    yield
+    clear_cache()
+
+
 @pytest.fixture
 def mock_pool():
     """Reusable mock asyncpg pool for tests that need DB interaction."""

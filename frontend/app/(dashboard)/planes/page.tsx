@@ -29,7 +29,7 @@ export default async function PlanesPage() {
   // ── Current account billing state ─────────────────────────────────────────
   const { data: memberRow } = await supabase
     .from("account_members")
-    .select("account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at)")
+    .select("account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, billing_exempt)")
     .eq("user_id", user.id)
     .maybeSingle()
 
@@ -38,18 +38,20 @@ export default async function PlanesPage() {
     billing_status: string
     trial_plan: Plan | null
     trial_expires_at: string | null
+    billing_exempt: boolean | null
   } | null
 
   const billingPlan: Plan = accountData?.billing_plan ?? "gratis"
-  const billingStatus = accountData?.billing_status ?? "active"
   const trialPlan = accountData?.trial_plan ?? null
   const trialExpiresAt = accountData?.trial_expires_at ?? null
+  const billingExempt = accountData?.billing_exempt ?? false
 
+  // billing-pro-trial (D1/D6): getEffectivePlan NO lee billing_status.
   const effectivePlan = getEffectivePlan({
     billingPlan,
-    billingStatus: billingStatus as "active" | "trialing" | "expired" | "cancelled",
-    trialPlan: trialPlan ?? undefined,
-    trialExpiresAt: trialExpiresAt ?? undefined,
+    trialPlan,
+    trialExpiresAt,
+    billingExempt,
   })
 
   // ── plan_limits ───────────────────────────────────────────────────────────

@@ -1,8 +1,14 @@
 // Shared AI quota helper for Edge Functions — C-02 plan-gating-engine.
 //
 // Enforces the monthly AI-query quota per plan BEFORE calling OpenAI, and
-// increments the counter AFTER a successful call. Uses the same effective-plan
-// logic as the client (trial-aware).
+// increments the counter AFTER a successful call.
+//
+// billing-edge-effective-plan: the effective plan is resolved via
+// `_shared/effective-plan.ts` (the DB-normative `rpc_my_effective_plan()`),
+// NOT re-derived locally from `public.profiles`. The counters themselves
+// (`ai_queries_used`, `ai_advice_used`, `usage_reset_at`) stay in `profiles`
+// — out of scope for this change (D3/OQ-2) — so the `profiles` SELECT below
+// is narrowed to those counter columns only.
 //
 // Usage in an Edge Function (after auth, before OpenAI):
 //   const quota = await checkAiQuota(supabase, user.id, 'queries')
@@ -10,11 +16,53 @@
 //   ... call OpenAI ...
 //   await incrementAiUsage(supabase, user.id, 'queries')
 
-// deno-lint-ignore no-explicit-any
-type SupabaseClient = any
+import { resolveEffectivePlan, type EffectivePlanClient } from "./effective-plan.ts"
 
-type Plan = "gratis" | "inicial" | "avanzado" | "pro"
 type Counter = "queries" | "advice"
+
+interface QueryResult<T> {
+  data: T | null
+  error: { message: string } | null
+}
+
+interface AiUsageCounters {
+  ai_queries_used: number | null
+  ai_advice_used: number | null
+  usage_reset_at: string | null
+}
+
+interface AiPlanLimits {
+  max_ai_queries_per_month: number
+  max_ai_advice_per_month: number
+}
+
+interface SingleRowQuery<T> {
+  eq(column: string, value: string): { single(): Promise<QueryResult<T>> }
+}
+
+interface SelectableTable<T> {
+  select(columns: string): SingleRowQuery<T>
+}
+
+/**
+ * Minimal structural shape of the Supabase client this module needs — no
+ * `any` (project hard rule). Extends the effective-plan client so the same
+ * real client (or the same test double) satisfies both.
+ *
+ * `rpc` is declared as a proper TS overload set (both signatures repeated
+ * here, including the one inherited from `EffectivePlanClient`) — a derived
+ * interface cannot just ADD an incompatible overload for a method it
+ * inherits, it has to restate the full overload set for `extends` to type-check.
+ */
+export interface AiQuotaClient extends EffectivePlanClient {
+  from(table: "profiles"): SelectableTable<AiUsageCounters>
+  from(table: "plan_limits"): SelectableTable<AiPlanLimits>
+  rpc(fn: "rpc_my_effective_plan"): Promise<{ data: string | null; error: { message: string } | null }>
+  rpc(
+    fn: "rpc_increment_ai_usage",
+    args: { p_user_id: string; p_counter: Counter },
+  ): Promise<{ data: unknown; error: unknown }>
+}
 
 interface QuotaResult {
   allowed: boolean
@@ -27,43 +75,29 @@ interface QuotaResult {
   } | null
 }
 
-/** Trial-aware effective plan (mirrors lib/plan-utils.ts getEffectivePlan). */
-function getEffectivePlan(profile: {
-  billing_plan: string | null
-  billing_status: string | null
-  trial_plan: string | null
-  trial_expires_at: string | null
-}): Plan {
-  const now = new Date()
-  const trialActive =
-    profile.billing_status === "trialing" &&
-    profile.trial_plan != null &&
-    profile.trial_expires_at != null &&
-    new Date(profile.trial_expires_at) > now
-  const plan = trialActive ? profile.trial_plan : profile.billing_plan
-  return (plan ?? "gratis") as Plan
-}
-
 /**
  * Checks whether the user can make another AI call of the given kind.
  * Returns `{ allowed: true, body: null }` if within quota,
  * or `{ allowed: false, body: {...} }` (HTTP 429 payload) if exceeded.
  */
 export async function checkAiQuota(
-  supabase: SupabaseClient,
+  supabase: AiQuotaClient,
   userId: string,
   counter: Counter,
 ): Promise<QuotaResult> {
+  const effectivePlan = await resolveEffectivePlan(supabase)
+
   const { data: profile, error: profErr } = await supabase
     .from("profiles")
-    .select("billing_plan, billing_status, trial_plan, trial_expires_at, ai_queries_used, ai_advice_used, usage_reset_at")
+    .select("ai_queries_used, ai_advice_used, usage_reset_at")
     .eq("id", userId)
     .single()
 
-  // Fail open: if we can't read the profile, don't block the user.
+  // Fail open: if we can't read the counters, don't block the user. Only the
+  // PLAN resolution is fail-closed (D5) — without a counter there is nothing
+  // to compare against, and blocking here would be an availability failure,
+  // not an authorization one.
   if (profErr || !profile) return { allowed: true, body: null }
-
-  const effectivePlan = getEffectivePlan(profile)
 
   const { data: limits, error: limErr } = await supabase
     .from("plan_limits")
@@ -95,7 +129,7 @@ export async function checkAiQuota(
 
 /** Increments the user's AI usage counter after a successful call via an atomic DB-side RPC. */
 export async function incrementAiUsage(
-  supabase: SupabaseClient,
+  supabase: AiQuotaClient,
   userId: string,
   counter: Counter,
 ): Promise<void> {

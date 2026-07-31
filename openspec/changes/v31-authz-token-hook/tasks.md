@@ -1,5 +1,6 @@
 > **Modo TDD estricto.** Cada tarea de código va precedida por su test (RED) y el test debe fallar por la razón esperada antes de escribir la implementación (GREEN). Ninguna tarea `[x]` sin ejecución real de la suite.
-> **Governance CRÍTICO** — auth de 34 usuarios reales. El agente prepara, migra y testea; **la activación en producción (grupo 8) es acción del PO** y requiere OQ-1 resuelta (ver `design.md`). No se fabrican credenciales ni se inicia sesión en nombre de nadie.
+> **Governance CRÍTICO** — auth de 34 usuarios reales. El agente prepara, migra y testea; **la activación en producción (grupo 8) es acción del PO**. No se fabrican credenciales ni se inicia sesión en nombre de nadie.
+> **DEPENDENCIA DURA (amendment 2026-07-31)** — este change requiere **`billing-pro-trial` mergeado y con su backfill aplicado**: el claim `plan` llama a `public.get_effective_plan(account_id)`, que ese change introduce (`design.md` D3). Las tres OQ del propose quedaron resueltas por el sign-off del PO del 2026-07-31.
 
 ## 1. Red de seguridad y evidencia previa
 
@@ -8,6 +9,7 @@
 - [ ] 1.3 Re-verificar contra prod (read-only, MCP) los seis números que sostienen el diseño y pegarlos en el PR: distribución de `profiles.role`, de `account_members.role`, de `accounts.billing_plan`, cuentas con trial vigente, usuarios con 2+ membresías, y `count(*)` de `cost_centers`. **Si alguno cambió** respecto de `design.md` (§Context), detenerse y revisar D1/D3 antes de seguir.
 - [ ] 1.4 Barrido de call sites: contar `require_role(auth, [...])` por lista de roles y confirmar la partición del diseño (56 `["user","admin"]`, 3 `["owner","admin"]` en `cost_centers`, el resto individualmente identificado). Cualquier call site que no encaje en la partición se documenta antes de tocar nada.
 - [ ] 1.5 Confirmar los GRANTs actuales de `supabase_auth_admin` sobre `profiles`, `account_members` y `accounts` (esperado: sólo `profiles`).
+- [ ] 1.6 **Gate de dependencia** — verificar que `public.get_effective_plan(uuid)` existe en la base y devuelve un plan válido para un `account_id` real. Si no existe, **detenerse**: `billing-pro-trial` no está mergeado y el grupo 3 no puede completarse. La verificación debe fallar con un mensaje explícito, no dejar que el hook degrade en silencio por su `EXCEPTION WHEN OTHERS`.
 
 ## 2. Migración del hook — claims de rol (D1, D5)
 
@@ -20,9 +22,10 @@
 ## 3. Migración del hook — claim de plan (D3)
 
 - [ ] 3.1 **RED (DB)** — Extender el gate: el resultado debe contener `app_metadata.plan` con el plan **efectivo** de la cuenta. Caso obligatorio: cuenta con trial vigente de un plan superior → el claim trae el plan del trial, no el contratado. Ejecutar: falla.
-- [ ] 3.2 **GREEN** — Agregar la lectura de `accounts` al hook con la regla de plan efectivo de la capability `plan-gating` (trial vigente tiene precedencia), más `GRANT SELECT` + policy `auth_admin_can_read_account_plan` para `supabase_auth_admin` sobre `accounts`. Ejecutar: 3.1 pasa.
-- [ ] 3.3 **TRIANGULATE (DB)** — Casos adicionales en el gate: cuenta sin trial → `billing_plan`; cuenta con trial **vencido** → `billing_plan`; cuenta sin plan → el valor por defecto más restrictivo, nunca el más alto. Ejecutar: todos pasan.
-- [ ] 3.4 Documentar en la cabecera de la migración la salida de OQ-1 opción (c): qué línea exacta se comenta para emitir sólo los claims de rol, y que la migración es re-aplicable tal cual.
+- [ ] 3.2 **GREEN** — El hook llama a `public.get_effective_plan(account_id)` (**no** reimplementa la regla — D3) y emite el resultado como claim `plan`. Agregar `GRANT EXECUTE` sobre esa función para `supabase_auth_admin`. **No** hace falta `GRANT SELECT` ni policy sobre `accounts`: la función es `SECURITY DEFINER`. Ejecutar: 3.1 pasa.
+- [ ] 3.3 **TRIANGULATE (DB)** — Casos adicionales en el gate, verificando que el claim refleja exactamente lo que devuelve `get_effective_plan`: cuenta sin trial → `billing_plan`; cuenta con trial **vencido** → `billing_plan`; cuenta **exenta** → `pro`; cuenta sin información → `gratis`, nunca el plan más alto. Ejecutar: todos pasan.
+- [ ] 3.4 **TRIANGULATE (DB)** — Caso de fallo de dependencia: si `get_effective_plan` no existiera, el gate de la migración debe **fallar el `db push`** con un mensaje explícito, en vez de que el hook devuelva claims sin `plan` por el `EXCEPTION WHEN OTHERS`. Es el modo de fallo silencioso que D5 identifica.
+- [ ] 3.5 Documentar en la cabecera de la migración que la regla del plan efectivo vive en `get_effective_plan` (`billing-pro-trial`) y que este archivo **no** debe duplicarla; y que la migración es re-aplicable tal cual.
 
 ## 4. Cuenta activa determinística (D4)
 
@@ -56,9 +59,9 @@
 - [ ] 7.5 **GREEN/TRIANGULATE** — Confirmar que el enforcement queda correcto con el claim presente, y agregar el caso complementario: los productos **existentes** por encima del límite siguen siendo legibles y editables (sólo se impide crear).
 - [ ] 7.6 **REFACTOR** — Documentar en `backend/core/auth.py`, junto al default `"pro"`, que es un valor de **transición** ligado a la ventana de convivencia de tokens, con referencia a la capability `plan-gating`.
 
-## 8. Activación en producción — **MANUAL PO** (D7, gate OQ-1)
+## 8. Activación en producción — **MANUAL PO** (D7)
 
-- [ ] 8.1 **Gate OQ-1** — Ejecutar la query de reconciliación de plan (cuentas cuyo consumo actual excede el límite de su plan real, con nombre de cuenta, plan y conteo) y entregarla al PO. **Bloquea 8.3.** Registrar la decisión del PO: (a) enforcar, (b) grandfatherear, (c) diferir el claim `plan` (salida documentada en 3.4).
+- [ ] 8.1 **Verificación previa al corte** — Confirmar en prod (read-only) que las cuentas no exentas **siguen con trial PRO vigente** en el momento de activar. Es lo que hace que el corte no coincida con el enforcement (D3). Si el trial ya venció para alguna cuenta, ejecutar además la query de reconciliación (cuentas cuyo consumo excede el límite de su plan efectivo, con nombre, plan y conteo) y entregarla al PO antes de 8.3.
 - [ ] 8.2 Verificación previa a la activación (agente, read-only): invocar el hook en prod vía MCP con un `user_id` real y confirmar que devuelve los tres claims con los valores correctos. **La función ya está desplegada y dormida** — esto no cambia nada en producción.
 - [ ] 8.3 **MANUAL PO — activar el hook.** Instrucciones exactas: Supabase Dashboard → proyecto `gxdhpxvdjjkmxhdkkwyb` → **Authentication** → **Hooks (Beta)** → **Customize Access Token** → habilitar y seleccionar la función Postgres `public.custom_access_token_hook` → **Save**. Confirmar que la pantalla la muestra como habilitada. *(Alternativa a criterio del PO: `PATCH /v1/projects/{ref}/config/auth` de la Management API — requiere un Personal Access Token propio del PO; verificar los nombres exactos de los campos del toggle contra la referencia viva de la API antes de enviarla. El agente no maneja ese token.)*
 - [ ] 8.4 **MANUAL PO — verificar el claim en un usuario real.** Cerrar sesión y volver a entrar en la app; consultar `GET /auth/claims-status` desde esa sesión y confirmar las tres presencias en `true` con el rol y el plan correctos. **NO** verificar con `auth.users.raw_app_meta_data`: el hook no escribe esa columna y la query seguiría dando 0 con el hook perfectamente activo (D8).
@@ -70,6 +73,6 @@
 - [ ] 9.1 Ejecutar la suite backend completa dos veces seguidas (descarta flake) y confirmar el conteo de tests nuevos respecto del baseline de 1.1.
 - [ ] 9.2 Verificar que el frontend no requirió cambios (barrido de `app_metadata` en `frontend/`, esperado: 0 resultados) y dejarlo registrado.
 - [ ] 9.3 Correr los advisors de Supabase y confirmar que `function_search_path_mutable` ya no reporta `custom_access_token_hook`, y que las policies nuevas de `supabase_auth_admin` no abren ningún hallazgo.
-- [ ] 9.4 Abrir el PR con la tabla de evidencia del ciclo TDD (tarea / archivo de test / safety net / RED / GREEN / TRIANGULATE / REFACTOR), los números de prod de 1.3 y la decisión del PO sobre OQ-1.
-- [ ] 9.5 Actualizar la ficha de `v3-rbac-multirole` en `CHANGES.md`: marcar la dependencia dura `v31-authz-token-hook` como satisfecha y anotar el contrato de evolución `account_role` → `account_roles` (D2) para que el pivot no lo re-litigue.
-- [ ] 9.6 Registrar las Open Questions vivas (OQ-2 comunicación, OQ-3 selector de cuenta activa) donde el PO las vea, sin resolverlas en este change.
+- [ ] 9.4 Abrir el PR con la tabla de evidencia del ciclo TDD (tarea / archivo de test / safety net / RED / GREEN / TRIANGULATE / REFACTOR) y los números de prod de 1.3.
+- [ ] 9.5 Actualizar la ficha de `v3-rbac-multirole` en `CHANGES.md`: marcar la dependencia dura `v31-authz-token-hook` como satisfecha, anotar el contrato de evolución `account_role` → `account_roles` (D2) y que el **selector de cuenta activa** se diseña allá (OQ-3 resuelta).
+- [ ] 9.6 Confirmar que **no** se comunicó la activación a los usuarios (OQ-2 resuelta: sin anuncio) y que eso no se confunde con el aviso de excedente de `billing-pro-trial`, que sí existe y es de otro change.

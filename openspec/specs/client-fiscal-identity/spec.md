@@ -1,4 +1,10 @@
-## ADDED Requirements
+# client-fiscal-identity — Spec
+
+## Purpose
+
+Identidad fiscal (CUIT/DNI, condición IVA, razón social) asociada a los clientes, persistida en la DB, expuesta por la API de clientes y capturada/validada en el formulario del frontend.
+
+## Requirements
 
 ### Requirement: Persistencia de identidad fiscal del cliente
 La tabla `clients` SHALL incluir tres columnas opcionales (nullable): `tax_id TEXT` (CUIT o DNI), `iva_condition TEXT` y `legal_name TEXT` (razón social). `iva_condition` MUST estar restringida por CHECK constraint a los valores `'responsable_inscripto'`, `'monotributista'`, `'exento'`, `'consumidor_final'`.

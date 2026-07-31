@@ -1,4 +1,10 @@
-## ADDED Requirements
+# sales-channel — Spec
+
+## Purpose
+
+Canal de venta (instagram, mercadolibre, whatsapp, local, otro) asociado a cada operación de venta, usado para calcular el margen neto por canal en los reportes.
+
+## Requirements
 
 ### Requirement: Canal de venta en las ventas
 El sistema SHALL permitir asociar un canal de venta (ej. instagram, mercadolibre, whatsapp, local, otro) a cada operación de venta, persistido en la tabla `sales` con scope por cuenta.

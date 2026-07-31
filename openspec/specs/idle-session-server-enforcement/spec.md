@@ -1,4 +1,10 @@
-## ADDED Requirements
+# idle-session-server-enforcement — Spec
+
+## Purpose
+
+Server-side (middleware) enforcement of the idle-session timeout as defense-in-depth: a client-writable `lastActivity` cookie lets the middleware force a logout on protected routes when the client-side idle timer never fires, without introducing a new hard security boundary.
+
+## Requirements
 
 ### Requirement: Client writes a lastActivity cookie as the server activity signal
 

@@ -1,8 +1,10 @@
 # ai-usage-counters — Spec (ai-usage-counters-split)
 
-> Capability: **ai-usage-counters** — reset mensual automático de contadores IA, incremento atómico vía RPC, y hook frontend de uso IA.
+## Purpose
 
-## ADDED Requirements
+Reset mensual automático de contadores IA, incremento atómico vía RPC, y hook frontend de uso IA.
+
+## Requirements
 
 ### Requirement: Reset mensual automático de contadores IA
 

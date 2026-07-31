@@ -9,14 +9,18 @@
 
 ## 0. Gate de sign-off (bloqueante)
 
-- [ ] 0.1 Obtener sign-off explícito del PO sobre OQ-1 (vía de invocación), OQ-2 (contadores fuera de alcance), OQ-3 (fail-closed) y OQ-4 (multi-cuenta). Registrar la decisión en este archivo antes de continuar.
-- [ ] 0.2 Si OQ-1 se resuelve como opción (A) `service_role` en vez del wrapper RPC, saltear la sección 2 completa y ajustar la sección 3 para construir un cliente `service_role` dentro de cada Edge Function; el resto de las tasks no cambia.
+- [x] 0.1 **Sign-off explícito del PO obtenido 2026-07-31.** Las 4 Open Questions quedan resueltas exactamente según la recomendación de `proposal.md`:
+  - **OQ-1 (vía de invocación): opción (B)** — wrapper `rpc_my_effective_plan()` sin argumentos, `GRANT EXECUTE` a `authenticated`. Se ejecuta la sección 2 tal cual está escrita (ver 0.2).
+  - **OQ-2 (contadores de uso): fuera de alcance.** No se tocan `ai_queries_used`/`ai_advice_used`/`exports_used`/`usage_reset_at` en este change. Queda anotado como deuda para un change propio `billing-usage-counters-per-account` (task 8.5).
+  - **OQ-3 (comportamiento ante error transitorio): fail-closed en la resolución del plan** (degrada a `'gratis'`, nunca a un plan superior), **fail-open conservado en la lectura de `plan_limits`** (sin fila de límites no hay contra qué comparar).
+  - **OQ-4 (usuario multi-cuenta): regla determinista y documentada** — cuenta de la membresía más antigua (`account_members.created_at` ASC), desempate por `account_id`. No se introduce "cuenta activa" seleccionable (eso es `v3-rbac-multirole`).
+- [x] 0.2 **N/A.** OQ-1 se resolvió como opción (B), no (A) `service_role`. La sección 2 se ejecuta sin modificaciones respecto de lo escrito.
 
 ## 1. Red de seguridad (baseline antes de tocar nada)
 
-- [ ] 1.1 Ejecutar `pnpm vitest run` en `frontend/` y registrar el baseline exacto ("N tests passing"). Si algo ya falla, reportarlo como fallo preexistente y NO arreglarlo dentro de este change.
-- [ ] 1.2 Ejecutar la suite del backend (`pytest`) y registrar el baseline. Este change no toca `backend/`, así que el número debe quedar idéntico al final.
-- [ ] 1.3 Verificar con MCP read-only sobre el proyecto real (`gxdhpxvdjjkmxhdkkwyb`) que ninguna cuenta tiene `profiles.billing_plan` mayor que el plan efectivo de su cuenta — confirma el análisis de `design.md` § Risks de que ninguna cuenta pierde acceso al desplegar. Dejar el resultado registrado.
+- [x] 1.1 `pnpm vitest run` en `frontend/` (tras `pnpm install`, worktree sin `node_modules`). **Baseline: 610 tests / 83 archivos, 609 passed + 1 timeout flake** (`idle-server-enforcement.test.ts` > `'/auth/login' is NOT in PROTECTED_PREFIXES...`, `Test timed out in 5000ms`). Re-ejecutado el archivo aislado: **24/24 passed** — confirmado flake de carga/entorno (contención de recursos durante `import` de 177s en la corrida completa), no relacionado con ningún archivo de este change. Reportado como fallo preexistente/flake, NO se toca.
+- [x] 1.2 `pytest` desde la raíz del repo apuntando a `backend/tests` con `-c backend/pyproject.toml` (ejecutarlo con cwd=`backend/` rompe los tests que resuelven `supabase/migrations/...` por ruta relativa — no es un fallo real, es cwd). **Baseline: 1041 passed, 3 skipped**, 0 failures. Este change no toca `backend/`.
+- [x] 1.3 Verificado con MCP read-only sobre `gxdhpxvdjjkmxhdkkwyb`: join de `profiles` × `account_members` comparando el rank de `profiles.billing_plan` contra el rank de `get_effective_plan(account_id)` para las 34 cuentas reales. **0 filas** donde el rank de `profiles.billing_plan` supera al del plan efectivo de la cuenta — confirma el análisis de `design.md` § Risks: ninguna cuenta pierde acceso al desplegar este change.
 
 ## 2. RPC `rpc_my_effective_plan()` (migración aditiva)
 

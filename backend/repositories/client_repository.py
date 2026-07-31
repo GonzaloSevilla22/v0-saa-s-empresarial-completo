@@ -25,6 +25,16 @@ class ClientRepository(BaseRepository):
             account_id,
         )
 
+    async def count_by_org(self, account_id: str) -> int:
+        # billing-pro-trial (D5/D7): borrados no cuentan para el límite —
+        # borrar libera cupo, mismo patrón que ProductRepository.count_by_org.
+        row = await self.fetchrow(
+            "SELECT COUNT(*) AS total FROM clients WHERE account_id = $1"
+            + self.not_deleted_clause(),
+            account_id,
+        )
+        return int(row["total"]) if row else 0
+
     async def create(self, user_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
         return await self.fetchrow(
             """

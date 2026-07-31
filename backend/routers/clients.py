@@ -9,6 +9,7 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.repositories.client_repository import ClientRepository
+from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.schemas.clients import ClientCreate, ClientOut, ClientUpdate
 from backend.services import clients as client_service
 
@@ -17,6 +18,10 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 
 def get_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> ClientRepository:
     return ClientRepository(conn)
+
+
+def get_plan_limits_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PlanLimitsRepository:
+    return PlanLimitsRepository(conn)
 
 
 @router.get("", response_model=list[ClientOut])
@@ -44,8 +49,9 @@ async def create_client(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: ClientRepository = Depends(get_repo),
+    plan_limits_repo: PlanLimitsRepository = Depends(get_plan_limits_repo),
 ):
-    return await client_service.create_client(repo, auth, str(account_id), payload)
+    return await client_service.create_client(repo, auth, str(account_id), payload, plan_limits_repo)
 
 
 @router.put("/{client_id}", response_model=ClientOut)

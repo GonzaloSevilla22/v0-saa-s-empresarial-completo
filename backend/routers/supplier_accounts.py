@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
 from backend.repositories.supplier_account_repository import SupplierAccountRepository
 from backend.schemas.supplier_accounts import (
@@ -56,11 +57,11 @@ async def get_supplier_account(
     supplier_id: uuid.UUID,
     auth: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_conn),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Devuelve el saldo actual + historial de la cuenta corriente del proveedor."""
-    account_id = auth.get("account_id") or auth.get("sub", "")
     repo = SupplierAccountRepository(conn)
-    return await supplier_account_service.get_account(repo, account_id, str(supplier_id))
+    return await supplier_account_service.get_account(repo, str(account_id), str(supplier_id))
 
 
 @router.get("/supplier-accounts/{supplier_account_id}/movements", response_model=SupplierMovementPageOut)

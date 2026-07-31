@@ -1,9 +1,29 @@
+from typing import TypedDict
+
 from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 import jwt as pyjwt
 from jwt import PyJWKClient, PyJWTError
 from jwt.exceptions import PyJWKClientError
 from backend.core.config import settings
+
+
+class AuthContext(TypedDict):
+    """Contrato tipado del contexto que produce `get_current_user`.
+
+    Declaración normativa: cualquier clave que el dependency produzca debe
+    estar acá, y cualquier clave declarada acá debe ser producida por el
+    dependency (verificado por el test de contrato anti-deriva en
+    backend/tests/test_auth.py). Las tres claves están siempre presentes:
+    `user_id` viene de `payload["sub"]` (obligatorio en cualquier JWT de
+    Supabase), y `role`/`plan` tienen fallback incondicional — por eso
+    `total=True` (default) y no `NotRequired`.
+    """
+
+    user_id: str
+    role: str
+    plan: str
+
 
 _jwks_client: PyJWKClient | None = None
 
@@ -19,7 +39,7 @@ def get_jwks_client() -> PyJWKClient:
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
     """Validate a Supabase-issued JWT and extract user_id + role.
 
     Production: uses JWKS (ES256/RS256) when supabase_url is configured.

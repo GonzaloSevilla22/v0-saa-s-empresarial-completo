@@ -320,7 +320,7 @@ class TestEmitSubscriptionPaymentRouter:
         mock_conn = AsyncMock()
 
         def fake_non_admin():
-            return {"user_id": str(uuid.uuid4()), "role": "user"}
+            return {"user_id": str(uuid.uuid4()), "role": "user", "plan": "pro"}
 
         async def fake_conn():
             yield mock_conn
@@ -369,7 +369,7 @@ class TestEmitSubscriptionPaymentRouter:
         mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB (guard)
 
         def fake_admin():
-            return {"user_id": str(uuid.uuid4()), "role": "admin"}
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
 
         async def fake_conn():
             yield mock_conn
@@ -421,7 +421,7 @@ class TestGetFiscalDocByReceipt:
         mock_conn.fetchval.return_value = "admin"  # profiles.role en la DB (guard)
 
         def fake_admin():
-            return {"user_id": str(uuid.uuid4()), "role": "admin"}
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
 
         async def fake_conn():
             yield mock_conn
@@ -461,7 +461,7 @@ class TestGetFiscalDocByReceipt:
         }
 
         def fake_admin():
-            return {"user_id": str(uuid.uuid4()), "role": "admin"}
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
 
         async def fake_conn():
             yield mock_conn
@@ -492,7 +492,7 @@ class TestGetFiscalDocByReceipt:
         mock_conn = AsyncMock()
 
         def fake_user():
-            return {"user_id": str(uuid.uuid4()), "role": "user"}
+            return {"user_id": str(uuid.uuid4()), "role": "user", "plan": "pro"}
 
         async def fake_conn():
             yield mock_conn

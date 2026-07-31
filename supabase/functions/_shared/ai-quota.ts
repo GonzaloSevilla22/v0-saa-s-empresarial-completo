@@ -48,10 +48,16 @@ interface SelectableTable<T> {
  * Minimal structural shape of the Supabase client this module needs — no
  * `any` (project hard rule). Extends the effective-plan client so the same
  * real client (or the same test double) satisfies both.
+ *
+ * `rpc` is declared as a proper TS overload set (both signatures repeated
+ * here, including the one inherited from `EffectivePlanClient`) — a derived
+ * interface cannot just ADD an incompatible overload for a method it
+ * inherits, it has to restate the full overload set for `extends` to type-check.
  */
 export interface AiQuotaClient extends EffectivePlanClient {
   from(table: "profiles"): SelectableTable<AiUsageCounters>
   from(table: "plan_limits"): SelectableTable<AiPlanLimits>
+  rpc(fn: "rpc_my_effective_plan"): Promise<{ data: string | null; error: { message: string } | null }>
   rpc(
     fn: "rpc_increment_ai_usage",
     args: { p_user_id: string; p_counter: Counter },

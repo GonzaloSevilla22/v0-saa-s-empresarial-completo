@@ -79,19 +79,26 @@ El hook emite bajo `app_metadata`:
 
 Esto se escribe acá, en el spec de `authz-token-claims`, y **no** se implementa acá. El motivo de dejarlo explícito: es la pregunta que va a reaparecer en el propose de `v3-rbac-multirole`, y la respuesta correcta (agregar una clave nueva, no cambiar la forma de una existente) es la misma lección que D1 acaba de pagar.
 
-### D3 — El claim `plan` lleva el plan **efectivo** (trial incluido), y su activación pasa por un gate del PO
+### D3 — El claim `plan` lleva el plan **efectivo**, computado por `get_effective_plan` (resuelto por el PO, 2026-07-31)
 
-La capability `plan-gating` ya define el plan efectivo: si la cuenta tiene trial vigente, el efectivo es `trial_plan`; si no, `billing_plan`. **En prod hay 5 cuentas con trial activo** — emitir `billing_plan` crudo las degradaría a mitad de su prueba. El hook replica esa regla.
+> **Amendment 2026-07-31 (sign-off del PO).** OQ-1 queda resuelta: el claim `plan` emite el plan efectivo a través de una función canónica de la base, `public.get_effective_plan(account_id)`, que **introduce el change `billing-pro-trial`**. Esta sección reemplaza la redacción anterior, que dejaba el enforcement como pregunta abierta.
 
-**El problema real no es emitir el claim, es que emitirlo enciende el enforcement.** `get_current_user` hace `app_metadata.plan` con default `"pro"`; en el momento en que el claim exista, `products.create_product` deja de leer `999999` y pasa a leer el límite real. Consecuencia medida: 8 cuentas `gratis` bajan a 100 productos y **una ya está en 123** — quedaría bloqueada para crear productos nuevos (los existentes no se tocan: el guard es `current_count >= limit` al crear).
+El hook **no reimplementa** la regla del plan efectivo: llama a `public.get_effective_plan(p_account_id uuid)`, cuya precedencia es:
 
-Esto **no está cubierto por el sign-off del 2026-07-30** → **OQ-1**. El change se diseña para que el PO pueda resolverlo sin rehacer nada:
+```
+exención de cortesía vigente → 'pro'
+trial vigente                → trial_plan
+si no                        → billing_plan
+sin información suficiente   → 'gratis'   (fail-closed)
+```
 
-1. El hook emite `plan` desde la primera versión (la migración es una sola).
-2. Una **tarea-gate obligatoria antes de activar el toggle** ejecuta la query de reconciliación (cuentas cuyo uso actual excede el límite de su plan real) y entrega el resultado al PO.
-3. Si el PO decide no enforcar todavía, la salida documentada es omitir la clave `plan` del `jsonb_build_object` del hook (una línea, misma migración idempotente re-aplicable) y activar sólo los claims de rol. El resto del change no cambia.
+**Por qué una función y no la regla inline en el hook.** La regla del plan efectivo ya existe en prosa (spec de `plan-gating`) y en TypeScript (`frontend/lib/plan-utils.ts`). Escribirla por tercera vez dentro del `jsonb_build_object` del hook la vuelve imposible de verificar: quedaría replicada en el punto más difícil de testear del sistema (emisión de tokens) y sin nada contra qué contrastarla. Con la función canónica hay **una** definición normativa, y `billing-pro-trial` incluye una prueba de paridad que cruza la implementación SQL contra el espejo TypeScript.
 
-**Por qué no diferir el claim `plan` entero a `v3-rbac-multirole`**: los roles funcionales gated a `avanzado`/`pro` (parte del sign-off del PO) necesitan el plan en el token, y activar el hook dos veces sobre 34 usuarios reales es peor que activarlo una vez. Emitir el claim ahora y decidir el enforcement con datos es más barato que una segunda ronda de activación.
+**Efecto colateral que simplifica D5.** `get_effective_plan` se define `SECURITY DEFINER`, así que al hook **le alcanza con `GRANT EXECUTE` sobre la función** — ya no necesita `GRANT SELECT` + policy de lectura sobre `accounts` para `supabase_auth_admin`. Menos objetos nuevos en un camino cuyo modo de fallo es el silencio (D5): un permiso faltante sobre una sola función es más fácil de detectar que sobre una tabla más una policy.
+
+**Dependencia dura de secuencia**: `billing-pro-trial` **debe estar mergeado antes** de aplicar este change. Sin `get_effective_plan` en la base, la migración del hook no puede completarse. Se registra en las tareas del grupo 1 y en la ficha de secuencia del cluster.
+
+**Por qué el enforcement dejó de ser una pregunta abierta.** El sign-off del 2026-07-31 le da a **todas** las cuentas 30 días de plan PRO al activarse `billing-pro-trial`. Consecuencia directa sobre este change: **en el momento de encender el toggle del hook, ninguna cuenta ve un límite reducido** — las 34 están en trial PRO o exentas, así que el claim `plan` emite `'pro'` para todas y el enforcement real empieza a morder 30 días después, no en el instante del corte. La cuenta con 123 productos que motivaba OQ-1 conserva sus 123 (política de **excedente tolerado**: se bloquea crear, nunca se borra), y recibe un aviso por la campana. El riesgo que OQ-1 pedía cuantificar quedó desactivado por el diseño de la feature, no diferido.
 
 **Fail-closed, no fail-open.** El default `"pro"` de `get_current_user` se conserva **sólo** mientras haya tokens sin claim en circulación (ver D6), y el spec de `plan-gating` establece que la ausencia de información de plan NOT SHALL resolverse concediendo el plan más alto. La eliminación definitiva del default optimista queda ligada al cierre de la ventana de transición.
 
@@ -107,7 +114,7 @@ Sin `ORDER BY`, el resultado es no determinístico bajo multi-membresía. Si el 
 
 Decisión: ambos lados usan el mismo criterio explícito (`ORDER BY created_at, id LIMIT 1` — la membresía más antigua, determinística por el desempate con la PK). Hoy el riesgo es **latente** (0 usuarios con 2+ membresías) y por eso el fix es barato ahora; `v3-rbac-multirole` lo vuelve alcanzable al introducir invitaciones multi-rol.
 
-**Alternativa descartada — un selector de cuenta activa explícito** (claim `account_id` elegido por el usuario, tipo "cambiar de organización"). Es una feature de producto, no un fix; requiere UI y un endpoint de switch. Se anota como **OQ-3** para el PO, no se implementa.
+**Alternativa descartada — un selector de cuenta activa explícito** (claim `account_id` elegido por el usuario, tipo "cambiar de organización"). Es una feature de producto, no un fix; requiere UI y un endpoint de switch. **Resuelto por el PO el 2026-07-31 (OQ-3): se diseña en `v3-rbac-multirole`**, que es el change que introduce la multi-membresía real y por lo tanto el primero donde el selector tiene algo que seleccionar. Acá no se implementa.
 
 **Nota deliberada**: este change **no** agrega `account_id` como claim. Un `account_id` en el token que se desincronice del resolver es peor que no tenerlo, y `get_account_id` ya es la fuente canónica del tenant desde `v31-fix-auth-shape-500`. El claim de cuenta se evalúa cuando exista el selector explícito (OQ-3).
 
@@ -116,7 +123,7 @@ Decisión: ambos lados usan el mismo criterio explícito (`ORDER BY created_at, 
 `supabase_auth_admin` **no tiene ningún grant** sobre `account_members` ni `accounts` (verificado). Sin `GRANT SELECT` + policy permisiva de SELECT para ese rol, las lecturas nuevas fallan; y como el hook está envuelto en `EXCEPTION WHEN OTHERS`, **fallarían en silencio**: el login funcionaría y los claims saldrían vacíos. El síntoma sería idéntico al de hoy y la causa, invisible.
 
 Por eso el diseño trata el blindaje como una red que **no debe ocultar errores de configuración**:
-- La migración agrega `GRANT SELECT` + policy `auth_admin_can_read_*` para `supabase_auth_admin` sobre `account_members` y `accounts`, siguiendo el patrón exacto que la migración original usó para `profiles`.
+- La migración agrega `GRANT SELECT` + policy `auth_admin_can_read_*` para `supabase_auth_admin` sobre `account_members`, siguiendo el patrón exacto que la migración original usó para `profiles`. **Sobre `accounts` ya no hace falta** (amendment 2026-07-31): el plan llega vía `GRANT EXECUTE` sobre `get_effective_plan`, que es `SECURITY DEFINER` (D3).
 - El `EXCEPTION WHEN OTHERS` se conserva (nunca romper un login) pero **loguea** vía `RAISE WARNING` con el `SQLSTATE`, de modo que un permiso faltante deje rastro en los logs de Postgres en vez de degradar mudo.
 - Un **gate de verificación dentro de la propia migración** ejecuta el hook contra un usuario real de la base y falla el `db push` si el resultado no trae las tres claves. Es el patrón de gates que el proyecto ya usa en sus migraciones, y convierte "el hook devuelve claims vacíos" en un error de deploy en vez de un misterio de producción.
 - `SET search_path = public, pg_temp` se agrega en la misma redefinición (cierra el advisor `function_search_path_mutable` sobre la función auth-crítica más sensible del proyecto — nunca sobre una función DEFINER, pero igual de deseable acá porque corre con la identidad de `supabase_auth_admin`).
@@ -175,7 +182,8 @@ Los 56 de `["user","admin"]` **no se tocan**: hoy funcionan y seguirán funciona
 ## Risks / Trade-offs
 
 - **Se activa el toggle y el backend empieza a dar 403 masivos** → Mitigado en la raíz por D1: `role` mantiene la semántica de plataforma y prod tiene 33 `user` + 1 `admin`, exactamente los valores que los 56 guards aceptan. Adicionalmente, tests que ejercitan un JWT **con** `app_metadata` completo (hoy ningún test lo hace) y verifican que los guards existentes siguen pasando. Rollback: un toggle.
-- **Se activa el toggle y una cuenta `gratis` no puede crear productos** → Es OQ-1. Mitigado por la tarea-gate previa a la activación que cuantifica exactamente qué cuentas y cuántos productos, y por la salida documentada de omitir la clave `plan` si el PO decide diferir.
+- **Se activa el toggle y una cuenta `gratis` no puede crear productos** → **Desactivado por el sign-off del 2026-07-31** (D3): al momento del corte las 34 cuentas están en trial PRO o exentas, así que el claim emite `'pro'` para todas y el enforcement empieza 30 días después. La cuenta con 123 productos conserva los 123 (excedente tolerado) y recibe aviso por la campana. Queda el residuo de que la fecha de encendido del toggle y la del vencimiento del trial son independientes: si el PO demorara la activación más de 30 días, el corte volvería a coincidir con el enforcement. Mitigación: la tarea-gate previa a la activación se conserva, ahora como verificación de que sigue habiendo trial vigente.
+- **`get_effective_plan` no existe cuando se aplica la migración del hook** → Dependencia dura de secuencia con `billing-pro-trial` (D3). Mitigado por una verificación en el grupo 1 de tareas que falla temprano y con un mensaje explícito, en vez de dejar que el hook degrade en silencio por su `EXCEPTION WHEN OTHERS`.
 - **El hook falla en silencio por permisos faltantes y nadie se entera** → El riesgo más insidioso, porque el `EXCEPTION WHEN OTHERS` está diseñado para tragar errores. Mitigado por el gate de la migración (falla el `db push`, no la producción), el `RAISE WARNING` con `SQLSTATE`, y el nivel 1 de verificación de D8 antes de tocar el Dashboard.
 - **El hook agrega latencia a cada emisión de token** → Pasa de 1 a 3 lecturas indexadas por PK/FK, en una operación que ocurre una vez por hora por usuario. Con 34 usuarios es irrelevante; se anota como cosa a revisar si el volumen crece un orden de magnitud. Alternativa si llegara a doler: una sola query con joins en vez de tres.
 - **El JWT crece** → Tres claves cortas en `app_metadata`. Irrelevante para el límite de cookie/header; se menciona sólo porque `v3-rbac-multirole` va a agregar un **array** de roles, y ahí sí conviene medirlo.
@@ -185,8 +193,9 @@ Los 56 de `["user","admin"]` **no se tocan**: hoy funcionan y seguirán funciona
 
 ## Migration Plan
 
+0. **Prerequisito** — `billing-pro-trial` mergeado y su backfill aplicado: `get_effective_plan` existe y las 34 cuentas están en trial PRO o exentas (D3).
 1. **Preparación (agente)** — migración idempotente + código backend + tests. Merge a `main` dispara `db push`: la función queda **redefinida y dormida**. Nada cambia en producción todavía; el toggle sigue apagado.
-2. **Gate OQ-1 (PO)** — se ejecuta la query de reconciliación de plan y el PO decide: enforcar, grandfatherear las cuentas afectadas, o diferir el claim `plan`.
+2. **Verificación previa (agente, read-only)** — confirmar que sigue habiendo trial vigente en las cuentas no exentas, de modo que el corte no coincida con el vencimiento (D3, residuo del riesgo).
 3. **Verificación DB (agente, read-only)** — invocar la función con un `user_id` real y confirmar las tres claves.
 4. **Activación (MANUAL, PO)** — Dashboard → Authentication → Hooks (Beta) → Customize Access Token → `public.custom_access_token_hook` → guardar.
 5. **Verificación post-activación (PO + agente)** — el PO re-loguea y consulta `GET /auth/claims-status` desde su sesión; se confirma `true` en las tres presencias. Prueba de aceptación final: crear un centro de costo (la tabla pasa de 0 a 1 fila).
@@ -196,6 +205,8 @@ Los 56 de `["user","admin"]` **no se tocan**: hoy funcionan y seguirán funciona
 
 ## Open Questions
 
-- **OQ-1 (bloquea el paso 4, no el merge) — enforcement del límite de plan.** Al activar el hook, 8 cuentas `gratis` pasan de un límite efectivo de 999.999 productos a 100, y **una ya tiene 123** (quedaría bloqueada para crear productos nuevos; los existentes no se tocan). Opciones: **(a)** enforcar tal cual — el límite comercial pasa a ser real y esa cuenta debe upgradear; **(b)** grandfatherear — subir el plan de las cuentas afectadas o su límite antes de activar; **(c)** diferir — activar el hook emitiendo sólo `role` y `account_role`, y dejar `plan` para `v3-rbac-multirole` junto con el criterio (b) de su ficha. *El sign-off del 2026-07-30 cubre "roles funcionales gated a avanzado/pro", no esta consecuencia colateral sobre cuentas `gratis` existentes.*
-- **OQ-2 — comunicación a usuarios.** ¿La activación se comunica a las 34 cuentas? Técnicamente es transparente (sin re-login forzado, ~1 h de convivencia de tokens). Sólo se vuelve visible si se resuelve OQ-1 = (a) y alguna cuenta topa el límite. Recomendación: sin comunicación si OQ-1 ≠ (a); aviso puntual a la cuenta afectada si OQ-1 = (a).
-- **OQ-3 — selector de cuenta activa.** Hoy la cuenta activa es "la primera membresía" (D4 la vuelve determinística, no elegible). Con multi-membresía real —que `v3-rbac-multirole` habilita— hace falta decidir si el usuario puede cambiar de organización desde la UI, lo que implicaría un claim `account_id` y un endpoint de switch. No bloquea este change (0 usuarios multi-cuenta hoy). ¿Se diseña en `v3-rbac-multirole` o queda como change propio?
+**Las tres OQ del propose quedaron resueltas por el sign-off del PO del 2026-07-31.** Se conservan con su resolución para que el apply no las re-litigue.
+
+- **OQ-1 — enforcement del límite de plan → RESUELTA.** El claim `plan` emite el **plan efectivo** a través de `public.get_effective_plan(account_id)`, función canónica que introduce el change **`billing-pro-trial`** (exenta → `pro` de cortesía; pagadora → su plan; trial vigente → `pro`; si no → `billing_plan` con default fail-closed `gratis`). Esto **crea una dependencia dura de secuencia**: el apply de este change requiere `billing-pro-trial` mergeado primero. La consecuencia que OQ-1 pedía cuantificar quedó desactivada: con 30 días de trial PRO para todas las cuentas, en el instante de activar el toggle ninguna ve un límite reducido, y la cuenta que quede en excedente al vencer conserva sus datos (excedente tolerado) y recibe aviso. Ver D3.
+- **OQ-2 — comunicación a usuarios → RESUELTA: no se comunica.** La activación del hook no se anuncia a las 34 cuentas; es transparente (sin re-login forzado, ~1 h de convivencia de tokens). *Nota de alcance*: esto se refiere **sólo** a la activación del hook. El **aviso de excedente** posterior al vencimiento del trial sí existe y es parte de `billing-pro-trial` — son dos comunicaciones distintas y sólo la primera se omite.
+- **OQ-3 — selector de cuenta activa → RESUELTA: se diseña en `v3-rbac-multirole`.** Es el change que introduce la multi-membresía real, y por lo tanto el primero en el que el selector tiene algo que seleccionar. Este change se limita a hacer determinística la resolución actual (D4) y **no** agrega un claim `account_id`.

@@ -57,7 +57,7 @@ async def create_quote(
         repo=repo,
         auth=auth,
         payload=payload,
-        created_by=auth.get("sub", ""),
+        created_by=auth["user_id"],
         account_id=str(account_id),
     )
 

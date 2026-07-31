@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
 from backend.repositories.customer_account_repository import CustomerAccountRepository
 from backend.schemas.customer_accounts import (
@@ -55,12 +56,11 @@ async def get_customer_account(
     client_id: uuid.UUID,
     auth: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_conn),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Devuelve el saldo actual + historial de la cuenta corriente del cliente."""
-    # Derivar account_id del JWT claims (el repo usa la conexión con JWT-passthrough)
-    account_id = auth.get("account_id") or auth.get("sub", "")
     repo = CustomerAccountRepository(conn)
-    return await customer_account_service.get_account(repo, account_id, str(client_id))
+    return await customer_account_service.get_account(repo, str(account_id), str(client_id))
 
 
 @router.get("/customer-accounts/{customer_account_id}/movements", response_model=AccountMovementPageOut)

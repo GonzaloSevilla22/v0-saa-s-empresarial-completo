@@ -52,7 +52,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import asyncpg
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import make_token, TEST_USER_ID
 
 # ── Workaround fpdf2 (pre-existing issue) ─────────────────────────────────────
 try:
@@ -736,6 +736,67 @@ class TestQuoteEndpoints:
 
         assert resp.status_code == 201
         assert resp.json()["id"] == QUOTE_ID
+
+    async def test_create_quote_created_by_is_authenticated_user_uuid(self, async_client, mock_pool):
+        """RED (3.1, H-06 call site 1): el `created_by` que recibe
+        QuoteRepository.create_quote es el UUID del usuario autenticado
+        (auth["user_id"]) — no la cadena vacía que produce auth.get("sub", "")."""
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
+        conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/quotes",
+                json={
+                    "items": [
+                        {
+                            "product_id": PRODUCT_ID,
+                            "quantity": "2.0",
+                            "price": "750.00",
+                            "subtotal": "1500.00",
+                        }
+                    ]
+                },
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 201
+        # created_by es el último argumento posicional del INSERT (ver quote_repository.py)
+        created_by_arg = conn.fetchrow.call_args[0][-1]
+        assert created_by_arg == TEST_USER_ID
+        assert created_by_arg != ""
+
+    async def test_create_quote_created_by_follows_different_sub(self, async_client, mock_pool):
+        """TRIANGULATE (3.3): un token con un `sub` distinto propaga ESE
+        UUID como created_by — descarta que el fix haya hardcodeado TEST_USER_ID."""
+        other_user_id = "99999999-9999-9999-9999-999999999999"
+        pool, conn = mock_pool
+        other_token = make_token({"role": "user", "sub": other_user_id})
+        conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
+        conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/quotes",
+                json={
+                    "items": [
+                        {
+                            "product_id": PRODUCT_ID,
+                            "quantity": "1.0",
+                            "price": "100.00",
+                            "subtotal": "100.00",
+                        }
+                    ]
+                },
+                headers={"Authorization": f"Bearer {other_token}"},
+            )
+
+        assert resp.status_code == 201
+        created_by_arg = conn.fetchrow.call_args[0][-1]
+        assert created_by_arg == other_user_id
+        assert created_by_arg != TEST_USER_ID
 
     async def test_create_quote_member_returns_403(self, async_client, mock_pool):
         """POST /quotes con token member → 403."""

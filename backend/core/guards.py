@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from backend.core.auth import AuthContext
 
-def require_role(auth: dict, allowed: list[str]) -> None:
+
+def require_role(auth: AuthContext, allowed: list[str]) -> None:
     if auth.get("role") not in allowed:
         raise HTTPException(
             status_code=403,
@@ -11,13 +13,13 @@ def require_role(auth: dict, allowed: list[str]) -> None:
         )
 
 
-def require_plan(auth: dict, allowed_plans: list[str]) -> None:
+def require_plan(auth: AuthContext, allowed_plans: list[str]) -> None:
     plan = auth.get("plan", "gratis")
     if plan not in allowed_plans:
         raise HTTPException(status_code=403, detail="Límite de plan alcanzado")
 
 
-async def require_platform_admin(conn, auth: dict) -> None:
+async def require_platform_admin(conn, auth: AuthContext) -> None:
     """Gating de admin de PLATAFORMA verificado contra la DB (profiles.role = 'admin').
 
     El rol app-level NO viaja en el JWT (no existe custom access token hook), así que

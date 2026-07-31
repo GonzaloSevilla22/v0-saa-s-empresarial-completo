@@ -54,7 +54,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import asyncpg
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import make_token, TEST_ACCOUNT_ID
 
 # ── Workaround fpdf2 (pre-existing issue) ─────────────────────────────────────
 try:
@@ -531,6 +531,76 @@ class TestCustomerAccountEndpoints:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
+    async def test_get_customer_account_account_id_uses_resolver_not_sub(self, async_client, mock_pool):
+        """RED (4.1, H-06 call site 2): el account_id que recibe
+        CustomerAccountRepository.get_account es el UUID de cuenta que
+        devuelve la dependencia get_account_id (TEST_ACCOUNT_ID del override
+        del conftest) — no auth['sub'] ni la cadena vacía."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={
+            "id":         CUSTOMER_ACCOUNT_ID,
+            "account_id": ACCOUNT_ID,
+            "client_id":  CLIENT_ID,
+            "balance":    "1000.00",
+            "created_at": "2026-06-20T00:00:00+00:00",
+        })
+        conn.fetch = AsyncMock(return_value=[])
+
+        with patch("backend.core.database.pool", pool):
+            headers = {"Authorization": f"Bearer {make_token({'role': 'user'})}"}
+            response = await async_client.get(
+                f"/clientes/{CLIENT_ID}/cuenta",
+                headers=headers,
+            )
+
+        assert response.status_code == 200
+        account_id_arg = conn.fetchrow.call_args[0][1]
+        assert str(account_id_arg) == str(TEST_ACCOUNT_ID)
+        assert account_id_arg != ""
+
+    @pytest.mark.asyncio
+    async def test_get_customer_account_follows_different_account_id_override(self, async_client, mock_pool):
+        """TRIANGULATE (4.5): con un account_id DISTINTO en el override de
+        get_account_id, el valor propagado al repo sigue al resolver
+        (descarta hardcodeo de TEST_ACCOUNT_ID)."""
+        from backend.main import app
+        from backend.core.deps import get_account_id
+
+        other_account_id = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+
+        async def _other_account_id():
+            return other_account_id
+
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={
+            "id":         CUSTOMER_ACCOUNT_ID,
+            "account_id": str(other_account_id),
+            "client_id":  CLIENT_ID,
+            "balance":    "1000.00",
+            "created_at": "2026-06-20T00:00:00+00:00",
+        })
+        conn.fetch = AsyncMock(return_value=[])
+
+        app.dependency_overrides[get_account_id] = _other_account_id
+        try:
+            with patch("backend.core.database.pool", pool):
+                headers = {"Authorization": f"Bearer {make_token({'role': 'user'})}"}
+                response = await async_client.get(
+                    f"/clientes/{CLIENT_ID}/cuenta",
+                    headers=headers,
+                )
+        finally:
+            # Restaurar el override estándar del conftest para el resto de la suite.
+            async def _default_account_id():
+                return TEST_ACCOUNT_ID
+            app.dependency_overrides[get_account_id] = _default_account_id
+
+        assert response.status_code == 200
+        account_id_arg = conn.fetchrow.call_args[0][1]
+        assert str(account_id_arg) == str(other_account_id)
+        assert str(account_id_arg) != str(TEST_ACCOUNT_ID)
+
+    @pytest.mark.asyncio
     async def test_post_payment_received_returns_200(self, async_client, mock_pool):
         """POST /customer-accounts/payments → 200."""
         pool, conn = mock_pool
@@ -605,6 +675,33 @@ class TestSupplierAccountEndpoints:
             )
 
         assert response.status_code in (200, 201)
+
+    @pytest.mark.asyncio
+    async def test_get_supplier_account_account_id_uses_resolver_not_sub(self, async_client, mock_pool):
+        """RED (4.3, H-06 call site 3): el account_id que recibe
+        SupplierAccountRepository.get_account es el UUID de cuenta que
+        devuelve get_account_id (TEST_ACCOUNT_ID) — no auth['sub'] ni ''."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={
+            "id":          SUPPLIER_ACCOUNT_ID,
+            "account_id":  ACCOUNT_ID,
+            "supplier_id": SUPPLIER_ID,
+            "balance":     "1000.00",
+            "created_at":  "2026-06-20T00:00:00+00:00",
+        })
+        conn.fetch = AsyncMock(return_value=[])
+
+        with patch("backend.core.database.pool", pool):
+            headers = {"Authorization": f"Bearer {make_token({'role': 'user'})}"}
+            response = await async_client.get(
+                f"/proveedores/{SUPPLIER_ID}/cuenta",
+                headers=headers,
+            )
+
+        assert response.status_code == 200
+        account_id_arg = conn.fetchrow.call_args[0][1]
+        assert str(account_id_arg) == str(TEST_ACCOUNT_ID)
+        assert account_id_arg != ""
 
     @pytest.mark.asyncio
     async def test_post_payment_made_returns_200(self, async_client, mock_pool):

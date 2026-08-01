@@ -27,7 +27,6 @@ from backend.routers import (
     fiscal,
     health,
     journal_entries,
-    organizations,
     outbox,
     payments,
     products,
@@ -146,7 +145,6 @@ app.include_router(branches.router)
 app.include_router(stock.router)
 app.include_router(sales.router)
 app.include_router(purchases.router)
-app.include_router(organizations.router)
 app.include_router(payments.router)
 # C-28 v21-cash-session
 app.include_router(cash.router)

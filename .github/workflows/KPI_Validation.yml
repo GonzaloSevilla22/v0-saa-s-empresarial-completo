@@ -50,3 +50,15 @@ jobs:
       # pg_proc del schema real que acaba de armar `supabase start`.
       - name: Run backend table/function reference gate
         run: python3 scripts/ci/check_backend_table_refs.py --dsn postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # Mismo postmortem `organizations`, ahora del lado del frontend: el
+      # frontend le habla a Supabase vía PostgREST usando strings literales
+      # (`supabase.from("tabla_fantasma")` / `supabase.rpc("fn_fantasma")`) —
+      # un typo o una tabla renombrada ahí solo se descubre en runtime, ni
+      # TypeScript ni los tests unitarios (que mockean supabase-js) lo
+      # detectan. Este gate escanea frontend/**/*.{ts,tsx} (regex sobre el
+      # texto fuente, stdlib-only) en busca de esas llamadas y las valida
+      # contra pg_class/pg_proc del schema real que acaba de armar
+      # `supabase start`.
+      - name: Run frontend table/function reference gate
+        run: python3 scripts/ci/check_frontend_table_refs.py --dsn postgresql://postgres:postgres@127.0.0.1:54322/postgres

@@ -219,6 +219,53 @@ Si alguna condición falla, el paso 1 se apaga con la palanca y el paso 2 no se 
 
 **Recién después del paso 2** DEC-13 / KB-08 pasan a describir el sistema real, y `v3-rbac-multirole` puede migrar `is_account_writer` sabiendo que migrarlo cambia algo.
 
+## Amendment 2026-08-01 — revisión de los 9 call sites de `.transaction()` (tasks.md 3.4)
+
+Aplicado el Paso 1 (grupos 1-4), se revisó uno por uno cada `async with self._conn.transaction()` de `backend/repositories/` para confirmar que promoverlo de transacción de nivel superior a SAVEPOINT (D3) no altera ninguna expectativa del código que lo rodea:
+
+| # | Call site | Patrón | ¿Camino? | ¿Traga su propia excepción y continúa? | Veredicto |
+|---|---|---|---|---|---|
+| 1 | `fiscal_document_repository.py:61` (`update_authorized`) | UPDATE status + `rpc_record_fiscal_transition` en el mismo bloque | **Servicio** (único caller: `cae_relay_processor.py` vía `get_service_conn`) | No | Seguro — D3 **no aplica**: `get_service_conn` nunca se envuelve (D5), este `.transaction()` sigue siendo de nivel superior siempre, con o sin la palanca |
+| 2 | `fiscal_document_repository.py:88` (`update_rejected`) | Ídem, UPDATE + historial | **Servicio** (mismo caller) | No | Ídem #1 — D3 no aplica |
+| 3 | `product_repository.py:57` (`create`) | INSERT + RPC de stock inicial en branch_stock | Request (`products.py` vía `get_db_conn`) | No | Seguro — D3 aplica, se promueve a SAVEPOINT |
+| 4 | `purchase_repository.py:89` (`delete_by_id`) | `return False` temprano si no existe, ANTES de cualquier escritura | Request (`purchases.py`) | No | Seguro (el early-return no pierde nada: no había nada escrito todavía) |
+| 5 | `purchase_repository.py:140` (`delete_by_operation`) | Ídem, `return False` temprano | Request | No | Seguro |
+| 6 | `purchase_repository.py:281` (creación con idempotencia) | Hit de idempotencia retorna ANTES de abrir la transacción; si no, RPC de creación + evento outbox (DEC-20) en el mismo bloque | Request | No | Seguro |
+| 7 | `sales_repository.py:87` (`delete_by_id`) | Espejo de #4 | Request (`sales.py`) | No | Seguro |
+| 8 | `sales_repository.py:137` (`delete_by_operation`) | Espejo de #5 | Request | No | Seguro |
+| 9 | `stock_repository.py:76` (`adjust_with_event`) | RPC de ajuste de stock + evento outbox (DEC-20) en el mismo bloque | Request (`stock.py`) | No | Seguro |
+
+**Hallazgo común**: de los 9 call sites, **2 (#1, #2) corren exclusivamente por el camino de servicio** (`get_service_conn`, D5) — nunca se envuelven en la transacción del Paso 1, así que D3 no les aplica en absoluto: siguen siendo transacciones de nivel superior, igual que hoy, con la palanca en cualquier posición. Los otros **7 corren por el camino de request** (`get_db_conn`) y sí se promueven a SAVEPOINT cuando la palanca está encendida. Ninguno de los 9, en ningún camino, atrapa una excepción lanzada DENTRO de su propio `.transaction()` para tragarla y continuar asumiendo que ese trabajo ya quedó comiteado de forma independiente — o bien completan el bloque entero, o dejan que la excepción se propague al caller. Ese es el caso seguro para la promoción a SAVEPOINT de los 7: su atomicidad *interna* no cambia; sólo cambia que su durabilidad queda atada al COMMIT final del request (D3), el comportamiento deliberado que este change introduce. No se encontró ningún caso dudoso que requeriría elevarse antes de continuar.
+
+### Amendment 2026-08-01 — inventario de escrituras directas (tasks.md 6.1-6.3, preparación — SIN aplicar resoluciones)
+
+Inventario completo, cruzado contra `pg_policies` de prod (`gxdhpxvdjjkmxhdkkwyb`, read-only vía MCP). **Sólo lectura — ninguna resolución de este inventario se aplicó**, conforme al gate del grupo 5/6 y a que los casos sensibles requieren decisión previa del PO (OQ-3).
+
+**Números re-verificados (tasks.md 1.3) — una precisión sobre design.md §Context:**
+- `postgres.rolbypassrls=true`, `authenticated.rolbypassrls=false` — coincide.
+- 68 tablas en `public`, 0 sin RLS — coincide.
+- Funciones `rpc_*`: 68 (dos overloads: `rpc_invite_member`, `rpc_safe_delete_product`), 66 con `EXECUTE` para `authenticated`, 67 `SECURITY DEFINER` — coincide exactamente.
+- **"68/68 con SELECT para authenticated" — impreciso en 1: son 67/68.** La única excepción es `platform_wsaa_tickets` (RLS activa, **CERO policies** — ni siquiera SELECT). No es un defecto: es una tabla de caché de tickets WSAA de plataforma (H-26/H-27, `CHANGES.md`), y el código que la usa (`backend/services/fiscal/wsaa_ticket_cache.py`) **no pasa por el pool asyncpg en absoluto** — usa el cliente REST de Supabase Admin con `service_role_key`. No es una colisión de este change (nunca pasa por `get_db_conn` ni `get_service_conn`), pero es la explicación real del número, no un error del diseño original.
+- **"40 tablas con RLS y sin policy de escritura" — coincide, con la definición correcta: tablas a las que les falta AL MENOS UNO de {INSERT, UPDATE, DELETE}** (una policy `ALL` cuenta como las tres). Con la definición más estricta ("cero policies de escritura de cualquier tipo") son 25, más `platform_wsaa_tickets` = 26 sin ninguna. Los 14 restantes tienen cobertura parcial (p.ej. `accounts` tiene UPDATE pero no INSERT/DELETE).
+
+**Escrituras directas confirmadas (`backend/repositories/*.py`, sin pasar por RPC `SECURITY DEFINER`), cruzadas contra la policy de escritura real:**
+
+| Tabla | Escritura directa (archivo:línea) | Policy de escritura en prod | Colisión |
+|---|---|---|---|
+| `fiscal_documents` | 4× UPDATE (`fiscal_document_repository.py:64,91,131,194`) | 0 (sólo INSERT+SELECT) | **SÍ — sensible, elevar al PO (OQ-3)** |
+| `cashboxes` | 1× UPDATE (`cashbox_repository.py:32`) | 0 (sólo INSERT+SELECT) | **SÍ — sensible, elevar al PO (OQ-3)** |
+| `events` | 1× INSERT (`outbox_repository.py:179`) | 0 (sólo SELECT) | SÍ — candidata a excepción justificada (tabla de outbox, sin invariantes de negocio de usuario) |
+| `email_logs` | 1× INSERT (`outbox_repository.py:114`) | 0 (sólo SELECT) | SÍ — candidata a excepción justificada (log técnico de envíos) |
+| **`stock_movements`** | 4× DELETE (`purchase_repository.py:123,170`, `sales_repository.py:120,165`) | Policy DELETE **y** UPDATE existen, pero con `qual = false` (`stock_movements_no_delete`, `stock_movements_no_update`) — **deny explícito, a propósito**: es un ledger append-only por diseño | **SÍ — hallazgo NUEVO, no estaba en la lista preliminar de design.md. Más grave que "falta policy": hay una policy que PROHÍBE la escritura a propósito, y el backend la hace directo hoy (enmascarado por BYPASSRLS). Elevar al PO junto con `fiscal_documents`/`cashboxes` — la resolución por defecto (RPC) acá no es mecánica: el RPC tendría que decidir si preserva la inmutabilidad (insertar un movimiento compensatorio en vez de borrar) o si la policy debe relajarse. Es una decisión de modelo, no sólo de plomería** |
+
+Todas las demás tablas con escritura directa (`branches`, `cost_centers`, `client_addresses`, `clients`, `fiscal_profiles`, `expenses`, `audit_logs`, `operation_idempotency`, `products`, `quotes`/`quote_items`, `purchases`, `sales`, `points_of_sale`) tienen policy real (no `qual=false`) para cada cmd que el backend efectivamente ejecuta contra ellas — sin colisión.
+
+**Hallazgo aparte, no relacionado con RLS (no requiere resolución de este change, pero se deja registrado):** `backend/repositories/organization_repository.py` (usado por `backend/routers/organizations.py`) hace `SELECT`/`UPDATE` contra una tabla `organizations` que **no existe en prod** (sólo existe `companies`). Esto rompe con `UndefinedTableError` HOY, con o sin RLS/BYPASSRLS — no es un hallazgo de este change, es código muerto/roto preexistente. Se deja fuera de alcance; ver spawn_task del apply.
+
+**Cierre del inventario**: 4 colisiones confirmadas (`fiscal_documents`, `cashboxes`, `events`, `email_logs`) + 1 colisión nueva más severa (`stock_movements`, deny explícito). **`fiscal_documents`, `cashboxes` y `stock_movements` se elevan al PO uno a uno antes de aplicar cualquier resolución** (OQ-3, extendido a `stock_movements` por el mismo criterio de "sensible"). `events`/`email_logs` son candidatas razonables a excepción-de-policy (tablas de infraestructura, sin invariantes de negocio de usuario) pero **tampoco se resuelven en este apply** — quedan para cuando el grupo 6 se ejecute de verdad, después del gate del grupo 5.
+
+Cobertura de test: `backend/tests/test_tenancy_tx_atomicity.py` prueba el mecanismo de anidamiento (SAVEPOINT bajo transacción externa) con un doble de conexión (`FakeTxConnection`) que sí modela la semántica BEGIN/SAVEPOINT/RELEASE/ROLLBACK — un mock de `unittest.mock` no puede reproducirla. No sustituye una prueba de integración contra Postgres real (fuera de alcance del Paso 1).
+
 ## Open Questions
 
 **Las cuatro OQ del propose quedaron resueltas por el sign-off del PO del 2026-07-31.** Se conservan con su resolución para que el apply no las re-litigue.

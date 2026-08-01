@@ -3,11 +3,11 @@
 ## Purpose
 
 Hooks React Query por dominio de negocio que reemplazan el God Object `DataContext`. Cada hook encapsula queries (GET) y mutations (CREATE/UPDATE/DELETE) contra la API Python via `lib/api/python-client.ts`, con invalidación de cache post-mutación. Los dominios `posts` e `insights` mantienen conexión directa a Supabase.
-
 ## Requirements
-
 ### Requirement: Hooks React Query por dominio en hooks/data/
-El sistema SHALL proveer un hook React Query por cada dominio de negocio en `frontend/hooks/data/`. Cada hook SHALL encapsular queries (GET) y mutations (CREATE/UPDATE/DELETE) que llaman a la API Python via `lib/api/python-client.ts`. Los 8 hooks requeridos son: `useExpenses`, `useClients`, `useProducts`, `useBranches`, `useStock`, `useSales`, `usePurchases`, `useOrganizations`.
+El sistema SHALL proveer un hook React Query por cada dominio de negocio en `frontend/hooks/data/`. Cada hook SHALL encapsular queries (GET) y mutations (CREATE/UPDATE/DELETE) que llaman a la API Python via `lib/api/python-client.ts`. Los 7 hooks requeridos son: `useExpenses`, `useClients`, `useProducts`, `useBranches`, `useStock`, `useSales`, `usePurchases`.
+
+`useOrganizations` (`frontend/hooks/data/use-organizations.ts`, con `useOrganization` y `useUpdateOrganization`) fue eliminado en `remove-organizations-dead-code`: no lo consumía ningún componente ni página — su único importador era su propio archivo de test — y los endpoints `/organizations/*` contra los que llamaba nunca existieron en la base de datos.
 
 #### Scenario: useExpenses retorna la lista de gastos de la org activa
 - **WHEN** un componente llama a `useExpenses()` con una sesión activa
@@ -28,6 +28,10 @@ El sistema SHALL proveer un hook React Query por cada dominio de negocio en `fro
 #### Scenario: hook retorna error cuando la API responde 4xx/5xx
 - **WHEN** la API Python retorna HTTP 503
 - **THEN** el hook retorna `{ error: Error("..."), isLoading: false }` y el componente puede mostrar un mensaje de error
+
+#### Scenario: No existe hook ni query key del dominio organizations
+- **WHEN** se busca `use-organizations.ts` en `frontend/hooks/data/` y la entrada `organizations` en `frontend/lib/query-keys.ts`
+- **THEN** ninguno de los dos existe, y ningún archivo del frontend importa `useOrganization` ni `useUpdateOrganization`
 
 ### Requirement: Query keys centralizadas en lib/query-keys.ts
 El sistema SHALL centralizar todas las query keys de React Query en `frontend/lib/query-keys.ts`. Los hooks SHALL importar sus keys desde este archivo; no se permiten query keys inline en los hooks.
@@ -72,3 +76,4 @@ El sistema SHALL incluir un script k6 (`frontend/tests/load/k6-baseline.js`) que
 #### Scenario: k6 test falla si el backend está cold
 - **WHEN** se ejecuta el test inmediatamente tras un período de inactividad (Render cold start)
 - **THEN** el test puede fallar; la documentación del script SHALL indicar ejecutarlo tras un ping previo a `/health`
+

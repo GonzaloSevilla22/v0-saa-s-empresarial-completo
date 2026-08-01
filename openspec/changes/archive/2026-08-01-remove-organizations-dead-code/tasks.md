@@ -41,7 +41,7 @@
 
 ## 6. Cierre de specs (durante el archive)
 
-- [ ] 6.1 Sincronizar los delta specs a las specs principales (`/opsx:archive`), lo que actualiza los requirements de `python-backend`, `data-api-endpoints`, `domain-repositories` y `domain-react-query-hooks`
-- [ ] 6.2 Edición manual post-sync (los deltas NO tocan la sección `## Purpose`): en `openspec/specs/data-api-endpoints/spec.md` cambiar "8 dominios de negocio (… , organizations)" por "7 dominios de negocio" sin `organizations`; en `openspec/specs/domain-repositories/spec.md` cambiar "8 dominios: … , organizations" por "7 dominios" sin `organizations`
-- [ ] 6.3 Correr `openspec validate --specs` y confirmar que todas las specs siguen válidas tras el sync y la edición manual del `Purpose`
-- [ ] 6.4 No tocar `openspec/changes/archive/**` — los changes archivados son registro histórico y mantienen las menciones originales a `organizations` a propósito
+- [x] 6.1 Sincronizar los delta specs a las specs principales (`/opsx:archive`), lo que actualiza los requirements de `python-backend`, `data-api-endpoints`, `domain-repositories` y `domain-react-query-hooks` — **`openspec archive remove-organizations-dead-code -y`: 1 added, 4 modified, 0 removed**
+- [x] 6.2 Edición manual post-sync (los deltas NO tocan la sección `## Purpose`): en `openspec/specs/data-api-endpoints/spec.md` cambiar "8 dominios de negocio (… , organizations)" por "7 dominios de negocio" sin `organizations`; en `openspec/specs/domain-repositories/spec.md` cambiar "8 dominios: … , organizations" por "7 dominios" sin `organizations` — **ambos Purpose editados; `domain-react-query-hooks` y `python-backend` no mencionaban conteo/organizations en su Purpose, sin cambios ahí**
+- [x] 6.3 Correr `openspec validate --specs` y confirmar que todas las specs siguen válidas tras el sync y la edición manual del `Purpose` — **Totals: 67 passed, 0 failed (67 items)**
+- [x] 6.4 No tocar `openspec/changes/archive/**` — los changes archivados son registro histórico y mantienen las menciones originales a `organizations` a propósito — **verificado con `git status --porcelain`: único cambio bajo archive/ es el directorio nuevo `2026-08-01-remove-organizations-dead-code/`**

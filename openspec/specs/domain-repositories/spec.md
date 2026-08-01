@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Repositorios concretos tipados por dominio (8 dominios: expenses, clients, products, branches, stock, sales, purchases, organizations) que extienden `BaseRepository` sin constructor propio. Cada repositorio expone métodos con nombres de negocio (`list_by_org`, `get_by_id`, `create`, `update`, `delete`) que internamente usan las primitivas heredadas (`fetch`, `fetchrow`, `execute`, `call_rpc`). Los repositorios reciben siempre una conexión asyncpg con JWT-passthrough ya activa via dependency injection; ninguno accede al pool directamente.
-
+Repositorios concretos tipados por dominio (7 dominios: expenses, clients, products, branches, stock, sales, purchases) que extienden `BaseRepository` sin constructor propio. Cada repositorio expone métodos con nombres de negocio (`list_by_org`, `get_by_id`, `create`, `update`, `delete`) que internamente usan las primitivas heredadas (`fetch`, `fetchrow`, `execute`, `call_rpc`). Los repositorios reciben siempre una conexión asyncpg con JWT-passthrough ya activa via dependency injection; ninguno accede al pool directamente.
 ## Requirements
-
 ### Requirement: Repositorios concretos por dominio extienden BaseRepository
-El sistema SHALL proveer una clase repositorio concreta por dominio en `backend/repositories/<domain>.py`. Cada clase extiende `BaseRepository` (C-15) sin constructor propio y expone métodos con nombres de negocio (`list_by_org`, `get_by_id`, `create`, `update`, `delete`) que internamente usan `fetch`, `fetchrow`, `execute` o `call_rpc` de la clase base. Los dominios cubiertos son: `ExpenseRepository`, `ClientRepository`, `ProductRepository`, `BranchRepository`, `StockRepository`, `SalesRepository`, `PurchaseRepository`, `OrganizationRepository`.
+El sistema SHALL proveer una clase repositorio concreta por dominio en `backend/repositories/<domain>.py`. Cada clase extiende `BaseRepository` (C-15) sin constructor propio y expone métodos con nombres de negocio (`list_by_org`, `get_by_id`, `create`, `update`, `delete`) que internamente usan `fetch`, `fetchrow`, `execute` o `call_rpc` de la clase base. Los dominios cubiertos son: `ExpenseRepository`, `ClientRepository`, `ProductRepository`, `BranchRepository`, `StockRepository`, `SalesRepository`, `PurchaseRepository`.
+
+`OrganizationRepository` fue eliminado en `remove-organizations-dead-code`: sus queries apuntaban a una tabla `organizations` inexistente en producción (la raíz de tenancy real es `accounts`), por lo que ninguno de sus dos métodos pudo ejecutarse nunca contra la base.
 
 #### Scenario: ExpenseRepository.list_by_org retorna gastos de la org activa
 - **WHEN** se llama `await repo.list_by_org(org_id=uuid, filters={})` con una conexión JWT-passthrough activa
@@ -33,6 +33,10 @@ El sistema SHALL proveer una clase repositorio concreta por dominio en `backend/
 - **WHEN** se inspecciona el SQL de cualquier método `list_by_org` en los 7 repositorios
 - **THEN** el WHERE clause usa `account_id = $1` y no contiene `user_id = $1`
 
+#### Scenario: Ningún repositorio consulta la tabla organizations
+- **WHEN** se inspecciona el SQL de todos los repositorios de `backend/repositories/`
+- **THEN** ninguna query nombra la tabla `organizations`, y el archivo `backend/repositories/organization_repository.py` no existe
+
 ### Requirement: Tests de repositorios usan account_id en fixtures, no user_id
 
 El sistema SHALL garantizar que los tests de repositorios inyectan `account_id` como parámetro de tenancy en sus fixtures y mocks. Ningún test SHALL pasar `user_id` como parámetro de filtro de tenancy.
@@ -56,3 +60,4 @@ Los repositorios concretos SHALL recibir siempre una conexión asyncpg ya config
 #### Scenario: Repositorio no puede instanciarse sin conexión
 - **WHEN** se intenta instanciar `ExpenseRepository()` sin pasar `conn`
 - **THEN** Python lanza `TypeError` por el parámetro requerido en el constructor heredado de `BaseRepository`
+

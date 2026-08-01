@@ -284,3 +284,53 @@ async def test_product_count_for_plan_limit_excludes_soft_deleted(async_client, 
         )
     assert resp.status_code == 201
     assert "deleted_at IS NULL" in count_sql["sql"]
+
+
+# ── v31-authz-token-hook (task 7.4-7.6, D6/D3) ───────────────────────────────
+# 7.4 ("un JWT con plan='gratis' sobre una cuenta que ya alcanzó el límite del
+# plan gratis recibe 403 al crear un producto") ya está cubierta por
+# test_create_product_plan_gratis_over_limit (arriba, billing-pro-trial D5):
+# el enforcement con el claim `plan` PRESENTE ya lee plan_limits en runtime,
+# no un default de 999.999 — no hay una regresión nueva que reproducir acá.
+# El residuo real de D6/7.6 es el COMPLEMENTO: los productos EXISTENTES por
+# encima del límite (creados antes de que el enforcement empezara a morder,
+# o durante la ventana de trial) siguen siendo legibles y editables — solo
+# se impide CREAR. GET/PUT no consultan plan_limits en absoluto.
+
+
+async def test_get_product_ok_even_when_account_over_plan_limit(async_client, valid_token, mock_pool):
+    """TRIANGULATE (7.5): leer un producto existente funciona igual sin
+    importar si la cuenta está por encima del límite de su plan — GET no
+    consulta plan_limits (solo CREATE la enforcea)."""
+    pool, conn = mock_pool
+    conn.fetchrow = AsyncMock(return_value=PRODUCT_ROW)
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/products/{PRODUCT_ROW['id']}",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    assert "plan_limits" not in sql
+
+
+async def test_update_product_ok_even_when_account_over_plan_limit(async_client, mock_pool):
+    """TRIANGULATE (7.5): editar un producto existente funciona igual sin
+    importar el límite del plan — PUT no consulta plan_limits, solo CREATE."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={**PRODUCT_ROW, "name": "Empanada Grande"})
+
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/products/{PRODUCT_ROW['id']}",
+            json={"name": "Empanada Grande"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Empanada Grande"
+    sql = conn.fetchrow.call_args.args[0]
+    assert "plan_limits" not in sql

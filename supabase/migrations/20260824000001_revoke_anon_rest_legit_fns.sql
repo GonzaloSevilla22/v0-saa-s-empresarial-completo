@@ -37,6 +37,9 @@ DECLARE
     'public.get_admin_community_interactions(timestamptz, timestamptz)',
     'public.get_admin_insights_breakdown(timestamptz, timestamptz)',
     'public.get_admin_paid_conversion_rate()',
+    -- Overload 2-args: hoy existe solo en la DB de CI (drift CI↔prod que los
+    -- tests de KPI exigen); misma política que su hermano () — no-op en prod.
+    'public.get_admin_paid_conversion_rate(timestamptz, timestamptz)',
     'public.get_admin_umv_rate(timestamptz, timestamptz)',
     'public.rpc_admin_business_kpis(timestamptz, timestamptz)',
     'public.rpc_admin_kpi_overview(timestamptz, timestamptz, text)',
@@ -88,6 +91,33 @@ BEGIN
     CONTINUE WHEN to_regprocedure(v_sig) IS NULL;
     IF NOT has_function_privilege('authenticated', to_regprocedure(v_sig), 'EXECUTE') THEN
       RAISE EXCEPTION 'GATE POS FAILED: % quedó SIN EXECUTE para authenticated', v_sig;
+    END IF;
+  END LOOP;
+END $$;
+
+-- ── Overloads legacy muertos — existen SOLO en la DB de CI ───────────────────
+-- Firmas `integer` previas a 20260509213302 (integer_to_numeric_types): en prod
+-- fueron eliminadas (verificado: to_regprocedure = NULL) pero la cadena de
+-- migraciones las deja vivas en CI, donde disparaban el gate ACL. Sin caller en
+-- código ni en supabase/tests/ (que además corren como postgres). Revoke
+-- completo (anon + authenticated + PUBLIC); no-op total en prod.
+DO $$
+DECLARE
+  v_sig text;
+  v_dead CONSTANT text[] := ARRAY[
+    'public.rpc_atomic_create_purchase(uuid, numeric, integer, uuid, text)',
+    'public.rpc_atomic_create_purchase(uuid, numeric, integer, text)',
+    'public.rpc_atomic_create_sale(uuid, uuid, numeric, integer, uuid, text)',
+    'public.rpc_atomic_create_sale(uuid, uuid, numeric, integer, text)'
+  ];
+BEGIN
+  FOREACH v_sig IN ARRAY v_dead LOOP
+    CONTINUE WHEN to_regprocedure(v_sig) IS NULL;
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated',
+                   to_regprocedure(v_sig)::text);
+    IF has_function_privilege('anon', to_regprocedure(v_sig), 'EXECUTE')
+       OR has_function_privilege('authenticated', to_regprocedure(v_sig), 'EXECUTE') THEN
+      RAISE EXCEPTION 'GATE FAILED: % (legacy) sigue expuesta', v_sig;
     END IF;
   END LOOP;
 END $$;

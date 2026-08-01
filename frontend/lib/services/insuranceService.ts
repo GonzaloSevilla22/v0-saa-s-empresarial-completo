@@ -110,14 +110,15 @@ export const insuranceService = {
   },
 
   /**
-   * Increment click count for an insurance
+   * Increment click count for an insurance (fire-and-forget: el tracking
+   * nunca rompe la UX — ante error loguea y sigue, no re-lanza)
    */
   async incrementClicks(id: string) {
-    const { error } = await supabase.rpc("increment_seguros_clicks", { row_id: id })
-    if (error) {
-      // Fallback if RPC doesn't exist yet
-      const insurance = await this.getInsuranceById(id)
-      await supabase.schema("community").from("seguros").update({ clicks_count: ((insurance as any)?.clicks_count || 0) + 1 }).eq("id", id)
+    try {
+      const { error } = await supabase.rpc("increment_seguros_clicks", { row_id: id })
+      if (error) throw error
+    } catch (error) {
+      console.error("Error incrementando clicks de seguro:", error)
     }
   },
 

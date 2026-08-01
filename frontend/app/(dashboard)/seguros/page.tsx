@@ -68,7 +68,14 @@ export default function SegurosPage() {
                   </p>
                 </div>
                 <Button asChild size="sm" variant="outline" className="w-full border-primary/30 text-primary hover:bg-primary/10 hover:text-primary transition-all mt-auto shadow-sm">
-                  <a href={seguro.contact_url} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={seguro.contact_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      void insuranceService.incrementClicks(seguro.id)
+                    }}
+                  >
                     Más información
                     <ExternalLink className="h-3.5 w-3.5 ml-2" />
                   </a>

@@ -3,9 +3,7 @@
 ## Purpose
 
 Servicio FastAPI independiente del frontend Next.js. Corre como proceso separado, expone una API HTTP + WebSocket, y se integra con Supabase como fuente de verdad de la base de datos.
-
 ## Requirements
-
 ### Requirement: Estructura de proyecto
 
 El backend SHALL organizarse en: `backend/main.py` (punto de entrada FastAPI), `backend/routers/` (handlers HTTP y WebSocket), `backend/core/` (config, auth, ws_manager) y `backend/tests/` (suite pytest).
@@ -52,7 +50,7 @@ Cada router SHALL tener al mínimo 1 test de happy path y 1 test de error (auth 
 - **THEN** existen tests de happy path (`test_get_expenses_ok`, `test_create_expense_ok`) y tests de error (`test_create_expense_member_forbidden`, `test_delete_expense_member_forbidden`, que ejercitan el guard `require_role` con un rol insuficiente), el mismo patrón que siguen `test_clients.py`, `test_products.py`, `test_sales.py` y `test_purchases.py` para sus respectivos routers
 
 ### Requirement: Routers de datos registrados en main.py
-El sistema SHALL registrar los 9 routers de dominio (expenses, clients, products, branches, stock, sales, purchases, organizations, payments) en `backend/main.py` con sus prefijos correspondientes y el tag OpenAPI apropiado.
+El sistema SHALL registrar los 8 routers de dominio (expenses, clients, products, branches, stock, sales, purchases, payments) en `backend/main.py` con sus prefijos correspondientes y el tag OpenAPI apropiado.
 
 Routers registrados:
 - `health.router`
@@ -64,12 +62,17 @@ Routers registrados:
 - `stock.router` (prefix `/stock`)
 - `sales.router` (prefix `/sales`)
 - `purchases.router` (prefix `/purchases`)
-- `organizations.router` (prefix `/organizations`)
 - `payments.router` (prefix `/payments`) ← C-17
+
+> El router `organizations` fue retirado en `remove-organizations-dead-code`: apuntaba a una tabla `organizations` inexistente en producción y sus dos endpoints devolvían HTTP 500 desde C-16.
 
 #### Scenario: Todos los routers de datos responden tras startup
 - **WHEN** la app arranca correctamente con pool inicializado (Redis es opcional)
-- **THEN** `GET /docs` lista todos los endpoints de expenses, clients, products, branches, stock, sales, purchases, organizations y payments en la UI de Swagger
+- **THEN** `GET /docs` lista todos los endpoints de expenses, clients, products, branches, stock, sales, purchases y payments en la UI de Swagger
+
+#### Scenario: No hay router de organizations registrado
+- **WHEN** la app arranca y se inspecciona `GET /openapi.json`
+- **THEN** no existe ninguna ruta bajo el prefijo `/organizations` ni el tag OpenAPI `organizations`
 
 ### Requirement: Service-role pool initialization (C-17)
 
@@ -99,3 +102,17 @@ El sistema SHALL configurar CORS en FastAPI para aceptar requests del dominio fr
 #### Scenario: Request OPTIONS preflight retorna 200 con headers CORS
 - **WHEN** el browser envía un preflight `OPTIONS /expenses`
 - **THEN** FastAPI retorna HTTP 200 con los headers `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers` correctos
+
+### Requirement: El dominio organizations no existe en el backend
+El backend SHALL no contener módulos, rutas ni repositorios del dominio `organizations`, porque nunca tuvo una tabla que lo respaldara en producción y su reintroducción reintroduciría endpoints rotos.
+
+La raíz de tenancy del sistema es `accounts` (adoptada en C-19 `v2-tenancy-cleanup`); `companies` es legacy. No existe ni existió una tabla `organizations` en el proyecto Supabase de producción. Cualquier necesidad futura de editar datos de la cuenta SHALL modelarse sobre `accounts` en un change propio, con su consumidor, su matriz de roles y su spec.
+
+#### Scenario: No quedan módulos del dominio organizations en el árbol del backend
+- **WHEN** se buscan los archivos `backend/routers/organizations.py`, `backend/services/organizations.py`, `backend/repositories/organization_repository.py`, `backend/schemas/organizations.py` y `backend/tests/test_organizations.py`
+- **THEN** ninguno de los cinco existe en el repositorio
+
+#### Scenario: main.py no importa el módulo organizations
+- **WHEN** se inspecciona `backend/main.py`
+- **THEN** no aparece `organizations` en el bloque de imports de routers ni ninguna llamada `app.include_router(organizations.router)`, y la app arranca sin errores de import
+

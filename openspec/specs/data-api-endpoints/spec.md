@@ -2,12 +2,12 @@
 
 ## Purpose
 
-Routers FastAPI tipados por dominio que validan payloads con Pydantic v2, aplican guards de rol y plan, y exponen endpoints CRUD para 8 dominios de negocio (expenses, clients, products, branches, stock, sales, purchases, organizations). Cada router retorna respuestas en schema consistente (`{items: [...], total: N}` para listas; recursos individuales para detail/create). Los errores PostgreSQL se convierten a respuestas HTTP con mensajes en español.
-
+Routers FastAPI tipados por dominio que validan payloads con Pydantic v2, aplican guards de rol y plan, y exponen endpoints CRUD para 7 dominios de negocio (expenses, clients, products, branches, stock, sales, purchases). Cada router retorna respuestas en schema consistente (`{items: [...], total: N}` para listas; recursos individuales para detail/create). Los errores PostgreSQL se convierten a respuestas HTTP con mensajes en español.
 ## Requirements
-
 ### Requirement: Routers FastAPI por dominio con Pydantic v2 schemas
-El sistema SHALL exponer un router FastAPI por dominio en `backend/routers/<domain>.py`. Cada router SHALL validar el payload de entrada con schemas Pydantic v2 definidos en `backend/schemas/<domain>.py` antes de llamar al service correspondiente. Los endpoints SHALL usar los prefijos: `/expenses`, `/clients`, `/products`, `/branches`, `/stock`, `/sales`, `/purchases`, `/organizations`. Los endpoints están **activos sin condición de flag** — el feature flag `NEXT_PUBLIC_USE_PYTHON_API` fue eliminado en C-18; el frontend siempre llama a estos endpoints.
+El sistema SHALL exponer un router FastAPI por dominio en `backend/routers/<domain>.py`. Cada router SHALL validar el payload de entrada con schemas Pydantic v2 definidos en `backend/schemas/<domain>.py` antes de llamar al service correspondiente. Los endpoints SHALL usar los prefijos: `/expenses`, `/clients`, `/products`, `/branches`, `/stock`, `/sales`, `/purchases`. Los endpoints están **activos sin condición de flag** — el feature flag `NEXT_PUBLIC_USE_PYTHON_API` fue eliminado en C-18; el frontend siempre llama a estos endpoints.
+
+El prefijo `/organizations` fue retirado en `remove-organizations-dead-code`: su repositorio consultaba una tabla `organizations` que no existe en producción, por lo que `GET /organizations/{org_id}` y `PUT /organizations/{org_id}/settings` devolvían HTTP 500 desde su creación en C-16. No tenía consumidores.
 
 #### Scenario: GET /expenses retorna lista de gastos de la org del usuario
 - **WHEN** un usuario autenticado hace `GET /expenses` con Bearer token válido
@@ -24,6 +24,10 @@ El sistema SHALL exponer un router FastAPI por dominio en `backend/routers/<doma
 #### Scenario: POST /sales con idempotency_key duplicada retorna la operación previa
 - **WHEN** se hace `POST /sales` con un `idempotency_key` que ya fue procesado por esta org
 - **THEN** retorna HTTP 200 con la operación previa (no duplica) — el RPC subyacente es idempotente
+
+#### Scenario: No se expone ningún endpoint bajo /organizations
+- **WHEN** se hace `GET /organizations/{cualquier-id}` contra la app
+- **THEN** responde HTTP 404 porque la ruta no está registrada (antes respondía HTTP 500 por tabla inexistente)
 
 ### Requirement: Services con guards require_role y require_plan
 Cada dominio SHALL tener un service en `backend/services/<domain>.py` con funciones que reciben `auth: AuthContext` (de C-15) y el payload validado. Los guards SHALL aplicarse al inicio de cada función de mutación:

@@ -1,244 +1,97 @@
 /**
  * POST /api/billing/webhook
- * Receives MercadoPago payment notifications (IPN/Webhooks).
  *
- * Security: verifies HMAC-SHA256 signature from x-signature header.
- * Idempotency: skips processing if mercadopago_payment_id already exists.
+ * LEGACY stateless forwarder (v31-mp-upgrade-webhook-fix, D1/D2).
  *
- * C-10 subscription-ui-upgrade-flow
+ * MercadoPago bakes `notification_url` into a preference at the moment it
+ * is created, and that value can never be changed afterward. Every
+ * preference issued before this change keeps notifying THIS URL for the
+ * rest of its useful life (a checkout left open yesterday and paid the day
+ * after tomorrow still lands here). Deleting this route instead of turning
+ * it into a forwarder would drop that traffic on the floor.
+ *
+ * This route no longer verifies the MercadoPago signature, reads Supabase,
+ * or updates the plan (H-02: it used to write with an anonymous client +
+ * request cookies, which RLS silently rejected — 0 rows updated, HTTP 200
+ * returned anyway, MercadoPago considered the notification delivered).
+ * All of that now lives exactly once in the backend
+ * (`POST /payments/webhook`, see payment-webhook spec): it re-verifies the
+ * signature, checks idempotency, and is the sole writer of
+ * `accounts.billing_plan` / `billing_events`.
+ *
+ * Rule (D2): relay raw bytes, never JSON.parse -> JSON.stringify. Any
+ * re-serialization (key order, unicode escapes, whitespace) can change what
+ * the backend's HMAC verification sees and silently break the signature.
+ *
+ * C-10 subscription-ui-upgrade-flow / v31-mp-upgrade-webhook-fix
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
-import { getMp, Payment } from '@/lib/mercadopago'
-import type { Plan } from '@/lib/types'
+import { getBackendWebhookUrl } from '@/lib/billing/webhook-url'
 
-// Next.js App Router: disable body parsing so we can read raw bytes for HMAC
+// Next.js App Router: disable body parsing so we can read raw bytes.
 export const runtime = 'nodejs'
 
-const PLAN_HIERARCHY: Plan[] = ['gratis', 'inicial', 'avanzado', 'pro']
-
-// The mercadopago SDK v2 types are incomplete — preference_id and some fields
-// are present in the API response but missing from the TypeScript definitions.
-interface MpPaymentData {
-  status: string | null | undefined
-  external_reference: string | null | undefined
-  transaction_amount: number | null | undefined
-  preference_id: string | null | undefined
-}
-
-// ── HMAC-SHA256 signature verification ───────────────────────────────────────
-
-async function verifyMpSignature(
-  rawBody: string,
-  xSignature: string | null,
-  xRequestId: string | null
-): Promise<boolean> {
-  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET
-  if (!secret) {
-    console.error('[billing/webhook] MERCADOPAGO_WEBHOOK_SECRET is not set')
-    return false
-  }
-
-  if (!xSignature || !xRequestId) {
-    return false
-  }
-
-  // MP sends: ts=<timestamp>,v1=<hmac>
-  const parts = Object.fromEntries(
-    xSignature.split(',').map((p) => p.split('=') as [string, string])
-  )
-  const ts = parts['ts']
-  const v1 = parts['v1']
-  if (!ts || !v1) return false
-
-  // Signed template: id:<id>;request-id:<xRequestId>;ts:<ts>;
-  // id is the data.id from the MP notification body
-  let notificationId = ''
-  try {
-    const body = JSON.parse(rawBody) as { data?: { id?: string } }
-    notificationId = body?.data?.id ?? ''
-  } catch {
-    return false
-  }
-
-  const signedTemplate = `id:${notificationId};request-id:${xRequestId};ts:${ts};`
-
-  const encoder = new TextEncoder()
-  const keyData = encoder.encode(secret)
-  const messageData = encoder.encode(signedTemplate)
-
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-
-  const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData)
-  const computed = Array.from(new Uint8Array(signatureBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-
-  // Constant-time comparison
-  if (computed.length !== v1.length) return false
-  let mismatch = 0
-  for (let i = 0; i < computed.length; i++) {
-    mismatch |= computed.charCodeAt(i) ^ v1.charCodeAt(i)
-  }
-  return mismatch === 0
-}
-
-// ── Webhook handler ───────────────────────────────────────────────────────────
-
 export async function POST(req: Request): Promise<NextResponse> {
-  const rawBody = await req.text()
+  let backendWebhookUrl: string
+  try {
+    backendWebhookUrl = getBackendWebhookUrl()
+  } catch {
+    console.error(
+      '[billing/webhook] NEXT_PUBLIC_BACKEND_URL is not set — refusing to relay (fail-closed)'
+    )
+    return NextResponse.json({ ok: false, error: 'Backend no configurado' }, { status: 500 })
+  }
 
-  // Verify MP signature
+  // Raw bytes only — never JSON.parse + JSON.stringify (D2).
+  const rawBody = await req.text()
   const xSignature = req.headers.get('x-signature')
   const xRequestId = req.headers.get('x-request-id')
 
-  const isValid = await verifyMpSignature(rawBody, xSignature, xRequestId)
-  if (!isValid) {
-    console.warn('[billing/webhook] Invalid signature — rejecting')
-    return NextResponse.json({ ok: false, error: 'Firma inválida' }, { status: 401 })
+  // x-relay-source: origin marker for the backend's traceability requirement
+  // (payment-webhook spec — "Notification origin is observable"). Safe under
+  // D2: it is not part of the HMAC-signed template (id + x-request-id + ts),
+  // so adding it cannot change what the backend's signature check sees.
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-relay-source': 'legacy-frontend',
   }
+  if (xSignature) headers['x-signature'] = xSignature
+  if (xRequestId) headers['x-request-id'] = xRequestId
 
-  let notification: { type?: string; data?: { id?: string } }
+  let backendResponse: Response
   try {
-    notification = JSON.parse(rawBody)
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Payload inválido' }, { status: 400 })
-  }
-
-  // We only process payment notifications
-  if (notification.type !== 'payment' || !notification.data?.id) {
-    return NextResponse.json({ ok: true, skipped: true })
-  }
-
-  const paymentId = String(notification.data.id)
-
-  try {
-    const supabase = createClient()
-
-    // ── Idempotency check ────────────────────────────────────────────────────
-    const { data: existing } = await supabase
-      .from('billing_events')
-      .select('id')
-      .eq('mercadopago_payment_id', paymentId)
-      .maybeSingle()
-
-    if (existing) {
-      console.log('[billing/webhook] Duplicate payment_id — idempotent skip:', paymentId)
-      return NextResponse.json({ ok: true, idempotent: true })
-    }
-
-    // ── Fetch payment details from MP ────────────────────────────────────────
-    const payment = new Payment(getMp())
-    const paymentData = await payment.get({ id: paymentId }) as unknown as MpPaymentData
-
-    if (paymentData.status !== 'approved') {
-      console.log('[billing/webhook] Payment not approved:', paymentData.status)
-      return NextResponse.json({ ok: true, status: paymentData.status })
-    }
-
-    // external_reference format: "userId::plan"
-    const externalRef = paymentData.external_reference ?? ''
-    const [userId, plan] = externalRef.split('::') as [string, Plan]
-
-    if (!userId || !plan || !PLAN_HIERARCHY.includes(plan)) {
-      console.error('[billing/webhook] Invalid external_reference:', externalRef)
-      return NextResponse.json({ ok: false, error: 'external_reference inválido' }, { status: 400 })
-    }
-
-    const amount = paymentData.transaction_amount ?? 0
-    const preferenceId = paymentData.preference_id ?? null
-
-    // ── Get the user's current account ──────────────────────────────────────
-    const { data: memberRow } = await supabase
-      .from('account_members')
-      .select('account_id, accounts(billing_plan)')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (!memberRow?.account_id) {
-      console.error('[billing/webhook] No account found for user:', userId)
-      return NextResponse.json({ ok: false, error: 'Cuenta no encontrada' }, { status: 404 })
-    }
-
-    const accountId = memberRow.account_id
-    const fromPlan = (memberRow.accounts as unknown as { billing_plan: Plan } | null)?.billing_plan ?? 'gratis'
-
-    // ── Update account plan ──────────────────────────────────────────────────
-    const { error: updateError } = await supabase
-      .from('accounts')
-      .update({
-        billing_plan: plan,
-        billing_status: 'active',
-        plan_expires_at: null,
-      })
-      .eq('id', accountId)
-
-    if (updateError) {
-      console.error('[billing/webhook] Failed to update account:', updateError)
-      return NextResponse.json({ ok: false, error: 'Error al actualizar el plan' }, { status: 500 })
-    }
-
-    // ── Insert billing_events audit row ──────────────────────────────────────
-    const { error: eventError } = await supabase
-      .from('billing_events')
-      .insert({
-        user_id: userId,
-        event_type: 'plan_upgraded',
-        from_plan: fromPlan,
-        to_plan: plan,
-        reason: 'C-10 mercadopago-payment-approved',
-        mercadopago_payment_id: paymentId,
-        mercadopago_preference_id: preferenceId,
-        amount,
-        metadata: {
-          account_id: accountId,
-          payment_status: paymentData.status,
-        },
-      })
-
-    if (eventError) {
-      console.error('[billing/webhook] Failed to insert billing_event:', eventError)
-      // Non-fatal: plan was already updated. Log and return success.
-    }
-
-    // ── Enqueue upgrade email notification ───────────────────────────────────
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (profileData) {
-      const { data: authUser } = await supabase.auth.admin.getUserById(userId)
-      const recipientEmail = authUser?.user?.email
-      if (recipientEmail) {
-        await supabase.from('email_logs').insert({
-          user_id: userId,
-          event_type: 'plan_upgraded',
-          recipient: recipientEmail,
-          subject: `Tu plan ${plan.charAt(0).toUpperCase() + plan.slice(1)} está activo — Aliadata`,
-          metadata: {
-            plan,
-            amount,
-            activated_at: new Date().toISOString(),
-          },
-        })
-      }
-    }
-
-    console.log(`[billing/webhook] Upgraded user ${userId} from ${fromPlan} to ${plan}`)
-    return NextResponse.json({ ok: true })
-
+    backendResponse = await fetch(backendWebhookUrl, {
+      method: 'POST',
+      headers,
+      body: rawBody,
+    })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('[billing/webhook] Unhandled error:', message)
-    return NextResponse.json({ ok: false, error: 'Error interno del servidor' }, { status: 500 })
+    console.error('[billing/webhook] Relay to backend failed:', message)
+    return NextResponse.json({ ok: false, error: 'Error al reenviar al backend' }, { status: 502 })
   }
+
+  const responseBody = await backendResponse.text()
+
+  // Relay trace (payment-gateway spec: "Cada reenvío queda trazado") — only
+  // the notification id + the backend's status, best-effort parse for the
+  // log line only. The signature/secret verification, and any risk of
+  // leaking them, lives entirely in the backend; this route never sees them.
+  let paymentId = 'unknown'
+  try {
+    const parsed = JSON.parse(rawBody) as { data?: { id?: string } }
+    paymentId = parsed?.data?.id ?? 'unknown'
+  } catch {
+    // Best-effort only — the relay above already went out with the
+    // original bytes untouched regardless of whether this parse succeeds.
+  }
+  console.log(
+    `[billing/webhook] Relayed payment ${paymentId} — backend responded ${backendResponse.status}`
+  )
+
+  return new NextResponse(responseBody, {
+    status: backendResponse.status,
+    headers: { 'content-type': backendResponse.headers.get('content-type') ?? 'application/json' },
+  })
 }

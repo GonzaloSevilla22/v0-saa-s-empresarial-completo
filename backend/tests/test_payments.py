@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import logging
 import time
 import uuid
 from decimal import Decimal
@@ -258,6 +259,212 @@ async def test_webhook_shadow_mode_no_db_writes(async_client, mock_service_pool)
     assert resp.status_code == 200
     assert resp.json()["shadow"] is True
     conn.execute.assert_not_called()
+
+
+# ── v31-mp-upgrade-webhook-fix: equivalencia directo/reenviado + diagnóstico ──
+# de secreto (grupo 4, tasks.md). El forwarder de Next.js agrega el header
+# `x-relay-source: legacy-frontend` (fuera del template firmado — id +
+# request-id + ts — así que no puede romper el HMAC) para que el backend
+# distinga origen. Sin ese header, el origen es "direct".
+
+
+async def test_webhook_relayed_notification_produces_identical_db_state(async_client, mock_service_pool):
+    """4.1: misma notificación reenviada (mismos bytes, mismos headers de firma
+    + el marcador de origen) produce exactamente el mismo estado de DB que una
+    directa (comparar con test_webhook_approved_upgrades_plan)."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-relay-001")
+    sig = _make_signature("pay-relay-001")
+
+    member_row = {"account_id": "acc-uuid-relay", "billing_plan": "gratis"}
+    event_row = {"id": "be-uuid-relay", "receipt_number": "RC-2026-000200"}
+    conn.fetchrow = AsyncMock(side_effect=[None, member_row, event_row])
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "user-uuid-1::avanzado",
+        "transaction_amount": 1500.0,
+        "preference_id": "pref-relay",
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("backend.services.payments._fetch_user_email", new_callable=AsyncMock, return_value="user@example.com"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await async_client.post(
+            "/payments/webhook",
+            content=body,
+            headers={
+                "x-signature": sig,
+                "x-request-id": REQUEST_ID,
+                "content-type": "application/json",
+                "x-relay-source": "legacy-frontend",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    executed_queries = [str(c.args[0]) for c in conn.execute.await_args_list]
+    fetchrow_queries = [str(c.args[0]) for c in conn.fetchrow.await_args_list]
+    assert any("UPDATE accounts" in q for q in executed_queries), "el reenvío no actualizó accounts.billing_plan"
+    assert any("INSERT INTO billing_events" in q for q in fetchrow_queries), "el reenvío no insertó billing_events"
+    assert any("INSERT INTO email_logs" in q for q in executed_queries), "el reenvío no encoló el email"
+
+
+async def test_webhook_same_payment_relayed_then_direct_is_idempotent(async_client, mock_service_pool):
+    """4.2: el mismo mercadopago_payment_id entregado por las dos vías deja
+    UNA sola fila en billing_events; la segunda entrega responde idempotent."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-relay-dup")
+    sig = _make_signature("pay-relay-dup")
+
+    # La idempotency check (primer fetchrow) ya encuentra la fila insertada
+    # por la primera entrega (sea cual sea el origen de esa primera entrega).
+    conn.fetchrow = AsyncMock(return_value={"id": "existing-event-id"})
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+    ):
+        resp = await async_client.post(
+            "/payments/webhook",
+            content=body,
+            headers={
+                "x-signature": sig,
+                "x-request-id": REQUEST_ID,
+                "content-type": "application/json",
+                "x-relay-source": "legacy-frontend",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["idempotent"] is True
+    conn.execute.assert_not_called()
+
+
+async def test_webhook_missing_secret_rejects_and_logs_configuration_fault(async_client, mock_service_pool, caplog):
+    """4.4: MERCADOPAGO_WEBHOOK_SECRET vacía -> rechaza sin tocar la DB y el
+    log distingue "falta de configuración" de "firma inválida"."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-nosecret")
+    sig = _make_signature("pay-nosecret")  # firmado con SECRET, pero el server no tiene ningún secreto configurado
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", ""),
+        caplog.at_level(logging.WARNING, logger="backend"),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 400
+    conn.fetchrow.assert_not_called()
+    conn.execute.assert_not_called()
+    logs = caplog.text.lower()
+    assert "not configured" in logs or "no configurad" in logs, (
+        f"el log de rechazo no distingue falta de configuración: {caplog.text!r}"
+    )
+    assert "invalid signature" not in logs and "firma inválida" not in logs, (
+        "un secreto faltante NO debe logearse como firma inválida (son causas distintas)"
+    )
+
+
+async def test_webhook_invalid_signature_with_secret_present_logs_signature_fault(
+    async_client, mock_service_pool, caplog
+):
+    """4.4 contraste: con secreto configurado, una firma que no matchea se
+    loguea como problema de firma, NUNCA como falta de configuración."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-badsig")
+    bad_sig = "ts=0,v1=deadbeef"
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        caplog.at_level(logging.WARNING, logger="backend"),
+    ):
+        resp = await _post_webhook(async_client, body, bad_sig)
+
+    assert resp.status_code == 400
+    conn.execute.assert_not_called()
+    logs = caplog.text.lower()
+    assert "not configured" not in logs and "no configurad" not in logs, (
+        f"con secreto presente, el log NO debe decir 'falta de configuración': {caplog.text!r}"
+    )
+
+
+async def test_webhook_rejection_logs_never_leak_secret_or_signature_value(async_client, mock_service_pool, caplog):
+    """4.5 TRIANGULATE: ni el secreto configurado ni el valor de la firma
+    recibida aparecen en ningún log de rechazo."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-leak-check")
+    bad_sig = "ts=0,v1=SHOULD_NOT_LEAK_1234567890abcdef"
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        caplog.at_level(logging.WARNING, logger="backend"),
+    ):
+        await _post_webhook(async_client, body, bad_sig)
+
+    assert SECRET not in caplog.text
+    assert "SHOULD_NOT_LEAK_1234567890abcdef" not in caplog.text
+
+
+async def test_webhook_direct_notification_traced_as_direct(async_client, mock_service_pool, caplog):
+    """4.6: sin el header de relay, el backend traza el origen como directo.
+
+    payment_id deliberadamente sin la subcadena "direct"/"relayed" — evita un
+    falso positivo si el id se cuela en el mismo mensaje de log que la traza.
+    """
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-trace-001")
+    sig = _make_signature("pay-trace-001")
+    conn.fetchrow = AsyncMock(return_value={"id": "existing"})  # camino idempotente, el más simple
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        caplog.at_level(logging.INFO, logger="backend"),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert "origin=direct" in caplog.text
+    assert "origin=relayed" not in caplog.text
+
+
+async def test_webhook_relayed_notification_traced_as_relayed(async_client, mock_service_pool, caplog):
+    """4.6: con el header x-relay-source, el backend traza el origen como reenviado."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-trace-002")
+    sig = _make_signature("pay-trace-002")
+    conn.fetchrow = AsyncMock(return_value={"id": "existing"})
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        caplog.at_level(logging.INFO, logger="backend"),
+    ):
+        resp = await async_client.post(
+            "/payments/webhook",
+            content=body,
+            headers={
+                "x-signature": sig,
+                "x-request-id": REQUEST_ID,
+                "content-type": "application/json",
+                "x-relay-source": "legacy-frontend",
+            },
+        )
+
+    assert resp.status_code == 200
+    assert "origin=relayed" in caplog.text
+    assert "origin=direct" not in caplog.text
 
 
 # ── Recibos de pago — vista admin (#4 comprobante) ────────────────────────────

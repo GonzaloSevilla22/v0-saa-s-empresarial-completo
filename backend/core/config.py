@@ -33,6 +33,22 @@ class Settings(BaseSettings):
     # Constante de config (Gate 0 OQ-3): actualizar acá cuando una RG futura cambie el monto.
     afip_consumidor_final_threshold: int = 10_000_000
 
+    # ── v31-tenancy-pool-rls Paso 1 (D1/D8) ──────────────────────────────
+    # Palanca de rollout, APAGADA por defecto: mergear deja el código
+    # inerte. Encenderla en Render (decisión del PO, tasks.md 4.4) hace que
+    # get_db_conn envuelva cada request en una transacción explícita con
+    # los claims de request.jwt.claims en alcance TRANSACCIONAL
+    # (equivalente a SET LOCAL) en vez del alcance de sesión actual — ver
+    # backend/core/database.py::get_db_conn y design.md D1/D2.
+    # Apagar es la reversión más rápida disponible: reinicio del servicio
+    # (~50s), sin rebuild ni redeploy.
+    tenancy_tx_scope_enabled: bool = False
+    # D4: idle_in_transaction_session_timeout con el mismo alcance
+    # transaccional, para que un request colgado no retenga la transacción
+    # (y la conexión física) indefinidamente. Sólo aplica cuando
+    # tenancy_tx_scope_enabled=True. Literal de intervalo de Postgres.
+    tenancy_tx_idle_timeout: str = "30s"
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

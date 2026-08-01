@@ -37,7 +37,7 @@
 - [x] 5.1 Commit del backend: `refactor(backend): elimina el dominio organizations (código muerto desde C-16)` con `Co-Authored-By` del agente — commit `2ce4dee`
 - [x] 5.2 Commit del frontend: `refactor(frontend): elimina el hook y las query keys de organizations` — commit `c7b7dd5`
 - [x] 5.3 Abrir el PR contra `main` describiendo: causa raíz (tabla `organizations` inexistente en el proyecto Supabase de producción), por qué se elimina en lugar de re-apuntar a `companies`, y el delta de tests — **PR #341**
-- [ ] 5.4 Esperar a que todos los checks de CI pasen (`gh pr checks`) antes de mergear. Recordar que el merge dispara build + deploy de Vercel y redeploy del backend en Render automáticamente. **Este change no tiene migraciones SQL**, así que el `db push` del pipeline debe ser no-op
+- [x] 5.4 Esperar a que todos los checks de CI pasen (`gh pr checks`) antes de mergear. Recordar que el merge dispara build + deploy de Vercel y redeploy del backend en Render automáticamente. **Este change no tiene migraciones SQL**, así que el `db push` del pipeline debe ser no-op — **`gh pr checks 341`: Vercel Preview Comments pass, validate-kpis pass (1m48s), Vercel pass; Supabase Preview skipping (conocido, no bloqueante). Exit code 0**
 
 ## 6. Cierre de specs (durante el archive)
 

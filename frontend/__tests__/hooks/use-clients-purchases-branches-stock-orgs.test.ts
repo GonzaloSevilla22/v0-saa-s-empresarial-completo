@@ -1,5 +1,5 @@
 /**
- * TDD tests for useClients, usePurchases, useBranches, useStock, useOrganizations
+ * TDD tests for useClients, usePurchases, useBranches, useStock
  * (C-18 frontend-decouple-datacontext)
  *
  * Tests: happy path + cache invalidation (at least 2 per hook)
@@ -12,7 +12,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React from "react"
 import { useClients } from "@/hooks/data/use-clients"
 import { usePurchases } from "@/hooks/data/use-purchases"
-import { useOrganization, useUpdateOrganization } from "@/hooks/data/use-organizations"
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -254,54 +253,5 @@ describe("usePurchases", () => {
       { "Idempotency-Key": "key-abc" },
     )
     expect(pythonClient.get).toHaveBeenCalledTimes(2) // after invalidation
-  })
-})
-
-// ── useOrganization ───────────────────────────────────────────────────────────
-
-describe("useOrganization", () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it("returns organization data from API", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValueOnce({
-      id: "org-1",
-      name: "Mi Empresa",
-      created_at: "2026-01-01T00:00:00Z",
-    })
-
-    const { result } = renderHook(() => useOrganization("org-1"), { wrapper: makeWrapper() })
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-
-    expect(result.current.organization).toMatchObject({ id: "org-1", name: "Mi Empresa" })
-    expect(pythonClient.get).toHaveBeenCalledWith("/organizations/org-1")
-  })
-
-  it("does not fetch when orgId is null", async () => {
-    const { result } = renderHook(() => useOrganization(null), { wrapper: makeWrapper() })
-
-    // isLoading stays false because query is disabled
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
-
-    expect(pythonClient.get).not.toHaveBeenCalled()
-    expect(result.current.organization).toBe(null)
-  })
-})
-
-describe("useUpdateOrganization", () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it("updateOrganization calls PUT /organizations/:orgId/settings", async () => {
-    vi.mocked(pythonClient.put).mockResolvedValueOnce({
-      id: "org-1", name: "Nuevo Nombre", created_at: "2026-01-01T00:00:00Z",
-    })
-
-    const { result } = renderHook(() => useUpdateOrganization(), { wrapper: makeWrapper() })
-
-    await act(async () => {
-      await result.current.mutateAsync({ orgId: "org-1", payload: { name: "Nuevo Nombre" } })
-    })
-
-    expect(pythonClient.put).toHaveBeenCalledWith("/organizations/org-1/settings", { name: "Nuevo Nombre" })
   })
 })

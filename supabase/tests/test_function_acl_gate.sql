@@ -20,10 +20,10 @@
 -- Mantenimiento de la allowlist: ACHICARLA (por revokes de lotes futuros) es
 -- siempre válido — la entrada sobrante no falla. AGREGAR una entrada requiere
 -- justificar en el PR por qué esa función necesita EXECUTE para anon
--- (caso de uso pre-login real). Espejo del inventario clasificado:
---   · 5 firmas = helpers de RLS — NUNCA revocar (las policies los ejecutan
---     como el rol consultante; revocarlos rompe todas las queries).
---   · 9 firmas = bucket "analizar" del inventario (paso 5, pendiente).
+-- (caso de uso pre-login real). Estado post-lote-5a (20260826000001): quedan
+-- SOLO los 4 helpers de RLS (5 firmas) — NUNCA revocar: las policies los
+-- ejecutan como el rol consultante; revocarlos rompe todas las queries de las
+-- tablas que los usan. Son la línea base aceptada por diseño del advisor 0028.
 
 DO $$
 DECLARE
@@ -34,17 +34,7 @@ DECLARE
     'public.get_account_ids_for_user(p_user_id uuid)',
     'public.is_account_writer(p_account_id uuid)',
     'public.is_admin()',
-    'public.is_admin(uid uuid)',
-    -- Bucket "analizar" (inventario 2026-07-31, paso 5 pendiente)
-    'public.rls_auto_enable()',
-    'public.rpc_accept_invitation(p_token text)',
-    'public.rpc_atomic_update_purchase_operation(p_purchase_ids uuid[], p_date date, p_description text, p_items jsonb)',
-    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb)',
-    'public.rpc_close_cash_session(p_session_id uuid, p_counted_balance numeric, p_idempotency_key text)',
-    'public.rpc_open_cash_session(p_cashbox_id uuid, p_opening_balance numeric)',
-    'public.rpc_register_cash_movement(p_session_id uuid, p_amount numeric, p_type text, p_reference_id uuid)',
-    'public.rpc_safe_delete_product(p_product_id uuid)',
-    'public.rpc_safe_delete_product(p_product_id uuid, p_user_id uuid)'
+    'public.is_admin(uid uuid)'
   ];
 BEGIN
   -- Entorno sin roles de Supabase (p.ej. postgres pelado): no hay nada que gatear

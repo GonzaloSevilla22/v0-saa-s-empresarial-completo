@@ -1,7 +1,7 @@
 import pytest
 from fastapi import HTTPException
 from unittest.mock import patch
-from backend.core.auth import get_current_user, AuthContext
+from backend.core.auth import get_current_user, get_claims_status, AuthContext
 
 TEST_SECRET = "test-secret-key"
 
@@ -183,3 +183,104 @@ def test_role_and_account_role_namespace_mixup_is_actually_detected():
     with pytest.raises(HTTPException) as exc_info:
         require_role(broken_auth, ["user", "admin"])
     assert exc_info.value.status_code == 403
+
+
+# ── v31-authz-token-hook — Grupo 7 (D8): get_claims_status ──────────────────
+# Diagnóstico de presencia de claims — soporte de GET /auth/claims-status.
+
+
+@pytest.mark.asyncio
+async def test_claims_status_all_present_reports_source_token():
+    """RED (7.1): un JWT con los tres claims reporta las tres presencias en
+    True, los valores efectivos, y source="token"."""
+    token = make_token({
+        "sub": "user-111",
+        "role": "authenticated",
+        "app_metadata": {"role": "admin", "account_role": "owner", "plan": "avanzado"},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_claims_status(token=token)
+
+    assert result == {
+        "role_claim_present": True,
+        "account_role_claim_present": True,
+        "plan_claim_present": True,
+        "effective_role": "admin",
+        "effective_account_role": "owner",
+        "effective_plan": "avanzado",
+        "source": "token",
+    }
+
+
+# ── 7.3 TRIANGULATE ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_claims_status_none_present_reports_fallback_values():
+    """TRIANGULATE (7.3a): un JWT SIN app_metadata reporta las tres
+    presencias en False y los valores de fallback (los mismos que usaría
+    get_current_user), con source="fallback"."""
+    token = make_token({"sub": "user-222", "role": "authenticated"})
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_claims_status(token=token)
+
+    assert result["role_claim_present"] is False
+    assert result["account_role_claim_present"] is False
+    assert result["plan_claim_present"] is False
+    assert result["effective_role"] == "user"
+    assert result["effective_account_role"] is None
+    assert result["effective_plan"] == "pro"
+    assert result["source"] == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_claims_status_partial_claims_reports_fallback_source():
+    """TRIANGULATE: si SOLO falta uno de los tres claims (p.ej. account_role,
+    usuario sin membresía), source sigue siendo "fallback" — no es
+    all-or-nothing por accidente."""
+    token = make_token({
+        "sub": "user-333",
+        "role": "authenticated",
+        "app_metadata": {"role": "user", "plan": "gratis"},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_claims_status(token=token)
+
+    assert result["role_claim_present"] is True
+    assert result["account_role_claim_present"] is False
+    assert result["plan_claim_present"] is True
+    assert result["source"] == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_claims_status_never_exposes_raw_token_or_payload():
+    """7.3c: la respuesta NUNCA debe contener el token ni el payload crudo —
+    solo las 7 claves del contrato de diagnóstico."""
+    token = make_token({
+        "sub": "user-444",
+        "role": "authenticated",
+        "app_metadata": {"role": "user", "account_role": "member", "plan": "inicial"},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_claims_status(token=token)
+
+    assert set(result.keys()) == {
+        "role_claim_present",
+        "account_role_claim_present",
+        "plan_claim_present",
+        "effective_role",
+        "effective_account_role",
+        "effective_plan",
+        "source",
+    }
+    assert token not in str(result)
+    assert "sub" not in result
+    assert "user_id" not in result

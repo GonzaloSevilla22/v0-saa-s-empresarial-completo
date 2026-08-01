@@ -14,6 +14,7 @@ from backend.core.database import close_pool, close_service_pool, init_pool, ini
 from backend.core.errors import asyncpg_error_handler, cors_error_headers, problem_response
 from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
+    auth as auth_router,
     bank_accounts,
     bank_reconciliation,
     branches,
@@ -131,6 +132,8 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(health.router)
 app.include_router(ws.router)
+# v31-authz-token-hook (D8) — diagnóstico permanente de claims del JWT
+app.include_router(auth_router.router)
 # cost-center-dimension (V2.5 Finanzas)
 app.include_router(cost_centers.router)
 app.include_router(fiscal.router)

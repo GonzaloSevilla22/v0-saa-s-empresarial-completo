@@ -49,8 +49,11 @@ def get_jwks_client() -> PyJWKClient:
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
-    """Validate a Supabase-issued JWT and extract user_id + role.
+def _decode_supabase_jwt(token: str) -> dict:
+    """Valida y decodifica un JWT emitido por Supabase. Compartido por
+    `get_current_user` y `get_claims_status` (v31-authz-token-hook D8) para
+    que ambos caminos verifiquen el token EXACTAMENTE igual — dos
+    implementaciones de decode divergirían silenciosamente.
 
     Production: uses JWKS (ES256/RS256) when supabase_url is configured.
     Dev/test: falls back to HS256 with supabase_jwt_secret when supabase_url is absent.
@@ -79,6 +82,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
             )
     except (PyJWTError, PyJWKClientError):
         raise HTTPException(status_code=401, detail="Invalid token")
+    return payload
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
+    """Validate a Supabase-issued JWT and extract user_id + role."""
+    payload = _decode_supabase_jwt(token)
 
     # Supabase JWTs always carry role="authenticated" (the Postgres role).
     # App-level role lives in app_metadata (set via custom access token hook),
@@ -106,4 +115,47 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
         "role": app_role,
         "account_role": app_account_role,
         "plan": app_plan,
+    }
+
+
+async def get_claims_status(token: str = Depends(oauth2_scheme)) -> dict:
+    """Diagnóstico de presencia de claims (v31-authz-token-hook D8) — soporte
+    de `GET /auth/claims-status`.
+
+    Distingue "el claim viene en el JWT" de "el valor efectivo que el
+    backend termina usando" (que puede venir de un fallback, D6). Es la
+    única forma de verificar la activación del hook sin caer en la trampa
+    documentada: el hook NUNCA escribe `auth.users.raw_app_metadata`, así
+    que inspeccionar esa columna da SIEMPRE `false`, con o sin el hook
+    activo — la única fuente de verdad es el JWT ya emitido, que es
+    exactamente lo que este endpoint mira.
+
+    SOLO para el usuario que llama — nunca se acepta un identificador de
+    otro usuario, y nunca se devuelve el token ni su payload crudo.
+    """
+    payload = _decode_supabase_jwt(token)
+    app_metadata = payload.get("app_metadata") or {}
+
+    role_present = "role" in app_metadata
+    account_role_present = "account_role" in app_metadata
+    plan_present = "plan" in app_metadata
+
+    jwt_role = payload.get("role", "authenticated")
+    effective_role = app_metadata.get("role") or (
+        "user" if jwt_role == "authenticated" else jwt_role
+    )
+    effective_plan = app_metadata.get("plan", "pro")
+    effective_account_role = app_metadata.get("account_role")
+
+    return {
+        "role_claim_present": role_present,
+        "account_role_claim_present": account_role_present,
+        "plan_claim_present": plan_present,
+        "effective_role": effective_role,
+        "effective_account_role": effective_account_role,
+        "effective_plan": effective_plan,
+        # "token": los tres claims viajan en el JWT (hook activo para este
+        # usuario). "fallback": al menos uno se resolvió sin el claim — token
+        # viejo (ventana de transición, D6) o hook todavía sin activar.
+        "source": "token" if (role_present and account_role_present and plan_present) else "fallback",
     }

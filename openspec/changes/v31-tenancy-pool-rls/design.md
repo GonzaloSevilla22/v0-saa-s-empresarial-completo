@@ -264,6 +264,18 @@ Todas las demás tablas con escritura directa (`branches`, `cost_centers`, `clie
 
 **Cierre del inventario**: 4 colisiones confirmadas (`fiscal_documents`, `cashboxes`, `events`, `email_logs`) + 1 colisión nueva más severa (`stock_movements`, deny explícito). **`fiscal_documents`, `cashboxes` y `stock_movements` se elevan al PO uno a uno antes de aplicar cualquier resolución** (OQ-3, extendido a `stock_movements` por el mismo criterio de "sensible"). `events`/`email_logs` son candidatas razonables a excepción-de-policy (tablas de infraestructura, sin invariantes de negocio de usuario) pero **tampoco se resuelven en este apply** — quedan para cuando el grupo 6 se ejecute de verdad, después del gate del grupo 5.
 
+### Resolución (2026-08-01, sign-off del PO sobre las 3 colisiones sensibles)
+
+El PO firmó las 3 resoluciones el mismo día, antes de escribir código (gate de este change para colisiones sensibles):
+
+- **`fiscal_documents`**: los 4 UPDATE → 4 RPCs `SECURITY DEFINER` dedicadas (`rpc_fiscal_document_authorize`/`reject`/`retry`/`claim_pending`). La tabla queda sin escritura directa del backend. `rpc_fiscal_document_authorize`/`reject` encapsulan también la llamada (antes condicional en Python) a `rpc_record_fiscal_transition`.
+- **`cashboxes`**: el UPDATE → `rpc_soft_delete_cashbox`, con el mismo check `is_account_writer` que ya usa `cashboxes_insert`.
+- **`stock_movements`**: los 4 DELETE de reversa → `rpc_reverse_stock_movement`, que resuelve el trade-off señalado arriba a favor de **preservar la inmutabilidad**: inserta el movimiento opuesto (`type` `purchase_return`/`sale_return`, ya permitidos por el CHECK de `type` desde antes de este change) con `metadata.reverses_movement_id` apuntando al original, que permanece — la policy `qual=false` NO se relaja (sigue prohibiendo la escritura directa para siempre; la RPC es `SECURITY DEFINER`, corre como el dueño, no le aplica la policy). **Cambio de comportamiento visible, deliberado**: el historial de stock ya no "olvida" un movimiento anulado — aparece el contramovimiento. El efecto neto sobre `branch_stock` es idéntico (misma aritmética que antes, delegada a `rpc_apply_product_stock_delta`; probado en el gate SQL stock-c).
+
+Implementado en `supabase/migrations/20260828000001_v31_rls_collision_rpcs.sql` (6 RPCs + 2 policies de INSERT para `events`/`email_logs` + CHECK ampliado de `stock_movements.reference_type`), con gates SQL estructurales (ACL: `authenticated` sí, `anon` no — igual que el resto del proyecto) y de comportamiento (DB vacía/CI). Repositories Python (`fiscal_document_repository.py`, `cashbox_repository.py`, `purchase_repository.py`, `sales_repository.py`) actualizados para llamar las RPCs; tests de contrato reescritos donde la arquitectura interna (antes visible al mock de Python) pasó a vivir dentro de la RPC.
+
+**Solapamiento con `v31-sales-delete-rpc-reversal` (H-10, `CHANGES.md`)**: resuelto — este apply sólo cierra la colisión RLS puntual de `stock_movements` (compensación en vez de DELETE, sin tocar la escritura directa de `sales`/`purchases`/`operation_idempotency`, que no tenían colisión). La arquitectura completa "borrado de venta/compra = un solo RPC-as-UoW" que H-10 propone queda íntegra para cuando se proponga ese change — ver la nota cruzada agregada en `CHANGES.md`.
+
 Cobertura de test: `backend/tests/test_tenancy_tx_atomicity.py` prueba el mecanismo de anidamiento (SAVEPOINT bajo transacción externa) con un doble de conexión (`FakeTxConnection`) que sí modela la semántica BEGIN/SAVEPOINT/RELEASE/ROLLBACK — un mock de `unittest.mock` no puede reproducirla. No sustituye una prueba de integración contra Postgres real (fuera de alcance del Paso 1).
 
 ## Open Questions

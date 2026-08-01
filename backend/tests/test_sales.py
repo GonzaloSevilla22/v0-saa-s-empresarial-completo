@@ -197,109 +197,64 @@ async def test_delete_sales_by_operation_not_found(async_client, mock_pool):
     assert resp.status_code == 404
 
 
-BRANCH_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
-
-
-async def test_delete_sale_c29_path_restores_stock(async_client, mock_pool):
-    """Ruta C-29/POS: hay stock_movements pero NO hay sale_items.
-    El borrado DEBE reponer stock vía rpc_apply_product_stock_delta."""
+async def test_delete_sale_calls_stock_reversal_rpc(async_client, mock_pool):
+    """v31-tenancy-pool-rls (colisión #3, sign-off PO 2026-08-01): el borrado
+    de una venta ya NO hace su propio lookup de stock_movements + rpc_apply_
+    product_stock_delta + DELETE — delega TODO eso, de una, a
+    rpc_reverse_stock_movement (inserta un contramovimiento en vez de borrar
+    del ledger append-only — cubre por igual la ruta C-29/POS sin sale_items
+    y la ruta v2, porque ya no hay ninguna rama por sale_items en el
+    repository). La aritmética de stock/branch_stock se prueba contra
+    Postgres real en el gate SQL (stock-a/b/c de
+    20260828000001_v31_rls_collision_rpcs.sql) — acá se prueba el CONTRATO:
+    delete_by_id llama la RPC exactamente una vez, con (sale_id, reason)."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     reversal_calls: list = []
 
     async def fetchrow_side_effect(query, *args):
-        if "rpc_apply_product_stock_delta" in query:
-            reversal_calls.append(args)
-            return {"rpc_apply_product_stock_delta": None}
         if "FROM sales WHERE id" in query:
             return {"id": SALE_ID, "operation_id": None}
-        if "FROM stock_movements" in query:
-            return {
-                "product_id": "prod-uuid-1",
-                "quantity_delta": -2,
-                "branch_id": BRANCH_ID,
-            }
-        if "FROM sale_items" in query:
-            return None  # C-29 no escribe sale_items
         return None
 
+    async def fetch_side_effect(query, *args):
+        if "rpc_reverse_stock_movement" in query:
+            reversal_calls.append(args)
+            return []
+        return []
+
     conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
             f"/sales/{SALE_ID}",
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 204
-    assert len(reversal_calls) == 1, "la reversa de stock no se ejecutó"
-    product_id, delta, branch_id = reversal_calls[0]
-    assert product_id == "prod-uuid-1"
-    assert delta == 2  # signo opuesto a quantity_delta = -2
-    assert branch_id == BRANCH_ID
+    assert len(reversal_calls) == 1, "rpc_reverse_stock_movement no se llamó"
+    sale_id, reason = reversal_calls[0]
+    assert sale_id == SALE_ID
+    assert reason == "Venta eliminada"
 
 
-async def test_delete_sale_v2_path_still_restores_stock(async_client, mock_pool):
-    """Paridad: venta con stock_movements (ruta v2) sigue reponiendo stock.
-    Triangulación con inputs distintos (delta -1, otra branch)."""
-    pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
-    reversal_calls: list = []
-    deleted_movements: list = []
-
-    async def fetchrow_side_effect(query, *args):
-        if "rpc_apply_product_stock_delta" in query:
-            reversal_calls.append(args)
-            return {"rpc_apply_product_stock_delta": None}
-        if "FROM sales WHERE id" in query:
-            return {"id": SALE_ID, "operation_id": None}
-        if "FROM stock_movements" in query:
-            return {
-                "product_id": "prod-uuid-9",
-                "quantity_delta": -1,
-                "branch_id": None,
-            }
-        return None
-
-    async def execute_side_effect(query, *args):
-        if "DELETE FROM stock_movements" in query:
-            deleted_movements.append(args)
-        return "DELETE 1"
-
-    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    conn.execute = AsyncMock(side_effect=execute_side_effect)
-    with patch("backend.core.database.pool", pool):
-        resp = await async_client.delete(
-            f"/sales/{SALE_ID}",
-            headers={"Authorization": f"Bearer {owner_token}"},
-        )
-    assert resp.status_code == 204
-    assert len(reversal_calls) == 1
-    assert reversal_calls[0][0] == "prod-uuid-9"
-    assert reversal_calls[0][1] == 1  # -(-1)
-    # la fila de stock_movements no debe quedar huérfana
-    assert len(deleted_movements) == 1
-
-
-async def test_delete_sales_by_operation_restores_stock(async_client, mock_pool):
-    """delete_by_operation repone el stock de cada línea en su propia branch."""
+async def test_delete_sales_by_operation_calls_stock_reversal_rpc_per_sale(async_client, mock_pool):
+    """delete_by_operation llama rpc_reverse_stock_movement una vez POR
+    venta del lote (TRIANGULATE: 2 ventas distintas del mismo operation_id)."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     reversal_calls: list = []
     sale_a = "11111111-1111-1111-1111-1111111111aa"
     sale_b = "11111111-1111-1111-1111-1111111111bb"
 
-    conn.fetch = AsyncMock(return_value=[{"id": sale_a}, {"id": sale_b}])
+    async def fetch_side_effect(query, *args):
+        if "SELECT id FROM sales WHERE operation_id" in query:
+            return [{"id": sale_a}, {"id": sale_b}]
+        if "rpc_reverse_stock_movement" in query:
+            reversal_calls.append(args)
+            return []
+        return []
 
-    async def fetchrow_side_effect(query, *args):
-        if "rpc_apply_product_stock_delta" in query:
-            reversal_calls.append(tuple(args))
-            return {"rpc_apply_product_stock_delta": None}
-        if "FROM stock_movements" in query:
-            if args and args[0] == sale_a:
-                return {"product_id": "prod-a", "quantity_delta": -3, "branch_id": "branch-1"}
-            return {"product_id": "prod-b", "quantity_delta": -1, "branch_id": "branch-2"}
-        return None
-
-    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
             f"/sales?operation_id={OPERATION_ID}",
@@ -307,34 +262,8 @@ async def test_delete_sales_by_operation_restores_stock(async_client, mock_pool)
         )
     assert resp.status_code == 204
     assert len(reversal_calls) == 2
-    assert ("prod-a", 3, "branch-1") in reversal_calls
-    assert ("prod-b", 1, "branch-2") in reversal_calls
-
-
-async def test_delete_sale_service_line_no_reversal(async_client, mock_pool):
-    """Línea de servicio (sin stock_movements) → borra sin reversa ni error."""
-    pool, conn = mock_pool
-    owner_token = make_token({"role": "user"})
-    reversal_calls: list = []
-
-    async def fetchrow_side_effect(query, *args):
-        if "rpc_apply_product_stock_delta" in query:
-            reversal_calls.append(args)
-            return {}
-        if "FROM sales WHERE id" in query:
-            return {"id": SALE_ID, "operation_id": None}
-        if "FROM stock_movements" in query:
-            return None  # servicio: sin movimiento
-        return None
-
-    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    with patch("backend.core.database.pool", pool):
-        resp = await async_client.delete(
-            f"/sales/{SALE_ID}",
-            headers={"Authorization": f"Bearer {owner_token}"},
-        )
-    assert resp.status_code == 204
-    assert reversal_calls == []
+    assert reversal_calls[0] == (sale_a, "Venta eliminada (operación)")
+    assert reversal_calls[1] == (sale_b, "Venta eliminada (operación)")
 
 
 async def test_update_sale_operation_ok(async_client, mock_pool):

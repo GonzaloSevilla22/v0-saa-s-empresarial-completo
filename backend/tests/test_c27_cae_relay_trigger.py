@@ -248,26 +248,37 @@ class TestAntiDoubleCAEClaim:
 
     @pytest.mark.asyncio
     async def test_claim_pending_query_returns_cuit_and_ambiente(self):
-        """REGRESIÓN: claim_pending DEBE joinear fiscal_profiles y devolver cuit + ambiente.
+        """REGRESIÓN: claim_pending DEBE devolver cuit + ambiente del fiscal_profile.
 
         Bug histórico: el RETURNING no incluía fp.cuit/fp.ambiente, así que el
         CAERelayProcessor armaba CAERequest con ambiente=default "homologacion" y
         cuit_emisor="". Resultado: todo doc de PRODUCCIÓN se relayaba al endpoint de
         HOMOLOGACIÓN con el cert de prod → AFIP "Certificado no emitido por AC de confianza".
+
+        v31-tenancy-pool-rls (colisión #1, sign-off PO 2026-08-01): el
+        UPDATE...FROM fiscal_profiles...RETURNING que hacía este JOIN quedó
+        encaminado por rpc_fiscal_document_claim_pending (SECURITY DEFINER) —
+        el texto del JOIN ya no vive en Python, así que esta regresión ya NO
+        se puede guardar inspeccionando el string de la query. La correctitud
+        del JOIN en sí (que cuit/ambiente vengan del fiscal_profile correcto)
+        se prueba contra Postgres real en el gate SQL (fiscal-c) de
+        supabase/migrations/20260828000001_v31_rls_collision_rpcs.sql. Este
+        test guarda el contrato que SÍ puede verse desde Python: que
+        claim_pending llame a la RPC correcta y que su resultado incluya
+        cuit/ambiente en el dict devuelto (no los pierda al convertir a dict).
         """
         from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 
         conn = AsyncMock()
         conn.fetchrow = AsyncMock(return_value=make_pending_doc())
         repo = FiscalDocumentRepository(conn)
-        await repo.claim_pending(DOC_ID)
+        result = await repo.claim_pending(DOC_ID)
 
         sql = conn.fetchrow.call_args[0][0]
-        assert "fiscal_profiles" in sql, "claim_pending debe joinear fiscal_profiles"
-        # El RETURNING debe traer cuit + ambiente del perfil (no defaultear a homo).
-        returning = sql.split("RETURNING", 1)[1]
-        assert "fp.ambiente" in returning, "claim_pending debe devolver fp.ambiente"
-        assert "fp.cuit" in returning, "claim_pending debe devolver fp.cuit"
+        assert "rpc_fiscal_document_claim_pending" in sql
+        assert result is not None
+        assert result["cuit"] == "20123456789", "claim_pending debe propagar fp.cuit"
+        assert result["ambiente"] == "homologacion", "claim_pending debe propagar fp.ambiente"
 
     @pytest.mark.asyncio
     async def test_claim_pending_returns_none_when_already_claimed(self):

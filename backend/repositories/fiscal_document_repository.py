@@ -52,57 +52,33 @@ class FiscalDocumentRepository(BaseRepository):
     ) -> None:
         """Transiciona el comprobante a authorized con el CAE obtenido.
 
-        v3-document-status-history (RN-A1): el registro del historial
-        (pending_cae → authorized) ocurre en la MISMA transacción que el
-        UPDATE de status, vía rpc_record_fiscal_transition (SECURITY DEFINER,
-        GRANT solo service_role). Si el UPDATE no matcheó (otro relay ya lo
-        transicionó — lease de claim_pending), no se registra historial.
+        v31-tenancy-pool-rls (colisión #1, sign-off PO 2026-08-01):
+        fiscal_documents no tiene policy de UPDATE — encaminado por
+        rpc_fiscal_document_authorize (SECURITY DEFINER), que hace el UPDATE
+        y, si matcheó (doc seguía pending_cae), registra el historial
+        (rpc_record_fiscal_transition) en el mismo statement SQL. Si el
+        UPDATE no matcheó (otro relay ya lo transicionó — lease de
+        claim_pending), no se registra historial — mismo contrato que antes.
         """
-        async with self._conn.transaction():
-            status = await self.execute(
-                """
-                UPDATE public.fiscal_documents
-                SET status       = 'authorized',
-                    cae          = $2,
-                    cae_due_date = $3
-                WHERE id = $1 AND status = 'pending_cae'
-                """,
-                doc_id,
-                cae,
-                cae_due_date,
-            )
-            if status == "UPDATE 1":
-                await self.execute(
-                    "SELECT public.rpc_record_fiscal_transition($1::uuid, $2, $3)",
-                    doc_id,
-                    "authorized",
-                    None,
-                )
+        await self.execute(
+            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3)",
+            doc_id,
+            cae,
+            cae_due_date,
+        )
 
     async def update_rejected(self, doc_id: str, last_error: str) -> None:
         """Transiciona el comprobante a rejected con el detalle del error.
 
-        v3-document-status-history (RN-A1): registra pending_cae → rejected en
-        la misma transacción, con el detalle del error como reason.
+        v31-tenancy-pool-rls (colisión #1): encaminado por
+        rpc_fiscal_document_reject (SECURITY DEFINER) — UPDATE + historial
+        (RN-A1, con last_error como reason) en el mismo statement SQL.
         """
-        async with self._conn.transaction():
-            status = await self.execute(
-                """
-                UPDATE public.fiscal_documents
-                SET status     = 'rejected',
-                    last_error = $2
-                WHERE id = $1 AND status = 'pending_cae'
-                """,
-                doc_id,
-                last_error,
-            )
-            if status == "UPDATE 1":
-                await self.execute(
-                    "SELECT public.rpc_record_fiscal_transition($1::uuid, $2, $3)",
-                    doc_id,
-                    "rejected",
-                    last_error,
-                )
+        await self.execute(
+            "SELECT public.rpc_fiscal_document_reject($1::uuid, $2)",
+            doc_id,
+            last_error,
+        )
 
     async def claim_pending(self, doc_id: str, max_attempts: int = 10) -> dict | None:
         """Atomic optimistic claim: sets next_attempt_at +5min lease on the doc.
@@ -125,27 +101,13 @@ class FiscalDocumentRepository(BaseRepository):
         # "homologacion" si falta) y doc["cuit"] (Auth.Cuit). Sin el JOIN, todo doc
         # de PRODUCCIÓN se relayaba contra el endpoint de HOMOLOGACIÓN con el cert
         # de prod -> AFIP: "Certificado no emitido por AC de confianza".
-        # Por eso usamos UPDATE ... FROM fiscal_profiles ... RETURNING fp.cuit, fp.ambiente.
+        #
+        # v31-tenancy-pool-rls (colisión #1): el UPDATE...FROM fiscal_profiles...
+        # RETURNING de arriba ahora vive en rpc_fiscal_document_claim_pending
+        # (SECURITY DEFINER) — mismo WHERE, mismo RETURNING, mismo contrato
+        # (SETOF vacío == "ya reclamado por otro caller").
         row = await self.fetchrow(
-            """
-            UPDATE public.fiscal_documents fd
-            SET next_attempt_at = now() + interval '5 minutes'
-            FROM public.fiscal_profiles fp
-            WHERE fd.id = $1
-              AND fp.id = fd.fiscal_profile_id
-              AND fd.status = 'pending_cae'
-              AND (fd.next_attempt_at IS NULL OR fd.next_attempt_at <= now())
-              AND fd.attempts < $2
-            RETURNING
-              fd.id, fd.account_id, fd.fiscal_profile_id, fd.point_of_sale_id,
-              fd.comprobante_type, fd.punto_de_venta, fd.number, fd.total,
-              fd.status, fd.cae, fd.cae_due_date, fd.attempts, fd.next_attempt_at,
-              fd.last_error,
-              -- fiscal-receptor-iva-relay: receptor + IVA para que el relay los propague al CAERequest
-              fd.receptor_doc_tipo, fd.receptor_doc_nro,
-              fd.neto, fd.iva_amount, fd.iva_alicuota_id,
-              fp.cuit, fp.ambiente
-            """,
+            "SELECT * FROM public.rpc_fiscal_document_claim_pending($1::uuid, $2::int)",
             doc_id,
             max_attempts,
         )
@@ -188,15 +150,14 @@ class FiscalDocumentRepository(BaseRepository):
         next_attempt_at: datetime.datetime,
         last_error: str,
     ) -> None:
-        """Incrementa el contador de intentos y reprograma el próximo intento (backoff)."""
+        """Incrementa el contador de intentos y reprograma el próximo intento (backoff).
+
+        v31-tenancy-pool-rls (colisión #1): encaminado por
+        rpc_fiscal_document_retry (SECURITY DEFINER) — mismo UPDATE, sin
+        historial (pending_cae -> pending_cae no es una transición de estado).
+        """
         await self.execute(
-            """
-            UPDATE public.fiscal_documents
-            SET attempts       = $2,
-                next_attempt_at = $3,
-                last_error      = $4
-            WHERE id = $1 AND status = 'pending_cae'
-            """,
+            "SELECT public.rpc_fiscal_document_retry($1::uuid, $2::int, $3, $4)",
             doc_id,
             attempts,
             next_attempt_at,

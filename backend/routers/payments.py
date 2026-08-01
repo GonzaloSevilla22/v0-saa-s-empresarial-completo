@@ -10,12 +10,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from backend.core.auth import get_current_user
 from backend.core.config import settings
-from backend.core.database import get_service_conn
+from backend.core.database import get_db_conn, get_service_conn
+from backend.core.deps import get_account_id
 from backend.repositories.billing_repository import BillingRepository
+from backend.repositories.subscriptions_repository import SubscriptionsRepository
 from backend.schemas.payments import (
+    AmbiguousSubscriptionOut,
     MpNotification,
     PaymentReceiptOut,
     PaymentReceiptsPageOut,
+    ResolveAmbiguousSubscriptionIn,
+    SubscriptionCancelOut,
+    SubscriptionCreateIn,
+    SubscriptionCreateOut,
     WebhookResponse,
 )
 from backend.services.payments import process_payment, verify_mp_signature
@@ -24,6 +31,13 @@ from backend.services.receipts import (
     build_receipt_pdf,
     build_receipt_pdf_base64,
     receipt_data_from_row,
+)
+from backend.services.subscriptions import (
+    cancel_subscription,
+    create_subscription_intent,
+    process_subscription_authorized_payment_notification,
+    process_subscription_preapproval_notification,
+    resolve_ambiguous_subscription,
 )
 
 logger = logging.getLogger(__name__)
@@ -53,6 +67,20 @@ def get_billing_repo(
     conn: asyncpg.Connection = Depends(get_service_conn),
 ) -> BillingRepository:
     return BillingRepository(conn)
+
+
+def get_subscriptions_repo(
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> SubscriptionsRepository:
+    return SubscriptionsRepository(conn)
+
+
+def require_subscriptions_enabled() -> None:
+    """mp-real-subscriptions: palanca de activación (design.md Amendment
+    "Activación gated"). Apagada por defecto — mergear este código lo deja
+    inerte. Ver backend/core/config.py::billing_subscriptions_enabled."""
+    if not settings.billing_subscriptions_enabled:
+        raise HTTPException(status_code=503, detail="Suscripciones no habilitadas todavía")
 
 
 @router.post("/webhook", response_model=WebhookResponse)
@@ -85,7 +113,7 @@ async def mercadopago_webhook(
     except Exception:
         raise HTTPException(status_code=400, detail="Payload inválido")
 
-    if notification.type != "payment" or not notification.data or not notification.data.id:
+    if not notification.data or not notification.data.id:
         return WebhookResponse(ok=True, skipped=True)
 
     # Traza de origen (spec payment-webhook "Notification origin is
@@ -94,10 +122,107 @@ async def mercadopago_webhook(
     # nunca trae ese header. No cambia el contrato de respuesta (task 4.6).
     origin = "relayed" if request.headers.get("x-relay-source") else "direct"
     logger.info(
-        "[payments/webhook] payment_id=%s origin=%s", notification.data.id, origin
+        "[payments/webhook] type=%s id=%s origin=%s", notification.type, notification.data.id, origin
     )
 
-    return await process_payment(notification.data.id, conn, shadow=shadow)
+    if notification.type == "payment":
+        return await process_payment(notification.data.id, conn, shadow=shadow)
+
+    # mp-real-subscriptions D2bis/D9: topics de suscripción. Detrás de la
+    # palanca — apagada, se tratan como "topic no manejado" (task 6.11: sin
+    # escrituras, para que MercadoPago no reintente indefinidamente). shadow
+    # no se implementa acá (no-goal del flujo de suscripción propio).
+    #
+    # IMPORTANTE (D9, no confundir con la normalización de la firma): el
+    # identificador que se usa para llamar a la API de MP (GET /preapproval/
+    # {id}, GET /authorized_payments/{id}) es el del QUERY PARAM tal como
+    # vino — CON su mayúsculas/minúsculas originales. `query_data_id` ya se
+    # usó arriba para armar el manifiesto firmado en minúsculas
+    # (derive_signed_notification_id lo normaliza internamente ahí) — pero
+    # el ID real en MercadoPago es case-sensitive, así que reusar la versión
+    # YA lowercased acá rompería el GET contra su API (404 por case
+    # mismatch). Si no hay query param, se cae al body (compatibilidad).
+    subscription_id = query_data_id or notification.data.id
+
+    if settings.billing_subscriptions_enabled and notification.type == "subscription_preapproval":
+        subs_repo = SubscriptionsRepository(conn)
+        result = await process_subscription_preapproval_notification(subscription_id, subs_repo, conn)
+        return WebhookResponse(**result)
+
+    if settings.billing_subscriptions_enabled and notification.type == "subscription_authorized_payment":
+        subs_repo = SubscriptionsRepository(conn)
+        result = await process_subscription_authorized_payment_notification(subscription_id, subs_repo, conn)
+        return WebhookResponse(**result)
+
+    # Topic no manejado (incluye subscription_* con la palanca apagada,
+    # y subscription_preapproval_plan que no está en alcance): éxito sin
+    # escrituras — task 6.11.
+    return WebhookResponse(ok=True, skipped=True)
+
+
+# ── Suscripciones (mp-real-subscriptions, D2bis) — detrás de la palanca ───────
+
+@router.post(
+    "/subscriptions",
+    response_model=SubscriptionCreateOut,
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def create_subscription(
+    body: SubscriptionCreateIn,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+) -> SubscriptionCreateOut:
+    """Alta de suscripción (task 6.3/6.4, D2bis): crea la intención
+    pre-registrada y devuelve el init_point del PLAN. NO crea ningún
+    preapproval — MercadoPago lo crea cuando el pagador completa el
+    checkout; la reconciliación pasa por el webhook."""
+    return await create_subscription_intent(str(account_id), auth["user_id"], body.plan, repo)
+
+
+@router.delete(
+    "/subscriptions",
+    response_model=SubscriptionCancelOut,
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def delete_subscription(
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> SubscriptionCancelOut:
+    """Baja de suscripción (task 6.5/6.6): cancela el preapproval EN
+    MERCADOPAGO primero — el acceso se conserva hasta el fin del período ya
+    pagado, sin prorrateo (D2bis/Non-Goals)."""
+    return await cancel_subscription(str(account_id), repo, conn)
+
+
+@router.get(
+    "/subscriptions/ambiguous",
+    response_model=list[AmbiguousSubscriptionOut],
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def list_ambiguous_subscriptions(
+    _admin: dict = Depends(require_admin),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+) -> list:
+    """Cola de conciliación manual (task 6.8bis, D2bis): suscripciones con
+    `account_id NULL` que ningún intento automático pudo resolver. Solo
+    admin — el dinero ya se acreditó, esto corrige la atribución."""
+    return await repo.list_ambiguous_subscriptions()
+
+
+@router.post(
+    "/subscriptions/ambiguous/{subscription_id}/resolve",
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def resolve_ambiguous_subscription_endpoint(
+    subscription_id: uuid.UUID,
+    body: ResolveAmbiguousSubscriptionIn,
+    _admin: dict = Depends(require_admin),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> dict:
+    return await resolve_ambiguous_subscription(str(subscription_id), str(body.account_id), repo, conn)
 
 
 # ── Recibos de pago (#4 comprobante — vista admin) ────────────────────────────

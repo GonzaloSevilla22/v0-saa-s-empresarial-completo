@@ -49,6 +49,28 @@ class Settings(BaseSettings):
     # tenancy_tx_scope_enabled=True. Literal de intervalo de Postgres.
     tenancy_tx_idle_timeout: str = "30s"
 
+    # ── mp-real-subscriptions (D2bis/D6) — Camino A ──────────────────────
+    # Palanca de activación, APAGADA por defecto: mergear el código de este
+    # change lo deja INERTE — el flujo de upgrade sigue creando la
+    # `Preference` de pago único de siempre. Mismo patrón que
+    # tenancy_tx_scope_enabled: encenderla en Render es decisión del PO,
+    # condicionada a DOS cosas que el agente no puede verificar solo
+    # (design.md Amendment "Activación gated"):
+    #   (1) v31-mp-upgrade-webhook-fix tarea 5.1 (pago E2E real) verificada.
+    #   (2) Los 3 preapproval_plan de producción creados (tasks.md 9.1) y
+    #       sus IDs cargados en mp_plan_id_inicial/avanzado/pro (abajo).
+    # Apagarla es la reversión más rápida disponible: reinicio del servicio,
+    # sin rebuild ni redeploy — los preapproval ya autorizados en MP siguen
+    # cobrando igual (el rollback de código no los cancela).
+    billing_subscriptions_enabled: bool = False
+    # IDs de los preapproval_plan de PRODUCCIÓN (creados MANUAL PO, tasks.md
+    # 9.1 — nunca en el código). El init_point se construye de forma
+    # determinística a partir del ID (verificado en sandbox 2026-08-01):
+    # https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id=<id>
+    mp_plan_id_inicial: str = ""
+    mp_plan_id_avanzado: str = ""
+    mp_plan_id_pro: str = ""
+
     # mp-real-subscriptions (hallazgo 2026-08-01, sign-off PO): `extra="ignore"`
     # es obligatorio. Sin esto, pydantic-settings v2 rechaza CUALQUIER variable
     # presente en `.env` o en el entorno que no tenga un campo declarado acá

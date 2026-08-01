@@ -155,7 +155,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.rpc_fiscal_document_authorize(uuid, text, date) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_fiscal_document_authorize(uuid, text, date) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_authorize(uuid, text, date) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_fiscal_document_authorize(uuid, text, date) IS
@@ -194,7 +194,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.rpc_fiscal_document_reject(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_fiscal_document_reject(uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_reject(uuid, text) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_fiscal_document_reject(uuid, text) IS
@@ -225,7 +225,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.rpc_fiscal_document_retry(uuid, integer, timestamptz, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_fiscal_document_retry(uuid, integer, timestamptz, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_retry(uuid, integer, timestamptz, text) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_fiscal_document_retry(uuid, integer, timestamptz, text) IS
@@ -286,7 +286,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.rpc_fiscal_document_claim_pending(uuid, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_fiscal_document_claim_pending(uuid, integer) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_claim_pending(uuid, integer) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_fiscal_document_claim_pending(uuid, integer) IS
@@ -330,7 +330,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.rpc_soft_delete_cashbox(uuid, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_soft_delete_cashbox(uuid, uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_soft_delete_cashbox(uuid, uuid, uuid) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_soft_delete_cashbox(uuid, uuid, uuid) IS
@@ -442,7 +442,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.rpc_reverse_stock_movement(uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_reverse_stock_movement(uuid, text, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_reverse_stock_movement(uuid, text, text) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_reverse_stock_movement(uuid, text, text) IS
@@ -511,6 +511,7 @@ DECLARE
   v_count          int;
   v_bool           boolean;
   v_run_behavioral boolean := false;
+  v_fn_check       RECORD;
 
   -- estructurales
   v_gate_a boolean := false;  -- 6 funciones: SECURITY DEFINER, search_path fijo, ACL correcta
@@ -549,11 +550,17 @@ DECLARE
 BEGIN
 
   -- ── (a) 6 funciones nuevas: SECURITY DEFINER + search_path fijo + ACL ───
-  FOR v_bool IN
-    SELECT p.prosecdef
-      AND EXISTS (SELECT 1 FROM unnest(p.proconfig) cfg WHERE cfg LIKE 'search_path=%')
-      AND has_function_privilege('authenticated', p.oid, 'EXECUTE')
-      AND NOT has_function_privilege('anon', p.oid, 'EXECUTE')
+  -- Diagnóstico por función (no un booleano agregado): un REVOKE incompleto
+  -- (p.ej. "FROM PUBLIC" sin "anon, authenticated" explícito) deja EXECUTE
+  -- heredado vía ALTER DEFAULT PRIVILEGES de Supabase — advisors 0028/0029,
+  -- ver convención en migraciones desde 20260807000001 en adelante.
+  FOR v_fn_check IN
+    SELECT
+      p.proname,
+      p.prosecdef AS is_definer,
+      EXISTS (SELECT 1 FROM unnest(p.proconfig) cfg WHERE cfg LIKE 'search_path=%') AS has_search_path,
+      has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth_can_exec,
+      has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_can_exec
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public' AND p.proname IN (
       'rpc_fiscal_document_authorize', 'rpc_fiscal_document_reject',
@@ -561,8 +568,15 @@ BEGIN
       'rpc_soft_delete_cashbox', 'rpc_reverse_stock_movement'
     )
   LOOP
-    IF NOT COALESCE(v_bool, false) THEN
-      RAISE EXCEPTION 'GATE (a) FAILED: alguna de las 6 RPCs nuevas no es SECURITY DEFINER + search_path fijo + EXECUTE(authenticated) sin EXECUTE(anon)';
+    IF NOT (
+      COALESCE(v_fn_check.is_definer, false)
+      AND COALESCE(v_fn_check.has_search_path, false)
+      AND COALESCE(v_fn_check.auth_can_exec, false)
+      AND NOT COALESCE(v_fn_check.anon_can_exec, true)
+    ) THEN
+      RAISE EXCEPTION 'GATE (a) FAILED: % — definer=% search_path=% auth_exec=% anon_exec=% (se esperaba definer=t search_path=t auth_exec=t anon_exec=f)',
+        v_fn_check.proname, v_fn_check.is_definer, v_fn_check.has_search_path,
+        v_fn_check.auth_can_exec, v_fn_check.anon_can_exec;
     END IF;
   END LOOP;
 

@@ -1,5 +1,53 @@
 # Design — mp-real-subscriptions
 
+## Amendment 2026-08-01 — D2 refutado en sandbox, pivot a Camino A (sign-off PO)
+
+**Validación bloqueante ejecutada en sandbox** (tasks §2, cuenta de test confirmada vía
+`GET /users/me` — email `@testuser.com`, nickname `TESTUSER*`, nunca la cuenta real del PO).
+Se probaron las **dos** variantes posibles de `POST /preapproval` sin `card_token_id`:
+
+| Variante | Payload | Resultado | Reproducibilidad |
+|---|---|---|---|
+| **Con plan** (la asumida por D2 original) | `preapproval_plan_id` + `payer_email` + `external_reference` + `status:"pending"`, sin `card_token_id` | **HTTP 400** `"card_token_id is required"` | 3/3 intentos, 2 `preapproval_plan` distintos, con y sin `status` explícito |
+| **Sin plan** (pivot evaluado como alternativa) | `auto_recurring` inline + `payer_email` + `external_reference` + `reason` + `back_url` + `status:"pending"`, sin `card_token_id` — es el ejemplo literal de la documentación oficial de MP | **HTTP 500** `"Internal server error"` | 6/6 intentos (payload base ×3 + 4 variantes: sin `status`, solo `start_date`, monto float, sin `external_reference`) |
+
+Tres controles aíslan que el 500 de la variante "sin plan" es específico de esa combinación y no
+un error de payload genérico: sin `back_url` → 400 limpio; `currency_id` inválida para la cuenta →
+400 limpio; `card_token_id` **inventado** (string basura) → 400 limpio "Card token service bad
+request" (en cuanto hay *cualquier* `card_token_id`, la API vuelve a validar con normalidad).
+Conclusión: crear un `preapproval` sin `card_token_id` es 400 (con plan) o 500 (sin plan, pese a
+ser el ejemplo oficial de la doc) en esta cuenta/aplicación. **Ninguna de las dos variantes
+persiste un objeto atribuible antes de redirigir al pagador.** Objetos de sandbox creados durante
+la validación (2 `preapproval_plan` de prueba) quedaron cancelados; ningún `preapproval` llegó a
+crearse (todos los intentos fallaron).
+
+**Sign-off del PO (2026-08-01)**: **Camino A firmado** — el fallback ya prendescripto en D2
+original, con su degradación de atribución aceptada explícitamente. **Camino B (tokenizar tarjeta
+con Bricks/CardToken en nuestro frontend) descartado** — el PO prioriza no absorber la superficie
+de cumplimiento de un formulario de tarjeta propio. Abrir un ticket a MercadoPago por el 500 de la
+variante "sin plan" queda **opcional, no bloquea** este change.
+
+Este amendment **reemplaza D2** (la decisión original queda documentada más abajo únicamente como
+registro histórico de qué se intentó) y define el mecanismo real de atribución como **D2bis**, más
+abajo en `## Decisions`.
+
+### Activación gated — cómo se reinterpreta el gate de tasks.md 1.1
+
+El prerequisito duro (`v31-mp-upgrade-webhook-fix` tarea 5.1, pago E2E real que acredita solo)
+**sigue sin ejecutarse** — es `[MANUAL PO]`, no lo dispara el agente. Eso no bloquea *escribir* este
+change, bloquea *encenderlo* en producción. Se resuelve con una palanca nueva, mismo patrón que
+`TENANCY_TX_SCOPE_ENABLED` (`backend/core/config.py`):
+
+- **`BILLING_SUBSCRIPTIONS_ENABLED`** (bool, default `False`). Apagada: todo el código de este
+  change queda mergeado e inerte — el flujo de upgrade actual (`Preference` de pago único) sigue
+  operando exactamente igual que hoy. Encendida: el CTA de upgrade pasa a crear una
+  `subscription_intent` y redirige al `init_point` del plan.
+- **Dos condiciones deben cumplirse antes de encenderla**, ninguna la verifica el agente: (1) la
+  tarea 5.1 de `v31-mp-upgrade-webhook-fix` pasó (canal de webhook probado con dinero real), y
+  (2) los 3 `preapproval_plan` de producción existen (tasks §9.1, `[MANUAL PO]`). El desarrollo,
+  el TDD y los merges de este change **proceden sin esperar** ninguna de las dos — es exactamente
+  la separación que ya usa `v31-tenancy-pool-rls` (mergear ≠ activar).
+
 ## Context
 
 ### Estado actual, verificado en el código
@@ -59,13 +107,73 @@ CRÍTICO. Es el único camino por el que entra dinero, sobre 34 cuentas reales y
 
 **Trade-off**: cambiar el precio de un tier requiere gestionar el plan en MercadoPago (y decidir si las suscripciones vigentes migran). Fuera de alcance acá; se documenta.
 
-### D2 — El `preapproval` se crea server-side para poder llevar `external_reference`
+### D2 — [SUPERADA 2026-08-01, ver Amendment arriba] El `preapproval` se crea server-side para poder llevar `external_reference`
 
-**Decisión**: `POST /preapproval` con `preapproval_plan_id`, `payer_email` (del usuario autenticado), `external_reference` y `status: "pending"`; se redirige al usuario al `init_point` de la respuesta.
+**Registro histórico — ya no es la decisión vigente.** Decía: `POST /preapproval` con
+`preapproval_plan_id`, `payer_email`, `external_reference` y `status: "pending"`, sin
+`card_token_id`; se redirige al usuario al `init_point` de la respuesta. **Refutada empíricamente
+en sandbox** (ver Amendment): la API devuelve 400 en esta variante. La decisión vigente es
+**D2bis**, inmediatamente abajo.
 
-**Por qué**: `external_reference` es lo que permite atribuir a una cuenta un cobro que va a llegar **dentro de tres meses**. Si en cambio se redirige al `init_point` del **plan**, MercadoPago crea el `preapproval` por su cuenta y no hay dónde inyectar esa referencia: quedaría reconciliar por `payer_email`, que puede no coincidir con el email de la cuenta y no es único entre cuentas. Atribuir dinero por heurística de email es exactamente el tipo de decisión que en un dominio CRÍTICO no se toma.
+**Riesgo asumido y cómo se cerró**: la documentación no era explícita sobre si esta variante
+devolvía un `init_point` utilizable. Se validó en sandbox como tarea bloqueante (tasks §2) — no lo
+devuelve, y el fallback documentado acá abajo (D2bis) es ahora la decisión firmada, no una
+contingencia.
 
-**Riesgo asumido y cómo se cierra**: la documentación no es explícita sobre si un `preapproval` creado con plan asociado, sin `card_token_id` y en estado `pending`, devuelve un `init_point` utilizable. **Esto se valida en sandbox como tarea bloqueante antes de escribir la implementación** (tasks §2). Si no lo devolviera, el fallback documentado es redirigir al `init_point` del plan y reconciliar por `payer_email` **más** una fila de intención pre-registrada con marca temporal, y en ese caso se sube la decisión al PO porque degrada la garantía de atribución.
+### D2bis — Camino A: atribución por `payer_email` + intención pre-registrada + ventana + cola de ambiguos
+
+**Decisión** (reemplaza D2, sign-off PO 2026-08-01): el alta **no crea ningún `preapproval`**.
+Crea una fila de **intención** (`public.subscription_intents`) y redirige directo al `init_point`
+del **plan** (`preapproval_plan.init_point`, confirmado en sandbox: `POST /preapproval_plan`
+devuelve 201 con `init_point` = `https://www.mercadopago.com.ar/subscriptions/checkout?
+preapproval_plan_id=<id>`). MercadoPago crea el `preapproval` real cuando el pagador completa el
+checkout con su propio medio de pago — nosotros nunca vemos ni tocamos una tarjeta.
+
+**Mecanismo de reconciliación**:
+1. **Alta** (`POST /payments/subscriptions`): valida que no haya suscripción viva (D4), inserta
+   `subscription_intents (account_id, payer_email, plan, preapproval_plan_id, status='pending',
+   expires_at = now() + intervalo)` y devuelve el `init_point` del plan del tier pedido. El
+   `payer_email` es el email de la cuenta autenticada, normalizado (`lower(trim(...))`).
+2. **Notificación `subscription_preapproval`** (autorización): el payload de MP no trae nuestra
+   referencia (no la seteamos). El handler hace `GET /preapproval/{id}` para obtener
+   `payer_email`, `preapproval_plan_id`, `status`, `next_payment_date`. Busca en
+   `subscription_intents` las filas con `status='pending'`, `preapproval_plan_id` igual, email
+   normalizado igual y `expires_at > now()`.
+   - **Exactamente una coincidencia** → `matched`: crea/actualiza la fila en `public.subscriptions`
+     con el `preapproval_id` real de MP, marca la intención `matched_subscription_id` +
+     `matched_at`, activa el plan de la cuenta.
+   - **Cero coincidencias** → la intención expiró, se creó desde otro canal, o el email no
+     coincide por typo/alias. Se registra en `subscriptions` con `account_id = NULL` y
+     **cola de conciliación manual** (`status='ambiguous'`, motivo `no_match`); avisa por
+     campana a `ADMIN` (mismo patrón D11).
+   - **Más de una coincidencia** (dos intenciones `pending` con mismo email+plan+ventana —
+     ej. dos pestañas, un retry del usuario): **no se adivina**. Va a la cola de ambiguos con
+     motivo `multiple_match` y las intenciones candidatas referenciadas; el pago **igual se
+     acredita** (nunca se pierde plata, solo la atribución automática), la campana avisa a
+     `ADMIN` para resolver a mano.
+3. **Cola de ambiguos**: vista/RPC de solo-lectura (`SECURITY DEFINER`, rol admin) sobre
+   `subscriptions WHERE account_id IS NULL` + las `subscription_intents` candidatas. Resolución
+   manual: un admin asigna `account_id` con una RPC dedicada, auditada en `billing_events`. Fuera
+   de alcance de este change construir UI para esa cola — la RPC + la consulta alcanzan para
+   soporte manual en el volumen actual (34 cuentas).
+
+**Ventana de la intención**: `expires_at = created_at + 24 horas`. Justificación: un checkout de
+suscripción puede abandonarse y retomarse (el usuario cierra la pestaña y vuelve más tarde desde
+el link que MP le mandó por mail), pero una ventana indefinida acumula intenciones viejas que
+compiten por el mismo email si el usuario reintenta el alta. 24h cubre el caso realista sin
+sostener attribution debt indefinida. Un barrido marca `expired` las intenciones vencidas sin
+match (no borra — quedan para auditoría).
+
+**Qué se pierde frente a D2 original**: atribución determinística inmediata. Un cobro con email
+que no matchea ninguna intención (o matchea varias) no se activa solo — entra a la cola de
+ambiguos y requiere una acción manual, con el dinero ya acreditado del lado de MP mientras tanto.
+**Qué se gana**: cero superficie de tarjeta propia (Camino B descartado explícitamente por el PO),
+cero dependencia de un endpoint de MP que en esta cuenta devuelve 500.
+
+**Por qué no D2 original ni Camino B**: D2 original está refutado por evidencia (ver Amendment).
+Camino B (tokenizar con Bricks) fue evaluado y **descartado por decisión de producto del PO** —
+prioriza no absorber el mantenimiento y la superficie de cumplimiento de un formulario de tarjeta
+propio sobre tener atribución 100% determinística.
 
 ### D3 — El alta y la baja se mudan al backend FastAPI
 
@@ -77,7 +185,21 @@ CRÍTICO. Es el único camino por el que entra dinero, sobre 34 cuentas reales y
 
 ### D4 — Tabla `public.subscriptions`, no columnas en `accounts`
 
-**Decisión**: tabla nueva con `account_id`, `preapproval_id` (único), `preapproval_plan_id`, `plan`, `status`, `next_payment_date`, `amount`, `currency`, `external_reference`, estado de reintento, marcas temporales. Como máximo una fila viva por cuenta, garantizado por **índice único parcial** sobre `account_id WHERE status IN ('pending','authorized')`.
+**Decisión**: tabla nueva con `account_id` (**nullable** — ver nota de D2bis: una fila `ambiguous`
+sin match automático nace con `account_id NULL` hasta que se resuelve a mano), `preapproval_id`
+(único, lo pone MP — nunca lo generamos nosotros, ver D2bis), `preapproval_plan_id`, `plan`,
+`status`, `next_payment_date`, `amount`, `currency`, `external_reference` (uso interno/auditoría,
+no viaja a MP bajo D2bis), estado de reintento, marcas temporales. Como máximo una fila viva por
+cuenta, garantizado por **índice único parcial** sobre `account_id WHERE status IN
+('pending','authorized') AND account_id IS NOT NULL` (NULLs no compiten entre sí en un índice
+único de Postgres, pero se deja explícito para que no se lea como un olvido).
+
+**Tabla hermana `public.subscription_intents`** (D2bis): `account_id` (NOT NULL — acá sí sabemos
+la cuenta, es quien inició el alta), `payer_email` normalizado, `plan`, `preapproval_plan_id`,
+`status` (`pending`/`matched`/`ambiguous`/`expired`/`cancelled`), `expires_at`,
+`matched_subscription_id`, `matched_at`, marcas temporales. Es el lado "sabemos quién inició, no
+sabemos todavía qué `preapproval` le corresponde" — `subscriptions` es el lado inverso ("sabemos
+qué `preapproval` existe, puede que no sepamos de quién es").
 
 **Por qué no columnas en `accounts`**: se pierde el historial. Una cuenta que cancela y vuelve a suscribirse sobrescribiría su suscripción anterior, y con ella la evidencia de qué se le cobró y por qué se le dio de baja. Además una suscripción `pending` (creada pero aún no autorizada) no puede convivir con el plan actual si el estado vive en `accounts`.
 
@@ -145,7 +267,7 @@ CRÍTICO. Es el único camino por el que entra dinero, sobre 34 cuentas reales y
 
 - **[Riesgo] `get_effective_plan` está en el camino caliente del hook de emisión de tokens** (`v31-authz-token-hook`). Un error acá no degrada una pantalla: degrada el login. → **Mitigación**: `CREATE OR REPLACE` sobre la misma firma (sin overload, sin ventana en la que la función no exista), `REVOKE`/`GRANT` reafirmados en el mismo archivo, y gate de "exactamente una definición".
 
-- **[Riesgo] `external_reference` no disponible en el flujo con plan asociado** (D2) → atribución de dinero por heurística. → **Mitigación**: validación en sandbox **bloqueante**, antes de implementar; fallback documentado que se eleva al PO.
+- **[Riesgo, CONFIRMADO — ya no hipotético] Atribución por heurística de `payer_email`** (D2bis, sign-off PO 2026-08-01): un cobro cuyo email no matchea ninguna intención `pending` (o matchea varias) no se atribuye solo. → **Mitigación**: cola de ambiguos auditable + aviso por campana a `ADMIN`; el dinero se acredita igual (nunca se pierde), solo la atribución automática falla; ventana de 24h en la intención acota cuánto tiempo puede haber ambigüedad por reintentos del usuario.
 
 - **[Riesgo] Fricción de conversión.** Autorizar un débito recurrente pide más compromiso que un pago único: puede bajar la tasa de upgrade. → **Mitigación**: ninguna técnica; es una consecuencia asumida de la decisión de producto del PO. Se mide con `billing_events`.
 
@@ -159,13 +281,29 @@ CRÍTICO. Es el único camino por el que entra dinero, sobre 34 cuentas reales y
 
 ## Migration Plan
 
-**Fase 0 — Sandbox (bloqueante, sin tocar producción)**
-1. Credenciales de test de MercadoPago [MANUAL PO].
-2. **Validar D2**: crear un `preapproval` con plan asociado, `status: pending`, sin `card_token_id`, y confirmar que devuelve un `init_point` usable y conserva el `external_reference`. Si falla → fallback a decisión del PO.
-3. Confirmar que llegan notificaciones de `subscription_preapproval` y `subscription_authorized_payment`, y que **verifican firma** con la derivación corregida (D9).
+**Fase 0 — Sandbox (bloqueante, sin tocar producción) — ✅ COMPLETADA 2026-08-01**
+1. Credenciales de test de MercadoPago [MANUAL PO] — cargadas por el PO en `backend/.env`,
+   verificadas como sandbox real (nunca la cuenta del PO).
+2. ~~Validar D2~~ — **refutado, ver Amendment**. Las dos variantes posibles (con y sin plan)
+   fallan sin `card_token_id` (400 y 500 respectivamente). Pivot a Camino A / D2bis, firmado por
+   el PO.
+3. Confirmar notificaciones `subscription_preapproval`/`subscription_authorized_payment` con
+   firma corregida (D9) — **diferido**: requiere completar un checkout real de sandbox (login
+   como pagador de test), que no se ejecutó en esta ronda por alcance/tiempo. Se hace en Fase 3
+   junto con el TDD del procesamiento de esos topics (tests con fixtures del payload documentado,
+   no en vivo) y se revalida en vivo antes de encender la palanca (Fase 5).
+
+**Activación gated, no un paso más de la migración**: nada de este change cambia comportamiento
+en producción hasta que **ambas** condiciones se cumplan — `BILLING_SUBSCRIPTIONS_ENABLED=true`
+Y `v31-mp-upgrade-webhook-fix` 5.1 verificada. Ver Amendment arriba. El desarrollo de las Fases
+1-4 no espera ninguna de las dos.
 
 **Fase 1 — Base de datos (sin efecto de comportamiento)**
-4. Migración `20260829000001`: tabla `subscriptions` + RLS + índice único parcial; `operation_kind` nuevo respetando la lección C3; tipo nuevo en `_notification_from_event`; productor de dunning. `REVOKE` explícito de `anon` **y** `authenticated` tras **cada** definición de función, y `to_regprocedure()` para toda referencia a funciones que puedan no existir.
+4. Migración `20260829000001`: tablas `subscriptions` **y `subscription_intents`** (D2bis) + RLS
+   + índice único parcial; `operation_kind` nuevo respetando la lección C3; tipo nuevo en
+   `_notification_from_event`; productor de dunning. `REVOKE` explícito de `anon` **y**
+   `authenticated` tras **cada** definición de función, y `to_regprocedure()` para toda
+   referencia a funciones que puedan no existir.
 5. Gates SQL estructurales y de comportamiento en la misma migración, patrón `billing-pro-trial`.
 
 **Fase 2 — `get_effective_plan` (el paso delicado)**
@@ -174,28 +312,36 @@ CRÍTICO. Es el único camino por el que entra dinero, sobre 34 cuentas reales y
 8. Capturar **después** y comparar. **Diferencia inesperada → revertir.**
 
 **Fase 3 — Backend**
-9. Endpoints de alta y baja, procesamiento de los topics nuevos, corrección de firma (D9). TDD.
+9. Endpoints de alta (crea `subscription_intents`, devuelve `init_point` del plan — D2bis) y
+   baja, procesamiento de los topics nuevos con reconciliación por email/ventana + cola de
+   ambiguos (D2bis), corrección de firma (D9). Todo detrás de `BILLING_SUBSCRIPTIONS_ENABLED`.
+   TDD.
 
 **Fase 4 — Frontend y correos**
-10. `/planes` y `/facturacion` contra los endpoints nuevos; plantillas de los `event_type` nuevos en `send-email`.
+10. `/planes` y `/facturacion` contra los endpoints nuevos, condicionados a la palanca (si está
+    apagada, el CTA sigue creando la `Preference` de pago único de siempre); plantillas de los
+    `event_type` nuevos en `send-email`.
 
 **Fase 5 — Activación [MANUAL PO]**
 11. Crear los `preapproval_plan` de producción.
 12. Habilitar los topics en el panel de MercadoPago.
 13. Migrar la cuenta pagadora según D12.
-14. Retirar `/api/billing/preferences` y `/api/billing/cancel`.
+14. Verificar `v31-mp-upgrade-webhook-fix` 5.1 (pago E2E real).
+15. Encender `BILLING_SUBSCRIPTIONS_ENABLED=true` — recién acá el flujo nuevo queda vivo.
+16. Retirar `/api/billing/preferences` y `/api/billing/cancel`.
 
 **Rollback**
 - Fases 1 y 3-4 son aditivas: se revierte el código y la tabla queda inerte.
 - **Fase 2 es la única con efecto sobre el acceso**: su rollback es restaurar el cuerpo anterior de la función con `CREATE OR REPLACE` sobre la misma firma. Debe quedar escrito **textualmente** en la cabecera de la migración, listo para pegar.
 - Los `preapproval` ya autorizados sobreviven a cualquier rollback de código: siguen cobrando. Un rollback de Fase 5 exige cancelarlos en MercadoPago [MANUAL PO].
 
-## Open Questions
+## Open Questions — RESUELTAS (sign-off PO 2026-07-31, reconfirmado 2026-08-01)
 
-- **OQ1 — ¿Cuándo se endurece la semántica de `plan_expires_at IS NULL`?** Este change adopta la interpretación permisiva (nulo = sin vencimiento, no degrada) para no degradar cuentas al aplicar la migración (D6). *Opciones*: (a) migrar las cuentas pagas sin vencimiento a `billing_exempt` en este mismo change y endurecer acá; (b) endurecer en un change posterior, una vez que ninguna cuenta paga tenga `plan_expires_at` nulo; (c) dejarlo permisivo de forma indefinida. **Recomendación: (b)** — separa el cambio de comportamiento del cambio de infraestructura, que es lo que hace el rollback de Fase 2 verificable. **Decide el PO.**
-
-- **OQ2 — ¿Cuántos días de gracia entre `next_payment_date` y `plan_expires_at`?** *Opciones*: (a) 0 días; (b) 3 días; (c) 10 días. **Recomendación: (c) 10 días**, porque coincide exactamente con la ventana en la que MercadoPago reintenta un cobro rechazado: la cuenta conserva el acceso mientras el proveedor sigue intentando cobrar, y lo pierde recién cuando el proveedor se dio por vencido. Cualquier valor menor degrada a un usuario que todavía va a pagar. **Decide el PO.**
-
-- **OQ3 — ¿Se contrata `inicial` por suscripción, o solo `avanzado` y `pro`?** El brief menciona "avanzado/pro", pero `inicial` tiene precio en `plan_limits` y **hoy es contratable** por el flujo de preferencias. Excluirlo sería una regresión de producto silenciosa. *Opciones*: (a) los tres tiers pagos; (b) solo `avanzado` y `pro`, y `inicial` deja de ofrecerse. **Recomendación: (a)**. **Decide el PO.**
-
-- **OQ4 — ¿Qué pasa si el usuario cambia de tier teniendo una suscripción viva?** Este change no hace prorrateo (Non-Goal). *Opciones*: (a) cancelar la suscripción vigente y crear una nueva, perdiendo lo pagado del período en curso; (b) cancelar y crear una nueva con `start_date` al fin del período pagado; (c) bloquear el cambio de tier hasta que venza el período. **Recomendación: (b)** — respeta lo que el usuario ya pagó sin necesidad de prorratear. **Decide el PO.**
+- **OQ1 — semántica de `plan_expires_at IS NULL`** → **(b)**: permisiva en este change (nulo =
+  sin vencimiento, D6), endurecer en un change posterior una vez que ninguna cuenta paga tenga
+  `plan_expires_at` nulo.
+- **OQ2 — días de gracia** → **(c) 10 días**, igual a la ventana de reintentos de MercadoPago.
+- **OQ3 — tiers contratables por suscripción** → **(a)** los tres tiers pagos (`inicial`,
+  `avanzado`, `pro`) — un `preapproval_plan` por cada uno.
+- **OQ4 — cambio de tier con suscripción viva** → **(b)** cancelar la vigente y crear una nueva
+  con `start_date` al fin del período ya pagado (sin doble cobro, sin prorrateo).

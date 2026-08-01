@@ -65,12 +65,19 @@ async def mercadopago_webhook(
 
     x_signature = request.headers.get("x-signature")
     x_request_id = request.headers.get("x-request-id")
+    # mp-real-subscriptions D9: MercadoPago firma con el data.id del QUERY
+    # PARAM de la URL de notificación (`?data.id=...&type=...`), no el del
+    # cuerpo — ver derive_signed_notification_id. query_params.get soporta
+    # tanto "data.id" como el alias "id" que algunos topics usan.
+    query_data_id = request.query_params.get("data.id") or request.query_params.get("id")
 
     # verify_mp_signature ya loguea la causa distintiva del rechazo (falta de
     # configuración vs. firma inválida) — no duplicar un log genérico acá,
     # o volvería a mezclar ambas causas en un solo mensaje (v31-mp-upgrade-
     # webhook-fix, spec payment-webhook "Misconfigured webhook secret...").
-    if not verify_mp_signature(raw_body, x_signature, x_request_id, settings.mercadopago_webhook_secret):
+    if not verify_mp_signature(
+        raw_body, x_signature, x_request_id, settings.mercadopago_webhook_secret, query_data_id=query_data_id
+    ):
         raise HTTPException(status_code=400, detail="Firma inválida")
 
     try:

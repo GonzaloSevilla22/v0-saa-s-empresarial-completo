@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.services.payments import verify_mp_signature
+from backend.services.payments import derive_signed_notification_id, verify_mp_signature
 from backend.tests.conftest import make_token
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -70,6 +70,106 @@ def test_verify_signature_empty_secret():
     body = _mp_body()
     sig = _make_signature("pay-123")
     assert verify_mp_signature(body, sig, REQUEST_ID, "") is False
+
+
+# ── mp-real-subscriptions D9 — derivación de data.id desde el query param ────
+#
+# MercadoPago firma el manifiesto con el `data.id` tal como viene en el
+# **query param** de la URL de notificación, no el del cuerpo. Los IDs de
+# `preapproval`/suscripción son alfanuméricos y MercadoPago los normaliza a
+# minúsculas antes de firmar. La implementación previa a este fix derivaba el
+# id únicamente del cuerpo, sin normalizar — funcionaba solo porque los IDs
+# de pago son numéricos (bajar a minúsculas un número no lo altera).
+
+def _signature_for_query_id(query_id_lowercased: str, ts: str | None = None) -> str:
+    ts = ts or str(int(time.time()))
+    template = f"id:{query_id_lowercased};request-id:{REQUEST_ID};ts:{ts};"
+    digest = hmac.new(SECRET.encode(), template.encode(), hashlib.sha256).hexdigest()
+    return f"ts={ts},v1={digest}"
+
+
+def test_verify_signature_query_param_alphanumeric_uppercase_lowercased():
+    """RED (3.2): un data.id alfanumérico en MAYÚSCULAS en el query param
+    verifica correctamente cuando el manifiesto usa el valor en minúsculas —
+    tal como lo firma MercadoPago para IDs de preapproval/suscripción."""
+    query_id = "ABC123def456"
+    # El cuerpo trae un id distinto a propósito, para probar que la fuente
+    # de verdad es el query param, no el cuerpo, cuando ambos están presentes.
+    body = _mp_body(notification_id="otro-id-en-el-body", type_="subscription_preapproval")
+    sig = _signature_for_query_id(query_id.lower())
+
+    assert verify_mp_signature(
+        body, sig, REQUEST_ID, SECRET, query_data_id=query_id
+    ) is True
+
+
+def test_verify_signature_query_param_not_lowercased_fails():
+    """RED (3.2, complemento): si el query param NO se pasa a minúsculas, la
+    misma notificación se rechaza — prueba que la normalización es
+    obligatoria, no cosmética."""
+    query_id = "ABC123def456"
+    body = _mp_body(notification_id="otro-id-en-el-body", type_="subscription_preapproval")
+    sig = _signature_for_query_id(query_id.lower())
+
+    # Manifiesto armado con el id SIN normalizar (bug que este fix corrige)
+    bad_sig = _signature_for_query_id(query_id)
+    assert bad_sig != sig
+    assert verify_mp_signature(
+        body, bad_sig, REQUEST_ID, SECRET, query_data_id=query_id
+    ) is False
+
+
+def test_verify_signature_payment_numeric_id_unaffected_non_regression():
+    """TRIANGULATE (3.4) — no-regresión: una notificación `payment` con id
+    NUMÉRICO sigue verificando exactamente igual que antes del fix, ya sea
+    que el id venga del query param o (compatibilidad) solo del cuerpo."""
+    body = _mp_body(notification_id="123456789", type_="payment")
+    sig = _make_signature("123456789")
+
+    # Camino nuevo: id vía query param (el camino real en producción)
+    assert verify_mp_signature(
+        body, sig, REQUEST_ID, SECRET, query_data_id="123456789"
+    ) is True
+    # Camino de compatibilidad: sin query param, cae al cuerpo (mismo resultado)
+    assert verify_mp_signature(body, sig, REQUEST_ID, SECRET) is True
+
+
+def test_verify_signature_falls_back_to_body_when_no_query_param():
+    """TRIANGULATE (3.5): sin query param data.id, la derivación cae al
+    cuerpo aplicando la misma regla de minúsculas."""
+    body = _mp_body(notification_id="ABCdef123", type_="subscription_preapproval")
+    sig = _signature_for_query_id("abcdef123")
+
+    assert verify_mp_signature(body, sig, REQUEST_ID, SECRET, query_data_id=None) is True
+
+
+def test_verify_signature_wrong_signature_rejected_for_subscription_topic():
+    """TRIANGULATE (3.6): una firma que no corresponde al manifiesto se
+    rechaza para los topics de suscripción igual que para `payment`."""
+    query_id = "XYZ987abc654"
+    body = _mp_body(notification_id="irrelevante", type_="subscription_authorized_payment")
+    forged_sig = _signature_for_query_id("otro-id-cualquiera")
+
+    assert verify_mp_signature(
+        body, forged_sig, REQUEST_ID, SECRET, query_data_id=query_id
+    ) is False
+
+
+# ── REFACTOR (3.7) — derive_signed_notification_id como función pura ─────────
+
+def test_derive_notification_id_prefers_query_param_over_body():
+    body = _mp_body(notification_id="body-id-ignored")
+    assert derive_signed_notification_id(body, "QueryID123") == "queryid123"
+
+
+def test_derive_notification_id_falls_back_to_body_lowercased():
+    body = _mp_body(notification_id="BodyID456")
+    assert derive_signed_notification_id(body, None) == "bodyid456"
+
+
+def test_derive_notification_id_returns_none_when_nothing_available():
+    assert derive_signed_notification_id(b"not json", None) is None
+    assert derive_signed_notification_id(b'{"type":"payment"}', None) is None
 
 
 # ── Integration tests: POST /payments/webhook ─────────────────────────────────

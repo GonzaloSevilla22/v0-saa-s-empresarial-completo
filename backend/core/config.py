@@ -49,7 +49,16 @@ class Settings(BaseSettings):
     # tenancy_tx_scope_enabled=True. Literal de intervalo de Postgres.
     tenancy_tx_idle_timeout: str = "30s"
 
-    model_config = SettingsConfigDict(env_file=".env")
+    # mp-real-subscriptions (hallazgo 2026-08-01, sign-off PO): `extra="ignore"`
+    # es obligatorio. Sin esto, pydantic-settings v2 rechaza CUALQUIER variable
+    # presente en `.env` o en el entorno que no tenga un campo declarado acá
+    # (`ValidationError: extra_forbidden`) — y lo hace al importar el módulo,
+    # rompiendo TODA la app (y toda la suite de tests que la importe
+    # transitivamente). Se disparó en vivo al cargar `MERCADOPAGO_TEST_ACCESS_TOKEN`
+    # en `backend/.env` para la validación de sandbox de mp-real-subscriptions —
+    # ninguna variable nueva de config, sandbox o de un dev distinto debería
+    # poder tumbar el arranque del backend.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

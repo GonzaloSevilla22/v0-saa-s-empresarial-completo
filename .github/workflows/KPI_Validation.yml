@@ -26,8 +26,10 @@ jobs:
       - name: Start Supabase
         run: supabase start
 
+      # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
+      # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
-        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis.sql
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis.sql
 
       - name: Run edge case KPI tests
-        run: psql postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis_edge_cases.sql
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis_edge_cases.sql

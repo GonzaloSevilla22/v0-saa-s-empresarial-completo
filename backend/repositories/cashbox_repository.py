@@ -23,25 +23,21 @@ class CashboxRepository(BaseRepository):
         """Soft delete de una cashbox (RN-B2) — variante OQ2 del design.
 
         `cashboxes` no tiene account_id directo: el scope de cuenta se
-        resuelve vía branch_id → branches.account_id en el propio UPDATE,
-        por eso NO usa el soft_delete genérico del BaseRepository (cuya
-        allowlist la excluye a propósito).
+        resuelve vía branch_id → branches.account_id, por eso NO usa el
+        soft_delete genérico del BaseRepository (cuya allowlist la excluye
+        a propósito).
+
+        v31-tenancy-pool-rls (colisión #2, sign-off PO 2026-08-01): cashboxes
+        no tiene policy de UPDATE — encaminado por rpc_soft_delete_cashbox
+        (SECURITY DEFINER), que replica el mismo JOIN y agrega el check
+        is_account_writer(account_id) que ya usa cashboxes_insert.
         """
-        status = await self.execute(
-            """
-            UPDATE public.cashboxes cb
-            SET    deleted_at = now(), deleted_by = $3
-            FROM   public.branches b
-            WHERE  cb.id = $1
-              AND  b.id = cb.branch_id
-              AND  b.account_id = $2
-              AND  cb.deleted_at IS NULL
-            """,
+        return await self._conn.fetchval(
+            "SELECT public.rpc_soft_delete_cashbox($1::uuid, $2::uuid, $3::uuid)",
             cashbox_id,
             account_id,
             deleted_by,
         )
-        return int(status.rsplit(" ", 1)[-1]) > 0
 
     async def create_cashbox(
         self,

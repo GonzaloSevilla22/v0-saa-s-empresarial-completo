@@ -96,33 +96,18 @@ class PurchaseRepository(BaseRepository):
             )
             if row is None:
                 return False
-            # La reversa de stock se deriva de stock_movements (product_id,
-            # quantity_delta, branch_id), que toda ruta de creación escribe. Antes
-            # se gateaba por purchase_items, pero las rutas que no lo escriben
-            # (legacy con flag OFF) dejaban el stock sin revertir al borrar.
-            movement = await self._conn.fetchrow(
-                "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
-                "WHERE reference_id = $1::uuid AND reference_type = 'purchase' LIMIT 1",
+            # v31-tenancy-pool-rls (colisión #3, sign-off PO 2026-08-01):
+            # stock_movements tiene policies DELETE/UPDATE con qual=false
+            # (deny explícito — ledger append-only). rpc_reverse_stock_movement
+            # NO borra: inserta el contramovimiento (type purchase_return) con
+            # referencia al original, que permanece. No-op silencioso (SETOF
+            # vacío) si no hay movimiento con este reference_id/type — mismo
+            # comportamiento observable que antes (nada para revertir).
+            await self._conn.fetch(
+                "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'purchase', $2)",
                 purchase_id,
+                "Compra eliminada",
             )
-            if (
-                movement is not None
-                and movement["product_id"] is not None
-                and movement["quantity_delta"] is not None
-            ):
-                # C-21 checkpoint #2: la reversa va a branch_stock (branch del
-                # movimiento o default). allow_negative + sin movement nuevo =
-                # paridad con el comportamiento previo sobre products.stock.
-                await self._conn.fetchrow(
-                    "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                    movement["product_id"],
-                    -movement["quantity_delta"],
-                    movement["branch_id"],
-                )
-                await self._conn.execute(
-                    "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'purchase'",
-                    purchase_id,
-                )
             await self._conn.execute("DELETE FROM purchases WHERE id = $1::uuid", purchase_id)
             if row["operation_id"] is not None:
                 count = await self._conn.fetchval(
@@ -149,27 +134,13 @@ class PurchaseRepository(BaseRepository):
                 return False
             for row in rows:
                 purchase_id = row["id"]
-                movement = await self._conn.fetchrow(
-                    "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
-                    "WHERE reference_id = $1 AND reference_type = 'purchase' LIMIT 1",
+                # v31-tenancy-pool-rls (colisión #3): ver delete_by_id — reversa
+                # vía contramovimiento, sin borrar del ledger.
+                await self._conn.fetch(
+                    "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'purchase', $2)",
                     purchase_id,
+                    "Compra eliminada (operación)",
                 )
-                if (
-                    movement is not None
-                    and movement["product_id"] is not None
-                    and movement["quantity_delta"] is not None
-                ):
-                    # C-21 checkpoint #2: reversa sobre branch_stock (ver delete_by_id)
-                    await self._conn.fetchrow(
-                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                        movement["product_id"],
-                        -movement["quantity_delta"],
-                        movement["branch_id"],
-                    )
-                    await self._conn.execute(
-                        "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'purchase'",
-                        purchase_id,
-                    )
             await self._conn.execute(
                 "DELETE FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
                 operation_id,

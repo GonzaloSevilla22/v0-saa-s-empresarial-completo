@@ -97,29 +97,14 @@ class SalesRepository(BaseRepository):
             )
             if row is None:
                 return False
-            movement = await self._conn.fetchrow(
-                "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
-                "WHERE reference_id = $1::uuid AND reference_type = 'sale' LIMIT 1",
+            # v31-tenancy-pool-rls (colisión #3, sign-off PO 2026-08-01): ver
+            # PurchaseRepository.delete_by_id — reversa vía contramovimiento
+            # (type sale_return), sin borrar del ledger append-only.
+            await self._conn.fetch(
+                "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'sale', $2)",
                 sale_id,
+                "Venta eliminada",
             )
-            if (
-                movement is not None
-                and movement["product_id"] is not None
-                and movement["quantity_delta"] is not None
-            ):
-                # La venta descontó stock (quantity_delta < 0); la reversa devuelve
-                # a la branch original. allow_negative + sin movement nuevo =
-                # paridad con el comportamiento previo.
-                await self._conn.fetchrow(
-                    "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                    movement["product_id"],
-                    -movement["quantity_delta"],
-                    movement["branch_id"],
-                )
-                await self._conn.execute(
-                    "DELETE FROM stock_movements WHERE reference_id = $1::uuid AND reference_type = 'sale'",
-                    sale_id,
-                )
             await self._conn.execute("DELETE FROM sales WHERE id = $1::uuid", sale_id)
             if row["operation_id"] is not None:
                 count = await self._conn.fetchval(
@@ -145,26 +130,12 @@ class SalesRepository(BaseRepository):
                 return False
             for row in rows:
                 sale_id = row["id"]
-                movement = await self._conn.fetchrow(
-                    "SELECT product_id, quantity_delta, branch_id FROM stock_movements "
-                    "WHERE reference_id = $1 AND reference_type = 'sale' LIMIT 1",
+                # v31-tenancy-pool-rls (colisión #3): ver delete_by_id.
+                await self._conn.fetch(
+                    "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'sale', $2)",
                     sale_id,
+                    "Venta eliminada (operación)",
                 )
-                if (
-                    movement is not None
-                    and movement["product_id"] is not None
-                    and movement["quantity_delta"] is not None
-                ):
-                    await self._conn.fetchrow(
-                        "SELECT public.rpc_apply_product_stock_delta($1::uuid, $2::numeric, $3::uuid, NULL, FALSE, TRUE)",
-                        movement["product_id"],
-                        -movement["quantity_delta"],
-                        movement["branch_id"],
-                    )
-                    await self._conn.execute(
-                        "DELETE FROM stock_movements WHERE reference_id = $1 AND reference_type = 'sale'",
-                        sale_id,
-                    )
             await self._conn.execute(
                 "DELETE FROM sales WHERE operation_id = $1::uuid AND account_id = $2::uuid",
                 operation_id,

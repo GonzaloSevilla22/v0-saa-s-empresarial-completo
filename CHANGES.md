@@ -1312,7 +1312,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 | Hallazgo | Severidad (verif.) | Change v3.1 | Prio | Governance | Esfuerzo |
 |---|---|---|---|---|---|
 | **H-01** Fire-and-forget fiscal usa siempre el adapter STUB → CAE falso ante AFIP | CRÍTICO | `v31-fiscal-cae-real-adapter` | **P0** | CRÍTICO (fiscal) | S |
-| **H-02** Webhook de upgrade MercadoPago roto (route Next.js con cliente anónimo → RLS bloquea) → ningún pago acredita plan | CRÍTICO | `v31-mp-upgrade-webhook-fix` | **P0** | CRÍTICO (dinero) | M |
+| **H-02** 🔨 2026-08-01 (código+tests listos, E2E real pendiente PO) Webhook de upgrade MercadoPago roto (route Next.js con cliente anónimo → RLS bloquea) → ningún pago acredita plan | CRÍTICO | `v31-mp-upgrade-webhook-fix` | **P0** | CRÍTICO (dinero) | M |
 | **H-03** Edge Function `send-email` abierta con `service_role` (sin firma/JWT) → phishing/spam desde dominio verificado | CRÍTICO | `v31-send-email-lockdown` | **P0** | CRÍTICO (seguridad) | S |
 | **H-04** CI no ejecuta ninguna suite + lógica de dinero testeada con DB mockeada (journal muerto 9 días con tests verdes) | CRÍTICO/proceso | `v31-ci-test-gate` | **P0** | MEDIO (proceso) | S |
 | **H-05** Pool corre como `postgres` con `BYPASSRLS` → RLS inerte para el backend + endpoints by-id sin filtro `account_id` = IDOR cross-tenant | CRÍTICO/ALTO | `v31-tenancy-pool-rls` | **P0** | CRÍTICO (aislamiento) | L |
@@ -1328,7 +1328,7 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 | **H-12** Frontera del híbrido erosionada (140 `supabase.from` + 31 `.rpc` directos, incl. mutaciones ERP con endpoints backend muertos) | MEDIO | `v31-hybrid-boundary-erp` | P1 | MEDIO | M |
 | **H-17** ✅ 2026-07-31 FSM sin trigger `BEFORE UPDATE` de status (quotes/sales_orders/fiscal_documents) → invariante evadible | MEDIO | `v31-fsm-status-triggers` | P1 | MEDIO | S |
 | **H-18** WSAA sin cache de tickets persistente (`PlatformPostgresTicketCache` sin implementar) → bloquea facturar a volumen | MEDIO | `v31-wsaa-ticket-cache` | P1 | ALTO (fiscal) | M |
-| **H-19** Webhook MP sin transacción envolvente + lookup no determinista (atomicidad de billing) | MEDIO | `v31-mp-webhook-atomic` | P1 | ALTO (dinero) | S |
+| **H-19** Webhook MP sin transacción envolvente + lookup no determinista (atomicidad de billing) — sigue abierto, `v31-mp-upgrade-webhook-fix` (H-02) deliberadamente no lo cubre | MEDIO | `v31-mp-webhook-atomic` | P1 | ALTO (dinero) | S |
 | **H-13** Cliente HTTP sin `ApiError` tipado (RFC 7807) + doble vía de lectura FastAPI/Supabase-directo sin coherencia de caché | MEDIO | `v31-http-client-typed-errors` | P1 | BAJO | M |
 | **H-21** A11y: botones-ícono sin `aria-label`; formas de dinero núcleo sin RHF+Zod; 883 clases de color hardcodeadas | MEDIO | `v31-a11y-rhf-forms` | P1 | BAJO | M |
 | **H-22** Doc descriptiva desfasada (KB 02/03/04, README raíz, AGENTS.md) + 15 specs en formato legacy (K6) | MEDIO | `v31-docs-refresh` | P1 | BAJO | S |
@@ -1358,10 +1358,11 @@ C3 bank-reconciliation ✅ (2026-07-02 — nació con RN-A/RN-D5 aplicadas)
 - **Leer antes**: `audit/seguridad.md` H-01 + `audit/codigo-backend.md`, `backend` puerto/adaptador AFIP, C-27/v21/v22.
 
 #### `v31-mp-upgrade-webhook-fix` — Reconexión del webhook de upgrade (H-02)
-- **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO (dinero) — requiere sign-off PO (E2E de pago real)
-- **Problema**: el route handler de Next.js que recibe el pago de MercadoPago usa cliente Supabase anónimo + cookies; la RLS de prod bloquea el `UPDATE accounts` y el `INSERT billing_events` → ningún upgrade acredita solo (caso real: pago de $69.900 reconciliado a mano, K5-relacionado). El webhook **backend** (FastAPI) ya es correcto (HMAC, idempotencia) — el flujo apunta al legacy.
-- **Scope**: apuntar `notification_url` de la preferencia al webhook backend funcional (o mover la creación de preferencias al backend) + test E2E webhook→upgrade. Deduplicar el path legacy de Next.js.
-- **Leer antes**: `audit/codigo-frontend.md` H-02, C-10/C-17.
+- **Estado**: 🔨 **IMPLEMENTADO 2026-08-01** (código + TDD completos) · **Governance**: CRÍTICO (dinero) — sign-off PO del 2026-07-31 sobre el rumbo ya dado; **falta el E2E de pago real y el retiro del legacy, ambos [MANUAL PO]**
+- **Problema**: el route handler de Next.js que recibe el pago de MercadoPago usa cliente Supabase anónimo + cookies; la RLS de prod bloquea el `UPDATE accounts` y el `INSERT billing_events` → ningún upgrade acredita solo (caso real: pago de $69.900 reconciliado a mano, K5-relacionado). El webhook **backend** (FastAPI) ya era correcto (HMAC, idempotencia) — el flujo apuntaba al legacy.
+- **Scope**: `notification_url` de la preferencia apunta al webhook backend (`frontend/app/api/billing/preferences/route.ts`, guard fail-closed); el route legacy de Next.js (`frontend/app/api/billing/webhook/route.ts`) se convirtió en reenviador sin estado (bytes crudos + headers de firma, sin escritura a Supabase) para no perder las preferencias ya emitidas con la URL vieja horneada; helper compartido `frontend/lib/billing/webhook-url.ts`; backend con traza de origen (`x-relay-source`) y log que distingue "secreto no configurado" de "firma inválida" (`backend/services/payments.py`, `backend/routers/payments.py`).
+- **Resultado**: 43/43 tests frontend (`billing.test.ts`, +9 nuevos) y 28/28 backend (`test_payments.py`, +7 nuevos) en verde; suites completas sin regresiones (frontend 663/663, backend 1085 passed + 3 skipped). **Pendiente manual del PO (bloqueante para archivar)**: confirmar secretos en Render (1.3/1.4), revisar URL de webhook a nivel panel de MP (1.5, resuelve OQ2), pago E2E de verificación (5.1), decidir la duración de la ventana de convivencia (6.1, resuelve OQ1) y — solo tras eso — el retiro del reenviador (6.3). **Fuera de alcance a propósito**: no toca `process_payment` más allá de lo necesario para recibir tráfico — la atomicidad transaccional del webhook sigue abierta como **H-19 / `v31-mp-webhook-atomic`** (P1, change propio, ver tabla de hallazgos).
+- **Leer antes**: `audit/codigo-frontend.md` H-02, C-10/C-17, `openspec/changes/v31-mp-upgrade-webhook-fix/`.
 
 #### `v31-send-email-lockdown` — Cerrar la Edge Function de email (H-03)
 - **Estado**: `[ ]` pendiente · **Governance**: CRÍTICO (seguridad) — implementable directo (lockdown)

@@ -66,8 +66,11 @@ async def mercadopago_webhook(
     x_signature = request.headers.get("x-signature")
     x_request_id = request.headers.get("x-request-id")
 
+    # verify_mp_signature ya loguea la causa distintiva del rechazo (falta de
+    # configuración vs. firma inválida) — no duplicar un log genérico acá,
+    # o volvería a mezclar ambas causas en un solo mensaje (v31-mp-upgrade-
+    # webhook-fix, spec payment-webhook "Misconfigured webhook secret...").
     if not verify_mp_signature(raw_body, x_signature, x_request_id, settings.mercadopago_webhook_secret):
-        logger.warning("[payments/webhook] Invalid signature — rejecting")
         raise HTTPException(status_code=400, detail="Firma inválida")
 
     try:
@@ -77,6 +80,15 @@ async def mercadopago_webhook(
 
     if notification.type != "payment" or not notification.data or not notification.data.id:
         return WebhookResponse(ok=True, skipped=True)
+
+    # Traza de origen (spec payment-webhook "Notification origin is
+    # observable", v31-mp-upgrade-webhook-fix D4): el forwarder legacy de
+    # Next.js agrega x-relay-source; una notificación directa de MercadoPago
+    # nunca trae ese header. No cambia el contrato de respuesta (task 4.6).
+    origin = "relayed" if request.headers.get("x-relay-source") else "direct"
+    logger.info(
+        "[payments/webhook] payment_id=%s origin=%s", notification.data.id, origin
+    )
 
     return await process_payment(notification.data.id, conn, shadow=shadow)
 

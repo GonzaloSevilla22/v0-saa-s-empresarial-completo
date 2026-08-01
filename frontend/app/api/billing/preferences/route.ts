@@ -11,6 +11,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getMp, Preference } from '@/lib/mercadopago'
+import { getBackendWebhookUrl } from '@/lib/billing/webhook-url'
 import type { Plan } from '@/lib/types'
 
 const PLAN_HIERARCHY: Plan[] = ['gratis', 'inicial', 'avanzado', 'pro']
@@ -45,6 +46,20 @@ export async function POST(req: Request): Promise<NextResponse> {
         { ok: false, error: 'No se puede crear una preferencia de pago para el plan Gratis' },
         { status: 400 }
       )
+    }
+
+    // ── Backend webhook URL — fail-closed (D3, v31-mp-upgrade-webhook-fix) ─────
+    // notification_url queda horneada en la preferencia para siempre: sin esto
+    // se emitiría una preferencia que notifica al vacío y el pago quedaría
+    // cobrado sin acreditar (H-02). No se llama a la API de MercadoPago sin esto.
+    let notificationUrl: string
+    try {
+      notificationUrl = getBackendWebhookUrl()
+    } catch {
+      console.error(
+        '[billing/preferences] NEXT_PUBLIC_BACKEND_URL is not set — refusing to create a preference (fail-closed)'
+      )
+      return NextResponse.json({ ok: false, error: 'Backend no configurado' }, { status: 500 })
     }
 
     // ── Fetch price from plan_limits ──────────────────────────────────────────
@@ -82,7 +97,7 @@ export async function POST(req: Request): Promise<NextResponse> {
           pending: `${appUrl}/planes/success`,
         },
         auto_return: 'approved',
-        notification_url: `${appUrl}/api/billing/webhook`,
+        notification_url: notificationUrl,
         metadata: {
           user_id: user.id,
           plan,

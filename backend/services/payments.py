@@ -29,8 +29,22 @@ def verify_mp_signature(
 
     Template firmado: id:<notification_data_id>;request-id:<x-request-id>;ts:<ts>;
     Paridad exacta con la implementación Web Crypto de Next.js (C-10).
+
+    v31-mp-upgrade-webhook-fix (D del spec payment-webhook, "Misconfigured
+    webhook secret fails closed and is diagnosable"): un secreto faltante y
+    una firma forjada dan el mismo resultado (False) pero son causas
+    DISTINTAS — la primera es un error de configuración propio, la segunda es
+    un intento de request ilegítimo (o el síntoma exacto de H-02 si el
+    secreto de Render no coincide con el del panel de MP). El log distingue
+    ambas ramas explícitamente. Nunca se loguea el secreto configurado ni el
+    valor de x_signature recibido — solo la causa del rechazo.
     """
-    if not secret or not x_signature or not x_request_id:
+    if not secret:
+        logger.warning("[payments] Webhook rejected — MERCADOPAGO_WEBHOOK_SECRET is not configured")
+        return False
+
+    if not x_signature or not x_request_id:
+        logger.warning("[payments] Webhook rejected — missing x-signature or x-request-id header")
         return False
 
     parts: dict[str, str] = {}
@@ -42,6 +56,7 @@ def verify_mp_signature(
     ts = parts.get("ts")
     v1 = parts.get("v1")
     if not ts or not v1:
+        logger.warning("[payments] Webhook rejected — malformed x-signature header")
         return False
 
     import json as _json
@@ -50,6 +65,7 @@ def verify_mp_signature(
         body = _json.loads(raw_body)
         notification_id = (body.get("data") or {}).get("id") or ""
     except Exception:
+        logger.warning("[payments] Webhook rejected — malformed payload, cannot build signed template")
         return False
 
     signed_template = f"id:{notification_id};request-id:{x_request_id};ts:{ts};"
@@ -59,7 +75,10 @@ def verify_mp_signature(
         hashlib.sha256,
     ).hexdigest()
 
-    return hmac.compare_digest(computed, v1)
+    is_valid = hmac.compare_digest(computed, v1)
+    if not is_valid:
+        logger.warning("[payments] Webhook rejected — invalid signature")
+    return is_valid
 
 
 async def _fetch_user_email(user_id: str) -> str | None:

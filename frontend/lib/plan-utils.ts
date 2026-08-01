@@ -1,5 +1,5 @@
 /**
- * Plan utilities — C-02 plan-gating-engine (updated C-05)
+ * Plan utilities — C-02 plan-gating-engine (updated C-05, billing-pro-trial)
  *
  * Centralizes plan hierarchy and effective-plan logic.
  * All gating checks should use these utilities instead of
@@ -7,33 +7,66 @@
  *
  * As of C-05: billing data is sourced from the `accounts` table (not profiles).
  * The auth context resolves billing state from the user's account membership
- * and populates User.billingPlan / billingStatus / trialPlan / trialExpiresAt
+ * and populates User.billingPlan / trialPlan / trialExpiresAt / billingExempt
  * before calling getEffectivePlan. No changes needed here — the function
  * is agnostic to the source of the billing data.
+ *
+ * billing-pro-trial (D1/D3): this is the TypeScript MIRROR of the normative
+ * SQL definition `public.get_effective_plan(account_id)`. It MUST implement
+ * the exact same precedence and MUST NOT diverge — a shared parity test
+ * (__tests__/plan-utils.test.ts, run against the same case table as the SQL
+ * migration gate) verifies this on every change. In particular: this
+ * function deliberately does NOT read `billingStatus` — the SQL definition
+ * doesn't either (D1: a descriptive/cosmetic field can never gate access).
  */
 
-import type { Plan, User } from "@/lib/types"
+import type { Plan } from "@/lib/types"
 
 /** Ordered plan hierarchy: lower index = lower tier. */
 export const PLAN_HIERARCHY: Plan[] = ["gratis", "inicial", "avanzado", "pro"]
 
+function isValidPlan(value: unknown): value is Plan {
+  return typeof value === "string" && (PLAN_HIERARCHY as string[]).includes(value)
+}
+
+export interface EffectivePlanInput {
+  /** May be absent/invalid for a not-yet-provisioned account (fail-closed → 'gratis'). */
+  billingPlan: Plan | null | undefined
+  /** null (Account) or undefined (User, legacy) both mean "no active trial". */
+  trialPlan?: Plan | null
+  trialExpiresAt?: string | null
+  /** billing-pro-trial (D4): exención de cortesía — precedencia máxima. */
+  billingExempt?: boolean | null
+}
+
 /**
- * Returns the effective plan for a user.
- * If a trial is active (billing_status='trialing', trial_plan set, trial not expired),
- * the trial plan is returned. Otherwise, billing_plan is used.
+ * Returns the effective plan for a user/account. Mirrors the precedence of
+ * `public.get_effective_plan(account_id)` (billing-pro-trial D1):
  *
- * As of C-05: input values are resolved from the user's account (accounts table),
- * not from profiles. The caller (auth-context) handles this resolution.
+ *   1. billingExempt vigente           → 'pro'
+ *   2. trial vigente (trialExpiresAt > now, trialPlan set) → trialPlan
+ *   3. billingPlan (si es un plan válido)
+ *   4. cualquier otro caso             → 'gratis' (fail-closed)
+ *
+ * Nunca lee billingStatus: es un campo descriptivo (D6), no autoritativo —
+ * leerlo para decidir acceso es exactamente el bug que este change cierra.
  */
-export function getEffectivePlan(user: Pick<User, "billingPlan" | "billingStatus" | "trialPlan" | "trialExpiresAt">): Plan {
+export function getEffectivePlan(user: EffectivePlanInput): Plan {
+  if (user.billingExempt) {
+    return "pro"
+  }
+
   const now = new Date()
   const trialActive =
-    user.billingStatus === "trialing" &&
     user.trialPlan != null &&
     user.trialExpiresAt != null &&
     new Date(user.trialExpiresAt) > now
 
-  return trialActive ? (user.trialPlan as Plan) : user.billingPlan
+  if (trialActive) {
+    return user.trialPlan as Plan
+  }
+
+  return isValidPlan(user.billingPlan) ? user.billingPlan : "gratis"
 }
 
 /**

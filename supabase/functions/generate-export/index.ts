@@ -3,6 +3,7 @@
 // uploads to Storage bucket `exports`, and returns a signed URL (1 hour).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { resolveEffectivePlan } from '../_shared/effective-plan.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,7 +11,6 @@ const corsHeaders = {
 }
 
 type ExportType = 'sales_csv' | 'purchases_csv' | 'expenses_csv' | 'stock_csv' | 'full_report_xlsx'
-type Plan = 'gratis' | 'inicial' | 'avanzado' | 'pro'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -21,20 +21,10 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-function getEffectivePlan(profile: {
-  billing_plan: string | null
-  billing_status: string | null
-  trial_plan: string | null
-  trial_expires_at: string | null
-}): Plan {
-  const now = new Date()
-  const trialActive =
-    profile.billing_status === 'trialing' &&
-    profile.trial_plan != null &&
-    profile.trial_expires_at != null &&
-    new Date(profile.trial_expires_at) > now
-  return ((trialActive ? profile.trial_plan : profile.billing_plan) ?? 'gratis') as Plan
-}
+// billing-edge-effective-plan (task 6.2): la función local getEffectivePlan()
+// que reimplementaba la regla de trial sobre `profiles` se eliminó. El plan
+// efectivo ahora se resuelve vía `resolveEffectivePlan` (_shared/
+// effective-plan.ts), que delega en la definición normativa de la DB.
 
 function historyDateFrom(historyDays: number): string {
   const d = new Date()
@@ -176,10 +166,13 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'invalid_export_type' }, 400)
     }
 
-    // ── Load profile + plan ───────────────────────────────────────────────────
+    // ── Load exports_used counter ─────────────────────────────────────────────
+    // D3/OQ-2 (billing-edge-effective-plan): el contador sigue viviendo en
+    // profiles y NO se migra en este change — el select se reduce a esa sola
+    // columna, ya que el plan se resuelve aparte vía resolveEffectivePlan.
     const { data: profile, error: profErr } = await supabase
       .from('profiles')
-      .select('billing_plan, billing_status, trial_plan, trial_expires_at, exports_used')
+      .select('exports_used')
       .eq('id', user.id)
       .single()
 
@@ -187,7 +180,11 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'profile_not_found' }, 500)
     }
 
-    const effectivePlan = getEffectivePlan(profile)
+    // ── Plan efectivo ──────────────────────────────────────────────────────────
+    // billing-edge-effective-plan: resuelto vía la definición normativa de la
+    // DB (_shared/effective-plan.ts) — ya no se deriva de profiles ni se
+    // reimplementa la regla de trial/exención acá.
+    const effectivePlan = await resolveEffectivePlan(supabase)
 
     // ── Load plan limits ──────────────────────────────────────────────────────
     const { data: limits, error: limErr } = await supabase

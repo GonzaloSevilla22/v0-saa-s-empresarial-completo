@@ -1,6 +1,10 @@
-# insights
+# insights — Spec
 
-## ADDED Requirements
+## Purpose
+
+Unificación de los insights generados por IA en un único almacén canónico, con migración sin pérdida de los datos legacy y preservación de los contadores de uso por plan.
+
+## Requirements
 
 ### Requirement: Almacén único canónico de insights
 El sistema SHALL persistir todos los insights en una única tabla canónica llamada `insights`, con el esquema `id, user_id, account_id, type, priority, message, created_at`. No SHALL existir ninguna otra tabla activa que almacene insights.

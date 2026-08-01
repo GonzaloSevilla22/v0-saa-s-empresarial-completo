@@ -67,9 +67,10 @@ El sistema SHALL convertir errores asyncpg en respuestas HTTP con mensajes en es
 - **THEN** el handler retorna HTTP 500 con `{"detail": "Error interno del servidor"}` y loguea el error completo en stderr
 
 ### Requirement: Endpoints REST de Quote
-> Agregado en C-29 `v21-quote-salesorder` (2026-06-17)
 
 El backend FastAPI SHALL exponer endpoints para gestionar presupuestos siguiendo la arquitectura de 3 capas (routers→services→repositories), con guards de rol en el service (`require_role`), validación Pydantic v2 en el endpoint y acceso a datos vía JWT-passthrough (nunca `service_role`). Los endpoints SHALL cubrir: crear presupuesto, listar presupuestos de la cuenta, obtener un presupuesto con sus ítems, transicionar estado (`send`/`reject`/`expire`) y `accept` (que crea el `SalesOrder`).
+
+> Agregado en C-29 `v21-quote-salesorder` (2026-06-17)
 
 #### Scenario: crear presupuesto devuelve 201
 - **WHEN** un usuario writer hace `POST` al endpoint de presupuestos con ítems válidos
@@ -84,9 +85,10 @@ El backend FastAPI SHALL exponer endpoints para gestionar presupuestos siguiendo
 - **THEN** el service responde 403 (guard `require_role`)
 
 ### Requirement: Endpoints REST de SalesOrder y quickSale
-> Agregado en C-29 `v21-quote-salesorder` (2026-06-17)
 
 El backend FastAPI SHALL exponer endpoints para órdenes de venta: crear orden (`draft`), confirmar orden (`confirm`), `quickSale` (crear+confirmar POS en un paso) y listar/obtener órdenes. La validación del payload (incluyendo `payment_method`, `cash_session_id` cuando es efectivo, y tipo de comprobante opcional) SHALL ocurrir con schemas Pydantic v2 antes de invocar el RPC. El service SHALL aplicar `require_role` y delegar la transacción al RPC `SECURITY DEFINER` vía el repository.
+
+> Agregado en C-29 `v21-quote-salesorder` (2026-06-17)
 
 #### Scenario: quickSale devuelve la orden confirmada
 - **WHEN** se hace `POST` al endpoint de `quickSale` con `idempotency_key`, ítems y `payment_method`

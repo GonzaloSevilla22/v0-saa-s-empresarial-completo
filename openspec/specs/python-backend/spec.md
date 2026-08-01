@@ -1,33 +1,55 @@
-# Spec: python-backend
+# python-backend — Spec
 
-## Overview
+## Purpose
 
 Servicio FastAPI independiente del frontend Next.js. Corre como proceso separado, expone una API HTTP + WebSocket, y se integra con Supabase como fuente de verdad de la base de datos.
 
 ## Requirements
 
-### REQ-PB-01: Estructura de proyecto
-El backend debe organizarse en:
-- `backend/main.py` — punto de entrada FastAPI
-- `backend/routers/` — handlers HTTP y WebSocket
-- `backend/core/` — config, auth, ws_manager
-- `backend/tests/` — suite pytest
+### Requirement: Estructura de proyecto
 
-### REQ-PB-02: Configuración via entorno
-Toda configuración sensible (secrets, URLs) debe cargarse desde variables de entorno usando `pydantic-settings`. Sin valores hard-codeados en código fuente.
+El backend SHALL organizarse en: `backend/main.py` (punto de entrada FastAPI), `backend/routers/` (handlers HTTP y WebSocket), `backend/core/` (config, auth, ws_manager) y `backend/tests/` (suite pytest).
 
-### REQ-PB-03: Health check
-`GET /health` debe retornar `{"status": "ok"}` con HTTP 200. Sin autenticación requerida.
+#### Scenario: El árbol de directorios refleja las 3 capas más config y tests
 
-### REQ-PB-04: Ejecutable con uvicorn
-El servicio debe poder iniciarse con:
-```bash
-uvicorn backend.main:app --reload
-```
-desde la raíz del proyecto.
+- **WHEN** se inspecciona el repo bajo `backend/`
+- **THEN** existen `backend/main.py`, `backend/routers/` (con un módulo por dominio, p. ej. `expenses.py`, `sales.py`, `ws.py`), `backend/core/` (con `config.py`, `auth.py`, `ws_manager.py`, `guards.py`, `database.py`, `errors.py`) y `backend/tests/` (una suite pytest, p. ej. `test_auth.py`, `test_expenses.py`); además `backend/services/` y `backend/repositories/` completan la arquitectura de 3 capas (routers → services → repositories) que exige `data-api-endpoints`
 
-### REQ-PB-05: Tests cubren happy path y error path
-Cada router debe tener al mínimo: 1 test de happy path + 1 test de error (auth fallida, input inválido).
+### Requirement: Configuración via entorno
+
+Toda configuración sensible (secrets, URLs) SHALL cargarse desde variables de entorno usando `pydantic-settings`, sin valores hard-codeados en código fuente.
+
+#### Scenario: `Settings` carga desde variables de entorno con `pydantic-settings`
+
+- **WHEN** el proceso arranca y se instancia `settings = Settings()` en `backend/core/config.py`
+- **THEN** `Settings` hereda de `pydantic_settings.BaseSettings` con `model_config = SettingsConfigDict(env_file=".env")`, y cada secreto (`supabase_jwt_secret`, `service_role_key`, `mercadopago_webhook_secret`, `afip_platform_key`, etc.) se resuelve desde la variable de entorno homónima en mayúsculas, sin ningún secreto de producción escrito en el código fuente (los defaults del código son placeholders de dev, p. ej. `"dev-secret"`)
+
+### Requirement: Health check
+
+`GET /health` SHALL retornar `{"status": "ok"}` con HTTP 200, sin autenticación requerida.
+
+#### Scenario: GET /health responde sin token
+
+- **WHEN** se hace `GET /health` sin header `Authorization`
+- **THEN** `backend/routers/health.py` responde HTTP 200 con body `{"status": "ok"}`, porque el endpoint no declara ninguna dependencia de `get_current_user`
+
+### Requirement: Ejecutable con uvicorn
+
+El servicio SHALL poder iniciarse con `uvicorn backend.main:app --reload` desde la raíz del proyecto.
+
+#### Scenario: `uvicorn backend.main:app --reload` levanta la app
+
+- **WHEN** se ejecuta `uvicorn backend.main:app --reload` desde la raíz del repo, con `uvicorn[standard]` instalado (declarado en `backend/pyproject.toml`) y `backend/main.py` exponiendo el objeto `app` de FastAPI
+- **THEN** el proceso arranca sin errores de import, ejecuta el `lifespan` (`init_pool`, `init_service_pool`, `init_redis`) y sirve la API en el puerto por defecto
+
+### Requirement: Tests cubren happy path y error path
+
+Cada router SHALL tener al mínimo 1 test de happy path y 1 test de error (auth fallida, input inválido).
+
+#### Scenario: Un router de dominio cubre happy path y error path
+
+- **WHEN** se revisa `backend/tests/test_expenses.py` (router `expenses`)
+- **THEN** existen tests de happy path (`test_get_expenses_ok`, `test_create_expense_ok`) y tests de error (`test_create_expense_member_forbidden`, `test_delete_expense_member_forbidden`, que ejercitan el guard `require_role` con un rol insuficiente), el mismo patrón que siguen `test_clients.py`, `test_products.py`, `test_sales.py` y `test_purchases.py` para sus respectivos routers
 
 ### Requirement: Routers de datos registrados en main.py
 El sistema SHALL registrar los 9 routers de dominio (expenses, clients, products, branches, stock, sales, purchases, organizations, payments) en `backend/main.py` con sus prefijos correspondientes y el tag OpenAPI apropiado.

@@ -1,33 +1,39 @@
-﻿## ADDED Requirements
+# community-schema — Spec
+
+## Purpose
+
+Separación del dominio no-ERP (cursos, comunidad, seguros, compras colectivas, landing, IA copiloto) en un schema Postgres propio (`community`), desacoplado del ERP, expuesto vía Data API y accedido desde frontend/Edge Functions con schema explícito.
+
+## Requirements
 
 ### Requirement: Tablas de comunidad viven en el schema `community`
-Las 16 tablas del dominio no-ERP (`courses`, `course_modules`, `course_lessons`, `course_enrollments`, `course_progress`, `lesson_progress`, `posts`, `replies`, `post_likes`, `meetings`, `seguros`, `purchase_pools`, `landing_sections`, `fair_recommendations`, `fair_ai_tools`, `copilot_prompts`) SHALL residir en el schema Postgres `community`, no en `public`. La migraciÃ³n MUST usar `ALTER TABLE ... SET SCHEMA` preservando datos, FKs, Ã­ndices, triggers y polÃ­ticas RLS.
+Las 16 tablas del dominio no-ERP (`courses`, `course_modules`, `course_lessons`, `course_enrollments`, `course_progress`, `lesson_progress`, `posts`, `replies`, `post_likes`, `meetings`, `seguros`, `purchase_pools`, `landing_sections`, `fair_recommendations`, `fair_ai_tools`, `copilot_prompts`) SHALL residir en el schema Postgres `community`, no en `public`. La migración MUST usar `ALTER TABLE ... SET SCHEMA` preservando datos, FKs, índices, triggers y políticas RLS.
 
-#### Scenario: Datos preservados tras la migraciÃ³n
-- **WHEN** se ejecuta la migraciÃ³n de movimiento
+#### Scenario: Datos preservados tras la migración
+- **WHEN** se ejecuta la migración de movimiento
 - **THEN** cada tabla movida conserva exactamente sus filas previas (p. ej. `community.posts` = 4 filas, `community.courses` = 4 filas) y `public.<tabla>` ya no existe
 
 #### Scenario: RLS sigue activa en el schema nuevo
-- **WHEN** un usuario autenticado consulta `community.posts` vÃ­a la Data API
-- **THEN** las polÃ­ticas RLS preexistentes se aplican igual que cuando la tabla estaba en `public`
+- **WHEN** un usuario autenticado consulta `community.posts` vía la Data API
+- **THEN** las políticas RLS preexistentes se aplican igual que cuando la tabla estaba en `public`
 
 #### Scenario: FKs cross-schema intactas
-- **WHEN** se consulta `pg_constraint` tras la migraciÃ³n
-- **THEN** las FKs `community.posts â†’ public.profiles`, `community.course_enrollments â†’ auth.users` y `community.fair_recommendations â†’ public.accounts` siguen definidas y vÃ¡lidas
+- **WHEN** se consulta `pg_constraint` tras la migración
+- **THEN** las FKs `community.posts → public.profiles`, `community.course_enrollments → auth.users` y `community.fair_recommendations → public.accounts` siguen definidas y válidas
 
 ### Requirement: Schema `community` expuesto en la Data API
 El schema `community` SHALL estar configurado en los Exposed schemas de PostgREST con grants de `USAGE` para `anon`, `authenticated` y `service_role`, y privilegios por defecto equivalentes a `public` para tablas futuras.
 
-#### Scenario: Query vÃ­a supabase-js con schema explÃ­cito
+#### Scenario: Query vía supabase-js con schema explícito
 - **WHEN** el frontend ejecuta `supabase.schema("community").from("posts").select("*")`
 - **THEN** PostgREST responde con las filas permitidas por RLS (no 404/406 de schema no expuesto)
 
 #### Scenario: Embedding cross-schema funciona
-- **WHEN** se consulta `posts` con `select("*, profiles(name), post_likes(user_id)")` vÃ­a `.schema("community")`
+- **WHEN** se consulta `posts` con `select("*, profiles(name), post_likes(user_id)")` vía `.schema("community")`
 - **THEN** la respuesta embebe el nombre del autor desde `public.profiles` y los likes desde `community.post_likes`
 
-### Requirement: Frontend y Edge Functions acceden vÃ­a `.schema("community")`
-Todo acceso de cÃ³digo a las tablas movidas SHALL usar `.schema("community")` del cliente supabase-js. El insert de `analytics_events` (tabla ERP de `public`) en `use-posts` MUST permanecer sin schema explÃ­cito.
+### Requirement: Frontend y Edge Functions acceden vía `.schema("community")`
+Todo acceso de código a las tablas movidas SHALL usar `.schema("community")` del cliente supabase-js. El insert de `analytics_events` (tabla ERP de `public`) en `use-posts` MUST permanecer sin schema explícito.
 
 #### Scenario: Cero referencias residuales a public
 - **WHEN** se busca `from("<tabla movida>")` sin `.schema("community")` en `frontend/` y `supabase/functions/`
@@ -40,6 +46,6 @@ Todo acceso de cÃ³digo a las tablas movidas SHALL usar `.schema("community")` 
 ### Requirement: El ERP no se acopla al schema community
 Ninguna tabla del ERP (`sales`, `purchases`, `products`, `clients`, `expenses`, `branches`, etc.) SHALL tener FK hacia tablas del schema `community`, y el backend Python MUST seguir sin referenciar tablas movidas.
 
-#### Scenario: VerificaciÃ³n de desacoplamiento
+#### Scenario: Verificación de desacoplamiento
 - **WHEN** se consulta `pg_constraint` buscando FKs desde tablas ERP hacia `community.*`
-- **THEN** el resultado es vacÃ­o y la suite del backend Python pasa sin cambios
+- **THEN** el resultado es vacío y la suite del backend Python pasa sin cambios

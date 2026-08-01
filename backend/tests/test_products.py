@@ -64,12 +64,23 @@ async def test_create_product_member_forbidden(async_client, mock_pool):
     assert resp.status_code == 403
 
 
+def _plan_limits_row(max_products: int = 100, max_clients: int = 50, max_suppliers: int = 20) -> dict:
+    return {"max_products": max_products, "max_clients": max_clients, "max_suppliers": max_suppliers}
+
+
 async def test_create_product_plan_gratis_over_limit(async_client, mock_pool):
-    """Plan gratis is limited to 100 products; 101st should get 403."""
+    """Plan gratis is limited to 100 products (plan_limits); 101st should get 403."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user", "app_metadata": {"plan": "gratis"}})
-    count_row = {"total": 100}
-    conn.fetchrow = AsyncMock(return_value=count_row)
+
+    async def fetchrow_side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row(max_products=100)
+        if "COUNT" in query:
+            return {"total": 100}
+        return PRODUCT_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
     with patch("backend.core.database.pool", pool):
         resp = await async_client.post(
             "/products",
@@ -86,6 +97,8 @@ async def test_create_product_ok_under_limit(async_client, mock_pool):
     owner_token = make_token({"role": "user"})
 
     async def fetchrow_side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row()
         if "COUNT" in query:
             return {"total": 5}
         return PRODUCT_ROW
@@ -98,6 +111,58 @@ async def test_create_product_ok_under_limit(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
+
+
+# ── billing-pro-trial (D5, task 6.1): límites leídos de plan_limits, no de una
+# constante hardcodeada — RED: hoy PLAN_PRODUCT_LIMITS['avanzado']=2000 en
+# código difería de plan_limits.max_products=1500 en la DB. ───────────────────
+
+
+async def test_create_product_plan_avanzado_uses_plan_limits_not_hardcoded(async_client, mock_pool):
+    """El límite aplicado para 'avanzado' es el de plan_limits (2000 tras la
+    migración de este change), no un valor embebido en el backend."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user", "app_metadata": {"plan": "avanzado"}})
+
+    async def fetchrow_side_effect(query, *args):
+        if "plan_limits" in query:
+            assert args == ("avanzado",)
+            return _plan_limits_row(max_products=2000)
+        if "COUNT" in query:
+            return {"total": 1999}
+        return PRODUCT_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/products",
+            json={"name": "Producto 2000"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+
+
+async def test_create_product_plan_avanzado_blocked_at_plan_limits_value(async_client, mock_pool):
+    """Con 2000 productos y el límite de plan_limits en 2000, el 2001º se
+    rechaza — prueba que el límite NO es 999999 (fail-open del dict viejo)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user", "app_metadata": {"plan": "avanzado"}})
+
+    async def fetchrow_side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row(max_products=2000)
+        if "COUNT" in query:
+            return {"total": 2000}
+        return PRODUCT_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/products",
+            json={"name": "Producto 2001"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 403
 
 
 # ── v3-soft-delete-policy (5.2): borrado soft + guard RN-B4 + lecturas ───────
@@ -203,6 +268,8 @@ async def test_product_count_for_plan_limit_excludes_soft_deleted(async_client, 
     count_sql = {}
 
     async def fetchrow_side_effect(query, *args):
+        if "plan_limits" in query:
+            return _plan_limits_row()
         if "COUNT" in query:
             count_sql["sql"] = query
             return {"total": 5}

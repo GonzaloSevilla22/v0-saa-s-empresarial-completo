@@ -1,6 +1,7 @@
 > **Modo TDD estricto.** Cada tarea de código va precedida por su test (RED) y el test debe fallar por la razón esperada antes de escribir la implementación (GREEN). Ninguna tarea `[x]` sin ejecución real de la suite.
 > **Governance CRÍTICO** — aislamiento entre 34 cuentas con dinero real, sobre el código por el que pasa el 100% del backend. Los grupos 5 y 6+ tienen **gates explícitos**: no se avanza sin cumplir las condiciones de "probado bajo carga" (`design.md`) y sin sign-off del PO.
 > **Los grupos 1-4 son el Paso 1. Los grupos 6-9 son el Paso 2 y NO se ejecutan hasta que el grupo 5 cierre.**
+> **Amendment 2026-07-31 (sign-off del PO)** — las cuatro OQ del propose quedaron resueltas: ventana de observación = 7 días con los cuatro contadores en cero (un evento reinicia la ventana); rol de login dedicado = Paso 3 FUTURO, fuera de este change; colisiones de escritura = RPC por defecto (DEC-24), `fiscal_documents` y `cashboxes` al PO uno a uno antes de aplicar; corte del Paso 2 = **deploy silencioso** con rollback preparado. Ver `design.md` §Open Questions.
 
 ## 1. Red de seguridad y evidencia previa
 
@@ -40,8 +41,8 @@
 
 - [ ] 5.1 **Condición 1** — Suite backend completa verde dos veces seguidas con el Paso 1 activo, incluidos los tests de los grupos 2 y 3.
 - [ ] 5.2 **Condición 2** — Escribir y ejecutar la prueba de concurrencia cross-tenant contra el entorno desplegado: ≥50 requests concurrentes (`asyncio` + `httpx`, ya en el proyecto) intercalando **dos usuarios de cuentas distintas**, afirmando que ninguna respuesta contiene datos de la otra cuenta y que ninguna falla por claims ausentes. Guardar el script en el repo: se vuelve a usar en el grupo 8.
-- [ ] 5.3 **Condición 3** — 7 días naturales corridos de operación real con el Paso 1 activo, incluyendo al menos dos cierres de caja y un día de actividad alta. Registrar el volumen de requests observado **como dato**, no contra un umbral inventado. *(La ventana de 7 días es **OQ-1** para el PO.)*
-- [ ] 5.4 **Condición 4** — Sobre esos 7 días, verificar y registrar en cero: ocurrencias del 500 intermitente de compras (K5, contra el baseline de 1.5), `idle_in_transaction_session_timeout`, 403 anómalos de "cuenta no encontrada", errores de transacción abortada en logs de Render.
+- [ ] 5.3 **Condición 3** — 7 días naturales corridos de operación real con el Paso 1 activo, incluyendo al menos dos cierres de caja y un día de actividad alta. Registrar el volumen de requests observado **como dato**, no contra un umbral inventado. *(Ventana de 7 días confirmada por el PO el 2026-07-31 — OQ-1.)*
+- [ ] 5.4 **Condición 4** — Sobre esos 7 días, verificar y registrar en cero los **cuatro** contadores: ocurrencias del 500 intermitente de compras (K5, contra el baseline de 1.5), `idle_in_transaction_session_timeout`, 403 anómalos de "cuenta no encontrada", errores de transacción abortada en logs de Render. **Un solo evento reinicia la ventana de 7 días** (OQ-1): no se acorta ni se compensa con volumen.
 - [ ] 5.5 **Condición 5** — Presentar al PO el resultado de 5.1-5.4 **junto con el inventario del grupo 6** y obtener sign-off explícito para ejecutar el Paso 2. **Si alguna condición falla: apagar la palanca del Paso 1 y detenerse.**
 
 ## 6. Paso 2 — Inventario de escrituras directas (D7) — *previo al corte*
@@ -49,7 +50,7 @@
 - [ ] 6.1 Construir el inventario completo: todas las escrituras directas (`INSERT`/`UPDATE`/`DELETE` sin función con privilegios de definidor) de `backend/repositories/*.py`, cruzadas contra `pg_policies` de prod. Punto de partida verificado: 15 tablas con INSERT directo, ~13 con UPDATE directo, **40 tablas con RLS y sin policy de escritura**.
 - [ ] 6.2 Confirmar las cuatro colisiones ya identificadas y completar la lista: `fiscal_documents` (4 UPDATE directos, 0 policy de UPDATE), `cashboxes` (1 UPDATE, 0 policy), `events` (INSERT, 0 policy), `email_logs` (INSERT, 0 policy).
 - [ ] 6.3 Verificar los `EXECUTE` de las 68 funciones `rpc_*` para `authenticated` (esperado: 66 con permiso) e identificar las 2 faltantes y la función que no es `SECURITY DEFINER`, decidiendo qué hacer con cada una.
-- [ ] 6.4 Para cada colisión, decidir y justificar la vía: **(a)** encaminar por RPC `SECURITY DEFINER` (coherente con DEC-24, preferible con invariantes de negocio) o **(b)** agregar la policy de escritura faltante (preferible en tablas de infraestructura). **OQ-3**: los casos que impliquen exponer escritura directa a `authenticated` sobre tablas sensibles (`fiscal_documents`) se elevan al PO **antes** de aplicarse.
+- [ ] 6.4 Para cada colisión, resolver con el **RPC `SECURITY DEFINER` como vía por defecto** (OQ-3 resuelta, coherente con DEC-24). Agregar la policy de escritura faltante es la **excepción** y requiere justificación escrita en el inventario (admisible en tablas de infraestructura sin invariantes de negocio). **`fiscal_documents` y `cashboxes` se elevan al PO uno a uno ANTES de aplicar** su resolución.
 - [ ] 6.5 **RED/GREEN** — Si el inventario obliga a policies nuevas: una migración idempotente con gates de comportamiento (patrón del proyecto), con test que verifique que la escritura funciona con el rol restringido y **falla** para una cuenta ajena.
 - [ ] 6.6 Cerrar el inventario con **cero divergencias abiertas** y adjuntarlo al sign-off de 5.5.
 
@@ -63,7 +64,8 @@
 
 ## 8. Paso 2 — Corte en producción y verificación
 
-- [ ] 8.1 **PO** — Encender la palanca del Paso 2 en Render, en horario de baja actividad, con el PO presente. *(**OQ-4**: decidir si la ventana se anuncia.)*
+- [ ] 8.0 **Precondición del corte** — Dejar el **rollback preparado y verificado** antes de encender: palanca del Paso 2 identificada, procedimiento de apagado escrito, y alguien con acceso a Render listo para ejecutarlo durante toda la verificación de 8.2. **Si el rollback no está listo, 8.1 no se ejecuta** — con deploy silencioso es la única mitigación disponible.
+- [ ] 8.1 **PO** — Encender la palanca del Paso 2 en Render, en horario de baja actividad, con el PO presente y **sin anuncio a los usuarios** (OQ-4 resuelta: deploy silencioso).
 - [ ] 8.2 Verificación inmediata: consultar el usuario efectivo dentro de un request real y confirmar que no es el rol con BYPASSRLS.
 - [ ] 8.3 Smoke E2E de las operaciones críticas con una cuenta real: venta, compra, cobro, cierre de caja, emisión de comprobante. Cualquier "permiso denegado" indica una colisión no inventariada → **apagar la palanca inmediatamente** y volver al grupo 6.
 - [ ] 8.4 Re-ejecutar la prueba de concurrencia cross-tenant de 5.2 — ahora con la RLS activa, que es donde su resultado significa algo.
@@ -77,5 +79,5 @@
 - [ ] 9.3 Actualizar `knowledge-base/08_arquitectura_propuesta.md` y DEC-13: pasan de describir un JWT-passthrough aspiracional a describir el real, con la corrección de la nota de C-17 (`SET ROLE` de sesión vs. alcance transaccional) registrada explícitamente para que no se re-litigue.
 - [ ] 9.4 Cerrar K5 en el registro de bugs con la evidencia de 5.4, o documentar por qué persiste si sobrevivió al Paso 1 (sería un hallazgo importante: significaría que la causa raíz era otra).
 - [ ] 9.5 Actualizar la ficha de `v3-rbac-multirole` en `CHANGES.md`: dependencia dura `v31-tenancy-pool-rls` satisfecha, con la nota de que `is_account_writer`/`current_account_ids` ahora **sí** son efectivos para el backend y que migrarlos al pivot cambia comportamiento real.
-- [ ] 9.6 Registrar las Open Questions vivas (OQ-1 ventana de observación, OQ-2 rol de login dedicado como Paso 3, OQ-3 RPC vs policy por colisión, OQ-4 comunicación de la ventana) donde el PO las vea, sin resolverlas en este change.
+- [ ] 9.6 Registrar el **Paso 3 FUTURO** (rol de login dedicado sin BYPASSRLS, OQ-2 opción (b)) como trabajo posterior donde el PO lo vea, con el criterio de arranque: sólo después de que el Paso 2 lleve tiempo estable. **No se ejecuta en este change.**
 - [ ] 9.7 Anotar como deuda explícita la retirada de las dos palancas y del camino de código viejo, en un change de limpieza posterior, una vez que el Paso 2 lleve tiempo estable.

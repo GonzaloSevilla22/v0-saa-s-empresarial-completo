@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from backend.core.guards import require_role
 from backend.repositories.client_repository import ClientRepository
+from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.schemas.clients import ClientCreate, ClientUpdate
 
 
@@ -18,8 +19,23 @@ async def get_client(repo: ClientRepository, account_id: str, client_id: str) ->
     return dict(record)
 
 
-async def create_client(repo: ClientRepository, auth: dict, account_id: str, payload: ClientCreate) -> dict:
+async def create_client(
+    repo: ClientRepository,
+    auth: dict,
+    account_id: str,
+    payload: ClientCreate,
+    plan_limits_repo: PlanLimitsRepository,
+) -> dict:
     require_role(auth, ["user", "admin"])
+    plan = auth.get("plan", "pro")
+    limits = await plan_limits_repo.get_limits(plan)
+    limit = limits["max_clients"]
+    current_count = await repo.count_by_org(account_id)
+    if current_count >= limit:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Límite de clientes alcanzado para el plan {plan} ({limit} máx.). Borrá clientes existentes o subí de plan.",
+        )
     record = await repo.create(auth["user_id"], account_id, payload.model_dump())
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear el cliente")

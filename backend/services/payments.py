@@ -19,11 +19,41 @@ logger = logging.getLogger(__name__)
 PLAN_HIERARCHY = ["gratis", "inicial", "avanzado", "pro"]
 
 
+def derive_signed_notification_id(raw_body: bytes, query_data_id: str | None) -> str | None:
+    """Deriva el `data.id` que MercadoPago usó para firmar el manifiesto (D9).
+
+    MercadoPago firma con el `data.id` tal como aparece en el **query param**
+    de la URL de notificación, no el del cuerpo, y lo pasa a minúsculas antes
+    de firmar (los IDs de `preapproval`/suscripción son alfanuméricos; bajar
+    a minúsculas un ID de pago, que es numérico, no lo altera — de ahí que la
+    derivación previa, solo desde el cuerpo y sin normalizar, funcionara
+    "por casualidad" para pagos y rompiera para suscripciones).
+
+    El cuerpo se usa únicamente como respaldo cuando no hay query param
+    (compatibilidad hacia atrás). Devuelve `None` si no se pudo derivar
+    ningún id de ninguna de las dos fuentes — caso distinguible de "id vacío"
+    para el log de rechazo.
+    """
+    if query_data_id:
+        return query_data_id.lower()
+
+    try:
+        body = json.loads(raw_body)
+    except Exception:
+        return None
+
+    notification_id = (body.get("data") or {}).get("id")
+    if not notification_id:
+        return None
+    return str(notification_id).lower()
+
+
 def verify_mp_signature(
     raw_body: bytes,
     x_signature: str | None,
     x_request_id: str | None,
     secret: str,
+    query_data_id: str | None = None,
 ) -> bool:
     """Verifica firma HMAC-SHA256 de MercadoPago.
 
@@ -38,6 +68,11 @@ def verify_mp_signature(
     secreto de Render no coincide con el del panel de MP). El log distingue
     ambas ramas explícitamente. Nunca se loguea el secreto configurado ni el
     valor de x_signature recibido — solo la causa del rechazo.
+
+    `query_data_id` (mp-real-subscriptions D9): el `data.id` tal como viene
+    del query param de la URL de notificación. Es la fuente de verdad para
+    el manifiesto firmado — ver `derive_signed_notification_id`. Opcional
+    por compatibilidad hacia atrás (cae al cuerpo si se omite).
     """
     if not secret:
         logger.warning("[payments] Webhook rejected — MERCADOPAGO_WEBHOOK_SECRET is not configured")
@@ -59,12 +94,8 @@ def verify_mp_signature(
         logger.warning("[payments] Webhook rejected — malformed x-signature header")
         return False
 
-    import json as _json
-
-    try:
-        body = _json.loads(raw_body)
-        notification_id = (body.get("data") or {}).get("id") or ""
-    except Exception:
+    notification_id = derive_signed_notification_id(raw_body, query_data_id)
+    if notification_id is None:
         logger.warning("[payments] Webhook rejected — malformed payload, cannot build signed template")
         return False
 

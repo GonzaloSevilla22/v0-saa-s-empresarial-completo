@@ -51,7 +51,7 @@ BEGIN
 
   -- Event trigger: revoke total (anon + authenticated + PUBLIC)
   IF to_regprocedure('public.rls_auto_enable()') IS NOT NULL THEN
-    REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated;
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated';
   END IF;
 
   -- ── GATE negativo: anon sin EXECUTE en las 9 ──────────────────────────────
@@ -71,9 +71,13 @@ BEGIN
   END LOOP;
 
   -- ── GATE event trigger: rls_auto_enable sin exposición REST ───────────────
+  -- to_regprocedure (no el cast ::regprocedure): el cast de un literal se
+  -- resuelve al PARSEAR la sentencia y lanza 42883 si la función no existe
+  -- (en CI no existe) — to_regprocedure devuelve NULL y has_function_privilege
+  -- con NULL es NULL → el IF queda falso sin error.
   IF to_regprocedure('public.rls_auto_enable()') IS NOT NULL AND (
-       has_function_privilege('anon', 'public.rls_auto_enable()'::regprocedure, 'EXECUTE')
-    OR has_function_privilege('authenticated', 'public.rls_auto_enable()'::regprocedure, 'EXECUTE')
+       has_function_privilege('anon', to_regprocedure('public.rls_auto_enable()'), 'EXECUTE')
+    OR has_function_privilege('authenticated', to_regprocedure('public.rls_auto_enable()'), 'EXECUTE')
   ) THEN
     RAISE EXCEPTION 'GATE FAILED: rls_auto_enable sigue expuesta vía REST';
   END IF;

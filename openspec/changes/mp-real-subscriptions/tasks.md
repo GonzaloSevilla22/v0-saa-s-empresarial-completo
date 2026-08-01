@@ -132,4 +132,4 @@
 - [x] 10.1 `CHANGES.md` actualizado: ficha nueva de `mp-real-subscriptions` (estado PR1-4 mergeados, hallazgo de D2 refutado, scope, resultado, pendientes MANUAL PO), con **H-19 / `v31-mp-webhook-atomic`** anotado como abierto y no cubierto por este change.
 - [x] 10.2 KB: `knowledge-base/05_reglas_de_negocio.md` RN-08 (Dominio Planes y Billing) — ciclo de vida completo (alta D2bis, reconciliación, cobro mensual + gracia 10 días, semántica de `plan_expires_at`, baja, cambio de tier, activación gateada).
 - [x] 10.3 OQ1-OQ4 anotadas con fecha en tasks.md §1 (1.3-1.6): OQ2 gracia 10 días (confirmado 2026-08-01), OQ3 los 3 tiers pagos, OQ4 cancelar+nueva con `start_date` al fin del período, OQ1 `NULL` permisivo — las 4 firmadas 2026-07-31.
-- [ ] 10.4 `mem_save` final — pendiente de cerrar esta sesión (ver engram `opsx/mp-real-subscriptions/apply`, actualizado en cada PR de este ciclo).
+- [x] 10.4 `mem_save` final guardado en engram (`opsx/mp-real-subscriptions/apply`) — estado exacto de los 4 PRs mergeados/verificados, hallazgos del TDD, suites finales, y la lista ordenada de pasos MANUAL PO pendientes de activación (§9).

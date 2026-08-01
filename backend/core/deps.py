@@ -15,9 +15,18 @@ async def get_account_id(
 
     Consulta account_members usando auth.uid() (seteado por get_db_conn JWT-passthrough).
     Lanza 403 si el usuario no tiene cuenta activa.
+
+    v31-authz-token-hook (D4): ORDER BY created_at, id — la membresía más
+    antigua, desempatada por la PK — es el MISMO criterio determinístico que
+    usa la migración del hook (20260827000001) para elegir la cuenta activa
+    al emitir el claim `account_role`/`plan`. Sin este orden explícito, bajo
+    multi-membresía el hook y este resolver podrían elegir cuentas distintas
+    para el mismo usuario (bug latente: 0 usuarios con 2+ membresías hoy,
+    pero v3-rbac-multirole lo vuelve alcanzable).
     """
     account_id = await conn.fetchval(
-        "SELECT account_id FROM account_members WHERE user_id = auth.uid() LIMIT 1"
+        "SELECT account_id FROM account_members WHERE user_id = auth.uid() "
+        "ORDER BY created_at, id LIMIT 1"
     )
     if account_id is None:
         raise HTTPException(status_code=403, detail="No active account found")

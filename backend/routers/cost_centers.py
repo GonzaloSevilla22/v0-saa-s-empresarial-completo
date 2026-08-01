@@ -41,12 +41,14 @@ async def create_cost_center(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: CostCenterRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    """Create a new cost center. Requires owner or admin."""
+    """Create a new cost center. Requires TENANT role owner or admin (D9)."""
     return await cc_service.create_cost_center(
         repo, auth, str(account_id),
         name=payload.name,
         code=payload.code,
+        conn=conn,
     )
 
 
@@ -57,12 +59,14 @@ async def update_cost_center(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: CostCenterRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    """Update name/code of a cost center. Requires owner or admin."""
+    """Update name/code of a cost center. Requires TENANT role owner or admin (D9)."""
     return await cc_service.update_cost_center(
         repo, auth, str(account_id), cost_center_id,
         name=payload.name,
         code=payload.code,
+        conn=conn,
     )
 
 
@@ -72,12 +76,14 @@ async def deactivate_cost_center(
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: CostCenterRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    """Soft-delete a cost center (sets is_active=false). Requires owner or admin.
+    """Soft-delete a cost center (sets is_active=false). Requires TENANT role owner or admin (D9).
 
     Historical expenses and purchases retain their cost_center_id reference.
     The center is hidden from new-entry selectors but names are preserved for reporting.
     """
     return await cc_service.deactivate_cost_center(
         repo, auth, str(account_id), cost_center_id,
+        conn=conn,
     )

@@ -14,14 +14,24 @@ class AuthContext(TypedDict):
     Declaración normativa: cualquier clave que el dependency produzca debe
     estar acá, y cualquier clave declarada acá debe ser producida por el
     dependency (verificado por el test de contrato anti-deriva en
-    backend/tests/test_auth.py). Las tres claves están siempre presentes:
+    backend/tests/test_auth.py). Las cuatro claves están siempre presentes:
     `user_id` viene de `payload["sub"]` (obligatorio en cualquier JWT de
     Supabase), y `role`/`plan` tienen fallback incondicional — por eso
     `total=True` (default) y no `NotRequired`.
+
+    `role` (plataforma, profiles.role) y `account_role` (tenant,
+    account_members.role) son DOS espacios de nombres separados —
+    v31-authz-token-hook D1. Un guard NUNCA debe comparar uno contra los
+    valores del otro. `account_role` es `str | None`: a diferencia de
+    `role`/`plan`, no tiene un fallback permisivo — su ausencia (token sin
+    el claim, o usuario sin membresía) se resuelve en el guard
+    (`require_account_role`, backend/core/guards.py), nunca acá con un
+    default optimista.
     """
 
     user_id: str
     role: str
+    account_role: str | None
     plan: str
 
 
@@ -74,14 +84,26 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
     # App-level role lives in app_metadata (set via custom access token hook),
     # or falls back to "user" for standard authenticated users.
     jwt_role = payload.get("role", "authenticated")
-    app_role = (
-        (payload.get("app_metadata") or {}).get("role")
-        or ("user" if jwt_role == "authenticated" else jwt_role)
+    app_metadata = payload.get("app_metadata") or {}
+    app_role = app_metadata.get("role") or (
+        "user" if jwt_role == "authenticated" else jwt_role
     )
-    app_plan = (payload.get("app_metadata") or {}).get("plan", "pro")
+    # v31-authz-token-hook D6: `plan` conserva el default "pro" SOLO como
+    # valor de TRANSICIÓN mientras convivan tokens sin el claim (emitidos
+    # antes de habilitar el hook, ~1h de ventana o hasta re-login) — ver
+    # capability plan-gating. NO es la política definitiva: la ausencia de
+    # información de plan NOT SHALL resolverse concediendo el plan más alto
+    # de forma permanente. Este default se elimina cuando se cierre la
+    # ventana de convivencia (post-activación + purga de tokens viejos).
+    app_plan = app_metadata.get("plan", "pro")
+    # account_role (tenant, D1): a diferencia de role/plan, SIN fallback
+    # permisivo acá — su ausencia se resuelve en require_account_role
+    # (DB fallback o 403), nunca con un default optimista en este punto.
+    app_account_role = app_metadata.get("account_role")
 
     return {
         "user_id": payload["sub"],
         "role": app_role,
+        "account_role": app_account_role,
         "plan": app_plan,
     }

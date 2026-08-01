@@ -30,6 +30,9 @@ const TYPE_LABELS: Record<Notification["type"], string> = {
   TransferDispatched: "Transferencia despachada",
   // billing-pro-trial (D9): aviso de excedente de plan.
   PlanLimitExceeded: "Límite de plan excedido",
+  // mp-real-subscriptions (D11): dunning de suscripción.
+  SubscriptionPaymentFailed: "Cobro de suscripción rechazado",
+  SubscriptionExpiringSoon: "Suscripción por vencer",
 }
 
 /**

@@ -320,3 +320,66 @@ class TestAmbiguousQueueEndpoints:
             )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
+
+
+# ── task 8.5 — GET /payments/subscriptions/status ────────────────────────
+
+class TestSubscriptionStatusEndpoint:
+    async def test_503_when_flag_off(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", False),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/status",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 503
+
+    async def test_404_when_no_live_subscription(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchrow = AsyncMock(return_value=None)
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/status",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 404
+
+    async def test_200_with_live_subscription(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "preapproval_id": "mp-preapproval-1",
+                "preapproval_plan_id": "mp-plan-1",
+                "plan": "avanzado",
+                "status": "authorized",
+                "next_payment_date": datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc),
+                "amount": None,
+                "currency": "ARS",
+                "retry_state": "none",
+                "created_at": datetime.datetime(2026, 8, 1, tzinfo=datetime.timezone.utc),
+            }
+        )
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/status",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["plan"] == "avanzado"
+        assert body["status"] == "authorized"
+        assert body["retry_state"] == "none"

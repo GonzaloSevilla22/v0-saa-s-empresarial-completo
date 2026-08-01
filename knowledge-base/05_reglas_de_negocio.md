@@ -69,6 +69,24 @@ Los campos `profiles.insights_used` e `insights_reset_at` rastrean el uso de ins
 ### RN-07 — Multi-usuario (Inicial, Avanzado, PRO)
 Los planes de pago permiten más de 1 usuario por cuenta (2, 5 y 10 respectivamente). Esto implica que el modelo de datos deberá soportar un concepto de "organización" o "tenant" con múltiples miembros. **Actualmente no implementado** — cada `user_id` en Supabase es independiente.
 
+### RN-08 — Ciclo de vida de la suscripción recurrente real (`mp-real-subscriptions`, 2026-08-01)
+
+> El upgrade de plan pasó de un pago único (Checkout Pro, `plan_expires_at` quedaba en `NULL` para siempre) a una suscripción recurrente real de MercadoPago. Mergeado y probado, pero **gateado** — ver "Activación" abajo. Fuente: `openspec/changes/mp-real-subscriptions/design.md`.
+
+**Alta (Camino A / D2bis)**: el usuario elige un tier pago (`inicial`/`avanzado`/`pro`, OQ3). El backend crea una fila de **intención** (`subscription_intents`, con el email del usuario autenticado, nunca del body) y redirige al `init_point` del **plan** de MercadoPago — no crea ningún `preapproval` propio. *(La alternativa original — crear el `preapproval` server-side con el `preapproval_plan_id` para llevar el `external_reference` — se probó en sandbox y **falla siempre** sin tokenizar la tarjeta: 400 con plan asociado, 500 sin plan asociado.)*
+
+**Reconciliación**: cuando MercadoPago crea el `preapproval` real y notifica, el backend busca la intención por `(payer_email normalizado, preapproval_plan_id, pending, ventana 24h)`. Exactamente una coincidencia → activa el plan. Cero o más de una → la fila queda en `public.subscriptions` con `account_id NULL` y `status='ambiguous'` — **el dinero se acredita igual**, solo la atribución automática requiere resolución manual (admin, cola de ambiguos).
+
+**Cobro mensual**: un cobro aprobado (`subscription_authorized_payment`, cuota `processed` + pago `approved`) extiende `accounts.plan_expires_at` a `next_payment_date` **+ 10 días de gracia** (igual a la ventana de reintentos de MercadoPago, OQ2) y audita `billing_events`. Un cobro rechazado **no toca** plan ni vencimiento — MercadoPago reintenta hasta 4 veces en 10 días y cancela solo tras 3 rechazos consecutivos; nosotros solo avisamos (campana + email, con discriminador por cobro concreto — sin eso el segundo aviso del mismo mes se pierde en el `UNIQUE` de `email_logs`).
+
+**`plan_expires_at` — semántica del vencimiento**: `get_effective_plan()` deja de otorgar un `billing_plan` pago cuando `plan_expires_at` está en el pasado. `NULL` **no degrada** (interpretación permisiva, endurecer es un change posterior) — evita degradar en silencio cuentas pagas ya existentes que todavía no tienen un vencimiento real asignado.
+
+**Baja**: cancela el `preapproval` en MercadoPago primero (nunca deja estado local inconsistente si esa llamada falla); el acceso se conserva hasta el fin del período **ya pagado** (`next_payment_date`), sin prorrateo (Non-Goal). Una cancelación reportada por MercadoPago (baja desde su panel, o impago tras 3 rechazos) reutiliza el mismo barrido diario de degradación que ya existía (`process_cancellations()`) — no hay un segundo camino de baja.
+
+**Cambio de tier**: cancela la suscripción vigente y crea una nueva con `start_date` al fin del período ya pagado — sin doble cobro, sin prorrateo (OQ4).
+
+**Activación en producción — gateada**: todo el código queda inerte detrás de la palanca `billing_subscriptions_enabled` (backend, default `False`). Encenderla requiere: (1) un pago E2E real verificado del canal de webhook (`v31-mp-upgrade-webhook-fix`), y (2) los `preapproval_plan` de producción creados (uno por tier). Mientras la palanca esté apagada, el flujo de upgrade sigue siendo el pago único de siempre (`Preference` de Checkout Pro).
+
 ---
 
 ## Dominio: Operaciones Financieras

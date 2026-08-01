@@ -486,3 +486,84 @@ class TestResolveAmbiguousSubscription:
         sqls = [c.args[0] for c in conn.execute.call_args_list]
         assert any("billing_plan = $2" in s for s in sqls)
         assert any("subscription_ambiguous_resolved" in s for s in sqls)
+
+
+# ── 7.2 RED / GREEN — correos encolados (renovación / baja) ──────────────
+
+class TestSubscriptionEmailsEnqueued:
+    @pytest.mark.asyncio
+    async def test_cancel_subscription_enqueues_cancellation_email(self):
+        """RED (7.2): la baja voluntaria encola un correo
+        subscription_cancelled con preapproval_id como discriminador."""
+        paid_until = datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc)
+        repo = _mock_repo(
+            find_live_subscription=AsyncMock(
+                return_value={"preapproval_id": PREAPPROVAL_ID, "next_payment_date": paid_until}
+            )
+        )
+        conn = _mock_conn()
+        mp_response = MagicMock()
+        mp_response.status_code = 200
+
+        with patch("httpx.AsyncClient.put", new_callable=AsyncMock, return_value=mp_response):
+            await cancel_subscription(ACCOUNT_ID, repo, conn)
+
+        email_call = next(c for c in conn.execute.call_args_list if "email_logs" in c.args[0])
+        assert "'subscription_cancelled'" in email_call.args[0]
+        assert PREAPPROVAL_ID in email_call.args
+
+    @pytest.mark.asyncio
+    async def test_approved_payment_enqueues_renewal_email(self):
+        """RED (7.2): un cobro aprobado encola un correo
+        subscription_payment_approved con authorized_payment_id como
+        discriminador (distinto cada mes, nunca colisiona)."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "avanzado", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+        mp_response = MagicMock()
+        mp_response.status_code = 200
+        mp_response.json.return_value = {
+            "status": "processed",
+            "preapproval_id": PREAPPROVAL_ID,
+            "payment": {"id": "mp-payment-1", "status": "approved"},
+            "retry_attempt": 0,
+            "debit_date": "2026-09-01T00:00:00Z",
+            "transaction_amount": 34900,
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response):
+            await process_subscription_authorized_payment_notification("ap-renewal-1", repo, conn)
+
+        email_call = next(c for c in conn.execute.call_args_list if "email_logs" in c.args[0])
+        assert "'subscription_payment_approved'" in email_call.args[0]
+        assert "ap-renewal-1" in email_call.args
+
+    @pytest.mark.asyncio
+    async def test_mp_side_cancellation_enqueues_email_only_once(self):
+        """TRIANGULATE (7.2): la cancelación reportada por MP encola el
+        correo, pero SOLO en la transición real (guard billing_status <>
+        'cancelling') — una redelivery no debe reenviar el aviso."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={
+                    "account_id": ACCOUNT_ID, "status": "authorized",
+                    "next_payment_date": datetime.datetime(2026, 9, 1, tzinfo=datetime.timezone.utc),
+                }
+            )
+        )
+        conn = _mock_conn()
+        conn.execute = AsyncMock(return_value="UPDATE 0")  # ya estaba 'cancelling' — no-op
+        mp_response = MagicMock()
+        mp_response.status_code = 200
+        mp_response.json.return_value = {
+            "status": "cancelled", "payer_email": "buyer@example.com", "preapproval_plan_id": PLAN_ID,
+        }
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response):
+            await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        sqls = [c.args[0] for c in conn.execute.call_args_list]
+        assert not any("email_logs" in s for s in sqls)

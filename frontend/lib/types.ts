@@ -639,6 +639,10 @@ export type NotificationType =
   | "QuoteAccepted"
   | "TransferDispatched"
   | "PlanLimitExceeded"
+  // mp-real-subscriptions (D11): aviso de cobro de suscripción rechazado
+  // (PR3) y de vencimiento próximo de plan pago sin cobro confirmado (PR4).
+  | "SubscriptionPaymentFailed"
+  | "SubscriptionExpiringSoon"
 
 export type NotificationSeverity = "info" | "warning" | "urgent"
 

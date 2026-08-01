@@ -39,3 +39,14 @@ jobs:
       # función SECURITY DEFINER queda anon-executable fuera de la allowlist.
       - name: Run function ACL anti-regression gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_function_acl_gate.sql
+
+      # Postmortem `organizations`: un repositorio del backend consultaba una
+      # tabla `organizations` que nunca existió en el schema real durante ~2
+      # meses — los tests unitarios mockeaban asyncpg, así que nada ejecutaba
+      # la query contra una base real y el bug quedó invisible. Este gate
+      # escanea backend/**/*.py (regex sobre el texto fuente, stdlib-only) en
+      # busca de referencias FROM/JOIN/UPDATE/INSERT INTO/DELETE FROM/
+      # TRUNCATE y de llamadas RPC `rpc_*`, y las valida contra pg_class/
+      # pg_proc del schema real que acaba de armar `supabase start`.
+      - name: Run backend table/function reference gate
+        run: python3 scripts/ci/check_backend_table_refs.py --dsn postgresql://postgres:postgres@127.0.0.1:54322/postgres

@@ -246,6 +246,76 @@ Deno.serve(async (req: Request) => {
         ctaText: "Ver planes y precios",
         ctaUrl: `${APP_URL}/planes`,
       });
+    } else if (event_type === "subscription_payment_approved") {
+      // mp-real-subscriptions (D2bis/PR4) — cobro mensual recurrente
+      // aprobado. Distinto de "plan_upgraded" (alta única) y de
+      // "payment_receipt" (comprobante con PDF adjunto) — este es el aviso
+      // liviano de "te renovamos" que se dispara TODOS los meses.
+      const planName = (metadata?.plan as string | undefined) ?? "";
+      const planDisplay = planName ? planName.charAt(0).toUpperCase() + planName.slice(1) : "";
+      const amountDisplay = metadata?.amount != null ? `$${Number(metadata.amount).toLocaleString("es-AR")}` : "";
+      const nextExpiry = metadata?.plan_expires_at
+        ? new Date(metadata.plan_expires_at as string).toLocaleDateString("es-AR")
+        : "";
+      htmlContent = layout({
+        title: "✅ Renovamos tu suscripción",
+        intro: `Tu plan ${planDisplay} se renovó correctamente. ¡Gracias por seguir con ALIADATA!`,
+        bodyHtml: `<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:15px;">
+          ${planDisplay ? infoRow("Plan", planDisplay) : ""}
+          ${amountDisplay ? infoRow("Monto cobrado", amountDisplay) : ""}
+          ${nextExpiry ? infoRow("Próximo cobro", nextExpiry) : ""}
+        </table>`,
+        ctaText: "Ir a mi panel",
+        ctaUrl: `${APP_URL}/dashboard`,
+      });
+    } else if (event_type === "subscription_payment_failed") {
+      // mp-real-subscriptions (D7/D10) — cobro rechazado. MercadoPago
+      // reintenta solo (hasta 4 veces en 10 días); acá SOLO avisamos, no
+      // se toca el plan todavía.
+      htmlContent = layout({
+        title: "⚠️ No pudimos procesar tu pago",
+        accent: "#ef4444",
+        intro: "Intentamos cobrar tu suscripción y el pago fue rechazado por MercadoPago.",
+        bodyHtml: `<p style="margin:0 0 16px;">No te preocupes: MercadoPago va a reintentar automáticamente en los próximos días. Mientras tanto, tu acceso sigue activo.</p>
+          <p style="margin:0;color:#64748b;">Si el problema persiste, te recomendamos revisar el medio de pago asociado a tu suscripción directamente en MercadoPago.</p>`,
+        ctaText: "Ver mi facturación",
+        ctaUrl: `${APP_URL}/facturacion`,
+      });
+    } else if (event_type === "subscription_expiring_soon") {
+      // mp-real-subscriptions (4.7/7.6) — último aviso antes de que
+      // plan_expires_at venza (ya pasó la ventana de gracia/reintentos de MP).
+      const expiresAt = metadata?.plan_expires_at
+        ? new Date(metadata.plan_expires_at as string).toLocaleDateString("es-AR")
+        : "";
+      htmlContent = layout({
+        title: "⏰ Tu suscripción está por vencer",
+        accent: "#f59e0b",
+        intro: expiresAt
+          ? `Tu plan pago vence el <strong>${expiresAt}</strong> y todavía no pudimos confirmar el cobro.`
+          : "Tu plan pago está por vencer y todavía no pudimos confirmar el cobro.",
+        bodyHtml: `<p style="margin:0;">Si tu medio de pago sigue vigente, no necesitás hacer nada — MercadoPago va a seguir intentando. Si querés revisar o actualizar tu método de pago, podés hacerlo desde MercadoPago.</p>`,
+        ctaText: "Ver mi facturación",
+        ctaUrl: `${APP_URL}/facturacion`,
+      });
+    } else if (event_type === "subscription_cancelled") {
+      // mp-real-subscriptions (task 7.2) — baja voluntaria o reportada por
+      // MercadoPago (impago tras 3 rechazos). Mismo aviso para ambos
+      // orígenes — lo que le importa al usuario es el resultado, no la causa.
+      const expiresAt = metadata?.plan_expires_at
+        ? new Date(metadata.plan_expires_at as string).toLocaleDateString("es-AR")
+        : "";
+      const isUserRequested = (metadata?.reason as string | undefined) === "user_requested";
+      htmlContent = layout({
+        title: "Tu suscripción fue cancelada",
+        intro: isUserRequested
+          ? "Registramos la cancelación de tu suscripción."
+          : "Tu suscripción fue cancelada por MercadoPago (no se pudo confirmar el pago).",
+        bodyHtml: expiresAt
+          ? `<p style="margin:0;">Tu plan sigue activo hasta el <strong>${expiresAt}</strong>; después vas a usar ALIADATA con el plan Gratis. Si querés, podés volver a suscribirte cuando quieras.</p>`
+          : `<p style="margin:0;">Si querés seguir con las funciones avanzadas, podés suscribirte de nuevo cuando quieras.</p>`,
+        ctaText: "Ver planes y precios",
+        ctaUrl: `${APP_URL}/planes`,
+      });
     }
 
     // ── Adjunto del recibo (si viene en metadata) ─────────────────────────────

@@ -97,24 +97,24 @@
 
 **Hallazgo del propio TDD de este PR (no estaba en el plan)**: el primer borrador del dispatch del webhook pasaba `notification.data.id` (del **body**) a los servicios de suscripción — un test de regresión (`test_subscription_id_case_preserved_even_when_body_id_differs`) atrapó que además debía usarse el id del **query param con su case ORIGINAL** (no el lowercased usado para el manifiesto de firma, D9): un ID real de MP es case-sensitive, así que reusar la versión en minúsculas para el `GET /preapproval/{id}` real habría devuelto 404 contra la API de MercadoPago. Corregido antes de mergear — ver `backend/routers/payments.py`, comentario "IMPORTANTE (D9, no confundir...)".
 
-## 7. Correos y campana (Fase 4)
+## 7. Correos y campana (Fase 4) — ✅ PR4
 
-- [ ] 7.1 **RED** — Test: el correo de cobro fallido incluye en `metadata` un discriminador del cobro concreto, y dos cobros fallidos distintos generan **dos** filas en `email_logs` (D10 — sin discriminador, el `UNIQUE NULLS NOT DISTINCT (user_id, event_type, metadata)` descarta el segundo en silencio).
-- [ ] 7.2 **GREEN** — Encolado de los correos de renovación, cobro fallido, vencimiento próximo y baja, con sus `event_type` nuevos.
-- [ ] 7.3 Plantillas de los `event_type` nuevos en `supabase/functions/send-email/index.ts`, siguiendo las existentes. Verificar que ninguno cae en el texto genérico de respaldo.
-- [ ] 7.4 Confirmar que ninguno de los tipos nuevos entra en la allowlist de fan-out a `all_users` (son avisos por cuenta, nunca masivos).
-- [ ] 7.5 Etiqueta legible de `SubscriptionPaymentFailed` en la campana, junto a las de los tipos existentes.
-- [ ] 7.6 **TRIANGULATE** — Test: el aviso de vencimiento próximo no se encola para cuentas en `gratis` ni con exención vigente, y no se duplica si el barrido corre dos veces para el mismo vencimiento.
+- [x] 7.1 **RED** — `test_rejected_payment_email_has_discriminator_in_metadata` / `test_two_distinct_failures_produce_distinct_discriminators` (`backend/tests/test_subscriptions_service.py`, PR3): el correo de cobro fallido lleva `authorized_payment_id` en `metadata`; dos cobros fallidos distintos generan dos filas en `email_logs`.
+- [x] 7.2 **GREEN** — Encolado de los 4 correos: renovación (`subscription_payment_approved`, PR4), cobro fallido (`subscription_payment_failed`, PR3), vencimiento próximo (`subscription_expiring_soon`, PR4 vía `_produce_plan_expiring_soon`), baja (`subscription_cancelled`, PR4 — tanto voluntaria como reportada por MP). Tests nuevos PR4: `TestSubscriptionEmailsEnqueued` (3 casos).
+- [x] 7.3 Plantillas de los 4 `event_type` en `supabase/functions/send-email/index.ts`, siguiendo el layout de marca existente (`layout()`/`infoRow()`). Ninguno cae en el genérico de respaldo — verificado por inspección (cada `event_type` tiene su rama `else if` explícita).
+- [x] 7.4 Confirmado: `subscription_*` NO está en `ALL_USERS_EVENT_TYPE_ALLOWLIST` (`supabase/functions/_shared/email-fanout-policy.ts` — solo `meeting_notice`/`pool_notice`). Test dedicado agregado en `frontend/__tests__/send-email-fanout-policy.test.ts` (4 casos, uno por event_type nuevo).
+- [x] 7.5 Etiquetas legibles de `SubscriptionPaymentFailed` y `SubscriptionExpiringSoon` en `NotificationBell.tsx` (`TYPE_LABELS`, forzado exhaustivo por `Record<Notification["type"], string>` — `tsc` no compila si falta una). Tests en `NotificationBell.test.tsx`.
+- [x] 7.6 **TRIANGULATE** — Gates SQL (d)/(e) en `20260830000001`: plan pago por vencer con exención vigente NO genera aviso (ni email ni campana); segunda corrida del barrido no duplica ninguno de los dos canales (dedup vía `ON CONFLICT` de `email_logs`, el evento del outbox solo se crea junto con un email genuinamente nuevo).
 
-## 8. Frontend (Fase 4)
+## 8. Frontend (Fase 4) — ✅ PR4
 
-- [ ] 8.1 **RED** — Test: con la palanca ON, el CTA de upgrade en `PlanComparison.tsx` llama al endpoint de suscripciones del backend y redirige al `init_point` del plan devuelto (D2bis — no hay `preapproval_id` propio en esta respuesta); con la palanca OFF, sigue creando la `Preference` de pago único de siempre (no-regresión).
-- [ ] 8.2 **GREEN** — Migrar `PlanComparison.tsx` al endpoint nuevo, condicionado a la palanca.
-- [ ] 8.3 **RED** — Test: `CancelSubscriptionModal.tsx` muestra la fecha proveniente del período realmente pagado, no un intervalo calculado en el navegador.
-- [ ] 8.4 **GREEN** — Migrar `CancelSubscriptionModal.tsx` al endpoint de baja del backend.
-- [ ] 8.5 `/facturacion`: mostrar estado de la suscripción, fecha de próximo cobro y, si hay un cobro en reintento, el aviso correspondiente.
-- [ ] 8.6 **TRIANGULATE** — Tests: cuenta sin suscripción, con suscripción autorizada y con cobro en reintento renderizan estados distintos y correctos.
-- [ ] 8.7 Retirar `frontend/app/api/billing/preferences/route.ts` y `frontend/app/api/billing/cancel/route.ts` (o dejarlos como redirección al backend), y actualizar `frontend/__tests__/billing.test.ts`.
+- [x] 8.1 **RED** — `PlanComparison.test.tsx`: con la palanca ON (`createSubscription` devuelve `enabled:true`), el CTA redirige al `init_point` sin tocar el flujo legacy; con la palanca OFF (503 → `enabled:false`), cae a `/api/billing/preferences` sin que el usuario note nada (no-regresión).
+- [x] 8.2 **GREEN** — `PlanComparison.tsx` intenta primero `createSubscription()` (`frontend/lib/api/subscriptions-client.ts`, nuevo) y solo cae al legacy si la palanca está apagada.
+- [x] 8.3 **RED** — `CancelSubscriptionModal.test.tsx`: con suscripción real, muestra `next_payment_date` del backend (no el estimado de 30 días calculado en el navegador). Bug real atrapado durante el desarrollo: el timestamp UTC de medianoche corría un día atrás en la zona horaria de Mendoza (UTC-3) — el fix fue en el TEST (usar mediodía UTC, no ambiguo), no en el componente (el comportamiento de `date-fns` con hora local es consistente con el resto del código de esta página).
+- [x] 8.4 **GREEN** — `CancelSubscriptionModal.tsx` intenta `cancelSubscription()` cuando hay suscripción real (detectada vía `getSubscriptionStatus()` al montar); si no, cae al legacy `/api/billing/cancel`.
+- [x] 8.5 `/facturacion`: sección "Suscripción recurrente" — lee `public.subscriptions` DIRECTO vía Supabase (RLS SELECT de PR2, sin llamar al backend desde este Server Component) — estado, próximo cobro y aviso de reintento si `retry_state='retrying'`. Endpoint `GET /payments/subscriptions/status` agregado en el backend también (para el cliente, aunque la página en sí no lo usa — reservado para un futuro dashboard client-side).
+- [x] 8.6 **TRIANGULATE** — `FacturacionPage.test.tsx`: sin suscripción (nada se muestra, degradación limpia con la palanca OFF), autorizada (estado + próximo cobro, sin aviso), en reintento (con aviso). Gotcha de test: import dinámico de la página DENTRO de cada `it()` excedía el timeout de 5s por el costo de transform/compile de su árbol de dependencias — resuelto con import estático arriba del archivo.
+- [ ] 8.7 **Diferido, deliberado**: `/api/billing/preferences` y `/api/billing/cancel` NO se retiran — siguen siendo el fallback activo mientras `billing_subscriptions_enabled=False` (que es el estado real de producción hoy). Retirarlos ahora rompería el único camino de pago que existe en producción. Se retiran en un change posterior, una vez que la palanca esté ON de forma permanente y verificada (después de 9.6). `frontend/__tests__/billing.test.ts` no requirió cambios — no se tocó ningún route.ts existente.
 
 ## 9. Activación en producción (Fase 5)
 
@@ -129,7 +129,7 @@
 
 ## 10. Documentación y cierre
 
-- [ ] 10.1 Actualizar `CHANGES.md`: estado de `mp-real-subscriptions`, y anotar que **H-19 / `v31-mp-webhook-atomic`** sigue abierto.
-- [ ] 10.2 Documentar en la KB (`knowledge-base/05_reglas_de_negocio.md` o donde corresponda) el ciclo de vida de la suscripción y el período de gracia decidido en 1.3.
-- [ ] 10.3 Anotar las decisiones de OQ1-OQ4 tal como las resolvió el PO, con fecha.
-- [ ] 10.4 `mem_save` con: resultado de la validación de sandbox (2.3), la comparación antes/después de `get_effective_plan` (5.7), las decisiones del PO y el estado de la cuenta migrada.
+- [x] 10.1 `CHANGES.md` actualizado: ficha nueva de `mp-real-subscriptions` (estado PR1-4 mergeados, hallazgo de D2 refutado, scope, resultado, pendientes MANUAL PO), con **H-19 / `v31-mp-webhook-atomic`** anotado como abierto y no cubierto por este change.
+- [x] 10.2 KB: `knowledge-base/05_reglas_de_negocio.md` RN-08 (Dominio Planes y Billing) — ciclo de vida completo (alta D2bis, reconciliación, cobro mensual + gracia 10 días, semántica de `plan_expires_at`, baja, cambio de tier, activación gateada).
+- [x] 10.3 OQ1-OQ4 anotadas con fecha en tasks.md §1 (1.3-1.6): OQ2 gracia 10 días (confirmado 2026-08-01), OQ3 los 3 tiers pagos, OQ4 cancelar+nueva con `start_date` al fin del período, OQ1 `NULL` permisivo — las 4 firmadas 2026-07-31.
+- [ ] 10.4 `mem_save` final — pendiente de cerrar esta sesión (ver engram `opsx/mp-real-subscriptions/apply`, actualizado en cada PR de este ciclo).

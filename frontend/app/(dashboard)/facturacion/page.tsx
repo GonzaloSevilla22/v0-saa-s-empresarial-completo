@@ -47,6 +47,26 @@ interface BillingEvent {
   created_at: string
 }
 
+// mp-real-subscriptions (D2bis, task 8.5): estado de la suscripción real
+// (public.subscriptions). Etiquetas propias — es un dominio de estado
+// DISTINTO de accounts.billing_status (STATUS_LABELS de arriba).
+const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  pending:    "Esperando autorización",
+  authorized: "Autorizada",
+  paused:     "Pausada",
+  cancelled:  "Cancelada",
+  ambiguous:  "En verificación",
+}
+
+interface SubscriptionRow {
+  plan: Plan
+  status: string
+  next_payment_date: string | null
+  retry_state: string
+  amount: number | null
+  currency: string
+}
+
 export default async function FacturacionPage() {
   const supabase = createClient()
 
@@ -107,6 +127,26 @@ export default async function FacturacionPage() {
     created_at: e.created_at as string,
   }))
 
+  // mp-real-subscriptions (D2bis, task 8.5): suscripción real viva, si
+  // existe — se lee directo de `public.subscriptions` (RLS SELECT por
+  // membresía de cuenta, PR2) en vez de llamar al backend, así esta
+  // Server Component no necesita reenviar un JWT aparte. Con la palanca
+  // `billing_subscriptions_enabled` apagada (default hoy en producción)
+  // nunca hay filas todavía, así que esto degrada limpio a "no mostrar
+  // nada" sin ninguna lógica de flag adicional acá.
+  const accountId = memberRow?.account_id as string | undefined
+  const { data: subscriptionRow } = accountId
+    ? await supabase
+        .from("subscriptions")
+        .select("plan, status, next_payment_date, retry_state, amount, currency")
+        .eq("account_id", accountId)
+        .in("status", ["pending", "authorized"])
+        .maybeSingle()
+    : { data: null }
+
+  const subscription = subscriptionRow as SubscriptionRow | null
+  const subscriptionInRetry = subscription?.retry_state === "retrying"
+
   const isPaid = billingPlan !== "gratis"
   const isCancelling = billingStatus === "cancelling"
   const canCancel = isPaid && !isCancelling && billingStatus === "active"
@@ -155,6 +195,34 @@ export default async function FacturacionPage() {
             </span>
             .
           </p>
+        )}
+
+        {/* mp-real-subscriptions (D2bis, task 8.5): estado de la suscripción
+            real — solo aparece si existe una fila viva en subscriptions
+            (i.e. la palanca estuvo ON en algún momento para esta cuenta). */}
+        {subscription && (
+          <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-foreground">Suscripción recurrente</span>
+              <Badge variant="outline" className="text-xs px-2 py-0">
+                {SUBSCRIPTION_STATUS_LABELS[subscription.status] ?? subscription.status}
+              </Badge>
+            </div>
+            {subscription.next_payment_date && (
+              <p className="text-sm text-muted-foreground">
+                Próximo cobro:{" "}
+                <span className="font-medium text-foreground">
+                  {format(new Date(subscription.next_payment_date), "dd 'de' MMMM 'de' yyyy", { locale: es })}
+                </span>
+              </p>
+            )}
+            {subscriptionInRetry && (
+              <p className="text-sm text-warning-foreground bg-warning/15 border border-warning/30 rounded-md px-3 py-2 mt-2">
+                No pudimos procesar tu último cobro — MercadoPago está reintentando automáticamente.
+                Tu acceso sigue activo mientras tanto.
+              </p>
+            )}
+          </div>
         )}
 
         {/* Actions */}

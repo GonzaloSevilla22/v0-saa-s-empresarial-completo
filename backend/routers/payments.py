@@ -23,6 +23,7 @@ from backend.schemas.payments import (
     SubscriptionCancelOut,
     SubscriptionCreateIn,
     SubscriptionCreateOut,
+    SubscriptionOut,
     WebhookResponse,
 )
 from backend.services.payments import process_payment, verify_mp_signature
@@ -178,6 +179,24 @@ async def create_subscription(
     preapproval — MercadoPago lo crea cuando el pagador completa el
     checkout; la reconciliación pasa por el webhook."""
     return await create_subscription_intent(str(account_id), auth["user_id"], body.plan, repo)
+
+
+@router.get(
+    "/subscriptions/status",
+    response_model=SubscriptionOut,
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def get_subscription_status(
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+) -> dict:
+    """Estado de la suscripción viva de la cuenta, para `/facturacion`
+    (task 8.5). 404 si no hay ninguna — el frontend lo trata como "sin
+    suscripción", no como error."""
+    row = await repo.find_live_subscription(str(account_id))
+    if row is None:
+        raise HTTPException(status_code=404, detail="No hay una suscripción viva para esta cuenta")
+    return dict(row)
 
 
 @router.delete(

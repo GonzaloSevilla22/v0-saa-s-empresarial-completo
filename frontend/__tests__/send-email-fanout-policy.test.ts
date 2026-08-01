@@ -45,3 +45,21 @@ describe("isAllUsersFanoutAllowed (task 6.2 — triangulation: everything else i
     expect(isAllUsersFanoutAllowed("Meeting_Notice")).toBe(false)
   })
 })
+
+describe("isAllUsersFanoutAllowed (mp-real-subscriptions PR4, task 7.4 — subscription event types are per-account, never mass fan-out)", () => {
+  it("rejects 'subscription_payment_approved'", () => {
+    expect(isAllUsersFanoutAllowed("subscription_payment_approved")).toBe(false)
+  })
+
+  it("rejects 'subscription_payment_failed'", () => {
+    expect(isAllUsersFanoutAllowed("subscription_payment_failed")).toBe(false)
+  })
+
+  it("rejects 'subscription_expiring_soon'", () => {
+    expect(isAllUsersFanoutAllowed("subscription_expiring_soon")).toBe(false)
+  })
+
+  it("rejects 'subscription_cancelled'", () => {
+    expect(isAllUsersFanoutAllowed("subscription_cancelled")).toBe(false)
+  })
+})

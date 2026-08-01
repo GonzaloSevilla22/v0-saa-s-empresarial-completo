@@ -165,6 +165,24 @@ async def cancel_subscription(
         plan_expires_at,
     )
 
+    # task 7.2: correo de baja, event_type nuevo. Discriminador: preapproval_id
+    # (único por suscripción — una cuenta no cancela dos veces LA MISMA).
+    await conn.execute(
+        """
+        INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+        SELECT a.owner_user_id, 'subscription_cancelled', u.email,
+               'Tu suscripción fue cancelada — ALIADATA',
+               jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3, 'reason', 'user_requested')
+        FROM public.accounts a
+        JOIN auth.users u ON u.id = a.owner_user_id
+        WHERE a.id = $1
+        ON CONFLICT DO NOTHING
+        """,
+        account_id,
+        preapproval_id,
+        plan_expires_at,
+    )
+
     return SubscriptionCancelOut(ok=True, plan_expires_at=plan_expires_at)
 
 
@@ -292,9 +310,11 @@ async def process_subscription_preapproval_notification(
         # D8: reutiliza process_cancellations() — la cuenta entra al mismo
         # barrido que ya está en producción. plan_expires_at real: si había
         # next_payment_date usarlo, si no (cancelación sin cobro previo)
-        # degradar ya.
+        # degradar ya. El guard billing_status <> 'cancelling' evita
+        # reprocesar (y reenviar el correo) si la notificación se redelivery
+        # con una idempotency key distinta por alguna razón.
         plan_expires_at = existing["next_payment_date"] or datetime.datetime.now(datetime.timezone.utc)
-        await conn.execute(
+        status_change = await conn.execute(
             """
             UPDATE public.accounts
             SET billing_status = 'cancelling', plan_expires_at = $2, updated_at = now()
@@ -303,17 +323,38 @@ async def process_subscription_preapproval_notification(
             existing["account_id"],
             plan_expires_at,
         )
-        await conn.execute(
-            """
-            INSERT INTO public.billing_events (user_id, event_type, from_plan, to_plan, reason, metadata)
-            SELECT owner_user_id, 'subscription_cancelled', billing_plan, billing_plan,
-                   'mp-real-subscriptions: cancelación reportada por MercadoPago (baja o impago)',
-                   jsonb_build_object('preapproval_id', $2::text)
-            FROM public.accounts WHERE id = $1
-            """,
-            existing["account_id"],
-            preapproval_id,
-        )
+        if int(status_change.rsplit(" ", 1)[-1]) > 0:
+            await conn.execute(
+                """
+                INSERT INTO public.billing_events (user_id, event_type, from_plan, to_plan, reason, metadata)
+                SELECT owner_user_id, 'subscription_cancelled', billing_plan, billing_plan,
+                       'mp-real-subscriptions: cancelación reportada por MercadoPago (baja o impago)',
+                       jsonb_build_object('preapproval_id', $2::text)
+                FROM public.accounts WHERE id = $1
+                """,
+                existing["account_id"],
+                preapproval_id,
+            )
+            # task 7.2: correo de baja — también para la cancelación
+            # reportada por MP (impago tras 3 rechazos, o baja hecha desde
+            # el propio panel de MP). Mismo event_type que la baja
+            # voluntaria (cancel_subscription); el usuario recibe el mismo
+            # aviso sin importar el origen.
+            await conn.execute(
+                """
+                INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+                SELECT a.owner_user_id, 'subscription_cancelled', u.email,
+                       'Tu suscripción fue cancelada — ALIADATA',
+                       jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3, 'reason', 'mercadopago')
+                FROM public.accounts a
+                JOIN auth.users u ON u.id = a.owner_user_id
+                WHERE a.id = $1
+                ON CONFLICT DO NOTHING
+                """,
+                existing["account_id"],
+                preapproval_id,
+                plan_expires_at,
+            )
 
     return {"ok": True}
 
@@ -403,6 +444,30 @@ async def process_subscription_authorized_payment_notification(
                 authorized_payment_id,
                 str(payment.get("id")) if payment.get("id") else None,
                 data.get("transaction_amount"),
+            )
+            # task 7.2: correo de renovación. Discriminador: authorized_payment_id
+            # (único por cuota — cada cobro mensual es un authorized_payment
+            # distinto, así que nunca colisiona con el mes anterior).
+            await conn.execute(
+                """
+                INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+                SELECT a.owner_user_id, 'subscription_payment_approved', u.email,
+                       'Renovamos tu suscripción — ALIADATA',
+                       jsonb_build_object(
+                           'preapproval_id', $2::text, 'authorized_payment_id', $3::text,
+                           'plan', $4::text, 'amount', $5, 'plan_expires_at', $6
+                       )
+                FROM public.accounts a
+                JOIN auth.users u ON u.id = a.owner_user_id
+                WHERE a.id = $1
+                ON CONFLICT DO NOTHING
+                """,
+                subscription["account_id"],
+                preapproval_id,
+                authorized_payment_id,
+                subscription["plan"],
+                data.get("transaction_amount"),
+                plan_expires_at,
             )
         return {"ok": True, "credited": True}
 

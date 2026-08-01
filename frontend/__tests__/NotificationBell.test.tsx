@@ -64,3 +64,51 @@ describe("NotificationBell — PlanLimitExceeded label (task 7.4/7.5)", () => {
     expect(screen.getByText("1")).toBeInTheDocument()
   })
 })
+
+// ── mp-real-subscriptions (D11, task 7.5) — labels de dunning de suscripción ──
+
+const SUBSCRIPTION_PAYMENT_FAILED_NOTIFICATION: Notification = {
+  id: "notif-2",
+  accountId: "acc-1",
+  branchId: null,
+  type: "SubscriptionPaymentFailed",
+  severity: "warning",
+  payload: { preapproval_id: "mp-preapproval-1", plan: "pro" },
+  read: false,
+  createdAt: "2026-08-01T12:00:00Z",
+  readAt: null,
+} as unknown as Notification
+
+const SUBSCRIPTION_EXPIRING_SOON_NOTIFICATION: Notification = {
+  ...SUBSCRIPTION_PAYMENT_FAILED_NOTIFICATION,
+  id: "notif-3",
+  type: "SubscriptionExpiringSoon",
+} as unknown as Notification
+
+describe("NotificationBell — mp-real-subscriptions dunning labels (task 7.5)", () => {
+  it("renders a human-readable label for SubscriptionPaymentFailed", async () => {
+    vi.resetModules()
+    mockUseNotifications([SUBSCRIPTION_PAYMENT_FAILED_NOTIFICATION])
+    const { NotificationBell } = await import("@/components/dashboard/NotificationBell")
+
+    const user = userEvent.setup()
+    render(<NotificationBell />)
+    await user.click(screen.getByRole("button"))
+
+    expect(await screen.findByText("Cobro de suscripción rechazado")).toBeInTheDocument()
+    expect(screen.queryByText("SubscriptionPaymentFailed")).not.toBeInTheDocument()
+  })
+
+  it("renders a human-readable label for SubscriptionExpiringSoon", async () => {
+    vi.resetModules()
+    mockUseNotifications([SUBSCRIPTION_EXPIRING_SOON_NOTIFICATION])
+    const { NotificationBell } = await import("@/components/dashboard/NotificationBell")
+
+    const user = userEvent.setup()
+    render(<NotificationBell />)
+    await user.click(screen.getByRole("button"))
+
+    expect(await screen.findByText("Suscripción por vencer")).toBeInTheDocument()
+    expect(screen.queryByText("SubscriptionExpiringSoon")).not.toBeInTheDocument()
+  })
+})

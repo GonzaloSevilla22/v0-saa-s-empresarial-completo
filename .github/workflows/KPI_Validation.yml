@@ -33,3 +33,9 @@ jobs:
 
       - name: Run edge case KPI tests
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_kpis_edge_cases.sql
+
+      # Anti-regresión advisors 0028/0029: DROP+CREATE resetea ACLs (EXECUTE a
+      # PUBLIC). Falla si un trigger SECURITY DEFINER queda expuesto o si una
+      # función SECURITY DEFINER queda anon-executable fuera de la allowlist.
+      - name: Run function ACL anti-regression gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_function_acl_gate.sql

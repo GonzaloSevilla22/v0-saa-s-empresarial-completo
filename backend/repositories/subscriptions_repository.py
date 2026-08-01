@@ -69,7 +69,7 @@ class SubscriptionsRepository(BaseRepository):
     # NOTA (task 6.14, superseded en PR4): el barrido de intenciones
     # `pending` vencidas → `expired` se implementó como función SQL
     # `public._expire_stale_subscription_intents()` programada por pg_cron
-    # (migración `20260830000001`) — mismo patrón que `expire_trials()` /
+    # (migración `20260830000002`) — mismo patrón que `expire_trials()` /
     # `_sweep_plan_limit_exceeded()`, en vez de un método de repositorio sin
     # llamador. Ver esa migración para la lógica real.
 

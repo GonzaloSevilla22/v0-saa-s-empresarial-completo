@@ -104,7 +104,7 @@
 - [x] 7.3 Plantillas de los 4 `event_type` en `supabase/functions/send-email/index.ts`, siguiendo el layout de marca existente (`layout()`/`infoRow()`). Ninguno cae en el genérico de respaldo — verificado por inspección (cada `event_type` tiene su rama `else if` explícita).
 - [x] 7.4 Confirmado: `subscription_*` NO está en `ALL_USERS_EVENT_TYPE_ALLOWLIST` (`supabase/functions/_shared/email-fanout-policy.ts` — solo `meeting_notice`/`pool_notice`). Test dedicado agregado en `frontend/__tests__/send-email-fanout-policy.test.ts` (4 casos, uno por event_type nuevo).
 - [x] 7.5 Etiquetas legibles de `SubscriptionPaymentFailed` y `SubscriptionExpiringSoon` en `NotificationBell.tsx` (`TYPE_LABELS`, forzado exhaustivo por `Record<Notification["type"], string>` — `tsc` no compila si falta una). Tests en `NotificationBell.test.tsx`.
-- [x] 7.6 **TRIANGULATE** — Gates SQL (d)/(e) en `20260830000001`: plan pago por vencer con exención vigente NO genera aviso (ni email ni campana); segunda corrida del barrido no duplica ninguno de los dos canales (dedup vía `ON CONFLICT` de `email_logs`, el evento del outbox solo se crea junto con un email genuinamente nuevo).
+- [x] 7.6 **TRIANGULATE** — Gates SQL (d)/(e) en `20260830000002` (renombrada — `...001` la tomó `revoke_auth_internal_only_fns.sql`, PR #346, mergeado en paralelo): plan pago por vencer con exención vigente NO genera aviso (ni email ni campana); segunda corrida del barrido no duplica ninguno de los dos canales (dedup vía `ON CONFLICT` de `email_logs`, el evento del outbox solo se crea junto con un email genuinamente nuevo).
 
 ## 8. Frontend (Fase 4) — ✅ PR4
 

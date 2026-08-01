@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-MIGRATION_PATH = Path("supabase/migrations/20260830000001_mp_real_subscriptions_producers.sql")
+MIGRATION_PATH = Path("supabase/migrations/20260830000002_mp_real_subscriptions_producers.sql")
 
 
 class TestMigrationContent:

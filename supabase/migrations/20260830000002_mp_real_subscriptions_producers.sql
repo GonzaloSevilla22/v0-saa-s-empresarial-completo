@@ -1,5 +1,9 @@
 -- =============================================================================
--- MIGRATION: 20260830000001_mp_real_subscriptions_producers.sql
+-- MIGRATION: 20260830000002_mp_real_subscriptions_producers.sql
+-- NOTA (renombrada tras el propose): 20260830000001 quedó tomada por
+-- `revoke_auth_internal_only_fns.sql` (PR #346, mergeado mientras este PR4
+-- estaba en curso — colisión de versión detectada por el gate schema_migrations
+-- en CI, no una falla de las gates propias de esta migración).
 -- CHANGE:    mp-real-subscriptions — PR4 (Fase 4, tasks.md §4.7/§6.14/§7)
 -- Design ref: openspec/changes/mp-real-subscriptions/design.md
 --

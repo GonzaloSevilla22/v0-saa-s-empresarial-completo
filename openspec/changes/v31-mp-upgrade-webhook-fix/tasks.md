@@ -1,0 +1,74 @@
+# Tasks — v31-mp-upgrade-webhook-fix
+
+> **Governance CRÍTICO (dinero real).** El sign-off del PO del 2026-07-31 cubre el **rumbo**
+> (apuntar al webhook backend, retirar el legacy, correr en convivencia). NO cubre: el
+> pago E2E con dinero real, la config del panel de MercadoPago, ni el retiro definitivo del
+> reenviador. Esas tres están marcadas **[MANUAL PO]** y el agente **no las ejecuta**.
+>
+> **TDD obligatorio** (Strict TDD Mode): cada grupo de implementación arranca con Safety
+> Net (baseline de tests existentes), sigue RED (test que falla) → GREEN (mínimo para
+> pasar) → TRIANGULATE (2º caso con inputs distintos) → REFACTOR. No se marca `[x]` sin
+> ejecución verde real.
+>
+> **Nunca**: imprimir, loguear ni comparar el valor de `MERCADOPAGO_WEBHOOK_SECRET`.
+> **Nunca**: crear, disparar ni simular un pago real. **Nunca**: `service_role` en backend
+> más allá de la conexión de servicio que el webhook ya usa.
+
+## 1. Preparación y verificación de entorno
+
+- [ ] 1.1 Correr la suite backend (`pytest backend/tests/test_payments.py -v`) y la de frontend (`pnpm vitest run frontend/__tests__/billing.test.ts`) y registrar el **baseline** de tests en verde. Si alguno ya falla, reportarlo como fallo preexistente y NO arreglarlo acá.
+- [ ] 1.2 Verificar que `NEXT_PUBLIC_BACKEND_URL` está poblada en Vercel producción y que la URL responde en `/health`. Registrar la URL (no es secreta).
+- [ ] 1.3 **[MANUAL PO]** Confirmar en el dashboard de Render que `MERCADOPAGO_WEBHOOK_SECRET` y `MERCADOPAGO_ACCESS_TOKEN` están seteadas en el servicio del backend. Verificar **presencia**, nunca el valor.
+- [ ] 1.4 **[MANUAL PO]** Confirmar que el secreto de Render es **el mismo** que figura en el panel de MercadoPago (*Tus integraciones → Webhooks → Configurar notificación*). Si no coinciden, regenerar y actualizar ambos lados antes de seguir — un secreto desalineado reproduce exactamente el bug que este change cierra.
+- [ ] 1.5 **[MANUAL PO — resuelve OQ2]** Revisar si en el panel de MercadoPago hay una URL de webhook configurada **a nivel de aplicación** (además de la `notification_url` por preferencia). Si existe y apunta al frontend, re-apuntarla al backend. Documentar el resultado en este archivo.
+- [ ] 1.6 **[MANUAL PO]** Confirmar si existen credenciales de **test/sandbox** de MercadoPago (`TEST-...`). Si las hay, la verificación E2E de la tarea 5.1 se hace primero en sandbox. Si no, el E2E queda restringido a un único pago real del PO.
+
+## 2. Reenviador legacy (Fase 1 — cubre las preferencias ya emitidas)
+
+- [ ] 2.1 **RED** — Test en `frontend/__tests__/billing.test.ts`: dado un POST a la ruta legacy con un cuerpo y los headers `x-signature`/`x-request-id`, la ruta hace fetch a `${NEXT_PUBLIC_BACKEND_URL}/payments/webhook` propagando **los mismos bytes** del cuerpo y **los dos headers**. Debe fallar contra la implementación actual.
+- [ ] 2.2 **GREEN** — Reescribir `frontend/app/api/billing/webhook/route.ts` como reenviador sin estado: leer el cuerpo crudo (`req.text()`), reenviarlo con `x-signature` y `x-request-id`, devolver el status del backend. Eliminar el import de `@/lib/supabase/server`, el de `@/lib/mercadopago`, `verifyMpSignature` y toda la lógica de plan/`email_logs` (D1, D2).
+- [ ] 2.3 **TRIANGULATE** — Segundo test con cuerpo distinto que verifique que **no hay re-serialización**: un payload con claves en orden no alfabético y/o escapes unicode debe llegar al backend byte-a-byte idéntico (D2).
+- [ ] 2.4 **TRIANGULATE** — Test: la ruta no toca Supabase bajo ninguna entrada (el módulo del cliente Supabase no se importa / no se invoca).
+- [ ] 2.5 **TRIANGULATE** — Test: si el backend devuelve un status de error, el reenviador lo **propaga** en vez de enmascararlo con 200 (para que MercadoPago reintente).
+- [ ] 2.6 **TRIANGULATE** — Test: sin `NEXT_PUBLIC_BACKEND_URL`, el reenviador responde con error (fail-closed) y no intenta un fetch a una URL malformada.
+- [ ] 2.7 Agregar la traza de reenvío exigida por el spec: identificador del pago + status devuelto por el backend, sin datos sensibles ni el secreto.
+- [ ] 2.8 **REFACTOR** — Limpiar el archivo (queda muy chico), verificar que no hay imports muertos y que la suite frontend sigue verde.
+
+## 3. Ruta directa en la preferencia (Fase 2 — elimina el salto extra para lo nuevo)
+
+- [ ] 3.1 **RED** — Test en `frontend/__tests__/billing.test.ts`: el cuerpo enviado a MercadoPago al crear una preferencia lleva `notification_url` = `${NEXT_PUBLIC_BACKEND_URL}/payments/webhook`. Debe fallar contra la implementación actual (que emite `${appUrl}/api/billing/webhook`).
+- [ ] 3.2 **GREEN** — Cambiar `notification_url` en `frontend/app/api/billing/preferences/route.ts` (D3).
+- [ ] 3.3 **TRIANGULATE** — Test del guard fail-closed: sin `NEXT_PUBLIC_BACKEND_URL`, el POST a `/api/billing/preferences` devuelve 500 y **no** se llama a la API de MercadoPago (D3, riesgo de preferencia que notifica al vacío).
+- [ ] 3.4 **TRIANGULATE** — Test: `back_urls` (success/failure/pending) siguen apuntando al frontend (`NEXT_PUBLIC_APP_URL`) — son navegación del usuario, no notificaciones servidor-a-servidor. Este test protege contra confundir las dos cosas.
+- [ ] 3.5 **REFACTOR** — Extraer la construcción de la URL del webhook a un helper único compartido con el reenviador, para que no puedan divergir.
+
+## 4. Backend: equivalencia de origen y diagnóstico del secreto
+
+- [ ] 4.1 **RED** — Test en `backend/tests/test_payments.py`: una notificación **reenviada** (mismos bytes, mismos headers de firma) produce exactamente el mismo estado de base de datos que una directa.
+- [ ] 4.2 **RED** — Test: la misma `mercadopago_payment_id` entregada dos veces (una reenviada, una directa) deja **una sola** fila en `billing_events`; la segunda responde `{"ok": true, "idempotent": true}`.
+- [ ] 4.3 **GREEN** — Ajustar `backend/routers/payments.py` lo mínimo para que ambos tests pasen. Se espera que ya pasen sin tocar lógica: si es así, dejar los tests como red de regresión y anotarlo.
+- [ ] 4.4 **RED → GREEN** — Test: con `MERCADOPAGO_WEBHOOK_SECRET` vacía, el endpoint rechaza sin tocar la base y loguea la causa como **falta de configuración**, distinguible de "firma inválida". Implementar esa rama de log en `backend/services/payments.py` (spec `payment-webhook`).
+- [ ] 4.5 **TRIANGULATE** — Test: ningún log de rechazo contiene el secreto configurado ni el valor de la firma recibida.
+- [ ] 4.6 **GREEN** — Agregar la traza de origen (directo vs reenviado) exigida por el spec, sin cambiar el contrato de respuesta.
+- [ ] 4.7 **REFACTOR** — Revisar que `process_payment` no cambió de comportamiento. Correr la suite backend completa y comparar contra el baseline de 1.1.
+
+## 5. Verificación en producción
+
+- [ ] 5.1 **[MANUAL PO — dinero real]** Ejecutar un pago E2E de verificación (sandbox primero si 1.6 lo habilitó). Confirmar sin tocar nada a mano: `accounts.billing_plan` actualizado, fila nueva en `billing_events` con `event_type='plan_upgraded'` y su `mercadopago_payment_id`, fila nueva en `email_logs` con `event_type='plan_upgraded'`, y el email recibido. **El agente no dispara este pago.**
+- [ ] 5.2 Verificar por consulta de solo lectura (MCP Supabase) que el pago de 5.1 dejó **exactamente una** fila en `billing_events` — la prueba de que la idempotencia aguantó las dos vías de entrada.
+- [ ] 5.3 Revisar los logs de Render del pago de 5.1: firma validada, origen trazado, sin secretos en la salida.
+- [ ] 5.4 Registrar en este archivo la fecha del cutover y el conteo inicial de reenvíos, como línea base para la condición (b) del retiro (D5).
+
+## 6. Convivencia y retiro
+
+- [ ] 6.1 **[MANUAL PO — decide OQ1]** Acordar la duración de la ventana de convivencia y si el reenviador se retira o se deja permanente. Opciones en design.md OQ1 (recomendación: 30 días y retirar). Anotar la decisión acá.
+- [ ] 6.2 **[MANUAL PO]** Al cierre de la ventana, verificar la condición (b): cero reenvíos registrados. Si hubo reenvíos, **no retirar** y extender la ventana.
+- [ ] 6.3 **[MANUAL PO — condicionado a 5.1 + 6.2 + 1.5]** Eliminar `frontend/app/api/billing/webhook/route.ts` y sus tests. Solo si las tres condiciones se cumplieron.
+- [ ] 6.4 Señalizar explícitamente al PO, antes del cutover de la Fase 2, la **desviación documentada en D4**: no se corre un shadow-run comparativo clásico porque el webhook legacy no escribe nada en producción y correr el backend en `shadow=true` sostendría el bug. La convivencia se implementa como dos caminos de entrada con un único escritor idempotente. Requiere acuse del PO.
+
+## 7. Documentación y cierre
+
+- [ ] 7.1 Actualizar la ficha de `v31-mp-upgrade-webhook-fix` en `CHANGES.md` (L1360-1364) marcando el estado y el resultado real.
+- [ ] 7.2 Anotar en `CHANGES.md` que **H-19 / `v31-mp-webhook-atomic`** sigue abierto y que este change no lo cubre.
+- [ ] 7.3 Dejar registrado —en el design de `mp-real-subscriptions` o en engram— el hallazgo de **D7**: para las notificaciones de suscripción hay que leer `data.id` del **query param** y bajarlo a **minúsculas** (los IDs de `preapproval` son alfanuméricos), cosa que la verificación de firma actual no hace. Es la trampa que ese change tiene que evitar.
+- [ ] 7.4 `mem_save` con el resultado del cutover: qué acreditó, cuántos reenvíos hubo, qué decidió el PO en OQ1 y OQ2.

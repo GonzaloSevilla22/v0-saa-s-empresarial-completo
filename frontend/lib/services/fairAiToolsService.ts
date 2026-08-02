@@ -57,11 +57,6 @@ export const fairAiToolsService = {
     if (error) throw error
   },
 
-  async incrementClicks(id: string) {
-    const { data } = await supabase.schema("community").from("fair_ai_tools").select("clicks_count").eq("id", id).single()
-    await supabase.schema("community").from("fair_ai_tools").update({ clicks_count: (data?.clicks_count || 0) + 1 }).eq("id", id)
-  },
-
   async getAdminStats() {
     const { data: all } = await supabase.schema("community").from("fair_ai_tools").select("*")
     

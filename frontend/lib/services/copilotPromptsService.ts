@@ -57,11 +57,6 @@ export const copilotPromptsService = {
     if (error) throw error
   },
 
-  async incrementUsage(id: string) {
-    const { data } = await supabase.schema("community").from("copilot_prompts").select("usage_count").eq("id", id).single()
-    await supabase.schema("community").from("copilot_prompts").update({ usage_count: (data?.usage_count || 0) + 1 }).eq("id", id)
-  },
-
   async getAdminStats() {
     const { data: all } = await supabase.schema("community").from("copilot_prompts").select("*")
     

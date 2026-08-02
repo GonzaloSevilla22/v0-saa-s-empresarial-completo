@@ -104,3 +104,17 @@ class AmbiguousSubscriptionOut(BaseModel):
 
 class ResolveAmbiguousSubscriptionIn(BaseModel):
     account_id: uuid.UUID
+
+
+class AccountSearchResultOut(BaseModel):
+    """Resultado de búsqueda de cuentas (mp-real-subscriptions follow-up,
+    task 8.8): selector de cuenta destino en la pantalla admin de la cola de
+    ambiguos. Búsqueda por email/nombre del owner — `public.accounts` no
+    tiene un nombre de negocio propio, así que se resuelve vía
+    `auth.users`/`profiles` del `owner_user_id`."""
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: uuid.UUID
+    owner_email: str
+    owner_name: str | None = None
+    billing_plan: str

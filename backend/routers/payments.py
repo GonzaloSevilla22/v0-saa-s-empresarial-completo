@@ -15,6 +15,7 @@ from backend.core.deps import get_account_id
 from backend.repositories.billing_repository import BillingRepository
 from backend.repositories.subscriptions_repository import SubscriptionsRepository
 from backend.schemas.payments import (
+    AccountSearchResultOut,
     AmbiguousSubscriptionOut,
     MpNotification,
     PaymentReceiptOut,
@@ -242,6 +243,23 @@ async def resolve_ambiguous_subscription_endpoint(
     conn: asyncpg.Connection = Depends(get_service_conn),
 ) -> dict:
     return await resolve_ambiguous_subscription(str(subscription_id), str(body.account_id), repo, conn)
+
+
+@router.get(
+    "/accounts/search",
+    response_model=list[AccountSearchResultOut],
+)
+async def search_accounts(
+    q: str = Query(..., min_length=2, max_length=200),
+    _admin: dict = Depends(require_admin),
+    repo: BillingRepository = Depends(get_billing_repo),
+) -> list:
+    """Búsqueda de cuentas por email/nombre del owner (task 8.8): alimenta
+    el selector de cuenta destino de la pantalla admin de la cola de
+    ambiguos. Solo admin. `min_length=2` evita un ILIKE `%%` sin filtro
+    real sobre toda la tabla de cuentas."""
+    rows = await repo.search_accounts(q)
+    return [dict(r) for r in rows]
 
 
 # ── Recibos de pago (#4 comprobante — vista admin) ────────────────────────────

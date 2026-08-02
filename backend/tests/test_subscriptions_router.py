@@ -322,6 +322,72 @@ class TestAmbiguousQueueEndpoints:
         assert resp.json()["ok"] is True
 
 
+# ── task 8.8 — GET /payments/accounts/search (selector de la cola) ───────
+
+class TestAccountSearchEndpoint:
+    async def test_requires_admin(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="user")
+        token = make_token({"role": "user"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/payments/accounts/search?q=buyer",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 403
+
+    async def test_admin_ok_returns_matches(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(
+            return_value=[
+                {
+                    "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                    "owner_email": "buyer@example.com",
+                    "owner_name": "Buyer Test",
+                    "billing_plan": "pro",
+                }
+            ]
+        )
+        token = make_token({"role": "user"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/payments/accounts/search?q=buyer",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["owner_email"] == "buyer@example.com"
+        assert body[0]["billing_plan"] == "pro"
+
+    async def test_empty_query_returns_422(self, async_client, mock_service_pool):
+        """TRIANGULATE: min_length=2 rechaza un query vacío/muy corto antes
+        de tocar la DB — evita un ILIKE `%%` sin filtro real."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        token = make_token({"role": "user"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/payments/accounts/search?q=a",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 422
+
+    async def test_no_matches_returns_empty_list(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(return_value=[])
+        token = make_token({"role": "user"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/payments/accounts/search?q=nadie-tiene-este-email",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
 # ── task 8.5 — GET /payments/subscriptions/status ────────────────────────
 
 class TestSubscriptionStatusEndpoint:

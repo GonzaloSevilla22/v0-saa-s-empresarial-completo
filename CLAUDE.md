@@ -137,6 +137,11 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 - **La estética se planifica, no se improvisa**: la parte visual usa el design system del proyecto (tokens semánticos, componentes base vía cva) y se verifica en **desktop Y mobile** (responsive) y en **tema claro y oscuro** antes del merge.
 - Excepción: changes puramente internos (infra, CI, migraciones sin efecto visible para nadie) — declarar explícitamente "sin superficie frontend" en el proposal, para que la omisión sea una decisión y no un olvido.
 
+### Reutilización antes que repetición (regla PO 2026-08-02)
+- **ANTES de escribir una función, componente, hook, query o RPC nueva: buscar si ya existe una que lo haga (o casi)** — grep por dominio/nombre en `lib/`, `hooks/`, `components/`, `backend/services/`, `backend/repositories/` y las RPCs de `supabase/migrations/`. Si existe: reutilizarla o extenderla; NUNCA duplicarla. La lógica repetida diverge y produce bugs silenciosos (casos reales: 3 Edge Functions calculando su propio "plan efectivo" contra una tabla muerta en vez de `get_effective_plan`; criticidad de stock rehecha en 5 lugares hasta canonizarla en `lib/product-stock.ts`).
+- **Lo nuevo reusable nace en la capa canónica** (`lib/`, `hooks/`, componentes base, service/repository correspondiente), no embebido en una pantalla o endpoint puntual.
+- Equilibrio: esto NO pide abstraer prematuramente (sigue vigente la Regla de Tres para crear abstracciones nuevas) — pide no REESCRIBIR lo que ya existe.
+
 ### TypeScript / React
 - **NUNCA usar `any`** → usar tipos explícitos o `unknown`. Si un tipo es complejo, definirlo en `lib/types.ts`.
 - **PascalCase en componentes React** → `ProductCard.tsx`, `SalesTable.tsx`. Archivos de componentes también en PascalCase.

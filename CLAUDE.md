@@ -132,6 +132,11 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 
 > Reglas globales ya definidas en `~/.claude/CLAUDE.md` (orquestador OPSX, governance CRITICAL/HIGH/MEDIUM/LOW, TDD, engram, model assignments): el proyecto las hereda. Acá viven solo las reglas **específicas de este proyecto**.
 
+### Changes / Producto — superficie frontend obligatoria (regla PO 2026-08-02)
+- **Todo change que produzca algo que un usuario o el admin deba ver u operar DEBE planificar su superficie frontend en el propose**: qué pantalla/sección lo expone, cómo se llega (ruta + entrada de menú/sidebar) y sus tasks correspondientes en tasks.md. Backend sin puerta de entrada = change incompleto. (Origen: `CostCenterManager` construido y jamás montado en ninguna página; cola de suscripciones ambiguas invisible hasta que el PO preguntó dónde estaba.)
+- **La estética se planifica, no se improvisa**: la parte visual usa el design system del proyecto (tokens semánticos, componentes base vía cva) y se verifica en **desktop Y mobile** (responsive) y en **tema claro y oscuro** antes del merge.
+- Excepción: changes puramente internos (infra, CI, migraciones sin efecto visible para nadie) — declarar explícitamente "sin superficie frontend" en el proposal, para que la omisión sea una decisión y no un olvido.
+
 ### TypeScript / React
 - **NUNCA usar `any`** → usar tipos explícitos o `unknown`. Si un tipo es complejo, definirlo en `lib/types.ts`.
 - **PascalCase en componentes React** → `ProductCard.tsx`, `SalesTable.tsx`. Archivos de componentes también en PascalCase.

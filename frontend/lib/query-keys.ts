@@ -131,4 +131,13 @@ export const queryKeys = {
     all:    () => ["notifications"] as const,
     byAccount: (accountId: string) => ["notifications", "account", accountId] as const,
   },
+  // mp-real-subscriptions follow-up (task 8.8): cola admin de suscripciones
+  // ambiguas + selector de cuenta destino
+  ambiguousSubscriptions: {
+    all: () => ["ambiguousSubscriptions"] as const,
+  },
+  accountSearch: {
+    all:   () => ["accountSearch"] as const,
+    query: (q: string) => ["accountSearch", q] as const,
+  },
 } as const

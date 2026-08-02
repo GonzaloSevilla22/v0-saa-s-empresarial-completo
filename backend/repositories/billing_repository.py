@@ -23,6 +23,25 @@ _RECEIPT_SELECT = """
 """
 
 
+# mp-real-subscriptions follow-up (task 8.8): selector de cuenta destino de
+# la cola de conciliación manual de suscripciones ambiguas. `accounts` no
+# tiene nombre de negocio propio — se busca por el email/nombre del owner
+# (mismo join que _RECEIPT_SELECT). Conexión service (BYPASSRLS): el admin
+# busca entre TODAS las cuentas, no solo la propia.
+_ACCOUNT_SEARCH_SELECT = """
+    SELECT a.id           AS account_id,
+           u.email        AS owner_email,
+           p.name         AS owner_name,
+           a.billing_plan AS billing_plan
+    FROM public.accounts a
+    JOIN auth.users u ON u.id = a.owner_user_id
+    LEFT JOIN profiles p ON p.id = a.owner_user_id
+    WHERE u.email ILIKE $1 OR p.name ILIKE $1 OR p.business_name ILIKE $1
+    ORDER BY u.email
+    LIMIT $2
+"""
+
+
 class BillingRepository(BaseRepository):
     async def list_receipts(
         self, limit: int, offset: int
@@ -42,3 +61,10 @@ class BillingRepository(BaseRepository):
             _RECEIPT_SELECT + " AND be.id = $1::uuid",
             billing_event_id,
         )
+
+    async def search_accounts(self, query: str, limit: int = 20) -> list[asyncpg.Record]:
+        """Busca cuentas por email o nombre del owner (task 8.8). `query`
+        se envuelve en `%...%` para ILIKE — el caller ya valida un largo
+        mínimo (evita escanear con un patrón `%%` demasiado amplio)."""
+        pattern = f"%{query.strip()}%"
+        return await self._conn.fetch(_ACCOUNT_SEARCH_SELECT, pattern, limit)

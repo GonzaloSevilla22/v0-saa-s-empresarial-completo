@@ -11,7 +11,7 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf, Scan, Landmark
+  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -212,6 +212,20 @@ export function AppSidebar() {
                     <Link href="/admin/pagos">
                       <Receipt className="h-4 w-4" />
                       <span>Recibos de Pago</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === "/admin/pagos/ambiguas"}
+                    tooltip="Suscripciones Ambiguas"
+                    className="text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10"
+                  >
+                    <Link href="/admin/pagos/ambiguas">
+                      <ShieldAlert className="h-4 w-4" />
+                      <span>Suscripciones Ambiguas</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

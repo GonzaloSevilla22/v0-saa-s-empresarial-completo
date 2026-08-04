@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { format, startOfMonth, subDays, isAfter, isBefore } from "date-fns"
+import { startOfMonth, subDays } from "date-fns"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { createClient } from "@/lib/supabase/client"
 import {
@@ -10,9 +10,8 @@ import {
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { Crown, MapPin, CalendarIcon } from "lucide-react"
+import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
+import { Crown, MapPin } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,8 +28,7 @@ interface BranchReportRow {
 const fmtARS  = (n: number) =>
   new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n)
 
-const fmtDate = (d: Date) => format(d, "dd/MM/yyyy")
-const toISO   = (d: Date) => format(d, "yyyy-MM-dd")
+const toISO = toISODate
 
 const COLORS = [
   "hsl(var(--primary))",
@@ -60,40 +58,6 @@ function PlanGateFallback() {
         Actualizar a PRO
       </Button>
     </div>
-  )
-}
-
-// ─── Date picker button ───────────────────────────────────────────────────────
-
-function DateButton({
-  date, onSelect, minDate, maxDate,
-}: {
-  date: Date
-  onSelect: (d: Date) => void
-  minDate?: Date
-  maxDate?: Date
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="text-xs">
-          <CalendarIcon className="h-3 w-3 mr-1" />
-          {fmtDate(date)}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={date}
-          onSelect={(d) => d && onSelect(d)}
-          disabled={(d) =>
-            (minDate ? isBefore(d, minDate) : false) ||
-            (maxDate ? isAfter(d, maxDate)  : false)
-          }
-          initialFocus
-        />
-      </PopoverContent>
-    </Popover>
   )
 }
 

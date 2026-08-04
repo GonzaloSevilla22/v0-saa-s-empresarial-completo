@@ -25,6 +25,9 @@ interface PurchaseApiRow {
   total: string | number | null
   operation_id?: string | null
   description?: string | null
+  // cost-center-surface: resueltos en el mismo query del backend (LEFT JOIN)
+  cost_center_id?: string | null
+  cost_center_name?: string | null
 }
 
 interface PurchasesPageResponse {
@@ -52,6 +55,8 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     total:       Number(p.total ?? p.amount),
     description: p.description ?? undefined,
     operationId: p.operation_id ?? undefined,
+    costCenterId:   p.cost_center_id ?? null,
+    costCenterName: p.cost_center_name ?? null,
   }
 }
 
@@ -65,6 +70,8 @@ export function usePurchases() {
   const [pageSize, setPageSizeState] = useState<PageSizeOption>(25)
   const [dateFrom, setDateFromState] = useState("")
   const [dateTo,   setDateToState]   = useState("")
+  // cost-center-surface: filtro por centro de costo de la OPERACIÓN.
+  const [costCenterId, setCostCenterIdState] = useState<string | null>(null)
 
   const setPage = useCallback((p: number) => setPageState(p), [])
   const setPageSize = useCallback((s: PageSizeOption) => {
@@ -73,9 +80,14 @@ export function usePurchases() {
   }, [])
   const setDateFrom = useCallback((v: string) => { setDateFromState(v); setPageState(0) }, [])
   const setDateTo   = useCallback((v: string) => { setDateToState(v);   setPageState(0) }, [])
+  const setCostCenterId = useCallback((v: string | null) => {
+    setCostCenterIdState(v)
+    setPageState(0)
+  }, [])
   const clearFilters = useCallback(() => {
     setDateFromState("")
     setDateToState("")
+    setCostCenterIdState(null)
     setPageState(0)
   }, [])
 
@@ -87,8 +99,9 @@ export function usePurchases() {
     }
     if (dateFrom) p.date_from = dateFrom
     if (dateTo)   p.date_to   = dateTo
+    if (costCenterId) p.cost_center_id = costCenterId
     return p
-  }, [page, pageSize, dateFrom, dateTo])
+  }, [page, pageSize, dateFrom, dateTo, costCenterId])
 
   const query = useQuery({
     queryKey: [...queryKeys.purchases.lists(), queryParams],
@@ -220,6 +233,8 @@ export function usePurchases() {
     setDateFrom,
     dateTo,
     setDateTo,
+    costCenterId,
+    setCostCenterId,
     clearFilters,
     setPage,
     setPageSize,

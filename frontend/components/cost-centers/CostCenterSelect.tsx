@@ -13,13 +13,21 @@ interface CostCenterSelectProps {
   className?: string
   /** Label shown above the select. Pass false to hide (default: shown). */
   showLabel?: boolean
+  /** Text of the label when shown (default: the new-entry wording). */
+  label?: string
+  /**
+   * cost-center-surface: include deactivated centers in the options.
+   *
+   * false (default) for NEW entries — a center that was given up shouldn't be
+   * imputable. true when filtering existing records, where the history of a
+   * deactivated center still has to be reachable.
+   */
+  includeInactive?: boolean
 }
 
 /**
- * Dropdown to optionally assign a cost center to an expense or purchase.
- *
- * Shows only active cost centers (is_active=true) so deactivated centers
- * don't appear in new-entry forms (they still appear in historical records).
+ * Dropdown to pick a cost center — used both to assign one to a new expense or
+ * purchase and to filter the expense/purchase lists.
  *
  * Renders a plain label+select — no plan-gating since the cost center catalog
  * is available on all plans (additive dimension, not a gated module).
@@ -30,15 +38,20 @@ export function CostCenterSelect({
   placeholder = "Sin centro de costo",
   className,
   showLabel = true,
+  label,
+  includeInactive = false,
 }: CostCenterSelectProps) {
-  // active_only=true (default) — only show active centers for new entries
-  const { costCenters, isLoading } = useCostCenters(false)
+  const { costCenters, isLoading } = useCostCenters(includeInactive)
 
   return (
     <div className="flex flex-col gap-2">
       {showLabel && (
         <Label className="text-foreground text-sm">
-          Centro de costo <span className="text-muted-foreground font-normal">(opcional)</span>
+          {label ?? (
+            <>
+              Centro de costo <span className="text-muted-foreground font-normal">(opcional)</span>
+            </>
+          )}
         </Label>
       )}
       <Select
@@ -54,6 +67,7 @@ export function CostCenterSelect({
           {costCenters.map((cc) => (
             <SelectItem key={cc.id} value={cc.id}>
               {cc.code ? `${cc.code} — ${cc.name}` : cc.name}
+              {!cc.isActive && " (inactivo)"}
             </SelectItem>
           ))}
         </SelectContent>

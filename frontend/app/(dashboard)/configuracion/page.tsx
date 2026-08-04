@@ -10,13 +10,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText } from "lucide-react"
+import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
 import { SystemForm } from "@/components/settings/SystemForm"
 import { TeamSection } from "@/components/settings/TeamSection"
 import { FiscalSettings } from "@/components/settings/FiscalSettings"
+import { CostCenterManager } from "@/components/cost-centers/CostCenterManager"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
 const features = [
@@ -50,7 +51,9 @@ export default function ConfiguracionPage() {
 
       <Tabs defaultValue="perfil" className="w-full">
         {/* ── Tab navigation ─────────────────────────────────────────────────── */}
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 mb-6 h-auto">
+        {/* cost-center-surface: 7 tabs — la fila única se reserva para lg,
+            donde hay ancho real; en sm quedan 4+3 y en mobile 3+3+1. */}
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-7 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
             <span>Perfil</span>
@@ -70,6 +73,10 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="equipo" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Users className="h-3.5 w-3.5" />
             <span>Equipo</span>
+          </TabsTrigger>
+          <TabsTrigger value="centros-costo" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <Tags className="h-3.5 w-3.5" />
+            <span>Centros de costo</span>
           </TabsTrigger>
           <TabsTrigger value="plan" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Crown className="h-3.5 w-3.5" />
@@ -106,6 +113,22 @@ export default function ConfiguracionPage() {
         {/* ── Equipo (C-05 Bloque G / Task 7.3) ────────────────────────────── */}
         <TabsContent value="equipo">
           <TeamSection />
+        </TabsContent>
+
+        {/* ── Centros de costo (cost-center-surface) ──────────────────────────
+            El catálogo existía con CRUD, RLS y selector en los formularios de
+            gasto y compra, pero sin ninguna pantalla que lo montara: nadie
+            podía crear un centro y el selector aparecía siempre vacío. */}
+        <TabsContent value="centros-costo">
+          <div className="flex flex-col gap-1 mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Centros de costo</h2>
+            <p className="text-sm text-muted-foreground">
+              Dimensión opcional para imputar gastos y compras a un área o proyecto
+              (Logística, Marketing, Producción) y después ver cuánto cuesta cada uno.
+              Es independiente de la sucursal y de la categoría del gasto.
+            </p>
+          </div>
+          <CostCenterManager />
         </TabsContent>
 
         {/* ── Plan (contenido original sin modificaciones) ───────────────────── */}

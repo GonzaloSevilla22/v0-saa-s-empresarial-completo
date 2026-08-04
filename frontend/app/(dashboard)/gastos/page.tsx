@@ -1,7 +1,9 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
+import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
+import { useCostCenters } from "@/hooks/data/use-cost-centers"
 import { useDeleteExpense } from "@/hooks/data/use-expenses-query"
 import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -43,6 +45,9 @@ function mapRow(r: any): Expense {
     category:    r.category || "Otros",
     description: r.description || "",
     amount:      Number(r.amount),
+    // cost-center-surface: la fila ya traía la columna (select "*"), solo que
+    // el mapeo la descartaba y el badge no tenía de dónde salir.
+    costCenterId: r.cost_center_id ?? null,
   }
 }
 
@@ -54,15 +59,27 @@ export default function GastosPage() {
   const [addOpen,        setAddOpen]        = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [deletingId,     setDeletingId]     = useState<string | null>(null)
+  // cost-center-surface: filtro por centro de costo (server-side, vía extraFilters)
+  const [costCenterId,   setCostCenterId]   = useState<string | null>(null)
 
-  // ── Paginated query — search + date filter fully server-side ─────────────
+  // Nombres del catálogo para el badge de cada fila; incluye inactivos porque
+  // los gastos históricos pueden apuntar a un centro dado de baja.
+  const { costCenters } = useCostCenters(true)
+  const costCenterNameById = useMemo(
+    () => new Map(costCenters.map((cc) => [cc.id, cc.code ? `${cc.code} — ${cc.name}` : cc.name])),
+    [costCenters],
+  )
+
+  // ── Paginated query — search + date + centro de costo, server-side ────────
   const pq = usePaginatedQuery<any>({
     table: "expenses",
-    applyFilters: (base, { search, dateFrom, dateTo }) => {
+    extraFilters: { cost_center_id: costCenterId },
+    applyFilters: (base, { search, dateFrom, dateTo, extraFilters }) => {
       let q = base
       if (search)   q = q.ilike("description", `%${search}%`)
       if (dateFrom) q = q.gte("date", dateFrom)
       if (dateTo)   q = q.lte("date", dateTo)
+      if (extraFilters?.cost_center_id) q = q.eq("cost_center_id", extraFilters.cost_center_id)
       return q
     },
     defaultSortKey:  "date",
@@ -72,6 +89,7 @@ export default function GastosPage() {
 
   const expenses = pq.data.map(mapRow)
   const isDateFilterActive = !!(pq.dateFrom || pq.dateTo)
+  const isAnyFilterActive  = isDateFilterActive || !!costCenterId || !!pq.search
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (id: string) => {
@@ -157,6 +175,18 @@ export default function GastosPage() {
               </div>
             </PopoverContent>
           </Popover>
+
+          {/* cost-center-surface: filtro por centro de costo */}
+          <div className="w-full sm:w-56">
+            <CostCenterSelect
+              value={costCenterId}
+              onChange={setCostCenterId}
+              placeholder="Todos los centros"
+              showLabel={false}
+              includeInactive
+              className={`bg-background border-border text-foreground ${costCenterId ? "border-primary text-primary" : ""}`}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -214,9 +244,9 @@ export default function GastosPage() {
           <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             <PackageOpen className="h-10 w-10 opacity-30" />
             <p className="text-sm">
-              {pq.search || isDateFilterActive ? "Sin resultados" : "No hay gastos registrados"}
+              {isAnyFilterActive ? "Sin resultados" : "No hay gastos registrados"}
             </p>
-            {!pq.search && !isDateFilterActive && isWriter && (
+            {!isAnyFilterActive && isWriter && (
               <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
                 <Plus className="h-4 w-4 mr-1" />Registrar primer gasto
               </Button>
@@ -235,6 +265,11 @@ export default function GastosPage() {
                 <span className="font-semibold text-sm text-red-400">{formatMoney(row.amount)}</span>
               </div>
               <p className="font-medium text-sm text-foreground">{row.description}</p>
+              {row.costCenterId && costCenterNameById.get(row.costCenterId) && (
+                <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
+                  {costCenterNameById.get(row.costCenterId)}
+                </Badge>
+              )}
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">{formatDate(row.date)}</p>
                 <div className="flex items-center gap-1">
@@ -256,7 +291,14 @@ export default function GastosPage() {
               <Badge variant="outline" className={`text-xs w-fit ${categoryColors[row.category] || categoryColors.Otros}`}>
                 {row.category}
               </Badge>
-              <span className="text-sm font-medium text-foreground truncate">{row.description}</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-medium text-foreground truncate">{row.description}</span>
+                {row.costCenterId && costCenterNameById.get(row.costCenterId) && (
+                  <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
+                    {costCenterNameById.get(row.costCenterId)}
+                  </Badge>
+                )}
+              </div>
               <span className="text-right text-sm font-semibold text-red-400 tabular-nums">{formatMoney(row.amount)}</span>
               <div className="flex items-center gap-1 justify-end">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"

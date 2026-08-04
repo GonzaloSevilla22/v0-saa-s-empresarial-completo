@@ -11,7 +11,7 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert
+  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -58,6 +58,10 @@ const navGroups = [
       { title: "Rentabilidad", href: "/rentabilidad", icon: TrendingUp, pro: true, proOnly: false },
       { title: "Comparativo", href: "/reportes/comparativo", icon: GitCompare, pro: true, proOnly: false },
       { title: "Por Sucursal", href: "/reportes/sucursal", icon: MapPin, pro: false, proOnly: true },
+      // cost-center-surface: sin gate de plan — el catálogo está disponible en
+      // todos los planes, gatear su único consumidor dejaría al free imputando
+      // datos que no puede leer (design.md Decisión 7).
+      { title: "Centros de costo", href: "/reportes/centros-costo", icon: Tags, pro: false, proOnly: false },
       { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
       { title: "Simulador", href: "/simulador", icon: Calculator, pro: false, proOnly: false },
     ],

@@ -16,7 +16,8 @@ import type { PurchaseOperation } from "@/lib/group-operations"
 export default function ComprasPage() {
   const {
     purchases, meta, isLoading, error,
-    dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
+    dateFrom, setDateFrom, dateTo, setDateTo,
+    costCenterId, setCostCenterId, clearFilters,
     setPage, setPageSize, refetch,
     deletePurchase, deletePurchasesByOperation,
   } = usePurchases()
@@ -77,6 +78,8 @@ export default function ComprasPage() {
         setDateFrom={setDateFrom}
         dateTo={dateTo}
         setDateTo={setDateTo}
+        costCenterId={costCenterId}
+        setCostCenterId={setCostCenterId}
         clearFilters={clearFilters}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}

@@ -4,20 +4,29 @@
 
 ## 1. Read-model `rpc_cost_center_report` (migración)
 
-> **Limitación de entorno**: Docker no está corriendo en esta máquina, así que `supabase start` no
-> puede levantar la DB local y **los gates SQL no se ejecutaron acá**. Corren en el workflow
-> KPI Validation del PR, que aplica toda la cadena de migraciones sobre una DB vacía con
-> `-v ON_ERROR_STOP=1`. Las tareas que requieren ejecución quedan marcadas como pendientes de CI.
+> **Verificado local con Docker** (segunda pasada): `supabase start` con el CLI que fija CI
+> (2.105.0) aplicó toda la cadena, migración nueva incluida, y sus gates corrieron contra
+> Postgres real. Con el CLI 2.111.0 la cadena **se corta antes**, en la migración preexistente
+> `20260824000001_revoke_anon_rest_legit_fns.sql` (`GATE POS FAILED: rpc_admin_business_kpis
+> quedó SIN EXECUTE para authenticated`) — fallo de entorno ajeno a este change, reportado y
+> no tocado.
 
 - [x] 1.1 **[SAFETY NET]** Correr `pytest backend/tests -q` y la suite de vitest del frontend; anotar la línea base de ambas en el resumen final — backend **1261 passed, 3 skipped**; frontend **707 passed, 2 failed** (fallo PREEXISTENTE en `product-catalog-search-collapse.test.tsx`, no se toca)
-- [ ] 1.2 **[RED]** Escribir en la migración nueva los **gates de introspección**: el cuerpo publicado de `rpc_cost_center_report` debe contener `COALESCE(p.total, p.amount)`, `COUNT(DISTINCT COALESCE(p.operation_id, p.id))`, el borde `< (p_end + 1)` y la etiqueta `Sin centro de costo`. Verificar que fallan contra la DB actual (la función no existe todavía) — **escritos; la verificación RED corre en CI (sin Docker local)**
+- [x] 1.2 **[RED]** Gates de introspección escritos y **demostrados no vacuos**: con una versión del RPC que suma `p.amount` en vez de `COALESCE(p.total, p.amount)` (la regresión exacta que subvaluó el revenue de prod 17,53%), el gate aborta con `GATE INTROSPECCION FAILED`. Probado en transacción con `ROLLBACK` sobre la DB local
 - [x] 1.3 **[GREEN]** Crear la migración `supabase/migrations/20260901000001_cost_center_report.sql` con `CREATE OR REPLACE FUNCTION public.rpc_cost_center_report(p_account_id uuid, p_start date, p_end date)`: `SECURITY DEFINER`, `SET search_path TO 'public'`, verificación de membership contra `account_members` con `ERRCODE = 'P0401'`, y `RETURNS TABLE(...)` — se agregó `is_active` a la salida para que la UI marque los centros dados de baja sin un query extra
 - [x] 1.4 **[GREEN]** Agregar `REVOKE ALL ... FROM PUBLIC`, `REVOKE EXECUTE ... FROM anon` y `GRANT EXECUTE ... TO authenticated` (verificado contra `supabase/tests/test_function_acl_gate.sql`: no requiere entrada en la allowlist, que solo cubre lo anon-executable)
 - [x] 1.5 **[TRIANGULATE]** Gates de comportamiento con anchor sintético vía `handle_new_user` + cleanup hijo→padre — el gate **invoca el RPC de verdad** seteando `request.jwt.claims` local para que `auth.uid()` resuelva al anchor (más fuerte que el patrón de `20260814000001`, que solo replicaba la fórmula), con degradación por `NOTICE` si el contexto no lo permite
 - [x] 1.6 **[TRIANGULATE]** Gate de que la suma de todas las filas iguala el costo total del período (invariante de la Decisión 4) + gate extra: una venta en el rango no altera el total
 - [x] 1.7 **[TRIANGULATE]** Gate de autorización: un caller que no es miembro de `p_account_id` recibe `P0401`
-- [ ] 1.8 **[REFACTOR]** Verificar idempotencia: correr la migración dos veces seguidas contra una DB limpia sin error — **pendiente de CI**; por construcción es re-ejecutable (`CREATE OR REPLACE` + `REVOKE`/`GRANT`, sin DDL de tablas, gate auto-limpiante que borra su anchor)
-- [ ] 1.9 Confirmar que quedó **un solo overload** de `rpc_cost_center_report` — **pendiente de CI/prod**; la función es nueva y no hay firma previa que pueda quedar huérfana (el riesgo de doble overload aplica al agregar parámetros a una función existente)
+- [x] 1.8 **[REFACTOR]** Idempotencia verificada: dos pasadas seguidas del archivo con `ON_ERROR_STOP=1`, ambas con los dos gates en PASSED y exit 0; el anchor sintético queda en 0 filas después de cada pasada
+- [x] 1.9 Un solo overload confirmado (`pg_get_function_identity_arguments` → `p_account_id uuid, p_start date, p_end date`), `prosecdef = t`, y ACLs verificadas con `has_function_privilege`: **anon `f` / authenticated `t`**
+
+> **Verificación funcional independiente** (script aparte del gate, con otros números para
+> triangular de verdad): compra de 2 líneas + compra legacy sin `operation_id` → `total_purchases`
+> 4300 con `COALESCE(total, amount)` y `operation_count` 3; gasto fuera del rango excluido;
+> centro desactivado legible con decimales intactos (1234.56); fila "Sin centro de costo";
+> suma de filas = 6783.56 con la venta del período sin participar; orden descendente por costo;
+> `P0401` sin membresía.
 
 ## 2. Filtro por centro de costo en el listado de compras (backend)
 
@@ -49,7 +58,7 @@
 - [x] 4.2 **[GREEN]** `TabsTrigger` + `TabsContent` en `frontend/app/(dashboard)/configuracion/page.tsx` importando `CostCenterManager` **sin modificarlo**, con copy que explica para qué sirve la dimensión
 - [x] 4.3 **[GREEN]** `TabsList` a `grid-cols-3 sm:grid-cols-4 lg:grid-cols-7` (Decisión 8), ícono `Tags` de lucide
 - [x] 4.4 **[TRIANGULATE]** El gate `isWriter` ya vive dentro de `CostCenterManager` (verificado por lectura: el botón "Nuevo" y las acciones por fila cuelgan de `isWriter`); no se duplica en la página
-- [ ] 4.5 **[REFACTOR]** Verificación visual desktop/mobile y claro/oscuro — **PENDIENTE**: el `.env.local` apunta a un Supabase local (127.0.0.1:54321) que necesita Docker, así que no hay sesión para entrar al dashboard. La ruta compila y responde 200
+- [x] 4.5 **[REFACTOR]** Verificación visual hecha en el navegador con sesión real: los 7 tabs se acomodan **3+3+1 en 375px** sin recortes y en una sola fila desde `lg`; el manager lista los 3 centros con su código y el badge "Inactivo" en el dado de baja; botón "Nuevo" visible con rol `owner`
 
 ## 5. Superficie: pantalla `/reportes/centros-costo`
 
@@ -58,7 +67,7 @@
 - [x] 5.3 **[GREEN]** Estado vacío propio ("Sin costos en el período seleccionado" + cómo crear centros) y copy que aclara que mide **costos**, no margen
 - [x] 5.4 **[GREEN]** Entrada "Centros de costo" en el grupo "Inteligencia" del sidebar con `pro: false, proOnly: false` (Decisión 7)
 - [x] 5.5 **[TRIANGULATE]** Cubierto en el mapeo: fila NULL, centro desactivado, importes nulos/indefinidos, sin filas → totales en 0 (no NaN), y el total incluye lo no imputado — **8 passed**
-- [ ] 5.6 **[REFACTOR]** Verificación visual desktop/mobile y claro/oscuro — **PENDIENTE por el mismo motivo que 4.5** (sin Supabase local no hay sesión). Tipografía tabular y tokens semánticos aplicados por construcción, espejo de `/reportes/sucursal`
+- [x] 5.6 **[REFACTOR]** Verificación visual completa. **Encontró un bug real y se arregló** (commit `5e8f130`): a 375px la tabla de 5 columnas hacía scrollear el **body entero** (502 vs 375) porque `MAIN` del shell tiene `min-width:auto` y el ancho mínimo de la tabla empujaba el layout; `/reportes/sucursal` no lo nota porque su tabla de 4 columnas entra. Fix: `min-w-0` en la cadena de flex items propia + en mobile se muestran solo "Centro de costo" y "Costo total" (el resto vuelve desde `sm`). Post-fix: `scrollWidth == clientWidth == 375`. Verificado además en desktop 1280 en **tema claro y oscuro**, con `tabular-nums` activo en las columnas de dinero
 - [x] 5.7 Sin `any`: `CostCenterReportRow` en `lib/types.ts` + `CostCenterReportRawRow` en `lib/cost-center-report.ts`; `tsc --noEmit` limpio
 
 ## 6. Superficie: filtro y badge en Gastos y Compras
@@ -73,8 +82,8 @@
 ## 7. Verificación integral y cierre
 
 - [x] 7.1 Suites completas sin regresiones: backend **1269 passed, 3 skipped** (base 1261+3, +8 nuevos); frontend **729 passed en 97 archivos, 0 fallos** (base 707+2 fallos; los 2 rojos del baseline eran flaky — `getMultipleElementsFound` en `product-catalog-search-collapse` — y no reaparecieron). `tsc --noEmit` limpio
-- [ ] 7.2 Flujo E2E en el navegador — **PENDIENTE**: `.env.local` apunta a Supabase local (127.0.0.1:54321) que requiere Docker, hoy apagado; sin sesión no se entra al dashboard. Lo verificable sin sesión sí se hizo: las 4 rutas tocadas (`/reportes/centros-costo`, `/configuracion`, `/gastos`, `/compras`) compilan y responden **HTTP 200** en el dev server
-- [ ] 7.3 Estados vacíos con una cuenta sin centros — **PENDIENTE por el mismo motivo**; la lógica está cubierta por tests (totales en 0 sin filas, estado vacío propio en el reporte, texto de vacío por filtro en ambos listados)
+- [x] 7.2 Flujo E2E verificado en el navegador con Supabase local + FastAPI local y sesión real (usuario sintético con magic link, sin contraseñas): catálogo listado en Configuración → reporte mostrando **Local $108.000 / Delivery $93.000 / Sin centro de costo $13.500, total $214.500** → Gastos con el filtro montado y el badge del centro en cada fila (incluido el histórico del centro inactivo). El único paso que no se pudo accionar es abrir el `Select` de Radix por automatización (no responde a los eventos sintéticos del panel); su comportamiento está cubierto por los 6 tests del hook
+- [x] 7.3 Estados vacíos verificados: el reporte muestra su estado vacío propio cuando el rango no tiene costos, y el manager muestra "No hay centros de costo definidos. Creá el primero…" cuando el catálogo está vacío
 - [x] 7.4 Rama `feat/cost-center-surface` + **PR #356**. Checks: `validate-kpis` **pass** (1m46s) — dentro de ese job, "Start Supabase" aplicó toda la cadena de migraciones, así que **los gates de la migración nueva corrieron y pasaron** (introspección + comportamiento sobre DB vacía), igual que el gate de ACLs y los gates de referencias backend/frontend (que validan que `rpc_cost_center_report` existe de verdad en el schema). Vercel **pass**. "Supabase Preview" queda pending: el plan no soporta branching, no es bloqueante
 - [ ] 7.5 Post-merge: confirmar en producción que `rpc_cost_center_report` existe con un solo overload y devuelve datos reales
 - [x] 7.6 Resumen final con la tabla de evidencia TDD

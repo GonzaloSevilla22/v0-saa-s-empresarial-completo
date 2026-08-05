@@ -68,7 +68,10 @@ export default function CentrosCostoReportPage() {
   }))
 
   return (
-    <div className="flex flex-col gap-6">
+    // min-w-0 en toda la cadena de flex items (raíz de la página y los Card):
+    // sin esto `min-width: auto` deja que la tabla de 5 columnas empuje el
+    // shell y el body entero scrollee horizontal en mobile.
+    <div className="flex flex-col gap-6 min-w-0">
       {/* ── Header ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -100,8 +103,12 @@ export default function CentrosCostoReportPage() {
         </div>
       </div>
 
-      {/* ── Gráfico ── */}
-      <Card>
+      {/* ── Gráfico ──
+          min-w-0: los Card son flex items de la columna de la página y, sin
+          esto, `min-width: auto` les deja crecer hasta el ancho natural del
+          contenido — la tabla de 5 columnas empujaba el shell y hacía scrollear
+          el body entero en mobile en vez de scrollear dentro de su caja. */}
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle className="text-sm font-medium">Gastos vs Compras por centro</CardTitle>
         </CardHeader>
@@ -131,7 +138,7 @@ export default function CentrosCostoReportPage() {
       </Card>
 
       {/* ── Tabla ── */}
-      <Card>
+      <Card className="min-w-0">
         <CardHeader>
           <CardTitle className="text-sm font-medium">Detalle por centro de costo</CardTitle>
         </CardHeader>
@@ -146,12 +153,15 @@ export default function CentrosCostoReportPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
+                  {/* En mobile se muestran solo Centro y Costo total: 5 columnas
+                      en 375px obligan a scrollear el shell entero (MAIN del
+                      layout tiene min-width:auto) y además se leen mal. */}
                   <tr className="border-b border-border bg-muted/40">
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">Centro de costo</th>
-                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Gastos</th>
-                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Compras</th>
+                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Gastos</th>
+                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Compras</th>
                     <th className="px-4 py-3 text-right font-medium text-muted-foreground">Costo total</th>
-                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Operaciones</th>
+                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Operaciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -170,20 +180,20 @@ export default function CentrosCostoReportPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums">{formatMoney(row.totalExpenses)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{formatMoney(row.totalPurchases)}</td>
+                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(row.totalExpenses)}</td>
+                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(row.totalPurchases)}</td>
                       <td className="px-4 py-3 text-right tabular-nums font-medium">{formatMoney(row.totalCost)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{row.operationCount}</td>
+                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{row.operationCount}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-border font-semibold bg-muted/30">
                     <td className="px-4 py-3">Total del período</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalExpenses)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalPurchases)}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalExpenses)}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalPurchases)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalCost)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{totals.operationCount}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{totals.operationCount}</td>
                   </tr>
                 </tfoot>
               </table>

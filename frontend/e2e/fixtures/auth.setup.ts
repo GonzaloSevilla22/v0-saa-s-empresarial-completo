@@ -14,7 +14,12 @@ setup('authenticate', async ({ page }) => {
   await page.getByTestId('login-password').fill(password)
   await page.getByTestId('login-submit').click()
 
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 })
+  // Timeout MUY generoso: esta es la unica compilacion en frio de /dashboard
+  // (ruta pesada: sidebar + KPIs + charts + escena 3D) bajo Turbopack. En este
+  // entorno (WSL2 + filesystem de Windows via /mnt/c/) /auth/login sola tardo
+  // ~25s en compilar; /dashboard es varias veces mas pesada y >60s no alcanzo.
+  // Una vez compilada, las navegaciones posteriores a /dashboard son rapidas.
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 150_000 })
 
   await page.context().storageState({ path: authFile })
 })

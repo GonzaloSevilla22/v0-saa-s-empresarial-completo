@@ -27,7 +27,8 @@ test.describe('Auth — sin sesion', () => {
     await page.getByTestId('login-password').fill(password)
     await page.getByTestId('login-submit').click()
 
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 })
+    // Timeout generoso: ver auth.setup.ts (compilacion en frio de /dashboard).
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 60_000 })
   })
 
   test('ruta protegida sin sesion redirige a login', async ({ page }) => {
@@ -52,7 +53,8 @@ test.describe('Auth — con sesion', () => {
     await page.getByTestId('login-email').fill(email)
     await page.getByTestId('login-password').fill(password)
     await page.getByTestId('login-submit').click()
-    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 })
+    // Timeout generoso: ver auth.setup.ts (compilacion en frio de /dashboard).
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 60_000 })
 
     await page.getByTestId('logout-button').click()
 

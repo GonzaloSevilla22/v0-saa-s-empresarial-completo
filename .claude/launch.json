@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "next-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "frontend", "dev"],
       "port": 3000
     }
   ]

@@ -339,6 +339,8 @@ export interface Purchase {
   operationId?: string
   /** cost-center-dimension: optional analytic dimension (V2.5). */
   costCenterId?: string | null
+  /** cost-center-surface: name resolved by the listing query, for the badge. */
+  costCenterName?: string | null
 }
 
 export interface UnitOfMeasure {
@@ -377,6 +379,25 @@ export interface CostCenter {
   code: string | null
   isActive: boolean
   createdAt: string
+}
+
+/**
+ * A row of the cost center report (cost-center-surface).
+ * Source of truth: rpc_cost_center_report(p_account_id, p_start, p_end).
+ *
+ * `id === null` is the "Sin centro de costo" row: the costs of the period that
+ * were never imputed. It is part of the contract, not a UI detail — excluding
+ * it would show a total below the real cost of the period.
+ */
+export interface CostCenterReportRow {
+  id: string | null
+  name: string
+  code: string | null
+  isActive: boolean
+  totalExpenses: number
+  totalPurchases: number
+  totalCost: number
+  operationCount: number
 }
 
 export type ClientStatus = "activo" | "inactivo" | "perdido"

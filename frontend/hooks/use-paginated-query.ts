@@ -11,6 +11,7 @@
  *   - Configurable page size (10 / 25 / 50 / 100)
  *   - Sort key + direction (applied by hook via .order())
  *   - Date range filters delegated to caller's applyFilters
+ *   - Screen-owned extra filters via `extraFilters` (dep-aware: refetch + page 0)
  *
  * Usage:
  *   const q = usePaginatedQuery<Expense>({
@@ -23,6 +24,21 @@
  *       return q
  *     },
  *     defaultSortKey: "date",
+ *   })
+ *
+ * With a screen-owned filter (cost-center-surface) — pass it through
+ * `extraFilters` instead of capturing it in the applyFilters closure, or the
+ * query will not refetch when it changes:
+ *   const [costCenterId, setCostCenterId] = useState<string | null>(null)
+ *   const q = usePaginatedQuery<Expense>({
+ *     table: "expenses",
+ *     extraFilters: { cost_center_id: costCenterId },
+ *     applyFilters: (base, { search, extraFilters }) => {
+ *       let q = base
+ *       if (search) q = q.ilike("description", `%${search}%`)
+ *       if (extraFilters?.cost_center_id) q = q.eq("cost_center_id", extraFilters.cost_center_id)
+ *       return q
+ *     },
  *   })
  */
 
@@ -47,6 +63,16 @@ export interface UsePaginatedQueryOptions {
   defaultSortDir?:  "asc" | "desc"
   defaultPageSize?: PageSizeOption
   debounceMs?:      number
+  /**
+   * Filtros extra controlados por la pantalla (p. ej. `{ cost_center_id }`).
+   * Llegan a `applyFilters` dentro de `params.extraFilters` y forman parte de
+   * las deps del fetch: cambiarlos refetchea y vuelve a la página 0.
+   *
+   * Sin esto, un filtro capturado en el closure de `applyFilters` se guardaría
+   * en el ref pero no dispararía refetch — se aplicaría recién en la próxima
+   * búsqueda o cambio de página.
+   */
+  extraFilters?:    Record<string, string | null>
 }
 
 export interface UsePaginatedQueryResult<T> {
@@ -83,6 +109,7 @@ export function usePaginatedQuery<T = any>({
   defaultSortDir  = "desc",
   defaultPageSize = 25,
   debounceMs      = 300,
+  extraFilters,
 }: UsePaginatedQueryOptions): UsePaginatedQueryResult<T> {
   const supabase = useMemo(() => createClient(), [])
 
@@ -104,6 +131,27 @@ export function usePaginatedQuery<T = any>({
   const abortRef         = useRef<AbortController | undefined>(undefined)
   const applyFiltersRef  = useRef<ApplyFilters>(applyFilters)
   applyFiltersRef.current = applyFilters
+
+  // ── Filtros extra de la pantalla ─────────────────────────────────────────
+  // El objeto suele venir como literal inline (identidad nueva en cada
+  // render), así que las deps del fetch cuelgan de su forma serializada y no
+  // de su identidad.
+  const extraFiltersKey = useMemo(
+    () => (extraFilters ? JSON.stringify(extraFilters) : ""),
+    [extraFilters],
+  )
+  const extraFiltersRef = useRef(extraFilters)
+  extraFiltersRef.current = extraFilters
+
+  // Volver a la página 0 cuando cambia un filtro externo, con el patrón de
+  // ajuste de estado durante el render (React docs, "adjusting state when a
+  // prop changes"): React re-renderiza antes de commitear, así que NO se
+  // dispara un fetch intermedio con la página vieja.
+  const [seenExtraKey, setSeenExtraKey] = useState(extraFiltersKey)
+  if (seenExtraKey !== extraFiltersKey) {
+    setSeenExtraKey(extraFiltersKey)
+    setPageState(0)
+  }
 
   // ── Setters that reset to page 0 ─────────────────────────────────────────
   const setSearch = useCallback((v: string) => {
@@ -154,6 +202,7 @@ export function usePaginatedQuery<T = any>({
 
     const params: FilterParams = {
       search: debSearch, dateFrom, dateTo, sortKey, sortDir,
+      extraFilters: extraFiltersRef.current,
     }
     const from = page * pageSize
     const to   = from + pageSize - 1
@@ -188,6 +237,9 @@ export function usePaginatedQuery<T = any>({
   }, [
     supabase, table, select,
     page, pageSize, debSearch, dateFrom, dateTo, sortKey, sortDir,
+    // Serializado, no el objeto: un literal inline cambiaría de identidad en
+    // cada render y refetchearía en loop.
+    extraFiltersKey,
   ])
 
   useEffect(() => { fetchPage() }, [fetchPage])

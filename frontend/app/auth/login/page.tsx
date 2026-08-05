@@ -89,7 +89,7 @@ export default function LoginPage() {
           {isMagicLink ? (
             <MagicLinkForm onBack={() => setIsMagicLink(false)} />
           ) : (
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4" data-testid="login-form">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="email" className="text-foreground">Email</Label>
                 <Input
@@ -99,6 +99,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="bg-background border-border text-foreground"
+                  data-testid="login-email"
                   required
                 />
               </div>
@@ -117,6 +118,7 @@ export default function LoginPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="bg-background border-border text-foreground pr-10"
+                    data-testid="login-password"
                     required
                   />
                   <button
@@ -134,7 +136,12 @@ export default function LoginPage() {
                 onExpire={() => setCaptchaToken("")}
                 onError={() => setCaptchaToken("")}
               />
-              <Button type="submit" className="w-full" disabled={isLoading || !captchaToken}>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading || !captchaToken}
+                data-testid="login-submit"
+              >
                 {isLoading ? "Iniciando sesión..." : "Iniciar sesión"}
               </Button>
             </form>

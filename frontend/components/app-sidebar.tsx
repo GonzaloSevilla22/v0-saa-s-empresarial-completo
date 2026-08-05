@@ -323,6 +323,7 @@ export function AppSidebar() {
                 window.location.href = "/"
               }}
               tooltip="Cerrar sesion"
+              data-testid="logout-button"
             >
               <LogOut className="h-4 w-4" />
               <span>Cerrar sesión</span>

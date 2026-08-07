@@ -3,7 +3,9 @@
 --
 -- Verifies:
 --   1. Schema: UNIQUE(user_id, operation_kind, idempotency_key) existe.
---   2. Schema: operation_id es NOT NULL.
+--   2. Schema: operation_id es NULLABLE (contrato post-20260804000005: los
+--      marcadores del consumer del outbox insertan NULL por diseño) y ninguna
+--      fila que NO sea marcador ('event_consumer') lleva operation_id NULL.
 --   3. Auth: ambos RPCs rechazan llamadas sin sesión.
 --   4. Guards: amount > 0 y array cap presentes en el cuerpo de ambas funciones.
 --   5. Isolation: ON CONFLICT target y replay SELECT filtran por operation_kind.
@@ -55,17 +57,34 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: old 2-column UNIQUE constraint removed';
 
-  -- ── 3. operation_id es NOT NULL ──────────────────────────────────────────────
+  -- ── 3. operation_id es NULLABLE, con NULL solo en marcadores de consumer ─────
+  -- 20260531230737 la hizo NOT NULL (las RPCs de usuario siempre insertan UUID),
+  -- pero 20260804000005 revirtió a nullable A PROPÓSITO: los marcadores del
+  -- consumer del outbox (operation_kind = 'event_consumer', dedupados por
+  -- (event_id, consumer_type)) insertan operation_id NULL por diseño (sign-off
+  -- PO en el header de esa migración). Restaurar NOT NULL rompería
+  -- rpc_process_outbox_dispatch en prod. El contrato real es por-fila:
+  --   operation_kind = 'event_consumer' OR operation_id IS NOT NULL
   SELECT is_nullable INTO v_col_nullable
   FROM information_schema.columns
   WHERE table_schema = 'public'
     AND table_name   = 'operation_idempotency'
     AND column_name  = 'operation_id';
 
-  IF v_col_nullable IS DISTINCT FROM 'NO' THEN
-    RAISE EXCEPTION 'FAIL: operation_idempotency.operation_id is nullable — replay with NULL operation_id would return corrupt result';
+  IF v_col_nullable IS DISTINCT FROM 'YES' THEN
+    RAISE EXCEPTION 'FAIL: operation_idempotency.operation_id is NOT NULL — outbox consumer markers insert NULL by design (20260804000005); NOT NULL breaks rpc_process_outbox_dispatch';
   END IF;
-  RAISE NOTICE 'PASS: operation_id is NOT NULL';
+
+  SELECT NOT EXISTS (
+    SELECT 1 FROM public.operation_idempotency
+    WHERE operation_kind <> 'event_consumer'
+      AND operation_id IS NULL
+  ) INTO v_ok;
+
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'FAIL: non-marker row(s) with operation_id NULL — replay would return corrupt {operation_id: null} result';
+  END IF;
+  RAISE NOTICE 'PASS: operation_id nullable, NULL only on event_consumer markers (post-20260804000005 contract)';
 
   -- ── 4. Ambas funciones existen y son SECURITY DEFINER ────────────────────────
   SELECT bool_and(p.prosecdef)

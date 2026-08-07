@@ -67,12 +67,17 @@ vi.mock("@/contexts/auth-context", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 
+// Import a nivel de módulo (los vi.mock de arriba están hoisted, así que ya
+// aplican). NO moverlo adentro de los tests: un import dinámico del árbol
+// pesado de ProductCatalog dentro del primer test puede exceder el testTimeout
+// de 5s bajo contención y dejar un render zombie que contamina el DOM del test
+// siguiente (ver product-catalog-search-collapse.test.tsx, hallazgo H-3 QA #361).
+const { ProductCatalog } = await import("@/components/products/product-catalog")
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("ProductCatalog — plan gate for price suggestion (task 5.6)", () => {
-  it("'Precio IA' button is NOT in the DOM when onSuggestPrice is undefined (gratis plan)", async () => {
-    const { ProductCatalog } = await import("@/components/products/product-catalog")
-
+  it("'Precio IA' button is NOT in the DOM when onSuggestPrice is undefined (gratis plan)", () => {
     render(
       <ProductCatalog
         products={[mockProduct]}
@@ -90,8 +95,7 @@ describe("ProductCatalog — plan gate for price suggestion (task 5.6)", () => {
     expect(button).not.toBeInTheDocument()
   })
 
-  it("'Precio IA' button IS in the DOM when onSuggestPrice is provided (avanzado plan)", async () => {
-    const { ProductCatalog } = await import("@/components/products/product-catalog")
+  it("'Precio IA' button IS in the DOM when onSuggestPrice is provided (avanzado plan)", () => {
     const onSuggestPrice = vi.fn()
 
     render(

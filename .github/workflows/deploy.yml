@@ -48,10 +48,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Pinneado: v2.112.0 (2026-08-07) rompe `supabase link` en todo proyecto
+      # con 3+ API keys — SchemaError sobre inserted_at, el schema generado solo
+      # acepta timestamps con sufijo Z (supabase/cli#6115). Volver a `latest`
+      # cuando el issue cierre con fix publicado.
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.111.0
 
       - name: Link project
         run: supabase link --project-ref "${SUPABASE_PROJECT_REF}" --password "${SUPABASE_DB_PASSWORD}"

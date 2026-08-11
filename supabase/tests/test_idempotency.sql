@@ -247,7 +247,55 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: idempotency_key bounded to 512 chars';
 
-  RAISE NOTICE '=== All idempotency tests passed (14/14) ===';
+  -- ── 14. CHECK del contrato por-fila de operation_id (H-1, 20260906000001) ───
+  -- El invariante que el assert 3 chequea sobre DATOS queda además garantizado
+  -- por la DB: operation_kind = 'event_consumer' OR operation_id IS NOT NULL.
+  SELECT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.operation_idempotency'::regclass
+      AND conname  = 'operation_idempotency_operation_id_contract'
+      AND contype  = 'c'
+      AND convalidated
+  ) INTO v_ok;
+
+  IF NOT v_ok THEN
+    RAISE EXCEPTION 'FAIL: CHECK operation_idempotency_operation_id_contract missing or NOT VALID — per-row contract only enforced by this test, not by the DB';
+  END IF;
+  RAISE NOTICE 'PASS: per-row operation_id contract enforced by validated CHECK constraint';
+
+  -- ── 15. 'credit_note' presente en el CHECK de operation_kind ────────────────
+  -- 20260803000003 creó rpc_issue_credit_note insertando kind 'credit_note'
+  -- pero nunca lo agregó al CHECK: toda emisión de NC moría con 23514
+  -- (Lección C3: la DB de CI nace vacía y no atrapa kinds faltantes).
+  SELECT pg_get_constraintdef(oid) LIKE '%credit_note%' INTO v_ok
+  FROM pg_constraint
+  WHERE conrelid = 'public.operation_idempotency'::regclass
+    AND conname  = 'operation_idempotency_operation_kind_check';
+
+  IF NOT COALESCE(v_ok, false) THEN
+    RAISE EXCEPTION 'FAIL: operation_kind CHECK does not allow ''credit_note'' — rpc_issue_credit_note inserts that kind and would die with 23514';
+  END IF;
+  RAISE NOTICE 'PASS: operation_kind CHECK includes credit_note';
+
+  -- ── 16. rpc_issue_credit_note usa el conflict target de 3 columnas ──────────
+  -- Nació (20260803000003) con ON CONFLICT (user_id, idempotency_key): ese
+  -- UNIQUE de 2 columnas fue eliminado en 20260531230737, así que CADA llamada
+  -- fallaba con 42P10 antes de hacer nada. El replay SELECT además debe filtrar
+  -- por operation_kind (aislamiento cross-kind, igual que sale/purchase).
+  SELECT p.prosrc LIKE '%ON CONFLICT (user_id, operation_kind, idempotency_key) DO NOTHING%'
+     AND p.prosrc LIKE '%operation_kind = ''credit_note''%'
+  INTO v_ok
+  FROM pg_proc p
+  JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public'
+    AND p.proname = 'rpc_issue_credit_note';
+
+  IF NOT COALESCE(v_ok, false) THEN
+    RAISE EXCEPTION 'FAIL: rpc_issue_credit_note still uses the dropped 2-column ON CONFLICT target (42P10 on every call) or replay SELECT lacks operation_kind filter';
+  END IF;
+  RAISE NOTICE 'PASS: rpc_issue_credit_note uses 3-column conflict target and kind-filtered replay';
+
+  RAISE NOTICE '=== All idempotency tests passed (17/17) ===';
 END;
 $$;
 

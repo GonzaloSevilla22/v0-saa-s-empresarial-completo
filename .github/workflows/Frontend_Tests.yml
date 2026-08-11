@@ -1,0 +1,42 @@
+# Cierre de H-6 del informe QA del PR #361: la suite vitest del frontend solo
+# corría a mano — el flake H-3 (PR #364) y fallos genuinos podían vivir semanas
+# en main sin que nadie los viera (misma clase que la RPC de NC rota que
+# destapó H-1). Este gate corre la suite completa en cada PR que toque el
+# frontend.
+name: Frontend Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/Frontend_Tests.yml'
+
+concurrency:
+  group: frontend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run vitest suite
+        run: pnpm -C frontend test

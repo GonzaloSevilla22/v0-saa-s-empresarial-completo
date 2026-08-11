@@ -19,6 +19,11 @@
 --   en un entorno Supabase con usuarios de test (ver comentarios al final).
 --
 -- Usa RAISE EXCEPTION para que psql retorne exit code 1 en cualquier falla.
+--
+-- Corre en CI: KPI_Validation.yml lo ejecuta con -v ON_ERROR_STOP=1 contra la
+-- DB recién construida por `supabase start` (cableado tras el H-1 del QA de
+-- PR #361 — el assert de NOT NULL quedó stale porque este archivo no corría
+-- en ningún lado).
 -- =============================================================================
 
 DO $$
@@ -110,8 +115,9 @@ BEGIN
       '[{"product_id": null, "amount": 100, "quantity": 1, "unit_id": null}]'::jsonb
     );
   EXCEPTION
+    -- Solo insufficient_privilege cuenta como pass: cualquier otro error (p.ej.
+    -- undefined_function por drift de firma) aborta el DO block y falla el test.
     WHEN insufficient_privilege THEN v_raised := true;
-    WHEN OTHERS THEN v_raised := true;
   END;
 
   IF NOT v_raised THEN
@@ -129,8 +135,8 @@ BEGIN
       '[{"product_id": null, "amount": 100, "quantity": 1, "unit_id": null}]'::jsonb
     );
   EXCEPTION
+    -- Solo insufficient_privilege cuenta como pass (ver sección 5).
     WHEN insufficient_privilege THEN v_raised := true;
-    WHEN OTHERS THEN v_raised := true;
   END;
 
   IF NOT v_raised THEN
@@ -232,7 +238,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: RLS enabled on operation_idempotency';
 
-  -- ── 13. CHECK constraint limita idempotency_key a 512 chars ─────────────────
+  -- ── 14. CHECK constraint limita idempotency_key a 512 chars ─────────────────
   SELECT EXISTS (
     SELECT 1 FROM pg_constraint c
     JOIN pg_namespace n ON c.connamespace = n.oid
@@ -247,7 +253,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: idempotency_key bounded to 512 chars';
 
-  -- ── 14. CHECK del contrato por-fila de operation_id (H-1, 20260906000001) ───
+  -- ── 15. CHECK del contrato por-fila de operation_id (H-1, 20260906000001) ───
   -- El invariante que el assert 3 chequea sobre DATOS queda además garantizado
   -- por la DB: operation_kind = 'event_consumer' OR operation_id IS NOT NULL.
   SELECT EXISTS (
@@ -263,7 +269,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: per-row operation_id contract enforced by validated CHECK constraint';
 
-  -- ── 15. 'credit_note' presente en el CHECK de operation_kind ────────────────
+  -- ── 16. 'credit_note' presente en el CHECK de operation_kind ────────────────
   -- 20260803000003 creó rpc_issue_credit_note insertando kind 'credit_note'
   -- pero nunca lo agregó al CHECK: toda emisión de NC moría con 23514
   -- (Lección C3: la DB de CI nace vacía y no atrapa kinds faltantes).
@@ -277,7 +283,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: operation_kind CHECK includes credit_note';
 
-  -- ── 16. rpc_issue_credit_note usa el conflict target de 3 columnas ──────────
+  -- ── 17. rpc_issue_credit_note usa el conflict target de 3 columnas ──────────
   -- Nació (20260803000003) con ON CONFLICT (user_id, idempotency_key): ese
   -- UNIQUE de 2 columnas fue eliminado en 20260531230737, así que CADA llamada
   -- fallaba con 42P10 antes de hacer nada. El replay SELECT además debe filtrar

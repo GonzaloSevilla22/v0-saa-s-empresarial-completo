@@ -12,10 +12,7 @@
  * Change: `landing-whatsapp-fab`.
  */
 
-import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
-
-/** Arranca la conversación con contexto, para que el visitante no redacte de cero. */
-const INITIAL_MESSAGE = "Hola ALIADATA 👋 Quiero saber más sobre la plataforma."
+import { aliadataWhatsAppUrl } from "@/lib/aliadata-contact"
 
 /**
  * Nombra el destino y avisa que se sale del sitio: con un botón que es solo un
@@ -32,19 +29,15 @@ const ACCESSIBLE_LABEL = "Escribinos por WhatsApp (se abre en una pestaña nueva
 const WHATSAPP_BRAND_GREEN = "#25D366"
 
 export function WhatsAppFab({ phone }: { phone?: string }) {
-  // Validar ANTES de armar la URL, no después: `buildWhatsAppUrl` tiene un
-  // fallback deliberado que con teléfono inválido devuelve `https://wa.me/?text=…`,
-  // que abre el SELECTOR DE CONTACTOS de WhatsApp. Es el comportamiento correcto
-  // para su uso original (mandarle un comprobante a un cliente sin teléfono
-  // cargado), pero de cara al público sería un bug: el visitante tocaría
-  // "escribinos a ALIADATA" y WhatsApp le pediría elegir a quién. Sin número
-  // válido preferimos no renderizar nada. Ver `design.md` D3.
-  const normalized = normalizeWhatsAppPhone(phone)
-  if (!normalized) return null
+  // La validación (y el porqué de validar ANTES de armar la URL) vive en
+  // `lib/aliadata-contact.ts` — compartida con el link "Contacto" del footer.
+  // Sin número válido preferimos no renderizar nada (design.md D3).
+  const url = aliadataWhatsAppUrl(phone)
+  if (!url) return null
 
   return (
     <a
-      href={buildWhatsAppUrl(normalized, INITIAL_MESSAGE)}
+      href={url}
       target="_blank"
       // Sin `noopener`, la pestaña destino recibe `window.opener` y puede
       // redirigir la nuestra (tabnabbing).

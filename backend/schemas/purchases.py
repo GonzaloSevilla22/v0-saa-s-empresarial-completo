@@ -63,6 +63,9 @@ class PurchaseItemOut(BaseModel):
     description: str | None = None
     # cost-center-dimension: optional analytic dimension (nullable)
     cost_center_id: uuid.UUID | None = None
+    # cost-center-surface: nombre del centro para el badge del listado, resuelto
+    # en el mismo query (LEFT JOIN cost_centers) — evita un round-trip extra.
+    cost_center_name: str | None = None
 
     @field_validator("date", mode="before")
     @classmethod

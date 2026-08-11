@@ -31,12 +31,16 @@ async def list_purchases(
     page_size: int = Query(25, ge=1, le=100),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    cost_center_id: uuid.UUID | None = Query(
+        None, description="cost-center-surface: filtra por centro de costo de la operación"
+    ),
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: PurchaseRepository = Depends(get_repo),
 ):
     return await purchases_service.list_purchases_paginated(
         repo, str(account_id), page, page_size, date_from, date_to,
+        str(cost_center_id) if cost_center_id else None,
     )
 
 

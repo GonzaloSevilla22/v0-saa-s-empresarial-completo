@@ -27,7 +27,16 @@ class PurchaseRepository(BaseRepository):
         page_size: int,
         date_from: datetime.date | None = None,
         date_to: datetime.date | None = None,
+        cost_center_id: str | None = None,
     ) -> tuple[list[asyncpg.Record], int]:
+        """Página de compras agrupada por operación.
+
+        cost-center-surface: `cost_center_id` es un filtro OPCIONAL. El centro
+        de costo es un atributo de la OPERACIÓN (todas sus líneas comparten el
+        mismo valor), así que el predicado va dentro de la CTE `op_page` y del
+        COUNT — nunca en el join externo, que devolvería operaciones parciales
+        y descuadraría el `total` de la paginación.
+        """
         total: int = await self._conn.fetchval(
             """
             SELECT COUNT(DISTINCT COALESCE(operation_id::text, id::text))
@@ -35,8 +44,9 @@ class PurchaseRepository(BaseRepository):
             WHERE account_id = $1::uuid
               AND ($2::date IS NULL OR date >= $2::date)
               AND ($3::date IS NULL OR date <= $3::date)
+              AND ($4::uuid IS NULL OR cost_center_id = $4::uuid)
             """,
-            account_id, date_from, date_to,
+            account_id, date_from, date_to, cost_center_id,
         ) or 0
 
         rows: list[asyncpg.Record] = await self._conn.fetch(
@@ -47,24 +57,28 @@ class PurchaseRepository(BaseRepository):
               WHERE account_id = $1::uuid
                 AND ($2::date IS NULL OR date >= $2::date)
                 AND ($3::date IS NULL OR date <= $3::date)
+                AND ($4::uuid IS NULL OR cost_center_id = $4::uuid)
               GROUP BY COALESCE(operation_id::text, id::text)
               ORDER BY MAX(date) DESC
-              LIMIT $4 OFFSET $5
+              LIMIT $5 OFFSET $6
             )
             SELECT p.id, p.date, p.operation_id, p.description,
                    COALESCE(pi2.product_id, p.product_id) AS product_id,
                    COALESCE(pi2.quantity,   p.quantity)   AS quantity,
                    COALESCE(pi2.price,      p.amount)     AS amount,
                    COALESCE(pi2.subtotal,   p.total)      AS total,
-                   pr.name AS product_name
+                   pr.name AS product_name,
+                   p.cost_center_id,
+                   cc.name AS cost_center_name
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
             LEFT JOIN purchase_items pi2 ON pi2.purchase_id = p.id AND pi2.product_id IS NOT NULL
             LEFT JOIN products pr ON COALESCE(pi2.product_id, p.product_id) = pr.id
+            LEFT JOIN cost_centers cc ON cc.id = p.cost_center_id
             WHERE p.account_id = $1::uuid
             ORDER BY p.date DESC, p.id
             """,
-            account_id, date_from, date_to, page_size, page * page_size,
+            account_id, date_from, date_to, cost_center_id, page_size, page * page_size,
         )
         return rows, total
 

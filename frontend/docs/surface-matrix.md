@@ -14,7 +14,7 @@
 
 | Ruta | Clase | Notas |
 |---|---|---|
-| `/` (`app/page.tsx`, `LandingPageFull`) | `3d` ✅ | Landing pública principal — `HeroSceneMount` montado en `Hero()` (`LandingPageFull.tsx`), bloque `hidden lg:block` sobre la estructura editable existente. `LandingManager` (editor admin) no renderiza `LandingPageFull`/`HeroSection` — es un CRUD de lista sin preview embebido, cero riesgo de romperse. |
+| `/` (`app/page.tsx`, `LandingPageFull`) | `3d` ✅ | Landing pública principal — `HeroSceneMount` montado en `Hero()` (`LandingPageFull.tsx`), bloque `hidden lg:block` sobre la estructura editable existente. `LandingManager` (editor admin) no renderiza `LandingPageFull`/`HeroSection` — es un CRUD de lista sin preview embebido, cero riesgo de romperse. **Elemento flotante ocupado**: `WhatsAppFab` (change `landing-whatsapp-fab`) vive en la esquina **inferior derecha** con `z-40`, montado en `app/page.tsx` — no en `LandingPageFull` — para no entrar al bundle de cliente y para que su alcance sea exclusivo de esta ruta. Un futuro flotante (cookies, chat) debe ubicarse sabiendo que esta esquina está tomada. |
 | `/landing` (`app/landing/page.tsx`, `LandingRenderer`) | `3d` ✅ | Variante de renderer — mismo `HeroSceneMount` montado en `HeroSection.tsx`. |
 | `/legal/privacidad`, `/legal/terminos` | `refresh-only` | Texto legal estático, sin motion. |
 

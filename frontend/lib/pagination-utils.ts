@@ -29,6 +29,15 @@ export interface FilterParams {
   dateTo:   string
   sortKey:  string | null
   sortDir:  SortDir
+  /**
+   * Filtros propios de la pantalla (cost-center-surface). El hook no los
+   * interpreta: los pasa tal cual a `applyFilters` y los usa para saber cuándo
+   * refetchear. Un valor `null`/`""` significa "sin filtro".
+   *
+   * Son *controlados por el caller*: `clearFilters()` limpia búsqueda y fechas
+   * (estado del hook) pero no toca estos, que viven en la pantalla.
+   */
+  extraFilters?: Record<string, string | null>
 }
 
 // ─── Pagination metadata returned by the hook ─────────────────────────────────

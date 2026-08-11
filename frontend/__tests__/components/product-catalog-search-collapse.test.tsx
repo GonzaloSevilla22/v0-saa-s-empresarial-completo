@@ -45,8 +45,16 @@ const child: Product = {
   isVariant: true, parentId: "parent-1", stockControlType: "tracked",
 }
 
-async function renderCatalog() {
-  const { ProductCatalog } = await import("@/components/products/product-catalog")
+// Import a nivel de módulo (los vi.mock de arriba están hoisted, así que ya
+// aplican). NO moverlo adentro de los tests: el árbol de ProductCatalog es
+// pesado y un import dinámico dentro del primer test puede exceder el
+// testTimeout de 5s bajo contención (CI, caches fríos, workers en paralelo);
+// vitest mata el test pero la continuación zombie monta un catálogo extra
+// durante el test siguiente → "found multiple elements" (hallazgo H-3 del
+// informe QA del PR #361).
+const { ProductCatalog } = await import("@/components/products/product-catalog")
+
+function renderCatalog() {
   render(
     <ProductCatalog
       products={[parent, child]}
@@ -68,8 +76,8 @@ function search(term: string) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 describe("ProductCatalog — search keeps variant groups collapsed", () => {
   // ── RED → GREEN: parent-name match stays collapsed ───────────────────────
-  it("does not auto-expand a matching group when searching (variants hidden)", async () => {
-    await renderCatalog()
+  it("does not auto-expand a matching group when searching (variants hidden)", () => {
+    renderCatalog()
     search("Remera Afa")
 
     expect(screen.getAllByText(PARENT).length).toBeGreaterThan(0) // group is shown
@@ -77,8 +85,8 @@ describe("ProductCatalog — search keeps variant groups collapsed", () => {
   })
 
   // ── TRIANGULATE: child-only match still surfaces the (collapsed) parent ──
-  it("surfaces a group when only a child matches, still collapsed", async () => {
-    await renderCatalog()
+  it("surfaces a group when only a child matches, still collapsed", () => {
+    renderCatalog()
     search("Celeste")
 
     expect(screen.getAllByText(PARENT).length).toBeGreaterThan(0)
@@ -86,8 +94,8 @@ describe("ProductCatalog — search keeps variant groups collapsed", () => {
   })
 
   // ── TRIANGULATE: manual expand still works after searching ───────────────
-  it("expands the group on demand after searching", async () => {
-    await renderCatalog()
+  it("expands the group on demand after searching", () => {
+    renderCatalog()
     search("Remera Afa")
     expect(screen.queryAllByText(CHILD)).toHaveLength(0)
 

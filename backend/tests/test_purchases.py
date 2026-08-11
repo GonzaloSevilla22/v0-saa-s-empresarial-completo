@@ -151,3 +151,190 @@ async def test_list_purchases_page_size_over_max_returns_422(async_client, valid
     assert resp.status_code == 422
     assert resp.headers["content-type"].startswith("application/problem+json")
     conn.fetch.assert_not_awaited()
+
+
+# ── cost-center-surface: filtro por centro de costo en el listado ───────────
+#
+# El centro de costo es un atributo DE LA OPERACIÓN (todas las líneas de una
+# compra comparten el mismo valor), y la paginación de compras es por
+# operación. Por eso el filtro tiene que entrar en la CTE `op_page` y en el
+# COUNT — si se aplicara en el JOIN final devolvería operaciones parciales y
+# descuadraría el `total` (design.md Decisión 6).
+
+COST_CENTER_ID = "33333333-3333-3333-3333-333333333333"
+
+
+def _capture_queries(conn):
+    """Registra (query, args) de fetch y fetchval del listado paginado."""
+    captured: dict[str, tuple] = {}
+
+    async def fetchval_side_effect(query, *args):
+        captured["count"] = (query, args)
+        return 0
+
+    async def fetch_side_effect(query, *args):
+        captured["rows"] = (query, args)
+        return []
+
+    conn.fetchval = AsyncMock(side_effect=fetchval_side_effect)
+    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+    return captured
+
+
+async def test_list_purchases_filters_by_cost_center(async_client, valid_token, mock_pool):
+    """GET /purchases?cost_center_id=... propaga el uuid a la query de datos."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/purchases?cost_center_id={COST_CENTER_ID}",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    rows_query, rows_args = captured["rows"]
+    assert "cost_center_id" in rows_query
+    assert str(COST_CENTER_ID) in [str(a) for a in rows_args]
+
+
+async def test_list_purchases_cost_center_filter_applies_to_count(
+    async_client, valid_token, mock_pool
+):
+    """El COUNT recibe el mismo filtro: si no, `total` y `pages` mienten."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/purchases?cost_center_id={COST_CENTER_ID}",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    count_query, count_args = captured["count"]
+    assert "cost_center_id" in count_query
+    assert str(COST_CENTER_ID) in [str(a) for a in count_args]
+
+
+async def test_list_purchases_cost_center_filter_lives_inside_op_page_cte(
+    async_client, valid_token, mock_pool
+):
+    """Decisión 6: el predicado va DENTRO de la CTE op_page, no en el join final.
+
+    Se verifica posicionalmente: el filtro tiene que aparecer antes del cierre
+    de la CTE (el `SELECT p.id` que arranca la query externa).
+    """
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/purchases?cost_center_id={COST_CENTER_ID}",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    filter_pos = rows_query.find("cost_center_id")
+    outer_select_pos = rows_query.find("SELECT p.id")
+    assert filter_pos != -1 and outer_select_pos != -1
+    assert filter_pos < outer_select_pos, (
+        "el filtro de centro de costo debe aplicarse dentro de la CTE op_page"
+    )
+
+
+async def test_list_purchases_without_cost_center_passes_none(
+    async_client, valid_token, mock_pool
+):
+    """REGRESIÓN: sin el query param, el filtro viaja como None (no filtra)."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    _, rows_args = captured["rows"]
+    _, count_args = captured["count"]
+    assert None in rows_args
+    assert None in count_args
+    assert resp.json()["total"] == 0
+
+
+async def test_list_purchases_cost_center_combines_with_date_range(
+    async_client, valid_token, mock_pool
+):
+    """TRIANGULATE: el filtro se compone con date_from/date_to."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/purchases?cost_center_id={COST_CENTER_ID}"
+            "&date_from=2026-01-01&date_to=2026-01-31",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    _, rows_args = captured["rows"]
+    as_text = [str(a) for a in rows_args]
+    assert str(COST_CENTER_ID) in as_text
+    assert "2026-01-01" in as_text
+    assert "2026-01-31" in as_text
+
+
+async def test_list_purchases_invalid_cost_center_returns_422(
+    async_client, valid_token, mock_pool
+):
+    """TRIANGULATE: un cost_center_id que no es uuid → 422 problem+json."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[])
+    conn.fetchval = AsyncMock(return_value=0)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases?cost_center_id=no-es-un-uuid",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    conn.fetch.assert_not_awaited()
+
+
+async def test_list_purchases_exposes_cost_center_of_the_operation(
+    async_client, valid_token, mock_pool
+):
+    """La fila devuelta expone cost_center_id + nombre para el badge de la UI."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "p.cost_center_id" in rows_query
+    assert "cost_centers" in rows_query
+    assert "cost_center_name" in rows_query
+
+
+async def test_list_purchases_row_keeps_cost_center_name_in_response(
+    async_client, valid_token, mock_pool
+):
+    """El schema de salida no descarta el nombre del centro (badge del listado)."""
+    pool, conn = mock_pool
+    row = {
+        "id": PURCHASE_ID,
+        "date": "2026-01-15",
+        "operation_id": None,
+        "description": "Insumos",
+        "product_id": None,
+        "quantity": "1",
+        "amount": "100.00",
+        "total": "100.00",
+        "product_name": None,
+        "cost_center_id": COST_CENTER_ID,
+        "cost_center_name": "Logística",
+    }
+    conn.fetch = AsyncMock(return_value=[row])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["cost_center_id"] == COST_CENTER_ID
+    assert item["cost_center_name"] == "Logística"

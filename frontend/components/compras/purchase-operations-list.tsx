@@ -22,6 +22,7 @@ import {
   ShoppingCart, Search, PackageOpen, Download, CalendarDays, X, Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
+import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 
 interface PurchaseOperationsListProps {
   purchases:       Purchase[]
@@ -32,6 +33,9 @@ interface PurchaseOperationsListProps {
   setDateFrom:     (v: string) => void
   dateTo:          string
   setDateTo:       (v: string) => void
+  /** cost-center-surface: filtro por centro de costo de la operación. */
+  costCenterId:    string | null
+  setCostCenterId: (v: string | null) => void
   clearFilters:    () => void
   onPageChange:    (page: number) => void
   onPageSizeChange:(size: PageSizeOption) => void
@@ -43,7 +47,8 @@ interface PurchaseOperationsListProps {
 
 export function PurchaseOperationsList({
   purchases, meta, loading, error,
-  dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
+  dateFrom, setDateFrom, dateTo, setDateTo,
+  costCenterId, setCostCenterId, clearFilters,
   onPageChange, onPageSizeChange,
   onAdd, onDeleteOperation, onEditOperation, onRefetch,
 }: PurchaseOperationsListProps) {
@@ -161,6 +166,18 @@ export function PurchaseOperationsList({
               </div>
             </PopoverContent>
           </Popover>
+
+          {/* cost-center-surface: filtro por centro de costo (server-side) */}
+          <div className="w-full sm:w-56">
+            <CostCenterSelect
+              value={costCenterId}
+              onChange={setCostCenterId}
+              placeholder="Todos los centros"
+              showLabel={false}
+              includeInactive
+              className={`bg-background border-border text-foreground ${costCenterId ? "border-primary text-primary" : ""}`}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -217,9 +234,11 @@ export function PurchaseOperationsList({
           <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             <PackageOpen className="h-10 w-10 opacity-30" />
             <p className="text-sm">
-              {search || isDateFilterActive ? "Sin resultados para esa búsqueda" : "No hay compras registradas"}
+              {search || isDateFilterActive || costCenterId
+                ? "Sin resultados para esos filtros"
+                : "No hay compras registradas"}
             </p>
-            {!search && !isDateFilterActive && onAdd && (
+            {!search && !isDateFilterActive && !costCenterId && onAdd && (
               <Button variant="outline" size="sm" onClick={onAdd} className="gap-2">
                 <Plus className="h-4 w-4" />Registrar primera compra
               </Button>
@@ -272,6 +291,11 @@ export function PurchaseOperationsList({
                     </div>
                     <span className="text-sm font-bold text-cyan-400 tabular-nums shrink-0">{formatMoney(op.total)}</span>
                   </div>
+                  {op.items[0]?.costCenterName && (
+                    <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
+                      {op.items[0].costCenterName}
+                    </Badge>
+                  )}
                 </div>
 
                 {/* Desktop */}
@@ -283,6 +307,11 @@ export function PurchaseOperationsList({
                     <span className="text-sm font-medium text-foreground truncate">
                       {op.items.map((i) => i.productName).join(" · ")}
                     </span>
+                    {op.items[0]?.costCenterName && (
+                      <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
+                        {op.items[0].costCenterName}
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex justify-center">
                     {op.isGrouped

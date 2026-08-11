@@ -1,0 +1,89 @@
+> **Modo TDD estricto activo.** Cada grupo sigue el ciclo RED → GREEN → TRIANGULATE → REFACTOR.
+> Antes de tocar un archivo existente: correr su suite y capturar la línea base ("N tests passing").
+> Si algo ya venía roto, se reporta como fallo preexistente y NO se arregla acá.
+
+## 1. Read-model `rpc_cost_center_report` (migración)
+
+> **Verificado local con Docker** (segunda pasada): `supabase start` con el CLI que fija CI
+> (2.105.0) aplicó toda la cadena, migración nueva incluida, y sus gates corrieron contra
+> Postgres real. Con el CLI 2.111.0 la cadena **se corta antes**, en la migración preexistente
+> `20260824000001_revoke_anon_rest_legit_fns.sql` (`GATE POS FAILED: rpc_admin_business_kpis
+> quedó SIN EXECUTE para authenticated`) — fallo de entorno ajeno a este change, reportado y
+> no tocado.
+
+- [x] 1.1 **[SAFETY NET]** Correr `pytest backend/tests -q` y la suite de vitest del frontend; anotar la línea base de ambas en el resumen final — backend **1261 passed, 3 skipped**; frontend **707 passed, 2 failed** (fallo PREEXISTENTE en `product-catalog-search-collapse.test.tsx`, no se toca)
+- [x] 1.2 **[RED]** Gates de introspección escritos y **demostrados no vacuos**: con una versión del RPC que suma `p.amount` en vez de `COALESCE(p.total, p.amount)` (la regresión exacta que subvaluó el revenue de prod 17,53%), el gate aborta con `GATE INTROSPECCION FAILED`. Probado en transacción con `ROLLBACK` sobre la DB local
+- [x] 1.3 **[GREEN]** Crear la migración `supabase/migrations/20260901000001_cost_center_report.sql` con `CREATE OR REPLACE FUNCTION public.rpc_cost_center_report(p_account_id uuid, p_start date, p_end date)`: `SECURITY DEFINER`, `SET search_path TO 'public'`, verificación de membership contra `account_members` con `ERRCODE = 'P0401'`, y `RETURNS TABLE(...)` — se agregó `is_active` a la salida para que la UI marque los centros dados de baja sin un query extra
+- [x] 1.4 **[GREEN]** Agregar `REVOKE ALL ... FROM PUBLIC`, `REVOKE EXECUTE ... FROM anon` y `GRANT EXECUTE ... TO authenticated` (verificado contra `supabase/tests/test_function_acl_gate.sql`: no requiere entrada en la allowlist, que solo cubre lo anon-executable)
+- [x] 1.5 **[TRIANGULATE]** Gates de comportamiento con anchor sintético vía `handle_new_user` + cleanup hijo→padre — el gate **invoca el RPC de verdad** seteando `request.jwt.claims` local para que `auth.uid()` resuelva al anchor (más fuerte que el patrón de `20260814000001`, que solo replicaba la fórmula), con degradación por `NOTICE` si el contexto no lo permite
+- [x] 1.6 **[TRIANGULATE]** Gate de que la suma de todas las filas iguala el costo total del período (invariante de la Decisión 4) + gate extra: una venta en el rango no altera el total
+- [x] 1.7 **[TRIANGULATE]** Gate de autorización: un caller que no es miembro de `p_account_id` recibe `P0401`
+- [x] 1.8 **[REFACTOR]** Idempotencia verificada: dos pasadas seguidas del archivo con `ON_ERROR_STOP=1`, ambas con los dos gates en PASSED y exit 0; el anchor sintético queda en 0 filas después de cada pasada
+- [x] 1.9 Un solo overload confirmado (`pg_get_function_identity_arguments` → `p_account_id uuid, p_start date, p_end date`), `prosecdef = t`, y ACLs verificadas con `has_function_privilege`: **anon `f` / authenticated `t`**
+
+> **Verificación funcional independiente** (script aparte del gate, con otros números para
+> triangular de verdad): compra de 2 líneas + compra legacy sin `operation_id` → `total_purchases`
+> 4300 con `COALESCE(total, amount)` y `operation_count` 3; gasto fuera del rango excluido;
+> centro desactivado legible con decimales intactos (1234.56); fila "Sin centro de costo";
+> suma de filas = 6783.56 con la venta del período sin participar; orden descendente por costo;
+> `P0401` sin membresía.
+
+## 2. Filtro por centro de costo en el listado de compras (backend)
+
+- [x] 2.1 **[SAFETY NET]** Correr `pytest backend/tests/test_purchases*.py -q` y anotar la línea base — **8 passed**
+- [x] 2.2 **[RED]** Test de repository/listado con `cost_center_id` — 6 tests nuevos fallando antes de implementar
+- [x] 2.3 **[GREEN]** Implementar el parámetro opcional en `backend/repositories/purchase_repository.py`, aplicándolo **dentro de la CTE `op_page` y del `COUNT`** (Decisión 6), con el patrón `AND ($4::uuid IS NULL OR cost_center_id = $4::uuid)` — con test posicional que falla si el predicado se mueve al join externo
+- [x] 2.4 **[GREEN]** Exponer `cost_center_id` y `cost_center_name` en las filas devueltas (LEFT JOIN a `cost_centers`) y en `PurchaseItemOut` de `backend/schemas/purchases.py` — aditivo, sin renombrar ni quitar campos
+- [x] 2.5 **[RED→GREEN]** `backend/services/purchases.py`: `list_purchases_paginated` acepta y propaga `cost_center_id`
+- [x] 2.6 **[RED→GREEN]** `backend/routers/purchases.py`: query param opcional `cost_center_id: uuid.UUID | None = Query(None)`; sin el param, la respuesta es idéntica a la actual (test de regresión)
+- [x] 2.7 **[TRIANGULATE]** Casos cubiertos: filtro en la query de datos y en el COUNT; posición dentro de la CTE; sin filtro → `None`; combinado con `date_from`/`date_to`; uuid inválido → 422 problem+json sin tocar la DB; el nombre del centro sobrevive el schema de salida
+- [x] 2.8 **[REFACTOR]** Contrato `{items, total, page, pages}` intacto — los tests de envelope preexistentes siguen verdes (**15 passed**)
+
+## 3. `extraFilters` en `usePaginatedQuery` (capa canónica)
+
+- [x] 3.1 **[SAFETY NET]** Línea base de vitest tomada en 1.1 (707 passed / 2 preexistentes en rojo)
+- [x] 3.2 **[RED]** `__tests__/hooks/use-paginated-query-extra-filters.test.ts` — 5 de 6 tests fallando antes de implementar
+- [x] 3.3 **[GREEN]** `extraFilters?: Record<string, string | null>` en `UsePaginatedQueryOptions` y en `FilterParams`; viaja serializado en las deps de `fetchPage` y llega a `applyFilters`
+- [x] 3.4 **[TRIANGULATE]** Regresión sin `extraFilters` cubierta (mismo comportamiento, `params.extraFilters` undefined, sin fetches de más) — protege `/clientes`
+- [x] 3.5 **[TRIANGULATE]** `clearFilters()` con `extraFilters` presente: limpia búsqueda y fechas y no toca el filtro de la pantalla (documentado como controlado por el caller)
+- [x] 3.6 **[REFACTOR]** Docblock del hook actualizado con el ejemplo del filtro extra y la razón de no capturarlo en el closure — **6 passed**
+
+> Detalle de implementación: el reset a página 0 usa el patrón de ajuste de estado
+> durante el render en vez de un `useEffect`, para que un cambio de filtro no dispare
+> un fetch intermedio con la página vieja que después haya que abortar.
+
+## 4. Superficie: gestión del catálogo en `/configuracion`
+
+- [ ] 4.1 **[RED]** Test de render del tab — **no escrito**: la página de configuración monta 6 secciones con contextos de auth/plan/query; un test de render pediría más andamiaje de mocks que valor. El montaje se verifica en 7.2 (E2E) y por el 200 de la ruta
+- [x] 4.2 **[GREEN]** `TabsTrigger` + `TabsContent` en `frontend/app/(dashboard)/configuracion/page.tsx` importando `CostCenterManager` **sin modificarlo**, con copy que explica para qué sirve la dimensión
+- [x] 4.3 **[GREEN]** `TabsList` a `grid-cols-3 sm:grid-cols-4 lg:grid-cols-7` (Decisión 8), ícono `Tags` de lucide
+- [x] 4.4 **[TRIANGULATE]** El gate `isWriter` ya vive dentro de `CostCenterManager` (verificado por lectura: el botón "Nuevo" y las acciones por fila cuelgan de `isWriter`); no se duplica en la página
+- [x] 4.5 **[REFACTOR]** Verificación visual hecha en el navegador con sesión real: los 7 tabs se acomodan **3+3+1 en 375px** sin recortes y en una sola fila desde `lg`; el manager lista los 3 centros con su código y el badge "Inactivo" en el dado de baja; botón "Nuevo" visible con rol `owner`
+
+## 5. Superficie: pantalla `/reportes/centros-costo`
+
+- [x] 5.1 **[RED]** `__tests__/cost-center-report.test.ts` contra `lib/cost-center-report.ts` (inexistente) — 8 tests en rojo
+- [x] 5.2 **[GREEN]** `frontend/app/(dashboard)/reportes/centros-costo/page.tsx` con el patrón de `/reportes/sucursal`: React Query + `supabase.rpc("rpc_cost_center_report")`, rango por defecto mes en curso, barras (Recharts) + tabla con pie de totales. El `accountId` sale de `useAuth()` (como `useOrgRole`), no del `user_metadata` que usa la pantalla de sucursal
+- [x] 5.3 **[GREEN]** Estado vacío propio ("Sin costos en el período seleccionado" + cómo crear centros) y copy que aclara que mide **costos**, no margen
+- [x] 5.4 **[GREEN]** Entrada "Centros de costo" en el grupo "Inteligencia" del sidebar con `pro: false, proOnly: false` (Decisión 7)
+- [x] 5.5 **[TRIANGULATE]** Cubierto en el mapeo: fila NULL, centro desactivado, importes nulos/indefinidos, sin filas → totales en 0 (no NaN), y el total incluye lo no imputado — **8 passed**
+- [x] 5.6 **[REFACTOR]** Verificación visual completa. **Encontró un bug real y se arregló** (commit `5e8f130`): a 375px la tabla de 5 columnas hacía scrollear el **body entero** (502 vs 375) porque `MAIN` del shell tiene `min-width:auto` y el ancho mínimo de la tabla empujaba el layout; `/reportes/sucursal` no lo nota porque su tabla de 4 columnas entra. Fix: `min-w-0` en la cadena de flex items propia + en mobile se muestran solo "Centro de costo" y "Costo total" (el resto vuelve desde `sm`). Post-fix: `scrollWidth == clientWidth == 375`. Verificado además en desktop 1280 en **tema claro y oscuro**, con `tabular-nums` activo en las columnas de dinero
+- [x] 5.7 Sin `any`: `CostCenterReportRow` en `lib/types.ts` + `CostCenterReportRawRow` en `lib/cost-center-report.ts`; `tsc --noEmit` limpio
+
+## 6. Superficie: filtro y badge en Gastos y Compras
+
+- [x] 6.1 **[RED]** `__tests__/hooks/use-purchases-cost-center.test.ts` — 5 de 6 en rojo antes de implementar. Del lado de gastos el mecanismo lo cubre el test del grupo 3, que ejercita el `applyFilters` real de la pantalla: un test de la página sería la misma aserción con más andamiaje
+- [x] 6.2 **[GREEN]** `gastos/page.tsx`: selector con opción "Todos los centros" (incluye inactivos, Decisión 9) cableado por `extraFilters`, y badge del centro en cada fila — `mapRow` ya no descarta `cost_center_id`; el vacío ahora distingue "sin resultados" de "no hay gastos" con cualquier filtro activo
+- [x] 6.3 **[GREEN]** `use-purchases.ts`: estado `costCenterId` + query param `cost_center_id`, reset a página 0, y `clearFilters` lo limpia; el mapeo expone `costCenterId`/`costCenterName`
+- [x] 6.4 **[GREEN]** `compras/page.tsx` + `purchase-operations-list.tsx`: selector de filtro y badge del centro a nivel operación (mobile y desktop)
+- [x] 6.5 **[TRIANGULATE]** Cubierto en los tests del hook: combinación con fechas, volver a "Todos", reset de página, y `clearFilters` — **6 passed**
+- [x] 6.6 **[REFACTOR]** No se creó un componente nuevo: se **extendió `CostCenterSelect`** con `includeInactive` y `label`, así el mismo componente sirve para imputar y para filtrar (reutilización antes que repetición). De paso se extrajo `DateButton` de `/reportes/sucursal` a `components/shared/DateRangeButton.tsx` en vez de copiarlo en el reporte nuevo
+
+## 7. Verificación integral y cierre
+
+- [x] 7.1 Suites completas sin regresiones: backend **1269 passed, 3 skipped** (base 1261+3, +8 nuevos); frontend **729 passed en 97 archivos, 0 fallos** (base 707+2 fallos; los 2 rojos del baseline eran flaky — `getMultipleElementsFound` en `product-catalog-search-collapse` — y no reaparecieron). `tsc --noEmit` limpio
+- [x] 7.2 Flujo E2E verificado en el navegador con Supabase local + FastAPI local y sesión real (usuario sintético con magic link, sin contraseñas): catálogo listado en Configuración → reporte mostrando **Local $108.000 / Delivery $93.000 / Sin centro de costo $13.500, total $214.500** → Gastos con el filtro montado y el badge del centro en cada fila (incluido el histórico del centro inactivo). El único paso que no se pudo accionar es abrir el `Select` de Radix por automatización (no responde a los eventos sintéticos del panel); su comportamiento está cubierto por los 6 tests del hook
+- [x] 7.3 Estados vacíos verificados: el reporte muestra su estado vacío propio cuando el rango no tiene costos, y el manager muestra "No hay centros de costo definidos. Creá el primero…" cuando el catálogo está vacío
+- [x] 7.4 Rama `feat/cost-center-surface` + **PR #356**. Checks: `validate-kpis` **pass** (1m46s) — dentro de ese job, "Start Supabase" aplicó toda la cadena de migraciones, así que **los gates de la migración nueva corrieron y pasaron** (introspección + comportamiento sobre DB vacía), igual que el gate de ACLs y los gates de referencias backend/frontend (que validan que `rpc_cost_center_report` existe de verdad en el schema). Vercel **pass**. "Supabase Preview" queda pending: el plan no soporta branching, no es bloqueante
+- [x] 7.5 Post-merge verificado en producción (2026-08-05, PR #356 mergeado tras #357): migración `20260901000001` registrada, ambos `Build and Deploy` en success, `rpc_cost_center_report` con **un solo overload**, `SECURITY DEFINER`, **anon sin EXECUTE / authenticated con EXECUTE**, y el guard de autorización activo (llamarlo sin sesión devuelve `P0401`). Estado de datos en prod que confirma la premisa del change: **0 centros de costo definidos en toda la base** y 0 documentos imputados, con 5 cuentas que sí tienen gastos y compras en los últimos 60 días — esas cuentas ahora ven sus costos bajo "Sin centro de costo" y pueden empezar a imputar
+- [x] 7.6 Resumen final con la tabla de evidencia TDD

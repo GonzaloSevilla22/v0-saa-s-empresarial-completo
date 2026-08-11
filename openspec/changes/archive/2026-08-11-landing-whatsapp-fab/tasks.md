@@ -28,7 +28,7 @@
 
 - [x] 4.1 Documentar `ALIADATA_WHATSAPP_PHONE` en `frontend/.env.example`, con el formato esperado y la nota de que sin ella el botón simplemente no aparece.
 - [x] 4.2 Cargar `ALIADATA_WHATSAPP_PHONE` con el número real en `frontend/.env.local` para poder verificar en local. → Confirmado que `.env.local` está gitignoreado: el número real no viaja al repo.
-- [ ] 4.3 **[PO]** Cargar la variable en Vercel para Production y Preview. Puede hacerse antes del merge: sin el código desplegado, la variable no tiene efecto.
+- [x] 4.3 **[PO]** Cargar la variable en Vercel para Production y Preview. Puede hacerse antes del merge: sin el código desplegado, la variable no tiene efecto. → Cargada por el PO 2026-08-05; verificado en producción que el `href` emite el número real.
 
 ## 5. Verificación visual y de accesibilidad
 
@@ -46,7 +46,7 @@
 
 ## 7. Entrega
 
-- [ ] 7.1 Commit con conventional commits (`feat(landing): boton flotante de WhatsApp en la home`) y co-autoría del agente.
-- [ ] 7.2 Abrir PR contra `main` describiendo alcance, decisión de la env var y capturas desktop + mobile.
-- [ ] 7.3 Esperar checks verdes (incluido `validate-kpis`, no solo Vercel) y mergear.
-- [ ] 7.4 **Verificación post-deploy en producción**: confirmar que el botón aparece en la home real y que el enlace abre la conversación con el número correcto. Es la contraparte necesaria de la degradación silenciosa: si la variable quedó mal cargada, el botón no aparece y nadie se entera.
+- [x] 7.1 Commit con conventional commits (`feat(landing): boton flotante de WhatsApp en la home`) y co-autoría del agente. → `9813e91` en `feat/landing-whatsapp-fab`.
+- [x] 7.2 Abrir PR contra `main` describiendo alcance, decisión de la env var y capturas desktop + mobile. → PR #360. Sin capturas (el pane no componía frames): verificación por geometría/estilos computados, declarado en el PR.
+- [x] 7.3 Esperar checks verdes (incluido `validate-kpis`, no solo Vercel) y mergear. → `validate-kpis` pass (1m49s) + Vercel pass; squash-merge `c0f8eac` 2026-08-05.
+- [x] 7.4 **Verificación post-deploy en producción**: confirmar que el botón aparece en la home real y que el enlace abre la conversación con el número correcto. Es la contraparte necesaria de la degradación silenciosa: si la variable quedó mal cargada, el botón no aparece y nadie se entera. → Verificado 2026-08-05 en browser (`https://wa.me/5492617635174?text=…`, fixed, z-40, 56×56, sin solapamientos al fondo) y re-verificado 2026-08-07 por HTML server-rendered: `/` contiene el enlace con el número real; `/auth/login` y `/landing` NO contienen `wa.me` (alcance exclusivo confirmado en prod).

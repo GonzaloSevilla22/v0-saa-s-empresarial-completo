@@ -1,0 +1,57 @@
+# Gate de pytest del backend FastAPI — el "coverage mínimo verificado en CI"
+# prometido en Fase 5 (CLAUDE.md) que nunca se materializó: la suite (~1269
+# tests) solo corría a mano, el mismo patrón de gap que dejó invisibles al
+# flake H-3 y a la RPC de credit_note rota (informe QA PR #361).
+#
+# La suite es HERMÉTICA: asyncpg/Redis/supabase mockeados (ver
+# backend/tests/conftest.py — ASGITransport in-process, JWT de test con
+# python-jose). No necesita supabase start ni servicios: corre en ~30s.
+# Los tests `-m integration` (servicios externos reales) quedan fuera del
+# gate por diseño — el marker lo documenta desde su creación.
+#
+# Coverage: solo código de app (omit de tests/ vía [tool.coverage.run] en
+# backend/pyproject.toml — pasado explícito con --cov-config porque
+# coverage.py no lo busca fuera del CWD). Línea base 2026-08-11: 88.84%.
+# Piso 87%: bajar de ahí es una regresión real de cobertura, no ruido.
+name: Backend Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/Backend_Tests.yml'
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      # requirements.txt = deps de la app (PyJWT incluido). Los tests además
+      # necesitan python-jose (forja de JWTs en conftest) — está en las deps
+      # del pyproject pero no en requirements.txt, que es el contrato de
+      # deploy de Render.
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov "python-jose[cryptography]"
+
+      - name: Run pytest with coverage floor
+        run: >
+          python -m pytest backend/tests -m "not integration"
+          --cov=backend
+          --cov-config=backend/pyproject.toml
+          --cov-report=term
+          --cov-fail-under=87

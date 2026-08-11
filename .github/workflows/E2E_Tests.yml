@@ -1,8 +1,9 @@
 # Gate E2E (Playwright) sobre la fundación del PR #361: login/logout, rutas
-# protegidas y dashboard con KPIs, contra el stack LOCAL completo — Supabase
-# local (cadena de migraciones entera) + Next dev server (lo levanta el
-# webServer de playwright.config.ts). Sin backend FastAPI: los specs solo
-# exigen visibilidad/redirects y el KpiSummaryBlock renderiza "—" sin datos.
+# protegidas, dashboard con KPIs y camino híbrido completo (backend.spec.ts),
+# contra el stack LOCAL entero — Supabase local (cadena de migraciones
+# completa) + backend FastAPI (uvicorn, JWT-passthrough contra el JWT_SECRET
+# local, Redis deshabilitado por REDIS_URL vacía) + Next dev server (lo
+# levanta el webServer de playwright.config.ts).
 # El env-guard de las fixtures aborta si algo apunta fuera de localhost.
 name: E2E Tests
 
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
+      - 'backend/**'
       - 'supabase/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
@@ -66,15 +68,55 @@ jobs:
             supabase status -o env
             exit 1
           fi
+          if [ -z "$DB_URL" ] || [ -z "$JWT_SECRET" ]; then
+            echo "::error::supabase status no expuso DB_URL/JWT_SECRET (los necesita el backend FastAPI)"
+            exit 1
+          fi
           {
             echo "NEXT_PUBLIC_SUPABASE_URL_LOCAL=$API_URL"
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY_LOCAL=$ANON_KEY"
             echo "SUPABASE_URL=$API_URL"
             echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "DATABASE_URL=$DB_URL"
+            echo "SUPABASE_JWT_SECRET=$JWT_SECRET"
           } >> "$GITHUB_ENV"
 
       - name: Seed QA users
         run: node frontend/e2e/fixtures/seed-users.mjs
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      # El pool asyncpg conecta al DATABASE_URL local en el arranque (min_size=2).
+      # REDIS_URL vacía = Redis deshabilitado con warning (rate limiting off) —
+      # comportamiento documentado de backend/core/redis_client.py.
+      - name: Start FastAPI backend
+        env:
+          BACKEND_ALLOWED_ORIGIN: http://localhost:3000
+          REDIS_URL: ''
+          WSFE_ADAPTER_MODE: stub
+        run: |
+          nohup python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 > backend-uvicorn.log 2>&1 &
+
+      - name: Wait for backend health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              echo "backend arriba ($((i*2))s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::el backend no respondió /health en 60s"
+          tail -80 backend-uvicorn.log
+          exit 1
 
       - name: Install Playwright browsers
         run: pnpm -C frontend exec playwright install --with-deps chromium
@@ -90,4 +132,5 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
+            backend-uvicorn.log
           retention-days: 7

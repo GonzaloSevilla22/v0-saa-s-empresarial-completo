@@ -32,3 +32,8 @@ testpaths = ["tests"]
 markers = [
     "integration: tests de integración contra servicios externos (excluidos del gate de CI; correr con -m integration)",
 ]
+
+# Coverage del gate de CI (Backend_Tests.yml): medir solo código de app —
+# contar los tests a sí mismos infla el número (~96% vs ~91% real).
+[tool.coverage.run]
+omit = ["*/tests/*", "*/.venv/*"]

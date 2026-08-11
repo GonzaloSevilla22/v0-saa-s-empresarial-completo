@@ -42,7 +42,15 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: true,
+    // false a propósito: con true, un `pnpm dev` ya corriendo en :3000 con el
+    // .env.local REAL (Supabase de producción) se reutilizaría en silencio — el
+    // env-guard no lo detecta porque solo inspecciona el env de ESTE proceso,
+    // nunca a qué apunta el server ya levantado, y el `env` de abajo solo
+    // aplica al server que Playwright lanza. Con false, Playwright aborta si el
+    // puerto está ocupado: parar el dev server antes de correr E2E. En CI no
+    // cambia nada (el runner no tiene server previo; E2E_Tests.yml deja que
+    // Playwright lo lance).
+    reuseExistingServer: false,
     timeout: 240_000,
     stdout: 'pipe',
     stderr: 'pipe',

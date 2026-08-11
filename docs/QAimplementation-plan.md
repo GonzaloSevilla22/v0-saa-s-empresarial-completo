@@ -3,6 +3,17 @@
 > Estado al preservar la base QA: **fundación E2E implementada; revalidación posterior al warm-up pendiente**.
 > Este documento nunca debe contener contraseñas, tokens, cookies, JWT, claves ni sesiones.
 
+> ⚠️ **Erratum (2026-08-11)**: dos diagnósticos de este registro quedaron
+> refutados al verificarlos contra CI y producción — el "gap real en la
+> secuencia de migraciones" (§Drift) era drift de la DB local de esta sesión,
+> no de la cadena (CI corrió siempre verde con esos gates; prod ya tenía los
+> grants), y la historia de H-1 (§5) era incorrecta (`operation_id` fue
+> `NOT NULL` en `20260531230737` y se volvió nullable a propósito en
+> `20260804000005` con sign-off del PO; la rama que se sugería revisar ya
+> estaba mergeada como PR #247 y era la CAUSA del estado, no su fix). Detalle
+> completo en el Erratum de [QA-informe-2026-08-05.md](QA-informe-2026-08-05.md).
+> H-1 resuelto en PRs #362/#367/#369 corrigiendo el test, no el schema.
+
 ## Reglas de seguridad
 
 - Ejecutar E2E únicamente contra servicios locales.

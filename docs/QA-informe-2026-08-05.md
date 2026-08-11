@@ -7,6 +7,41 @@
 
 ---
 
+## ⚠️ Erratum (2026-08-11, post-review del PR #361)
+
+Dos diagnósticos de este informe resultaron incorrectos al verificarlos contra
+CI y producción. El informe se conserva como registro histórico; leer con estas
+correcciones:
+
+1. **§4 / H-5 — el "gap real en la cadena de migraciones" NO existe en CI ni en
+   producción.** `validate-kpis` corre la cadena completa (con los gates de
+   `20260824000001`/`20260826000001`) sobre DB fresca en cada PR y estuvo verde
+   sin interrupción desde que esas migraciones mergearon: los *default
+   privileges* de Supabase otorgan EXECUTE explícito a `authenticated` al crear
+   cada función, así que un `db reset` fresco nunca pegó contra ese muro. El
+   abort ocurrió solo en la DB local de esta sesión QA (restaurada con drift,
+   sin esos default privileges). En producción las 6 funciones ya tenían ACL
+   `{postgres, authenticated, service_role}` y ambas migraciones ya estaban
+   aplicadas (verificado contra `pg_proc` el 2026-08-07). Las 2 migraciones de
+   grants del PR son no-ops inofensivos que igual endurecen entornos sin
+   default privileges — el H-5 "prioritario" quedó respondido: no había nada
+   roto que verificar.
+
+2. **§5 / H-1 — la proveniencia era falsa y el puntero de remediación,
+   peligroso.** `operation_id` NO "es nullable desde su creación": fue puesto
+   `NOT NULL` en `20260531230737` y vuelto nullable **a propósito** en
+   `20260804000005` (los marcadores del consumer del outbox insertan NULL por
+   diseño, con sign-off del PO — ver el header de esa migración). La rama
+   `fix/outbox-idempotency-operation-id-nullable` que este informe sugería
+   revisar ya estaba mergeada (PR #247) y es la que introdujo ese estado
+   deliberadamente. Restaurar `NOT NULL` habría roto el consumer del outbox en
+   producción; lo stale era el test. Resuelto correctamente en PRs #362 (test
+   al contrato real), #367 (contrato como CHECK) y #369 (auditoría completa).
+
+De los "2 fallos reales" de Vitest (§Cobertura), solo `product-catalog-search-collapse`
+reprodujo en `main` (corregido en PR #364); `useCapabilityGate` pasa 4/4 y fue
+ruido del entorno WSL2.
+
 ## 1. Resumen ejecutivo
 
 **Toda la verificación ejecutable quedó en verde.** Se destrabó el entorno local

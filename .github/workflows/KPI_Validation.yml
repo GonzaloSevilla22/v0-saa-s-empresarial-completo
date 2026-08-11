@@ -40,6 +40,15 @@ jobs:
       - name: Run function ACL anti-regression gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_function_acl_gate.sql
 
+      # Invariantes del ledger de idempotencia (H-1 QA #361): contrato por-fila
+      # de operation_id, kinds del CHECK en sincronía con los escritores, y
+      # conflict targets de los RPCs contra el UNIQUE real de 3 columnas.
+      # rpc_issue_credit_note vivió rota ~1 mes (kind fuera del CHECK + ON
+      # CONFLICT contra un constraint eliminado) sin que nada lo detectara:
+      # este test solo corría a mano.
+      - name: Run idempotency ledger invariants
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_idempotency.sql
+
       # Postmortem `organizations`: un repositorio del backend consultaba una
       # tabla `organizations` que nunca existió en el schema real durante ~2
       # meses — los tests unitarios mockeaban asyncpg, así que nada ejecutaba

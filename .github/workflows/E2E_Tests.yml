@@ -1,0 +1,93 @@
+# Gate E2E (Playwright) sobre la fundación del PR #361: login/logout, rutas
+# protegidas y dashboard con KPIs, contra el stack LOCAL completo — Supabase
+# local (cadena de migraciones entera) + Next dev server (lo levanta el
+# webServer de playwright.config.ts). Sin backend FastAPI: los specs solo
+# exigen visibilidad/redirects y el KpiSummaryBlock renderiza "—" sin datos.
+# El env-guard de las fixtures aborta si algo apunta fuera de localhost.
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'supabase/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/E2E_Tests.yml'
+
+concurrency:
+  group: e2e-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Credenciales de usuarios QA — SOLO existen en el Supabase efímero del
+      # runner (seed-users.mjs los crea tras `supabase start`). No son secretos.
+      QA_TEST_USER_EMAIL: qa.e2e@local.test
+      QA_TEST_USER_PASSWORD: qa-e2e-ci-password-1
+      QA_LOGOUT_USER_EMAIL: qa.logout@local.test
+      QA_LOGOUT_USER_PASSWORD: qa-logout-ci-password-1
+      # El backend no corre en CI; el env-guard solo exige que la URL sea local.
+      NEXT_PUBLIC_BACKEND_URL_LOCAL: http://localhost:8000
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase (aplica la cadena de migraciones completa)
+        run: supabase start
+
+      - name: Export local Supabase env
+        run: |
+          eval "$(supabase status -o env)"
+          if [ -z "$API_URL" ] || [ -z "$ANON_KEY" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            echo "::error::supabase status no expuso API_URL/ANON_KEY/SERVICE_ROLE_KEY — revisar formato de 'supabase status -o env'"
+            supabase status -o env
+            exit 1
+          fi
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL_LOCAL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY_LOCAL=$ANON_KEY"
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Seed QA users
+        run: node frontend/e2e/fixtures/seed-users.mjs
+
+      - name: Install Playwright browsers
+        run: pnpm -C frontend exec playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: pnpm -C frontend exec playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7

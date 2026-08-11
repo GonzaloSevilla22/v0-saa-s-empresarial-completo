@@ -73,3 +73,4 @@ backend/.afip-homo/
 frontend/test-results/
 frontend/playwright-report/
 frontend/e2e/.auth/
+frontend/test-results/

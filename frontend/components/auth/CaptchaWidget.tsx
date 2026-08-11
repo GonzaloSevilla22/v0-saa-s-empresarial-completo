@@ -1,6 +1,6 @@
 "use client"
 
-import { forwardRef, useImperativeHandle, useRef } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { Turnstile, type TurnstileInstance, type TurnstileTheme } from "@marsidev/react-turnstile"
 
 export interface CaptchaWidgetHandle {
@@ -33,11 +33,29 @@ interface CaptchaWidgetProps {
 export const CaptchaWidget = forwardRef<CaptchaWidgetHandle, CaptchaWidgetProps>(
   function CaptchaWidget({ onVerify, onExpire, onError, theme = "auto", className }, ref) {
     const innerRef = useRef<TurnstileInstance | undefined>(undefined)
+    const [isLocalPlaywright, setIsLocalPlaywright] = useState(false)
     const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
+    useEffect(() => {
+      const isLocalHost = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+      const shouldUseLocalStub =
+        process.env.NODE_ENV !== "production" &&
+        process.env.NEXT_PUBLIC_PLAYWRIGHT_LOCAL === "true" &&
+        isLocalHost
+
+      if (shouldUseLocalStub) {
+        setIsLocalPlaywright(true)
+        onVerify("playwright-local-captcha-stub")
+      }
+    }, [onVerify])
 
     useImperativeHandle(ref, () => ({
       reset: () => innerRef.current?.reset(),
     }), [])
+
+    if (isLocalPlaywright) {
+      return <span data-testid="captcha-local-stub" className="sr-only">Captcha local de Playwright</span>
+    }
 
     if (!siteKey) {
       return (

@@ -68,3 +68,8 @@ backend/.afip-homo/
 /PLAN_IMPLEMENTACION_ALIADATA.docx
 /audit/
 /v4/
+
+# Playwright (QA, Fase A)
+frontend/test-results/
+frontend/playwright-report/
+frontend/e2e/.auth/

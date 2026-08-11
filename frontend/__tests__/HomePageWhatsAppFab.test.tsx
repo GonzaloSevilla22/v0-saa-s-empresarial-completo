@@ -20,8 +20,14 @@ vi.mock("@/app/actions/landing", () => ({
   getLandingSectionsAction: vi.fn(async () => []),
 }))
 
+// El mock captura las props para poder asertar el cableado del footer
+// (contactWhatsAppUrl) además del montaje del FAB.
+const landingPageFullProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }))
 vi.mock("@/components/landing/LandingPageFull", () => ({
-  LandingPageFull: () => <div data-testid="landing-page-full" />,
+  LandingPageFull: (props: Record<string, unknown>) => {
+    landingPageFullProps.current = props
+    return <div data-testid="landing-page-full" />
+  },
 }))
 
 import HomePage from "@/app/page"
@@ -69,5 +75,22 @@ describe("HomePage — botón flotante de WhatsApp", () => {
 
     expect(screen.getByTestId("landing-page-full")).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /whatsapp/i })).toBeNull()
+  })
+
+  // ── Footer "Contacto": la page computa la URL y se la pasa a la landing ────
+  it("passes the WhatsApp URL to LandingPageFull for the footer Contacto link", async () => {
+    process.env.ALIADATA_WHATSAPP_PHONE = "+54 9 2617 63-5174"
+
+    render(await HomePage())
+
+    expect(landingPageFullProps.current?.contactWhatsAppUrl).toContain(
+      "https://wa.me/5492617635174",
+    )
+  })
+
+  it("passes no contact URL when the variable is not configured", async () => {
+    render(await HomePage())
+
+    expect(landingPageFullProps.current?.contactWhatsAppUrl).toBeUndefined()
   })
 })

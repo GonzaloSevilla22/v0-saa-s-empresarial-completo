@@ -526,7 +526,7 @@ function FinalCTA({ section }: { section?: LandingSection }) {
   )
 }
 
-function Footer() {
+function Footer({ contactWhatsAppUrl }: { contactWhatsAppUrl?: string }) {
   return (
     <footer className="border-t border-slate-800 bg-slate-950 py-12">
       <div className="container mx-auto px-4">
@@ -549,9 +549,28 @@ function Footer() {
           <div>
             <h4 className="mb-4 text-sm font-semibold text-white">Empresa</h4>
             <ul className="space-y-2.5 text-sm text-slate-500">
-              {["Nosotros","Blog","Comunidad","Contacto"].map((l) => (
+              {["Nosotros","Blog","Comunidad"].map((l) => (
                 <li key={l}><a href="#" className="hover:text-slate-300 transition-colors">{l}</a></li>
               ))}
+              <li key="Contacto">
+                {/* Único link del footer con destino real: el WhatsApp de
+                    ALIADATA (misma URL que el FAB — la computa app/page.tsx
+                    desde ALIADATA_WHATSAPP_PHONE). Sin URL configurada
+                    conserva el "#" inerte, como el resto de la columna. */}
+                {contactWhatsAppUrl ? (
+                  <a
+                    href={contactWhatsAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Contacto por WhatsApp (se abre en una pestaña nueva)"
+                    className="hover:text-slate-300 transition-colors"
+                  >
+                    Contacto
+                  </a>
+                ) : (
+                  <a href="#" className="hover:text-slate-300 transition-colors">Contacto</a>
+                )}
+              </li>
             </ul>
           </div>
           <div>
@@ -580,7 +599,14 @@ function Footer() {
 // Admin-editable: hero, features, testimonials, cta
 // Hardcoded: Navbar, Stats, HowItWorks, AI, Pricing, Support, Footer
 // ─────────────────────────────────────────────
-export function LandingPageFull({ sections = [] }: { sections?: LandingSection[] }) {
+export function LandingPageFull({
+  sections = [],
+  contactWhatsAppUrl,
+}: {
+  sections?: LandingSection[]
+  /** URL wa.me del contacto de ALIADATA (la computa app/page.tsx). Sin ella, "Contacto" queda inerte. */
+  contactWhatsAppUrl?: string
+}) {
   const heroSection        = sections.find(s => s.type === "hero")
   const featuresSection    = sections.find(s => s.type === "features")
   const testimonialsSection = sections.find(s => s.type === "testimonials")
@@ -599,7 +625,7 @@ export function LandingPageFull({ sections = [] }: { sections?: LandingSection[]
       <Testimonials section={testimonialsSection} />
       <Support />
       <FinalCTA section={ctaSection} />
-      <Footer />
+      <Footer contactWhatsAppUrl={contactWhatsAppUrl} />
     </div>
   )
 }

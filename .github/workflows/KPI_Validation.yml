@@ -70,6 +70,21 @@ jobs:
       - name: Run admin KPI refresh gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_admin_kpis.sql
 
+      # community-counter-triggers-schema-fix: ALTER TABLE ... SET SCHEMA mueve
+      # la tabla y conserva los triggers colgados de ella, pero NO reescribe el
+      # cuerpo de las funciones que ejecutan. C-23 movió 16 tablas a community.*
+      # y dejó las dos funciones de contador escribiendo en public.posts: como
+      # son triggers AFTER, el 42P01 abortaba la transacción y responder un post
+      # o dar like no persistía nada (roto en prod desde 2026-06-15). Este gate
+      # verifica el camino feliz con CONTEOS EXACTOS (el guard degrade-don't-fail
+      # convierte un fallo del contador en WARNING, así que sin valores exactos
+      # una regresión pasaría en verde), que un fallo del contador no tumbe la
+      # fila de negocio, y — la red generalizada — que ninguna función de
+      # pg_proc en public/community referencie public.<tabla> para ninguna de
+      # las 16 tablas movidas. Cubre la FAMILIA del bug, no solo su síntoma.
+      - name: Run community interactions gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_community_interactions.sql
+
       # Postmortem `organizations`: un repositorio del backend consultaba una
       # tabla `organizations` que nunca existió en el schema real durante ~2
       # meses — los tests unitarios mockeaban asyncpg, así que nada ejecutaba

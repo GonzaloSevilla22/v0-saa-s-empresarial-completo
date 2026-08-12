@@ -19,9 +19,9 @@
 
 ## 3. Path de lectura (frontend)
 
-- [ ] 3.1 RED→GREEN: `dashboard/page.tsx:117` (filtro insights de "hoy") → `argentinaToday()`
-- [ ] 3.2 RED→GREEN: `buildBusinessSnapshot.ts:68-70` (nowStr/d30Str/d60Str) y `aiCopilotService.ts:43` → ventanas ancladas al día argentino (sobre el código ya migrado por `kpi-ia-canonical-revenue`)
-- [ ] 3.3 RED→GREEN: `sales-chart.tsx:16` (bucketing por día del gráfico) → día argentino; verificar que las etiquetas del eje no se corren
+- [x] 3.1 `dashboard/page.tsx:117` (filtro insights de "hoy") → `argentinaToday()`. Sin test de componente dedicado — mismo juicio de proporcionalidad que 2.4 (DashboardPage tiene 10+ hooks/dependencias incl. 3D y creación de cliente Supabase; sustitución mecánica de una función ya exhaustivamente probada)
+- [x] 3.2 RED→GREEN: `buildBusinessSnapshot.ts:68-70` (nowStr/d30Str/d60Str → `argentinaToday()`/`argentinaDaysAgo()`, sobre el código ya migrado por `kpi-ia-canonical-revenue`; `d30`/`d30Iso`/`nowIso` del RPC canónico NO se tocan — son ventana de duración exacta, agnóstica de huso) y `aiCopilotService.ts:43` (`thirtyDaysAgoStr`); tests en `__tests__/ai/buildBusinessSnapshot.test.ts` (nuevo describe ART) y `__tests__/aiCopilotService.test.ts` (nuevo archivo, línea base 0, doble de Supabase capturando args de `.gte()`)
+- [x] 3.3 RED→GREEN: `sales-chart.tsx:16` (bucketing por día del gráfico) → `argentinaDaysAgo(i)`; test nuevo `__tests__/components/sales-chart-art-bucketing.test.tsx` (recharts mockeado, verifica que la venta de "hoy" cae en el último bucket a las 22:00 ART)
 
 ## 4. Edge Functions (fallbacks rolling)
 

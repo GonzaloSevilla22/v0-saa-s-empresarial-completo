@@ -19,7 +19,7 @@ import { TrialBanner } from "@/components/dashboard/TrialBanner"
 import { BranchFilter } from "@/components/branches/BranchFilter"
 import { KpiSummaryBlock } from "@/components/dashboard/KpiSummaryBlock"
 import { PeriodFilter } from "@/components/dashboard/PeriodFilter"
-import { utcDayRange, parseMonthKey } from "@/lib/date-range"
+import { utcDayRange, parseMonthKey, argentinaToday } from "@/lib/date-range"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,7 +114,9 @@ export default function DashboardPage() {
     if (generateAttempted.current) return
     generateAttempted.current = true
 
-    const today = new Date().toISOString().split('T')[0]
+    // app-timezone-argentina (task 3.1): "hoy" es el día argentino, no el
+    // día UTC del server — a las 22:00 ART el día UTC ya rolleó a mañana.
+    const today = argentinaToday()
     const todaysInsights = insights.filter(i => i.date === today)
 
     if (todaysInsights.length === 0) {

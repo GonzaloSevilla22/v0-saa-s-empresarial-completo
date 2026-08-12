@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { lineRevenue, sumLineRevenue, netMarginPct, previousWindow } from '@/lib/reporting/revenue-canon'
 import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
+import { argentinaToday, argentinaDaysAgo } from '@/lib/date-range'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -73,9 +74,13 @@ export async function buildBusinessSnapshot(
   const d60 = new Date(now)
   d60.setDate(now.getDate() - 60)
 
-  const nowStr  = now.toISOString().split('T')[0]
-  const d30Str  = d30.toISOString().split('T')[0]
-  const d60Str  = d60.toISOString().split('T')[0]
+  // app-timezone-argentina (task 3.2): el "hoy" del snapshot es el día
+  // argentino, no el día UTC del server — a las 22:00 ART el período no debe
+  // correrse a mañana. d30Iso/nowIso (abajo, ventana del RPC canónico) NO se
+  // tocan: son un rolling window de duración exacta, agnóstico de huso.
+  const nowStr  = argentinaToday(now)
+  const d30Str  = argentinaDaysAgo(30, now)
+  const d60Str  = argentinaDaysAgo(60, now)
 
   // kpi-ia-canonical-revenue (D2): ventana canónica de 30 días + su previa
   // sintética, para consumir rpc_dashboard_kpi_summary de una sola llamada.

@@ -3,17 +3,18 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useSales } from "@/hooks/data/use-sales"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
+import { argentinaDaysAgo } from "@/lib/date-range"
 
 export function SalesChart() {
   const { sales } = useSales()
 
-  // Compute last 7 days totals inline (replaces DataContext getSalesByDay)
+  // Compute last 7 days totals inline (replaces DataContext getSalesByDay).
+  // app-timezone-argentina (task 3.3): el bucket de "hoy" es el día
+  // argentino, no el día UTC del server.
   const data = (() => {
     const result: { date: string; total: number }[] = []
     for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
-      const dateStr  = d.toISOString().split("T")[0]
+      const dateStr  = argentinaDaysAgo(i)
       const dayTotal = sales.filter(s => s.date === dateStr).reduce((acc, s) => acc + s.total, 0)
       result.push({ date: dateStr, total: dayTotal })
     }

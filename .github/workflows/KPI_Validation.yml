@@ -58,6 +58,18 @@ jobs:
       - name: Run analytics events revival gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_analytics_events.sql
 
+      # admin-kpi-refresh (hallazgo F6, docs/plan-remediacion-kpis-2026-08-11.md
+      # Fase 4): las definiciones de los KPI de los paneles admin viven en SQL,
+      # no en el cliente. Verifica personas-vs-eventos (usuarios de comunidad
+      # como COUNT DISTINCT, no suma de activos por período), activaciones/UMV
+      # como conteos distintos sobre el rango, cobertura de datos declarada,
+      # madurez de cohorte (observation_window_days/is_mature), comunidad
+      # medida sobre community.posts/replies (roto por C-23 hasta esta
+      # migración) y superficie de autorización (1 definición, ACLs, rechazo
+      # de no-admin) en las 5 RPCs admin redefinidas.
+      - name: Run admin KPI refresh gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_admin_kpis.sql
+
       # Postmortem `organizations`: un repositorio del backend consultaba una
       # tabla `organizations` que nunca existió en el schema real durante ~2
       # meses — los tests unitarios mockeaban asyncpg, así que nada ejecutaba

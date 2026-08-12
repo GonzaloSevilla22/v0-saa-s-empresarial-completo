@@ -2,16 +2,22 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { fetchBusinessKpis } from '@/lib/adminAnalytics'
+import { fetchBusinessKpis, fetchKpiOverview, fetchWeeklyUsageDistribution, type AdminBusinessKpis, type AdminKpiOverview, type AdminWeeklyUsageBucket } from '@/lib/adminAnalytics'
 import {
-    Users, Crown, MessageSquare, Sparkles, TrendingUp, Activity
+    Users, Crown, MessageSquare, Sparkles, TrendingUp, Activity, LucideIcon
 } from 'lucide-react'
 import Link from 'next/link'
 import TimeSeriesLinesChart from '@/components/admin/charts/TimeSeriesLinesChart'
 import WeeklyHistogramChart from '@/components/admin/charts/WeeklyHistogramChart'
 
+interface AdminMetricasData {
+    kpis: AdminBusinessKpis
+    kpiOverview: AdminKpiOverview
+    weeklyUsage: AdminWeeklyUsageBucket[]
+}
+
 export default function AdminMetricasPage() {
-    const [kpis, setKpis] = useState<any>(null)
+    const [data, setData] = useState<AdminMetricasData | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
@@ -26,11 +32,23 @@ export default function AdminMetricasPage() {
             const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
             if (!profile || profile.role !== 'admin') { window.location.href = '/dashboard'; return }
 
-            const data = await fetchBusinessKpis()
-            setKpis(data)
-        } catch (err: any) {
+            const dateTo = new Date().toISOString()
+            const dateFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+            // D9: rpc_admin_business_kpis nunca devolvió time_series/habit_histogram
+            // — esos gráficos alimentaban una clave que no existía y mostraban
+            // "Datos insuficientes" siempre. Cada serie viene de quien sí la tiene:
+            // fetchKpiOverview (time_series) y fetchWeeklyUsageDistribution.
+            const [kpis, kpiOverview, weeklyUsage] = await Promise.all([
+                fetchBusinessKpis(),
+                fetchKpiOverview(dateFrom, dateTo, 'day'),
+                fetchWeeklyUsageDistribution(dateFrom, dateTo),
+            ])
+            setData({ kpis, kpiOverview, weeklyUsage })
+        } catch (err) {
             console.error("Error loading business metrics:", err)
-            setError(err.message || "Error al cargar las métricas estratégicas.")
+            const message = err instanceof Error ? err.message : "Error al cargar las métricas estratégicas."
+            setError(message)
         } finally {
             setLoading(false)
         }
@@ -47,7 +65,7 @@ export default function AdminMetricasPage() {
         </div>
     )
 
-    if (error || !kpis) return (
+    if (error || !data) return (
         <div className="flex flex-col items-center justify-center py-32 gap-6 container max-w-md text-center">
             <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-full">
                 <Activity className="w-8 h-8 text-red-500" />
@@ -65,6 +83,8 @@ export default function AdminMetricasPage() {
         </div>
     )
 
+    const { kpis, kpiOverview, weeklyUsage } = data
+
     return (
         <div className="container mx-auto p-6 max-w-7xl animate-in fade-in duration-700 pb-20">
             <header className="flex flex-col gap-2 mb-10">
@@ -73,10 +93,10 @@ export default function AdminMetricasPage() {
             </header>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-                <KpiSummaryCard title="Adopción (Total)" value={kpis.adoption?.total_users} subtext={`${kpis.adoption?.mau} Usuarios Activos (MAU)`} icon={Users} badge={`${kpis.adoption?.activation_rate}% Activación`} />
-                <KpiSummaryCard title="Ingresos (MRR)" value={`$${kpis.freemium?.mrr}`} subtext={`${kpis.freemium?.pro_users} Usuarios Pro`} icon={Crown} badge={`${kpis.freemium?.conversion_rate}% Conv.`} iconColor="text-yellow-500" />
-                <KpiSummaryCard title="Comunidad" value={kpis.community?.total_activity} subtext="Interacciones 30d" icon={MessageSquare} badge={`${kpis.community?.active_pools} Pools`} iconColor="text-blue-500" />
-                <KpiSummaryCard title="IA Servida" value={kpis.ai?.total_insights} subtext="Consejos generados" icon={Sparkles} badge={`${kpis.ai?.alerts_triggered} Alertas`} iconColor="text-purple-500" />
+                <KpiSummaryCard title="Adopción (Total)" value={kpis.adoption.total_users} subtext={`${kpis.adoption.mau} Usuarios Activos (MAU)`} icon={Users} badge={`${kpis.adoption.activation_rate}% Activación`} />
+                <KpiSummaryCard title="Ingresos (MRR)" value={`$${kpis.freemium.mrr}`} subtext={`${kpis.freemium.pro_users} Usuarios Pro`} icon={Crown} badge={`${kpis.freemium.conversion_rate}% Conv.`} iconColor="text-yellow-500" />
+                <KpiSummaryCard title="Comunidad" value={kpis.community.total_activity} subtext="Interacciones 30d" icon={MessageSquare} badge={`${kpis.community.active_pools} Pools`} iconColor="text-blue-500" />
+                <KpiSummaryCard title="IA Servida" value={kpis.ai.total_insights} subtext="Consejos generados" icon={Sparkles} badge={`${kpis.ai.alerts_triggered} Alertas`} iconColor="text-purple-500" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -86,8 +106,8 @@ export default function AdminMetricasPage() {
                         <h2 className="text-xl font-bold text-slate-100">Crecimiento de Usuarios</h2>
                     </div>
                     <div className="aspect-video w-full flex items-center justify-center p-4">
-                        {kpis?.time_series && kpis.time_series.length > 0 ? (
-                            <TimeSeriesLinesChart data={kpis.time_series} width={600} height={300} />
+                        {kpiOverview.time_series && kpiOverview.time_series.length > 0 ? (
+                            <TimeSeriesLinesChart data={kpiOverview.time_series} width={600} height={300} />
                         ) : (
                             <span className="text-slate-500">Datos insuficientes para el gráfico</span>
                         )}
@@ -99,8 +119,8 @@ export default function AdminMetricasPage() {
                         <h2 className="text-xl font-bold text-slate-100">Actividad Semanal</h2>
                     </div>
                     <div className="aspect-video w-full flex items-center justify-center p-4">
-                        {kpis?.habit_histogram && kpis.habit_histogram.length > 0 ? (
-                            <WeeklyHistogramChart data={kpis.habit_histogram} width={600} height={300} />
+                        {weeklyUsage && weeklyUsage.length > 0 ? (
+                            <WeeklyHistogramChart data={weeklyUsage} width={600} height={300} />
                         ) : (
                             <span className="text-slate-500">Datos insuficientes para el gráfico</span>
                         )}
@@ -136,7 +156,16 @@ function ModuleLink({ href, label }: { href: string, label: string }) {
     )
 }
 
-function KpiSummaryCard({ title, value, subtext, icon: Icon, badge, iconColor = "text-emerald-500" }: any) {
+interface KpiSummaryCardProps {
+    title: string
+    value: string | number
+    subtext: string
+    icon: LucideIcon
+    badge: string
+    iconColor?: string
+}
+
+function KpiSummaryCard({ title, value, subtext, icon: Icon, badge, iconColor = "text-emerald-500" }: KpiSummaryCardProps) {
     return (
         <div className="bg-slate-900/40 backdrop-blur-md p-6 rounded-2xl shadow-xl border border-slate-800 relative overflow-hidden group">
             <div className={`absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity ${iconColor}`}>

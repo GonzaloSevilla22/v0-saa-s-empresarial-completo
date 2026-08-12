@@ -49,6 +49,15 @@ jobs:
       - name: Run idempotency ledger invariants
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_idempotency.sql
 
+      # analytics-events-revival: choke point único de telemetría de producto
+      # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,
+      # unicidad de activación, atomicidad, degrade-don't-fail, ACL/RLS,
+      # idempotencia y granularidad — el hallazgo F5 del informe de KPIs
+      # (docs/plan-remediacion-kpis-2026-08-11.md) que dejaba activación/UMV/
+      # retención midiendo ruido para toda ruta de escritura moderna.
+      - name: Run analytics events revival gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_analytics_events.sql
+
       # Postmortem `organizations`: un repositorio del backend consultaba una
       # tabla `organizations` que nunca existió en el schema real durante ~2
       # meses — los tests unitarios mockeaban asyncpg, así que nada ejecutaba

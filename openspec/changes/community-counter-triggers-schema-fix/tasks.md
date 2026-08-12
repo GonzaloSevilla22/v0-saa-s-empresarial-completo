@@ -30,7 +30,7 @@
 ## 4. Cableado en CI
 
 - [x] 4.1 Agregar el paso `Run community interactions gates` en `.github/workflows/KPI_Validation.yml`, después del paso de `test_admin_kpis.sql`, con `psql -v ON_ERROR_STOP=1 ... -f supabase/tests/test_community_interactions.sql` y el comentario de contexto que usa el resto del workflow (por qué existe el gate y qué familia de bugs cubre).
-- [ ] 4.2 Verificar en el PR que el job `validate-kpis` corre el paso nuevo y queda verde.
+- [x] 4.2 Verificar en el PR que el job `validate-kpis` corre el paso nuevo y queda verde. Confirmado por log del job (no solo por el check verde): el paso `Run community interactions gates` ejecutó y emitió `GATE COMMUNITY-COUNTER-TRIGGERS PASSED` + `PASS 4` (degrade en INSERT y DELETE) — PR #389, run 31635081937.
 
 ## 5. Verificación post-deploy (producción)
 

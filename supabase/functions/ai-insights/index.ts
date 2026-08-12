@@ -1,5 +1,13 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import {
+  fetchKpiSummary,
+  lineRevenue,
+  sumLineRevenue,
+  netMarginPct,
+  previousWindow,
+  type SaleRevenueRow,
+} from '../_shared/reporting-canon.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -87,17 +95,23 @@ Deno.serve(async (req) => {
       return jsonResponse(quota.body, 429)
     }
 
-    // ── Fetch data (período actual + anterior para comparativa) ───────────────
+    // ── Fetch data (período actual) ────────────────────────────────────────────
     const now   = new Date()
     const d30   = new Date(now); d30.setDate(now.getDate() - 30)
     const d60   = new Date(now); d60.setDate(now.getDate() - 60)
     const d30Str = d30.toISOString().split('T')[0]
     const d60Str = d60.toISOString().split('T')[0]
 
-    // C-20: leer desde v_sales_flat (columnas planas desde sale_items) en lugar de sales
-    const [salesRes, prevSalesRes, productsRes, expensesRes, rotationRes] = await Promise.all([
-      supabase.from('v_sales_flat').select('amount, quantity, date, product_id').gte('date', d30Str),
-      supabase.from('v_sales_flat').select('amount').gte('date', d60Str).lt('date', d30Str),
+    // kpi-ia-canonical-revenue (D1/D2): ventana canónica + su previa sintética,
+    // para consumir rpc_dashboard_kpi_summary de una sola llamada.
+    const nowIso = now.toISOString()
+    const d30Iso = d30.toISOString()
+    const { from: prevFromIso, to: prevToIso } = previousWindow(d30Iso, nowIso)
+
+    // C-20: leer desde v_sales_flat (columnas planas desde sale_items) en lugar de sales.
+    // `total` se agrega para poder degradar sin subcontar multi-unidad si el canon falla (D4).
+    const [salesRes, productsRes, expensesRes, rotationRes] = await Promise.all([
+      supabase.from('v_sales_flat').select('amount, quantity, total, date, product_id').gte('date', d30Str),
       // C-21 checkpoint #2: stock vive en branch_stock — la vista expone stock = Σ branch_stock
       supabase.from('v_products_with_stock').select('id, name, price, cost, stock, min_stock').limit(50),
       supabase.from('expenses').select('amount, category').gte('date', d30Str),
@@ -105,23 +119,41 @@ Deno.serve(async (req) => {
     ])
 
     const sales    = salesRes.data    ?? []
-    const prevSale = prevSalesRes.data ?? []
     const products = productsRes.data  ?? []
     const expenses = expensesRes.data  ?? []
 
     console.log('[ai-insights] Data fetched – sales:', sales.length, 'products:', products.length)
 
+    // ── Canon (D1/D4): ingresos, ganancia neta y comparativa desde el read-model
+    // canónico. Si falla, se degrada a la suma de línea local y se omiten
+    // ganancia/margen/comparativa — nunca se recalcula con la fórmula vieja.
+    let invoicedRevenue: number | null = null
+    let prevInvoicedRevenue: number | null = null
+    let netProfit: number | null = null
+
+    try {
+      const summary = await fetchKpiSummary(supabase, {
+        from: d30Iso,
+        to: nowIso,
+        prevFrom: prevFromIso,
+        prevTo: prevToIso,
+      })
+      if (summary) {
+        invoicedRevenue = summary.invoicedRevenue
+        prevInvoicedRevenue = summary.prevInvoicedRevenue
+        netProfit = summary.netProfit
+      }
+    } catch (err) {
+      console.error('[ai-insights] rpc_dashboard_kpi_summary falló, degradando a ingresos locales:', err)
+    }
+
     // ── Pre-calcular métricas ─────────────────────────────────────────────────
 
-    const totalRevenue  = sales.reduce((s: number, r: any) => s + Number(r.amount), 0)
-    const prevRevenue   = prevSale.reduce((s: number, r: any) => s + Number(r.amount), 0)
+    const totalRevenue  = invoicedRevenue ?? sumLineRevenue(sales as SaleRevenueRow[])
     const totalExpenses = expenses.reduce((s: number, r: any) => s + Number(r.amount), 0)
-    const netProfit     = totalRevenue - totalExpenses
-    const margenNeto    = totalRevenue > 0
-      ? Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100)
-      : 0
-    const vsPrev = prevRevenue > 0
-      ? `${totalRevenue >= prevRevenue ? '+' : ''}${Math.round(((totalRevenue - prevRevenue) / prevRevenue) * 100)}%`
+    const margenNeto    = netMarginPct(netProfit, totalRevenue)
+    const vsPrev = prevInvoicedRevenue != null && prevInvoicedRevenue > 0
+      ? `${totalRevenue >= prevInvoicedRevenue ? '+' : ''}${Math.round(((totalRevenue - prevInvoicedRevenue) / prevInvoicedRevenue) * 100)}%`
       : 'sin datos previos'
 
     // Top productos por revenue
@@ -131,12 +163,12 @@ Deno.serve(async (req) => {
       products.map((p: any) => [p.id, { name: p.name, cost: Number(p.cost ?? 0), price: Number(p.price ?? 0) }])
     )
     const salesByProduct = new Map<string, { nombre: string; revenue: number; units: number; cost: number; price: number }>()
-    for (const s of sales) {
+    for (const s of sales as (SaleRevenueRow & { product_id: string | null; quantity: number | string | null })[]) {
       const pid = s.product_id
       if (!pid) continue
       const p   = productMap.get(pid)
       const cur = salesByProduct.get(pid) ?? { nombre: p?.name ?? '?', revenue: 0, units: 0, cost: p?.cost ?? 0, price: p?.price ?? 0 }
-      salesByProduct.set(pid, { ...cur, revenue: cur.revenue + Number(s.amount), units: cur.units + Number(s.quantity) })
+      salesByProduct.set(pid, { ...cur, revenue: cur.revenue + lineRevenue(s), units: cur.units + Number(s.quantity) })
     }
     const topProducts = [...salesByProduct.values()]
       .sort((a, b) => b.revenue - a.revenue)
@@ -192,10 +224,18 @@ Deno.serve(async (req) => {
 
     // ── Prompt optimizado ─────────────────────────────────────────────────────
 
+    // kpi-ia-canonical-revenue (D4/D5): margen y ganancia se omiten si el
+    // canon no respondió (`null`), en vez de citar un número mal calculado.
+    const margenLine = margenNeto != null ? ` | Margen neto: ${margenNeto}%` : ''
+    const gananciaLine = netProfit != null
+      ? `- Ganancia neta: $${Math.round(netProfit).toLocaleString()}`
+      : ''
+
     const contextBlock = [
       `PERÍODO (últimos 30 días):`,
       `- Ventas: $${Math.round(totalRevenue).toLocaleString()} (${vsPrev} vs período anterior)`,
-      `- Gastos: $${Math.round(totalExpenses).toLocaleString()} | Margen neto: ${margenNeto}%`,
+      `- Gastos: $${Math.round(totalExpenses).toLocaleString()}${margenLine}`,
+      gananciaLine,
       `- Top gasto: ${categoriaTop}`,
       '',
       topProducts.length > 0 ? `TOP PRODUCTOS:\n${topProducts.map(p => `  • ${p}`).join('\n')}` : '',

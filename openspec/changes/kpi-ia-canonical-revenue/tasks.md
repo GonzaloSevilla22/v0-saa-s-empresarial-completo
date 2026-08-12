@@ -48,11 +48,11 @@
 
 ## 5. `ai-insights`
 
-- [ ] 5.1 **[RED]** Extender `frontend/__tests__/reporting/edge-reporting-canon.test.ts` (o crear el archivo hermano) con la aritmética que `ai-insights` delega al módulo compartido: agregación por producto con `sumLineRevenue` sobre filas de `v_sales_flat`, incluido el caso multi-unidad
-- [ ] 5.2 **[GREEN]** En `supabase/functions/ai-insights/index.ts`: agregar `fetchKpiSummary` con la ventana de 30 d + previa; `totalRevenue` ← `invoicedRevenue`, `netProfit` ← `netProfit`, `margenNeto` ← `netMarginPct`, `vsPrev` ← contra `prevInvoicedRevenue`. **Eliminar el fetch `prevSalesRes`**; agregar `total` al `select` de `v_sales_flat` (la vista ya lo expone desde `20260616000004`)
-- [ ] 5.3 **[GREEN]** Reemplazar el `reduce` de revenue por producto (`:139`) por `lineRevenue` del módulo compartido, con interfaz local explícita para la fila — sin `any` en las expresiones tocadas (D8)
-- [ ] 5.4 **[GREEN]** `contextBlock`: incluir la ganancia neta en pesos y **omitir** la línea de ganancia/margen cuando el canon no respondió, usando el mismo `.filter(Boolean)` que ya filtra las secciones vacías
-- [ ] 5.5 **[TRIANGULATE]** Verificar por lectura que en `index.ts` **no quedó ninguna aritmética financiera** — solo cableado. Cualquier fórmula que sobreviva ahí es un punto ciego de CI (las Edge Functions no tienen runner)
+- [x] 5.1 **[RED]** Extender `frontend/__tests__/reporting/edge-reporting-canon.test.ts` (o crear el archivo hermano) con la aritmética que `ai-insights` delega al módulo compartido: agregación por producto con `sumLineRevenue` sobre filas de `v_sales_flat`, incluido el caso multi-unidad
+- [x] 5.2 **[GREEN]** En `supabase/functions/ai-insights/index.ts`: agregar `fetchKpiSummary` con la ventana de 30 d + previa; `totalRevenue` ← `invoicedRevenue`, `netProfit` ← `netProfit`, `margenNeto` ← `netMarginPct`, `vsPrev` ← contra `prevInvoicedRevenue`. **Eliminar el fetch `prevSalesRes`**; agregar `total` al `select` de `v_sales_flat` (la vista ya lo expone desde `20260616000004`)
+- [x] 5.3 **[GREEN]** Reemplazar el `reduce` de revenue por producto (`:139`) por `lineRevenue` del módulo compartido, con interfaz local explícita para la fila — sin `any` en las expresiones tocadas (D8)
+- [x] 5.4 **[GREEN]** `contextBlock`: incluir la ganancia neta en pesos y **omitir** la línea de ganancia/margen cuando el canon no respondió, usando el mismo `.filter(Boolean)` que ya filtra las secciones vacías
+- [x] 5.5 **[TRIANGULATE]** Verificar por lectura que en `index.ts` **no quedó ninguna aritmética financiera** — solo cableado. Cualquier fórmula que sobreviva ahí es un punto ciego de CI (las Edge Functions no tienen runner)
 
 ## 6. `ai-simulador`, `ai-prediccion` y `ai-resumen`
 

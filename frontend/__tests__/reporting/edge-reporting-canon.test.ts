@@ -56,6 +56,15 @@ describe("sumLineRevenue (Deno)", () => {
   it("lista vacía → 0", () => {
     expect(sumLineRevenue([])).toBe(0)
   })
+
+  it("5.1 — agregación por producto sobre filas de v_sales_flat, incluido el caso multi-unidad: ai-insights delega esta suma al módulo compartido, no reimplementa un reduce sobre amount", () => {
+    // Filas de v_sales_flat para dos productos: A (1 unidad) y B (multi-unidad, total ya resuelto por sale_items).
+    const rowsForProductA: SaleRevenueRow[] = [{ amount: 5000, total: 5000 }]
+    const rowsForProductB: SaleRevenueRow[] = [{ amount: 2000, total: 8000 }] // 4 unidades a $2.000
+
+    expect(sumLineRevenue(rowsForProductA)).toBe(5000)
+    expect(sumLineRevenue(rowsForProductB)).toBe(8000) // no 2000 — la venta multi-unidad no se subcuenta
+  })
 })
 
 describe("netMarginPct (Deno)", () => {

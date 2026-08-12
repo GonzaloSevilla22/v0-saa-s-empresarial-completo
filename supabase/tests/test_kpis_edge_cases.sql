@@ -351,3 +351,257 @@ EXCEPTION
     END;
     RAISE;
 END $$;
+
+
+-- =============================================================================
+-- kpi-branch-consistency — behavioural gate (tasks 2.1-2.6, grupos 3-5).
+--
+-- Cubre SOLO lo NO gateado por OQ-1 (design.md §Open Questions): Parte B
+-- diario (D6, get_dashboard_financials neto de NC vía el helper único D5) y
+-- Parte A no bloqueada (D3/D4, stock sin rotación de rpc_dashboard_kpi_summary
+-- por sucursal). La atribución de NC POR SUCURSAL (D1/D2, grupo 6 de
+-- tasks.md) sigue BLOQUEADA por el sign-off del PO — el helper acepta
+-- p_branch_id pero lo ignora (task 3.2), así que la NC de este fixture resta
+-- GLOBAL en ambos read-models con y sin filtro. Eso es exactamente lo que el
+-- assert 1 verifica: diario ≡ mensual sobre la MISMA regla de NC, sea cual
+-- sea la rama que OQ-1 termine eligiendo — el gate no depende de esa
+-- decisión, solo de que ambos consumidores usen el mismo helper (D5).
+--
+-- Fixture (cuenta con sucursales A y B):
+--   Ventas:   A qty=2 total=2000 (multi-unidad, total≠amount) | B total=500
+--             | legacy branch_id NULL total=300 (evidencia de rotación D4)
+--   Gastos:   A=100 | B=50
+--   Compras:  A=200 | B=80
+--   NC:       -400 (customer_account_movements, movement_type=credit_note)
+--   Sin filtro:  invoiced = 2800-400=2400; net_profit = 2400-(150+280)=1970
+--   Filtro A:    invoiced = 2000-400=1600; net_profit = 1600-(100+200)=1300
+--     (la NC resta GLOBAL incluso bajo filtro mientras OQ-1 no esté firmada)
+--
+--   Stock sin rotación:
+--     p_stagnant         cost=100, sin ventas: A qty=10, B qty=40
+--                         → filtro A: value=1000 cnt=1 | sin filtro: value=5000 cnt=1
+--     p_stagnant_deleted  cost=100, deleted_at=now(), A qty=5 → NUNCA cuenta (soft delete)
+--     p_rotation_legacy   cost=80, A qty=20, con una venta LEGACY (branch_id NULL)
+--                         en la ventana → NUNCA cuenta (D4 fail-open: la venta
+--                         legacy es evidencia de rotación en cualquier sucursal)
+--   Por construcción: filtro A → value=1000/cnt=1 (solo p_stagnant); sin
+--   filtro → value=5000/cnt=1. Si p_stagnant_deleted o p_rotation_legacy
+--   contaminaran el resultado, estos números no cerrarían.
+-- =============================================================================
+DO $$
+DECLARE
+  v_anchor_email     text := 'kpi-branch-consistency-gate@test.local';
+  v_user_id          uuid := gen_random_uuid();
+  v_account_id       uuid;
+  v_branch_a         uuid;
+  v_branch_b         uuid;
+  v_client_id        uuid;
+  v_customer_acct_id uuid;
+  v_p1               uuid;
+  v_p2               uuid;
+  v_p_stagnant       uuid;
+  v_p_stagnant_del   uuid;
+  v_p_rotation_leg   uuid;
+  v_from             timestamptz := now() - interval '2 days';
+  v_to               timestamptz := now() + interval '1 day';
+  v_prev_from        timestamptz := now() - interval '40 days';
+  v_prev_to          timestamptz := now() - interval '35 days';
+  v_fin_none         record;
+  v_fin_a             record;
+  v_sum_none         record;
+  v_sum_a            record;
+BEGIN
+  -- ── Anchor sintético: dispara handle_new_user (account + branch + cashbox) ──
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_user_id, 'authenticated', 'authenticated', v_anchor_email, now(), now(),
+          jsonb_build_object('name', 'Gate KPI Branch Consistency', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_id
+  FROM   public.account_members
+  WHERE  user_id = v_user_id
+  ORDER  BY created_at
+  LIMIT  1;
+
+  IF v_account_id IS NULL THEN
+    RAISE NOTICE 'GATE KPI-BRANCH-CONSISTENCY: no se pudo resolver una account para el anchor sintético (contexto no permite el gate) — degradando sin abortar.';
+    RETURN;
+  END IF;
+
+  -- Simula sesión del anchor: auth.uid() lee el claim 'sub' vía GUC de
+  -- request — necesario para invocar get_dashboard_financials/
+  -- rpc_dashboard_kpi_summary directamente (ambas SECURITY DEFINER exigen
+  -- auth.uid() IS NOT NULL). Mismo patrón que el gate kpi-critical-stock-dashboard.
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_id::text)::text, true);
+  PERFORM set_config('request.jwt.claim.sub', v_user_id::text, true);
+
+  -- ── Dos sucursales propias del fixture (no dependen de "Casa Central") ──────
+  INSERT INTO public.branches (id, account_id, name) VALUES (gen_random_uuid(), v_account_id, '__gate_kbc_branch_a__') RETURNING id INTO v_branch_a;
+  INSERT INTO public.branches (id, account_id, name) VALUES (gen_random_uuid(), v_account_id, '__gate_kbc_branch_b__') RETURNING id INTO v_branch_b;
+
+  -- ── Productos ────────────────────────────────────────────────────────────
+  INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_user_id, v_account_id, '__gate_kbc_p1__', 1000, 100) RETURNING id INTO v_p1;
+  INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_user_id, v_account_id, '__gate_kbc_p2__', 500,  50)  RETURNING id INTO v_p2;
+  INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_user_id, v_account_id, '__gate_kbc_p_stagnant__', 100, 100) RETURNING id INTO v_p_stagnant;
+  INSERT INTO public.products (id, user_id, account_id, name, price, cost, deleted_at) VALUES (gen_random_uuid(), v_user_id, v_account_id, '__gate_kbc_p_stagnant_deleted__', 100, 100, now()) RETURNING id INTO v_p_stagnant_del;
+  INSERT INTO public.products (id, user_id, account_id, name, price, cost) VALUES (gen_random_uuid(), v_user_id, v_account_id, '__gate_kbc_p_rotation_legacy__', 80, 80) RETURNING id INTO v_p_rotation_leg;
+
+  -- ── Cliente + cabecera de cta cte (para la NC) ──────────────────────────────
+  INSERT INTO public.clients (user_id, account_id, name)
+  VALUES (v_user_id, v_account_id, '__gate_kbc_client__')
+  RETURNING id INTO v_client_id;
+
+  INSERT INTO public.customer_accounts (account_id, client_id, balance, created_by)
+  VALUES (v_account_id, v_client_id, 0, v_user_id)
+  RETURNING id INTO v_customer_acct_id;
+
+  -- ── Ventas ───────────────────────────────────────────────────────────────
+  -- Branch A: quantity=2, amount(unitario)=1000, total=2000 (multi-unidad).
+  INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date)
+  VALUES (v_user_id, v_account_id, v_branch_a, v_p1, 1000, 2, 2000, now());
+  -- Branch B.
+  INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date)
+  VALUES (v_user_id, v_account_id, v_branch_b, v_p2, 500, 1, 500, now());
+  -- Legacy sin sucursal (branch_id NULL) — evidencia de rotación D4 sobre p_rotation_leg.
+  INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date)
+  VALUES (v_user_id, v_account_id, NULL, v_p_rotation_leg, 300, 1, 300, now());
+
+  -- ── Gastos ───────────────────────────────────────────────────────────────
+  INSERT INTO public.expenses (user_id, account_id, branch_id, category, amount, date)
+  VALUES (v_user_id, v_account_id, v_branch_a, 'otros', 100, now());
+  INSERT INTO public.expenses (user_id, account_id, branch_id, category, amount, date)
+  VALUES (v_user_id, v_account_id, v_branch_b, 'otros', 50, now());
+
+  -- ── Compras ──────────────────────────────────────────────────────────────
+  INSERT INTO public.purchases (user_id, account_id, branch_id, amount, quantity, total, date)
+  VALUES (v_user_id, v_account_id, v_branch_a, 200, 1, 200, now());
+  INSERT INTO public.purchases (user_id, account_id, branch_id, amount, quantity, total, date)
+  VALUES (v_user_id, v_account_id, v_branch_b, 80, 1, 80, now());
+
+  -- ── Nota de crédito: -400 (acredita al cliente, vive negativa en el ledger) ─
+  INSERT INTO public.customer_account_movements
+    (customer_account_id, account_id, amount, balance_after, movement_type, created_by, created_at)
+  VALUES (v_customer_acct_id, v_account_id, -400, 0, 'credit_note', v_user_id, now());
+
+  -- ── branch_stock para el trío de stock sin rotación ─────────────────────────
+  INSERT INTO public.branch_stock (account_id, product_id, branch_id, quantity, min_stock) VALUES
+    (v_account_id, v_p_stagnant,     v_branch_a, 10, 0),
+    (v_account_id, v_p_stagnant,     v_branch_b, 40, 0),
+    (v_account_id, v_p_stagnant_del, v_branch_a, 5,  0),
+    (v_account_id, v_p_rotation_leg, v_branch_a, 20, 0);
+
+  -- ══════════════════════════════════════════════════════════════════════════
+  -- ASSERT 1 (tasks 2.3/2.4) — diario ≡ mensual, sin filtro y con filtro A.
+  -- ══════════════════════════════════════════════════════════════════════════
+  SELECT * INTO v_fin_none FROM public.get_dashboard_financials(v_from, v_to, NULL);
+  SELECT * INTO v_sum_none FROM public.rpc_dashboard_kpi_summary(v_from, v_to, v_prev_from, v_prev_to, NULL);
+
+  IF v_fin_none.total_income IS DISTINCT FROM v_sum_none.invoiced_revenue THEN
+    RAISE EXCEPTION 'FAIL 2.3a: sin filtro, get_dashboard_financials.total_income (%) <> rpc_dashboard_kpi_summary.invoiced_revenue (%)',
+      v_fin_none.total_income, v_sum_none.invoiced_revenue;
+  END IF;
+  IF v_fin_none.net_profit IS DISTINCT FROM v_sum_none.net_profit THEN
+    RAISE EXCEPTION 'FAIL 2.3b: sin filtro, get_dashboard_financials.net_profit (%) <> rpc_dashboard_kpi_summary.net_profit (%)',
+      v_fin_none.net_profit, v_sum_none.net_profit;
+  END IF;
+  IF v_fin_none.total_income <> 2400 THEN
+    RAISE EXCEPTION 'FAIL 2.3c: total_income sin filtro esperaba 2400 (2800 ventas - 400 NC), dio %', v_fin_none.total_income;
+  END IF;
+  RAISE NOTICE 'PASS 2.3: diario ≡ mensual sin filtro de sucursal (total_income=%, net_profit=%)', v_fin_none.total_income, v_fin_none.net_profit;
+
+  SELECT * INTO v_fin_a FROM public.get_dashboard_financials(v_from, v_to, v_branch_a);
+  SELECT * INTO v_sum_a FROM public.rpc_dashboard_kpi_summary(v_from, v_to, v_prev_from, v_prev_to, v_branch_a);
+
+  IF v_fin_a.total_income IS DISTINCT FROM v_sum_a.invoiced_revenue THEN
+    RAISE EXCEPTION 'FAIL 2.4a: filtro branch_a, get_dashboard_financials.total_income (%) <> rpc_dashboard_kpi_summary.invoiced_revenue (%)',
+      v_fin_a.total_income, v_sum_a.invoiced_revenue;
+  END IF;
+  IF v_fin_a.net_profit IS DISTINCT FROM v_sum_a.net_profit THEN
+    RAISE EXCEPTION 'FAIL 2.4b: filtro branch_a, get_dashboard_financials.net_profit (%) <> rpc_dashboard_kpi_summary.net_profit (%)',
+      v_fin_a.net_profit, v_sum_a.net_profit;
+  END IF;
+  IF v_fin_a.total_income <> 1600 THEN
+    RAISE EXCEPTION 'FAIL 2.4c: total_income filtro branch_a esperaba 1600 (2000 ventas de A - 400 NC global), dio %', v_fin_a.total_income;
+  END IF;
+  RAISE NOTICE 'PASS 2.4: diario ≡ mensual con filtro de sucursal A (total_income=%, net_profit=%)', v_fin_a.total_income, v_fin_a.net_profit;
+
+  -- ══════════════════════════════════════════════════════════════════════════
+  -- ASSERT 2 (task 2.5) — stock sin rotación por sucursal + exclusión soft-delete.
+  -- ══════════════════════════════════════════════════════════════════════════
+  IF v_sum_a.stagnant_stock_value <> 1000 OR v_sum_a.stagnant_stock_count <> 1 THEN
+    RAISE EXCEPTION 'FAIL 2.5a: stagnant con filtro branch_a esperaba value=1000 cnt=1 (solo p_stagnant, 10u*$100), dio value=% cnt=%',
+      v_sum_a.stagnant_stock_value, v_sum_a.stagnant_stock_count;
+  END IF;
+  IF v_sum_none.stagnant_stock_value <> 5000 OR v_sum_none.stagnant_stock_count <> 1 THEN
+    RAISE EXCEPTION 'FAIL 2.5b: stagnant sin filtro esperaba value=5000 cnt=1 (p_stagnant 50u*$100, contado una sola vez), dio value=% cnt=%',
+      v_sum_none.stagnant_stock_value, v_sum_none.stagnant_stock_count;
+  END IF;
+  RAISE NOTICE 'PASS 2.5: stock sin rotación por sucursal (A=1000/1, sin filtro=5000/1) y soft-deleted excluido';
+
+  -- ══════════════════════════════════════════════════════════════════════════
+  -- ASSERT 3 (task 2.6) — fail-open D4: venta legacy exime de "sin rotación".
+  -- Ya cubierto por construcción en el ASSERT 2 (si p_rotation_legacy hubiera
+  -- contaminado el value/count de branch_a, 1000/1 no habría cerrado).
+  -- ══════════════════════════════════════════════════════════════════════════
+  RAISE NOTICE 'PASS 2.6: p_rotation_legacy (venta legacy branch_id NULL) no cuenta como stock sin rotación en branch_a (verificado por construcción en 2.5a)';
+
+  RAISE NOTICE '=== kpi-branch-consistency behavioural gate passed ===';
+
+  -- ── Cleanup hijo→padre (accounts=0 al final) ────────────────────────────────
+  PERFORM set_config('request.jwt.claims', '', true);
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+
+  DELETE FROM public.analytics_events               WHERE account_id = v_account_id;
+  DELETE FROM public.customer_account_movements      WHERE account_id = v_account_id;
+  DELETE FROM public.customer_accounts               WHERE account_id = v_account_id;
+  DELETE FROM public.sale_items WHERE sale_id IN (SELECT id FROM public.sales WHERE account_id = v_account_id);
+  DELETE FROM public.stock_movements                 WHERE account_id = v_account_id;
+  DELETE FROM public.sales                           WHERE account_id = v_account_id;
+  DELETE FROM public.purchases                       WHERE account_id = v_account_id;
+  DELETE FROM public.expenses                        WHERE account_id = v_account_id;
+  DELETE FROM public.clients                         WHERE account_id = v_account_id;
+  DELETE FROM public.branch_stock                    WHERE account_id = v_account_id;
+  DELETE FROM public.products                        WHERE account_id = v_account_id;
+  DELETE FROM public.cashboxes    WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+  DELETE FROM public.branches                        WHERE account_id = v_account_id;
+  DELETE FROM public.account_members                 WHERE user_id = v_user_id;
+  DELETE FROM public.accounts                        WHERE owner_user_id = v_user_id;
+  DELETE FROM public.profiles                        WHERE id = v_user_id;
+  DELETE FROM public.email_logs                      WHERE user_id = v_user_id;
+  DELETE FROM public.operation_idempotency            WHERE user_id = v_user_id;
+  DELETE FROM auth.users                              WHERE id = v_user_id;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    IF SQLERRM LIKE 'FAIL%' THEN
+      RAISE;
+    END IF;
+    BEGIN
+      PERFORM set_config('request.jwt.claims', '', true);
+      PERFORM set_config('request.jwt.claim.sub', '', true);
+
+      IF v_account_id IS NOT NULL THEN
+        DELETE FROM public.analytics_events               WHERE account_id = v_account_id;
+        DELETE FROM public.customer_account_movements      WHERE account_id = v_account_id;
+        DELETE FROM public.customer_accounts               WHERE account_id = v_account_id;
+        DELETE FROM public.sale_items WHERE sale_id IN (SELECT id FROM public.sales WHERE account_id = v_account_id);
+        DELETE FROM public.stock_movements                 WHERE account_id = v_account_id;
+        DELETE FROM public.sales                           WHERE account_id = v_account_id;
+        DELETE FROM public.purchases                       WHERE account_id = v_account_id;
+        DELETE FROM public.expenses                        WHERE account_id = v_account_id;
+        DELETE FROM public.clients                         WHERE account_id = v_account_id;
+        DELETE FROM public.branch_stock                    WHERE account_id = v_account_id;
+        DELETE FROM public.products                        WHERE account_id = v_account_id;
+        DELETE FROM public.cashboxes    WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+        DELETE FROM public.branches                        WHERE account_id = v_account_id;
+        DELETE FROM public.account_members                 WHERE user_id = v_user_id;
+        DELETE FROM public.accounts                        WHERE owner_user_id = v_user_id;
+      END IF;
+      DELETE FROM public.profiles         WHERE id = v_user_id;
+      DELETE FROM public.email_logs       WHERE user_id = v_user_id;
+      DELETE FROM public.operation_idempotency WHERE user_id = v_user_id;
+      DELETE FROM auth.users              WHERE id = v_user_id;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;

@@ -48,7 +48,7 @@ Este es el evento central que valida que el sistema entregó valor real.
 |---|---|---|
 | **Activación** | Primera operación registrada | % que registra ≥ 1 venta/compra/gasto luego del registro |
 | **Activación** | Tasa de alcance de la UMV | % que registra operación + recibe insight posterior |
-| **Retención** | Retención a 30 días | Usuarios que vuelven a registrar operaciones ≥ 30 días después |
+| **Retención** | Retención a 30 días | Usuarios que registran una operación entre el día 30 y el día 60 desde su activación (horizonte censurado `[30,60)`, cohortes comparables entre sí — definición cerrada en PA-07, `admin-kpi-refresh` OQ-5) |
 | **Retención** | Frecuencia semanal | Promedio de días/semana con ≥ 1 operación registrada |
 | **Activación / IA** | Insights generados/usuario | Cantidad de insights por usuario en un período dado |
 | **Referral** | Participación en comunidad | Usuarios que crean posts o responden en la plataforma |

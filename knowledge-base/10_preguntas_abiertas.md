@@ -42,13 +42,10 @@ Campo canónico: `usage_reset_at` (renombrado de `insights_reset_at` en C-01).
 **Pregunta**: ¿Qué roles están planificados para el futuro?  
 **Contexto**: El usuario mencionó que habrá más roles además de free/pro/admin. ¿Hay un rol de "moderador de comunidad", "soporte", "partner"?
 
-### PA-07 — ¿Cómo se mide el "active user" para retención a 30 días?
-**Pregunta**: Para el KPI de retención a 30 días: ¿un usuario "activo" es el que:
-- Inicia sesión
-- Registra ≥ 1 operación
-- Genera ≥ 1 insight
-- Otra acción?  
-**Contexto**: Los `analytics_events` registran acciones pero no hay una definición canónica de "usuario activo" para los dashboards admin.
+### ~~PA-07 — ¿Cómo se mide el "active user" para retención a 30 días?~~ ✅ RESUELTA (admin-kpi-refresh, OQ-5)
+**Resuelto**: 2026-08-12 — sign-off del PO sobre `openspec/changes/admin-kpi-refresh/design.md` D7, opción C.  
+**Respuesta canónica**: "Usuario activo" para retención = registró ≥ 1 evento `operation_created` (venta/compra/gasto). La ventana de retención es un **horizonte censurado `[30,H)`** con `H=60` días por defecto: un usuario cuenta como retenido si opera entre el día 30 y el día `H` desde su `first_operation`. Sólo se comparan cohortes con al menos `H` días de vida (`is_mature`); las más jóvenes se marcan y el panel no las usa como dato representativo. La ventana fija anterior `[30,37)` era el caso `H=37` de esta misma fórmula; la lectura literal "≥30 días" de la visión (`01_vision_y_objetivos.md`) es el caso `H=∞`, descartada porque vuelve incomparables cohortes de distinta edad.  
+**Ver**: `rpc_admin_retention_30d(cohort_granularity, date_from, date_to, p_horizon_days)` (`supabase/migrations/20260921000001_admin_kpi_freemium_retention.sql`), `openspec/specs/admin-analytics-kpis/spec.md`.
 
 ### PA-08 — Estado del módulo de seguros (`/seguros`)
 **Pregunta**: ¿Qué hace exactamente el módulo de seguros? ¿Es un marketplace de alianzas, un formulario de contacto, o algo más?  

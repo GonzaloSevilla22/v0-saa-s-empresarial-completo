@@ -94,7 +94,7 @@ export default function AdminMetricasPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
                 <KpiSummaryCard title="Adopción (Total)" value={kpis.adoption.total_users} subtext={`${kpis.adoption.mau} Usuarios Activos (MAU)`} icon={Users} badge={`${kpis.adoption.activation_rate}% Activación`} />
-                <KpiSummaryCard title="Ingresos (MRR)" value={`$${kpis.freemium.mrr}`} subtext={`${kpis.freemium.pro_users} Usuarios Pro`} icon={Crown} badge={`${kpis.freemium.conversion_rate}% Conv.`} iconColor="text-yellow-500" />
+                <KpiSummaryCard title="Ingresos (MRR)" value={`$${kpis.freemium.mrr_ars.toLocaleString('es-AR')} ARS`} subtext={`${kpis.freemium.paying_accounts} pagas · ${kpis.freemium.trial_accounts} trial · ${kpis.freemium.exempt_accounts} exentas`} icon={Crown} badge={`Pipeline $${kpis.freemium.trial_pipeline_mrr_ars.toLocaleString('es-AR')}`} iconColor="text-yellow-500" />
                 <KpiSummaryCard title="Comunidad" value={kpis.community.total_activity} subtext="Interacciones 30d" icon={MessageSquare} badge={`${kpis.community.active_pools} Pools`} iconColor="text-blue-500" />
                 <KpiSummaryCard title="IA Servida" value={kpis.ai.total_insights} subtext="Consejos generados" icon={Sparkles} badge={`${kpis.ai.alerts_triggered} Alertas`} iconColor="text-purple-500" />
             </div>

@@ -149,7 +149,7 @@ export default function AdminAnalyticsPage() {
             <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-12">
                 <KpiCard title="% UMV" value={`${header.umvRate}%`} badge="Umv/Act" icon={Zap} iconColor="text-yellow-500" />
                 <KpiCard title="Activaciones" value={header.totalActivations} badge="30d" icon={Users} />
-                <KpiCard title="Retención 30d" value={latestMatureCohort ? `${latestMatureCohort.retention_rate}%` : '0%'} badge="Última" icon={Activity} iconColor="text-emerald-500" />
+                <KpiCard title="Retención" value={latestMatureCohort ? `${latestMatureCohort.retention_rate}%` : '0%'} badge={latestMatureCohort ? `Últ. (${latestMatureCohort.observation_window_days}d)` : 'Última'} icon={Activity} iconColor="text-emerald-500" />
                 <KpiCard title="Frecuencia Semanal" value={`${header.avgActiveDaysPerUserWeek}`} badge="días/sem" icon={Calendar} iconColor="text-blue-500" />
                 <KpiCard title="Insights Generados" value={header.totalInsights} badge="30d" icon={Sparkles} iconColor="text-amber-500" />
                 <KpiCard title="Usuarios Comunidad" value={header.communityActiveUsers} badge="Personas" icon={Users} iconColor="text-purple-500" />

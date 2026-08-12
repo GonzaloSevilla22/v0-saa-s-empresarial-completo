@@ -27,11 +27,11 @@
 
 ## 3. Módulo compartido del runtime Deno + test de paridad
 
-- [ ] 3.1 **[RED]** Crear `frontend/__tests__/reporting/edge-reporting-canon.test.ts` importando `"../../supabase/functions/_shared/reporting-canon"` **por ruta relativa** (patrón ya probado en `__tests__/ai-quota.test.ts` y otros 3 archivos). Falla por módulo inexistente
-- [ ] 3.2 **[GREEN]** Crear `supabase/functions/_shared/reporting-canon.ts` con: (a) las funciones puras `lineRevenue`/`sumLineRevenue`/`netMarginPct`/`previousWindow`, gemelas de las del frontend; (b) `fetchKpiSummary(client, window)` con el **cliente inyectado** y **cero referencias a `Deno.*` a nivel de módulo** (condición para que vitest pueda importarlo). Cabecera con el puntero al gemelo del frontend y al test de paridad
-- [ ] 3.3 **[TRIANGULATE]** Repetir contra este módulo la batería de 1.4/1.5/1.6 (legacy sin total, `total = 0`, numerics string, revenue 0, ventana no invertida) + los casos de `fetchKpiSummary` de 2.5 con un doble del cliente
-- [ ] 3.4 **[RED→GREEN]** Crear `frontend/__tests__/reporting/reporting-canon-parity.test.ts`: una **única tabla de casos** exportada, ejecutada contra las dos implementaciones, con assert de igualdad resultado a resultado. Demostrar que el test **no es vacuo**: alterar temporalmente una de las dos copias (p. ej. que `lineRevenue` devuelva `amount`) y confirmar que el test se pone rojo; revertir
-- [ ] 3.5 **[REFACTOR]** Confirmar que el módulo `_shared` no importa nada del frontend ni del registro `jsr:`/`npm:` (debe ser TS puro sin dependencias) — es lo que lo hace deployable a Deno y testeable en vitest a la vez
+- [x] 3.1 **[RED]** Crear `frontend/__tests__/reporting/edge-reporting-canon.test.ts` importando `"../../supabase/functions/_shared/reporting-canon"` **por ruta relativa** (patrón ya probado en `__tests__/ai-quota.test.ts` y otros 3 archivos). Falla por módulo inexistente
+- [x] 3.2 **[GREEN]** Crear `supabase/functions/_shared/reporting-canon.ts` con: (a) las funciones puras `lineRevenue`/`sumLineRevenue`/`netMarginPct`/`previousWindow`, gemelas de las del frontend; (b) `fetchKpiSummary(client, window)` con el **cliente inyectado** y **cero referencias a `Deno.*` a nivel de módulo** (condición para que vitest pueda importarlo). Cabecera con el puntero al gemelo del frontend y al test de paridad
+- [x] 3.3 **[TRIANGULATE]** Repetir contra este módulo la batería de 1.4/1.5/1.6 (legacy sin total, `total = 0`, numerics string, revenue 0, ventana no invertida) + los casos de `fetchKpiSummary` de 2.5 con un doble del cliente
+- [x] 3.4 **[RED→GREEN]** Crear `frontend/__tests__/reporting/reporting-canon-parity.test.ts`: una **única tabla de casos** exportada, ejecutada contra las dos implementaciones, con assert de igualdad resultado a resultado. Demostrar que el test **no es vacuo**: alterar temporalmente una de las dos copias (p. ej. que `lineRevenue` devuelva `amount`) y confirmar que el test se pone rojo; revertir
+- [x] 3.5 **[REFACTOR]** Confirmar que el módulo `_shared` no importa nada del frontend ni del registro `jsr:`/`npm:` (debe ser TS puro sin dependencias) — es lo que lo hace deployable a Deno y testeable en vitest a la vez
 
 ## 4. Copiloto — `buildBusinessSnapshot`
 

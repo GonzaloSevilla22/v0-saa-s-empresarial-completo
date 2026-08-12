@@ -67,21 +67,21 @@
 
 > **No ejecutar sin sign-off explícito del PO.** Opciones, evidencia de producción y recomendación en `design.md` D6. Governance MEDIUM: se lee billing, no se escribe.
 
-- [ ] 8.1 Presentar OQ-4 al PO con las tres fuentes (plan efectivo × tarifa · suscripciones vivas de MP · cobros realizados), la cifra que da cada una hoy y la recomendación A+B; obtener sign-off por escrito de la fuente, del tratamiento de trials y exentas, y de la moneda.
-- [ ] 8.2 Gate SQL primero: cuenta paga aporta el precio de su plan; cuenta con suscripción autorizada aporta el importe de la suscripción; trial vigente aporta 0; cuenta exenta aporta 0; las poblaciones (`paying`/`trial`/`exempt`/`free`) suman el total de cuentas.
-- [ ] 8.3 Migración M2 sobre el bloque `freemium` de `rpc_admin_business_kpis` (`CREATE OR REPLACE`, misma firma, escrita **sobre el cuerpo que dejó M1**): dejar de leer `profiles.plan`, calcular sobre `accounts` + `get_effective_plan` + `plan_limits.price_monthly` con el término de `subscriptions.amount`, y exponer `paying_accounts`, `trial_accounts`, `exempt_accounts`, `free_accounts`, `mrr_ars` y `trial_pipeline_mrr_ars`.
-- [ ] 8.4 Actualizar la tarjeta de MRR en `/admin/metricas`: etiqueta de moneda explícita y subtexto con las poblaciones separadas.
-- [ ] 8.5 Medir y registrar el delta en producción (de ~525 sin moneda a la cifra real en ARS) y verificar post-merge.
+- [x] 8.1 Presentar OQ-4 al PO con las tres fuentes (plan efectivo × tarifa · suscripciones vivas de MP · cobros realizados), la cifra que da cada una hoy y la recomendación A+B; obtener sign-off por escrito de la fuente, del tratamiento de trials y exentas, y de la moneda. **Sign-off PO 2026-08-12**: fuente A+B (D6), trials y exentas excluidas del MRR, panel en ARS.
+- [x] 8.2 Gate SQL primero: cuenta paga aporta el precio de su plan; cuenta con suscripción autorizada aporta el importe de la suscripción; trial vigente aporta 0; cuenta exenta aporta 0; las poblaciones (`paying`/`trial`/`exempt`/`free`) suman el total de cuentas. RED verificado (`rpc_admin_business_kpis` no exponía las claves nuevas) antes de escribir M2.
+- [x] 8.3 Migración M2 sobre el bloque `freemium` de `rpc_admin_business_kpis` (`CREATE OR REPLACE`, misma firma, escrita **sobre el cuerpo que dejó M1**): dejar de leer `profiles.plan`, calcular sobre `accounts` + `get_effective_plan` + `plan_limits.price_monthly` con el término de `subscriptions.amount`, y exponer `paying_accounts`, `trial_accounts`, `exempt_accounts`, `free_accounts`, `mrr_ars` y `trial_pipeline_mrr_ars`. `supabase/migrations/20260921000001_admin_kpi_freemium_retention.sql`, PR #398.
+- [x] 8.4 Actualizar la tarjeta de MRR en `/admin/metricas`: etiqueta de moneda explícita y subtexto con las poblaciones separadas.
+- [x] 8.5 Medir y registrar el delta en producción (de ~525 sin moneda a la cifra real en ARS) y verificar post-merge. **Prod verificado (solo SELECT) pre y post-merge: mrr_ars=69900.00, paying=1, trial=33, exempt=1, free=0, trial_pipeline_mrr_ars=2306700.00** — idéntico antes/después del merge.
 
-## 9. GATEADO por OQ-5 (PO, cierra PA-07) — definición de retención
+## 9. GATEADO por OQ-5 (PO, cierra PA-07) — definición de retención ✅
 
 > **No ejecutar sin sign-off explícito del PO.** Opciones y recomendación en `design.md` D7.
 
-- [ ] 9.1 Presentar OQ-5 al PO con las tres definiciones (ventana fija `[30,37)` · abierta `≥30 días` · horizonte común censurado `[30,H)` con `H=60`), sus tradeoffs de comparabilidad y sensibilidad sobre una base de 7 usuarios activados, y la recomendación C.
-- [ ] 9.2 Gate SQL primero: usuario que opera dentro del horizonte cuenta como retenido; usuario que sólo opera antes del día 30 no; todas las cohortes de una misma serie reportan el mismo `observation_window_days`; cohorte más joven que el horizonte se marca no madura.
-- [ ] 9.3 Migración M2 sobre `rpc_admin_retention_30d` con la definición aprobada (si es la opción C: parámetro `p_horizon_days` con default 60 → **firma nueva**, así que `DROP` de la firma vieja + `CREATE` + re-`GRANT`/`REVOKE` en la misma migración).
-- [ ] 9.4 Ajustar la etiqueta del panel para mostrar el horizonte vigente junto a la tasa (el cliente ya lo recibe desde el grupo 4).
-- [ ] 9.5 Cerrar PA-07 en `knowledge-base/10_preguntas_abiertas.md` con la definición adoptada y actualizar `knowledge-base/01_vision_y_objetivos.md` si la redacción de la visión queda desalineada.
+- [x] 9.1 Presentar OQ-5 al PO con las tres definiciones (ventana fija `[30,37)` · abierta `≥30 días` · horizonte común censurado `[30,H)` con `H=60`), sus tradeoffs de comparabilidad y sensibilidad sobre una base de 7 usuarios activados, y la recomendación C. **Sign-off PO 2026-08-12**: opción C, `H=60`.
+- [x] 9.2 Gate SQL primero: usuario que opera dentro del horizonte cuenta como retenido; usuario que sólo opera antes del día 30 no; todas las cohortes de una misma serie reportan el mismo `observation_window_days`; cohorte más joven que el horizonte se marca no madura. RED verificado (firma de 4 argumentos no existía) antes de escribir M2.
+- [x] 9.3 Migración M2 sobre `rpc_admin_retention_30d` con la definición aprobada (si es la opción C: parámetro `p_horizon_days` con default 60 → **firma nueva**, así que `DROP` de la firma vieja + `CREATE` + re-`GRANT`/`REVOKE` en la misma migración). PR #398.
+- [x] 9.4 Ajustar la etiqueta del panel para mostrar el horizonte vigente junto a la tasa (el cliente ya lo recibe desde el grupo 4).
+- [x] 9.5 Cerrar PA-07 en `knowledge-base/10_preguntas_abiertas.md` con la definición adoptada y actualizar `knowledge-base/01_vision_y_objetivos.md` si la redacción de la visión queda desalineada. Retención real por cohorte verificada en prod (solo SELECT): 5 cohortes maduras (100%/100%/100%/33.33%/0%), 2 inmaduras.
 
 ## 10. Cierre
 

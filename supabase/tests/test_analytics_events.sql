@@ -24,6 +24,17 @@
 --      operación no duplica (índice único parcial por entity_id).
 --   7. Granularidad: un INSERT de N filas en una sola sentencia emite N
 --      operation_created y a lo sumo un first_operation.
+--   8. Backfill histórico (grupo 6, OQ-2 aprobada 2026-08-12): operaciones
+--      "históricas" insertadas con el trigger deshabilitado (simulan datos
+--      previos al choke point, 20260914000001) → el backfill
+--      (20260919000001) las cubre con operation_created/first_operation
+--      source='backfill', conteos operaciones↔eventos coherentes, y una
+--      segunda corrida no agrega filas nuevas (idempotencia real, no
+--      declarada).
+--   9. OQ-3 (aprobada junto con OQ-2): índice único parcial
+--      ux_analytics_umv_reached_user — un segundo umv_reached para el mismo
+--      usuario, insertado directo (sin ON CONFLICT), debe violar la
+--      restricción única.
 --
 -- Patrón del proyecto (test_kpis.sql): acumular fallos en text[], un solo
 -- RAISE EXCEPTION al final para que psql -v ON_ERROR_STOP=1 salga con código
@@ -60,6 +71,20 @@ DECLARE
   v_granularity_user    uuid := gen_random_uuid();
   v_granularity_acct    uuid;
   v_granularity_branch  uuid;
+
+  -- Anchor terciario (backfill + OQ-3 umv_reached — usuario nuevo con
+  -- operaciones "históricas" insertadas con el trigger deshabilitado)
+  v_backfill_email      text := 'analytics-events-revival-gate-backfill@test.local';
+  v_backfill_user       uuid := gen_random_uuid();
+  v_backfill_acct       uuid;
+  v_backfill_branch     uuid;
+  v_bf_sale_id          uuid;
+  v_bf_purchase_id      uuid;
+  v_bf_expense_id       uuid;
+  v_bf_count            integer;
+  v_bf_total_ops        integer;
+  v_bf_events_before    integer;
+  v_bf_events_after     integer;
 BEGIN
   -- Anchor sintético: dispara handle_new_user (AFTER INSERT ON auth.users) —
   -- crea account + branch "Casa Central" + cashbox (desde 20260812000001).
@@ -315,26 +340,265 @@ BEGIN
     END IF;
   END IF;
 
+  -- ── Gate 8 (grupo 6 backfill): histórico → source='backfill', conteos ──────
+  -- ── coherentes, re-ejecución idempotente (0 filas nuevas) ───────────────────
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_backfill_user, 'authenticated', 'authenticated', v_backfill_email, now(), now(),
+          jsonb_build_object('name', 'Gate Analytics Backfill', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_backfill_acct
+  FROM   public.account_members
+  WHERE  user_id = v_backfill_user
+  ORDER  BY created_at
+  LIMIT  1;
+
+  IF v_backfill_acct IS NULL THEN
+    v_failures := array_append(v_failures, 'FAIL 8-setup: no se pudo resolver account para el tercer anchor (backfill)');
+  ELSE
+    SELECT id INTO v_backfill_branch FROM public.branches WHERE account_id = v_backfill_acct ORDER BY created_at LIMIT 1;
+
+    -- Simular datos "históricos" previos al choke point: deshabilitar el
+    -- trigger, insertar con created_at en el pasado (orden determinístico:
+    -- venta la más antigua, luego compra, luego gasto), reactivar. Envuelto
+    -- para garantizar que el trigger SIEMPRE quede reactivado aunque algo
+    -- falle a mitad de camino.
+    BEGIN
+      ALTER TABLE public.sales     DISABLE TRIGGER trg_analytics_operation_created;
+      ALTER TABLE public.purchases DISABLE TRIGGER trg_analytics_operation_created;
+      ALTER TABLE public.expenses  DISABLE TRIGGER trg_analytics_operation_created;
+
+      INSERT INTO public.sales (user_id, account_id, branch_id, amount, quantity, date, created_at)
+      VALUES (v_backfill_user, v_backfill_acct, v_backfill_branch, 1500, 1, now() - interval '400 days', now() - interval '400 days')
+      RETURNING id INTO v_bf_sale_id;
+
+      INSERT INTO public.purchases (user_id, account_id, branch_id, amount, quantity, date, created_at)
+      VALUES (v_backfill_user, v_backfill_acct, v_backfill_branch, 800, 2, now() - interval '399 days', now() - interval '399 days')
+      RETURNING id INTO v_bf_purchase_id;
+
+      INSERT INTO public.expenses (user_id, account_id, branch_id, category, amount, date, created_at)
+      VALUES (v_backfill_user, v_backfill_acct, v_backfill_branch, '__gate_analytics_backfill_expense__', 250, now() - interval '398 days', now() - interval '398 days')
+      RETURNING id INTO v_bf_expense_id;
+
+      ALTER TABLE public.sales     ENABLE TRIGGER trg_analytics_operation_created;
+      ALTER TABLE public.purchases ENABLE TRIGGER trg_analytics_operation_created;
+      ALTER TABLE public.expenses  ENABLE TRIGGER trg_analytics_operation_created;
+    EXCEPTION
+      WHEN OTHERS THEN
+        ALTER TABLE public.sales     ENABLE TRIGGER trg_analytics_operation_created;
+        ALTER TABLE public.purchases ENABLE TRIGGER trg_analytics_operation_created;
+        ALTER TABLE public.expenses  ENABLE TRIGGER trg_analytics_operation_created;
+        RAISE;
+    END;
+
+    -- Setup check: con el trigger deshabilitado durante el INSERT, no debería
+    -- existir todavía ningún operation_created para estas 3 operaciones.
+    IF EXISTS (
+      SELECT 1 FROM public.analytics_events
+      WHERE event_data->>'entity_id' IN (v_bf_sale_id::text, v_bf_purchase_id::text, v_bf_expense_id::text)
+        AND event_name = 'operation_created'
+    ) THEN
+      v_failures := array_append(v_failures, 'FAIL 8-setup: las operaciones históricas no deberían tener operation_created antes de correr el backfill (el trigger no se deshabilitó correctamente)');
+    END IF;
+
+    -- Backfill escaneando SÓLO la cuenta del anchor (misma lógica que
+    -- 20260919000001, acotada por account_id para no reprocesar todo el
+    -- dataset del entorno de test).
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT s.user_id, s.account_id, 'operation_created',
+           jsonb_build_object('entity_id', s.id, 'entity_type', 'sale', 'source', 'backfill'), s.created_at
+    FROM public.sales s
+    WHERE s.account_id = v_backfill_acct
+      AND NOT EXISTS (SELECT 1 FROM public.analytics_events ae WHERE ae.event_data->>'sale_id' = s.id::text)
+    ON CONFLICT (event_name, (event_data->>'entity_id'))
+      WHERE event_name = 'operation_created' AND event_data ? 'entity_id'
+    DO NOTHING;
+
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT p.user_id, p.account_id, 'operation_created',
+           jsonb_build_object('entity_id', p.id, 'entity_type', 'purchase', 'source', 'backfill'), p.created_at
+    FROM public.purchases p
+    WHERE p.account_id = v_backfill_acct
+      AND NOT EXISTS (SELECT 1 FROM public.analytics_events ae WHERE ae.event_data->>'purchase_id' = p.id::text)
+    ON CONFLICT (event_name, (event_data->>'entity_id'))
+      WHERE event_name = 'operation_created' AND event_data ? 'entity_id'
+    DO NOTHING;
+
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT e.user_id, e.account_id, 'operation_created',
+           jsonb_build_object('entity_id', e.id, 'entity_type', 'expense', 'source', 'backfill'), e.created_at
+    FROM public.expenses e
+    WHERE e.account_id = v_backfill_acct
+      AND NOT EXISTS (SELECT 1 FROM public.analytics_events ae WHERE ae.event_data->>'expense_id' = e.id::text)
+    ON CONFLICT (event_name, (event_data->>'entity_id'))
+      WHERE event_name = 'operation_created' AND event_data ? 'entity_id'
+    DO NOTHING;
+
+    WITH historical_ops AS (
+      SELECT user_id, account_id, id AS entity_id, 'sale'::text AS entity_type, created_at FROM public.sales WHERE account_id = v_backfill_acct
+      UNION ALL
+      SELECT user_id, account_id, id, 'purchase', created_at FROM public.purchases WHERE account_id = v_backfill_acct
+      UNION ALL
+      SELECT user_id, account_id, id, 'expense', created_at FROM public.expenses WHERE account_id = v_backfill_acct
+    ),
+    earliest_per_user AS (
+      SELECT user_id, account_id, entity_id, entity_type, created_at,
+             ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at ASC, entity_id ASC) AS rn
+      FROM historical_ops
+    )
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT user_id, account_id, 'first_operation',
+           jsonb_build_object('entity_id', entity_id, 'entity_type', entity_type, 'source', 'backfill'), created_at
+    FROM earliest_per_user
+    WHERE rn = 1
+    ON CONFLICT (user_id)
+      WHERE event_name = 'first_operation'
+    DO NOTHING;
+
+    -- Assert 8a: las 3 operaciones históricas tienen su operation_created de backfill.
+    SELECT COUNT(*) INTO v_bf_count
+    FROM public.analytics_events
+    WHERE event_name = 'operation_created'
+      AND event_data->>'entity_id' IN (v_bf_sale_id::text, v_bf_purchase_id::text, v_bf_expense_id::text)
+      AND event_data->>'source' = 'backfill';
+
+    IF v_bf_count <> 3 THEN
+      v_failures := array_append(v_failures,
+        format('FAIL 8a: se esperaban 3 operation_created con source=backfill para las operaciones históricas, hay %s', v_bf_count));
+    ELSE
+      RAISE NOTICE 'PASS 8a: las 3 operaciones históricas emiten operation_created con source=backfill';
+    END IF;
+
+    -- Assert 8b: first_operation backfillado apunta a la venta (la más antigua) con source=backfill.
+    IF NOT EXISTS (
+      SELECT 1 FROM public.analytics_events
+      WHERE user_id = v_backfill_user AND event_name = 'first_operation'
+        AND event_data->>'entity_id' = v_bf_sale_id::text
+        AND event_data->>'source' = 'backfill'
+    ) THEN
+      v_failures := array_append(v_failures, 'FAIL 8b: first_operation del backfill no apunta a la operación histórica más antigua (la venta), o no tiene source=backfill');
+    ELSE
+      RAISE NOTICE 'PASS 8b: first_operation del backfill apunta a la operación histórica más antigua';
+    END IF;
+
+    -- Assert 8c: conteos coherentes operaciones↔eventos para el fixture (3 y 3).
+    SELECT COUNT(*) INTO v_bf_total_ops FROM (
+      SELECT id FROM public.sales     WHERE account_id = v_backfill_acct
+      UNION ALL SELECT id FROM public.purchases WHERE account_id = v_backfill_acct
+      UNION ALL SELECT id FROM public.expenses  WHERE account_id = v_backfill_acct
+    ) ops;
+
+    SELECT COUNT(*) INTO v_bf_count
+    FROM public.analytics_events
+    WHERE account_id = v_backfill_acct AND event_name = 'operation_created';
+
+    IF v_bf_total_ops <> v_bf_count THEN
+      v_failures := array_append(v_failures,
+        format('FAIL 8c: conteo incoherente — %s operaciones históricas vs %s operation_created para la misma cuenta', v_bf_total_ops, v_bf_count));
+    ELSE
+      RAISE NOTICE 'PASS 8c: conteo de operaciones y de operation_created coincide para el fixture (%)', v_bf_total_ops;
+    END IF;
+
+    -- Assert 8d: re-ejecutar el mismo backfill (idempotencia) → 0 filas nuevas.
+    SELECT COUNT(*) INTO v_bf_events_before
+    FROM public.analytics_events WHERE account_id = v_backfill_acct OR user_id = v_backfill_user;
+
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT s.user_id, s.account_id, 'operation_created',
+           jsonb_build_object('entity_id', s.id, 'entity_type', 'sale', 'source', 'backfill'), s.created_at
+    FROM public.sales s
+    WHERE s.account_id = v_backfill_acct
+      AND NOT EXISTS (SELECT 1 FROM public.analytics_events ae WHERE ae.event_data->>'sale_id' = s.id::text)
+    ON CONFLICT (event_name, (event_data->>'entity_id'))
+      WHERE event_name = 'operation_created' AND event_data ? 'entity_id'
+    DO NOTHING;
+
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT p.user_id, p.account_id, 'operation_created',
+           jsonb_build_object('entity_id', p.id, 'entity_type', 'purchase', 'source', 'backfill'), p.created_at
+    FROM public.purchases p
+    WHERE p.account_id = v_backfill_acct
+      AND NOT EXISTS (SELECT 1 FROM public.analytics_events ae WHERE ae.event_data->>'purchase_id' = p.id::text)
+    ON CONFLICT (event_name, (event_data->>'entity_id'))
+      WHERE event_name = 'operation_created' AND event_data ? 'entity_id'
+    DO NOTHING;
+
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT e.user_id, e.account_id, 'operation_created',
+           jsonb_build_object('entity_id', e.id, 'entity_type', 'expense', 'source', 'backfill'), e.created_at
+    FROM public.expenses e
+    WHERE e.account_id = v_backfill_acct
+      AND NOT EXISTS (SELECT 1 FROM public.analytics_events ae WHERE ae.event_data->>'expense_id' = e.id::text)
+    ON CONFLICT (event_name, (event_data->>'entity_id'))
+      WHERE event_name = 'operation_created' AND event_data ? 'entity_id'
+    DO NOTHING;
+
+    WITH historical_ops AS (
+      SELECT user_id, account_id, id AS entity_id, 'sale'::text AS entity_type, created_at FROM public.sales WHERE account_id = v_backfill_acct
+      UNION ALL
+      SELECT user_id, account_id, id, 'purchase', created_at FROM public.purchases WHERE account_id = v_backfill_acct
+      UNION ALL
+      SELECT user_id, account_id, id, 'expense', created_at FROM public.expenses WHERE account_id = v_backfill_acct
+    ),
+    earliest_per_user AS (
+      SELECT user_id, account_id, entity_id, entity_type, created_at,
+             ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at ASC, entity_id ASC) AS rn
+      FROM historical_ops
+    )
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    SELECT user_id, account_id, 'first_operation',
+           jsonb_build_object('entity_id', entity_id, 'entity_type', entity_type, 'source', 'backfill'), created_at
+    FROM earliest_per_user
+    WHERE rn = 1
+    ON CONFLICT (user_id)
+      WHERE event_name = 'first_operation'
+    DO NOTHING;
+
+    SELECT COUNT(*) INTO v_bf_events_after
+    FROM public.analytics_events WHERE account_id = v_backfill_acct OR user_id = v_backfill_user;
+
+    IF v_bf_events_after <> v_bf_events_before THEN
+      v_failures := array_append(v_failures,
+        format('FAIL 8d: la re-ejecución del backfill agregó filas nuevas (no idempotente) — antes %s, después %s', v_bf_events_before, v_bf_events_after));
+    ELSE
+      RAISE NOTICE 'PASS 8d: re-ejecutar el backfill sobre el mismo dataset no agrega filas nuevas (idempotencia real)';
+    END IF;
+
+    -- ── Gate 9 (OQ-3): índice único parcial ux_analytics_umv_reached_user ────
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data)
+    VALUES (v_backfill_user, v_backfill_acct, 'umv_reached', jsonb_build_object('source', 'gate'));
+
+    BEGIN
+      INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data)
+      VALUES (v_backfill_user, v_backfill_acct, 'umv_reached', jsonb_build_object('source', 'gate_duplicate'));
+      v_failures := array_append(v_failures,
+        'FAIL 9: un segundo umv_reached para el mismo usuario se insertó sin error — falta el índice único ux_analytics_umv_reached_user o no está activo');
+    EXCEPTION
+      WHEN unique_violation THEN
+        RAISE NOTICE 'PASS 9: ux_analytics_umv_reached_user rechaza un segundo umv_reached para el mismo usuario (unique_violation)';
+    END;
+  END IF;
+
   -- ── Resultado ─────────────────────────────────────────────────────────────
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE ANALYTICS-EVENTS-REVIVAL FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'GATE ANALYTICS-EVENTS-REVIVAL PASSED: emisión (gasto/compra/venta), unicidad de activación, atomicidad, degrade-don''t-fail, ACL/RLS, idempotencia y granularidad — verificados.';
+  RAISE NOTICE 'GATE ANALYTICS-EVENTS-REVIVAL PASSED: emisión (gasto/compra/venta), unicidad de activación, atomicidad, degrade-don''t-fail, ACL/RLS, idempotencia, granularidad, backfill histórico y unicidad de umv_reached — verificados.';
 
   -- ── Limpieza hijo→padre (accounts=0 al final) ────────────────────────────
-  DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user);
-  DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct);
-  DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct);
-  DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct);
-  DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct));
-  DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct);
-  DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user);
-  DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct);
-  DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user);
-  DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user);
-  DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user);
-  DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user);
+  DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+  DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+  DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+  DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+  DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct));
+  DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+  DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+  DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+  DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
+  DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+  DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+  DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
 
 EXCEPTION
   WHEN OTHERS THEN
@@ -351,18 +615,28 @@ EXCEPTION
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     BEGIN
-      DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user);
-      DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct);
-      DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct);
-      DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct);
-      DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct));
-      DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct);
-      DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user);
-      DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct);
-      DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user);
-      DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user);
-      DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user);
-      DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user);
+      -- Salvaguarda: si el fallo ocurrió durante la ventana del Gate 8 con
+      -- los triggers deshabilitados, garantizar que queden reactivados. El
+      -- bloque interno del Gate 8 ya los reactiva en su propio EXCEPTION,
+      -- pero esto cubre cualquier ruta inesperada.
+      ALTER TABLE public.sales     ENABLE TRIGGER trg_analytics_operation_created;
+      ALTER TABLE public.purchases ENABLE TRIGGER trg_analytics_operation_created;
+      ALTER TABLE public.expenses  ENABLE TRIGGER trg_analytics_operation_created;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN
+      DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+      DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+      DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+      DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+      DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct));
+      DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+      DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+      DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct);
+      DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
+      DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+      DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
+      DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     RAISE;

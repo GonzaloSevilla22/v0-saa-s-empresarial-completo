@@ -61,33 +61,38 @@ BEGIN
       format('FAIL: unexpected get_dashboard_financials overload(s): [%s]', v_bad));
   END IF;
 
-  -- ── 3. get_dashboard_critical_stock: secure 0-param version must exist ──────
+  -- ── 3. get_dashboard_critical_stock: branch-aware signature must exist ──────
+  -- kpi-critical-stock-dashboard (D1/D7): la firma pasa de 0-args a
+  -- (p_branch_id uuid DEFAULT NULL) — cuenta sobre branch_stock, consciente
+  -- de sucursal. pg_get_function_identity_arguments no imprime el DEFAULT.
   SELECT EXISTS (
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
       AND p.proname = 'get_dashboard_critical_stock'
-      AND pg_get_function_identity_arguments(p.oid) = ''   -- no params
+      AND pg_get_function_identity_arguments(p.oid) = 'p_branch_id uuid'
   ) INTO v_ok;
 
   IF v_ok THEN
-    RAISE NOTICE 'PASS: get_dashboard_critical_stock secure signature exists';
+    RAISE NOTICE 'PASS: get_dashboard_critical_stock branch-aware signature exists';
   ELSE
     v_failures := array_append(v_failures,
-      'FAIL: get_dashboard_critical_stock() not found');
+      'FAIL: get_dashboard_critical_stock(p_branch_id uuid) not found');
   END IF;
 
-  -- ── 4. get_dashboard_critical_stock: no other overload may exist ────────────
-  -- The (p_user_id uuid) overload is SECURITY DEFINER, filters by the
-  -- caller-supplied user_id and performs no auth.uid() check (IDOR). Dropped
-  -- by 20260430000007; must never come back.
+  -- ── 4. get_dashboard_critical_stock: allowlist de firmas ─────────────────────
+  -- Cualquier firma fuera de la allowlist {p_branch_id uuid} es un overload
+  -- inesperado. El (p_user_id uuid) histórico es SECURITY DEFINER, filtra por
+  -- el user_id que pasa el caller sin check de auth.uid() (IDOR). Dropped por
+  -- 20260430000007, reintroducido por 20260623000001, dropeado de nuevo por
+  -- 20260823000001 — debe seguir prohibido explícitamente por nombre/firma.
   SELECT string_agg(pg_get_function_identity_arguments(p.oid), ' | ')
   INTO v_bad
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
     AND p.proname = 'get_dashboard_critical_stock'
-    AND pg_get_function_identity_arguments(p.oid) <> '';
+    AND pg_get_function_identity_arguments(p.oid) NOT IN ('p_branch_id uuid');
 
   IF v_bad IS NULL THEN
     RAISE NOTICE 'PASS: get_dashboard_critical_stock has no unexpected overloads';
@@ -95,7 +100,7 @@ BEGIN
     v_failures := array_append(v_failures,
       format('FAIL: unexpected get_dashboard_critical_stock overload(s): [%s] '
              '— vulnerable p_user_id overload was dropped by 20260430000007 '
-             'and reintroduced by 20260623000001 — it must be dropped again', v_bad));
+             'and must never come back', v_bad));
   END IF;
 
   -- ── 5. All five admin RPCs must exist ────────────────────────────────────────
@@ -168,7 +173,7 @@ BEGIN
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
       AND p.proname = 'get_dashboard_critical_stock'
-      AND pg_get_function_identity_arguments(p.oid) = ''
+      AND pg_get_function_identity_arguments(p.oid) = 'p_branch_id uuid'
       AND p.prosrc LIKE '%min_stock > 0%'
   ) INTO v_ok;
 

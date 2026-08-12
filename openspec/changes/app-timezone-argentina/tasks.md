@@ -30,8 +30,8 @@
 
 ## 5. SQL sweep
 
-- [ ] 5.1 Sweep de definiciones VIGENTES en `supabase/migrations/` con `CURRENT_DATE`/`now()::date` como día de negocio; clasificar cada sitio (migrar / deliberado-documentado / muerto)
-- [ ] 5.2 Si hay sitios a migrar: una migración `CREATE OR REPLACE` idempotente → `reporting_local_today()` (sin DROP, firmas intactas); si hay 0, documentar el resultado del sweep en el PR
+- [x] 5.1 Sweep completo: 12 archivos de `supabase/migrations/` con `CURRENT_DATE`/`now()::date`. Clasificados: **4 funciones vigentes a migrar** (`rpc_accept_quote`, `_c29_confirm_order_core`, `rpc_register_payment_received`, `rpc_register_payment_made` — 5 sitios), **1 muerta** (`rpc_product_profitability` en `20260606110000`, ya fixeada en la vigente `20260814000001` por `v3-reporting-invariants`), **2 deliberadas fuera de alcance** (gate de test fiscal AFIP en `20260828000001`, gate de test de cost-center report en `20260901000001` — ambas con ventana sintética dentro de un `DO $$` de CI, no lógica de negocio), **1 no-aplica** (`20260509153624` solo tiene "CURRENT_DATE" en un comentario). Detalle completo en el encabezado de la migración de 5.2.
+- [x] 5.2 Migración `20260907000001_business_day_timezone_sweep.sql`: `CREATE OR REPLACE` de las 4 funciones (mismas firmas, sin DROP, ACLs preservadas) con los 5 sitios `CURRENT_DATE` → `public.reporting_local_today()`. Cuerpos verificados byte-a-byte contra las definiciones vigentes (`diff` línea por línea — solo difieren en la sustitución buscada + comentarios explicativos agregados). No se pudo ejecutar contra una DB local en este entorno (sin Docker/psql disponibles) — validación real queda en el gate de CI al abrir el PR.
 
 ## 6. Verificación y cierre
 

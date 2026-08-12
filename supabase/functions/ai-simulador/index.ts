@@ -1,5 +1,11 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import {
+  fetchKpiSummary,
+  sumLineRevenue,
+  previousWindow,
+  type SaleRevenueRow,
+} from '../_shared/reporting-canon.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -83,18 +89,46 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'El campo scenario es requerido' }, 400)
     }
 
-    // 3. Fetch Context (Current Month)
+    // 3. Fetch Context (Current Month) — kpi-ia-canonical-revenue (D1/D2)
+    const now = new Date()
     const firstDayOfMonth = new Date()
     firstDayOfMonth.setDate(1)
     firstDayOfMonth.setHours(0, 0, 0, 0)
 
+    const nowIso = now.toISOString()
+    const fromIso = firstDayOfMonth.toISOString()
+    const { from: prevFromIso, to: prevToIso } = previousWindow(fromIso, nowIso)
+
     const [salesResult, expensesResult] = await Promise.all([
-      supabaseClient.from('sales').select('amount').gte('date', firstDayOfMonth.toISOString()),
-      supabaseClient.from('expenses').select('amount').gte('date', firstDayOfMonth.toISOString())
+      // `total` (no solo `amount`) — es la fuente del camino degradado (D4) si el canon falla.
+      supabaseClient.from('sales').select('amount, total').gte('date', fromIso),
+      supabaseClient.from('expenses').select('amount').gte('date', fromIso)
     ])
 
-    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
     const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
+
+    // kpi-ia-canonical-revenue (D1/D4): ventas y ganancia neta desde el canon;
+    // si el RPC falla, se degrada a la suma de línea local — nunca se inventa
+    // un número, y se omite la ganancia del prompt.
+    let invoicedRevenue: number | null = null
+    let netProfit: number | null = null
+    try {
+      const summary = await fetchKpiSummary(supabaseClient, {
+        from: fromIso,
+        to: nowIso,
+        prevFrom: prevFromIso,
+        prevTo: prevToIso,
+      })
+      if (summary) {
+        invoicedRevenue = summary.invoicedRevenue
+        netProfit = summary.netProfit
+      }
+    } catch (err) {
+      console.error('[ai-simulador] rpc_dashboard_kpi_summary falló, degradando a ingresos locales:', err)
+    }
+
+    const totalSales = invoicedRevenue ?? sumLineRevenue((salesResult.data ?? []) as SaleRevenueRow[])
+    const gananciaLinea = netProfit != null ? ` Ganancia neta del mes: $${Math.round(netProfit).toLocaleString()}.` : ''
 
     let content = ''
     try {
@@ -107,7 +141,7 @@ Deno.serve(async (req) => {
             model: 'gpt-4o-mini',
             messages: [
               { role: 'system', content: 'Eres un simulador de estrategias de negocio. Analiza el impacto del escenario propuesto basándote en los números actuales del usuario.' },
-              { role: 'user', content: `Escenario: ${scenario.trim()}. Datos actuales del mes: Ventas $${totalSales}, Gastos $${totalExpenses}.` }
+              { role: 'user', content: `Escenario: ${scenario.trim()}. Datos actuales del mes: Ventas $${totalSales}, Gastos $${totalExpenses}.${gananciaLinea}` }
             ],
             max_tokens: 400,
             temperature: 0.7,

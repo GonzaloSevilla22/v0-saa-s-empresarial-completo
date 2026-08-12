@@ -1,4 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
+import { lineRevenue, sumLineRevenue, netMarginPct, previousWindow } from '@/lib/reporting/revenue-canon'
+import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,7 +16,13 @@ export interface BusinessSnapshot {
 
   gastos: {
     total: number
-    margen_neto_pct: number
+    /** kpi-ia-canonical-revenue (D1): canónico desde rpc_dashboard_kpi_summary
+     *  — (ventas − NC) − (gastos + compras). `null` cuando no hay base de
+     *  cálculo (ingresos 0) o cuando el canon no respondió (D4) — nunca 0. */
+    margen_neto_pct: number | null
+    /** kpi-ia-canonical-revenue (D5): ganancia neta en pesos (`net_profit`
+     *  del canon). `null` en el camino degradado (D4). */
+    ganancia_neta: number | null
     categoria_top: string         // e.g. "Materiales: $28.000"
   }
 
@@ -69,27 +77,27 @@ export async function buildBusinessSnapshot(
   const d30Str  = d30.toISOString().split('T')[0]
   const d60Str  = d60.toISOString().split('T')[0]
 
+  // kpi-ia-canonical-revenue (D2): ventana canónica de 30 días + su previa
+  // sintética, para consumir rpc_dashboard_kpi_summary de una sola llamada.
+  const nowIso = now.toISOString()
+  const d30Iso = d30.toISOString()
+  const { from: prevFromIso, to: prevToIso } = previousWindow(d30Iso, nowIso)
+
   // ── Parallel fetch ─────────────────────────────────────────────────────────
   const [
     { data: currentSales },
-    { data: prevSales },
     { data: products },
     { data: expenses },
     { data: newClients },
     { data: recentSalesForRotation },
   ] = await Promise.all([
-    // Ventas período actual — incluye join a products para margen
+    // Ventas período actual — incluye join a products para margen. `total`
+    // se agrega para poder degradar sin subcontar ventas multi-unidad si el
+    // canon no responde (D4) — es la misma fórmula que resuelve el RPC.
     supabase
       .from('sales')
-      .select('amount, quantity, date, product_id, client_id, products(name, cost, price)')
+      .select('amount, quantity, total, date, product_id, client_id, products(name, cost, price)')
       .gte('date', d30Str),
-
-    // Ventas período anterior (solo monto, para comparativa)
-    supabase
-      .from('sales')
-      .select('amount')
-      .gte('date', d60Str)
-      .lt('date', d30Str),
 
     // Productos (limitado para no inflar contexto)
     // C-21: lee de v_products_with_stock — stock = COALESCE(Σ branch_stock, 0)
@@ -120,17 +128,40 @@ export async function buildBusinessSnapshot(
   ])
 
   const sales  = currentSales ?? []
-  const prev   = prevSales    ?? []
   const prods  = products     ?? []
   const exps   = expenses     ?? []
 
-  // ── VENTAS ─────────────────────────────────────────────────────────────────
+  // ── VENTAS (kpi-ia-canonical-revenue, D1/D4) ─────────────────────────────────
+  //
+  // Ingresos, ganancia neta y comparativa vienen de rpc_dashboard_kpi_summary
+  // — la misma fila que consume el Bloque Resumen del Tablero. Si el RPC
+  // falla, se degrada a la suma canónica de línea sobre las filas ya en
+  // memoria y se omiten la ganancia/margen/comparativa (D4) — nunca se
+  // inventa un número con la fórmula vieja.
+  let invoicedRevenue: number | null = null
+  let prevInvoicedRevenue: number | null = null
+  let netProfit: number | null = null
 
-  const totalRevenue = sales.reduce((s, r) => s + Number(r.amount), 0)
-  const prevRevenue  = prev.reduce((s, r)  => s + Number(r.amount), 0)
+  try {
+    const summary = await fetchKpiSummary(supabase, {
+      from: d30Iso,
+      to: nowIso,
+      prevFrom: prevFromIso,
+      prevTo: prevToIso,
+    })
+    if (summary) {
+      invoicedRevenue = summary.invoicedRevenue
+      prevInvoicedRevenue = summary.prevInvoicedRevenue
+      netProfit = summary.netProfit
+    }
+  } catch (err) {
+    console.error('[Copilot] rpc_dashboard_kpi_summary falló, degradando a ingresos locales:', err)
+  }
 
-  const vsPrev = prevRevenue > 0
-    ? `${totalRevenue >= prevRevenue ? '+' : ''}${Math.round(((totalRevenue - prevRevenue) / prevRevenue) * 100)}%`
+  const totalRevenue = invoicedRevenue ?? sumLineRevenue(sales)
+
+  const vsPrev = prevInvoicedRevenue != null && prevInvoicedRevenue > 0
+    ? `${totalRevenue >= prevInvoicedRevenue ? '+' : ''}${Math.round(((totalRevenue - prevInvoicedRevenue) / prevInvoicedRevenue) * 100)}%`
     : 'sin datos previos'
 
   const datesWithSales = new Set(sales.map(s => String(s.date).split('T')[0]))
@@ -138,9 +169,7 @@ export async function buildBusinessSnapshot(
   // ── GASTOS ─────────────────────────────────────────────────────────────────
 
   const totalExpenses = exps.reduce((s, r) => s + Number(r.amount), 0)
-  const margenNeto    = totalRevenue > 0
-    ? Math.round(((totalRevenue - totalExpenses) / totalRevenue) * 100)
-    : 0
+  const margenNeto    = netMarginPct(netProfit, totalRevenue)
 
   const expByCategory = new Map<string, number>()
   for (const e of exps) {
@@ -172,7 +201,7 @@ export async function buildBusinessSnapshot(
     }
     salesByProduct.set(pid, {
       ...cur,
-      revenue: cur.revenue + Number(s.amount),
+      revenue: cur.revenue + lineRevenue(s),
       units:   cur.units   + Number(s.quantity),
     })
   }
@@ -265,11 +294,15 @@ export async function buildBusinessSnapshot(
   for (const s of sales) {
     if (!s.client_id) continue
     const cid = s.client_id as string
-    revenueByClient.set(cid, (revenueByClient.get(cid) ?? 0) + Number(s.amount))
+    revenueByClient.set(cid, (revenueByClient.get(cid) ?? 0) + lineRevenue(s))
   }
   const topClientRevenue = [...revenueByClient.values()].sort((a, b) => b - a)[0] ?? 0
+  // kpi-ia-canonical-revenue (D6): el desglose por cliente queda bruto de NC
+  // (no se atribuyen a la línea original), pero el total sí las resta — en
+  // un caso patológico (NC grande, un solo cliente) el bruto puede superar
+  // el neto. Se clampea a 100 para que el contexto nunca informe >100%.
   const topClientPct     = totalRevenue > 0
-    ? Math.round((topClientRevenue / totalRevenue) * 100)
+    ? Math.min(100, Math.round((topClientRevenue / totalRevenue) * 100))
     : 0
   const topClientStr = topClientRevenue > 0
     ? `$${Math.round(topClientRevenue).toLocaleString()} (${topClientPct}% del total)`
@@ -286,9 +319,10 @@ export async function buildBusinessSnapshot(
       dias_con_ventas:      datesWithSales.size,
     },
     gastos: {
-      total:          totalExpenses,
+      total:           totalExpenses,
       margen_neto_pct: margenNeto,
-      categoria_top:  categoriaTop,
+      ganancia_neta:   netProfit,
+      categoria_top:   categoriaTop,
     },
     productos: {
       top_rentables: topRentables,
@@ -320,10 +354,17 @@ REGLAS QUE NO PODÉS VIOLAR:
 
 /** Convierte el snapshot en un bloque de texto compacto para los prompts */
 export function snapshotToText(s: BusinessSnapshot): string {
+  // kpi-ia-canonical-revenue (D4/D5): margen y ganancia se omiten cuando el
+  // canon no respondió (`null`) — nunca se emite un fragmento roto ("null%").
+  const gastosParts: string[] = [`GASTOS: $${Math.round(s.gastos.total).toLocaleString()}`]
+  if (s.gastos.margen_neto_pct != null) gastosParts.push(`Margen neto: ${s.gastos.margen_neto_pct}%`)
+  if (s.gastos.ganancia_neta != null) gastosParts.push(`Ganancia neta: $${Math.round(s.gastos.ganancia_neta).toLocaleString()}`)
+  gastosParts.push(`Top gasto: ${s.gastos.categoria_top}`)
+
   const lines: string[] = [
     `PERÍODO: ${s.periodo}`,
     `VENTAS: $${Math.round(s.ventas.total).toLocaleString()} | ${s.ventas.vs_periodo_anterior} vs período anterior | ${s.ventas.dias_con_ventas}/30 días con ventas`,
-    `GASTOS: $${Math.round(s.gastos.total).toLocaleString()} | Margen neto: ${s.gastos.margen_neto_pct}% | Top gasto: ${s.gastos.categoria_top}`,
+    gastosParts.join(' | '),
   ]
 
   if (s.productos.top_rentables.length > 0) {
@@ -364,9 +405,11 @@ export function buildAdaptiveContext(s: BusinessSnapshot, question: string): str
   const q = question.toLowerCase()
   const blocks: string[] = []
 
-  // Siempre: resumen financiero (mínimo)
+  // Siempre: resumen financiero (mínimo). kpi-ia-canonical-revenue (D4): el
+  // margen se omite cuando el canon no respondió, en vez de citar `null%`.
+  const margenSuffix = s.gastos.margen_neto_pct != null ? ` | Margen ${s.gastos.margen_neto_pct}%` : ''
   blocks.push(
-    `RESUMEN (${s.periodo}): Ventas $${Math.round(s.ventas.total).toLocaleString()} (${s.ventas.vs_periodo_anterior} vs anterior) | Margen ${s.gastos.margen_neto_pct}%`
+    `RESUMEN (${s.periodo}): Ventas $${Math.round(s.ventas.total).toLocaleString()} (${s.ventas.vs_periodo_anterior} vs anterior)${margenSuffix}`
   )
 
   if (/stock|producto|inventar|repon|mercader|unidad/.test(q)) {
@@ -401,7 +444,12 @@ export function buildAdaptiveContext(s: BusinessSnapshot, question: string): str
   }
 
   if (/gasto|costo|margen|precio|rentab/.test(q)) {
-    blocks.push(`GASTOS: $${Math.round(s.gastos.total).toLocaleString()} | ${s.gastos.categoria_top}`)
+    // kpi-ia-canonical-revenue (D4/D5): margen/ganancia se omiten si son
+    // `null` (canon caído); la ganancia neta en pesos entra cuando está.
+    const gastosBits = [`$${Math.round(s.gastos.total).toLocaleString()}`, s.gastos.categoria_top]
+    if (s.gastos.margen_neto_pct != null) gastosBits.push(`Margen neto: ${s.gastos.margen_neto_pct}%`)
+    if (s.gastos.ganancia_neta != null) gastosBits.push(`Ganancia neta: $${Math.round(s.gastos.ganancia_neta).toLocaleString()}`)
+    blocks.push(`GASTOS: ${gastosBits.join(' | ')}`)
     if (s.productos.margen_bajo.length > 0) {
       blocks.push('MARGEN BAJO: ' +
         s.productos.margen_bajo.map(p =>

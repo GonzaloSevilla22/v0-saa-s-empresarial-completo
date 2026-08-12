@@ -1,5 +1,11 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import {
+  fetchKpiSummary,
+  sumLineRevenue,
+  previousWindow,
+  type SaleRevenueRow,
+} from '../_shared/reporting-canon.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -79,18 +85,39 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const { days_ahead } = body
 
-    // 3. Fetch Historical Data (Last 30 days)
+    // 3. Fetch Historical Data (Last 30 days) — kpi-ia-canonical-revenue (D1/D2)
+    const now = new Date()
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
+    const nowIso = now.toISOString()
+    const fromIso = thirtyDaysAgo.toISOString()
+    const { from: prevFromIso, to: prevToIso } = previousWindow(fromIso, nowIso)
+
+    // `total` se agrega — es además la fuente del camino degradado (D4).
     const { data: sales, error: salesError } = await supabaseClient
       .from('sales')
-      .select('amount, date')
-      .gte('date', thirtyDaysAgo.toISOString())
+      .select('amount, total, date')
+      .gte('date', fromIso)
       .order('date', { ascending: true })
 
-    const totalSales = (sales || []).reduce((acc: number, s: any) => acc + Number(s.amount), 0)
-    const avgDailySales = sales && sales.length > 0 ? totalSales / 30 : 0
+    // kpi-ia-canonical-revenue (D1/D4): ventas desde el canon; si el RPC
+    // falla, se degrada a la suma de línea local sobre las filas ya fetched.
+    let invoicedRevenue: number | null = null
+    try {
+      const summary = await fetchKpiSummary(supabaseClient, {
+        from: fromIso,
+        to: nowIso,
+        prevFrom: prevFromIso,
+        prevTo: prevToIso,
+      })
+      if (summary) invoicedRevenue = summary.invoicedRevenue
+    } catch (err) {
+      console.error('[ai-prediccion] rpc_dashboard_kpi_summary falló, degradando a ingresos locales:', err)
+    }
+
+    const totalSales = invoicedRevenue ?? sumLineRevenue((sales ?? []) as SaleRevenueRow[])
+    const avgDailySales = totalSales / 30
 
     let content = ''
     try {

@@ -1,5 +1,6 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { fetchKpiSummary, previousWindow } from '../_shared/reporting-canon.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -85,13 +86,13 @@ Deno.serve(async (req) => {
     //   day, so the client passes an explicit UTC range (built via the same
     //   lib/date-range helper the dashboard uses). We prefer that range; the
     //   rolling fallback below only applies to legacy callers without a range.
+    const now = new Date()
     let startIso: string
     let endIso: string | null = null
     if (typeof dateFrom === 'string' && typeof dateTo === 'string') {
       startIso = dateFrom
       endIso = dateTo
     } else {
-      const now = new Date()
       const startDate = new Date()
       if (period === 'weekly') startDate.setUTCDate(now.getUTCDate() - 7)
       else if (period === 'monthly') startDate.setUTCMonth(now.getUTCMonth() - 1)
@@ -101,6 +102,8 @@ Deno.serve(async (req) => {
 
     // `total` is the line total (amount * quantity); `amount` is the unit price.
     // Sum `total` and fall back to `amount` for any legacy row without a total.
+    // kpi-ia-canonical-revenue: este cálculo YA era correcto (el único de los
+    // 5 consumidores de IA que lo era) — no se toca.
     let salesQuery = supabaseClient.from('sales').select('amount, total').gte('date', startIso)
     let expensesQuery = supabaseClient.from('expenses').select('amount').gte('date', startIso)
     if (endIso) {
@@ -112,7 +115,31 @@ Deno.serve(async (req) => {
 
     const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.total ?? s.amount), 0)
     const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
-    const balance = totalSales - totalExpenses
+
+    // kpi-ia-canonical-revenue (D1/D4): el balance pasa a ser la ganancia
+    // neta canónica del período del caller (RPC valida el rango — P400 en
+    // uno inválido cae en el catch de abajo). Si el canon no responde, el
+    // balance se OMITE del prompt en vez de sustituirse por ventas − gastos
+    // — nunca se inventa un número (D4).
+    const effectiveEndIso = endIso ?? now.toISOString()
+    const { from: prevFromIso, to: prevToIso } = previousWindow(startIso, effectiveEndIso)
+
+    let netProfit: number | null = null
+    try {
+      const summary = await fetchKpiSummary(supabaseClient, {
+        from: startIso,
+        to: effectiveEndIso,
+        prevFrom: prevFromIso,
+        prevTo: prevToIso,
+      })
+      if (summary) netProfit = summary.netProfit
+    } catch (err) {
+      console.error('[ai-resumen] rpc_dashboard_kpi_summary falló, balance omitido:', err)
+    }
+
+    const balanceLinea = netProfit != null
+      ? ` Balance neto $${Math.round(netProfit).toLocaleString()}.`
+      : ''
 
     let content = ''
     try {
@@ -125,7 +152,7 @@ Deno.serve(async (req) => {
             model: 'gpt-4o-mini',
             messages: [
               { role: 'system', content: 'Eres un asistente financiero profesional. Resume el periodo financiero basándote en los números provistos. Sé breve y directo.' },
-              { role: 'user', content: `Resumen para el periodo ${period ?? 'daily'}: Ventas totales $${totalSales}, Gastos totales $${totalExpenses}, Balance neto $${balance}.` }
+              { role: 'user', content: `Resumen para el periodo ${period ?? 'daily'}: Ventas totales $${totalSales}, Gastos totales $${totalExpenses}.${balanceLinea}` }
             ],
             max_tokens: 400,
           }),

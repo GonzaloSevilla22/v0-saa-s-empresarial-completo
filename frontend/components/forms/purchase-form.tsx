@@ -29,6 +29,7 @@ import {
   type PurchaseCartItem,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
+import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
@@ -94,7 +95,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [newProductMinStock, setNewProductMinStock] = useState(10)
 
   // ── Operation date ──────────────────────────────────────────────────────────
-  const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => editingOperation?.date ?? argentinaToday())
   const [branchId, setBranchId] = useState<string | null>(null)
   // cost-center-dimension: optional analytic dimension for the whole operation
   const [costCenterId, setCostCenterId] = useState<string | null>(null)
@@ -480,7 +481,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             <input
               type="date"
               value={date}
-              max={new Date().toISOString().split("T")[0]}
+              max={argentinaToday()}
               onChange={(e) => setDate(e.target.value)}
               className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             />

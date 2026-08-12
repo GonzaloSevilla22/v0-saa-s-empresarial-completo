@@ -1,6 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
 import { fetchKpiSummary, previousWindow } from '../_shared/reporting-canon.ts'
+import { argentinaDaysAgoIso, argentinaMonthsAgoIso } from '../_shared/argentina-time.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -86,6 +87,9 @@ Deno.serve(async (req) => {
     //   day, so the client passes an explicit UTC range (built via the same
     //   lib/date-range helper the dashboard uses). We prefer that range; the
     //   rolling fallback below only applies to legacy callers without a range.
+    //   app-timezone-argentina (task 4.1): the fallback anchors to the
+    //   Argentina calendar day of `now`, not the server's UTC day — at
+    //   21:00-23:59 ART the UTC day has already rolled to tomorrow.
     const now = new Date()
     let startIso: string
     let endIso: string | null = null
@@ -93,11 +97,9 @@ Deno.serve(async (req) => {
       startIso = dateFrom
       endIso = dateTo
     } else {
-      const startDate = new Date()
-      if (period === 'weekly') startDate.setUTCDate(now.getUTCDate() - 7)
-      else if (period === 'monthly') startDate.setUTCMonth(now.getUTCMonth() - 1)
-      else startDate.setUTCDate(now.getUTCDate() - 1) // daily default
-      startIso = startDate.toISOString()
+      if (period === 'weekly') startIso = argentinaDaysAgoIso(7, now)
+      else if (period === 'monthly') startIso = argentinaMonthsAgoIso(1, now)
+      else startIso = argentinaDaysAgoIso(1, now) // daily default
     }
 
     // `total` is the line total (amount * quantity); `amount` is the unit price.

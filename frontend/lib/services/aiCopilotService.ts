@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { pricingService } from './pricingService'
+import { argentinaDaysAgo } from '@/lib/date-range'
 
 export const aiCopilotService = {
   /**
@@ -38,9 +39,9 @@ export const aiCopilotService = {
    *  - Expense breakdown by category is included
    */
   async getBusinessDataContext(supabase: SupabaseClient) {
-    const thirtyDaysAgo = new Date()
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0]
+    // app-timezone-argentina (task 3.2): cota de "últimos 30 días" anclada al
+    // día argentino — a las 22:00 ART el día UTC ya rolleó a mañana.
+    const thirtyDaysAgoStr = argentinaDaysAgo(30)
 
     const [
       { data: products },

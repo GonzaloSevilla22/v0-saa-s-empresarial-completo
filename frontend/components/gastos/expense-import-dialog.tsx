@@ -38,6 +38,7 @@ import {
 } from "lucide-react"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
 import { parseAmount, parseDate } from "@/lib/excel"
+import { argentinaToday } from "@/lib/date-range"
 import { cn } from "@/lib/utils"
 
 // ── CSV template ───────────────────────────────────────────────────────────────
@@ -111,7 +112,10 @@ interface ParsedRow {
 
 // ── Parse & validate ───────────────────────────────────────────────────────────
 
-function parseAndValidate(cells: string[][]): ParsedRow[] {
+// Exportada para test unitario (app-timezone-argentina, task 2.4) — cubre la
+// comparación "es hoy" de la línea 166 sin necesidad de montar el diálogo
+// completo.
+export function parseAndValidate(cells: string[][]): ParsedRow[] {
   if (cells.length < 2) return []
 
   const header = cells[0].map((h) =>
@@ -163,7 +167,7 @@ function parseAndValidate(cells: string[][]): ParsedRow[] {
 
     // Parse date (defaults to today if empty/invalid)
     const resolvedDate = parseDate(rawDate)
-    if (rawDate.trim() !== "" && resolvedDate === new Date().toISOString().split("T")[0]) {
+    if (rawDate.trim() !== "" && resolvedDate === argentinaToday()) {
       // parseDate fell back to today — likely unrecognised format
       const isoPattern = /^\d{4}-\d{2}-\d{2}$/
       const slashPattern = /^\d{1,2}\/\d{1,2}\/\d{4}$/

@@ -13,6 +13,7 @@ import { toast } from "sonner"
 import type { Expense } from "@/lib/types"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
+import { argentinaToday } from "@/lib/date-range"
 
 interface ExpenseFormProps {
   onSuccess: () => void
@@ -28,7 +29,7 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
   const [category,      setCategory]      = useState(initialData?.category      ?? "")
   const [description,   setDescription]   = useState(initialData?.description   ?? "")
   const [amount,        setAmount]        = useState(initialData?.amount         ?? 0)
-  const [date,          setDate]          = useState(initialData?.date           ?? new Date().toISOString().split("T")[0])
+  const [date,          setDate]          = useState(initialData?.date           ?? argentinaToday())
   const [branchId,      setBranchId]      = useState<string | null>(initialData?.branchId      ?? null)
   const [costCenterId,  setCostCenterId]  = useState<string | null>(initialData?.costCenterId  ?? null)
 
@@ -101,7 +102,7 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
           <input
             type="date"
             value={date}
-            max={new Date().toISOString().split("T")[0]}
+            max={argentinaToday()}
             onChange={(e) => setDate(e.target.value)}
             className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           />

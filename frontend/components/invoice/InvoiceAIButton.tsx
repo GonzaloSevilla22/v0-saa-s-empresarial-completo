@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { ScanText, Sparkles } from "lucide-react"
 import { toast } from "sonner"
+import { argentinaToday } from "@/lib/date-range"
 import type { OcrStep, ParsedInvoice, MatchedInvoiceLine, OcrSessionState } from "@/lib/invoice-types"
 import type { ProductAlias } from "@/lib/invoice-matcher"
 
@@ -91,7 +92,7 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
     parsed:      ParsedInvoice,
     documentId:  string | null,
   ) => {
-    const date = parsed.invoice?.date ?? new Date().toISOString().split("T")[0]
+    const date = parsed.invoice?.date ?? argentinaToday()
 
     // 1. Create any new products first
     for (const line of lines) {

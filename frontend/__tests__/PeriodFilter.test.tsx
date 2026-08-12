@@ -3,10 +3,10 @@
  * Spec: mes en curso por defecto; la selección viaja en ?period=YYYY-MM.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { PeriodFilter } from "@/components/dashboard/PeriodFilter"
-import { monthKey, utcPrevMonthRange } from "@/lib/date-range"
+import { monthKey } from "@/lib/date-range"
 
 // ── Mock de next/navigation ───────────────────────────────────────────────────
 
@@ -18,9 +18,23 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(searchParamsString),
 }))
 
+// app-timezone-argentina: reloj fijo (instante absoluto ISO con Z) — este
+// mismo test, con `new Date()` real, pasaba en local (huso ART/cercano) y
+// fallaba en CI (UTC): "Mes anterior" comparaba contra un prevKey construido
+// con componentes LOCALES del runtime y leído con monthKey (ART), lo que en
+// un runtime UTC caía DOS meses atrás en vez de uno. Instante fijo = mismo
+// resultado en cualquier huso de CI/dev.
+const FIXED_INSTANT = "2026-06-17T15:00:00.000Z" // 12:00 ART, 17/jun/2026
+
 beforeEach(() => {
   pushMock.mockReset()
   searchParamsString = ""
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date(FIXED_INSTANT))
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -32,8 +46,7 @@ describe("PeriodFilter", () => {
   })
 
   it("muestra 'Mes anterior' cuando ?period apunta al mes previo", () => {
-    const prevFrom = utcPrevMonthRange(new Date()).from // "YYYY-MM-01T..."
-    searchParamsString = `period=${prevFrom.slice(0, 7)}`
+    searchParamsString = "period=2026-05"
     render(<PeriodFilter />)
     expect(screen.getByText("Mes anterior")).toBeInTheDocument()
   })
@@ -50,6 +63,6 @@ describe("PeriodFilter", () => {
     render(<PeriodFilter />)
     const trigger = screen.getByRole("combobox")
     expect(trigger).toBeInTheDocument()
-    expect(monthKey()).toMatch(/^\d{4}-\d{2}$/)
+    expect(monthKey()).toBe("2026-06")
   })
 })

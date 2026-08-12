@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MessageSquare, Heart, Crown, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
+import { argentinaToday } from "@/lib/date-range"
 
 const categoryColors: Record<string, string> = {
   General: "border-border text-muted-foreground",
@@ -106,7 +107,7 @@ export default function ComunidadPage() {
         title,
         content,
         category,
-        date: new Date().toISOString().split("T")[0],
+        date: argentinaToday(),
         replies: 0,
         likes: 0,
       })

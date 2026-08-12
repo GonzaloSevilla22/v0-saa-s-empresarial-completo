@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { monthKey, parseMonthKey } from "@/lib/date-range"
+import { monthKey, parseMonthKey, utcPrevMonthRange } from "@/lib/date-range"
 
 /**
  * Selector de período del Tablero (?period=YYYY-MM, patrón de BranchFilter).
@@ -21,7 +21,12 @@ export function PeriodFilter() {
 
   const now = new Date()
   const currKey = monthKey(now)
-  const prevKey = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  // app-timezone-argentina: construir con new Date(now.getFullYear(), ...)
+  // (componentes LOCALES del runtime) y después leer con monthKey (ART)
+  // desalinea en cualquier huso ≠ ART -3 exacto — en un runtime UTC (CI)
+  // "mes anterior" caía DOS meses atrás. utcPrevMonthRange ya resuelve el
+  // mes anterior anclado a ART de punta a punta.
+  const prevKey = utcPrevMonthRange(now).from.slice(0, 7)
 
   // parseMonthKey cae al mes actual ante valores inválidos/desconocidos.
   const selected = monthKey(parseMonthKey(searchParams.get("period")))

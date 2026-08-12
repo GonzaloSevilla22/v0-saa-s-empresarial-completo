@@ -6,7 +6,7 @@
  * `SupabaseClient` encadenable (`.from().select().gte()...` + `.rpc()`).
  */
 
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, afterEach } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import {
   buildBusinessSnapshot,
@@ -150,6 +150,28 @@ function makeSupabaseDouble(cfg: {
 
   return { rpc: rpcMock, from: fromMock } as unknown as SupabaseClient
 }
+
+// ─── app-timezone-argentina, task 3.2: ventanas ancladas al día argentino ──────
+
+describe("buildBusinessSnapshot — ventana ART (app-timezone-argentina)", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("REGRESSION: a las 22:00 ART el período no se corre al día UTC D+1", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-09T01:00:00.000Z")) // 22:00 ART, 8/jun
+
+    const supabase = makeSupabaseDouble({
+      sales: [],
+      rpc: { data: [fullRpcRow({ invoiced_revenue: 0, net_profit: 0 })], error: null },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    // nowStr = argentinaToday() = 8/jun (no 9/jun); d30Str = 30 días ART antes = 9/may.
+    expect(snapshot.periodo).toBe("2026-05-09 al 2026-06-08")
+  })
+})
 
 // ─── Tests: 4.2 (RED contra el código actual) ──────────────────────────────────
 

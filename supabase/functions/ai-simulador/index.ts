@@ -6,6 +6,7 @@ import {
   previousWindow,
   type SaleRevenueRow,
 } from '../_shared/reporting-canon.ts'
+import { argentinaFirstDayOfMonthIso } from '../_shared/argentina-time.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -90,13 +91,13 @@ Deno.serve(async (req) => {
     }
 
     // 3. Fetch Context (Current Month) — kpi-ia-canonical-revenue (D1/D2)
+    // app-timezone-argentina (task 4.2): "mes en curso" es el mes argentino,
+    // no el mes UTC del server — a las 21:00-23:59 ART del último día del
+    // mes, UTC ya rolleó al mes siguiente.
     const now = new Date()
-    const firstDayOfMonth = new Date()
-    firstDayOfMonth.setDate(1)
-    firstDayOfMonth.setHours(0, 0, 0, 0)
 
     const nowIso = now.toISOString()
-    const fromIso = firstDayOfMonth.toISOString()
+    const fromIso = argentinaFirstDayOfMonthIso(now)
     const { from: prevFromIso, to: prevToIso } = previousWindow(fromIso, nowIso)
 
     const [salesResult, expensesResult] = await Promise.all([

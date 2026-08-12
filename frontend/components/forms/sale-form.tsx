@@ -32,6 +32,7 @@ import {
   type SaleCartItem,
 } from "@/lib/cart-utils"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
+import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
@@ -95,7 +96,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // ── Header fields (apply to all items) ─────────────────────────────────────
   const [clientId, setClientId] = useState(() => editingOperation?.clientId ?? "")
   const [currency, setCurrency] = useState<Currency>(() => (editingOperation?.currency as Currency) ?? "ARS")
-  const [date, setDate] = useState(() => editingOperation?.date ?? new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => editingOperation?.date ?? argentinaToday())
   const [branchId, setBranchId] = useState<string | null>(null)
   // Canal de venta (Fase B Bloque KPI): alimenta "Margen por Canal". Opcional.
   const [canal, setCanal] = useState<string | null>(null)
@@ -608,7 +609,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               <input
                 type="date"
                 value={date}
-                max={new Date().toISOString().split("T")[0]}
+                max={argentinaToday()}
                 onChange={(e) => setDate(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               />

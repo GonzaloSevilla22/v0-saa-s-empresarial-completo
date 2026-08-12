@@ -34,8 +34,26 @@
 
 ## 5. Verificación post-deploy (producción)
 
-- [ ] 5.1 Tras el merge (la integración GitHub de Supabase auto-aplica la migración, y luego el `db push` de Actions la re-aplica como no-op): verificar en prod por lectura de catálogo que ambas funciones referencian `community.posts`, que hay 1 sola definición de cada una y que los dos triggers siguen habilitados.
-- [ ] 5.2 Verificar en prod que `anon` y `authenticated` siguen sin `EXECUTE` sobre ambas funciones.
-- [ ] 5.3 Verificar en prod que `replies_count` / `likes_count` de los posts existentes coinciden con el `COUNT(*)` de sus filas hijas (efecto del recompute).
+- [x] 5.1 Tras el merge (la integración GitHub de Supabase auto-aplica la migración, y luego el `db push` de Actions la re-aplica como no-op): verificar en prod por lectura de catálogo que ambas funciones referencian `community.posts`, que hay 1 sola definición de cada una y que los dos triggers siguen habilitados.
+- [x] 5.2 Verificar en prod que `anon` y `authenticated` siguen sin `EXECUTE` sobre ambas funciones.
+- [x] 5.3 Verificar en prod que `replies_count` / `likes_count` de los posts existentes coinciden con el `COUNT(*)` de sus filas hijas (efecto del recompute).
 - [ ] 5.4 Verificación funcional manual en la pantalla de comunidad (`frontend/app/(dashboard)/comunidad/page.tsx`, hook `frontend/hooks/data/use-posts.ts`): responder un post persiste la reply y el contador de respuestas sube; dar like persiste la fila y el contador sube; sacar el like lo revierte. **Sin superficie frontend nueva** — se verifica que la superficie existente vuelve a funcionar, en desktop y mobile.
-- [ ] 5.5 Dejar registrada la línea base de actividad para poder distinguir "arreglado" de "sigue sin usarse": hoy `pg_stat_all_tables` da `n_tup_ins = 0` en `community.post_likes` (contador que incluye inserts abortados → cero intentos) y `pg_stat_statements` muestra 9 llamadas al listado contra `community.posts` desde el corte. Tras el fix, un `n_tup_ins` que crece con `n_live_tup` acompañándolo confirma escrituras exitosas; un `n_tup_ins` que crece con `n_dead_tup` acompañándolo indicaría que algo las sigue abortando.
+- [x] 5.5 Dejar registrada la línea base de actividad para poder distinguir "arreglado" de "sigue sin usarse": hoy `pg_stat_all_tables` da `n_tup_ins = 0` en `community.post_likes` (contador que incluye inserts abortados → cero intentos) y `pg_stat_statements` muestra 9 llamadas al listado contra `community.posts` desde el corte. Tras el fix, un `n_tup_ins` que crece con `n_live_tup` acompañándolo confirma escrituras exitosas; un `n_tup_ins` que crece con `n_dead_tup` acompañándolo indicaría que algo las sigue abortando.
+
+## Evidencia post-deploy (prod `gxdhpxvdjjkmxhdkkwyb`, 2026-08-12, solo lectura)
+
+Migración `20260918000001` aplicada por el pipeline (deploy `068baa8`, run 31635826058, success). Verificado por catálogo:
+
+| Verificación | Resultado |
+|---|---|
+| 5.1 · cuerpo de ambas funciones | `refs community.posts` = **true**, `refs public.posts` = **false** |
+| 5.1 · guard D3 presente | `EXCEPTION WHEN OTHERS` = **true**, resuelve `v_post_id` local = **true** |
+| 5.1 · firma y superficie | `SECURITY DEFINER` = true, `search_path=public`, **1 definición** de cada una |
+| 5.1 · triggers | `on_post_reply_change` (community.replies) y `on_post_like_change` (community.post_likes), ambos `tgenabled='O'`, apuntando a sus funciones |
+| 5.2 · ACLs | `anon` EXECUTE = **false**, `authenticated` EXECUTE = **false** |
+| 5.3 · contadores | los **5** posts con `replies_count`/`likes_count` == `COUNT(*)` real (3/3+2, 0/0, 0/0, 1/0, 0/0) |
+| Barrido de catálogo (las 16 tablas de C-23, en `public` + `community`) | **0 coincidencias** — la familia del bug queda cerrada en prod, no solo estas 2 funciones |
+
+**5.5 · línea base de actividad post-fix** (para poder distinguir después "arreglado" de "sigue sin usarse"): `community.post_likes` `n_tup_ins=0 / n_dead_tup=0 / n_live_tup=0`; `replies` `n_tup_ins=2 / n_live_tup=2`; `posts` `n_tup_ins=4 / n_live_tup=4 / n_dead_tup=2`. Lectura futura: `n_tup_ins` creciendo **con `n_live_tup` acompañando** = escrituras exitosas; `n_tup_ins` creciendo **con `n_dead_tup` acompañando** y `n_live_tup` plano = algo las sigue abortando.
+
+**5.4 queda PENDIENTE y es del PO** (manual, no automatizable desde acá): responder un post y dar/sacar like en la pantalla de comunidad de producción, en desktop y mobile. Requiere una sesión de usuario real — no se impersonan cuentas en prod, y el Browser pane no se usa contra las páginas de auth de producción (cuelga el proceso, incidente registrado 2026-08-07). Todo lo verificable por catálogo ya está cerrado arriba.

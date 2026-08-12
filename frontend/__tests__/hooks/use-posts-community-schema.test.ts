@@ -121,6 +121,32 @@ describe("usePosts — schema community (C-23)", () => {
     expect(publicFrom).not.toHaveBeenCalledWith("post_likes")
   })
 
+  it("deleteReply borra en community.replies y devuelve la fila borrada", async () => {
+    communityResults.replies = { data: [{ id: "r-1" }], error: null }
+
+    const { result } = renderHook(() => usePosts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.deleteReply("r-1")
+    })
+
+    expect(communityFrom).toHaveBeenCalledWith("replies")
+    expect(publicFrom).not.toHaveBeenCalledWith("replies")
+  })
+
+  it("deleteReply lanza si RLS bloquea el borrado (0 filas, sin error de PostgREST)", async () => {
+    // La policy \"Users can delete own replies\" (auth.uid() = user_id) no
+    // devuelve error cuando bloquea: devuelve 0 filas. Sin este chequeo el
+    // borrado fallido se veria como exitoso en la UI.
+    communityResults.replies = { data: [], error: null }
+
+    const { result } = renderHook(() => usePosts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await expect(result.current.deleteReply("r-ajena")).rejects.toThrow(/no se pudo eliminar/i)
+  })
+
   it("addReply y getReplies usan community.replies", async () => {
     communityResults.replies = { data: [], error: null }
 

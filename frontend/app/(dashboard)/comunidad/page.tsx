@@ -24,7 +24,7 @@ const categoryColors: Record<string, string> = {
 }
 
 export default function ComunidadPage() {
-  const { posts, addPost, deletePost, toggleLike, getReplies, addReply } = usePosts()
+  const { posts, addPost, deletePost, toggleLike, getReplies, addReply, deleteReply } = usePosts()
   const { user, effectivePlan } = useAuth()
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState("")
@@ -90,6 +90,19 @@ export default function ComunidadPage() {
       toast.success("Respuesta enviada")
     } catch (err) {
       toast.error("Error al enviar respuesta")
+    }
+  }
+
+  async function handleDeleteReply(postId: string, replyId: string) {
+    if (!confirm("¿Estás seguro de que querés eliminar esta respuesta?")) return
+    try {
+      await deleteReply(replyId)
+      const data = await getReplies(postId)
+      setReplies(prev => ({ ...prev, [postId]: data }))
+      toast.success("Respuesta eliminada")
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err.message || "Error al eliminar la respuesta")
     }
   }
 
@@ -205,11 +218,25 @@ export default function ComunidadPage() {
                     ) : replies[post.id]?.length > 0 ? (
                       replies[post.id].map((reply) => (
                         <div key={reply.id} className="bg-muted/30 rounded-lg p-3 flex flex-col gap-1">
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between gap-2">
                             <span className="text-[10px] font-semibold text-foreground">{reply.author}</span>
-                            <span className="text-[9px] text-muted-foreground">
-                              {new Date(reply.createdAt).toLocaleDateString("es-AR")}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <span className="text-[9px] text-muted-foreground">
+                                {new Date(reply.createdAt).toLocaleDateString("es-AR")}
+                              </span>
+                              {reply.userId === user?.id && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label="Eliminar respuesta"
+                                  title="Eliminar respuesta"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => handleDeleteReply(post.id, reply.id)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
                           <p className="text-xs text-muted-foreground">{reply.content}</p>
                         </div>

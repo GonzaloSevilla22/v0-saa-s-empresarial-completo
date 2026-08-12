@@ -177,6 +177,28 @@ export function usePosts() {
     // Realtime subscription handles refresh — no manual call needed
   }
 
+  async function deleteReply(replyId: string): Promise<void> {
+    const { data, error } = await supabase
+      .schema("community")
+      .from("replies")
+      .delete()
+      .eq("id", replyId)
+      .select("id")
+
+    if (error) throw error
+
+    // La policy RLS "Users can delete own replies" (auth.uid() = user_id) no
+    // devuelve error cuando bloquea: devuelve 0 filas. Sin este chequeo un
+    // borrado rechazado se veria como exitoso en la UI.
+    if (!data || data.length === 0) {
+      throw new Error("No se pudo eliminar la respuesta: no existe o no es tuya")
+    }
+
+    // replies_count lo decrementa el trigger on_post_reply_change
+    // (20260918000001). Se invalida el feed para que el contador se refresque.
+    queryClient.invalidateQueries({ queryKey: queryKeys.posts.all() })
+  }
+
   return {
     posts:           query.data ?? [],
     isLoading:       query.isLoading,
@@ -187,6 +209,7 @@ export function usePosts() {
     toggleLike:      toggleLikeMutation.mutateAsync,
     getReplies,
     addReply,
+    deleteReply,
     addPostMutation,
     deletePostMutation,
     toggleLikeMutation,

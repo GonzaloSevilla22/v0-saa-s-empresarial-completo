@@ -6,6 +6,7 @@ import {
   previousWindow,
   type SaleRevenueRow,
 } from '../_shared/reporting-canon.ts'
+import { argentinaDaysAgoIso } from '../_shared/argentina-time.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -94,11 +95,18 @@ Deno.serve(async (req) => {
     const fromIso = thirtyDaysAgo.toISOString()
     const { from: prevFromIso, to: prevToIso } = previousWindow(fromIso, nowIso)
 
+    // app-timezone-argentina (task 4.2): la ventana de LECTURA (`.gte`) se
+    // ancla al día argentino de `now` — a las 21:00-23:59 ART el día UTC ya
+    // rolleó y dejaba afuera la venta más reciente. fromIso/nowIso (arriba,
+    // ventana del RPC canónico) NO se tocan: duración exacta de 30 días,
+    // agnóstica de huso (D1/D2 kpi-ia-canonical-revenue).
+    const fromDateIso = argentinaDaysAgoIso(30, now)
+
     // `total` se agrega — es además la fuente del camino degradado (D4).
     const { data: sales, error: salesError } = await supabaseClient
       .from('sales')
       .select('amount, total, date')
-      .gte('date', fromIso)
+      .gte('date', fromDateIso)
       .order('date', { ascending: true })
 
     // kpi-ia-canonical-revenue (D1/D4): ventas desde el canon; si el RPC

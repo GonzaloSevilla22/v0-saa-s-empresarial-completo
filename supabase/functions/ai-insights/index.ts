@@ -8,6 +8,7 @@ import {
   previousWindow,
   type SaleRevenueRow,
 } from '../_shared/reporting-canon.ts'
+import { argentinaDaysAgoIso } from '../_shared/argentina-time.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -96,11 +97,15 @@ Deno.serve(async (req) => {
     }
 
     // ── Fetch data (período actual) ────────────────────────────────────────────
+    // app-timezone-argentina (task 4.2): d30Str/d60Str (cotas de lectura de
+    // `.gte('date', ...)`) anclados al día argentino de `now` — a las
+    // 21:00-23:59 ART el día UTC ya rolleó. d30 (Date, abajo) sigue siendo
+    // una ventana de duración EXACTA de 30 días para el RPC canónico —
+    // agnóstica de huso, no necesita re-anclarse (D1/D2 de kpi-ia-canonical-revenue).
     const now   = new Date()
     const d30   = new Date(now); d30.setDate(now.getDate() - 30)
-    const d60   = new Date(now); d60.setDate(now.getDate() - 60)
-    const d30Str = d30.toISOString().split('T')[0]
-    const d60Str = d60.toISOString().split('T')[0]
+    const d30Str = argentinaDaysAgoIso(30, now).slice(0, 10)
+    const d60Str = argentinaDaysAgoIso(60, now).slice(0, 10)
 
     // kpi-ia-canonical-revenue (D1/D2): ventana canónica + su previa sintética,
     // para consumir rpc_dashboard_kpi_summary de una sola llamada.

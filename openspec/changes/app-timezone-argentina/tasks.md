@@ -25,8 +25,8 @@
 
 ## 4. Edge Functions (fallbacks rolling)
 
-- [ ] 4.1 RED→GREEN: fallbacks sin `dateFrom`/`dateTo` de `ai-resumen` (daily/weekly/monthly) anclados a `argentina-time.ts`; aritmética en `_shared`, cableado en `index.ts` (testeable desde vitest)
-- [ ] 4.2 Ídem `ai-insights` (d30/d60), `ai-simulador` (firstDayOfMonth) y `ai-prediccion`
+- [x] 4.1 RED→GREEN: fallbacks sin `dateFrom`/`dateTo` de `ai-resumen` (daily/weekly/monthly) anclados a `argentina-time.ts` (`argentinaDaysAgoIso`/`argentinaMonthsAgoIso`). Aclaración de alcance: la aritmética vive en `_shared/argentina-time.ts` y ES testeable desde vitest (`frontend/__tests__/lib/argentina-time-shared.test.ts`, RED→GREEN real, incl. un caso que expuso un desborde de mes propio de `Date.UTC` al triangular — corregido el caso de test, no la implementación, ya que el comportamiento coincide con el que tenía el código UTC original para esa misma clase de fecha); el "cableado" en cada `index.ts` (armar los params con esas funciones) NO es testeable desde vitest — cada `index.ts` llama `Deno.serve(...)` a nivel de módulo, que revienta fuera de un runtime Deno (sin precedente de tests de `index.ts` en el repo) — es sustitución mecánica de funciones ya probadas
+- [x] 4.2 Ídem `ai-insights` (d30/d60 → `argentinaDaysAgoIso`, ventana del RPC canónico sin tocar) y `ai-simulador` (firstDayOfMonth → `argentinaFirstDayOfMonthIso`) y `ai-prediccion` (ventana de lectura `fromDateIso` separada de `fromIso`/`nowIso` del RPC canónico, que no se tocan)
 
 ## 5. SQL sweep
 

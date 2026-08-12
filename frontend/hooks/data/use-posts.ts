@@ -85,8 +85,22 @@ export function usePosts() {
 
   const deletePostMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.schema("community").from("posts").delete().eq("id", id)
+      const { data, error } = await supabase
+        .schema("community")
+        .from("posts")
+        .delete()
+        .eq("id", id)
+        .select("id")
+
       if (error) throw error
+
+      // La policy RLS "Users can delete own posts" (auth.uid() = user_id) no
+      // devuelve error cuando bloquea: devuelve 0 filas. Sin este chequeo la UI
+      // mostraba "Post eliminado" aunque el post siguiera ahi (reaparecia al
+      // refrescar el feed). Mismo criterio que deleteReply.
+      if (!data || data.length === 0) {
+        throw new Error("No se pudo eliminar el post: no existe o no es tuyo")
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.posts.all() })

@@ -160,18 +160,17 @@ BEGIN
     (v_post_a1, v_user_a_id, 'Post A1 gate', 'contenido', v_range_from + interval '1 day'),
     (v_post_b1, v_user_b_id, 'Post B1 gate', 'contenido', v_range_from + interval '4 days');
 
-  -- on_post_reply_change (20260309000006) llama a update_post_replies_count(),
-  -- que sigue escribiendo en `public.posts` sin calificar (42P01: la tabla
-  -- vive en community.* desde C-23) — BUG DE PRODUCCIÓN preexistente y fuera
-  -- de alcance de este change (no es una de las 5 RPCs admin de D5/D11;
-  -- reportado aparte). Se deshabilita el trigger sólo para poder sembrar el
-  -- fixture de este gate sin heredar esa rotura.
-  ALTER TABLE community.replies DISABLE TRIGGER on_post_reply_change;
+  -- Nota histórica: este seed convivía con on_post_reply_change deshabilitado
+  -- porque update_post_replies_count() escribía en `public.posts` sin calificar
+  -- (42P01 desde C-23). Ese bug quedó CERRADO por
+  -- 20260918000001_community_counter_triggers_schema_fix.sql
+  -- (change community-counter-triggers-schema-fix), así que el trigger corre
+  -- normalmente. NO volver a deshabilitarlo: apagaría la detección de una
+  -- recaída en la ruta que este gate ejercita.
   INSERT INTO community.replies (id, post_id, user_id, content, created_at) VALUES
     (gen_random_uuid(), v_post_a1, v_user_a_id, 'respuesta A gate', v_range_from + interval '2 days'),
     (gen_random_uuid(), v_post_a1, v_user_a_id, 'respuesta A gate 2', v_range_from + interval '3 days'),
     (gen_random_uuid(), v_post_b1, v_user_c_id, 'respuesta C gate', v_range_from + interval '5 days');
-  ALTER TABLE community.replies ENABLE TRIGGER on_post_reply_change;
 
   -- Gate 2.3: activaciones=2 (act1,act2), UMV=1 (solo act2 tiene insight).
   INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at) VALUES
@@ -437,11 +436,7 @@ BEGIN
   FROM public.account_members
   WHERE user_id IN (v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id);
 
-  -- on_post_reply_change también rompe en DELETE (mismo bug de schema
-  -- documentado más arriba) — se deshabilita igual que en el seed.
-  ALTER TABLE community.replies DISABLE TRIGGER on_post_reply_change;
   DELETE FROM community.replies       WHERE user_id IN (v_user_a_id, v_user_b_id, v_user_c_id);
-  ALTER TABLE community.replies ENABLE TRIGGER on_post_reply_change;
   DELETE FROM community.posts         WHERE user_id IN (v_user_a_id, v_user_b_id, v_user_c_id);
   DELETE FROM community.purchase_pools WHERE id IN (v_pool_1, v_pool_2);
   DELETE FROM public.analytics_events WHERE user_id IN (
@@ -484,15 +479,7 @@ EXCEPTION
         WHERE user_id IN (v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id);
       END IF;
 
-      BEGIN
-        ALTER TABLE community.replies DISABLE TRIGGER on_post_reply_change;
-      EXCEPTION WHEN OTHERS THEN NULL;
-      END;
       DELETE FROM community.replies       WHERE user_id IN (v_user_a_id, v_user_b_id, v_user_c_id);
-      BEGIN
-        ALTER TABLE community.replies ENABLE TRIGGER on_post_reply_change;
-      EXCEPTION WHEN OTHERS THEN NULL;
-      END;
       DELETE FROM community.posts         WHERE user_id IN (v_user_a_id, v_user_b_id, v_user_c_id);
       DELETE FROM community.purchase_pools WHERE id IN (v_pool_1, v_pool_2);
       DELETE FROM public.analytics_events WHERE user_id IN (

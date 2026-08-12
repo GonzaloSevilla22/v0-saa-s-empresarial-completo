@@ -8,6 +8,8 @@
  * URL revocation 100 ms so the browser finishes processing the download.
  */
 
+import { argentinaToday } from "@/lib/date-range"
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /** Maximum file size accepted for import (prevents main-thread freeze). */
@@ -235,7 +237,7 @@ export function parseAmount(raw: string | undefined): number {
  * Returns today's date if the string is unrecognizable.
  */
 export function parseDate(raw: string | undefined): string {
-  const today = new Date().toISOString().split("T")[0]
+  const today = argentinaToday()
   if (!raw) return today
   const s = raw.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s

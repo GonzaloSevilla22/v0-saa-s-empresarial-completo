@@ -66,37 +66,11 @@ export const services = {
     const { data, error } = await supabase.from('expenses').insert([{ ...expense, user_id: user.id }]).select().single()
     if (error) throw error
 
-    // Fire analytics in background — don't block the expense creation response.
-    // Previously these ran as 3-4 sequential awaits, adding ~300-600 ms of latency.
-    ;(async () => {
-      try {
-        // Parallelise: log the operation_created event + check first_operation at the same time
-        const [, firstOpResult] = await Promise.all([
-          supabase.from('analytics_events').insert([{
-            user_id: user.id,
-            event_name: 'operation_created',
-            event_data: { type: 'expense', expense_id: data.id },
-          }]),
-          supabase.from('analytics_events')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('event_name', 'first_operation')
-            .limit(1),
-        ])
-
-        if (!firstOpResult.data || firstOpResult.data.length === 0) {
-          await supabase.from('analytics_events').insert([{
-            user_id: user.id,
-            event_name: 'first_operation',
-            event_data: { type: 'expense', expense_id: data.id },
-          }])
-        }
-      } catch (e) {
-        // Analytics failures must never surface to the user
-        console.warn('[analytics] createExpense analytics failed:', e)
-      }
-    })()
-
+    // analytics-events-revival: la telemetría (operation_created /
+    // first_operation) ya no se emite desde la aplicación. El choke point
+    // único es el trigger AFTER INSERT de DB
+    // (analytics_emit_operation_event(), 20260914000001), que cubre esta
+    // ruta y todas las demás sin duplicar lógica ni arriesgar doble conteo.
     return data
   }
 }

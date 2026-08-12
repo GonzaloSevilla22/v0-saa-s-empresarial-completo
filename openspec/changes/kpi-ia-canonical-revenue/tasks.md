@@ -56,12 +56,12 @@
 
 ## 6. `ai-simulador`, `ai-prediccion` y `ai-resumen`
 
-- [ ] 6.1 **[GREEN]** `ai-simulador/index.ts`: ventana = mes en curso, previa vía `previousWindow`. `totalSales` ← `invoicedRevenue`; el prompt pasa a informar además la ganancia neta canónica en lugar de dejar que el modelo reste ventas − gastos por su cuenta. Eliminar el `select('amount')` de `sales` (queda sin uso) y conservar el de `expenses` (el prompt sigue citando gastos)
-- [ ] 6.2 **[GREEN]** `ai-prediccion/index.ts`: `totalSales` ← `invoicedRevenue` de la ventana de 30 d; `avgDailySales` = `invoicedRevenue / 30`. Conservar el fetch de filas (el prompt usa la cantidad de registros) agregándole `total`, que es además la fuente del camino degradado
-- [ ] 6.3 **[GREEN]** `ai-resumen/index.ts`: **no tocar los ingresos** (`total ?? amount` en `:113` ya es correcto — es el único consumidor que estaba bien). El fix es `balance` (`:115`): pasa a `netProfit` del canon, con la ventana del caller (`dateFrom`/`dateTo` o la derivada de `period`) y su previa vía `previousWindow`. El fetch de ventas se conserva para el camino degradado
-- [ ] 6.4 **[TRIANGULATE]** Para los tres: camino degradado explícito (RPC en error → ingresos por `sumLineRevenue` sobre filas locales, sin ganancia ni balance en el prompt, log con el prefijo de la función, sin 500 al usuario)
-- [ ] 6.5 **[TRIANGULATE]** `ai-resumen` con rango arbitrario del caller: confirmar por lectura que un rango inválido produce `P400` del RPC y cae en el camino degradado (D4), sin filtrar datos de otra cuenta — el RPC resuelve la cuenta por `auth.uid()`, no por parámetro
-- [ ] 6.6 **[REFACTOR]** Revisión final de los 4 `index.ts`: sin aritmética financiera propia, sin `any` en las expresiones tocadas, prefijos de log consistentes
+- [x] 6.1 **[GREEN]** `ai-simulador/index.ts`: ventana = mes en curso, previa vía `previousWindow`. `totalSales` ← `invoicedRevenue`; el prompt pasa a informar además la ganancia neta canónica en lugar de dejar que el modelo reste ventas − gastos por su cuenta. Eliminar el `select('amount')` de `sales` (queda sin uso) y conservar el de `expenses` (el prompt sigue citando gastos)
+- [x] 6.2 **[GREEN]** `ai-prediccion/index.ts`: `totalSales` ← `invoicedRevenue` de la ventana de 30 d; `avgDailySales` = `invoicedRevenue / 30`. Conservar el fetch de filas (el prompt usa la cantidad de registros) agregándole `total`, que es además la fuente del camino degradado
+- [x] 6.3 **[GREEN]** `ai-resumen/index.ts`: **no tocar los ingresos** (`total ?? amount` en `:113` ya es correcto — es el único consumidor que estaba bien). El fix es `balance` (`:115`): pasa a `netProfit` del canon, con la ventana del caller (`dateFrom`/`dateTo` o la derivada de `period`) y su previa vía `previousWindow`. El fetch de ventas se conserva para el camino degradado
+- [x] 6.4 **[TRIANGULATE]** Para los tres: camino degradado explícito (RPC en error → ingresos por `sumLineRevenue` sobre filas locales, sin ganancia ni balance en el prompt, log con el prefijo de la función, sin 500 al usuario)
+- [x] 6.5 **[TRIANGULATE]** `ai-resumen` con rango arbitrario del caller: confirmar por lectura que un rango inválido produce `P400` del RPC y cae en el camino degradado (D4), sin filtrar datos de otra cuenta — el RPC resuelve la cuenta por `auth.uid()`, no por parámetro
+- [x] 6.6 **[REFACTOR]** Revisión final de los 4 `index.ts`: sin aritmética financiera propia, sin `any` en las expresiones tocadas, prefijos de log consistentes
 
 ## 7. Verificación integral, delta medido y cierre
 

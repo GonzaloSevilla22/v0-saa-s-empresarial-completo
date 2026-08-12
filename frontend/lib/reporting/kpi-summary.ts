@@ -1,0 +1,122 @@
+/**
+ * Capa canónica de acceso a `rpc_dashboard_kpi_summary` — el read-model
+ * agregador que alimenta el Bloque Resumen del Tablero.
+ *
+ * kpi-ia-canonical-revenue, D7: nace acá (extraído de
+ * `hooks/data/use-dashboard-kpi-summary.ts`, que es un hook de cliente y no
+ * se puede reusar desde una ruta de servidor) para que el Copiloto
+ * (`frontend/lib/ai/buildBusinessSnapshot.ts`) y el hook del Tablero
+ * consuman exactamente el mismo mapeo — nunca dos copias que puedan divergir.
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js"
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/** Fila de rpc_dashboard_kpi_summary mapeada a camelCase. Los KPIs de ratio
+ *  (ticket, costo/venta) son null cuando el período no tiene ventas. */
+export interface DashboardKpiSummary {
+  netProfit: number | null
+  prevNetProfit: number | null
+  avgTicket: number | null
+  prevAvgTicket: number | null
+  costPerSale: number | null
+  prevCostPerSale: number | null
+  stagnantStockValue: number | null
+  stagnantStockCount: number | null
+  prevStagnantStockValue: number | null
+  prevStagnantStockCount: number | null
+  salesCount: number
+  prevSalesCount: number
+  /** v3-reporting-invariants (RN-D3): devengado (Σ ventas del período − NC). */
+  invoicedRevenue: number | null
+  prevInvoicedRevenue: number | null
+  /** v3-reporting-invariants (RN-D3): percibido (devengado − cargos cta cte + cobros). */
+  collectedRevenue: number | null
+  prevCollectedRevenue: number | null
+}
+
+export interface RpcKpiSummaryRow {
+  net_profit: string | number | null
+  prev_net_profit: string | number | null
+  avg_ticket: string | number | null
+  prev_avg_ticket: string | number | null
+  cost_per_sale: string | number | null
+  prev_cost_per_sale: string | number | null
+  stagnant_stock_value: string | number | null
+  stagnant_stock_count: number | null
+  prev_stagnant_stock_value: string | number | null
+  prev_stagnant_stock_count: number | null
+  sales_count: number | null
+  prev_sales_count: number | null
+  // v3-reporting-invariants (RN-D3): ausentes si el caller corre contra un
+  // RPC viejo (ventana entre deploy de DB y de frontend) — null-safe.
+  invoiced_revenue?: string | number | null
+  prev_invoiced_revenue?: string | number | null
+  collected_revenue?: string | number | null
+  prev_collected_revenue?: string | number | null
+}
+
+export interface KpiSummaryWindow {
+  from: string
+  to: string
+  prevFrom: string
+  prevTo: string
+  branchId?: string | null
+}
+
+const num = (v: string | number | null | undefined): number | null =>
+  v == null ? null : Number(v)
+
+// ─── Mapping ──────────────────────────────────────────────────────────────────
+
+/** Mapea una fila cruda del RPC (snake_case, numerics-como-string) a `DashboardKpiSummary`. */
+export function mapKpiSummaryRow(row: RpcKpiSummaryRow): DashboardKpiSummary {
+  return {
+    netProfit: num(row.net_profit),
+    prevNetProfit: num(row.prev_net_profit),
+    avgTicket: num(row.avg_ticket),
+    prevAvgTicket: num(row.prev_avg_ticket),
+    costPerSale: num(row.cost_per_sale),
+    prevCostPerSale: num(row.prev_cost_per_sale),
+    stagnantStockValue: num(row.stagnant_stock_value),
+    stagnantStockCount: num(row.stagnant_stock_count),
+    prevStagnantStockValue: num(row.prev_stagnant_stock_value),
+    prevStagnantStockCount: num(row.prev_stagnant_stock_count),
+    salesCount: Number(row.sales_count ?? 0),
+    prevSalesCount: Number(row.prev_sales_count ?? 0),
+    invoicedRevenue: num(row.invoiced_revenue),
+    prevInvoicedRevenue: num(row.prev_invoiced_revenue),
+    collectedRevenue: num(row.collected_revenue),
+    prevCollectedRevenue: num(row.prev_collected_revenue),
+  }
+}
+
+// ─── Access ───────────────────────────────────────────────────────────────────
+
+/**
+ * Llama `rpc_dashboard_kpi_summary` con la ventana dada y devuelve la fila
+ * mapeada, o `null` si no hay filas. Propaga cualquier error del RPC — la
+ * decisión de degradar (D4) es del consumidor, no de esta capa de acceso.
+ */
+export async function fetchKpiSummary(
+  supabase: SupabaseClient,
+  window: KpiSummaryWindow,
+): Promise<DashboardKpiSummary | null> {
+  const params: Record<string, string> = {
+    p_from: window.from,
+    p_to: window.to,
+    p_prev_from: window.prevFrom,
+    p_prev_to: window.prevTo,
+  }
+  if (window.branchId) params.p_branch_id = window.branchId
+
+  const { data, error } = await supabase.rpc("rpc_dashboard_kpi_summary", params)
+  if (error) throw error
+
+  const rows = data as RpcKpiSummaryRow[] | null
+  const row = rows && rows.length > 0 ? rows[0] : null
+  if (!row) return null
+
+  return mapKpiSummaryRow(row)
+}

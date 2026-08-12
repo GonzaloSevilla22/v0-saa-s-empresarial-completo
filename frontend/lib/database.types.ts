@@ -3208,9 +3208,10 @@ export type Database = {
         Args: { p_date_from: string; p_date_to: string }
         Returns: number
       }
-      get_dashboard_critical_stock:
-        | { Args: never; Returns: number }
-        | { Args: { p_user_id: string }; Returns: number }
+      get_dashboard_critical_stock: {
+        Args: { p_branch_id?: string }
+        Returns: number
+      }
       get_dashboard_financials: {
         Args: { p_branch_id?: string; p_date_from: string; p_date_to: string }
         Returns: {

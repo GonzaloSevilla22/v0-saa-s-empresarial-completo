@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { useProducts } from "@/hooks/data/use-products"
 import { useInsights } from "@/hooks/data/use-insights"
+import { useCriticalStock } from "@/hooks/data/use-critical-stock"
 import { useGreeting } from "@/hooks/use-greeting"
 import { useGoalMilestone } from "@/hooks/three/useGoalMilestone"
 import { Celebration3D } from "@/components/three/Celebration3D"
@@ -38,22 +38,18 @@ const GOAL_MILESTONES = [50_000, 100_000, 250_000, 500_000, 1_000_000] as const
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const { products }             = useProducts()
   const { insights, refreshInsights: refreshData } = useInsights()
 
-  function getLowStockProducts() {
-    return products.filter(p =>
-      p.stockControlType !== "untracked" &&
-      p.stockControlType !== "variant_only" &&
-      p.minStock > 0 &&
-      p.stock <= p.minStock
-    )
-  }
   const { greeting } = useGreeting()
   const searchParams = useSearchParams()
-  const lowStock = getLowStockProducts()
 
   const branchId = searchParams.get("branch") ?? null
+
+  // kpi-critical-stock-dashboard (D1/D5): la tarjeta "Productos en alerta"
+  // consume la RPC canónica get_dashboard_critical_stock(p_branch_id) — no
+  // recalcula el predicado de criticidad sobre `products` en el cliente.
+  // branchId = null ⇒ agregado consciente de sucursal (D2).
+  const { data: criticalStockCount, isLoading: loadingCriticalStock } = useCriticalStock(branchId)
   // Período del Bloque Resumen KPI (?period=YYYY-MM, mes en curso por defecto).
   const periodDate = parseMonthKey(searchParams.get("period"))
 
@@ -187,7 +183,7 @@ export default function DashboardPage() {
         />
         <KpiCard
           title="Productos en alerta"
-          value={lowStock.length.toString()}
+          value={loadingCriticalStock ? "—" : criticalStockCount.toString()}
           icon={AlertTriangle}
           iconColor="text-warning"
         />

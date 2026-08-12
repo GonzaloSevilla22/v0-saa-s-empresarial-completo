@@ -354,28 +354,45 @@ END $$;
 
 
 -- =============================================================================
--- kpi-branch-consistency — behavioural gate (tasks 2.1-2.6, grupos 3-5).
+-- kpi-branch-consistency — behavioural gate (tasks 2.1-2.6 + 6.1-6.5, grupos
+-- 3-6).
 --
--- Cubre SOLO lo NO gateado por OQ-1 (design.md §Open Questions): Parte B
--- diario (D6, get_dashboard_financials neto de NC vía el helper único D5) y
--- Parte A no bloqueada (D3/D4, stock sin rotación de rpc_dashboard_kpi_summary
--- por sucursal). La atribución de NC POR SUCURSAL (D1/D2, grupo 6 de
--- tasks.md) sigue BLOQUEADA por el sign-off del PO — el helper acepta
--- p_branch_id pero lo ignora (task 3.2), así que la NC de este fixture resta
--- GLOBAL en ambos read-models con y sin filtro. Eso es exactamente lo que el
--- assert 1 verifica: diario ≡ mensual sobre la MISMA regla de NC, sea cual
--- sea la rama que OQ-1 termine eligiendo — el gate no depende de esa
--- decisión, solo de que ambos consumidores usen el mismo helper (D5).
+-- Grupos 3-5: Parte B diario (D6, get_dashboard_financials neto de NC vía el
+-- helper único D5) y Parte A no bloqueada (D3/D4, stock sin rotación de
+-- rpc_dashboard_kpi_summary por sucursal).
+--
+-- Grupo 6 (OQ-1 firmada por el PO 2026-08-12, rama HÍBRIDA — design.md
+-- §Open Questions): la atribución de NC por sucursal (D1) y
+-- collected_revenue = NULL bajo filtro (D2) quedan implementadas en
+-- supabase/migrations/20260920000001_kpi_branch_nc_attribution.sql. El
+-- helper reporting_credit_notes_in_window deja de ignorar p_branch_id: la NC
+-- se atribuye a la sucursal de su documento origen (sales_orders.branch_id
+-- vía customer_account_movements.reference_id). El assert 1 (diario ≡
+-- mensual) sigue verificando que ambos consumidores usen el mismo helper
+-- (D5), ahora bajo la regla de atribución real.
 --
 -- Fixture (cuenta con sucursales A y B):
 --   Ventas:   A qty=2 total=2000 (multi-unidad, total≠amount) | B total=500
 --             | legacy branch_id NULL total=300 (evidencia de rotación D4)
 --   Gastos:   A=100 | B=50
 --   Compras:  A=200 | B=80
---   NC:       -400 (customer_account_movements, movement_type=credit_note)
+--   NC:       -400 (customer_account_movements, movement_type=credit_note),
+--             reference_id → sales_orders (v_so_a) de la sucursal A: la NC
+--             "pertenece" a A (D1).
 --   Sin filtro:  invoiced = 2800-400=2400; net_profit = 2400-(150+280)=1970
+--     (sin filtro la NC resta una sola vez, sea cual sea su sucursal — D1)
 --   Filtro A:    invoiced = 2000-400=1600; net_profit = 1600-(100+200)=1300
---     (la NC resta GLOBAL incluso bajo filtro mientras OQ-1 no esté firmada)
+--     (la NC es de A → resta en A)
+--   Filtro B (task 6.1, grupo 6): invoiced = 500-0=500;
+--     net_profit = 500-(50+80)=370
+--     (la NC es de A, NO de B → NO resta en B: D1 es fail-CLOSED sobre la
+--     sucursal que no la originó — no se duplica ni se reparte)
+--   collected_revenue (task 6.2, grupo 6): NULL en rpc_dashboard_kpi_summary
+--     cuando p_branch_id IS NOT NULL (A o B), sea cual sea charges_agg/
+--     payments_agg (D2 — el par cargos/cobros no es atribuible a sucursal,
+--     "percibido por sucursal" no es una métrica computable); sin filtro,
+--     collected_revenue = invoiced_revenue (fixture sin cargos/cobros de cta
+--     cte) y NO es NULL.
 --
 --   Stock sin rotación:
 --     p_stagnant         cost=100, sin ventas: A qty=10, B qty=40
@@ -397,6 +414,7 @@ DECLARE
   v_branch_b         uuid;
   v_client_id        uuid;
   v_customer_acct_id uuid;
+  v_so_a             uuid;
   v_p1               uuid;
   v_p2               uuid;
   v_p_stagnant       uuid;
@@ -408,8 +426,10 @@ DECLARE
   v_prev_to          timestamptz := now() - interval '35 days';
   v_fin_none         record;
   v_fin_a             record;
+  v_fin_b            record;
   v_sum_none         record;
   v_sum_a            record;
+  v_sum_b            record;
 BEGIN
   -- ── Anchor sintético: dispara handle_new_user (account + branch + cashbox) ──
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
@@ -455,6 +475,14 @@ BEGIN
   VALUES (v_account_id, v_client_id, 0, v_user_id)
   RETURNING id INTO v_customer_acct_id;
 
+  -- ── Orden de venta de la sucursal A (task 6.1) — documento origen al que la
+  --    NC se atribuye vía reference_id. No necesita corresponder a una fila
+  --    real de `sales`: el revenue se calcula sobre `sales`, la atribución de
+  --    la NC se calcula sobre `sales_orders` (D1) — son universos separados.
+  INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, created_by)
+  VALUES (v_account_id, v_branch_a, v_client_id, 'confirmed', 400, v_user_id)
+  RETURNING id INTO v_so_a;
+
   -- ── Ventas ───────────────────────────────────────────────────────────────
   -- Branch A: quantity=2, amount(unitario)=1000, total=2000 (multi-unidad).
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, quantity, total, date)
@@ -478,10 +506,11 @@ BEGIN
   INSERT INTO public.purchases (user_id, account_id, branch_id, amount, quantity, total, date)
   VALUES (v_user_id, v_account_id, v_branch_b, 80, 1, 80, now());
 
-  -- ── Nota de crédito: -400 (acredita al cliente, vive negativa en el ledger) ─
+  -- ── Nota de crédito: -400 (acredita al cliente, vive negativa en el ledger).
+  --    reference_id → v_so_a (sales_orders de la sucursal A) — atribución D1.
   INSERT INTO public.customer_account_movements
-    (customer_account_id, account_id, amount, balance_after, movement_type, created_by, created_at)
-  VALUES (v_customer_acct_id, v_account_id, -400, 0, 'credit_note', v_user_id, now());
+    (customer_account_id, account_id, amount, balance_after, movement_type, reference_id, created_by, created_at)
+  VALUES (v_customer_acct_id, v_account_id, -400, 0, 'credit_note', v_so_a, v_user_id, now());
 
   -- ── branch_stock para el trío de stock sin rotación ─────────────────────────
   INSERT INTO public.branch_stock (account_id, product_id, branch_id, quantity, min_stock) VALUES
@@ -545,6 +574,60 @@ BEGIN
   -- ══════════════════════════════════════════════════════════════════════════
   RAISE NOTICE 'PASS 2.6: p_rotation_legacy (venta legacy branch_id NULL) no cuenta como stock sin rotación en branch_a (verificado por construcción en 2.5a)';
 
+  -- ══════════════════════════════════════════════════════════════════════════
+  -- ASSERT 4 (task 6.1, grupo 6, OQ-1 híbrida) — la NC de la sucursal A NO
+  -- resta al filtrar sucursal B, y sin filtro resta una sola vez.
+  -- ══════════════════════════════════════════════════════════════════════════
+  SELECT * INTO v_fin_b FROM public.get_dashboard_financials(v_from, v_to, v_branch_b);
+  SELECT * INTO v_sum_b FROM public.rpc_dashboard_kpi_summary(v_from, v_to, v_prev_from, v_prev_to, v_branch_b);
+
+  IF v_fin_b.total_income IS DISTINCT FROM v_sum_b.invoiced_revenue THEN
+    RAISE EXCEPTION 'FAIL 6.1a: filtro branch_b, get_dashboard_financials.total_income (%) <> rpc_dashboard_kpi_summary.invoiced_revenue (%)',
+      v_fin_b.total_income, v_sum_b.invoiced_revenue;
+  END IF;
+  IF v_fin_b.net_profit IS DISTINCT FROM v_sum_b.net_profit THEN
+    RAISE EXCEPTION 'FAIL 6.1b: filtro branch_b, get_dashboard_financials.net_profit (%) <> rpc_dashboard_kpi_summary.net_profit (%)',
+      v_fin_b.net_profit, v_sum_b.net_profit;
+  END IF;
+  IF v_fin_b.total_income <> 500 THEN
+    RAISE EXCEPTION 'FAIL 6.1c: total_income filtro branch_b esperaba 500 (la NC es de A, NO resta en B), dio %', v_fin_b.total_income;
+  END IF;
+  IF v_fin_b.net_profit <> 370 THEN
+    RAISE EXCEPTION 'FAIL 6.1d: net_profit filtro branch_b esperaba 370 (500 - 50 gastos - 80 compras, sin NC), dio %', v_fin_b.net_profit;
+  END IF;
+  -- Triangulación: la NC de A SÍ resta en A (ya cubierto por 2.4, invoiced=1600)
+  -- y resta UNA sola vez sin filtro (ya cubierto por 2.3, invoiced=2400) — el
+  -- valor de 6.1 es el caso negativo (B no ve la NC ajena).
+  IF v_sum_a.invoiced_revenue <> 1600 THEN
+    RAISE EXCEPTION 'FAIL 6.1e: invoiced_revenue filtro branch_a esperaba 1600 (la NC es de A → resta en A), dio %', v_sum_a.invoiced_revenue;
+  END IF;
+  RAISE NOTICE 'PASS 6.1: NC de sucursal A no resta en sucursal B (B=%/%), sí resta en A (invoiced=%), y sin filtro resta una sola vez (invoiced=%)',
+    v_fin_b.total_income, v_fin_b.net_profit, v_sum_a.invoiced_revenue, v_fin_none.total_income;
+
+  -- ══════════════════════════════════════════════════════════════════════════
+  -- ASSERT 5 (task 6.2, grupo 6, OQ-1 híbrida) — collected_revenue/
+  -- prev_collected_revenue son NULL bajo filtro de sucursal (D2); sin filtro
+  -- siguen siendo computables (no hay cargos/cobros de cta cte en el fixture,
+  -- así que collected_revenue = invoiced_revenue).
+  -- ══════════════════════════════════════════════════════════════════════════
+  IF v_sum_a.collected_revenue IS NOT NULL OR v_sum_a.prev_collected_revenue IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 6.2a: filtro branch_a, collected_revenue/prev_collected_revenue esperaban NULL, dieron %/%',
+      v_sum_a.collected_revenue, v_sum_a.prev_collected_revenue;
+  END IF;
+  IF v_sum_b.collected_revenue IS NOT NULL OR v_sum_b.prev_collected_revenue IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 6.2b: filtro branch_b, collected_revenue/prev_collected_revenue esperaban NULL, dieron %/%',
+      v_sum_b.collected_revenue, v_sum_b.prev_collected_revenue;
+  END IF;
+  IF v_sum_a.invoiced_revenue IS NULL THEN
+    RAISE EXCEPTION 'FAIL 6.2c: filtro branch_a, invoiced_revenue no debería ser NULL (solo collected_revenue es no computable por sucursal)';
+  END IF;
+  IF v_sum_none.collected_revenue IS NULL OR v_sum_none.collected_revenue <> v_sum_none.invoiced_revenue THEN
+    RAISE EXCEPTION 'FAIL 6.2d: sin filtro, collected_revenue esperaba = invoiced_revenue (%) y no NULL, dio %',
+      v_sum_none.invoiced_revenue, v_sum_none.collected_revenue;
+  END IF;
+  RAISE NOTICE 'PASS 6.2: collected_revenue/prev_collected_revenue son NULL bajo filtro de sucursal (A y B) e invoiced_revenue sigue calculado; sin filtro collected_revenue=% (=invoiced_revenue)',
+    v_sum_none.collected_revenue;
+
   RAISE NOTICE '=== kpi-branch-consistency behavioural gate passed ===';
 
   -- ── Cleanup hijo→padre (accounts=0 al final) ────────────────────────────────
@@ -554,6 +637,7 @@ BEGIN
   DELETE FROM public.analytics_events               WHERE account_id = v_account_id;
   DELETE FROM public.customer_account_movements      WHERE account_id = v_account_id;
   DELETE FROM public.customer_accounts               WHERE account_id = v_account_id;
+  DELETE FROM public.sales_orders                    WHERE account_id = v_account_id;
   DELETE FROM public.sale_items WHERE sale_id IN (SELECT id FROM public.sales WHERE account_id = v_account_id);
   DELETE FROM public.stock_movements                 WHERE account_id = v_account_id;
   DELETE FROM public.sales                           WHERE account_id = v_account_id;
@@ -584,6 +668,7 @@ EXCEPTION
         DELETE FROM public.analytics_events               WHERE account_id = v_account_id;
         DELETE FROM public.customer_account_movements      WHERE account_id = v_account_id;
         DELETE FROM public.customer_accounts               WHERE account_id = v_account_id;
+        DELETE FROM public.sales_orders                    WHERE account_id = v_account_id;
         DELETE FROM public.sale_items WHERE sale_id IN (SELECT id FROM public.sales WHERE account_id = v_account_id);
         DELETE FROM public.stock_movements                 WHERE account_id = v_account_id;
         DELETE FROM public.sales                           WHERE account_id = v_account_id;

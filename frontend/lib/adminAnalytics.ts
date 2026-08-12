@@ -67,10 +67,28 @@ export interface AdminWeeklyUsageBucket {
   users_count: number
 }
 
+/**
+ * Bloque `freemium` de `rpc_admin_business_kpis` (OQ-4, design.md D6, M2
+ * admin-kpi-refresh): plan efectivo (`get_effective_plan`) × tarifa de lista
+ * (`plan_limits.price_monthly`), con el importe real de una suscripción MP
+ * viva cuando existe. Trials y exentas quedan fuera de `mrr_ars` — el trial
+ * vigente se valoriza aparte en `trial_pipeline_mrr_ars`. Reemplaza los
+ * campos legacy `pro_users`/`conversion_rate`/`mrr` (leían `profiles.plan`,
+ * columna que no escribe el motor de billing). Moneda: ARS.
+ */
+export interface AdminFreemiumMetrics {
+  paying_accounts: number
+  trial_accounts: number
+  exempt_accounts: number
+  free_accounts: number
+  mrr_ars: number
+  trial_pipeline_mrr_ars: number
+}
+
 /** Payload de `rpc_admin_business_kpis`. */
 export interface AdminBusinessKpis {
   adoption: { total_users: number; mau: number; activation_rate: number }
-  freemium: { pro_users: number; conversion_rate: number; mrr: number }
+  freemium: AdminFreemiumMetrics
   community: { total_activity: number; active_pools: number }
   ai: { total_insights: number; alerts_triggered: number }
 }

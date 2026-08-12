@@ -104,7 +104,9 @@ DECLARE
   v_secondary_accounts  uuid[];
   v_fns_5               CONSTANT text[] := ARRAY[
     'public.rpc_admin_kpi_overview(timestamptz, timestamptz, text)',
-    'public.rpc_admin_retention_30d(text, timestamptz, timestamptz)',
+    -- grupo 9 (OQ-5, M2): firma nueva con p_horizon_days — la de 3 args ya
+    -- no existe (DROP+CREATE por 42P13, ver migración M2).
+    'public.rpc_admin_retention_30d(text, timestamptz, timestamptz, integer)',
     'public.rpc_admin_module_stats(text, timestamptz, timestamptz)',
     'public.rpc_admin_business_kpis(timestamptz, timestamptz)',
     'public.get_admin_community_interactions(timestamptz, timestamptz)'
@@ -184,16 +186,19 @@ BEGIN
           jsonb_build_object('entity_id', v_stale_event_id::text, 'entity_type', 'expense', 'source', 'gate'),
           now() - interval '10 days');
 
-  -- Gate 2.5: cohorte madura (activación hace 45 días, retenida al día 32) e
-  -- inmadura (activación hoy).
-  v_mature_cohort := date_trunc('week', now() - interval '45 days');
+  -- Gate 2.5: cohorte madura (activación hace 70 días, retenida al día 32) e
+  -- inmadura (activación hoy). 70 días (no 45): desde el sign-off de OQ-5
+  -- (M2, grupo 9) el horizonte DEFAULT de madurez pasó de 37 a 60 días — una
+  -- cohorte de 45 días ya no califica como madura bajo la firma que este
+  -- gate llama con 3 argumentos (default p_horizon_days=60).
+  v_mature_cohort := date_trunc('week', now() - interval '70 days');
   INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
-  VALUES (v_mature_id, v_admin_account, 'first_operation', jsonb_build_object('entity_type', 'expense'), now() - interval '45 days');
+  VALUES (v_mature_id, v_admin_account, 'first_operation', jsonb_build_object('entity_type', 'expense'), now() - interval '70 days');
 
   INSERT INTO public.analytics_events (id, user_id, account_id, event_name, event_data, created_at)
   VALUES (v_mature_op_id, v_mature_id, v_admin_account, 'operation_created',
           jsonb_build_object('entity_id', v_mature_op_id::text, 'entity_type', 'expense', 'source', 'gate'),
-          now() - interval '45 days' + interval '32 days');
+          now() - interval '70 days' + interval '32 days');
 
   v_immature_cohort := date_trunc('week', now());
   INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
@@ -303,9 +308,9 @@ BEGIN
       v_failures := array_append(v_failures, 'FAIL 2.5a: cohorte madura sin observation_window_days');
     ELSIF (v_mature_row->>'is_mature')::boolean IS DISTINCT FROM true THEN
       v_failures := array_append(v_failures,
-        format('FAIL 2.5a: cohorte activada hace 45 días esperaba is_mature=true, obtuvo %s', v_mature_row->>'is_mature'));
+        format('FAIL 2.5a: cohorte activada hace 70 días esperaba is_mature=true, obtuvo %s', v_mature_row->>'is_mature'));
     ELSE
-      RAISE NOTICE 'PASS 2.5a: cohorte madura (45 días) marca is_mature=true con observation_window_days=%', v_mature_row->>'observation_window_days';
+      RAISE NOTICE 'PASS 2.5a: cohorte madura (70 días) marca is_mature=true con observation_window_days=%', v_mature_row->>'observation_window_days';
     END IF;
 
     IF v_immature_row IS NULL OR (v_immature_row->>'observation_window_days') IS NULL THEN
@@ -505,6 +510,510 @@ EXCEPTION
       );
       DELETE FROM auth.users WHERE id IN (
         v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
+      );
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;
+
+
+-- =============================================================================
+-- GATE ADMIN-KPI-REFRESH — M2 (grupos 8 y 9): MRR real (OQ-4) y retención
+-- censurada [30,60) (OQ-5) — sign-off PO 2026-08-12.
+--
+-- Verifica (design.md D6/D7, tasks.md 8.2/9.2):
+--   8. MRR: cuenta paga (billing_plan, tarifa de lista) aporta price_monthly
+--      de su plan; cuenta con suscripción MP autorizada aporta el importe de
+--      la suscripción (no la tarifa de lista — D6 término B preferente sobre
+--      A); cuenta en trial vigente aporta 0 al MRR y el precio de su plan de
+--      trial a trial_pipeline_mrr_ars; cuenta exenta aporta 0 a ambos aunque
+--      tenga un trial vigente (precedencia de get_effective_plan: exención
+--      antes que trial); las claves legacy pro_users/mrr/conversion_rate
+--      (profiles.plan) mueren. Reutiliza get_effective_plan(id) — no se
+--      re-deriva la lógica de plan efectivo.
+--   9. Retención [30,H): usuario que opera dentro de [30,60) desde su
+--      activación cuenta como retenido; usuario que sólo opera antes del día
+--      30 no cuenta; cohorte más joven que el horizonte (50d) se marca
+--      is_mature=false — con la ventana FIJA anterior [30,37) esa misma
+--      cohorte de 50 días ya era madura, así que ese assert es la prueba de
+--      que la definición realmente cambió, no sólo se parametrizó; el
+--      llamador con 3 argumentos (sin p_horizon_days) sigue funcionando con
+--      el default 60.
+--
+-- Patrón baseline+delta (igual que active_pools en el gate anterior): ni la
+-- población de cuentas ni la tabla de cohortes de rpc_admin_retention_30d
+-- filtran por lo sembrado en este bloque — así que en vez de asserts
+-- absolutos se mide el delta contra una captura previa a la siembra, inmune
+-- a contaminación de otros gates que compartan rango de fechas o corran
+-- antes en el mismo pipeline de CI.
+-- =============================================================================
+
+DO $$
+DECLARE
+  v2_failures              text[] := '{}';
+
+  v2_admin_email           text := 'admin-kpi-refresh-m2-admin@test.local';
+  v2_admin_id              uuid := gen_random_uuid();
+  v2_admin_account         uuid;
+
+  -- MRR (grupo 8): 5 cuentas, una por población + una vía de suscripción viva.
+  v2_owner_paying_email    text := 'admin-kpi-refresh-m2-paying@test.local';
+  v2_owner_paying_id       uuid := gen_random_uuid();
+  v2_owner_sub_email       text := 'admin-kpi-refresh-m2-sub@test.local';
+  v2_owner_sub_id          uuid := gen_random_uuid();
+  v2_owner_trial_email     text := 'admin-kpi-refresh-m2-trial@test.local';
+  v2_owner_trial_id        uuid := gen_random_uuid();
+  v2_owner_exempt_email    text := 'admin-kpi-refresh-m2-exempt@test.local';
+  v2_owner_exempt_id       uuid := gen_random_uuid();
+  v2_owner_free_email      text := 'admin-kpi-refresh-m2-free@test.local';
+  v2_owner_free_id         uuid := gen_random_uuid();
+
+  v2_account_paying        uuid;
+  v2_account_sub           uuid;
+  v2_account_trial         uuid;
+  v2_account_exempt        uuid;
+  v2_account_free          uuid;
+
+  v2_before                jsonb;
+  v2_after                 jsonb;
+  v2_freemium_before       jsonb;
+  v2_freemium_after        jsonb;
+
+  -- Retención (grupo 9): usuarios en 3 cohortes distintas y bien separadas
+  -- (>=40 días entre offsets) para no compartir bucket de semana.
+  v2_ret_r_email           text := 'admin-kpi-refresh-m2-ret-r@test.local';
+  v2_ret_r_id              uuid := gen_random_uuid();
+  v2_ret_nr_email          text := 'admin-kpi-refresh-m2-ret-nr@test.local';
+  v2_ret_nr_id             uuid := gen_random_uuid();
+  v2_ret_imm_email         text := 'admin-kpi-refresh-m2-ret-imm@test.local';
+  v2_ret_imm_id            uuid := gen_random_uuid();
+  v2_ret_op_r              uuid := gen_random_uuid();
+  v2_ret_op_nr             uuid := gen_random_uuid();
+
+  v2_ret_cohort_r          timestamptz;
+  v2_ret_cohort_nr         timestamptz;
+  v2_ret_cohort_imm        timestamptz;
+  v2_ret_from              timestamptz := now() - interval '150 days';
+  v2_ret_to                timestamptz := now() + interval '1 day';
+
+  v2_baseline_size_r       int;
+  v2_baseline_retained_r   int;
+  v2_baseline_size_nr      int;
+  v2_baseline_retained_nr  int;
+  v2_row_r                 jsonb;
+  v2_row_nr                jsonb;
+  v2_row_imm               jsonb;
+  v2_delta_size_r          int;
+  v2_delta_retained_r      int;
+  v2_delta_size_nr         int;
+  v2_delta_retained_nr     int;
+
+  v2_dup_count             int;
+  -- Cuentas auto-aprovisionadas por handle_new_user para los 3 usuarios de
+  -- retención (nunca customizadas, pero SÍ existen y deben limpiarse — el
+  -- mismo aprovisionamiento eager que contaminaba el freemium "after", ver
+  -- nota más arriba).
+  v2_ret_accounts          uuid[];
+BEGIN
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- SETUP — admin propio del bloque M2
+  -- ═══════════════════════════════════════════════════════════════════════
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v2_admin_id, 'authenticated', 'authenticated', v2_admin_email, now(), now(),
+          jsonb_build_object('name', 'Gate Admin KPI Refresh M2', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  ALTER TABLE public.profiles DISABLE TRIGGER trg_prevent_profile_escalation;
+  UPDATE public.profiles SET role = 'admin' WHERE id = v2_admin_id;
+  ALTER TABLE public.profiles ENABLE TRIGGER trg_prevent_profile_escalation;
+
+  SELECT account_id INTO v2_admin_account
+  FROM   public.account_members
+  WHERE  user_id = v2_admin_id
+  ORDER  BY created_at
+  LIMIT  1;
+
+  IF v2_admin_account IS NULL THEN
+    RAISE NOTICE 'GATE ADMIN-KPI-REFRESH-M2: no se pudo resolver una account para el anchor admin — degradando sin abortar.';
+    RETURN;
+  END IF;
+
+  -- ── Baseline (ANTES de sembrar nada) — inmune a contaminación ───────────
+  BEGIN
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v2_admin_id::text, 'role', 'authenticated')::text, true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+
+    v2_ret_cohort_r   := date_trunc('week', now() - interval '70 days');
+    v2_ret_cohort_nr  := date_trunc('week', now() - interval '110 days');
+    v2_ret_cohort_imm := date_trunc('week', now() - interval '50 days');
+
+    SELECT (t.cohort_size)::int, (t.retained_30d)::int INTO v2_baseline_size_r, v2_baseline_retained_r
+    FROM public.rpc_admin_retention_30d('week', v2_ret_from, v2_ret_to, 60) t
+    WHERE t.cohort_start = v2_ret_cohort_r;
+
+    SELECT (t.cohort_size)::int, (t.retained_30d)::int INTO v2_baseline_size_nr, v2_baseline_retained_nr
+    FROM public.rpc_admin_retention_30d('week', v2_ret_from, v2_ret_to, 60) t
+    WHERE t.cohort_start = v2_ret_cohort_nr;
+
+    v2_baseline_size_r      := COALESCE(v2_baseline_size_r, 0);
+    v2_baseline_retained_r  := COALESCE(v2_baseline_retained_r, 0);
+    v2_baseline_size_nr     := COALESCE(v2_baseline_size_nr, 0);
+    v2_baseline_retained_nr := COALESCE(v2_baseline_retained_nr, 0);
+
+    SELECT public.rpc_admin_business_kpis(now() - interval '30 days', now()) INTO v2_before;
+    v2_freemium_before := v2_before->'freemium';
+
+    EXECUTE 'RESET ROLE';
+    PERFORM set_config('request.jwt.claims', '', true);
+  EXCEPTION
+    WHEN OTHERS THEN
+      EXECUTE 'RESET ROLE';
+      PERFORM set_config('request.jwt.claims', '', true);
+      RAISE;
+  END;
+
+  -- ── Siembra de las 5 cuentas de MRR (como postgres) ─────────────────────
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES
+    (v2_owner_paying_id, 'authenticated', 'authenticated', v2_owner_paying_email, now(), now(), jsonb_build_object('name', 'Gate Paying',  'phone', '', 'locality', '', 'province', '')),
+    (v2_owner_sub_id,    'authenticated', 'authenticated', v2_owner_sub_email,    now(), now(), jsonb_build_object('name', 'Gate Sub',     'phone', '', 'locality', '', 'province', '')),
+    (v2_owner_trial_id,  'authenticated', 'authenticated', v2_owner_trial_email,  now(), now(), jsonb_build_object('name', 'Gate Trial',   'phone', '', 'locality', '', 'province', '')),
+    (v2_owner_exempt_id, 'authenticated', 'authenticated', v2_owner_exempt_email, now(), now(), jsonb_build_object('name', 'Gate Exempt',  'phone', '', 'locality', '', 'province', '')),
+    (v2_owner_free_id,   'authenticated', 'authenticated', v2_owner_free_email,   now(), now(), jsonb_build_object('name', 'Gate Free',    'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT id INTO v2_account_paying FROM public.accounts WHERE owner_user_id = v2_owner_paying_id;
+  SELECT id INTO v2_account_sub    FROM public.accounts WHERE owner_user_id = v2_owner_sub_id;
+  SELECT id INTO v2_account_trial  FROM public.accounts WHERE owner_user_id = v2_owner_trial_id;
+  SELECT id INTO v2_account_exempt FROM public.accounts WHERE owner_user_id = v2_owner_exempt_id;
+  SELECT id INTO v2_account_free   FROM public.accounts WHERE owner_user_id = v2_owner_free_id;
+
+  IF v2_account_paying IS NULL OR v2_account_sub IS NULL OR v2_account_trial IS NULL
+     OR v2_account_exempt IS NULL OR v2_account_free IS NULL THEN
+    RAISE NOTICE 'GATE ADMIN-KPI-REFRESH-M2: handle_new_user no aprovisionó alguna de las 5 cuentas de MRR — degradando sin abortar.';
+    RETURN;
+  END IF;
+
+  -- Paying (lista de precios): billing_plan pago vigente, trial vencido para
+  -- que no gane precedencia sobre billing_plan (get_effective_plan D1/D2).
+  UPDATE public.accounts SET
+    billing_plan     = 'avanzado',
+    plan_expires_at  = now() + interval '30 days',
+    trial_plan       = 'pro',
+    trial_expires_at = now() - interval '1 day'
+  WHERE id = v2_account_paying;
+
+  -- Paying (suscripción MP viva): el importe real de la suscripción pisa la
+  -- tarifa de lista del plan (D6, término B preferente sobre A).
+  UPDATE public.accounts SET
+    billing_plan     = 'pro',
+    plan_expires_at  = now() + interval '30 days',
+    trial_plan       = 'pro',
+    trial_expires_at = now() - interval '1 day'
+  WHERE id = v2_account_sub;
+
+  INSERT INTO public.subscriptions (account_id, preapproval_id, preapproval_plan_id, plan, status, amount, currency)
+  VALUES (v2_account_sub, 'gate-mrr-preapproval-test', 'gate-mrr-plan-test', 'pro', 'authorized', 55000.00, 'ARS');
+
+  -- Trial: se deja el trial PRO de 30 días que asigna set_new_user_trial()
+  -- por defecto en todo signup nuevo — es exactamente el caso "trial
+  -- vigente" que el MRR debe excluir y el pipeline debe valorizar.
+
+  -- Exento: precedencia máxima sobre trial/billing_plan en get_effective_plan.
+  UPDATE public.accounts SET
+    billing_exempt        = true,
+    billing_exempt_reason = 'gate admin-kpi-refresh-m2'
+  WHERE id = v2_account_exempt;
+
+  -- Free: trial vencido y sin billing_plan pago → cae a 'gratis'.
+  UPDATE public.accounts SET
+    trial_plan       = 'pro',
+    trial_expires_at = now() - interval '1 day'
+  WHERE id = v2_account_free;
+
+  -- NOTA (encontrada en RED de este mismo gate — no era el RED esperado):
+  -- la siembra de retención NO puede pasar acá, antes de capturar el
+  -- "after" del MRR. Cada auth.users nuevo dispara handle_new_user, que
+  -- aprovisiona una cuenta con el trial PRO de 30 días por defecto
+  -- (set_new_user_trial) — si las 3 cuentas de retención existieran ya, el
+  -- freemium "after" las contaría como 'trial' además de v2_owner_trial
+  -- (trial_accounts delta daba 4, no 1; trial_pipeline_mrr_ars daba
+  -- 4×69900, no 69900). Se siembra DESPUÉS de leer v2_after (bloque
+  -- siguiente), fuera del alcance de la foto de MRR.
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- EJERCICIO — RPCs impersonando al admin del bloque M2
+  -- ═══════════════════════════════════════════════════════════════════════
+  BEGIN
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v2_admin_id::text, 'role', 'authenticated')::text, true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+
+    -- ── Gate 8.2: MRR / poblaciones ────────────────────────────────────────
+    SELECT public.rpc_admin_business_kpis(now() - interval '30 days', now()) INTO v2_after;
+    v2_freemium_after := v2_after->'freemium';
+
+    IF (v2_freemium_after->>'paying_accounts')::int - (v2_freemium_before->>'paying_accounts')::int IS DISTINCT FROM 2 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 8.2a: paying_accounts delta esperaba 2, obtuvo %s',
+        (v2_freemium_after->>'paying_accounts')::int - (v2_freemium_before->>'paying_accounts')::int));
+    ELSE
+      RAISE NOTICE 'PASS 8.2a: paying_accounts sube exactamente 2 (billing_plan + suscripción MP)';
+    END IF;
+
+    IF (v2_freemium_after->>'trial_accounts')::int - (v2_freemium_before->>'trial_accounts')::int IS DISTINCT FROM 1 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 8.2b: trial_accounts delta esperaba 1, obtuvo %s',
+        (v2_freemium_after->>'trial_accounts')::int - (v2_freemium_before->>'trial_accounts')::int));
+    ELSE
+      RAISE NOTICE 'PASS 8.2b: trial_accounts sube exactamente 1';
+    END IF;
+
+    IF (v2_freemium_after->>'exempt_accounts')::int - (v2_freemium_before->>'exempt_accounts')::int IS DISTINCT FROM 1 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 8.2c: exempt_accounts delta esperaba 1, obtuvo %s',
+        (v2_freemium_after->>'exempt_accounts')::int - (v2_freemium_before->>'exempt_accounts')::int));
+    ELSE
+      RAISE NOTICE 'PASS 8.2c: exempt_accounts sube exactamente 1';
+    END IF;
+
+    IF (v2_freemium_after->>'free_accounts')::int - (v2_freemium_before->>'free_accounts')::int IS DISTINCT FROM 1 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 8.2d: free_accounts delta esperaba 1, obtuvo %s',
+        (v2_freemium_after->>'free_accounts')::int - (v2_freemium_before->>'free_accounts')::int));
+    ELSE
+      RAISE NOTICE 'PASS 8.2d: free_accounts sube exactamente 1';
+    END IF;
+
+    IF (v2_freemium_after->>'mrr_ars')::numeric - (v2_freemium_before->>'mrr_ars')::numeric IS DISTINCT FROM 89900.00 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 8.2e: mrr_ars delta esperaba 89900.00 (34900 lista + 55000 suscripción), obtuvo %s',
+        (v2_freemium_after->>'mrr_ars')::numeric - (v2_freemium_before->>'mrr_ars')::numeric));
+    ELSE
+      RAISE NOTICE 'PASS 8.2e: mrr_ars suma tarifa de lista + importe real de suscripción (89900.00), no cuenta trials ni exentas';
+    END IF;
+
+    IF (v2_freemium_after->>'trial_pipeline_mrr_ars')::numeric - (v2_freemium_before->>'trial_pipeline_mrr_ars')::numeric IS DISTINCT FROM 69900.00 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 8.2f: trial_pipeline_mrr_ars delta esperaba 69900.00 (precio pro), obtuvo %s',
+        (v2_freemium_after->>'trial_pipeline_mrr_ars')::numeric - (v2_freemium_before->>'trial_pipeline_mrr_ars')::numeric));
+    ELSE
+      RAISE NOTICE 'PASS 8.2f: trial_pipeline_mrr_ars valoriza el trial vigente a precio de plan (69900.00)';
+    END IF;
+
+    IF v2_freemium_after ? 'pro_users' OR v2_freemium_after ? 'mrr' OR v2_freemium_after ? 'conversion_rate' THEN
+      v2_failures := array_append(v2_failures, 'FAIL 8.2g: freemium todavía expone claves legacy (pro_users/mrr/conversion_rate) — profiles.plan debe estar muerto');
+    ELSE
+      RAISE NOTICE 'PASS 8.2g: freemium ya no expone pro_users/mrr/conversion_rate (columna legacy profiles.plan muerta)';
+    END IF;
+
+    -- ── Siembra de retención (3 cohortes) — DESPUÉS del "after" de MRR, ver
+    --    nota más arriba. RESET ROLE porque el seed corre como postgres (los
+    --    triggers de aprovisionamiento no dependen de RLS, pero el patrón
+    --    del proyecto siembra siempre sin impersonar) y se re-impersona al
+    --    admin apenas termina (mismo patrón que 2.7b/2.4b del gate anterior).
+    EXECUTE 'RESET ROLE';
+    INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+    VALUES
+      (v2_ret_r_id,   'authenticated', 'authenticated', v2_ret_r_email,   now(), now(), jsonb_build_object('name', 'Gate Ret R',   'phone', '', 'locality', '', 'province', '')),
+      (v2_ret_nr_id,  'authenticated', 'authenticated', v2_ret_nr_email,  now(), now(), jsonb_build_object('name', 'Gate Ret NR',  'phone', '', 'locality', '', 'province', '')),
+      (v2_ret_imm_id, 'authenticated', 'authenticated', v2_ret_imm_email, now(), now(), jsonb_build_object('name', 'Gate Ret IMM', 'phone', '', 'locality', '', 'province', ''))
+    ON CONFLICT (id) DO NOTHING;
+
+    -- R: activada hace 70 días (madura, 70>=60) — opera al día 45 (dentro de
+    -- [30,60), FUERA de la vieja [30,37)) → retenida bajo la definición nueva.
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    VALUES (v2_ret_r_id, v2_admin_account, 'first_operation', jsonb_build_object('entity_type', 'expense'), now() - interval '70 days');
+    INSERT INTO public.analytics_events (id, user_id, account_id, event_name, event_data, created_at)
+    VALUES (v2_ret_op_r, v2_ret_r_id, v2_admin_account, 'operation_created',
+            jsonb_build_object('entity_id', v2_ret_op_r::text, 'entity_type', 'expense', 'source', 'gate'),
+            now() - interval '70 days' + interval '45 days');
+
+    -- NR: activada hace 110 días (madura) — opera al día 10 (antes del día 30)
+    -- → NO retenida bajo ninguna definición.
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    VALUES (v2_ret_nr_id, v2_admin_account, 'first_operation', jsonb_build_object('entity_type', 'expense'), now() - interval '110 days');
+    INSERT INTO public.analytics_events (id, user_id, account_id, event_name, event_data, created_at)
+    VALUES (v2_ret_op_nr, v2_ret_nr_id, v2_admin_account, 'operation_created',
+            jsonb_build_object('entity_id', v2_ret_op_nr::text, 'entity_type', 'expense', 'source', 'gate'),
+            now() - interval '110 days' + interval '10 days');
+
+    -- IMM: activada hace 50 días — madura bajo la vieja ventana fija [30,37)
+    -- (50>37) pero INMADURA bajo el horizonte censurado nuevo (50<60). Prueba
+    -- que la definición cambió, no sólo se parametrizó.
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    VALUES (v2_ret_imm_id, v2_admin_account, 'first_operation', jsonb_build_object('entity_type', 'expense'), now() - interval '50 days');
+
+    PERFORM set_config('request.jwt.claims',
+      json_build_object('sub', v2_admin_id::text, 'role', 'authenticated')::text, true);
+    EXECUTE 'SET LOCAL ROLE authenticated';
+
+    -- ── Gate 9.2: retención censurada [30,60) ───────────────────────────────
+    SELECT to_jsonb(t) INTO v2_row_r
+    FROM public.rpc_admin_retention_30d('week', v2_ret_from, v2_ret_to, 60) t
+    WHERE t.cohort_start = v2_ret_cohort_r;
+
+    SELECT to_jsonb(t) INTO v2_row_nr
+    FROM public.rpc_admin_retention_30d('week', v2_ret_from, v2_ret_to, 60) t
+    WHERE t.cohort_start = v2_ret_cohort_nr;
+
+    SELECT to_jsonb(t) INTO v2_row_imm
+    FROM public.rpc_admin_retention_30d('week', v2_ret_from, v2_ret_to, 60) t
+    WHERE t.cohort_start = v2_ret_cohort_imm;
+
+    v2_delta_size_r      := COALESCE((v2_row_r->>'cohort_size')::int, 0) - v2_baseline_size_r;
+    v2_delta_retained_r  := COALESCE((v2_row_r->>'retained_30d')::int, 0) - v2_baseline_retained_r;
+    v2_delta_size_nr     := COALESCE((v2_row_nr->>'cohort_size')::int, 0) - v2_baseline_size_nr;
+    v2_delta_retained_nr := COALESCE((v2_row_nr->>'retained_30d')::int, 0) - v2_baseline_retained_nr;
+
+    IF v2_delta_size_r IS DISTINCT FROM 1 OR v2_delta_retained_r IS DISTINCT FROM 1 THEN
+      v2_failures := array_append(v2_failures, format(
+        'FAIL 9.2a: cohorte R (opera al día 45, dentro de [30,60)) esperaba delta cohort_size=1/retained=1, obtuvo size=%s/retained=%s',
+        v2_delta_size_r, v2_delta_retained_r));
+    ELSE
+      RAISE NOTICE 'PASS 9.2a: usuario que opera al día 45 (dentro de [30,60), fuera de la vieja [30,37)) cuenta como retenido';
+    END IF;
+
+    IF v2_delta_size_nr IS DISTINCT FROM 1 OR v2_delta_retained_nr IS DISTINCT FROM 0 THEN
+      v2_failures := array_append(v2_failures, format(
+        'FAIL 9.2b: cohorte NR (opera al día 10, antes del día 30) esperaba delta cohort_size=1/retained=0, obtuvo size=%s/retained=%s',
+        v2_delta_size_nr, v2_delta_retained_nr));
+    ELSE
+      RAISE NOTICE 'PASS 9.2b: usuario que sólo opera antes del día 30 NO cuenta como retenido';
+    END IF;
+
+    IF v2_row_r IS NULL OR (v2_row_r->>'observation_window_days')::int IS DISTINCT FROM 60 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 9.2c: cohorte R esperaba observation_window_days=60, obtuvo %s', v2_row_r->>'observation_window_days'));
+    ELSIF (v2_row_r->>'is_mature')::boolean IS DISTINCT FROM true THEN
+      v2_failures := array_append(v2_failures, 'FAIL 9.2c: cohorte R (70 días) esperaba is_mature=true');
+    ELSE
+      RAISE NOTICE 'PASS 9.2c: cohorte R (70 días) is_mature=true con observation_window_days=60';
+    END IF;
+
+    IF v2_row_imm IS NULL OR (v2_row_imm->>'observation_window_days')::int IS DISTINCT FROM 60 THEN
+      v2_failures := array_append(v2_failures, format('FAIL 9.2d: cohorte IMM esperaba observation_window_days=60, obtuvo %s', v2_row_imm->>'observation_window_days'));
+    ELSIF (v2_row_imm->>'is_mature')::boolean IS DISTINCT FROM false THEN
+      v2_failures := array_append(v2_failures, format(
+        'FAIL 9.2d: cohorte IMM (50 días — madura bajo la vieja [30,37), INMADURA bajo el horizonte nuevo de 60) esperaba is_mature=false, obtuvo %s',
+        v2_row_imm->>'is_mature'));
+    ELSE
+      RAISE NOTICE 'PASS 9.2d: cohorte de 50 días — madura con la vieja ventana fija [30,37), INMADURA con el horizonte nuevo [30,60) — la definición cambió de verdad, no sólo se parametrizó';
+    END IF;
+
+    -- ── Gate 9.2e: el llamador sin p_horizon_days sigue funcionando (default
+    --    60 — el frontend actual no manda el 4º argumento) ─────────────────
+    PERFORM 1 FROM public.rpc_admin_retention_30d('week', v2_ret_from, v2_ret_to) LIMIT 1;
+    RAISE NOTICE 'PASS 9.2e: rpc_admin_retention_30d sigue aceptando 3 argumentos (p_horizon_days default 60)';
+
+    EXECUTE 'RESET ROLE';
+    PERFORM set_config('request.jwt.claims', '', true);
+  EXCEPTION
+    WHEN OTHERS THEN
+      EXECUTE 'RESET ROLE';
+      PERFORM set_config('request.jwt.claims', '', true);
+      RAISE;
+  END;
+
+  -- ── Gate de superficie: una sola definición de retención (4 args) ───────
+  SELECT COUNT(*) INTO v2_dup_count
+  FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_admin_retention_30d';
+
+  IF v2_dup_count <> 1 THEN
+    v2_failures := array_append(v2_failures, format('FAIL 9.2f: rpc_admin_retention_30d tiene %s definiciones (se espera 1, anti-42725)', v2_dup_count));
+  ELSE
+    RAISE NOTICE 'PASS 9.2f: rpc_admin_retention_30d tiene exactamente 1 definición tras el DROP+CREATE de 4 argumentos';
+  END IF;
+
+  -- ── Resultado ──────────────────────────────────────────────────────────
+  IF array_length(v2_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE ADMIN-KPI-REFRESH-M2 FAILED:\n  %', array_to_string(v2_failures, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'GATE ADMIN-KPI-REFRESH-M2 PASSED: MRR real por plan efectivo/suscripción y retención censurada [30,60) — verificados.';
+
+  -- ── Limpieza hijo→padre ──────────────────────────────────────────────────
+  SELECT array_agg(id) INTO v2_ret_accounts
+  FROM public.accounts
+  WHERE owner_user_id IN (v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id);
+  v2_ret_accounts := COALESCE(v2_ret_accounts, ARRAY[]::uuid[]);
+
+  DELETE FROM public.subscriptions WHERE account_id = v2_account_sub;
+  DELETE FROM public.analytics_events WHERE user_id IN (v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id);
+  DELETE FROM public.cashboxes WHERE branch_id IN (
+    SELECT id FROM public.branches WHERE account_id = v2_admin_account
+       OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
+       OR account_id = ANY(v2_ret_accounts)
+  );
+  DELETE FROM public.branches WHERE account_id = v2_admin_account
+     OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
+     OR account_id = ANY(v2_ret_accounts);
+  DELETE FROM public.account_members WHERE user_id IN (
+    v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+    v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+  );
+  DELETE FROM public.accounts WHERE id = v2_admin_account
+     OR id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
+     OR id = ANY(v2_ret_accounts);
+  DELETE FROM public.profiles WHERE id IN (
+    v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+    v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+  );
+  DELETE FROM public.email_logs WHERE user_id IN (
+    v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+    v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+  );
+  DELETE FROM public.operation_idempotency WHERE user_id IN (
+    v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+    v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+  );
+  DELETE FROM auth.users WHERE id IN (
+    v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+    v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+  );
+
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      EXECUTE 'RESET ROLE';
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    PERFORM set_config('request.jwt.claims', '', true);
+    BEGIN
+      IF v2_ret_accounts IS NULL THEN
+        SELECT array_agg(id) INTO v2_ret_accounts
+        FROM public.accounts
+        WHERE owner_user_id IN (v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id);
+      END IF;
+      v2_ret_accounts := COALESCE(v2_ret_accounts, ARRAY[]::uuid[]);
+
+      DELETE FROM public.subscriptions WHERE account_id = v2_account_sub;
+      DELETE FROM public.analytics_events WHERE user_id IN (v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id);
+      DELETE FROM public.cashboxes WHERE branch_id IN (
+        SELECT id FROM public.branches WHERE account_id = v2_admin_account
+           OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
+           OR account_id = ANY(v2_ret_accounts)
+      );
+      DELETE FROM public.branches WHERE account_id = v2_admin_account
+         OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
+         OR account_id = ANY(v2_ret_accounts);
+      DELETE FROM public.account_members WHERE user_id IN (
+        v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+        v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+      );
+      DELETE FROM public.accounts WHERE id = v2_admin_account
+         OR id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
+         OR id = ANY(v2_ret_accounts);
+      DELETE FROM public.profiles WHERE id IN (
+        v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+        v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+      );
+      DELETE FROM public.email_logs WHERE user_id IN (
+        v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+        v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+      );
+      DELETE FROM public.operation_idempotency WHERE user_id IN (
+        v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+        v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
+      );
+      DELETE FROM auth.users WHERE id IN (
+        v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
+        v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
       );
     EXCEPTION WHEN OTHERS THEN NULL;
     END;

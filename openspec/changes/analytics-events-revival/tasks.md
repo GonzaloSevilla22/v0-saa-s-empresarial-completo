@@ -73,7 +73,7 @@
 
 ## 7. Cierre
 
-- [ ] 7.1 Decidir con el PO si se incluye el índice único parcial para `umv_reached` (OQ-3 del design, una línea de migración) o se difiere
-- [ ] 7.2 Actualizar `docs/plan-remediacion-kpis-2026-08-11.md`: marcar C-KPI-4 con su estado y registrar la resolución de OQ-2
-- [ ] 7.3 Anotar en el traspaso a C-KPI-5 (`admin-kpi-refresh`) que `analytics_events.account_id` ya está disponible para KPIs por tenant
-- [ ] 7.4 PR con checks verdes (esperando `validate-kpis`, no sólo Vercel) y merge
+- [ ] 7.1 Decidir con el PO si se incluye el índice único parcial para `umv_reached` (OQ-3 del design, una línea de migración) o se difiere — **sin sign-off todavía, igual que OQ-2; NO implementado en esta aplicación** (sería agregar un scope no autorizado). Queda pendiente junto con OQ-2.
+- [ ] 7.2 Actualizar `docs/plan-remediacion-kpis-2026-08-11.md`: marcar C-KPI-4 con su estado y registrar la resolución de OQ-2 — **fuera de esta aplicación**: el archivo es explícitamente "ajeno" (untracked, no se stagea) por instrucción del apply de este change. Pendiente para quien posea ese doc; el estado real (emisión ✅ en PR #383, backfill bloqueado por OQ-2) queda documentado acá y en engram.
+- [ ] 7.3 Anotar en el traspaso a C-KPI-5 (`admin-kpi-refresh`) que `analytics_events.account_id` ya está disponible para KPIs por tenant — **mismo bloqueo que 7.2** (el único lugar donde existe la noción de "C-KPI-5" es ese doc ajeno). El dato en sí ya está documentado en design.md D5 y disponible vía engram (`opsx/analytics-events-revival/apply`).
+- [ ] 7.4 PR con checks verdes (esperando `validate-kpis`, no sólo Vercel) y merge — PR #383 (`feat/analytics-events-revival-emision`) abierto, checks en curso.

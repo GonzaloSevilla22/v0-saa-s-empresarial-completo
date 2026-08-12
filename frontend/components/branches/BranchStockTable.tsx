@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table"
 import { Loader2, Package, SlidersHorizontal, ArrowLeftRight } from "lucide-react"
 import type { BranchStockWithProduct } from "@/lib/types"
+import { isBelowThreshold } from "@/lib/product-stock"
 
 interface BranchStockTableProps {
   branchId: string
@@ -69,7 +70,7 @@ export function BranchStockTable({ branchId }: BranchStockTableProps) {
           </TableHeader>
           <TableBody>
             {branchStock.map((item) => {
-              const isBelowMin = item.minStock > 0 && item.quantity <= item.minStock
+              const isBelowMin = isBelowThreshold(item.quantity, item.minStock)
               return (
                 <TableRow key={item.id}>
                   <TableCell>

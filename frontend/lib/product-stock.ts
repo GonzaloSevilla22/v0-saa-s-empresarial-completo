@@ -40,6 +40,14 @@ export function holdsOwnStock(product: Pick<Product, "stockControlType">): boole
  *   - `critico`    → at or below the threshold (out of / short of stock).
  *   - `bajo`       → within 50% above the threshold (approaching the limit).
  *   - `ok`         → comfortably above the threshold.
+ *
+ * SQL mirror (kpi-critical-stock-dashboard): `get_dashboard_critical_stock(
+ * p_branch_id uuid DEFAULT NULL)` evaluates the exact same predicate
+ * (`min_stock > 0 AND quantity <= min_stock`) per row of `branch_stock` to
+ * compute the "Productos en alerta" KPI on the server — same rule as
+ * `check_branch_low_stock` (RN-23). The predicate necessarily exists on both
+ * sides (the DB evaluates it for the KPI/trigger, the client for painting
+ * rows); this is a documented mirror, not duplication to collapse.
  */
 export type StockStatus = "critico" | "bajo" | "ok" | "sin-umbral"
 

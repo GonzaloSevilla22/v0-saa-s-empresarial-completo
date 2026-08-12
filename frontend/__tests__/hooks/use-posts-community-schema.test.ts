@@ -121,6 +121,18 @@ describe("usePosts — schema community (C-23)", () => {
     expect(publicFrom).not.toHaveBeenCalledWith("post_likes")
   })
 
+  it("deletePost lanza si RLS bloquea el borrado (0 filas, sin error de PostgREST)", async () => {
+    // Mismo fallo silencioso que deleteReply: PostgREST devuelve 204 y 0 filas
+    // cuando la policy rechaza el DELETE. Sin verificarlo, la UI mostraba
+    // \"Post eliminado\" aunque el post siguiera ahi (reaparece al refrescar).
+    communityResults.posts = { data: [], error: null }
+
+    const { result } = renderHook(() => usePosts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await expect(result.current.deletePost("p-ajeno")).rejects.toThrow(/no se pudo eliminar/i)
+  })
+
   it("deleteReply borra en community.replies y devuelve la fila borrada", async () => {
     communityResults.replies = { data: [{ id: "r-1" }], error: null }
 

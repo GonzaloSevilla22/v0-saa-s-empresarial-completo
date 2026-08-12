@@ -7,8 +7,17 @@ Estado actual verificado en prod (`gxdhpxvdjjkmxhdkkwyb`, lectura de catálogo v
 - `public.update_post_likes_count()` y `public.update_post_replies_count()` son `LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'` y ejecutan `UPDATE public.posts SET likes_count = likes_count ± 1 WHERE id = NEW/OLD.post_id` (idem `replies_count`). Definidas en `20260309000006_community_interactions.sql`, re-emitidas sin cambio de cuerpo por `20260517000002_fix_function_search_path.sql`.
 - `public.posts`, `public.replies` y `public.post_likes` **no existen** en prod. `UPDATE public.posts` = 42P01 garantizado.
 - Los triggers están vivos sobre las tablas ya movidas: `on_post_like_change AFTER INSERT OR DELETE ON community.post_likes` y `on_post_reply_change AFTER INSERT OR DELETE ON community.replies`. `20260822000001_revoke_trigger_only_fn_execute.sql` los verificó habilitados el 2026-08-01.
-- Un trigger `AFTER` que lanza excepción aborta la transacción que lo disparó: la reply y el like **no se guardan**.
-- Impacto medido: `community.post_likes` = **0 filas** con 13.082 index scans sobre `post_likes_post_id_user_id_key` y 2.107 seq scans (el frontend consulta "¿existe mi like?" antes de insertar, luego el insert revienta). `community.replies` = 2 filas residuales previas al corte, índices en 0 scans. `community.posts` = 4 filas.
+- Un trigger `AFTER` que lanza excepción aborta la transacción que lo disparó: la reply y el like **no se guardan**. Reproducido contra la base local de CI (`INSERT INTO community.replies` → 42P01).
+- Confirmación directa por catálogo (`pg_proc` + `pg_trigger` vía SELECT, 2026-08-12): `prosrc` de ambas matchea `\mpublic\.posts\M` y **no** matchea `\mcommunity\.posts\M`; `proconfig = {search_path=public}`; `to_regclass('public.posts')` = `NULL`; ambos triggers con `tgenabled = 'O'`.
+
+**Magnitud del daño consumado: baja — y la primera lectura fue equivocada.** Los estimados de `pg_class` (`inspect db table-stats`) están desactualizados (`last_analyze` y `last_autoanalyze` son `NULL` en las tres tablas) y sugerían `post_likes` = 0 filas. Los conteos exactos son `posts` = 5, `replies` = 4, `post_likes` = 2, con **cero filas creadas después del 2026-06-15** en las tres. Eso por sí solo no distingue "el bug las bloqueó" de "nadie las intentó", y el desempate es concluyente:
+
+- `pg_stat_all_tables` da `n_tup_ins = 0` y `n_dead_tup = 0` para `community.post_likes`. Ese contador **incluye los inserts cuya transacción luego aborta** (la tupla se escribe físicamente y queda muerta), así que mide intentos. Cero intentos.
+- La actividad se apagó **antes** del corte, no por él: último post 2026-05-08, última reply 2026-05-31, corte 2026-06-15. Los posts *no* dependen de estos triggers y también están en cero desde mayo.
+- `pg_stat_statements`: la query de listado contra `"public"."posts"` (pre-corte) tiene 6.246 llamadas; su equivalente contra `"community"."posts"` tiene **9**. La pantalla de comunidad prácticamente no se abrió desde el movimiento de schema.
+- Corolario: los 13.082 index scans sobre `post_likes_post_id_user_id_key` son lecturas de la era previa, no intentos de like fallidos.
+
+Consecuencia para el encuadre del change: **no hay damnificados que recuperar**; sí hay una funcionalidad del plan PRO garantizadamente rota para el primer usuario que la use. Es un bug de corrección con gate de regresión, no un incidente de producción.
 
 El universo del bug está cerrado por barrido sistemático del catálogo (139 funciones de `public` + schema `community`, contra las 16 tablas movidas): solo 4 funciones estaban rotas. `get_admin_community_interactions` y `rpc_admin_module_stats` ya quedaron corregidas por `20260917000001_admin_kpi_refresh.sql` (en main, commit `50ba7e5`, pendiente de aplicarse en prod). No hay vistas, políticas RLS ni otros objetos afectados.
 
@@ -19,8 +28,8 @@ Restricciones: la integración GitHub de Supabase auto-aplica las migraciones al
 ## Goals / Non-Goals
 
 **Goals:**
-- Restituir responder-post y dar/sacar-like en producción (funcionalidad muerta desde 2026-06-15).
-- Dejar los contadores `replies_count` / `likes_count` alineados con los datos reales tras el período roto.
+- Restituir responder-post y dar/sacar-like en producción (rotos desde 2026-06-15).
+- Dejar afirmado el invariante de que `replies_count` / `likes_count` coinciden con el `COUNT(*)` real (hoy ya coinciden; el recompute es red de seguridad, no reparación).
 - Que un fallo futuro de la desnormalización no vuelva a costarle al usuario su dato de negocio.
 - Instalar una red de CI que atrape cualquier recaída de la **familia** del bug (referencias a `public.<tabla movida>` en el catálogo), no solo estas dos funciones.
 - Retirar el workaround que `test_admin_kpis.sql` mantiene por este bug.
@@ -85,13 +94,15 @@ Verificado que es seguro: los asserts de `test_admin_kpis.sql` sobre comunidad (
 
 ### D7 — Recompute idempotente en la misma migración
 
-Tras redefinir las funciones, se recalcula `replies_count` / `likes_count` de `community.posts` desde el `COUNT(*)` real de sus hijos. Con 4 posts en prod el costo es nulo, y deja la base consistente en el mismo paso que la repara. Idempotente por construcción (asigna un valor absoluto derivado, no un delta), así que re-ejecutarla es inofensiva — requisito por la auto-aplicación de la integración GitHub de Supabase.
+Tras redefinir las funciones, se recalcula `replies_count` / `likes_count` de `community.posts` desde el `COUNT(*)` real de sus hijos. Con 5 posts en prod el costo es nulo. Idempotente por construcción (asigna un valor absoluto derivado, no un delta), así que re-ejecutarla es inofensiva — requisito por la auto-aplicación de la integración GitHub de Supabase.
+
+Aclaración de alcance: **hoy no hay drift que reparar**. Se verificó fila por fila en prod que los 5 posts tienen `replies_count` / `likes_count` iguales al `COUNT(*)` de sus hijos (3/3, 0/0, 0/0, 1/0, 0/0 replies y 2 likes en el primero). Es coherente con el hallazgo de que no hubo intentos de escritura post-corte: sin escrituras no hubo divergencia. El recompute se conserva igual porque es gratis y afirma el invariante en la misma migración que restituye el mecanismo que lo mantiene.
 
 ## Risks / Trade-offs
 
 - **R1 — El guard degrade-don't-fail puede producir drift silencioso del contador** → Mitigado en dos frentes: (a) el gate de D5 asserta el camino feliz con conteos exactos, de modo que un contador que dejó de funcionar hace fallar CI con un número incorrecto en vez de pasar como no-op; (b) `RAISE WARNING` deja rastro en los logs de Postgres. El trade-off es deliberado: un contador desfasado es reparable con el recompute de D7; una reply perdida no es reparable.
 - **R2 — El assert de catálogo puede fallar por una función legítima que menciona `public.<tabla>` en un comentario** → Criterio explícito (D5): se considera fallo real y se corrige el comentario. Documentado en la cabecera del gate para que el diagnóstico sea inmediato.
-- **R3 — El recompute corre sobre datos de producción** → Es un `UPDATE` derivado de `COUNT(*)` sobre 4 filas, sin borrado ni pérdida posible; los contadores hoy ya están desfasados. Rollback trivial (volver a correr el recompute).
+- **R3 — El recompute corre sobre datos de producción** → Es un `UPDATE` derivado de `COUNT(*)` sobre 5 filas, sin borrado ni pérdida posible. Además hoy es un no-op verificado: los contadores ya coinciden con el conteo real, así que no puede introducir un cambio de dato inesperado. Rollback trivial (volver a correr el recompute).
 - **R4 — Al habilitar el trigger en `test_admin_kpis.sql` ese gate podría romperse por un efecto no previsto** → Se verificó que sus asserts de comunidad cuentan filas, no contadores. Si aun así fallara en CI, el diagnóstico es inmediato (el gate corre en el mismo PR) y la reversión es local a ese archivo.
 - **R5 — Migración duplicada por la auto-aplicación de la integración GitHub de Supabase antes del `db push`** → Toda la migración es idempotente: `CREATE OR REPLACE`, `REVOKE` repetido es no-op, recompute a valor absoluto, guards `to_regprocedure` drift-tolerantes.
 - **Trade-off asumido**: el fix no elimina la desnormalización, que seguirá exigiendo triggers correctos. Rearquitecturarla es explícitamente Non-Goal; el guard de D3 acota el daño de cualquier futuro fallo a "el número se ve mal" en lugar de "la funcionalidad no anda".

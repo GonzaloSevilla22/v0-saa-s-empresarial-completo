@@ -62,6 +62,6 @@
 ## 8. Cierre
 
 - [x] 8.1 Rama nueva off `main` + commit(s) `feat(stock): ...` / `fix(dashboard): ...` con co-autoría; PR con resumen del delta del KPI y de la semántica del agregado.
-- [ ] 8.2 Esperar checks verdes (incluido `validate-kpis`, no solo Vercel) y mergear.
-- [ ] 8.3 Post-merge: verificar que la migración quedó aplicada en prod y que la RPC tiene **una sola** firma; marcar C-KPI-2 como hecho en `docs/plan-remediacion-kpis-2026-08-11.md`.
-- [ ] 8.4 `mem_save` del resultado (delta real del KPI, decisiones D2/D3/D4 confirmadas o ajustadas) con `topic_key: opsx/kpi-critical-stock-dashboard/apply`.
+- [x] 8.2 Esperar checks verdes (incluido `validate-kpis`, no solo Vercel) y mergear. (PR #381, squash `8457d3b`, mergeado a `origin/main` 2026-08-12.)
+- [ ] 8.3 Post-merge: verificar que la migración quedó aplicada en prod y que la RPC tiene **una sola** firma; marcar C-KPI-2 como hecho en `docs/plan-remediacion-kpis-2026-08-11.md`. (Verificación manual del PO — pendiente.)
+- [x] 8.4 `mem_save` del resultado (delta real del KPI, decisiones D2/D3/D4 confirmadas o ajustadas) con `topic_key: opsx/kpi-critical-stock-dashboard/apply`.

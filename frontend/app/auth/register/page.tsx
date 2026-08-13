@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Eye, EyeOff, ShieldCheck, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
+import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
 import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
 import { PROVINCIAS_AR } from "@/lib/provincias"
 import { AuthSceneMount } from "@/components/three/AuthSceneMount"
@@ -134,14 +135,19 @@ export default function RegisterPage() {
     }
     setIsLoading(true)
     try {
-      await register(name.trim(), email, password, {
-        phone: phone.trim(),
-        locality: locality.trim(),
-        province,
-        lastName: lastName.trim(),
-        termsVersion: TERMS_VERSION,
-        emailOptIn,
-        captchaToken,
+      await submitWithFreshCaptcha({
+        captcha: captchaRef.current,
+        token: captchaToken,
+        run: (token) =>
+          register(name.trim(), email, password, {
+            phone: phone.trim(),
+            locality: locality.trim(),
+            province,
+            lastName: lastName.trim(),
+            termsVersion: TERMS_VERSION,
+            emailOptIn,
+            captchaToken: token,
+          }),
       })
       // Go directly to the verification screen — no intermediate /dashboard hop.
       // The middleware would catch it anyway, but going direct avoids the extra redirect.

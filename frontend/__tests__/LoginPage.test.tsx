@@ -11,6 +11,16 @@ import LoginPage from "@/app/auth/login/page"
 
 const loginMock = vi.fn()
 const pushMock = vi.fn()
+const toastErrorMock = vi.fn()
+
+// Handle falso compartido por el mock de CaptchaWidget: submitWithFreshCaptcha
+// (change captcha-token-freshness) llama a isStale()/refresh() vía el ref, no
+// sólo a reset(), así que el mock necesita exponer los tres.
+const captchaMock = vi.hoisted(() => ({
+  isStale: vi.fn(),
+  refresh: vi.fn(),
+  reset: vi.fn(),
+}))
 
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ login: loginMock }),
@@ -27,7 +37,9 @@ vi.mock("next/link", () => ({
   ),
 }))
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }))
+vi.mock("sonner", () => ({
+  toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
+}))
 
 vi.mock("@/components/auth/MagicLinkForm", () => ({
   MagicLinkForm: () => <div data-testid="magic-link-form" />,
@@ -36,7 +48,11 @@ vi.mock("@/components/auth/MagicLinkForm", () => ({
 vi.mock("@/components/auth/CaptchaWidget", () => ({
   CaptchaWidget: React.forwardRef(
     ({ onVerify }: { onVerify: (t: string) => void }, ref: React.Ref<unknown>) => {
-      React.useImperativeHandle(ref, () => ({ reset: vi.fn() }))
+      React.useImperativeHandle(ref, () => ({
+        reset: captchaMock.reset,
+        isStale: captchaMock.isStale,
+        refresh: captchaMock.refresh,
+      }))
       return (
         <button type="button" onClick={() => onVerify("login-captcha")}>
           solve-captcha
@@ -49,6 +65,10 @@ vi.mock("@/components/auth/CaptchaWidget", () => ({
 beforeEach(() => {
   loginMock.mockReset()
   pushMock.mockReset()
+  toastErrorMock.mockReset()
+  captchaMock.isStale.mockReset().mockReturnValue(false)
+  captchaMock.refresh.mockReset().mockResolvedValue("refreshed-login-captcha")
+  captchaMock.reset.mockReset()
 })
 
 describe("LoginPage — captcha gate", () => {
@@ -75,5 +95,56 @@ describe("LoginPage — captcha gate", () => {
     await waitFor(() => {
       expect(loginMock).toHaveBeenCalledWith("susana@test.com", "Passw0rd!", "login-captcha")
     })
+  })
+})
+
+describe("LoginPage — frescura del captcha (change captcha-token-freshness)", () => {
+  function fillAndSolve() {
+    render(<LoginPage />)
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "susana@test.com" } })
+    fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: "Passw0rd!" } })
+    fireEvent.click(screen.getByText("solve-captcha"))
+  }
+
+  it("captcha rechazado por Supabase: reintenta una sola vez con token fresco y navega sin toast si entra", async () => {
+    loginMock
+      .mockRejectedValueOnce(new Error("captcha protection: request disallowed (timeout-or-duplicate)"))
+      .mockResolvedValueOnce(undefined)
+
+    fillAndSolve()
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }))
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"))
+    expect(loginMock).toHaveBeenCalledTimes(2)
+    expect(loginMock).toHaveBeenNthCalledWith(1, "susana@test.com", "Passw0rd!", "login-captcha")
+    expect(loginMock).toHaveBeenNthCalledWith(2, "susana@test.com", "Passw0rd!", "refreshed-login-captcha")
+    expect(toastErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("(triangulate) error que no es de captcha: un solo intento, toast inmediato, sin refresh", async () => {
+    loginMock.mockRejectedValue(new Error("Invalid login credentials"))
+
+    fillAndSolve()
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Invalid login credentials"))
+    expect(loginMock).toHaveBeenCalledTimes(1)
+    expect(captchaMock.refresh).not.toHaveBeenCalled()
+    expect(captchaMock.reset).toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("(triangulate) token viejo al enviar: se renueva antes de llamar a login()", async () => {
+    captchaMock.isStale.mockReturnValue(true)
+    captchaMock.refresh.mockResolvedValue("fresh-before-submit")
+    loginMock.mockResolvedValue(undefined)
+
+    fillAndSolve()
+    fireEvent.click(screen.getByRole("button", { name: "Iniciar sesión" }))
+
+    await waitFor(() => {
+      expect(loginMock).toHaveBeenCalledWith("susana@test.com", "Passw0rd!", "fresh-before-submit")
+    })
+    expect(loginMock).toHaveBeenCalledTimes(1)
   })
 })

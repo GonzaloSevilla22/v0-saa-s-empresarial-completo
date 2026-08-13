@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { toast } from "sonner"
 import { ArrowLeft, Mail, CheckCircle } from "lucide-react"
 import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
+import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
@@ -37,8 +38,14 @@ export default function ForgotPasswordPage() {
       const redirectTo = `${getSiteUrl()}/auth/callback?next=/auth/reset-password`
       // captchaToken: Supabase valida el token server-side cuando el captcha está
       // habilitado a nivel proyecto (esta página llama a Supabase directo).
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo, captchaToken })
-      if (error) throw error
+      await submitWithFreshCaptcha({
+        captcha: captchaRef.current,
+        token: captchaToken,
+        run: async (token) => {
+          const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo, captchaToken: token })
+          if (error) throw error
+        },
+      })
       setSent(true)
     } catch (error: any) {
       // Token de un solo uso: re-challenge tras un fallo (incluido captcha rechazado).

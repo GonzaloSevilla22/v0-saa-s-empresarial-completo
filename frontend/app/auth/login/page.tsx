@@ -13,6 +13,7 @@ import { toast } from "sonner"
 import { MagicLinkForm } from "@/components/auth/MagicLinkForm"
 import { Separator } from "@/components/ui/separator"
 import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
+import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
 import { AuthSceneMount } from "@/components/three/AuthSceneMount"
 
 export default function LoginPage() {
@@ -36,7 +37,11 @@ export default function LoginPage() {
     e.preventDefault()
     setIsLoading(true)
     try {
-      await login(email, password, captchaToken)
+      await submitWithFreshCaptcha({
+        captcha: captchaRef.current,
+        token: captchaToken,
+        run: (token) => login(email, password, token),
+      })
       router.push(nextPath)
     } catch (error: any) {
       // Token de captcha de un solo uso: re-challenge tras un login fallido.

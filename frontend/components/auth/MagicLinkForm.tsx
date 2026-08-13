@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
+import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
 
 interface MagicLinkFormProps {
   onBack: () => void
@@ -31,7 +32,11 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
 
     try {
       // signInWithOtp también está gateado por el captcha a nivel proyecto.
-      await loginWithMagicLink(email, captchaToken)
+      await submitWithFreshCaptcha({
+        captcha: captchaRef.current,
+        token: captchaToken,
+        run: (token) => loginWithMagicLink(email, token),
+      })
       setIsSuccess(true)
     } catch (err: any) {
       captchaRef.current?.reset()

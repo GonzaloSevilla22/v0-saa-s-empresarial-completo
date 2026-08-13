@@ -20,6 +20,11 @@ const pushMock = vi.fn()
 const toastErrorMock = vi.fn()
 const captchaResetMock = vi.fn()
 
+// submitWithFreshCaptcha (change captcha-token-freshness) llama a
+// isStale()/refresh() vía el ref del widget, no sólo a reset().
+const captchaIsStaleMock = vi.fn()
+const captchaRefreshMock = vi.fn()
+
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ register: registerMock }),
 }))
@@ -42,7 +47,11 @@ vi.mock("sonner", () => ({
 vi.mock("@/components/auth/CaptchaWidget", () => ({
   CaptchaWidget: React.forwardRef(
     ({ onVerify }: { onVerify: (t: string) => void }, ref: React.Ref<unknown>) => {
-      React.useImperativeHandle(ref, () => ({ reset: captchaResetMock }))
+      React.useImperativeHandle(ref, () => ({
+        reset: captchaResetMock,
+        isStale: captchaIsStaleMock,
+        refresh: captchaRefreshMock,
+      }))
       return (
         <button type="button" onClick={() => onVerify("captcha-token")}>
           solve-captcha
@@ -57,6 +66,8 @@ beforeEach(() => {
   pushMock.mockReset()
   toastErrorMock.mockReset()
   captchaResetMock.mockReset()
+  captchaIsStaleMock.mockReset().mockReturnValue(false)
+  captchaRefreshMock.mockReset().mockResolvedValue("refreshed-register-captcha")
 })
 
 const VALID_PASSWORD = "Passw0rd!"
@@ -243,5 +254,68 @@ describe("RegisterPage — nombre/apellido, consentimiento y captcha", () => {
     })
     expect(captchaResetMock).toHaveBeenCalled()
     expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("(triangulate) captcha rechazado en el primer intento: reintenta una vez con token fresco y navega sin toast si entra", async () => {
+    registerMock
+      .mockRejectedValueOnce(new Error("timeout-or-duplicate"))
+      .mockResolvedValueOnce(undefined)
+    render(<RegisterPage />)
+    fillValidFields()
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(expect.stringContaining("/auth/verify-email")))
+    expect(registerMock).toHaveBeenCalledTimes(2)
+    expect(registerMock).toHaveBeenNthCalledWith(
+      1,
+      "Susana",
+      "susana@test.com",
+      VALID_PASSWORD,
+      expect.objectContaining({ captchaToken: "captcha-token" }),
+    )
+    expect(registerMock).toHaveBeenNthCalledWith(
+      2,
+      "Susana",
+      "susana@test.com",
+      VALID_PASSWORD,
+      expect.objectContaining({ captchaToken: "refreshed-register-captcha" }),
+    )
+    expect(toastErrorMock).not.toHaveBeenCalled()
+  })
+
+  it("(triangulate) error que no es de captcha: un solo intento, sin refresh", async () => {
+    registerMock.mockRejectedValue(new Error("Ya existe una cuenta con ese email"))
+    render(<RegisterPage />)
+    fillValidFields()
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Ya existe una cuenta con ese email"))
+    expect(registerMock).toHaveBeenCalledTimes(1)
+    expect(captchaRefreshMock).not.toHaveBeenCalled()
+  })
+
+  it("(triangulate) token viejo al enviar: se renueva antes de llamar a register()", async () => {
+    captchaIsStaleMock.mockReturnValue(true)
+    captchaRefreshMock.mockResolvedValue("fresh-before-register")
+    registerMock.mockResolvedValue(undefined)
+    render(<RegisterPage />)
+    fillValidFields()
+    acceptTerms()
+    solveCaptcha()
+    submit()
+
+    await waitFor(() => {
+      expect(registerMock).toHaveBeenCalledWith(
+        "Susana",
+        "susana@test.com",
+        VALID_PASSWORD,
+        expect.objectContaining({ captchaToken: "fresh-before-register" }),
+      )
+    })
+    expect(registerMock).toHaveBeenCalledTimes(1)
   })
 })

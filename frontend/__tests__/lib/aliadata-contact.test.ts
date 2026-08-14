@@ -11,9 +11,14 @@
  */
 
 import { describe, it, expect } from "vitest"
-import { aliadataWhatsAppUrl, ALIADATA_WHATSAPP_MESSAGE } from "@/lib/aliadata-contact"
+import {
+  aliadataWhatsAppUrl,
+  ALIADATA_WHATSAPP_MESSAGE,
+  ALIADATA_WHATSAPP_MESSAGE_EMPRESA,
+} from "@/lib/aliadata-contact"
 
 const CANONICAL = "5492617635174"
+const VALID_PHONE = "+54 9 2617 63-5174"
 
 describe("aliadataWhatsAppUrl", () => {
   // ── RED/GREEN: número real en formato internacional ───────────────────────
@@ -46,5 +51,45 @@ describe("aliadataWhatsAppUrl", () => {
     ["not normalizable", "123"],
   ])("returns null when the phone is %s", (_label, phone) => {
     expect(aliadataWhatsAppUrl(phone)).toBeNull()
+  })
+})
+
+// ── Mensaje por superficie (D4, plan-empresa-contacto) ────────────────────────
+// El tier Empresa es el segundo consumidor que necesita un mensaje propio (el
+// primero, FAB+footer, comparte ALIADATA_WHATSAPP_MESSAGE). En vez de una
+// tercera función que arma la URL a mano, el helper acepta un segundo
+// parámetro opcional con el mensaje general como default.
+describe("aliadataWhatsAppUrl — mensaje por superficie", () => {
+  // ── RED/GREEN: mensaje propio del tier Empresa viaja en el enlace ─────────
+  it("builds the URL with the tier's own message when provided", () => {
+    const url = aliadataWhatsAppUrl(VALID_PHONE, ALIADATA_WHATSAPP_MESSAGE_EMPRESA) as string
+    expect(url).toContain(`https://wa.me/${CANONICAL}`)
+    expect(new URL(url).searchParams.get("text")).toBe(ALIADATA_WHATSAPP_MESSAGE_EMPRESA)
+  })
+
+  // ── TRIANGULATE (a): sin segundo parámetro, no-regresión de FAB y footer ──
+  it("falls back to the general message when no second argument is given", () => {
+    const url = aliadataWhatsAppUrl(VALID_PHONE) as string
+    expect(new URL(url).searchParams.get("text")).toBe(ALIADATA_WHATSAPP_MESSAGE)
+  })
+
+  // ── TRIANGULATE (b): el mensaje del tier es distinto del general ──────────
+  it("the tier message differs from the general channel message", () => {
+    expect(ALIADATA_WHATSAPP_MESSAGE_EMPRESA).not.toBe(ALIADATA_WHATSAPP_MESSAGE)
+  })
+
+  // ── TRIANGULATE (c): número inválido con mensaje propio sigue devolviendo
+  // null — la validación previa del número no se saltea por el nuevo parámetro
+  it("returns null with an invalid phone even when a tier message is given", () => {
+    expect(aliadataWhatsAppUrl("123", ALIADATA_WHATSAPP_MESSAGE_EMPRESA)).toBeNull()
+    expect(aliadataWhatsAppUrl(undefined, ALIADATA_WHATSAPP_MESSAGE_EMPRESA)).toBeNull()
+  })
+
+  // ── TRIANGULATE (d): emoji y espacios viajan percent-encoded ───────────────
+  it("percent-encodes the emoji and spaces of the tier message", () => {
+    const url = aliadataWhatsAppUrl(VALID_PHONE, ALIADATA_WHATSAPP_MESSAGE_EMPRESA) as string
+    expect(url).not.toMatch(/\s/)
+    expect(url).not.toContain("👋")
+    expect(url).toContain(encodeURIComponent(ALIADATA_WHATSAPP_MESSAGE_EMPRESA))
   })
 })

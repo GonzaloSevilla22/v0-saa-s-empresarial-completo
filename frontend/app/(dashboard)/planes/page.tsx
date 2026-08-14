@@ -9,8 +9,10 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { PlanComparison } from "@/components/billing/PlanComparison"
+import { EnterprisePlanCard } from "@/components/shared/EnterprisePlanCard"
 import { PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
 import { getEffectivePlan } from "@/lib/plan-utils"
+import { aliadataWhatsAppUrl, ALIADATA_WHATSAPP_MESSAGE_EMPRESA } from "@/lib/aliadata-contact"
 import type { Plan, PlanLimits } from "@/lib/types"
 
 export const metadata = {
@@ -89,6 +91,15 @@ export default async function PlanesPage() {
 
   const currentPlanName = PLAN_DISPLAY_NAMES[effectivePlan]
 
+  // Tier Empresa (plan-empresa-contacto, D5): el número se resuelve acá,
+  // igual que en app/page.tsx — /planes ya es Server Component y ya hace
+  // getUser(), así que sumar esta lectura no cambia el contrato de la ruta.
+  // Sin número válido, `null` y el bloque no se monta (D6).
+  const enterpriseWhatsAppUrl = aliadataWhatsAppUrl(
+    process.env.ALIADATA_WHATSAPP_PHONE,
+    ALIADATA_WHATSAPP_MESSAGE_EMPRESA,
+  )
+
   return (
     <div className="container max-w-6xl mx-auto px-4 py-8 space-y-8">
       {/* Header */}
@@ -103,6 +114,15 @@ export default async function PlanesPage() {
 
       {/* Comparison grid */}
       <PlanComparison plans={plans} currentPlan={effectivePlan} />
+
+      {/* Tier Empresa (plan-empresa-contacto, D3): HERMANO del comparativo,
+          nunca dentro — PlanComparison no se toca. Sin enterpriseWhatsAppUrl
+          (número no configurado) no se renderiza nada (D6). */}
+      {enterpriseWhatsAppUrl && (
+        <div data-testid="planes-enterprise-block">
+          <EnterprisePlanCard whatsappUrl={enterpriseWhatsAppUrl} variant="app" />
+        </div>
+      )}
 
       {/* Footer note */}
       <p className="text-center text-xs text-muted-foreground">

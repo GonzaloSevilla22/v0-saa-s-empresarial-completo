@@ -93,4 +93,22 @@ describe("HomePage — botón flotante de WhatsApp", () => {
 
     expect(landingPageFullProps.current?.contactWhatsAppUrl).toBeUndefined()
   })
+
+  // ── Card Empresa: la page computa una SEGUNDA URL (mensaje del tier) y se
+  // la pasa a LandingPageFull — plan-empresa-contacto, design.md D5 ─────────
+  it("passes an enterpriseWhatsAppUrl distinct from contactWhatsAppUrl", async () => {
+    process.env.ALIADATA_WHATSAPP_PHONE = "+54 9 2617 63-5174"
+
+    render(await HomePage())
+
+    const enterpriseUrl = landingPageFullProps.current?.enterpriseWhatsAppUrl as string
+    expect(enterpriseUrl).toContain("https://wa.me/5492617635174")
+    expect(enterpriseUrl).not.toBe(landingPageFullProps.current?.contactWhatsAppUrl)
+  })
+
+  it("passes no enterpriseWhatsAppUrl when the variable is not configured", async () => {
+    render(await HomePage())
+
+    expect(landingPageFullProps.current?.enterpriseWhatsAppUrl).toBeUndefined()
+  })
 })

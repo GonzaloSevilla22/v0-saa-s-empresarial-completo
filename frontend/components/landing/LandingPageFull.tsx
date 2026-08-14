@@ -11,6 +11,7 @@ import type { LandingSection } from "@/lib/landing"
 import { getAvailableTutorials } from "@/lib/tutorials"
 import { TutorialsSection } from "@/components/landing/TutorialsSection"
 import { HeroSceneMount } from "@/components/three/HeroSceneMount"
+import { EnterprisePlanCard } from "@/components/shared/EnterprisePlanCard"
 
 function Navbar() {
   const [open, setOpen] = useState(false)
@@ -344,7 +345,7 @@ function AISection() {
   )
 }
 
-function Pricing() {
+function Pricing({ enterpriseWhatsAppUrl }: { enterpriseWhatsAppUrl?: string }) {
   const plans = [
     {
       name: "Gratis", price: "$0", period: "",
@@ -409,6 +410,15 @@ function Pricing() {
             </div>
           ))}
         </div>
+        {/* Tier Empresa (plan-empresa-contacto, design.md D3): hermano de la
+            grilla de 4 planes, a lo ancho del contenedor — NO una quinta
+            columna. Sin `enterpriseWhatsAppUrl` (número no configurado) no
+            se renderiza nada (D6), y los 4 planes de arriba no se tocan. */}
+        {enterpriseWhatsAppUrl && (
+          <div className="mx-auto mt-6 max-w-6xl">
+            <EnterprisePlanCard whatsappUrl={enterpriseWhatsAppUrl} variant="landing" />
+          </div>
+        )}
         <p className="mt-10 text-center text-sm text-slate-500">Precios en pesos argentinos · Sin costo de cancelacion · Datos seguros en la nube</p>
       </div>
     </section>
@@ -602,10 +612,13 @@ function Footer({ contactWhatsAppUrl }: { contactWhatsAppUrl?: string }) {
 export function LandingPageFull({
   sections = [],
   contactWhatsAppUrl,
+  enterpriseWhatsAppUrl,
 }: {
   sections?: LandingSection[]
   /** URL wa.me del contacto de ALIADATA (la computa app/page.tsx). Sin ella, "Contacto" queda inerte. */
   contactWhatsAppUrl?: string
+  /** URL wa.me con el mensaje del tier Empresa (la computa app/page.tsx). Sin ella, la card no se renderiza (plan-empresa-contacto, D6). */
+  enterpriseWhatsAppUrl?: string
 }) {
   const heroSection        = sections.find(s => s.type === "hero")
   const featuresSection    = sections.find(s => s.type === "features")
@@ -621,7 +634,7 @@ export function LandingPageFull({
       <TutorialsSection />
       <HowItWorks />
       <AISection />
-      <Pricing />
+      <Pricing enterpriseWhatsAppUrl={enterpriseWhatsAppUrl} />
       <Testimonials section={testimonialsSection} />
       <Support />
       <FinalCTA section={ctaSection} />

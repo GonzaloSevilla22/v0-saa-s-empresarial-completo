@@ -1,7 +1,7 @@
 import { getLandingSectionsAction } from "@/app/actions/landing"
 import { LandingPageFull } from "@/components/landing/LandingPageFull"
 import { WhatsAppFab } from "@/components/landing/WhatsAppFab"
-import { aliadataWhatsAppUrl } from "@/lib/aliadata-contact"
+import { aliadataWhatsAppUrl, ALIADATA_WHATSAPP_MESSAGE_EMPRESA } from "@/lib/aliadata-contact"
 import { Metadata } from "next"
 
 export const dynamic = "force-dynamic"
@@ -26,9 +26,23 @@ export default async function HomePage() {
   // superficies del canal: el link "Contacto" del footer y el FAB. Sin número
   // válido es null → el footer conserva su "#" inerte y el FAB no se renderiza.
   const contactWhatsAppUrl = aliadataWhatsAppUrl(process.env.ALIADATA_WHATSAPP_PHONE)
+  // Segunda URL con el mensaje del tier Empresa (plan-empresa-contacto, D5):
+  // se computan DOS URLs porque cada superficie del canal necesita su propio
+  // mensaje pre-cargado (D4) — la del FAB/footer llega genérica, la de la
+  // card Empresa llega ya calificada. El número NO se expone como
+  // `NEXT_PUBLIC_*`: ambas URLs se arman en el servidor y bajan ya armadas,
+  // el bundle de cliente nunca ve el teléfono.
+  const enterpriseWhatsAppUrl = aliadataWhatsAppUrl(
+    process.env.ALIADATA_WHATSAPP_PHONE,
+    ALIADATA_WHATSAPP_MESSAGE_EMPRESA,
+  )
   return (
     <>
-      <LandingPageFull sections={sections} contactWhatsAppUrl={contactWhatsAppUrl ?? undefined} />
+      <LandingPageFull
+        sections={sections}
+        contactWhatsAppUrl={contactWhatsAppUrl ?? undefined}
+        enterpriseWhatsAppUrl={enterpriseWhatsAppUrl ?? undefined}
+      />
       {/* El FAB de WhatsApp se monta acá y NO dentro de `LandingPageFull` (que
           es un Client Component): así no entra al bundle de cliente y su alcance
           queda limitado a esta ruta por construcción — no vive en ningún layout

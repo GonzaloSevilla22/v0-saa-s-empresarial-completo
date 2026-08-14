@@ -302,6 +302,24 @@ class TestListPurchasesPage:
         assert CLIENT_ID in args
         assert ACCOUNT_ID in args
 
+    @pytest.mark.asyncio
+    async def test_operation_date_is_cast_to_calendar_date(self, client_repo):
+        """Regresión (encontrada corriendo contra Postgres local real, no el
+        mock): `s.date` es `timestamp with time zone`; MAX(date) a secas
+        devuelve un datetime con hora, y ClientPurchaseOut.operation_date es
+        `datetime.date` — Pydantic lo rechaza
+        (`date_from_datetime_inexact`). El ::date + AT TIME ZONE evita que
+        asyncpg devuelva un datetime con componente horario."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_purchases_page(CLIENT_ID, ACCOUNT_ID, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        assert "(s.date AT TIME ZONE 'America/Argentina/Mendoza')::date" in sql
+        assert "MAX(op_day)" in sql
+
 
 # ── Grupo 4 — timezone argentino (tasks 4.1/4.2/4.3/4.4) ────────────────────
 

@@ -1,15 +1,21 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, type KeyboardEvent, type MouseEvent } from "react"
+import { useRouter } from "next/navigation"
 import { useClients } from "@/hooks/data/use-clients"
+import {
+  useClientActivityList,
+  type ClientActivity,
+  type ClientActivityStatus,
+  type ClientActivitySort,
+} from "@/hooks/data/use-client-activity"
+import { ClientActivityBadge } from "@/components/clientes/ClientActivityBadge"
 import { ClientForm } from "@/components/forms/client-form"
 import { ClientImportDialog } from "@/components/clientes/client-import-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { PaginationBar } from "@/components/ui/pagination-bar"
-import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
@@ -17,78 +23,129 @@ import { exportToCSV } from "@/lib/excel"
 import { MAX_CLIENTS_FREE } from "@/lib/constants"
 import {
   Plus, Trash2, Pencil, Search, PackageOpen, Download, Upload, Loader2,
+  ArrowUpDown,
 } from "lucide-react"
 import { toast } from "sonner"
-import type { Client } from "@/lib/types"
+import type { Client, IvaCondition } from "@/lib/types"
 
-const statusColors: Record<string, string> = {
-  activo:   "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  inactivo: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  perdido:  "bg-red-500/20 text-red-400 border-red-500/30",
-}
-
-function mapRow(r: any): Client {
+/** ClientForm sólo lee name/email/phone/taxId/ivaCondition/legalName/id de
+ * `initialData` (más category/status, que no persiste el backend Python —
+ * quedan como default). Mapeo explícito en vez de `as any`. */
+function toFormInitialData(c: ClientActivity): Client {
   return {
-    id:           r.id,
-    name:         r.name,
-    email:        r.email || "",
-    phone:        r.phone || "",
-    status:       r.status || "activo",
-    category:     r.category,
-    lastPurchase: "-",   // computed separately; not needed in the list page
-    totalSpent:   0,
+    id:           c.id,
+    name:         c.name,
+    email:        c.email,
+    phone:        c.phone,
+    status:       "activo",
+    lastPurchase: "-",
+    totalSpent:   c.totalSpent,
+    taxId:        c.taxId,
+    ivaCondition: c.ivaCondition as IvaCondition | undefined,
+    legalName:    c.legalName,
   }
 }
 
+const ACTIVITY_STATUS_OPTIONS: { value: ClientActivityStatus | ""; label: string }[] = [
+  { value: "",             label: "Todos los estados" },
+  { value: "frecuente",    label: "Frecuente" },
+  { value: "activo",       label: "Activo" },
+  { value: "inactivo",     label: "Inactivo" },
+  { value: "sin_compras",  label: "Sin compras" },
+]
+
+const SORT_OPTIONS: { value: ClientActivitySort; label: string }[] = [
+  { value: "name",            label: "Nombre" },
+  { value: "last_purchase",   label: "Última compra" },
+  { value: "total_spent",     label: "Total comprado" },
+  { value: "purchase_count",  label: "Cantidad de compras" },
+]
+
+const currencyFormatter = new Intl.NumberFormat("es-AR", {
+  style: "currency",
+  currency: "ARS",
+  maximumFractionDigits: 0,
+})
+
+function formatLastPurchase(dateStr: string | null, days: number | null): string {
+  if (!dateStr || days == null) return "Sin compras"
+  if (days === 0) return "Hoy"
+  if (days === 1) return "Hace 1 día"
+  return `Hace ${days} días`
+}
+
 export default function ClientesPage() {
+  const router = useRouter()
   const { deleteClient } = useClients()
   const { isAdmin } = useAuth()
   const { limits } = usePlanLimits()
   const [importOpen,    setImportOpen]    = useState(false)
   const [open,          setOpen]          = useState(false)
-  const [editingClient, setEditingClient] = useState<Client | undefined>()
+  const [editingClient, setEditingClient] = useState<ClientActivity | undefined>()
   const [deletingId,    setDeletingId]    = useState<string | null>(null)
 
-  // ── Paginated query — name/email search server-side ──────────────────────
-  const pq = usePaginatedQuery<any>({
-    table: "clients",
-    applyFilters: (base, { search }) => {
-      if (!search) return base
-      // OR filter: name OR email
-      return base.or(`name.ilike.%${search}%,email.ilike.%${search}%`)
-    },
-    defaultSortKey:  "name",
-    defaultSortDir:  "asc",
-    defaultPageSize: 25,
-  })
-
-  const clients = pq.data.map(mapRow)
+  const act = useClientActivityList()
+  const clients = act.clients
 
   // ── Plan limit gate (C-02) ────────────────────────────────────────────────
   const maxClients = limits?.maxClients ?? MAX_CLIENTS_FREE
-  const isAtClientLimit = pq.meta.totalCount >= maxClients
+  const isAtClientLimit = act.meta.totalCount >= maxClients
+
+  // ── Navegación al detalle (client-purchase-history §"Navegación desde la lista") ──
+  const goToDetail = useCallback((id: string) => {
+    router.push(`/clientes/${id}`)
+  }, [router])
+
+  const handleRowKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>, id: string) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault()
+      goToDetail(id)
+    }
+  }, [goToDetail])
+
+  // Los controles dentro de la fila (editar/borrar) detienen la propagación
+  // para no disparar la navegación (client-purchase-history §"Acciones de la
+  // fila no navegan").
+  const stopRowNavigation = (e: MouseEvent) => e.stopPropagation()
 
   // ── Actions ───────────────────────────────────────────────────────────────
-  const handleDelete = useCallback(async (id: string) => {
+  const handleDelete = useCallback(async (e: MouseEvent, id: string) => {
+    stopRowNavigation(e)
     setDeletingId(id)
     try {
       await deleteClient(id)
       toast.success("Cliente eliminado")
-      pq.refetch()
+      act.refetch()
     } catch (err: any) {
       toast.error(err?.message || "Error al eliminar")
     } finally {
       setDeletingId(null)
     }
-  }, [deleteClient, pq])
+  }, [deleteClient, act])
+
+  const handleEdit = (e: MouseEvent, client: typeof clients[number]) => {
+    stopRowNavigation(e)
+    setEditingClient(client)
+    setOpen(true)
+  }
 
   function handleExport() {
-    exportToCSV(clients as any[], [
-      { key: "name",        header: "Nombre"         },
-      { key: "email",       header: "Email"          },
-      { key: "phone",       header: "Teléfono"       },
-      { key: "status",      header: "Estado"         },
-      { key: "category",    header: "Categoría"      },
+    exportToCSV(clients.map((c) => ({
+      name:          c.name,
+      email:         c.email,
+      phone:         c.phone,
+      activityStatus: c.activityStatus,
+      lastPurchaseDate: c.lastPurchaseDate ?? "",
+      totalSpent:    c.totalSpent,
+      purchaseCount: c.purchaseCount,
+    })), [
+      { key: "name",              header: "Nombre"              },
+      { key: "email",             header: "Email"               },
+      { key: "phone",             header: "Teléfono"            },
+      { key: "activityStatus",    header: "Estado de actividad" },
+      { key: "lastPurchaseDate",  header: "Última compra"       },
+      { key: "totalSpent",        header: "Total comprado"      },
+      { key: "purchaseCount",     header: "Cantidad de compras" },
     ], "clientes")
     toast.success(`Exportados ${clients.length} clientes`)
   }
@@ -98,7 +155,7 @@ export default function ClientesPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Clientes</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {pq.meta.totalCount > 0 ? `${pq.meta.totalCount} clientes registrados` : ""}
+          {act.meta.totalCount > 0 ? `${act.meta.totalCount} clientes registrados` : ""}
         </p>
       </div>
 
@@ -108,21 +165,65 @@ export default function ClientesPage() {
 
       {/* Controls */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <Input
-            value={pq.search}
-            onChange={(e) => pq.setSearch(e.target.value)}
-            placeholder="Buscar por nombre o email..."
-            className="pl-9 bg-background border-border text-foreground"
-          />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center flex-1">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              value={act.search}
+              onChange={(e) => act.setSearch(e.target.value)}
+              placeholder="Buscar por nombre o email..."
+              className="pl-9 bg-background border-border text-foreground"
+            />
+          </div>
+
+          <label htmlFor="client-activity-status-filter" className="sr-only">
+            Estado de actividad
+          </label>
+          <select
+            id="client-activity-status-filter"
+            aria-label="Estado de actividad"
+            value={act.activityStatus ?? ""}
+            onChange={(e) => act.setActivityStatus((e.target.value || null) as ClientActivityStatus | null)}
+            className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+          >
+            {ACTIVITY_STATUS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1">
+            <label htmlFor="client-activity-sort" className="sr-only">
+              Ordenar por
+            </label>
+            <select
+              id="client-activity-sort"
+              aria-label="Ordenar por"
+              value={act.sort}
+              onChange={(e) => act.setSort(e.target.value as ClientActivitySort)}
+              className="h-9 rounded-md border border-border bg-background px-3 text-sm text-foreground"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-9 w-9 border-border shrink-0"
+              title={act.sortDir === "asc" ? "Ascendente" : "Descendente"}
+              onClick={() => act.setSort(act.sort)}
+            >
+              <ArrowUpDown className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
-            {pq.loading
+            {act.isLoading
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Cargando...</span>
-              : `${pq.meta.totalCount} cliente${pq.meta.totalCount !== 1 ? "s" : ""}`
+              : `${act.meta.totalCount} cliente${act.meta.totalCount !== 1 ? "s" : ""}`
             }
           </span>
           <Button variant="outline" size="sm" className="border-border text-foreground"
@@ -144,32 +245,32 @@ export default function ClientesPage() {
       </div>
 
       {isAtClientLimit && (
-        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-          <p className="text-sm text-yellow-400">
+        <div className="rounded-lg border border-warning/30 bg-warning/10 p-4">
+          <p className="text-sm text-warning">
             Llegaste al límite de {maxClients} clientes de tu plan. Actualizá tu plan para tener más capacidad.
           </p>
         </div>
       )}
 
-      {pq.error && (
+      {act.error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {pq.error}
+          {act.error}
         </div>
       )}
 
       {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden">
-        <div className="hidden sm:grid grid-cols-[1fr_140px_160px_100px_80px_72px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-          <span>Nombre</span><span>Categoría</span><span>Email</span>
-          <span>Teléfono</span><span>Estado</span><span />
+        <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_80px_72px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+          <span>Nombre</span><span>Estado</span><span>Última compra</span>
+          <span>Total comprado</span><span>Compras</span><span />
         </div>
 
         {/* Skeleton */}
-        {pq.loading && clients.length === 0 && (
+        {act.isLoading && clients.length === 0 && (
           <div className="flex flex-col">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
-                <div className="hidden sm:grid grid-cols-[1fr_140px_160px_100px_80px_72px] gap-3 items-center">
+                <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_80px_72px] gap-3 items-center">
                   {Array.from({ length: 5 }).map((_, j) => (
                     <div key={j} className="h-3.5 rounded bg-accent animate-pulse" />
                   ))}
@@ -181,13 +282,13 @@ export default function ClientesPage() {
           </div>
         )}
 
-        {!pq.loading && clients.length === 0 && (
+        {!act.isLoading && clients.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             <PackageOpen className="h-10 w-10 opacity-30" />
             <p className="text-sm">
-              {pq.search ? "Sin resultados para esa búsqueda" : "No hay clientes registrados"}
+              {act.search ? "Sin resultados para esa búsqueda" : "No hay clientes registrados"}
             </p>
-            {!pq.search && (
+            {!act.search && (
               <Button variant="outline" size="sm" onClick={() => { setEditingClient(undefined); setOpen(true) }}>
                 <Plus className="h-4 w-4 mr-1" />Agregar primer cliente
               </Button>
@@ -196,7 +297,15 @@ export default function ClientesPage() {
         )}
 
         {clients.map((row) => (
-          <div key={row.id} className="border-t border-border/50 first:border-t-0 hover:bg-accent/20 transition-colors">
+          <div
+            key={row.id}
+            data-testid={`client-row-${row.id}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => goToDetail(row.id)}
+            onKeyDown={(e) => handleRowKeyDown(e, row.id)}
+            className="border-t border-border/50 first:border-t-0 hover:bg-accent/20 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          >
             {/* Mobile */}
             <div className="sm:hidden flex flex-col gap-2 px-4 py-3">
               <div className="flex items-start justify-between gap-2">
@@ -204,19 +313,21 @@ export default function ClientesPage() {
                   <p className="font-medium text-sm text-foreground truncate">{row.name}</p>
                   <p className="text-xs text-muted-foreground truncate">{row.email}</p>
                 </div>
-                <Badge variant="outline" className={`text-xs capitalize shrink-0 ${statusColors[row.status]}`}>
-                  {row.status}
-                </Badge>
+                <ClientActivityBadge status={row.activityStatus} className="shrink-0" />
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground italic">{row.category || "Sin categoría"}</span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {formatLastPurchase(row.lastPurchaseDate, row.daysSinceLastPurchase)} · {currencyFormatter.format(row.totalSpent)}
+                </span>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
-                    onClick={() => { setEditingClient(row); setOpen(true) }}>
+                    data-testid={`client-edit-${row.id}`}
+                    onClick={(e) => handleEdit(e, row)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    disabled={deletingId === row.id} onClick={() => handleDelete(row.id)}>
+                    data-testid={`client-delete-${row.id}`}
+                    disabled={deletingId === row.id} onClick={(e) => handleDelete(e, row.id)}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -224,24 +335,28 @@ export default function ClientesPage() {
             </div>
 
             {/* Desktop */}
-            <div className="hidden sm:grid grid-cols-[1fr_140px_160px_100px_80px_72px] gap-3 px-4 py-3 items-center">
+            <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_80px_72px] gap-3 px-4 py-3 items-center">
               <div className="flex flex-col min-w-0">
                 <span className="text-sm font-medium text-foreground truncate">{row.name}</span>
                 <span className="text-[10px] text-muted-foreground truncate">{row.email}</span>
               </div>
-              <span className="text-xs text-muted-foreground italic truncate">{row.category || "-"}</span>
-              <span className="text-sm text-muted-foreground truncate">{row.email}</span>
-              <span className="text-sm text-muted-foreground">{row.phone}</span>
-              <Badge variant="outline" className={`text-xs capitalize w-fit ${statusColors[row.status]}`}>
-                {row.status}
-              </Badge>
+              <ClientActivityBadge status={row.activityStatus} className="w-fit" />
+              <span className="text-xs text-muted-foreground truncate">
+                {formatLastPurchase(row.lastPurchaseDate, row.daysSinceLastPurchase)}
+              </span>
+              <span className="text-sm text-foreground tabular-nums">
+                {currencyFormatter.format(row.totalSpent)}
+              </span>
+              <span className="text-sm text-muted-foreground tabular-nums">{row.purchaseCount}</span>
               <div className="flex items-center gap-1 justify-end">
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
-                  onClick={() => { setEditingClient(row); setOpen(true) }}>
+                  data-testid={`client-edit-${row.id}`}
+                  onClick={(e) => handleEdit(e, row)}>
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  disabled={deletingId === row.id} onClick={() => handleDelete(row.id)}>
+                  data-testid={`client-delete-${row.id}`}
+                  disabled={deletingId === row.id} onClick={(e) => handleDelete(e, row.id)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -251,10 +366,10 @@ export default function ClientesPage() {
       </div>
 
       <PaginationBar
-        meta={pq.meta}
-        onPageChange={pq.setPage}
-        onSizeChange={pq.setPageSize}
-        loading={pq.loading}
+        meta={act.meta}
+        onPageChange={act.setPage}
+        onSizeChange={act.setPageSize}
+        loading={act.isLoading}
         label="clientes"
       />
 
@@ -266,8 +381,8 @@ export default function ClientesPage() {
             </DialogTitle>
           </DialogHeader>
           <ClientForm
-            initialData={editingClient}
-            onSuccess={() => { setOpen(false); setEditingClient(undefined); pq.refetch() }}
+            initialData={editingClient ? toFormInitialData(editingClient) : undefined}
+            onSuccess={() => { setOpen(false); setEditingClient(undefined); act.refetch() }}
           />
         </DialogContent>
       </Dialog>
@@ -275,7 +390,7 @@ export default function ClientesPage() {
       <ClientImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        onSuccess={() => pq.refetch()}
+        onSuccess={() => act.refetch()}
       />
     </div>
   )

@@ -39,6 +39,23 @@ function mapClient(c: ClientApiRow): Client {
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
+ * clientes-frecuentes-historial — fetch de un único cliente por id
+ * (`GET /clients/{id}`, endpoint ya existente). Usado por el layout de
+ * `/clientes/[id]` para la cabecera (design.md §6).
+ */
+export function useClient(clientId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.clients.all(), "detail", clientId ?? ""],
+    queryFn: async (): Promise<Client> => {
+      const data = await pythonClient.get<ClientApiRow>(`/clients/${clientId}`)
+      return mapClient(data)
+    },
+    enabled: !!clientId,
+    staleTime: 60 * 1000,
+  })
+}
+
+/**
  * Returns clients list + mutations (add, update, delete) via Python API.
  */
 export function useClients() {

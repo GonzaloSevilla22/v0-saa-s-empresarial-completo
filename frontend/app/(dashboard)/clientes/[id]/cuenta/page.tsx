@@ -1,8 +1,7 @@
 "use client"
 
 import { use } from "react"
-import Link from "next/link"
-import { ArrowLeft, CreditCard } from "lucide-react"
+import { CreditCard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -28,21 +27,11 @@ export default function ClienteAccountPage({ params }: PageProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild className="h-8 w-8 shrink-0">
-          <Link href="/clientes">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">
-            Cuenta corriente
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Saldo y movimientos del cliente
-          </p>
-        </div>
+      {/* clientes-frecuentes-historial: la cabecera ("Cuenta corriente" +
+          botón de volver) la absorbe el layout compartido de
+          /clientes/[id]/layout.tsx — acá sólo queda la acción propia de esta
+          pestaña. */}
+      <div className="flex justify-end">
         <Button size="sm" onClick={() => setPaymentOpen(true)}>
           <CreditCard className="h-4 w-4 mr-2" />
           Registrar cobro

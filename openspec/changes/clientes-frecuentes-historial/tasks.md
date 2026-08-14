@@ -45,35 +45,35 @@
 
 ## 6. Hooks de datos (frontend)
 
-- [ ] 6.1 **RED** — `frontend/__tests__/hooks/use-client-activity.test.ts` (nuevo): `useClientActivityList` mapea el envelope y los agregados; `useClientPurchases` mapea el historial. Mockear `pythonClient`.
-- [ ] 6.2 **GREEN** — crear `frontend/hooks/data/use-client-activity.ts` con ambos hooks vía `pythonClient` + React Query, agregando las claves necesarias a `lib/query-keys.ts`.
-- [ ] 6.3 **TRIANGULATE** — respuesta vacía; cliente sin compras (`lastPurchaseAt` nulo); numerics que llegan como `string` desde Postgres se convierten a `number`.
-- [ ] 6.4 Verificar que el frontend **no** reimplementa la clasificación: `grep` de los literales `3`, `90`, `60` como umbrales en `frontend/` debe volver vacío; el badge se renderiza desde `activity_status`.
+- [x] 6.1 **RED** — `frontend/__tests__/hooks/use-client-activity.test.ts` (nuevo): `useClientActivityList` mapea el envelope y los agregados; `useClientPurchases` mapea el historial. Mockear `pythonClient`.
+- [x] 6.2 **GREEN** — crear `frontend/hooks/data/use-client-activity.ts` con ambos hooks vía `pythonClient` + React Query, agregando las claves necesarias a `lib/query-keys.ts`.
+- [x] 6.3 **TRIANGULATE** — respuesta vacía; cliente sin compras (`lastPurchaseAt` nulo); numerics que llegan como `string` desde Postgres se convierten a `number`.
+- [x] 6.4 Verificar que el frontend **no** reimplementa la clasificación: `grep` de los literales `3`, `90`, `60` como umbrales en `frontend/` debe volver vacío; el badge se renderiza desde `activity_status`.
 
 ## 7. Lista de clientes
 
-- [ ] 7.1 **RED** — test del componente `ClientActivityBadge`: renderiza texto visible para cada uno de los 4 estados (no sólo color).
-- [ ] 7.2 **GREEN** — crear `frontend/components/clientes/ClientActivityBadge.tsx` con `cva` sobre tokens semánticos. **No** replicar el `statusColors` hardcodeado (`emerald-500`/`yellow-500`/`red-500`) de la página actual.
-- [ ] 7.3 Migrar `frontend/app/(dashboard)/clientes/page.tsx` de `usePaginatedQuery({table:"clients"})` a `useClientActivityList`, conservando búsqueda, paginación (`PaginationBar`), export CSV, límite de plan y los diálogos de alta/edición/importación.
-- [ ] 7.4 Agregar el control de filtro por estado de actividad y el de orden (`name` / `last_purchase` / `total_spent` / `purchase_count`).
-- [ ] 7.5 **RED→GREEN** — test: la fila del cliente navega a `/clientes/[id]` al accionarla, y los botones de editar/borrar **detienen la propagación** y no navegan (`client-purchase-history` §"Acciones de la fila no navegan").
-- [ ] 7.6 Accesibilidad: el disparador del detalle es un elemento accionable real, alcanzable por teclado, con foco visible y activable con Enter.
-- [ ] 7.7 Mostrar en la fila los agregados útiles (última compra y total comprado) sin romper el layout de escritorio ni el de móvil.
+- [x] 7.1 **RED** — test del componente `ClientActivityBadge`: renderiza texto visible para cada uno de los 4 estados (no sólo color).
+- [x] 7.2 **GREEN** — crear `frontend/components/clientes/ClientActivityBadge.tsx` con `cva` sobre tokens semánticos. **No** replicar el `statusColors` hardcodeado (`emerald-500`/`yellow-500`/`red-500`) de la página actual.
+- [x] 7.3 Migrar `frontend/app/(dashboard)/clientes/page.tsx` de `usePaginatedQuery({table:"clients"})` a `useClientActivityList`, conservando búsqueda, paginación (`PaginationBar`), export CSV, límite de plan y los diálogos de alta/edición/importación.
+- [x] 7.4 Agregar el control de filtro por estado de actividad y el de orden (`name` / `last_purchase` / `total_spent` / `purchase_count`).
+- [x] 7.5 **RED→GREEN** — test: la fila del cliente navega a `/clientes/[id]` al accionarla, y los botones de editar/borrar **detienen la propagación** y no navegan (`client-purchase-history` §"Acciones de la fila no navegan").
+- [x] 7.6 Accesibilidad: el disparador del detalle es un elemento accionable real, alcanzable por teclado, con foco visible y activable con Enter.
+- [x] 7.7 Mostrar en la fila los agregados útiles (última compra y total comprado) sin romper el layout de escritorio ni el de móvil.
 
 ## 8. Detalle del cliente
 
-- [ ] 8.1 Crear `frontend/app/(dashboard)/clientes/[id]/layout.tsx`: cabecera con nombre del cliente (vía `GET /clients/{id}`, ya existente), botón de volver y navegación por pestañas `Historial de compras` / `Cuenta corriente`.
-- [ ] 8.2 Ajustar `frontend/app/(dashboard)/clientes/[id]/cuenta/page.tsx` para no duplicar la cabecera que ahora aporta el layout. **No** tocar `CustomerAccountBalance`, `CustomerAccountHistory` ni `RegisterPaymentForm`.
-- [ ] 8.3 **RED** — tests de `ClientSummaryCards` y `ClientPurchaseHistory`: resumen y listado por operación.
-- [ ] 8.4 **GREEN** — crear `frontend/app/(dashboard)/clientes/[id]/page.tsx` con las tarjetas de resumen (cantidad de compras, total comprado, última compra + días) y el historial paginado.
-- [ ] 8.5 **TRIANGULATE** — estado vacío ("este cliente todavía no compró"); estado de carga; estado de error.
-- [ ] 8.6 Rotular el total como **"Total comprado"** con la aclaración de que no descuenta notas de crédito, y dejar el acceso a la cuenta corriente visible desde el resumen (`client-purchase-history` §"El total comprado es bruto").
-- [ ] 8.7 **RED→GREEN** — test: el resumen no cambia al paginar el historial (se calcula sobre el total, no sobre la página).
+- [x] 8.1 Crear `frontend/app/(dashboard)/clientes/[id]/layout.tsx`: cabecera con nombre del cliente (vía `GET /clients/{id}`, ya existente), botón de volver y navegación por pestañas `Historial de compras` / `Cuenta corriente`.
+- [x] 8.2 Ajustar `frontend/app/(dashboard)/clientes/[id]/cuenta/page.tsx` para no duplicar la cabecera que ahora aporta el layout. **No** tocar `CustomerAccountBalance`, `CustomerAccountHistory` ni `RegisterPaymentForm`.
+- [x] 8.3 **RED** — tests de `ClientSummaryCards` y `ClientPurchaseHistory`: resumen y listado por operación.
+- [x] 8.4 **GREEN** — crear `frontend/app/(dashboard)/clientes/[id]/page.tsx` con las tarjetas de resumen (cantidad de compras, total comprado, última compra + días) y el historial paginado.
+- [x] 8.5 **TRIANGULATE** — estado vacío ("este cliente todavía no compró"); estado de carga; estado de error.
+- [x] 8.6 Rotular el total como **"Total comprado"** con la aclaración de que no descuenta notas de crédito, y dejar el acceso a la cuenta corriente visible desde el resumen (`client-purchase-history` §"El total comprado es bruto").
+- [x] 8.7 **RED→GREEN** — test: el resumen no cambia al paginar el historial (se calcula sobre el total, no sobre la página).
 
 ## 9. Índice de soporte
 
-- [ ] 9.1 Crear la migración con `CREATE INDEX CONCURRENTLY IF NOT EXISTS` sobre `sales(account_id, client_id, date DESC)`. **Idempotente** — la integración GitHub de Supabase auto-aplica al mergear.
-- [ ] 9.2 Verificar el timestamp contra el `MAX` real de las migraciones en producción antes de nombrar el archivo (sesiones paralelas colisionan).
+- [x] 9.1 Crear la migración con `CREATE INDEX CONCURRENTLY IF NOT EXISTS` sobre `sales(account_id, client_id, date DESC)`. **Idempotente** — la integración GitHub de Supabase auto-aplica al mergear.
+- [x] 9.2 Verificar el timestamp contra el `MAX` real de las migraciones en producción antes de nombrar el archivo (sesiones paralelas colisionan).
 
 ## 10. Verificación visual (regla PO — obligatoria antes del merge)
 

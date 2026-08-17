@@ -30,20 +30,20 @@
 
 ## 4. Región accesible compartida `frontend/components/auth/CaptchaRenewalStatus.tsx`
 
-- [ ] 4.1 RED — test: con mensaje vacío no anuncia nada; con mensaje renderiza un nodo con `role="status"` y `aria-live="polite"` que contiene el texto
-- [ ] 4.2 GREEN — componente mínimo (~10 líneas) con clase `sr-only`, prop `message: string` tipada
-- [ ] 4.3 TRIANGULATE — cambiar el mensaje actualiza el contenido de la misma región (no se remonta, para que el lector de pantalla lo anuncie)
-- [ ] 4.4 REFACTOR — JSDoc explicando por qué existe (D6) y re-ejecutar tests
+- [x] 4.1 RED — test: con mensaje vacío no anuncia nada; con mensaje renderiza un nodo con `role="status"` y `aria-live="polite"` que contiene el texto
+- [x] 4.2 GREEN — componente mínimo (~10 líneas) con clase `sr-only`, prop `message: string` tipada
+- [x] 4.3 TRIANGULATE — cambiar el mensaje actualiza el contenido de la misma región (no se remonta, para que el lector de pantalla lo anuncie)
+- [x] 4.4 REFACTOR — JSDoc explicando por qué existe (D6) y re-ejecutar tests
 
 ## 5. Migración de las 4 superficies
 
-- [ ] 5.1 RED — en `LoginPage.test.tsx`: tras `onExpire` con token previo, el botón muestra "Renovando verificación…" y `aria-disabled="true"`; un click en ese estado no llama a `login` y sí lo llama una vez al llegar el token fresco
-- [ ] 5.2 GREEN — migrar `frontend/app/auth/login/page.tsx` al hook: reemplazar `useState`/`useRef`/`handleSubmit` propios por `useCaptchaGate`, montar `CaptchaRenewalStatus`, aplicar `submitButtonProps` y el intercambio de rótulo ("Iniciar sesión" ↔ `CAPTCHA_RENEWAL_LABEL`). Preservar `data-testid="login-submit"` y el copy existente
-- [ ] 5.3 TRIANGULATE — repetir los tests RED equivalentes para registro (`RegisterPage.test.tsx`, rótulo "Crear cuenta") y migrar `frontend/app/auth/register/page.tsx` preservando su guard `if (!captchaToken)` y el resto de su validación
-- [ ] 5.4 TRIANGULATE — ídem para recuperación de contraseña (`ForgotPasswordPage.test.tsx`) y migrar `frontend/app/auth/forgot-password/page.tsx`
-- [ ] 5.5 TRIANGULATE — ídem para `MagicLinkForm.test.tsx` (rótulo "Enviar enlace mágico", guard `!email` y estado `isSuccess` intactos) y migrar `frontend/components/auth/MagicLinkForm.tsx`
-- [ ] 5.6 TRIANGULATE — test en al menos una pantalla de que el arranque en frío (sin token nunca emitido) conserva `disabled` real y el rótulo normal, sin anuncio de renovación
-- [ ] 5.7 REFACTOR — verificar que ninguna de las 4 pantallas conserva lógica de captcha duplicada (grep de `captchaToken`, `setCaptchaToken`, `submitWithFreshCaptcha` fuera de la capa canónica) y que `CaptchaWidget.tsx` no ganó props nuevas (D1); re-ejecutar tests
+- [x] 5.1 RED — en `LoginPage.test.tsx`: tras `onExpire` con token previo, el botón muestra "Renovando verificación…" y `aria-disabled="true"`; un click en ese estado no llama a `login` y sí lo llama una vez al llegar el token fresco
+- [x] 5.2 GREEN — migrar `frontend/app/auth/login/page.tsx` al hook: reemplazar `useState`/`useRef`/`handleSubmit` propios por `useCaptchaGate`, montar `CaptchaRenewalStatus`, aplicar `submitButtonProps` y el intercambio de rótulo ("Iniciar sesión" ↔ `CAPTCHA_RENEWAL_LABEL`). Preservar `data-testid="login-submit"` y el copy existente
+- [x] 5.3 TRIANGULATE — repetir los tests RED equivalentes para registro (`RegisterPage.test.tsx`, rótulo "Crear cuenta") y migrar `frontend/app/auth/register/page.tsx` preservando su guard `if (!captchaToken)` y el resto de su validación — la guarda pasó a `captchaGate.phase === "cold"` (equivalente semántico: sólo bloquea si el captcha nunca se resolvió; durante una renovación el submit se encola en vez de bloquearse)
+- [x] 5.4 TRIANGULATE — ídem para recuperación de contraseña (`ForgotPasswordPage.test.tsx`) y migrar `frontend/app/auth/forgot-password/page.tsx`
+- [x] 5.5 TRIANGULATE — ídem para `MagicLinkForm.test.tsx` (rótulo "Enviar enlace mágico", guard `!email` y estado `isSuccess` intactos) y migrar `frontend/components/auth/MagicLinkForm.tsx`
+- [x] 5.6 TRIANGULATE — test en al menos una pantalla de que el arranque en frío (sin token nunca emitido) conserva `disabled` real y el rótulo normal, sin anuncio de renovación
+- [x] 5.7 REFACTOR — verificar que ninguna de las 4 pantallas conserva lógica de captcha duplicada (grep de `captchaToken`, `setCaptchaToken`, `submitWithFreshCaptcha` fuera de la capa canónica) y que `CaptchaWidget.tsx` no ganó props nuevas (D1); re-ejecutar tests
 
 ## 6. Verificación y cierre
 

@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import React from "react"
 import ForgotPasswordPage from "@/app/auth/forgot-password/page"
 
@@ -17,6 +17,23 @@ const captchaResetMock = vi.fn()
 // isStale()/refresh() vía el ref del widget, no sólo a reset().
 const captchaIsStaleMock = vi.fn()
 const captchaRefreshMock = vi.fn()
+
+// setHandlers + fireExpire/fireError (change captcha-renewal-feedback):
+// simulan la invalidación del token que dispara el estado de renovación.
+const captchaHandlers = vi.hoisted(() => {
+  let handlers: { onExpire?: () => void; onError?: () => void } = {}
+  return {
+    setHandlers(next: { onExpire?: () => void; onError?: () => void }) {
+      handlers = next
+    },
+    fireExpire() {
+      handlers.onExpire?.()
+    },
+    fireError() {
+      handlers.onError?.()
+    },
+  }
+})
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
@@ -36,7 +53,15 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/auth/CaptchaWidget", () => ({
   CaptchaWidget: React.forwardRef(
-    ({ onVerify }: { onVerify: (t: string) => void }, ref: React.Ref<unknown>) => {
+    (
+      {
+        onVerify,
+        onExpire,
+        onError,
+      }: { onVerify: (t: string) => void; onExpire?: () => void; onError?: () => void },
+      ref: React.Ref<unknown>,
+    ) => {
+      captchaHandlers.setHandlers({ onExpire, onError })
       React.useImperativeHandle(ref, () => ({
         reset: captchaResetMock,
         isStale: captchaIsStaleMock,
@@ -140,5 +165,33 @@ describe("ForgotPasswordPage — frescura del captcha (change captcha-token-fres
       )
     })
     expect(resetPasswordForEmailMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("ForgotPasswordPage — estado de renovación del captcha (change captcha-renewal-feedback)", () => {
+  it("tras onExpire con token previo, el botón muestra el rótulo de renovación; un click no envía todavía y sí lo hace una vez al llegar el token fresco", async () => {
+    render(<ForgotPasswordPage />)
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "susana@test.com" } })
+    fireEvent.click(screen.getByText("solve-captcha"))
+
+    const submitBtn = screen.getByRole("button", { name: /enviar enlace/i })
+    expect(submitBtn).not.toHaveAttribute("aria-disabled")
+
+    act(() => captchaHandlers.fireExpire())
+
+    expect(submitBtn).toHaveTextContent("Renovando verificación…")
+    expect(submitBtn).toHaveAttribute("aria-disabled", "true")
+    expect(submitBtn).not.toBeDisabled()
+
+    fireEvent.click(submitBtn)
+    expect(resetPasswordForEmailMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText("solve-captcha"))
+
+    await waitFor(() => expect(resetPasswordForEmailMock).toHaveBeenCalledTimes(1))
+    expect(resetPasswordForEmailMock).toHaveBeenCalledWith(
+      "susana@test.com",
+      expect.objectContaining({ captchaToken: "reset-captcha" }),
+    )
   })
 })

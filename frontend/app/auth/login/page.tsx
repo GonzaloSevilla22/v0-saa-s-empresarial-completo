@@ -1,6 +1,6 @@
 ﻿"use client"
 
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
@@ -12,8 +12,10 @@ import { Zap, Eye, EyeOff, Mail } from "lucide-react"
 import { toast } from "sonner"
 import { MagicLinkForm } from "@/components/auth/MagicLinkForm"
 import { Separator } from "@/components/ui/separator"
-import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
-import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
+import { CaptchaWidget } from "@/components/auth/CaptchaWidget"
+import { CaptchaRenewalStatus } from "@/components/auth/CaptchaRenewalStatus"
+import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
+import { useCaptchaGate } from "@/hooks/auth"
 import { AuthSceneMount } from "@/components/three/AuthSceneMount"
 
 export default function LoginPage() {
@@ -21,35 +23,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [isMagicLink, setIsMagicLink] = useState(false)
-  const [captchaToken, setCaptchaToken] = useState("")
   const { login } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const captchaRef = useRef<CaptchaWidgetHandle>(null)
+  const captchaGate = useCaptchaGate()
   // Restore the destination the user was trying to reach before being redirected to login
   const nextPath = searchParams.get("next") ?? "/dashboard"
   // reason=idle: session was closed automatically due to inactivity
   const isIdleLogout = searchParams.get("reason") === "idle"
 
-  const [isLoading, setIsLoading] = useState(false)
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setIsLoading(true)
     try {
-      await submitWithFreshCaptcha({
-        captcha: captchaRef.current,
-        token: captchaToken,
-        run: (token) => login(email, password, token),
-      })
+      await captchaGate.submit((token) => login(email, password, token))
       router.push(nextPath)
     } catch (error: any) {
-      // Token de captcha de un solo uso: re-challenge tras un login fallido.
-      captchaRef.current?.reset()
-      setCaptchaToken("")
       toast.error(error.message)
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -135,19 +124,19 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
-              <CaptchaWidget
-                ref={captchaRef}
-                onVerify={setCaptchaToken}
-                onExpire={() => setCaptchaToken("")}
-                onError={() => setCaptchaToken("")}
-              />
+              <CaptchaWidget ref={captchaGate.captchaRef} {...captchaGate.captchaProps} />
+              <CaptchaRenewalStatus message={captchaGate.statusMessage} />
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isLoading || !captchaToken}
+                {...captchaGate.submitButtonProps}
                 data-testid="login-submit"
               >
-                {isLoading ? "Iniciando sesión..." : "Iniciar sesión"}
+                {captchaGate.isLoading
+                  ? "Iniciando sesión..."
+                  : captchaGate.isRenewing
+                    ? CAPTCHA_RENEWAL_LABEL
+                    : "Iniciar sesión"}
               </Button>
             </form>
           )}

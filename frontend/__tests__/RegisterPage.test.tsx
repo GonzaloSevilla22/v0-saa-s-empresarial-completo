@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import React from "react"
 import RegisterPage from "@/app/auth/register/page"
 import { TERMS_VERSION } from "@/lib/legal"
@@ -24,6 +24,23 @@ const captchaResetMock = vi.fn()
 // isStale()/refresh() vía el ref del widget, no sólo a reset().
 const captchaIsStaleMock = vi.fn()
 const captchaRefreshMock = vi.fn()
+
+// setHandlers + fireExpire/fireError (change captcha-renewal-feedback):
+// simulan la invalidación del token que dispara el estado de renovación.
+const captchaHandlers = vi.hoisted(() => {
+  let handlers: { onExpire?: () => void; onError?: () => void } = {}
+  return {
+    setHandlers(next: { onExpire?: () => void; onError?: () => void }) {
+      handlers = next
+    },
+    fireExpire() {
+      handlers.onExpire?.()
+    },
+    fireError() {
+      handlers.onError?.()
+    },
+  }
+})
 
 vi.mock("@/contexts/auth-context", () => ({
   useAuth: () => ({ register: registerMock }),
@@ -46,7 +63,15 @@ vi.mock("sonner", () => ({
 // Mock del widget Turnstile: botón para resolver el challenge + reset vía ref.
 vi.mock("@/components/auth/CaptchaWidget", () => ({
   CaptchaWidget: React.forwardRef(
-    ({ onVerify }: { onVerify: (t: string) => void }, ref: React.Ref<unknown>) => {
+    (
+      {
+        onVerify,
+        onExpire,
+        onError,
+      }: { onVerify: (t: string) => void; onExpire?: () => void; onError?: () => void },
+      ref: React.Ref<unknown>,
+    ) => {
+      captchaHandlers.setHandlers({ onExpire, onError })
       React.useImperativeHandle(ref, () => ({
         reset: captchaResetMock,
         isStale: captchaIsStaleMock,
@@ -317,5 +342,37 @@ describe("RegisterPage — nombre/apellido, consentimiento y captcha", () => {
       )
     })
     expect(registerMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("RegisterPage — estado de renovación del captcha (change captcha-renewal-feedback)", () => {
+  it("tras onExpire con token previo, el botón muestra el rótulo de renovación; un submit no llama a register() y sí lo hace una vez al llegar el token fresco", async () => {
+    registerMock.mockResolvedValue(undefined)
+    render(<RegisterPage />)
+    fillValidFields()
+    acceptTerms()
+    solveCaptcha()
+
+    const submitBtn = screen.getByRole("button", { name: "Crear cuenta" })
+    expect(submitBtn).not.toHaveAttribute("aria-disabled")
+
+    act(() => captchaHandlers.fireExpire())
+
+    expect(submitBtn).toHaveTextContent("Renovando verificación…")
+    expect(submitBtn).toHaveAttribute("aria-disabled", "true")
+    expect(submitBtn).not.toBeDisabled()
+
+    submit()
+    expect(registerMock).not.toHaveBeenCalled()
+
+    solveCaptcha()
+
+    await waitFor(() => expect(registerMock).toHaveBeenCalledTimes(1))
+    expect(registerMock).toHaveBeenCalledWith(
+      "Susana",
+      "susana@test.com",
+      VALID_PASSWORD,
+      expect.objectContaining({ captchaToken: "captcha-token" }),
+    )
   })
 })

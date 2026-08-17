@@ -1,14 +1,16 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { AlertCircle, CheckCircle2, Loader2, Mail } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
-import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
+import { CaptchaWidget } from "@/components/auth/CaptchaWidget"
+import { CaptchaRenewalStatus } from "@/components/auth/CaptchaRenewalStatus"
+import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
+import { useCaptchaGate } from "@/hooks/auth"
 
 interface MagicLinkFormProps {
   onBack: () => void
@@ -16,34 +18,23 @@ interface MagicLinkFormProps {
 
 export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
   const [email, setEmail] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
   const [isSuccess, setIsSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [captchaToken, setCaptchaToken] = useState("")
-  const captchaRef = useRef<CaptchaWidgetHandle>(null)
+  const captchaGate = useCaptchaGate()
   const { loginWithMagicLink } = useAuth()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!email) return
 
-    setIsLoading(true)
     setError(null)
 
     try {
       // signInWithOtp también está gateado por el captcha a nivel proyecto.
-      await submitWithFreshCaptcha({
-        captcha: captchaRef.current,
-        token: captchaToken,
-        run: (token) => loginWithMagicLink(email, token),
-      })
+      await captchaGate.submit((token) => loginWithMagicLink(email, token))
       setIsSuccess(true)
     } catch (err: any) {
-      captchaRef.current?.reset()
-      setCaptchaToken("")
       setError(err.message || "Ocurrió un error al enviar el enlace.")
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -77,7 +68,7 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
             onChange={(e) => setEmail(e.target.value)}
             className="bg-background border-border text-foreground pl-10"
             required
-            disabled={isLoading}
+            disabled={captchaGate.isLoading}
           />
           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         </div>
@@ -90,25 +81,34 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
         </Alert>
       )}
 
-      <CaptchaWidget
-        ref={captchaRef}
-        onVerify={setCaptchaToken}
-        onExpire={() => setCaptchaToken("")}
-        onError={() => setCaptchaToken("")}
-      />
+      <CaptchaWidget ref={captchaGate.captchaRef} {...captchaGate.captchaProps} />
+      <CaptchaRenewalStatus message={captchaGate.statusMessage} />
 
       <div className="flex flex-col gap-3 pt-2">
-        <Button type="submit" className="w-full" disabled={isLoading || !email || !captchaToken}>
-          {isLoading ? (
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={captchaGate.submitButtonProps.disabled || !email}
+          aria-disabled={captchaGate.submitButtonProps["aria-disabled"]}
+        >
+          {captchaGate.isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Enviando...
             </>
+          ) : captchaGate.isRenewing ? (
+            CAPTCHA_RENEWAL_LABEL
           ) : (
             "Enviar enlace mágico"
           )}
         </Button>
-        <Button type="button" variant="ghost" onClick={onBack} className="w-full text-muted-foreground" disabled={isLoading}>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={onBack}
+          className="w-full text-muted-foreground"
+          disabled={captchaGate.isLoading}
+        >
           Cancelar
         </Button>
       </div>

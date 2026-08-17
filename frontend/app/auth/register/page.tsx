@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/contexts/auth-context"
@@ -11,8 +11,10 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Eye, EyeOff, ShieldCheck, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
-import { CaptchaWidget, type CaptchaWidgetHandle } from "@/components/auth/CaptchaWidget"
-import { submitWithFreshCaptcha } from "@/lib/captcha-freshness"
+import { CaptchaWidget } from "@/components/auth/CaptchaWidget"
+import { CaptchaRenewalStatus } from "@/components/auth/CaptchaRenewalStatus"
+import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
+import { useCaptchaGate } from "@/hooks/auth"
 import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
 import { PROVINCIAS_AR } from "@/lib/provincias"
 import { AuthSceneMount } from "@/components/three/AuthSceneMount"
@@ -42,12 +44,9 @@ export default function RegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [emailOptIn, setEmailOptIn] = useState(false)
-  const [captchaToken, setCaptchaToken] = useState("")
   const { register } = useAuth()
   const router = useRouter()
-  const captchaRef = useRef<CaptchaWidgetHandle>(null)
-
-  const [isLoading, setIsLoading] = useState(false)
+  const captchaGate = useCaptchaGate()
 
   const passwordRequirements = [
     { label: "Mínimo 8 caracteres", test: (p: string) => p.length >= 8 },
@@ -129,37 +128,31 @@ export default function RegisterPage() {
       toast.error("Debés aceptar los Términos y Condiciones para crear la cuenta")
       return
     }
-    if (!captchaToken) {
+    // "cold" = nunca se resolvió el captcha (arranque en frío, D1 en
+    // design.md). Durante una renovación (`renewing`/`queued`) esta guarda
+    // NO debe bloquear: el submit se encola y corre solo apenas llega el
+    // token fresco (captcha-renewal-feedback).
+    if (captchaGate.phase === "cold") {
       toast.error("Completá la verificación anti-bots para continuar")
       return
     }
-    setIsLoading(true)
     try {
-      await submitWithFreshCaptcha({
-        captcha: captchaRef.current,
-        token: captchaToken,
-        run: (token) =>
-          register(name.trim(), email, password, {
-            phone: phone.trim(),
-            locality: locality.trim(),
-            province,
-            lastName: lastName.trim(),
-            termsVersion: TERMS_VERSION,
-            emailOptIn,
-            captchaToken: token,
-          }),
-      })
+      await captchaGate.submit((token) =>
+        register(name.trim(), email, password, {
+          phone: phone.trim(),
+          locality: locality.trim(),
+          province,
+          lastName: lastName.trim(),
+          termsVersion: TERMS_VERSION,
+          emailOptIn,
+          captchaToken: token,
+        }),
+      )
       // Go directly to the verification screen — no intermediate /dashboard hop.
       // The middleware would catch it anyway, but going direct avoids the extra redirect.
       router.push(`/auth/verify-email?email=${encodeURIComponent(email)}`)
     } catch (error: unknown) {
-      // El token de captcha es de un solo uso: tras un signUp fallido (incluido el
-      // rechazo del captcha por Supabase) reseteamos el widget para re-challenge.
-      captchaRef.current?.reset()
-      setCaptchaToken("")
       toast.error(error instanceof Error ? error.message : "No se pudo crear la cuenta")
-    } finally {
-      setIsLoading(false)
     }
   }
 
@@ -381,16 +374,16 @@ export default function RegisterPage() {
               </div>
 
               {/* Captcha anti-bots (Cloudflare Turnstile) */}
-              <CaptchaWidget
-                ref={captchaRef}
-                onVerify={setCaptchaToken}
-                onExpire={() => setCaptchaToken("")}
-                onError={() => setCaptchaToken("")}
-              />
+              <CaptchaWidget ref={captchaGate.captchaRef} {...captchaGate.captchaProps} />
+              <CaptchaRenewalStatus message={captchaGate.statusMessage} />
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full" disabled={!captchaToken || isLoading}>
-                {isLoading ? "Creando cuenta..." : "Crear cuenta"}
+              <Button type="submit" className="w-full" {...captchaGate.submitButtonProps}>
+                {captchaGate.isLoading
+                  ? "Creando cuenta..."
+                  : captchaGate.isRenewing
+                    ? CAPTCHA_RENEWAL_LABEL
+                    : "Crear cuenta"}
               </Button>
               <p className="text-sm text-muted-foreground">
                 {"¿Ya tenés cuenta? "}

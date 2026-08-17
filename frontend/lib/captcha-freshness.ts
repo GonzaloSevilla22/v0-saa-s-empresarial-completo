@@ -120,3 +120,123 @@ export async function submitWithFreshCaptcha<T>({
     return await run(retryToken)
   }
 }
+
+/**
+ * Rótulo compartido por las 4 pantallas de auth mientras el captcha se está
+ * renovando (change captcha-renewal-feedback, D2/D5 en design.md). Cada
+ * pantalla conserva su propio rótulo normal ("Iniciar sesión", "Crear
+ * cuenta", ...) y sólo lo intercambia por éste cuando `isRenewing`.
+ */
+export const CAPTCHA_RENEWAL_LABEL = "Renovando verificación…"
+
+/**
+ * Mensaje surfaceado cuando la cola de submit se descarta sin haber podido
+ * renovar el captcha: por vencimiento del timeout compartido (D4.3) o porque
+ * el widget reportó un error mientras había una intención encolada (D4.4).
+ * Un solo mensaje para ambos casos: para el usuario la situación es la
+ * misma ("no se pudo renovar, probá de nuevo").
+ */
+export const CAPTCHA_RENEWAL_FAILED_MESSAGE = "No pudimos renovar la verificación. Probá de nuevo."
+
+/**
+ * Fase de la compuerta de captcha (D3 en design.md):
+ *
+ * - `cold`: nunca hubo token emitido. Arranque en frío, NO es una renovación
+ *   — el botón conserva el `disabled` real de siempre.
+ * - `ready`: hay un token vigente. Comportamiento normal de submit.
+ * - `renewing`: hubo un token y se perdió (auto-renovación por visibilidad,
+ *   expiración propia de Turnstile, error del widget, o el `reset()` de un
+ *   submit rechazado). Un challenge nuevo ya está en camino.
+ * - `queued`: `renewing` + el usuario activó el submit. Al llegar el
+ *   próximo token fresco, esa intención se dispara — una sola vez.
+ */
+export type CaptchaGatePhase = "cold" | "ready" | "renewing" | "queued"
+
+/** Estado completo de la compuerta: fase + si hay un submit en vuelo. */
+export interface CaptchaGateState {
+  readonly phase: CaptchaGatePhase
+  readonly isSubmitting: boolean
+}
+
+/** Fábrica del estado inicial — cada consumidor arranca en `cold`. */
+export function createInitialCaptchaGateState(): CaptchaGateState {
+  return { phase: "cold", isSubmitting: false }
+}
+
+/**
+ * Eventos que maneja `captchaGateReducer`. Los dispara el hook que envuelve
+ * la compuerta (`use-captcha-gate.ts`) a partir de los callbacks del widget
+ * (`onVerify`/`onExpire`/`onError`), del click de submit, del vencimiento del
+ * timer de la cola, y del ciclo de vida de un submit real.
+ */
+export type CaptchaGateEvent =
+  /** El widget emitió un token (challenge resuelto). */
+  | { type: "tokenIssued" }
+  /** El token vigente se invalidó (expiración, error del widget, o auto-renovación por visibilidad). */
+  | { type: "tokenLost" }
+  /** El usuario activó el submit. Sólo encola si la fase es `renewing`. */
+  | { type: "submitRequested" }
+  /** La cola venció sin que llegara un token fresco (`CAPTCHA_REFRESH_TIMEOUT_MS`). */
+  | { type: "queueExpired" }
+  /** El widget reportó un error mientras había una intención encolada. */
+  | { type: "queueAborted" }
+  /** Arrancó una ejecución real de `submitWithFreshCaptcha`. */
+  | { type: "submitStarted" }
+  /** Terminó (con éxito o error) la ejecución de `submitWithFreshCaptcha`. */
+  | { type: "submitSettled" }
+
+/**
+ * Reducer puro de la compuerta de captcha (D3 en design.md). Sin React, sin
+ * timers ni promesas: sólo transiciones de fase y del flag `isSubmitting`.
+ *
+ * La cola ("a lo sumo una intención") no vive acá — el reducer sólo modela
+ * *que* hay una intención encolada (fase `queued`), no *cuál*; el callback a
+ * ejecutar lo retiene el hook en un `ref`. La transición `queued -> ready`
+ * sobre un evento `tokenIssued` ES la señal de "disparar el submit
+ * encolado": el consumidor la reconoce comparando la fase previa a la
+ * dispatch, así que sólo puede dispararse una vez por intención encolada
+ * (D4.2) — un segundo `tokenIssued` ya parte de `ready`, no de `queued`.
+ */
+export function captchaGateReducer(state: CaptchaGateState, event: CaptchaGateEvent): CaptchaGateState {
+  switch (event.type) {
+    case "tokenIssued":
+      return { ...state, phase: "ready" }
+
+    case "tokenLost":
+      // Arranque en frío no es renovación (D1); y una intención ya
+      // encolada sobrevive a una notificación adicional de pérdida de
+      // token — sigue siendo "el mismo challenge en camino" (D4.6).
+      if (state.phase === "cold" || state.phase === "queued") return state
+      return { ...state, phase: "renewing" }
+
+    case "submitRequested":
+      // Doble red anti-doble-submit (D4.5): con un submit en vuelo, no-op
+      // sin importar la fase.
+      if (state.isSubmitting) return state
+      // Sólo `renewing` encola. `ready` no necesita cola (el submit corre
+      // directo); `cold`/`queued` no tienen nada nuevo que hacer.
+      if (state.phase === "renewing") return { ...state, phase: "queued" }
+      return state
+
+    case "queueExpired":
+    case "queueAborted":
+      if (state.phase !== "queued") return state
+      return { ...state, phase: "renewing" }
+
+    case "submitStarted":
+      // Inalcanzable por construcción en uso normal (el hook sólo dispara
+      // esto tras una transición a `ready`), pero el reducer lo garantiza
+      // también a nivel de tipos/transiciones: nunca se entra en
+      // "submitting" estando `queued`.
+      if (state.phase === "queued") return state
+      return { ...state, isSubmitting: true }
+
+    case "submitSettled":
+      return { ...state, isSubmitting: false }
+
+    default: {
+      const exhaustiveCheck: never = event
+      return exhaustiveCheck
+    }
+  }
+}

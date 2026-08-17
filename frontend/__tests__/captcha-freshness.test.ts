@@ -9,10 +9,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
   CAPTCHA_MAX_TOKEN_AGE_MS,
+  CAPTCHA_RENEWAL_LABEL,
   isTokenStale,
   isCaptchaError,
   submitWithFreshCaptcha,
+  captchaGateReducer,
+  createInitialCaptchaGateState,
   type CaptchaFreshnessHandle,
+  type CaptchaGateState,
 } from "@/lib/captcha-freshness"
 
 describe("isTokenStale", () => {
@@ -183,5 +187,120 @@ describe("submitWithFreshCaptcha", () => {
 
     await expect(submitWithFreshCaptcha({ captcha: null, token: "t", run })).rejects.toThrow(captchaError)
     expect(run).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Reducer puro de la compuerta de captcha — change captcha-renewal-feedback
+ * (D3/D4 en design.md). Sin React, sin timers: se ejercita llamando a
+ * `captchaGateReducer(state, event)` directo, encadenando transiciones.
+ */
+describe("captchaGateReducer", () => {
+  function readyState(overrides: Partial<CaptchaGateState> = {}): CaptchaGateState {
+    return { phase: "ready", isSubmitting: false, ...overrides }
+  }
+
+  it("CAPTCHA_RENEWAL_LABEL es el rótulo compartido de renovación", () => {
+    expect(CAPTCHA_RENEWAL_LABEL).toBe("Renovando verificación…")
+  })
+
+  it("el estado inicial es 'cold', sin submit en vuelo", () => {
+    expect(createInitialCaptchaGateState()).toEqual({ phase: "cold", isSubmitting: false })
+  })
+
+  it("tokenIssued: cold -> ready", () => {
+    const next = captchaGateReducer(createInitialCaptchaGateState(), { type: "tokenIssued" })
+    expect(next.phase).toBe("ready")
+  })
+
+  it("tokenLost: ready -> renewing", () => {
+    const next = captchaGateReducer(readyState(), { type: "tokenLost" })
+    expect(next.phase).toBe("renewing")
+  })
+
+  it("(triangulate) tokenLost: cold -> sigue cold (arranque en frío no es renovación)", () => {
+    const next = captchaGateReducer(createInitialCaptchaGateState(), { type: "tokenLost" })
+    expect(next.phase).toBe("cold")
+  })
+
+  it("(triangulate) submitRequested: renewing -> queued", () => {
+    const renewing = readyState({ phase: "renewing" })
+    const next = captchaGateReducer(renewing, { type: "submitRequested" })
+    expect(next.phase).toBe("queued")
+  })
+
+  it("(triangulate) submitRequested repetido en queued -> no-op (sigue queued)", () => {
+    const queued = readyState({ phase: "queued" })
+    const next = captchaGateReducer(queued, { type: "submitRequested" })
+    expect(next.phase).toBe("queued")
+  })
+
+  it("(triangulate) submitRequested en ready -> no encola (sigue ready)", () => {
+    const next = captchaGateReducer(readyState(), { type: "submitRequested" })
+    expect(next.phase).toBe("ready")
+  })
+
+  it("(triangulate) submitRequested con submit en vuelo -> no-op, incluso desde renewing", () => {
+    const renewingWhileSubmitting = readyState({ phase: "renewing", isSubmitting: true })
+    const next = captchaGateReducer(renewingWhileSubmitting, { type: "submitRequested" })
+    expect(next.phase).toBe("renewing")
+    expect(next.isSubmitting).toBe(true)
+  })
+
+  it("(triangulate) tokenIssued en queued -> ready; la transición ES la señal de disparar el submit encolado", () => {
+    const queued = readyState({ phase: "queued" })
+    const afterFirstToken = captchaGateReducer(queued, { type: "tokenIssued" })
+    expect(afterFirstToken.phase).toBe("ready")
+
+    // Un segundo tokenIssued parte de "ready" (no de "queued"): no hay
+    // segunda señal posible porque ya no queda nada encolado.
+    const afterSecondToken = captchaGateReducer(afterFirstToken, { type: "tokenIssued" })
+    expect(afterSecondToken.phase).toBe("ready")
+  })
+
+  it("(triangulate) queueExpired: queued -> renewing, sin disparo", () => {
+    const queued = readyState({ phase: "queued" })
+    const next = captchaGateReducer(queued, { type: "queueExpired" })
+    expect(next.phase).toBe("renewing")
+  })
+
+  it("(triangulate) queueAborted (error de widget): queued -> renewing, sin disparo", () => {
+    const queued = readyState({ phase: "queued" })
+    const next = captchaGateReducer(queued, { type: "queueAborted" })
+    expect(next.phase).toBe("renewing")
+  })
+
+  it("(triangulate) tokenLost en queued -> sigue queued (D4.6: otra notificación de renovación no descarta la cola)", () => {
+    const queued = readyState({ phase: "queued" })
+    const next = captchaGateReducer(queued, { type: "tokenLost" })
+    expect(next.phase).toBe("queued")
+  })
+
+  it("queueExpired/queueAborted fuera de 'queued' son no-ops", () => {
+    expect(captchaGateReducer(readyState({ phase: "renewing" }), { type: "queueExpired" }).phase).toBe("renewing")
+    expect(captchaGateReducer(readyState(), { type: "queueAborted" }).phase).toBe("ready")
+  })
+
+  it("submitStarted/submitSettled alternan isSubmitting", () => {
+    const started = captchaGateReducer(readyState(), { type: "submitStarted" })
+    expect(started.isSubmitting).toBe(true)
+    const settled = captchaGateReducer(started, { type: "submitSettled" })
+    expect(settled.isSubmitting).toBe(false)
+  })
+
+  describe("estados inválidos inalcanzables por construcción", () => {
+    it("'queued' nunca se alcanza sin pasar por 'renewing' (desde cold/ready, submitRequested no encola)", () => {
+      expect(captchaGateReducer(createInitialCaptchaGateState(), { type: "submitRequested" }).phase).not.toBe(
+        "queued",
+      )
+      expect(captchaGateReducer(readyState(), { type: "submitRequested" }).phase).not.toBe("queued")
+    })
+
+    it("'queued' + isSubmitting nunca coexisten: submitStarted en fase 'queued' es un no-op", () => {
+      const queued = readyState({ phase: "queued" })
+      const next = captchaGateReducer(queued, { type: "submitStarted" })
+      expect(next.phase).toBe("queued")
+      expect(next.isSubmitting).toBe(false)
+    })
   })
 })

@@ -1,4 +1,5 @@
 export { useAiUsage } from "./use-ai-usage"
+export { useCaptchaGate } from "./use-captcha-gate"
 export { useCurrentUser } from "./use-current-user"
 export { useExportUsage, triggerExport } from "./use-export-usage"
 export { usePermissions } from "./use-permissions"

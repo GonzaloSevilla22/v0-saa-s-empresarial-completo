@@ -35,12 +35,12 @@
  * (`text-success` usa `--success`) y sigue siendo válido sin reescribirse
  * cuando el grupo 3 agregue los tokens `-text` (solo cambia el CSS).
  *
- * Grupo 4 (superficies sólidas `destructive`/`primary`) requiere sign-off
- * del PO para OQ-1/OQ-2 (design.md §Open Questions) y no corre en este
- * apply. Mientras tanto, los dos pares que dependen de esas decisiones se
- * afirman como PISO (no empeorar el ratio documentado) en vez del umbral
- * real — ver `ROLES[…].solidKnownGap` más abajo. Es el mismo patrón que
- * prescribe la task 4.3 para el caso de rechazo del PO.
+ * Grupo 4 (superficies sólidas `destructive`/`primary`) — sign-off del PO
+ * recibido 2026-08-17 (OQ-1 y OQ-2 APPROVED, design.md §Open Questions):
+ * `--destructive` y `--primary-foreground` se oscurecieron en `:root`
+ * (`globals.css`). Los 28 pares canónicos alcanzan su umbral real; ya no
+ * queda ningún piso documentado en este archivo. (Task 4.3 — qué hacer si
+ * el PO rechazaba OQ-1 — quedó N/A: fue aprobado.)
  */
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
@@ -222,20 +222,13 @@ interface RoleSpec {
   textVar: string
   baseVar: string
   foregroundVar: string
-  /**
-   * Brecha conocida en el par sólido (`<rol>-foreground` sobre `bg-<rol>`),
-   * bloqueada por sign-off del PO (design.md §Open Questions — OQ-1 para
-   * destructive, OQ-2 para primary). Mientras el grupo 4 no corre, ese par
-   * se afirma como PISO (el ratio no puede empeorar respecto del valor
-   * documentado) en vez del umbral real de 4,5:1 — mismo patrón que
-   * prescribe la task 4.3 para el caso de rechazo del PO. El resto de los
-   * pares de estos roles (texto sobre tinte, texto sobre card) SÍ usan sus
-   * propios tokens `-text` nuevos (grupo 3, no bloqueado) y se exigen al
-   * umbral real.
-   */
-  solidKnownGap?: Partial<Record<ThemeName, number>>
 }
 
+// Grupo 4 (sign-off PO 2026-08-17, OQ-1/OQ-2 APPROVED): destructive y
+// primary ya no llevan un piso documentado — sus pares sólidos
+// (`-foreground` sobre `bg-<rol>`) se exigen al umbral real de 4,5:1 igual
+// que success/warning, desde que `--destructive` y `--primary-foreground`
+// se oscurecieron en `globals.css` (task 4.1/4.2).
 const ROLES: readonly RoleSpec[] = [
   { role: "success", textVar: "--success-text", baseVar: "--success", foregroundVar: "--success-foreground" },
   { role: "warning", textVar: "--warning-text", baseVar: "--warning", foregroundVar: "--warning-foreground" },
@@ -244,18 +237,12 @@ const ROLES: readonly RoleSpec[] = [
     textVar: "--destructive-text",
     baseVar: "--destructive",
     foregroundVar: "--destructive-foreground",
-    // OQ-1 (design.md): oscurecer --destructive en :root subiría este par
-    // de 3,60 a 5,80. Piso = 3,60 hasta el sign-off (grupo 4).
-    solidKnownGap: { light: 3.6 },
   },
   {
     role: "primary",
     textVar: "--primary-text",
     baseVar: "--primary",
     foregroundVar: "--primary-foreground",
-    // OQ-2 (design.md): --primary-foreground casi-negro subiría este par
-    // de 2,09 a 8,62. Piso = 2,09 hasta el sign-off (grupo 4).
-    solidKnownGap: { light: 2.09 },
   },
 ] as const
 
@@ -268,7 +255,6 @@ interface ContrastCase {
   role: string
   ratio: number
   threshold: number
-  isKnownGap: boolean
 }
 
 /**
@@ -325,7 +311,6 @@ function buildCases(blocks: Record<ThemeName, CssVarBlock>): ContrastCase[] {
         role: spec.role,
         ratio: tintRatio,
         threshold: TEXT_THRESHOLD,
-        isKnownGap: false,
       })
 
       cases.push({
@@ -335,19 +320,15 @@ function buildCases(blocks: Record<ThemeName, CssVarBlock>): ContrastCase[] {
         role: spec.role,
         ratio: contrastRatio(textRgb, card),
         threshold: TEXT_THRESHOLD,
-        isKnownGap: false,
       })
 
-      const solidRatio = contrastRatio(foregroundRgb, baseRgb)
-      const gapFloor = spec.solidKnownGap?.[theme]
       cases.push({
         label: `text-${spec.role}-foreground sobre bg-${spec.role} (sólido)`,
         theme,
         kind: "foreground-on-solid",
         role: spec.role,
-        ratio: solidRatio,
-        threshold: gapFloor ?? TEXT_THRESHOLD,
-        isKnownGap: gapFloor !== undefined,
+        ratio: contrastRatio(foregroundRgb, baseRgb),
+        threshold: TEXT_THRESHOLD,
       })
     }
 
@@ -361,7 +342,6 @@ function buildCases(blocks: Record<ThemeName, CssVarBlock>): ContrastCase[] {
         role: "ring",
         ratio: contrastRatio(ring, surfaceRgb),
         threshold: UI_THRESHOLD,
-        isKnownGap: false,
       })
     }
   }
@@ -381,17 +361,13 @@ describe("token-contrast-aa — gate WCAG 2.1 AA de los tokens semánticos", () 
     expect(cases).toHaveLength(28)
   })
 
-  it.each(cases.map((c) => [`${c.theme} · ${c.label}${c.isKnownGap ? " [piso — pendiente PO]" : ""}`, c] as const))(
-    "%s",
-    (_label, c) => {
-      expect(c.ratio).toBeGreaterThanOrEqual(c.threshold)
-    }
-  )
+  it.each(cases.map((c) => [`${c.theme} · ${c.label}`, c] as const))("%s", (_label, c) => {
+    expect(c.ratio).toBeGreaterThanOrEqual(c.threshold)
+  })
 
-  it("los pares afirmados como umbral real (no piso) alcanzan AA — cuenta 26/28", () => {
-    const realCases = cases.filter((c) => !c.isKnownGap)
-    expect(realCases).toHaveLength(26)
-    for (const c of realCases) {
+  it("los 28 pares canónicos alcanzan su umbral real — 28/28, sin pisos (grupo 4, sign-off PO 2026-08-17)", () => {
+    expect(cases).toHaveLength(28)
+    for (const c of cases) {
       expect(c.ratio, c.label).toBeGreaterThanOrEqual(c.threshold)
     }
   })

@@ -107,3 +107,16 @@ jobs:
       # `supabase start`.
       - name: Run frontend table/function reference gate
         run: python3 scripts/ci/check_frontend_table_refs.py --dsn postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      # internal-logs-retention: diagnóstico medido en prod (2026-08-17) —
+      # 48/86 MB de la DB eran logs internos de mantenimiento. Verifica la
+      # función canónica public.purge_internal_logs() (estructural + ACLs),
+      # la retención ESCALONADA de cron.job_run_details (1 día jobs de alta
+      # frecuencia / 14 días resto y huérfanas — reemplaza la ventana plana
+      # de 7 días de 20260630000001), el techo de 90 días de email_logs, el
+      # job de VACUUM (FULL) sobre net._http_response (pg_net.ttl nativo ya
+      # retiene las filas — sin purga por antigüedad ahí) y el re-registro
+      # idempotente de los jobs. Guard defensivo si el schema net no está
+      # precreado en el stack local (D7/OQ-3).
+      - name: Run internal logs retention gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_internal_logs_retention.sql

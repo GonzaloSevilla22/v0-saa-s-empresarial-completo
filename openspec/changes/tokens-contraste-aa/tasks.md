@@ -94,5 +94,5 @@
   - 0 en `globals.css`, `design-tokens.md`, `token-contrast-aa.test.ts`. 1 hit en `tailwind.config.ts:48`, pero es un comentario **preexistente** (no tocado por este change, ya estaba antes de la task 3.2) que menciona `emerald-*/amber-*` como texto de documentación — confirmado releyendo el archivo original antes de editar. Cero coincidencias NUEVAS.
 - [x] 7.3 `openspec validate "tokens-contraste-aa" --strict` en verde.
   - `Change 'tokens-contraste-aa' is valid`.
-- [ ] 7.4 Llevar OQ-1 (oscurecer `--destructive`), OQ-2 (`--primary-foreground` casi-negro), OQ-3 (matiz de `--warning-text`, 40° vs 48°) y OQ-4 (independizar `--ring` de `--primary`) al cuerpo del PR para sign-off del PO, con las capturas antes/después de la task 5.4.
-  - Se hace al abrir el PR (capturas antes/después de 5.4 no disponibles esta sesión — ver nota en 5.4/5.9 — se anota como pendiente dentro de la misma sección del PR body).
+- [x] 7.4 Llevar OQ-1 (oscurecer `--destructive`), OQ-2 (`--primary-foreground` casi-negro), OQ-3 (matiz de `--warning-text`, 40° vs 48°) y OQ-4 (independizar `--ring` de `--primary`) al cuerpo del PR para sign-off del PO, con las capturas antes/después de la task 5.4.
+  - PR #406, sección "Sign-off PO requerido" con OQ-1..OQ-4 completos (recomendación incluida en cada uno). Capturas antes/después de 5.4: **no incluidas** (no disponibles esta sesión, ver 5.4/5.9) — el PR body lo deja explícito como pendiente para el follow-up.

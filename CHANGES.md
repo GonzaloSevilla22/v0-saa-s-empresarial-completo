@@ -1671,9 +1671,10 @@ Ningún change v4 duplica un `v31-*`: lo **referencia** en el campo **Consolida*
 
 #### `v4-frontend-04` — Accesibilidad WCAG 2.1 AA transversal
 - **Estado**: `[ ]` pendiente · **Governance**: BAJO · **Sub-ola**: V4.1 · **Esfuerzo**: L · **Evidencia**: hecho_verificado
+- **Nota (2026-08-17, `tokens-contraste-aa`)**: el bullet de "auditoría de contraste de los tokens contra WCAG AA" y el criterio de aceptación "contraste de todos los tokens semánticos ≥ AA" quedan **cubiertos** por `tokens-contraste-aa` (`openspec/changes/archive/...-tokens-contraste-aa/`, tokens de texto dedicados `--<rol>-text` + gate automático `frontend/__tests__/lib/token-contrast-aa.test.ts`) — 26/28 pares canónicos en umbral real, 2/28 (`text-destructive-foreground`/`bg-destructive` y `text-primary-foreground`/`bg-primary`, ambos sólidos en tema claro) documentados como brecha con piso, bloqueados por sign-off del PO (OQ-1/OQ-2). El resto del scope de `v4-frontend-04` (axe-core en CI, `aria-label` transversal, skip-link, command palette, focus-trap, `aria-live`) **sigue pendiente**, sin tocar.
 - **Objetivo**: ir más allá del parche puntual de `aria-label` en botones-ícono y cubrir teclado, foco visible, contraste y estructura semántica en todo el dashboard.
 - **Scope**:
-  - Auditoría de contraste de los tokens consolidados en `v4-frontend-01` contra WCAG AA (4.5:1 texto, 3:1 UI).
+  - ~~Auditoría de contraste de los tokens consolidados en `v4-frontend-01` contra WCAG AA (4.5:1 texto, 3:1 UI).~~ Cubierto por `tokens-contraste-aa` (ver nota arriba).
   - `aria-label`/`aria-labelledby` en el universo completo de botones-ícono sin texto visible (H-21 midió un subconjunto de 59; barrido completo del dashboard).
   - Foco visible y orden de tabulación en modales compuestos (verificar que composiciones custom sobre Radix Dialog/Sheet no rompan el focus-trap nativo).
   - Skip-link "Saltar al contenido principal" en el layout raíz — no existe hoy.
@@ -1684,7 +1685,7 @@ Ningún change v4 duplica un `v31-*`: lo **referencia** en el campo **Consolida*
   - axe-core sobre las 5 rutas de dinero núcleo + dashboard principal = 0 violaciones críticas/serias.
   - 100% de botones `size=icon` con `aria-label` o texto `sr-only`.
   - Cmd/Ctrl+K abre el command palette desde cualquier ruta autenticada.
-  - Contraste de todos los tokens semánticos ≥ AA.
+  - ~~Contraste de todos los tokens semánticos ≥ AA.~~ Cubierto por `tokens-contraste-aa` (26/28 en umbral real; 2/28 con piso documentado pendiente sign-off del PO — ver nota arriba).
 - **Dependencias**: `v4-frontend-01` (tokens/contraste); `v31-a11y-rhf-forms` (prerequisito parcial — asume FormMessage/aria-invalid wireados).
 - **Consolida**: H-21 — extiende `v31-a11y-rhf-forms`; M-UX-01, M-UX-03.
 

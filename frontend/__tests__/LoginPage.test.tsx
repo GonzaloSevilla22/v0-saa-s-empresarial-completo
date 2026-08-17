@@ -189,6 +189,11 @@ describe("LoginPage — estado de renovación del captcha (change captcha-renewa
     expect(submitBtn).toHaveTextContent("Renovando verificación…")
     expect(submitBtn).toHaveAttribute("aria-disabled", "true")
     expect(submitBtn).not.toBeDisabled()
+    // Mismo tratamiento visual que `disabled` (D2), vía el token del design
+    // system — pero sin pointer-events-none, porque el click debe seguir
+    // encolando.
+    expect(submitBtn.className).toContain("aria-disabled:opacity-50")
+    expect(submitBtn.className).not.toContain("aria-disabled:pointer-events-none")
 
     // Click durante la renovación: se encola, no llama a login() todavía.
     fireEvent.click(submitBtn)

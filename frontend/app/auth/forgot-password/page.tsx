@@ -97,7 +97,7 @@ export default function ForgotPasswordPage() {
                 </div>
                 <CaptchaWidget ref={captchaGate.captchaRef} {...captchaGate.captchaProps} />
                 <CaptchaRenewalStatus message={captchaGate.statusMessage} />
-                <Button type="submit" className="w-full" {...captchaGate.submitButtonProps}>
+                <Button type="submit" className="w-full aria-disabled:opacity-50" {...captchaGate.submitButtonProps}>
                   {captchaGate.isLoading ? (
                     "Enviando..."
                   ) : captchaGate.isRenewing ? (

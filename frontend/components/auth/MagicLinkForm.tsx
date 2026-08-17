@@ -87,7 +87,7 @@ export function MagicLinkForm({ onBack }: MagicLinkFormProps) {
       <div className="flex flex-col gap-3 pt-2">
         <Button
           type="submit"
-          className="w-full"
+          className="w-full aria-disabled:opacity-50"
           disabled={captchaGate.submitButtonProps.disabled || !email}
           aria-disabled={captchaGate.submitButtonProps["aria-disabled"]}
         >

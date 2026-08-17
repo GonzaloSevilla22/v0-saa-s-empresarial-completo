@@ -378,7 +378,7 @@ export default function RegisterPage() {
               <CaptchaRenewalStatus message={captchaGate.statusMessage} />
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full" {...captchaGate.submitButtonProps}>
+              <Button type="submit" className="w-full aria-disabled:opacity-50" {...captchaGate.submitButtonProps}>
                 {captchaGate.isLoading
                   ? "Creando cuenta..."
                   : captchaGate.isRenewing

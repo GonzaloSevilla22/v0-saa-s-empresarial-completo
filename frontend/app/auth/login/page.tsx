@@ -128,7 +128,7 @@ export default function LoginPage() {
               <CaptchaRenewalStatus message={captchaGate.statusMessage} />
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full aria-disabled:opacity-50"
                 {...captchaGate.submitButtonProps}
                 data-testid="login-submit"
               >

@@ -6,15 +6,25 @@
 
 ## Color (base — registro formal es de `v4-frontend-01`)
 
-| Token CSS | Utility Tailwind | Claro | Oscuro | Uso |
+> **`tokens-contraste-aa` (2026-08-17): token de superficie ≠ token de texto.** Cada rol semántico (`primary`/`success`/`warning`/`destructive`) tiene HOY dos tokens de color independientes, no uno: uno pinta la SUPERFICIE (fondos, tintes `/5` `/10` `/15`, bordes, el punto de `NotificationBell`, las series de gráficos) y otro pinta el TEXTO/ícono que va encima. Comparten nombre de utility (`text-success` sigue siendo `text-success`) pero **ya no comparten valor HSL** — es intencional: un mismo verde no puede ser vívido-como-fondo y oscuro-como-texto a la vez. El cableado vive en `tailwind.config.ts` → `theme.extend.textColor` (remapea SOLO las utilities `text-*`; `bg-*`/`border-*`/`ring-*`/`fill-*` siguen leyendo `theme.extend.colors`, sin tocar). Motivo completo: `openspec/changes/tokens-contraste-aa/design.md` §Context/§D1-D3.
+
+| Rol | Token superficie (`bg-*`/`border-*`/`ring-*`) | Token texto (`text-*`) | Contraste mín. | Uso |
 |---|---|---|---|---|
-| `--primary` | `bg-primary` / `text-primary` | `142 71% 45%` | `142 71% 45%` | Marca, CTAs primarios |
-| `--destructive` | `bg-destructive` / `text-destructive` | `0 84.2% 60.2%` | `0 62.8% 30.6%` | Errores, acciones destructivas |
-| `--success` | `bg-success` / `text-success` | `142 71% 45%` | `142 71% 45%` | Estados positivos (venta, cobro, alta) |
-| `--warning` | `bg-warning` / `text-warning` | `48 96% 53%` | `48 96% 53%` | Alertas no bloqueantes (stock bajo, vencimientos) |
+| `primary` | `--primary` — claro `142 71% 45%` · oscuro `142 71% 45%` | `--primary-text` — claro `142 71% 26%` · oscuro `142 71% 45%` | 4,5:1 | Marca, CTAs, series de gráfico |
+| `success` | `--success` — claro `142 71% 45%` · oscuro `142 71% 45%` | `--success-text` — claro `142 71% 26%` · oscuro `142 71% 45%` | 4,5:1 | Estados positivos (venta, cobro, alta) |
+| `warning` | `--warning` — claro `48 96% 53%` · oscuro `48 96% 53%` | `--warning-text` — claro `40 95% 28%` · oscuro `48 96% 53%` | 4,5:1 | Alertas no bloqueantes (stock bajo, vencimientos) |
+| `destructive` | `--destructive` — claro `0 84.2% 60.2%` · oscuro `0 62.8% 30.6%` | `--destructive-text` — claro `0 84% 42%` · oscuro `0 91% 71%` | 4,5:1 | Errores, acciones destructivas |
+| `--ring` (indicador de foco, no es un rol con texto) | claro `142 71% 35%` · oscuro `142 71% 45%` | — | 3:1 (SC 1.4.11) | Anillo de foco (`focus-visible:ring-ring`) |
+| `--<rol>-foreground` (texto/ícono SOBRE el sólido del rol — `bg-<rol>` a opacidad 100%, ej. botón primario) | usa la superficie de arriba como fondo | `--primary-foreground` / `--success-foreground` / `--warning-foreground` / `--destructive-foreground` — sin cambios por este change | 4,5:1 | `ui/button.tsx`, `ui/badge.tsx`, `ui/toast.tsx` (variantes sólidas) |
 | `--muted` / `--foreground` | `bg-muted` / `text-foreground` | — | — | Texto/superficie secundaria |
 
-**Nota de coordinación**: `success`/`warning` ya existían como CSS var en `app/globals.css` antes de este change, pero no estaban expuestos en `tailwind.config.ts`. La task 1.9 de este change (migrar clases hardcodeadas `emerald-*`/`amber-*` en las superficies de mayor tráfico) los necesita como utility real, no arbitrary value — se expusieron en `theme.extend.colors` sin definir NINGÚN valor HSL nuevo (misma CSS var, cero segunda fuente de verdad). `v4-frontend-01` sigue siendo el dueño formal del registro de tokens base de color (incluye además borrar `frontend/styles/globals.css`, el `globals.css` muerto — **no tocado por este change**, fuera de su alcance) y del lint anti-regresión de color.
+**Brecha conocida, documentada y con piso en el test (pendiente sign-off del PO — OQ-1/OQ-2 en `design.md` §Open Questions)**: `text-destructive-foreground` sobre `bg-destructive` sólido mide **3,60:1** en tema claro (bajo el 4,5:1 de AA) — arreglar requiere oscurecer `--destructive` (afecta también gráficos y `/rentabilidad`). `text-primary-foreground` sobre `bg-primary` sólido mide **2,09:1** en tema claro — arreglar requiere `--primary-foreground` casi-negro. Ninguno de los dos se tocó en `tokens-contraste-aa`; `frontend/__tests__/lib/token-contrast-aa.test.ts` afirma ambos como **piso** (no empeorar) en vez de como umbral real, hasta que el PO decida. El resto de los 26 pares canónicos SÍ cumple el umbral real.
+
+**Nota de coordinación**: `success`/`warning` ya existían como CSS var en `app/globals.css` antes de `v4-visual-3d-refresh`, pero no estaban expuestos en `tailwind.config.ts` — se expusieron en `theme.extend.colors` sin definir ningún valor HSL nuevo. `v4-frontend-01` sigue siendo el dueño formal del registro de tokens base de color (incluye además borrar `frontend/styles/globals.css`, el `globals.css` muerto — no tocado por ningún change de esta serie) y del lint anti-regresión de color. `v4-frontend-04` sigue siendo dueño del resto de su alcance de accesibilidad (axe-core en CI, `aria-label`, skip-link, command palette, focus-trap) — `tokens-contraste-aa` solo adelantó su bullet de auditoría de contraste (ver `CHANGES.md`).
+
+### Regla operativa: un rol nuevo nace con los dos tokens
+
+Si se agrega un rol semántico de color nuevo (hoy: `primary`/`success`/`warning`/`destructive`; ej. un futuro `info`), **nace con su token de superficie Y su token de texto declarados en `:root` y en `.dark` desde el primer commit** — no se agrega "superficie primero, texto después". El gate de contraste (`token-contrast-aa.test.ts`) tiene que cubrir sus pares canónicos (texto sobre tinte del peor caso, texto sobre `--card`, `-foreground` sobre el sólido) agregando una fila a la tabla `ROLES` del test — ver `visual-design-system` §"Un rol nuevo nace con los dos tokens".
 
 ## Motion (tokens de segundo nivel — este change)
 
@@ -60,7 +70,7 @@ No se introduce una escala de spacing paralela: la app ya usa consistentemente l
 
 ## Tema claro/oscuro
 
-Todo token semántico introducido en esta fase tiene valor en `:root` y en `.dark` (color, elevación) o es tema-agnóstico y se declara igual en ambos por explicitud (motion). El contraste WCAG AA de los tokens de color lo audita `v4-frontend-04` — este change no introduce ningún valor de color nuevo (solo expone `success`/`warning` ya existentes), por lo que no debería alterar los resultados de esa auditoría.
+Todo token semántico introducido en esta fase tiene valor en `:root` y en `.dark` (color, elevación) o es tema-agnóstico y se declara igual en ambos por explicitud (motion). El contraste WCAG AA de los tokens de color lo verifica `frontend/__tests__/lib/token-contrast-aa.test.ts` (introducido por `tokens-contraste-aa`, 2026-08-17) — ya no alcanza con que un token tenga valor en los dos temas, ese valor tiene que además cumplir el umbral de contraste del rol en ese tema (ver la sección Color de arriba).
 
 ## Colores 3D (Fases B–D — fuente paralela, no CSS)
 

@@ -77,6 +77,33 @@ const config: Config = {
           ring: 'hsl(var(--sidebar-ring))',
         },
       },
+      // tokens-contraste-aa (task 3.2): en Tailwind v3, theme.extend.textColor
+      // se superpone SOLO sobre la paleta de utilities de texto — bg-*,
+      // border-*, ring-*, fill-* y divide-* siguen leyendo theme.extend.colors
+      // sin tocar (el color de marca de las superficies queda intacto). Las
+      // 4 claves se remapean como objeto { DEFAULT, foreground } —no un
+      // string— porque un string mataría text-success-foreground/
+      // text-warning-foreground/etc., en uso en facturacion/page.tsx:220 y
+      // admin/pagos/ambiguas/page.tsx:150. Ver design.md §D2 y
+      // frontend/docs/design-tokens.md.
+      textColor: {
+        success: {
+          DEFAULT: 'hsl(var(--success-text))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning-text))',
+          foreground: 'hsl(var(--warning-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive-text))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        primary: {
+          DEFAULT: 'hsl(var(--primary-text))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

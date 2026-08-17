@@ -28,7 +28,11 @@
     --destructive-foreground: 0 0% 98%;
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
-    --ring: 142 71% 45%;
+    /* tokens-contraste-aa task 3.4: 142 71% 45% → 142 71% 35%. El anillo de
+       foco medía 2,30:1 contra --card (por debajo del 3:1 que exige SC
+       1.4.11); oscurecerlo sube a ~3,70:1. Solo :root cambia — en .dark
+       el valor vigente ya pasa (8,06:1). */
+    --ring: 142 71% 35%;
     --radius: 0.75rem;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -42,6 +46,30 @@
     --warning-foreground: 0 0% 3.9%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 3.9%;
+
+    /* ── tokens-contraste-aa: tokens de TEXTO, separados de los de
+       SUPERFICIE (task 3.1) ──
+       `--success`/`--warning`/`--destructive`/`--primary` pintan fondos,
+       tintes, bordes e indicadores — su `-foreground` (casi-negro) se lee
+       encima porque son vívidos. Pero ese mismo valor vívido, usado como
+       TEXTO sobre una superficie casi blanca (--card/--background en tema
+       claro), no alcanza 4,5:1 WCAG AA: es un requisito de luminosidad
+       opuesto al de pintar una superficie. Los tokens `-text` de acá abajo
+       resuelven ESE uso — más oscuros en claro, iguales al valor vigente
+       en oscuro (que ya funcionaba como texto). Se cablean en
+       `tailwind.config.ts` vía `theme.extend.textColor`, así que
+       `text-success` etc. los usan automáticamente sin que ningún
+       componente cambie de clase. Ver `frontend/docs/design-tokens.md` y
+       `openspec/changes/tokens-contraste-aa/design.md` §D1-D3.
+       `--destructive-text` y `--primary-text` valen independientemente de
+       `--destructive` y `--primary-foreground` (grupo 4, bloqueado por
+       sign-off del PO — OQ-1/OQ-2): arreglan el texto y el tinte ya,
+       aunque el botón sólido de esos dos roles siga con su brecha
+       documentada hasta el sign-off. */
+    --success-text: 142 71% 26%;
+    --warning-text: 40 95% 28%;
+    --destructive-text: 0 84% 42%;
+    --primary-text: 142 71% 26%;
 
     /* ── v4-visual-3d-refresh: tokens de motion (Fase A, task 1.2) ──
        Contrato compartido 2D/3D (design.md D4): mismos valores expuestos acá
@@ -111,6 +139,15 @@
     --warning-foreground: 0 0% 3.9%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 3.9%;
+
+    /* ── tokens-contraste-aa: tokens de texto (task 3.1) — en oscuro el
+       valor vigente ya funciona como texto (fondo oscuro detrás), así que
+       coincide con el token base; ver la nota completa en el bloque
+       :root de arriba. */
+    --success-text: 142 71% 45%;
+    --warning-text: 48 96% 53%;
+    --destructive-text: 0 91% 71%;
+    --primary-text: 142 71% 45%;
 
     /* ── tokens de motion (task 1.2) — mismos valores que :root, ver nota arriba ── */
     --motion-duration-fast: 120ms;

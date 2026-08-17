@@ -33,9 +33,13 @@ export const queryKeys = {
     lists: () => ["purchases", "list"] as const,
   },
   clients: {
-    all:     () => ["clients"] as const,
-    lists:   () => ["clients", "list"] as const,
-    metrics: () => ["clients", "metrics"] as const,
+    all:      () => ["clients"] as const,
+    lists:    () => ["clients", "list"] as const,
+    metrics:  () => ["clients", "metrics"] as const,
+    // clientes-frecuentes-historial: bajo el mismo prefijo "clients" —
+    // invalidateQueries({queryKey: clients.all()}) invalida esto también.
+    activity:  () => ["clients", "activity"] as const,
+    purchases: (clientId: string) => ["clients", "purchases", clientId] as const,
   },
   insights: {
     all: () => ["insights"] as const,

@@ -296,6 +296,189 @@ async def test_get_client_excludes_soft_deleted(async_client, valid_token, mock_
     assert "deleted_at IS NULL" in conn.fetchrow.call_args.args[0]
 
 
+# ── clientes-frecuentes-historial (5.1 RED / 5.2 GREEN / 5.3 TRIANGULATE) ────
+
+ACTIVITY_ROW = {
+    "id": "33333333-3333-3333-3333-333333333333",
+    "name": "Acme Corp",
+    "email": "acme@example.com",
+    "phone": "+54 261 555-1234",
+    "tax_id": None,
+    "iva_condition": None,
+    "legal_name": None,
+    "created_at": "2024-01-10T09:00:00",
+    "purchase_count": 5,
+    "purchase_count_90d": 3,
+    "total_spent": "15000.00",
+    "last_purchase_date": "2026-08-01",
+    "days_since_last_purchase": 13,
+    "activity_status": "frecuente",
+}
+
+PURCHASE_ROW = {
+    "operation_id": "op-1",
+    "operation_date": "2026-08-01",
+    "item_count": 3,
+    "total": "3000.00",
+}
+
+
+def _activity_fetch_side_effect(rows: list[dict], today: str = "2026-08-14"):
+    async def _side_effect(query, *args):
+        return rows
+
+    return _side_effect
+
+
+async def test_get_client_activity_ok(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 1])  # get_reference_today, luego COUNT
+    conn.fetch = AsyncMock(return_value=[ACTIVITY_ROW])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?page=0&size=25",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"][0]["activity_status"] == "frecuente"
+    assert data["items"][0]["purchase_count"] == 5
+    assert data["total"] == 1
+    assert data["page"] == 0
+    assert "pages" in data
+
+
+async def test_get_client_activity_filters_by_status(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 0])
+    conn.fetch = AsyncMock(return_value=[])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?activity_status=inactivo",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    args = conn.fetch.call_args.args
+    assert "inactivo" in args
+
+
+async def test_get_client_activity_search(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 0])
+    conn.fetch = AsyncMock(return_value=[])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?search=acme",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    args = conn.fetch.call_args.args
+    assert "acme" in args
+
+
+async def test_get_client_activity_invalid_sort_returns_422_without_query(
+    async_client, valid_token, mock_pool
+):
+    """5.3 TRIANGULATE: `sort` fuera del conjunto admitido → 422 RFC 7807 sin
+    ejecutar la consulta (Pydantic valida antes del cuerpo del endpoint)."""
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(return_value="2026-08-14")
+    conn.fetch = AsyncMock(return_value=[])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?sort=bogus",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 422
+    conn.fetch.assert_not_awaited()
+    conn.fetchval.assert_not_awaited()
+
+
+async def test_get_client_activity_invalid_status_returns_422(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(return_value="2026-08-14")
+    conn.fetch = AsyncMock(return_value=[])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?activity_status=bogus",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 422
+    conn.fetch.assert_not_awaited()
+
+
+async def test_get_client_purchases_ok(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetchrow = AsyncMock(return_value=ACTIVITY_ROW)  # get_by_id + get_activity_for
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 1])  # today, luego COUNT
+    conn.fetch = AsyncMock(return_value=[PURCHASE_ROW])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/clients/{ACTIVITY_ROW['id']}/purchases",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"][0]["operation_id"] == "op-1"
+    assert data["items"][0]["item_count"] == 3
+    assert "summary" in data
+    assert data["summary"]["purchase_count"] == 5
+
+
+async def test_get_client_purchases_nonexistent_client_returns_404(async_client, valid_token, mock_pool):
+    """client-purchase-history §"Cliente de otra organización": el sistema
+    responde 404 RFC 7807 sin revelar datos, tanto para inexistente como
+    para cliente de otra cuenta (get_by_id ya filtra por account_id)."""
+    pool, conn = mock_pool
+    conn.fetchrow = AsyncMock(return_value=None)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/00000000-0000-0000-0000-000000000000/purchases",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 404
+
+
+async def test_get_client_purchases_page_out_of_range_keeps_total(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    conn.fetchrow = AsyncMock(return_value=ACTIVITY_ROW)
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 5])
+    conn.fetch = AsyncMock(return_value=[])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/clients/{ACTIVITY_ROW['id']}/purchases?page=99&size=25",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"] == []
+    assert data["total"] == 5
+
+
+# ── 5.4 REGRESIÓN — GET /clients conserva su lista plana ────────────────────
+
+
+async def test_list_clients_response_is_a_plain_list_not_an_envelope(
+    async_client, valid_token, mock_pool
+):
+    """data-api-endpoints §"Compatibilidad del listado plano de clientes":
+    GET /clients sigue devolviendo `list[ClientOut]`, sin envelope
+    {items,total,page,pages} — guardarraíl de los 6 consumidores de
+    selectores (ventas, pos, configuración, sale-form, client-form,
+    client-import-dialog)."""
+    pool, conn = mock_pool
+    conn.fetch = AsyncMock(return_value=[CLIENT_ROW])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert "items" not in data if isinstance(data, dict) else True
+    assert data[0]["name"] == "Acme Corp"
+
+
 async def test_update_client_fiscal_fields_only(async_client, mock_pool):
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})

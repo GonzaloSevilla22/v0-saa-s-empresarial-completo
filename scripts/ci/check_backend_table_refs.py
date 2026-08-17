@@ -58,7 +58,12 @@ ALLOWLIST: frozenset[str] = frozenset()
 # y porque "TRUNCATE TABLE x" tiene la keyword opcional TABLE en el medio
 # (ya manejada aparte en el regex, pero se blockea igual por defensa en
 # profundidad si algún día cambia el regex).
-_SQL_KEYWORD_NOISE = {"set", "skip", "locked", "nowait", "table"}
+# "lateral" (clientes-frecuentes-historial, client_repository.py): `LEFT
+# JOIN LATERAL (subquery) agg ON TRUE` — JOIN admite llamadas a función
+# (`_KEYWORDS_ALLOWING_FUNCTION_CALL`), y "LATERAL (" calza esa forma. LATERAL
+# es un modificador de JOIN estándar de Postgres, no una tabla ni una
+# función — mismo caso que SKIP LOCKED/SET arriba.
+_SQL_KEYWORD_NOISE = {"set", "skip", "locked", "nowait", "table", "lateral"}
 
 Ref = namedtuple("Ref", ["name", "lineno", "kind"])  # kind: "table" | "function"
 

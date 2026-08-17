@@ -304,6 +304,28 @@ def test_ignores_on_conflict_do_update_set_clause():
     assert "fiscal_profiles" in names
 
 
+def test_ignores_join_lateral_clause():
+    # Regresión clientes-frecuentes-historial: `client_repository.py` usa
+    # `LEFT JOIN LATERAL (subquery) agg ON TRUE` (design.md §4, agregados de
+    # actividad). El regex de relación captura el identificador inmediato
+    # después de JOIN — "LATERAL" — y como JOIN admite llamadas a función,
+    # "LATERAL (" se clasifica como llamada a una función inexistente
+    # 'lateral'. LATERAL es un modificador de JOIN de SQL estándar, no una
+    # tabla ni una función — mismo tratamiento que SKIP LOCKED/SET (línea
+    # 61, `_SQL_KEYWORD_NOISE`).
+    src = (
+        'x = """\n'
+        "SELECT * FROM clients c\n"
+        "LEFT JOIN LATERAL (\n"
+        "    SELECT 1\n"
+        ") agg ON TRUE\n"
+        '"""\n'
+    )
+    names = {r.name for r in gate.extract_refs(src)}
+    assert "lateral" not in names
+    assert "clients" in names
+
+
 def test_does_not_crash_on_ternary_expression_body_field():
     # Regresión: ast.IfExp también tiene un campo `.body`, pero es un único
     # nodo expresión (no una lista de statements) — tratarlo como docstring

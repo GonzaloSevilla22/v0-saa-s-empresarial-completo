@@ -7,6 +7,13 @@ from backend.repositories.client_repository import ClientRepository
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.schemas.clients import ClientCreate, ClientUpdate
 
+_EMPTY_SUMMARY = {
+    "purchase_count": 0,
+    "total_spent": 0,
+    "last_purchase_date": None,
+    "days_since_last_purchase": None,
+}
+
 
 async def list_clients(repo: ClientRepository, account_id: str) -> list:
     return await repo.list_by_org(account_id)
@@ -60,3 +67,68 @@ async def delete_client(repo: ClientRepository, auth: dict, account_id: str, cli
     if existing is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     await repo.soft_delete("clients", client_id, account_id, auth["user_id"])
+
+
+# ── clientes-frecuentes-historial ────────────────────────────────────────────
+
+
+async def list_client_activity(
+    repo: ClientRepository,
+    account_id: str,
+    *,
+    page: int,
+    size: int,
+    search: str | None = None,
+    activity_status: str | None = None,
+    sort: str = "name",
+    sort_dir: str = "asc",
+) -> dict:
+    """client-activity §"Agregados de actividad por cliente": una sola
+    consulta por página — el día de referencia se resuelve UNA vez acá vía
+    `reporting_local_today()`, nunca con `now()`/huso del servidor."""
+    today = await repo.get_reference_today()
+    return await repo.list_activity_page(
+        account_id,
+        today=today,
+        page=page,
+        size=size,
+        search=search,
+        activity_status=activity_status,
+        sort=sort,
+        sort_dir=sort_dir,
+    )
+
+
+def _build_purchase_summary(row) -> dict:
+    if row is None:
+        return dict(_EMPTY_SUMMARY)
+    data = dict(row)
+    return {
+        "purchase_count": data.get("purchase_count", 0),
+        "total_spent": data.get("total_spent", 0),
+        "last_purchase_date": data.get("last_purchase_date"),
+        "days_since_last_purchase": data.get("days_since_last_purchase"),
+    }
+
+
+async def get_client_purchases(
+    repo: ClientRepository,
+    account_id: str,
+    client_id: str,
+    *,
+    page: int,
+    size: int,
+) -> dict:
+    """client-purchase-history §"Historial de compras del cliente" +
+    §"Resumen acumulado": 404 RFC 7807 si el cliente no existe o es de otra
+    organización (aislamiento). El resumen reutiliza `get_activity_for` — la
+    misma definición de agregados que alimenta la lista — y se calcula sobre
+    la totalidad de las operaciones, no sobre la página visible."""
+    existing = await repo.get_by_id(client_id, account_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    today = await repo.get_reference_today()
+    summary_row = await repo.get_activity_for(client_id, account_id, today=today)
+    page_result = await repo.list_purchases_page(client_id, account_id, page=page, size=size)
+    return {**page_result, "summary": _build_purchase_summary(summary_row)}

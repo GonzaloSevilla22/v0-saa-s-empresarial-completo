@@ -17,14 +17,26 @@
     --popover: 0 0% 100%;
     --popover-foreground: 240 10% 3.9%;
     --primary: 142 71% 45%;
-    --primary-foreground: 355.7 100% 97.3%;
+    /* tokens-contraste-aa task 4.1 (sign-off PO 2026-08-17, OQ-2 APPROVED):
+       355.7 100% 97.3% (rose-50, casi blanco) → 0 0% 3.9%. El texto sobre
+       el botón primario medía 2,09:1 — alinea el tema claro con .dark y con
+       --success-foreground, que ya usan casi-negro sobre el mismo verde.
+       Sube a 8,62:1. */
+    --primary-foreground: 0 0% 3.9%;
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
     --muted: 240 4.8% 95.9%;
     --muted-foreground: 240 3.8% 46.1%;
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    /* tokens-contraste-aa task 4.2 (sign-off PO 2026-08-17, OQ-1 APPROVED):
+       0 84.2% 60.2% → 0 84% 42%. --destructive-foreground es el único
+       -foreground casi-blanco, así que oscurecer la base sube LOS DOS pares
+       a la vez: sólido 3,60 → 5,80 y texto-sobre-tinte 3,09 → 4,65. Coincide
+       con --destructive-text (ya en 0 84% 42% desde el grupo 3), así que
+       ambos quedan alineados. Repinta botones destructivos, badges y la
+       barra negativa de /rentabilidad (cohorte F, task 5.6). */
+    --destructive: 0 84% 42%;
     --destructive-foreground: 0 0% 98%;
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
@@ -61,11 +73,10 @@
        `text-success` etc. los usan automáticamente sin que ningún
        componente cambie de clase. Ver `frontend/docs/design-tokens.md` y
        `openspec/changes/tokens-contraste-aa/design.md` §D1-D3.
-       `--destructive-text` y `--primary-text` valen independientemente de
-       `--destructive` y `--primary-foreground` (grupo 4, bloqueado por
-       sign-off del PO — OQ-1/OQ-2): arreglan el texto y el tinte ya,
-       aunque el botón sólido de esos dos roles siga con su brecha
-       documentada hasta el sign-off. */
+       `--destructive-text` y `--primary-text` coinciden con `--destructive`
+       y `--primary-foreground` (grupo 4, sign-off del PO 2026-08-17,
+       OQ-1/OQ-2 APPROVED, ver arriba): ya no hay brecha pendiente — los 28
+       pares canónicos alcanzan su umbral real. */
     --success-text: 142 71% 26%;
     --warning-text: 40 95% 28%;
     --destructive-text: 0 84% 42%;

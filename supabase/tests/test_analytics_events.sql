@@ -609,14 +609,6 @@ BEGIN
   ELSE
     SELECT id INTO v_g4_branch FROM public.branches WHERE account_id = v_g4_acct ORDER BY created_at LIMIT 1;
 
-    -- Isolation baseline: conteos de los otros event_name ANTES de tocar nada.
-    SELECT jsonb_build_object(
-      'insight_generated', (SELECT count(*) FROM public.analytics_events WHERE event_name = 'insight_generated'),
-      'first_operation',   (SELECT count(*) FROM public.analytics_events WHERE event_name = 'first_operation'),
-      'umv_reached',       (SELECT count(*) FROM public.analytics_events WHERE event_name = 'umv_reached'),
-      'post_created',      (SELECT count(*) FROM public.analytics_events WHERE event_name = 'post_created')
-    ) INTO v_g4_isolation_before;
-
     -- Operación real (no huérfana) — su operation_created moderno (del
     -- trigger) debe sobrevivir a la limpieza. "Borrado lógico": este schema
     -- no tiene columna de soft-delete propia en sales, pero el mecanismo
@@ -656,6 +648,19 @@ BEGIN
       v_failures := array_append(v_failures,
         format('FAIL 10-setup: se esperaban 4 filas operation_created antes de limpiar (trigger + 2 huérfanos + 1 duplicado), hay %s', v_g4_count));
     END IF;
+
+    -- Isolation baseline: conteos de los otros event_name tomados DESPUÉS de
+    -- armar el fixture (la venta real de arriba dispara legítimamente su
+    -- propio first_operation, al ser la primera operación de v_g4_user — eso
+    -- no es un efecto de la limpieza, así que no debe contaminar la
+    -- comparación). Lo que este gate prueba es que la limpieza en sí misma
+    -- (huérfanos + dedup, corrida más abajo) no toca estos conteos.
+    SELECT jsonb_build_object(
+      'insight_generated', (SELECT count(*) FROM public.analytics_events WHERE event_name = 'insight_generated'),
+      'first_operation',   (SELECT count(*) FROM public.analytics_events WHERE event_name = 'first_operation'),
+      'umv_reached',       (SELECT count(*) FROM public.analytics_events WHERE event_name = 'umv_reached'),
+      'post_created',      (SELECT count(*) FROM public.analytics_events WHERE event_name = 'post_created')
+    ) INTO v_g4_isolation_before;
 
     -- ── Misma lógica que 20260925000001 (G4a): huérfanos ──────────────────
     WITH keyed AS (

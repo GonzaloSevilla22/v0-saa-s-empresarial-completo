@@ -80,8 +80,8 @@ async def list_client_activity(
     size: int,
     search: str | None = None,
     activity_status: str | None = None,
-    sort: str = "name",
-    sort_dir: str = "asc",
+    sort: str = "last_purchase",
+    sort_dir: str = "desc",
 ) -> dict:
     """client-activity §"Agregados de actividad por cliente": una sola
     consulta por página — el día de referencia se resuelve UNA vez acá vía

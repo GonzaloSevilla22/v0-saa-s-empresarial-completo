@@ -71,8 +71,11 @@ describe("useClientActivityList", () => {
       totalSpent: 15000.5,
       daysSinceLastPurchase: 13,
     })
+    // deudas-menores-agosto (G3): el default pasó de name/asc a
+    // last_purchase/desc a propósito — el control de orden inicializa
+    // reflejando lo que el servidor ya devuelve por defecto (design.md §D7).
     expect(pythonClient.get).toHaveBeenCalledWith(
-      "/clients/activity?page=0&size=25&sort=name&sort_dir=asc"
+      "/clients/activity?page=0&size=25&sort=last_purchase&sort_dir=desc"
     )
   })
 
@@ -130,6 +133,18 @@ describe("useClientActivityList", () => {
         expect.stringContaining("search=acme")
       )
     )
+  })
+
+  // deudas-menores-agosto (G3, task 4.4) — el control de orden inicializa en
+  // los mismos valores que el default del servidor.
+  it("initializes sort/sortDir at last_purchase/desc to match the server default", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0, page: 0, pages: 0 })
+
+    const { result } = renderHook(() => useClientActivityList(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.sort).toBe("last_purchase")
+    expect(result.current.sortDir).toBe("desc")
   })
 
   it("setActivityStatus sends activity_status as a query param", async () => {

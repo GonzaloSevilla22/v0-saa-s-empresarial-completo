@@ -156,8 +156,11 @@ export function useClientActivityList() {
   const [pageSize,       setPageSizeState]       = useState<PageSizeOption>(25)
   const [search,         setSearchState]         = useState("")
   const [activityStatus, setActivityStatusState] = useState<ClientActivityStatus | null>(null)
-  const [sort,           setSortState]           = useState<ClientActivitySort>("name")
-  const [sortDir,        setSortDirState]        = useState<SortDir>("asc")
+  // deudas-menores-agosto (G3): default pasa de name/asc a last_purchase/desc
+  // — el control de orden inicializa reflejando lo que el servidor ya
+  // devuelve por defecto (design.md §D7); el orden lo sigue resolviendo SQL.
+  const [sort,           setSortState]           = useState<ClientActivitySort>("last_purchase")
+  const [sortDir,        setSortDirState]        = useState<SortDir>("desc")
 
   const setPage = useCallback((p: number) => setPageState(p), [])
   const setPageSize = useCallback((s: PageSizeOption) => {

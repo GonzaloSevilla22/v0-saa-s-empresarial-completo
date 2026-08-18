@@ -33,7 +33,6 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
   const [email,    setEmail]    = useState(initialData?.email    || "")
   const [phone,    setPhone]    = useState(initialData?.phone    || "")
   const [category, setCategory] = useState(initialData?.category || "")
-  const [status,   setStatus]   = useState(initialData?.status   || "activo")
 
   // Datos fiscales (C-22) — opcionales
   const [taxId,        setTaxId]        = useState(initialData?.taxId        || "")
@@ -66,7 +65,6 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       name:     name.trim(),
       email:    email.trim()    || null,
       phone:    phone.trim()    || null,
-      status,
       category: category.trim() || null,
       taxId:        taxId.trim()     || undefined,
       ivaCondition: ivaCondition     || undefined,
@@ -243,22 +241,6 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
           />
         </div>
       </div>
-
-      {initialData && (
-        <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Estado</Label>
-          <Select value={status} onValueChange={(v: any) => setStatus(v)}>
-            <SelectTrigger className="bg-background border-border text-foreground">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
-              <SelectItem value="activo">Activo</SelectItem>
-              <SelectItem value="inactivo">Inactivo</SelectItem>
-              <SelectItem value="perdido">Perdido</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       <Button type="submit" className="w-full">
         {initialData ? "Actualizar cliente" : "Crear cliente"}

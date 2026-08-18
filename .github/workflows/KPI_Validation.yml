@@ -26,6 +26,27 @@ jobs:
       - name: Start Supabase
         run: supabase start
 
+      # deudas-menores-agosto (G1 + G4): las dos migraciones nuevas deben ser
+      # reejecutables (CREATE OR REPLACE / ON CONFLICT DO UPDATE / DELETE
+      # re-derivado / UPDATE ... WHERE account_id IS NULL). `supabase start`
+      # ya las aplicó una vez al levantar el stack; esto las reaplica a mano
+      # y compara un fingerprint de estado antes/después — debe ser idéntico
+      # (tasks 2.5 y 5.6: verificación de idempotencia real, no declarada).
+      - name: Verify G1/G4 migrations are idempotent on reapply
+        run: |
+          set -e
+          DSN=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          FINGERPRINT="SELECT (SELECT count(*) FROM public.analytics_events WHERE event_name='operation_created') || '|' || (SELECT count(*) FROM public.sale_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.purchase_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.account_feature_flags WHERE flag_key='sale_items_rpc_v2')"
+          BEFORE=$(psql -tA "$DSN" -c "$FINGERPRINT")
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260924000001_activate_sale_items_rpc_v2.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260925000001_cleanup_analytics_and_line_account_id.sql
+          AFTER=$(psql -tA "$DSN" -c "$FINGERPRINT")
+          if [ "$BEFORE" != "$AFTER" ]; then
+            echo "NOT IDEMPOTENT: fingerprint changed on reapply ($BEFORE -> $AFTER)"
+            exit 1
+          fi
+          echo "Idempotent: fingerprint unchanged on reapply ($BEFORE)"
+
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
       - name: Run deterministic KPI tests
@@ -48,6 +69,20 @@ jobs:
       # este test solo corría a mano.
       - name: Run idempotency ledger invariants
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_idempotency.sql
+
+      # deudas-menores-agosto (G1): sale_items_rpc_v2 pasa de opt-in a
+      # opt-out — ausencia de fila en account_feature_flags deja de
+      # significar legacy y pasa a significar v2. Verifica, para
+      # rpc_create_sale_operation Y rpc_create_purchase_operation (mismo
+      # flag_key): cuenta sin fila escribe línea, kill-switch explícito
+      # (enabled=false) sigue en legacy, línea de servicio no genera fila,
+      # idempotencia intacta, y el stock se mueve igual que antes. Hallazgo
+      # documentado en la migración: rpc_create_purchase_operation vigente en
+      # prod no tenía dispatch a ningún flag — se agregó junto con el
+      # INSERT condicionado de purchase_items (ver cabecera de
+      # 20260924000001_activate_sale_items_rpc_v2.sql).
+      - name: Run sale_items_rpc_v2 activation gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_sale_items_rpc_v2_activation.sql
 
       # analytics-events-revival: choke point único de telemetría de producto
       # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,

@@ -29,15 +29,16 @@ import { toast } from "sonner"
 import type { Client, IvaCondition } from "@/lib/types"
 
 /** ClientForm sólo lee name/email/phone/taxId/ivaCondition/legalName/id de
- * `initialData` (más category/status, que no persiste el backend Python —
- * quedan como default). Mapeo explícito en vez de `as any`. */
+ * `initialData` (más category, que no persiste el backend Python — queda
+ * como default). Mapeo explícito en vez de `as any`.
+ * deudas-menores-agosto (G2): `status` ya no se envía — el campo manual
+ * dejó de tener superficie de lectura o edición (Client.status es legacy). */
 function toFormInitialData(c: ClientActivity): Client {
   return {
     id:           c.id,
     name:         c.name,
     email:        c.email,
     phone:        c.phone,
-    status:       "activo",
     lastPurchase: "-",
     totalSpent:   c.totalSpent,
     taxId:        c.taxId,

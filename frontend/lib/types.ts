@@ -413,7 +413,12 @@ export interface Client {
   name: string
   email: string
   phone: string
-  status: ClientStatus
+  /** @deprecated legacy manual field — deudas-menores-agosto (G2): sin
+   * superficie de lectura ni edición en la UI. El único estado de cliente
+   * visible es el calculado (ClientActivityStatus, ver client-activity).
+   * La columna sigue existiendo en la DB sin cambios; sólo se quitó la
+   * superficie. Opcional porque algunas rutas aún leen el registro crudo. */
+  status?: ClientStatus
   lastPurchase: string
   totalSpent: number
   category?: string

@@ -85,6 +85,21 @@ DECLARE
   v_bf_total_ops        integer;
   v_bf_events_before    integer;
   v_bf_events_after     integer;
+
+  -- Anchor G4 (deudas-menores-agosto, grupo 4a/4b): limpieza de huérfanos +
+  -- duplicados de operation_created (cruzando payload legacy/moderno) y
+  -- backfill de account_id en sale_items/purchase_items.
+  v_g4_email            text := 'analytics-events-revival-gate-g4-cleanup@test.local';
+  v_g4_user             uuid := gen_random_uuid();
+  v_g4_acct             uuid;
+  v_g4_branch           uuid;
+  v_g4_real_sale_id     uuid;
+  v_g4_legacy_orphan_id uuid;
+  v_g4_modern_orphan_id uuid;
+  v_g4_dup_legacy_id    uuid;
+  v_g4_count            integer;
+  v_g4_isolation_before jsonb;
+  v_g4_isolation_after  jsonb;
 BEGIN
   -- Anchor sintético: dispara handle_new_user (AFTER INSERT ON auth.users) —
   -- crea account + branch "Casa Central" + cashbox (desde 20260812000001).
@@ -579,26 +594,243 @@ BEGIN
     END;
   END IF;
 
+  -- ── Gate 10 (deudas-menores-agosto G4a): limpieza de huérfanos/duplicados ──
+  -- de operation_created, cruzando las dos formas de payload ─────────────────
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_g4_user, 'authenticated', 'authenticated', v_g4_email, now(), now(),
+          jsonb_build_object('name', 'Gate G4 Cleanup', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_g4_acct
+  FROM public.account_members WHERE user_id = v_g4_user ORDER BY created_at LIMIT 1;
+
+  IF v_g4_acct IS NULL THEN
+    v_failures := array_append(v_failures, 'FAIL 10-setup: no se pudo resolver account para el anchor G4 (cleanup)');
+  ELSE
+    SELECT id INTO v_g4_branch FROM public.branches WHERE account_id = v_g4_acct ORDER BY created_at LIMIT 1;
+
+    -- Operación real (no huérfana) — su operation_created moderno (del
+    -- trigger) debe sobrevivir a la limpieza. "Borrado lógico": este schema
+    -- no tiene columna de soft-delete propia en sales, pero el mecanismo
+    -- NOT EXISTS es agnóstico a eso — cualquier fila que siga existiendo
+    -- preserva su evento sea cual sea su estado, que es lo que este gate
+    -- prueba con la fila real de abajo.
+    INSERT INTO public.sales (user_id, account_id, branch_id, amount, quantity, date)
+    VALUES (v_g4_user, v_g4_acct, v_g4_branch, 999, 1, now())
+    RETURNING id INTO v_g4_real_sale_id;
+
+    -- (10a) Huérfano payload LEGACY: sale_id apunta a una venta inexistente.
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data)
+    VALUES (v_g4_user, v_g4_acct, 'operation_created',
+            jsonb_build_object('sale_id', gen_random_uuid()::text, 'type', 'sale'))
+    RETURNING id INTO v_g4_legacy_orphan_id;
+
+    -- (10b) Huérfano payload MODERNO: entity_id apunta a una compra inexistente.
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data)
+    VALUES (v_g4_user, v_g4_acct, 'operation_created',
+            jsonb_build_object('entity_id', gen_random_uuid()::text, 'entity_type', 'purchase', 'source', 'trigger'))
+    RETURNING id INTO v_g4_modern_orphan_id;
+
+    -- (10d) Duplicado CRUZANDO formas de payload: un segundo evento legacy
+    -- para la MISMA venta real (que ya tiene su operation_created moderno
+    -- del trigger). El índice único parcial sólo cubre entity_id, así que el
+    -- payload legacy no está bloqueado — por diseño (D4) la limpieza debe
+    -- des-duplicar por la CLAVE (COALESCE), no por la forma del payload.
+    INSERT INTO public.analytics_events (user_id, account_id, event_name, event_data, created_at)
+    VALUES (v_g4_user, v_g4_acct, 'operation_created',
+            jsonb_build_object('sale_id', v_g4_real_sale_id::text, 'type', 'sale'),
+            now() + interval '1 hour')
+    RETURNING id INTO v_g4_dup_legacy_id;
+
+    SELECT count(*) INTO v_g4_count
+    FROM public.analytics_events WHERE account_id = v_g4_acct AND event_name = 'operation_created';
+    IF v_g4_count <> 4 THEN
+      v_failures := array_append(v_failures,
+        format('FAIL 10-setup: se esperaban 4 filas operation_created antes de limpiar (trigger + 2 huérfanos + 1 duplicado), hay %s', v_g4_count));
+    END IF;
+
+    -- Isolation baseline: conteos de los otros event_name tomados DESPUÉS de
+    -- armar el fixture (la venta real de arriba dispara legítimamente su
+    -- propio first_operation, al ser la primera operación de v_g4_user — eso
+    -- no es un efecto de la limpieza, así que no debe contaminar la
+    -- comparación). Lo que este gate prueba es que la limpieza en sí misma
+    -- (huérfanos + dedup, corrida más abajo) no toca estos conteos.
+    SELECT jsonb_build_object(
+      'insight_generated', (SELECT count(*) FROM public.analytics_events WHERE event_name = 'insight_generated'),
+      'first_operation',   (SELECT count(*) FROM public.analytics_events WHERE event_name = 'first_operation'),
+      'umv_reached',       (SELECT count(*) FROM public.analytics_events WHERE event_name = 'umv_reached'),
+      'post_created',      (SELECT count(*) FROM public.analytics_events WHERE event_name = 'post_created')
+    ) INTO v_g4_isolation_before;
+
+    -- ── Misma lógica que 20260925000001 (G4a): huérfanos ──────────────────
+    WITH keyed AS (
+      SELECT id,
+             COALESCE(event_data->>'entity_id', event_data->>'sale_id', event_data->>'purchase_id', event_data->>'expense_id') AS entity_key
+      FROM   public.analytics_events
+      WHERE  event_name = 'operation_created'
+    ),
+    orphans AS (
+      SELECT k.id FROM keyed k
+      WHERE  k.entity_key IS NOT NULL
+        AND  NOT EXISTS (SELECT 1 FROM public.sales     s WHERE s.id::text = k.entity_key)
+        AND  NOT EXISTS (SELECT 1 FROM public.purchases p WHERE p.id::text = k.entity_key)
+        AND  NOT EXISTS (SELECT 1 FROM public.expenses  e WHERE e.id::text = k.entity_key)
+    )
+    DELETE FROM public.analytics_events ae USING orphans o WHERE ae.id = o.id;
+
+    -- ── Misma lógica que 20260925000001 (G4a): duplicados ──────────────────
+    WITH keyed AS (
+      SELECT id, created_at,
+             COALESCE(event_data->>'entity_id', event_data->>'sale_id', event_data->>'purchase_id', event_data->>'expense_id') AS entity_key
+      FROM   public.analytics_events
+      WHERE  event_name = 'operation_created'
+    ),
+    ranked AS (
+      SELECT id, ROW_NUMBER() OVER (PARTITION BY entity_key ORDER BY created_at ASC, id ASC) AS rn
+      FROM   keyed WHERE entity_key IS NOT NULL
+    )
+    DELETE FROM public.analytics_events ae USING (SELECT id FROM ranked WHERE rn > 1) d WHERE ae.id = d.id;
+
+    IF EXISTS (SELECT 1 FROM public.analytics_events WHERE id = v_g4_legacy_orphan_id) THEN
+      v_failures := array_append(v_failures, 'FAIL 10a: el huérfano de payload LEGACY (sale_id) no fue borrado');
+    ELSE
+      RAISE NOTICE 'PASS 10a: huérfano de payload legacy (sale_id) borrado';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM public.analytics_events WHERE id = v_g4_modern_orphan_id) THEN
+      v_failures := array_append(v_failures, 'FAIL 10b: el huérfano de payload MODERNO (entity_id) no fue borrado');
+    ELSE
+      RAISE NOTICE 'PASS 10b: huérfano de payload moderno (entity_id) borrado';
+    END IF;
+
+    SELECT count(*) INTO v_g4_count
+    FROM public.analytics_events
+    WHERE account_id = v_g4_acct AND event_name = 'operation_created'
+      AND (event_data->>'entity_id' = v_g4_real_sale_id::text OR event_data->>'sale_id' = v_g4_real_sale_id::text);
+    IF v_g4_count <> 1 THEN
+      v_failures := array_append(v_failures,
+        format('FAIL 10c: la venta real (existente) debería conservar exactamente 1 operation_created tras dedup (el más antiguo), hay %s', v_g4_count));
+    ELSE
+      RAISE NOTICE 'PASS 10c: la operación existente conserva exactamente 1 operation_created (huérfanos borrados, duplicado deduplicado)';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM public.analytics_events WHERE id = v_g4_dup_legacy_id) THEN
+      v_failures := array_append(v_failures, 'FAIL 10d: el duplicado más nuevo (creado +1h) debería haber sido borrado — se conservó el más antiguo');
+    ELSE
+      RAISE NOTICE 'PASS 10d: el dedup conservó el evento más antiguo y borró el duplicado más nuevo, cruzando payload legacy/moderno por la misma clave';
+    END IF;
+
+    SELECT jsonb_build_object(
+      'insight_generated', (SELECT count(*) FROM public.analytics_events WHERE event_name = 'insight_generated'),
+      'first_operation',   (SELECT count(*) FROM public.analytics_events WHERE event_name = 'first_operation'),
+      'umv_reached',       (SELECT count(*) FROM public.analytics_events WHERE event_name = 'umv_reached'),
+      'post_created',      (SELECT count(*) FROM public.analytics_events WHERE event_name = 'post_created')
+    ) INTO v_g4_isolation_after;
+
+    IF v_g4_isolation_before IS DISTINCT FROM v_g4_isolation_after THEN
+      v_failures := array_append(v_failures,
+        format('FAIL 10e: la limpieza tocó eventos de otro event_name — antes %s, después %s', v_g4_isolation_before, v_g4_isolation_after));
+    ELSE
+      RAISE NOTICE 'PASS 10e: insight_generated/first_operation/umv_reached/post_created intactos tras la limpieza';
+    END IF;
+
+    -- ── Idempotencia: reejecutar la limpieza de huérfanos sobre datos ya
+    -- limpios no debe borrar nada más ─────────────────────────────────────
+    SELECT count(*) INTO v_g4_count FROM public.analytics_events WHERE account_id = v_g4_acct AND event_name = 'operation_created';
+
+    WITH keyed AS (
+      SELECT id,
+             COALESCE(event_data->>'entity_id', event_data->>'sale_id', event_data->>'purchase_id', event_data->>'expense_id') AS entity_key
+      FROM   public.analytics_events WHERE event_name = 'operation_created'
+    ),
+    orphans AS (
+      SELECT k.id FROM keyed k
+      WHERE  k.entity_key IS NOT NULL
+        AND  NOT EXISTS (SELECT 1 FROM public.sales     s WHERE s.id::text = k.entity_key)
+        AND  NOT EXISTS (SELECT 1 FROM public.purchases p WHERE p.id::text = k.entity_key)
+        AND  NOT EXISTS (SELECT 1 FROM public.expenses  e WHERE e.id::text = k.entity_key)
+    )
+    DELETE FROM public.analytics_events ae USING orphans o WHERE ae.id = o.id;
+
+    IF (SELECT count(*) FROM public.analytics_events WHERE account_id = v_g4_acct AND event_name = 'operation_created') <> v_g4_count THEN
+      v_failures := array_append(v_failures, 'FAIL 10f: reejecutar la limpieza de huérfanos sobre datos ya limpios borró filas adicionales (no idempotente)');
+    ELSE
+      RAISE NOTICE 'PASS 10f: reejecutar la limpieza de huérfanos no borra filas adicionales (idempotente)';
+    END IF;
+  END IF;
+
+  -- ── Gate 11 (deudas-menores-agosto G4b): backfill de account_id ──────────
+  DECLARE
+    v_g4b_sale_item_id     uuid;
+    v_g4b_purchase_item_id uuid;
+    v_g4b_purchase_id      uuid;
+  BEGIN
+    IF v_g4_acct IS NOT NULL THEN
+      -- Línea con account_id NULL cuyo padre SÍ tiene account_id → debe heredarlo.
+      INSERT INTO public.sale_items (sale_id, product_id, account_id, quantity, price, subtotal)
+      VALUES (v_g4_real_sale_id, NULL, NULL, 1, 10, 10)
+      RETURNING id INTO v_g4b_sale_item_id;
+
+      INSERT INTO public.purchases (user_id, account_id, branch_id, amount, quantity, date)
+      VALUES (v_g4_user, v_g4_acct, v_g4_branch, 500, 1, now())
+      RETURNING id INTO v_g4b_purchase_id;
+
+      INSERT INTO public.purchase_items (purchase_id, product_id, account_id, quantity, price, subtotal)
+      VALUES (v_g4b_purchase_id, NULL, NULL, 1, 5, 5)
+      RETURNING id INTO v_g4b_purchase_item_id;
+
+      -- ── Misma lógica que 20260925000001 (G4b) ──────────────────────────
+      UPDATE public.sale_items si SET account_id = s.account_id
+      FROM public.sales s WHERE s.id = si.sale_id AND si.account_id IS NULL AND s.account_id IS NOT NULL;
+
+      UPDATE public.purchase_items pi SET account_id = p.account_id
+      FROM public.purchases p WHERE p.id = pi.purchase_id AND pi.account_id IS NULL AND p.account_id IS NOT NULL;
+
+      IF (SELECT account_id FROM public.sale_items WHERE id = v_g4b_sale_item_id) IS DISTINCT FROM v_g4_acct THEN
+        v_failures := array_append(v_failures, 'FAIL 11a: sale_items con account_id NULL no heredó el account_id de su venta padre');
+      ELSE
+        RAISE NOTICE 'PASS 11a: sale_items hereda el account_id de su venta padre';
+      END IF;
+
+      IF (SELECT account_id FROM public.purchase_items WHERE id = v_g4b_purchase_item_id) IS DISTINCT FROM v_g4_acct THEN
+        v_failures := array_append(v_failures, 'FAIL 11b: purchase_items con account_id NULL no heredó el account_id de su compra padre');
+      ELSE
+        RAISE NOTICE 'PASS 11b: purchase_items hereda el account_id de su compra padre';
+      END IF;
+
+      -- Idempotencia: reejecutar el UPDATE de sale_items no debe tocar
+      -- ninguna fila (ya no quedan NULL para este anchor).
+      UPDATE public.sale_items si SET account_id = s.account_id
+      FROM public.sales s WHERE s.id = si.sale_id AND si.account_id IS NULL AND s.account_id IS NOT NULL;
+      GET DIAGNOSTICS v_g4_count = ROW_COUNT;
+      IF v_g4_count <> 0 THEN
+        v_failures := array_append(v_failures, format('FAIL 11c: la segunda corrida del backfill de sale_items tocó %s filas (debía ser 0)', v_g4_count));
+      ELSE
+        RAISE NOTICE 'PASS 11c: la segunda corrida del backfill de sale_items no toca ninguna fila (idempotente)';
+      END IF;
+    END IF;
+  END;
+
   -- ── Resultado ─────────────────────────────────────────────────────────────
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE ANALYTICS-EVENTS-REVIVAL FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'GATE ANALYTICS-EVENTS-REVIVAL PASSED: emisión (gasto/compra/venta), unicidad de activación, atomicidad, degrade-don''t-fail, ACL/RLS, idempotencia, granularidad, backfill histórico y unicidad de umv_reached — verificados.';
+  RAISE NOTICE 'GATE ANALYTICS-EVENTS-REVIVAL PASSED: emisión (gasto/compra/venta), unicidad de activación, atomicidad, degrade-don''t-fail, ACL/RLS, idempotencia, granularidad, backfill histórico, unicidad de umv_reached, limpieza de huérfanos/duplicados (G4a) y backfill de account_id (G4b) — verificados.';
 
   -- ── Limpieza hijo→padre (accounts=0 al final) ────────────────────────────
-  DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-  DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-  DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-  DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-  DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct));
-  DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-  DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-  DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-  DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
-  DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-  DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-  DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
+  DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+  DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct));
+  DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+  DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+  DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+  DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+  DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
 
 EXCEPTION
   WHEN OTHERS THEN
@@ -625,18 +857,18 @@ EXCEPTION
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     BEGIN
-      DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-      DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-      DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-      DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-      DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct));
-      DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-      DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-      DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct);
-      DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
-      DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-      DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user);
-      DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user, v_backfill_user);
+      DELETE FROM public.analytics_events WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+      DELETE FROM public.sales     WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct));
+      DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+      DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+      DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+      DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+      DELETE FROM auth.users                   WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     RAISE;

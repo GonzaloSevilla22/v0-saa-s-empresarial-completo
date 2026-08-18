@@ -52,8 +52,8 @@ async def list_clients(
 async def list_client_activity(
     search: str | None = Query(None),
     activity_status: ClientActivityStatus | None = Query(None),
-    sort: ClientActivitySort = Query("name"),
-    sort_dir: SortDir = Query("asc"),
+    sort: ClientActivitySort = Query("last_purchase"),
+    sort_dir: SortDir = Query("desc"),
     page: int = Query(0, ge=0),
     size: int = Query(25, ge=1, le=200),
     auth: dict = Depends(get_current_user),

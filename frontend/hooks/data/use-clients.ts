@@ -20,13 +20,14 @@ interface ClientApiRow {
   created_at: string
 }
 
+// deudas-menores-agosto (G2): `status` legacy dejó de mapearse — el backend
+// Python ya no lo persiste y la UI ya no lo lee ni lo edita.
 function mapClient(c: ClientApiRow): Client {
   return {
     id:           c.id,
     name:         c.name,
     email:        c.email        || "",
     phone:        c.phone        || "",
-    status:       "activo",
     lastPurchase: "-",
     totalSpent:   0,
     category:     undefined,

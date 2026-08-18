@@ -181,6 +181,49 @@ class TestListActivityPage:
         sql = conn.fetch.call_args.args[0]
         assert "last_purchase_date DESC NULLS LAST" in sql
 
+    # ── deudas-menores-agosto (G3) — orden por defecto: última compra ────────
+
+    @pytest.mark.asyncio
+    async def test_default_order_is_last_purchase_desc_when_not_specified(self, client_repo):
+        """G3: sin pasar sort/sort_dir, el default pasa de name ASC a
+        last_purchase_date DESC NULLS LAST (design.md §D7) — cierra la OQ-4
+        de clientes-frecuentes-historial."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        assert "ORDER BY last_purchase_date DESC NULLS LAST" in sql
+
+    @pytest.mark.asyncio
+    async def test_explicit_sort_by_name_still_works(self, client_repo):
+        """TRIANGULATE: el default nuevo no rompe el control explícito del
+        usuario — sort=name sigue funcionando como antes."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25, sort="name", sort_dir="asc")
+
+        sql = conn.fetch.call_args.args[0]
+        assert "ORDER BY name ASC" in sql
+
+    @pytest.mark.asyncio
+    async def test_default_order_tiebreaks_by_id_for_stable_pagination(self, client_repo):
+        """TRIANGULATE: el desempate `, id ASC` sigue presente en el default
+        nuevo — evita filas repetidas u omitidas al paginar con fechas
+        empatadas o nulas."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        assert "ORDER BY last_purchase_date DESC NULLS LAST, id ASC" in sql
+
     @pytest.mark.asyncio
     async def test_unknown_sort_never_interpolated_falls_back_to_name(self, client_repo):
         """Defensa en profundidad: aunque `sort` ya se valida en el schema del

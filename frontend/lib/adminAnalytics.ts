@@ -201,56 +201,18 @@ export const fetchModuleStats = async (
 }
 
 // ─── New KPI Engine RPCs (secured — guarded by is_admin() server-side) ───────
-
-/** Percentage of users who completed their first operation within the cohort window. */
-export const fetchActivationRate = async (dateFrom: string, dateTo: string, client?: AnyClient): Promise<number> => {
-  const supabase = client || createClient()
-
-  const { data, error } = await supabase.rpc('get_admin_activation_rate', {
-    p_date_from: dateFrom,
-    p_date_to:   dateTo,
-  })
-
-  if (error) throw error
-  return Number(data ?? 0)
-}
-
-/** Percentage of activated users who also generated at least one AI insight. */
-export const fetchUmvRate = async (dateFrom: string, dateTo: string, client?: AnyClient): Promise<number> => {
-  const supabase = client || createClient()
-
-  const { data, error } = await supabase.rpc('get_admin_umv_rate', {
-    p_date_from: dateFrom,
-    p_date_to:   dateTo,
-  })
-
-  if (error) throw error
-  return Number(data ?? 0)
-}
-
-/**
- * Paid (pro) conversion rate as a percentage.
- *
- * When `dateFrom`/`dateTo` are provided the rate is scoped to profiles
- * registered within that cohort window (consistent with other period KPIs).
- * When omitted the all-time snapshot is returned (original behaviour).
- */
-export const fetchPaidConversionRate = async (
-  dateFrom?: string,
-  dateTo?:   string,
-  client?:   AnyClient,
-): Promise<number> => {
-  const supabase = client || createClient()
-
-  const params = dateFrom && dateTo
-    ? { p_date_from: dateFrom, p_date_to: dateTo }
-    : {}
-
-  const { data, error } = await supabase.rpc('get_admin_paid_conversion_rate', params)
-
-  if (error) throw error
-  return Number(data ?? 0)
-}
+//
+// deudas-menores-agosto (G5): fetchActivationRate/fetchUmvRate/
+// fetchPaidConversionRate/fetchInsightsBreakdown se removieron acá — 0
+// consumidores en todo frontend/ (verificado por grep, cierra la OQ-6 de
+// admin-kpi-refresh). Las RPCs get_admin_activation_rate/get_admin_umv_rate/
+// get_admin_paid_conversion_rate/get_admin_insights_breakdown NO se tocan en
+// la base — dropearlas es un riesgo aparte (ACLs/dependencias), anotado como
+// deuda distinta (OQ-3 de este change). AdminInsightsBreakdownEntry (arriba)
+// se conserva: a diferencia de lo que asumía design.md, no era exclusiva de
+// fetchInsightsBreakdown — también tipa AdminKpiOverview.insights_breakdown,
+// que sí sigue en uso (fetchKpiOverview, consumido por
+// app/(dashboard)/admin/metricas y admin/analytics).
 
 /** Total community interactions (posts + replies) within the date range. */
 export const fetchCommunityInteractions = async (dateFrom: string, dateTo: string, client?: AnyClient): Promise<number> => {
@@ -263,31 +225,6 @@ export const fetchCommunityInteractions = async (dateFrom: string, dateTo: strin
 
   if (error) throw error
   return Number(data ?? 0)
-}
-
-interface InsightsBreakdownRow {
-  insight_type: string | null
-  total: number | string | null
-}
-
-/** Breakdown of AI insight types generated within the date range. */
-export const fetchInsightsBreakdown = async (
-  dateFrom: string,
-  dateTo: string,
-  client?: AnyClient
-): Promise<Array<{ insight_type: string; total: number }>> => {
-  const supabase = client || createClient()
-
-  const { data, error } = await supabase.rpc('get_admin_insights_breakdown', {
-    p_date_from: dateFrom,
-    p_date_to:   dateTo,
-  })
-
-  if (error) throw error
-  return ((data ?? []) as InsightsBreakdownRow[]).map((row) => ({
-    insight_type: String(row.insight_type ?? 'uncategorized'),
-    total:        Number(row.total        ?? 0),
-  }))
 }
 
 // ─── View-model puro (D1/D10): sin agregación de cliente, sólo lectura ──────

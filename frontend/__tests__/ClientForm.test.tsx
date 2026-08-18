@@ -130,3 +130,44 @@ describe("ClientForm — Datos fiscales (C-22)", () => {
     })
   })
 })
+
+describe("ClientForm — G2 status legacy oculto (deudas-menores-agosto)", () => {
+  it("no renderiza ningún control de estado manual en edición", () => {
+    render(<ClientForm onSuccess={() => {}} initialData={fiscalClient} />)
+
+    expect(screen.queryByText("Estado")).not.toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: /estado/i })).not.toBeInTheDocument()
+  })
+
+  it("el alta de cliente no envía el campo status en el payload", async () => {
+    addClientMock.mockResolvedValue(undefined)
+    render(<ClientForm onSuccess={() => {}} />)
+
+    fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Juan" } })
+    fireEvent.click(screen.getByRole("button", { name: /crear cliente/i }))
+
+    await waitFor(() => expect(addClientMock).toHaveBeenCalled())
+    const payload = addClientMock.mock.calls[0][0]
+    expect(payload).not.toHaveProperty("status")
+  })
+
+  it("la edición de cliente no envía el campo status en el payload", async () => {
+    updateClientMock.mockResolvedValue(undefined)
+    render(<ClientForm onSuccess={() => {}} initialData={fiscalClient} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /actualizar cliente/i }))
+
+    await waitFor(() => expect(updateClientMock).toHaveBeenCalled())
+    const payload = updateClientMock.mock.calls[0][0]
+    expect(payload).not.toHaveProperty("status")
+  })
+
+  it("un cliente con status preexistente en la respuesta se renderiza sin error", () => {
+    // fiscalClient ya trae status: "activo" (dato legacy que puede seguir
+    // llegando del backend/tipo) — no debe explotar ni mostrarse.
+    expect(() =>
+      render(<ClientForm onSuccess={() => {}} initialData={fiscalClient} />),
+    ).not.toThrow()
+    expect(screen.getByLabelText("Nombre")).toHaveValue(fiscalClient.name)
+  })
+})

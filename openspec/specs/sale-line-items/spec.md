@@ -27,19 +27,44 @@ El sistema SHALL crear exactamente una fila en `sale_items`/`purchase_items` por
 - **THEN** las 23 filas de `sale_items` y 18 de `purchase_items` con `variant_id NOT NULL` y `product_id IS NULL` permanecen inalteradas
 
 ### Requirement: RPC versionado que escribe el ítem
-El sistema SHALL proveer una versión nueva de `rpc_create_sale_operation` y `rpc_create_purchase_operation` que, en la misma transacción que el header, inserta la fila correspondiente en `sale_items`/`purchase_items`. La versión legacy SHALL permanecer disponible como fallback. Un feature flag SHALL determinar cuál versión se ejecuta, conmutables sin redeploy de backend ni frontend. La nueva versión MUST preservar la idempotencia existente (clave `(user_id, operation_kind, idempotency_key)`) y el comportamiento de stock/ledger.
+El sistema SHALL escribir la fila de `sale_items`/`purchase_items` en la misma transacción que el header para **toda cuenta por defecto**, presente o futura, sin requerir habilitación previa por cuenta. `rpc_create_sale_operation` y `rpc_create_purchase_operation` SHALL despachar a su versión que inserta la línea siempre que no exista una desactivación explícita para esa cuenta. La versión legacy SHALL permanecer disponible como fallback y el feature flag SHALL conservarse como interruptor de apagado, conmutable sin redeploy de backend ni frontend. Un mismo flag SHALL gobernar ventas y compras. La versión nueva MUST preservar la idempotencia existente (clave `(user_id, operation_kind, idempotency_key)`) y el comportamiento de stock/ledger.
 
-#### Scenario: venta creada con el RPC nuevo tiene fila en sale_items
-- **WHEN** el feature flag está activo y se crea una venta de un producto vía `rpc_create_sale_operation`
+#### Scenario: cuenta sin configuración de flag escribe la línea
+- **WHEN** una cuenta sin ninguna fila de configuración para el flag crea una venta de un producto vía `rpc_create_sale_operation`
 - **THEN** existe una fila en `sale_items` con `sale_id` igual al id de la venta, `product_id` del producto y `variant_id = NULL`
 
-#### Scenario: el flag conmuta sin redeploy
-- **WHEN** un administrador cambia el feature flag a `off`
-- **THEN** las siguientes llamadas a `rpc_create_sale_operation` ejecutan el camino legacy sin reiniciar ni redeployar backend ni frontend
+#### Scenario: cuenta creada después del cutover escribe la línea
+- **WHEN** se crea una cuenta nueva y su primera venta de un producto
+- **THEN** la venta tiene su fila en `sale_items` sin que nadie haya habilitado el flag para esa cuenta
+
+#### Scenario: la compra usa el mismo interruptor que la venta
+- **WHEN** una cuenta sin desactivación explícita registra una compra de un producto vía `rpc_create_purchase_operation`
+- **THEN** existe una fila en `purchase_items` ligada a la compra, sin requerir un flag separado de compras
+
+#### Scenario: el apagado explícito devuelve el camino legacy sin redeploy
+- **WHEN** un administrador registra la desactivación del flag para una cuenta
+- **THEN** las siguientes llamadas a `rpc_create_sale_operation` y `rpc_create_purchase_operation` de esa cuenta ejecutan el camino legacy sin reiniciar ni redeployar backend ni frontend
 
 #### Scenario: idempotencia preservada en el RPC nuevo
 - **WHEN** se llama dos veces el RPC nuevo con la misma `idempotency_key`
 - **THEN** se crea una sola venta con un solo `sale_items`, y la segunda llamada devuelve el resultado original sin tocar stock
+
+### Requirement: Toda línea de venta o compra declara su cuenta
+El sistema SHALL garantizar que toda fila de `sale_items` y `purchase_items` tenga `account_id` poblado con el `account_id` de su venta o compra padre.
+
+Las filas históricas creadas antes de que la columna existiera SHALL ser backfilleadas de forma determinística e idempotente desde el header padre. El backfill NO SHALL inventar un `account_id` cuando el padre no lo tenga, y NO SHALL modificar filas que ya tengan uno.
+
+#### Scenario: línea legacy sin cuenta hereda la de su header
+- **WHEN** existe una fila de `sale_items` con `account_id` nulo cuya venta padre tiene `account_id`
+- **THEN** tras el backfill la línea tiene exactamente el `account_id` de su venta padre
+
+#### Scenario: el backfill es idempotente
+- **WHEN** el backfill de `account_id` se ejecuta dos veces seguidas
+- **THEN** la segunda ejecución no modifica ninguna fila
+
+#### Scenario: línea ya atribuida no se toca
+- **WHEN** una fila de `purchase_items` ya tiene `account_id`
+- **THEN** el backfill la deja inalterada, incluso si difiere del header
 
 ### Requirement: Vista de compatibilidad plana con security_invoker
 El sistema SHALL exponer una vista `v_sales_flat` (y `v_purchases_flat`) que reconstruye las columnas planas (`product_id`, `amount`, `quantity`, `total`) desde la tabla de ítems, para consumidores que aún leen el formato plano. La vista MUST declararse `WITH (security_invoker = true)` para no bypassar RLS.

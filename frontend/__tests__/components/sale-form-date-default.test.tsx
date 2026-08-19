@@ -14,6 +14,7 @@ vi.mock("@tanstack/react-query", () => ({ useQueryClient: () => ({ invalidateQue
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1" } }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: {} }) }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
+vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))

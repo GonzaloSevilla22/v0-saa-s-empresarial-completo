@@ -17,7 +17,8 @@ export default function ComprasPage() {
   const {
     purchases, meta, isLoading, error,
     dateFrom, setDateFrom, dateTo, setDateTo,
-    costCenterId, setCostCenterId, clearFilters,
+    costCenterId, setCostCenterId,
+    paymentMethodId, setPaymentMethodId, clearFilters,
     setPage, setPageSize, refetch,
     deletePurchase, deletePurchasesByOperation,
   } = usePurchases()
@@ -80,6 +81,8 @@ export default function ComprasPage() {
         setDateTo={setDateTo}
         costCenterId={costCenterId}
         setCostCenterId={setCostCenterId}
+        paymentMethodId={paymentMethodId}
+        setPaymentMethodId={setPaymentMethodId}
         clearFilters={clearFilters}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}

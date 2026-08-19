@@ -24,6 +24,8 @@ export interface SaleOperation {
   total: number
   /** true when > 1 item belongs to this operation */
   isGrouped: boolean
+  /** metodos-pago-operaciones: forma de pago de la operación (D3: por operación, todas las líneas comparten el valor). */
+  paymentMethodId: string | null
 }
 
 export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
@@ -49,6 +51,7 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         items: [sale],
         total: sale.total,
         isGrouped: false,
+        paymentMethodId: sale.paymentMethodId ?? null,
       })
     }
   }
@@ -67,6 +70,8 @@ export interface PurchaseOperation {
   total: number
   description?: string
   isGrouped: boolean
+  /** metodos-pago-operaciones: forma de pago de la operación (D3: por operación, todas las líneas comparten el valor). */
+  paymentMethodId: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -89,6 +94,7 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         total: purchase.total,
         description: purchase.description,
         isGrouped: false,
+        paymentMethodId: purchase.paymentMethodId ?? null,
       })
     }
   }

@@ -39,6 +39,7 @@ import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
+import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
 interface SaleFormProps {
   onSuccess: () => void
@@ -100,6 +101,11 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [branchId, setBranchId] = useState<string | null>(null)
   // Canal de venta (Fase B Bloque KPI): alimenta "Margen por Canal". Opcional.
   const [canal, setCanal] = useState<string | null>(null)
+  // metodos-pago-operaciones: forma de pago de la operación, opcional.
+  // Precargada al editar (D5) — el resto de las líneas la siguen (D3).
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
+    () => editingOperation?.paymentMethodId ?? null,
+  )
 
   // ── Inline new client ───────────────────────────────────────────────────────
   const [showNewClient, setShowNewClient] = useState(false)
@@ -392,6 +398,11 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             date,
             currency,
             orgId: user?.accountId ?? "",
+            // metodos-pago-operaciones (D5): el form SIEMPRE manda el valor
+            // vigente en el selector (precargado o cambiado por el usuario)
+            // — nunca se omite, así que "reimputar con el mismo valor" y
+            // "preservar" son observacionalmente idénticos para quien edita.
+            paymentMethodId,
           },
         })
         toast.success("✅ Venta actualizada correctamente")
@@ -429,6 +440,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           currency,
           branchId,
           canal,
+          paymentMethodId,
           orgId:          user?.accountId ?? "",
         },
       })
@@ -644,6 +656,14 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
               </SelectContent>
             </Select>
           </div>
+
+          {/* ── Forma de pago (metodos-pago-operaciones) ───────────────── */}
+          <PaymentMethodSelect
+            value={paymentMethodId}
+            onChange={setPaymentMethodId}
+            context="sale"
+            className="bg-background border-border text-foreground text-sm"
+          />
         </div>
 
         <div className="border-t border-border" />

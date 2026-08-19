@@ -37,6 +37,7 @@ import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-rea
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
+import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -99,6 +100,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [branchId, setBranchId] = useState<string | null>(null)
   // cost-center-dimension: optional analytic dimension for the whole operation
   const [costCenterId, setCostCenterId] = useState<string | null>(null)
+  // metodos-pago-operaciones: forma de pago de la operación, opcional.
+  // Precargada al editar (D5) — el resto de las líneas la siguen (D3).
+  const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
+    () => editingOperation?.paymentMethodId ?? null,
+  )
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -361,7 +367,13 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         await updatePurchaseOperation({
           purchaseIds,
           newItems: cartItems,
-          meta: { date, description, orgId: user?.accountId ?? "" },
+          meta: {
+            date,
+            description,
+            orgId: user?.accountId ?? "",
+            // metodos-pago-operaciones (D5): ver el comentario espejo en sale-form.tsx.
+            paymentMethodId,
+          },
         })
         toast.success("✅ Compra actualizada correctamente")
         await refreshData()
@@ -388,6 +400,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           branchId,
           orgId: user?.accountId ?? "",
           costCenterId,
+          paymentMethodId,
         },
       })
       resetIdempotencyKey()
@@ -510,6 +523,14 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           <CostCenterSelect
             value={costCenterId}
             onChange={setCostCenterId}
+            className="bg-background border-border text-foreground text-sm"
+          />
+
+          {/* ── Forma de pago (metodos-pago-operaciones) ───────────────── */}
+          <PaymentMethodSelect
+            value={paymentMethodId}
+            onChange={setPaymentMethodId}
+            context="purchase"
             className="bg-background border-border text-foreground text-sm"
           />
         </div>

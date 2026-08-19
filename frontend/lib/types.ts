@@ -322,6 +322,14 @@ export interface Sale {
   unitId?: string
   /** UUID shared by all items submitted from the same cart operation. */
   operationId?: string
+  /**
+   * metodos-pago-operaciones: forma de pago de la operación (imputación
+   * explícita o, para ventas del POS, derivada de lectura desde la orden —
+   * D7). null = "Sin especificar".
+   */
+  paymentMethodId?: string | null
+  paymentMethodName?: string | null
+  paymentMethodKind?: PaymentMethodKind | null
 }
 
 export interface Purchase {
@@ -341,6 +349,10 @@ export interface Purchase {
   costCenterId?: string | null
   /** cost-center-surface: name resolved by the listing query, for the badge. */
   costCenterName?: string | null
+  /** metodos-pago-operaciones: forma de pago de la operación. null = "Sin especificar". */
+  paymentMethodId?: string | null
+  paymentMethodName?: string | null
+  paymentMethodKind?: PaymentMethodKind | null
 }
 
 export interface UnitOfMeasure {
@@ -397,6 +409,46 @@ export interface CostCenterReportRow {
   totalExpenses: number
   totalPurchases: number
   totalCost: number
+  operationCount: number
+}
+
+/**
+ * Vocabulario cerrado de `kind` (metodos-pago-operaciones D2). Superset de
+ * sales_orders.payment_method y de la taxonomía de cobro/pago — este change
+ * no modifica ninguna de las dos.
+ */
+export type PaymentMethodKind = "cash" | "transfer" | "card" | "check" | "wallet" | "credit" | "other"
+
+/**
+ * A payment method catalog entry (account-scoped, flat catalog, no
+ * hierarchies). Source of truth: payment_methods table
+ * (metodos-pago-operaciones). Espejo de CostCenter + kind + sort_order.
+ * RLS: SELECT = any account member; INSERT/UPDATE = owner/admin only.
+ */
+export interface PaymentMethod {
+  id: string
+  accountId: string
+  name: string
+  kind: PaymentMethodKind
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+}
+
+/**
+ * A row of the payment method distribution report (metodos-pago-operaciones).
+ * Source of truth: GET /reports/payment-methods (rpc_payment_method_report).
+ *
+ * `id === null` is the "Sin especificar" row: operations that were never
+ * imputed. Part of the contract — excluding it would understate the total.
+ */
+export interface PaymentMethodReportRow {
+  id: string | null
+  name: string
+  kind: PaymentMethodKind | null
+  isActive: boolean
+  totalSold: number
+  totalPurchased: number
   operationCount: number
 }
 

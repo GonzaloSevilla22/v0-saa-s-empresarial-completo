@@ -50,6 +50,7 @@ import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fis
 import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 import { usePromoteToOrder } from "@/hooks/data/use-promote-to-order"
+import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 
 interface SaleOperationsListProps {
   // Paginated data from parent (usePaginatedQuery)
@@ -62,6 +63,9 @@ interface SaleOperationsListProps {
   setDateFrom:     (v: string) => void
   dateTo:          string
   setDateTo:       (v: string) => void
+  /** metodos-pago-operaciones: filtro por forma de pago de la operación. */
+  paymentMethodId:    string | null
+  setPaymentMethodId: (v: string | null) => void
   clearFilters:    () => void
   onPageChange:    (page: number) => void
   onPageSizeChange:(size: PageSizeOption) => void
@@ -86,7 +90,8 @@ interface PromotedOrderState {
 
 export function SaleOperationsList({
   sales, meta, loading, error,
-  dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
+  dateFrom, setDateFrom, dateTo, setDateTo,
+  paymentMethodId, setPaymentMethodId, clearFilters,
   onPageChange, onPageSizeChange,
   clients, onAdd, onDeleteOperation, onEditOperation, onRefetch,
 }: SaleOperationsListProps) {
@@ -254,6 +259,20 @@ export function SaleOperationsList({
               </div>
             </PopoverContent>
           </Popover>
+
+          {/* metodos-pago-operaciones: filtro por forma de pago (server-side) */}
+          <div className="w-full sm:w-56">
+            <PaymentMethodSelect
+              value={paymentMethodId}
+              onChange={setPaymentMethodId}
+              placeholder="Todas las formas de pago"
+              showLabel={false}
+              includeInactive
+              context="sale"
+              showSupportText={false}
+              className={`bg-background border-border text-foreground ${paymentMethodId ? "border-primary text-primary" : ""}`}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -315,9 +334,9 @@ export function SaleOperationsList({
           <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             <PackageOpen className="h-10 w-10 opacity-30" />
             <p className="text-sm">
-              {search || isDateFilterActive ? "Sin resultados para esa búsqueda" : "No hay ventas registradas"}
+              {search || isDateFilterActive || paymentMethodId ? "Sin resultados para esa búsqueda" : "No hay ventas registradas"}
             </p>
-            {!search && !isDateFilterActive && onAdd && (
+            {!search && !isDateFilterActive && !paymentMethodId && onAdd && (
               <Button variant="outline" size="sm" onClick={onAdd} className="gap-2">
                 <Plus className="h-4 w-4" />Registrar primera venta
               </Button>
@@ -375,6 +394,9 @@ export function SaleOperationsList({
                     <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                     <span className="text-sm font-bold text-success tabular-nums">{formatMoney(op.total, op.currency)}</span>
                   </div>
+                  <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
+                    {op.items[0]?.paymentMethodName ?? "Sin especificar"}
+                  </Badge>
                 </div>
 
                 {/* Desktop */}
@@ -389,6 +411,9 @@ export function SaleOperationsList({
                         <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
                       )}
                     </span>
+                    <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
+                      {op.items[0]?.paymentMethodName ?? "Sin especificar"}
+                    </Badge>
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                   <div className="flex justify-center">

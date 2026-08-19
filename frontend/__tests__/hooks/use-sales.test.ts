@@ -142,6 +142,7 @@ describe("useSales", () => {
         client_id: "client-1",
         currency:  "ARS",
         canal:     null, // sin canal elegido → "Sin canal"
+        payment_method_id: null, // metodos-pago-operaciones: sin forma de pago elegida → "Sin especificar"
         items: [{
           product_id: "prod-1",
           amount:     1500,

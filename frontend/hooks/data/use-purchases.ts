@@ -28,6 +28,10 @@ interface PurchaseApiRow {
   // cost-center-surface: resueltos en el mismo query del backend (LEFT JOIN)
   cost_center_id?: string | null
   cost_center_name?: string | null
+  // metodos-pago-operaciones: resueltos en el mismo query del backend (LEFT JOIN)
+  payment_method_id?: string | null
+  payment_method_name?: string | null
+  payment_method_kind?: string | null
 }
 
 interface PurchasesPageResponse {
@@ -57,6 +61,9 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     operationId: p.operation_id ?? undefined,
     costCenterId:   p.cost_center_id ?? null,
     costCenterName: p.cost_center_name ?? null,
+    paymentMethodId:   p.payment_method_id ?? null,
+    paymentMethodName: p.payment_method_name ?? null,
+    paymentMethodKind: (p.payment_method_kind ?? null) as Purchase["paymentMethodKind"],
   }
 }
 
@@ -72,6 +79,8 @@ export function usePurchases() {
   const [dateTo,   setDateToState]   = useState("")
   // cost-center-surface: filtro por centro de costo de la OPERACIÓN.
   const [costCenterId, setCostCenterIdState] = useState<string | null>(null)
+  // metodos-pago-operaciones: filtro por forma de pago de la OPERACIÓN.
+  const [paymentMethodId, setPaymentMethodIdState] = useState<string | null>(null)
 
   const setPage = useCallback((p: number) => setPageState(p), [])
   const setPageSize = useCallback((s: PageSizeOption) => {
@@ -84,10 +93,15 @@ export function usePurchases() {
     setCostCenterIdState(v)
     setPageState(0)
   }, [])
+  const setPaymentMethodId = useCallback((v: string | null) => {
+    setPaymentMethodIdState(v)
+    setPageState(0)
+  }, [])
   const clearFilters = useCallback(() => {
     setDateFromState("")
     setDateToState("")
     setCostCenterIdState(null)
+    setPaymentMethodIdState(null)
     setPageState(0)
   }, [])
 
@@ -100,8 +114,9 @@ export function usePurchases() {
     if (dateFrom) p.date_from = dateFrom
     if (dateTo)   p.date_to   = dateTo
     if (costCenterId) p.cost_center_id = costCenterId
+    if (paymentMethodId) p.payment_method_id = paymentMethodId
     return p
-  }, [page, pageSize, dateFrom, dateTo, costCenterId])
+  }, [page, pageSize, dateFrom, dateTo, costCenterId, paymentMethodId])
 
   const query = useQuery({
     queryKey: [...queryKeys.purchases.lists(), queryParams],
@@ -137,6 +152,8 @@ export function usePurchases() {
         orgId: string
         /** cost-center-dimension: optional analytic dimension for the whole operation */
         costCenterId?: string | null
+        /** metodos-pago-operaciones: optional, shared by all lines of the operation */
+        paymentMethodId?: string | null
       }
     }): Promise<PurchaseOperationResult> => {
       const payload = {
@@ -144,6 +161,8 @@ export function usePurchases() {
         date:             opMeta.date,
         // cost-center-dimension: shared by all lines of the operation
         cost_center_id:   opMeta.costCenterId ?? null,
+        // metodos-pago-operaciones: shared by all lines of the operation
+        payment_method_id: opMeta.paymentMethodId ?? null,
         items: items.map(item => ({
           product_id:  item.productId,
           amount:      item.unitCost,
@@ -203,19 +222,39 @@ export function usePurchases() {
     }: {
       purchaseIds: string[]
       newItems: PurchaseCartItem[]
-      meta: { date: string; description: string; orgId: string }
+      meta: {
+        date: string
+        description: string
+        orgId: string
+        /**
+         * metodos-pago-operaciones (D5): tri-estado por AUSENCIA de la clave,
+         * no por valor. Omitir `paymentMethodId` del objeto meta preserva el
+         * vigente (el backend traduce ausencia → JSON sin la clave →
+         * p_payment_method_provided=false). Pasar `null` explícito desimputa
+         * ("Sin especificar"); pasar un uuid reimputa.
+         */
+        paymentMethodId?: string | null
+      }
     }) => {
       const items = newItems.map(item => ({
         product_id: item.productId,
         amount:     item.unitCost,
         quantity:   item.quantity,
       }))
-      return pythonClient.put<void>("/purchases/operation", {
+      const payload: Record<string, unknown> = {
         purchase_ids: purchaseIds,
         date:         opMeta.date,
         description:  opMeta.description || null,
         items,
-      })
+      }
+      // metodos-pago-operaciones (D5): la clave solo se incluye en el body si
+      // el caller la mandó explícitamente en meta — JSON.stringify omite las
+      // claves con valor `undefined`, así que "ausente" viaja literalmente
+      // ausente y el backend (model_fields_set) lo distingue de `null`.
+      if ("paymentMethodId" in opMeta) {
+        payload.payment_method_id = opMeta.paymentMethodId ?? null
+      }
+      return pythonClient.put<void>("/purchases/operation", payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
@@ -235,6 +274,8 @@ export function usePurchases() {
     setDateTo,
     costCenterId,
     setCostCenterId,
+    paymentMethodId,
+    setPaymentMethodId,
     clearFilters,
     setPage,
     setPageSize,

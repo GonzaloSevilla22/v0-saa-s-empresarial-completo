@@ -59,16 +59,23 @@ SELECT
 
 BEGIN;
 
+-- NOTA (ejecutado 2026-08-19, ver PR #419): la primera versión de este UPDATE
+-- ponía `pm.account_id = s.account_id` dentro del ON del JOIN — Postgres lo
+-- rechaza con 42P01 ("invalid reference to FROM-clause entry for table s"):
+-- la tabla objetivo de un UPDATE...FROM no es visible dentro del ON de un
+-- JOIN de la cláusula FROM, solo en el WHERE. Se corrigió moviendo esa
+-- condición al WHERE (mismo resultado semántico, probado en prod: 218 filas,
+-- 0 en la re-ejecución).
 UPDATE public.sales s
 SET    payment_method_id = pm.id
 FROM   public.sales_orders so
 JOIN   public.payment_methods pm
-       ON pm.account_id = s.account_id
-      AND pm.kind        = so.payment_method
+       ON pm.kind        = so.payment_method
       AND pm.deleted_at  IS NULL
 WHERE  so.sale_operation_id = s.operation_id
   AND  so.payment_method IN ('cash', 'other')
-  AND  s.payment_method_id IS NULL;
+  AND  s.payment_method_id IS NULL
+  AND  pm.account_id = s.account_id;
 
 COMMIT;
 

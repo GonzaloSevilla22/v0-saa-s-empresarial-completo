@@ -1012,7 +1012,17 @@ BEGIN
         END IF;
     END IF;
 
-    -- metodos-pago-operaciones: Verify payment_method_id belongs to this account (mirror of cost_center_id)
+    -- metodos-pago-operaciones: Verify payment_method_id belongs to this account (mirror of cost_center_id).
+    -- NOTA: el ERRCODE es 'P0404' (5 chars), NO 'P404' como branch_not_found/
+    -- cost_center_not_found un poco más arriba en esta misma función —
+    -- descubierto en CI (2026-08-19): plpgsql's RAISE ... USING ERRCODE
+    -- exige un nombre de condición reconocido o un código de 5 caracteres;
+    -- 'P404' (4 chars) revienta en runtime con "unrecognized exception
+    -- condition" en vez de levantar el error intencional. Es un bug
+    -- preexistente de cost-center-dimension (nunca antes ejercitado por
+    -- ningún test) que este change NO corrige — deliberadamente fuera de
+    -- alcance, preservando el cuerpo byte a byte — pero el checkeo NUEVO
+    -- que este change agrega no puede heredar un patrón roto.
     IF p_payment_method_id IS NOT NULL THEN
         IF NOT EXISTS (
             SELECT 1 FROM public.payment_methods
@@ -1020,7 +1030,7 @@ BEGIN
               AND is_active = TRUE AND deleted_at IS NULL
         ) THEN
             RAISE EXCEPTION 'payment_method_not_found or not active for this account'
-                USING ERRCODE = 'P404';
+                USING ERRCODE = 'P0404';
         END IF;
     END IF;
 

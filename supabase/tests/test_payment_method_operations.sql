@@ -299,10 +299,13 @@ BEGIN
       );
     EXCEPTION
       WHEN OTHERS THEN
-        -- rpc_create_purchase_operation usa la convención legacy de 4
-        -- caracteres ('P404', preexistente — no la toca este change); se
-        -- matchea por texto en vez de SQLSTATE exacto para no depender de
-        -- cómo Postgres almacene un código de longitud no estándar.
+        -- Se matchea por texto (no por SQLSTATE exacto): branch_not_found/
+        -- cost_center_not_found en esta misma función usan el ERRCODE
+        -- legacy de 4 caracteres 'P404' (preexistente, bug de runtime
+        -- descubierto en CI — "unrecognized exception condition" en vez del
+        -- error intencional — no lo toca este change) mientras que el check
+        -- NUEVO de payment_method_not_found usa 'P0404' (5 chars, válido).
+        -- Matchear por texto hace el gate agnóstico a esa inconsistencia.
         IF SQLERRM LIKE '%payment_method_not_found%' THEN
           v_rejected := true;
         ELSE

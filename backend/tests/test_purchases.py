@@ -37,6 +37,136 @@ async def test_update_purchase_operation_ok(async_client, mock_pool):
     assert "rpc_atomic_update_purchase_operation" in captured["query"]
 
 
+# ── metodos-pago-operaciones: creación con forma de pago ────────────────────
+
+PM_ID = "88888888-8888-8888-8888-888888888888"
+
+CREATE_PURCHASE_PAYLOAD = {
+    "idempotency_key": "purchase-key-abc",
+    "org_id": "org-uuid-1",
+    "items": [{"product_id": "prod-uuid-1", "quantity": "2.0000", "amount": "80.00"}],
+}
+
+
+async def test_create_purchase_passes_payment_method_id_to_rpc(async_client, mock_pool):
+    """El payment_method_id del payload llega como argumento del RPC
+    rpc_create_purchase_operation (mismo patrón que cost_center_id)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["query"] = query
+        captured["args"] = args
+        return {"operation_id": PURCHASE_ID, "operation_kind": "purchase"}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/purchases",
+            json={**CREATE_PURCHASE_PAYLOAD, "payment_method_id": PM_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "rpc_create_purchase_operation" in captured["query"]
+    assert PM_ID in [str(a) for a in captured["args"]]
+
+
+async def test_create_purchase_without_payment_method_passes_none(async_client, mock_pool):
+    """Sin payment_method_id en el payload, el RPC recibe NULL."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["args"] = args
+        return {"operation_id": PURCHASE_ID, "operation_kind": "purchase"}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/purchases",
+            json=CREATE_PURCHASE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert captured["args"][-1] is None  # payment_method_id
+
+
+# ── metodos-pago-operaciones: edición preserva/cambia/desimputa (D5) ────────
+
+async def test_update_purchase_operation_without_field_preserves(async_client, mock_pool):
+    """Sin payment_method_id en el JSON, p_payment_method_provided=false — el
+    RPC preserva el vigente vía COALESCE."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["query"] = query
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert captured["args"][-2] is None
+    assert captured["args"][-1] is False
+
+
+async def test_update_purchase_operation_with_explicit_null_clears(async_client, mock_pool):
+    """payment_method_id: null EXPLÍCITO en el JSON (sentinel "Sin especificar")
+    — desimputa, distinto de ausente (provided=true)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json={**UPDATE_PAYLOAD, "payment_method_id": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert captured["args"][-2] is None
+    assert captured["args"][-1] is True
+
+
+async def test_update_purchase_operation_with_payment_method_reimputes(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json={**UPDATE_PAYLOAD, "payment_method_id": PM_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert PM_ID in [str(a) for a in captured["args"]]
+    assert captured["args"][-1] is True
+
+
 async def test_update_purchase_operation_member_forbidden(async_client, mock_pool):
     pool, conn = mock_pool
     member_token = make_token({"role": "member"})
@@ -338,3 +468,60 @@ async def test_list_purchases_row_keeps_cost_center_name_in_response(
     item = resp.json()["items"][0]
     assert item["cost_center_id"] == COST_CENTER_ID
     assert item["cost_center_name"] == "Logística"
+
+
+# ── metodos-pago-operaciones: filtro por forma de pago en el listado ────────
+
+async def test_list_purchases_filters_by_payment_method(async_client, valid_token, mock_pool):
+    """GET /purchases?payment_method_id=... propaga el uuid a la query de
+    datos y al COUNT (mismo criterio que cost_center_id)."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/purchases?payment_method_id={PM_ID}",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    rows_query, rows_args = captured["rows"]
+    count_query, count_args = captured["count"]
+    assert "payment_method_id" in rows_query
+    assert "payment_method_id" in count_query
+    assert PM_ID in [str(a) for a in rows_args]
+    assert PM_ID in [str(a) for a in count_args]
+
+
+async def test_list_purchases_payment_method_and_cost_center_coexist(
+    async_client, valid_token, mock_pool
+):
+    """Ambos filtros se pueden combinar en la misma consulta (D3: cada uno en
+    su propia columna, sin pisarse)."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            f"/purchases?payment_method_id={PM_ID}&cost_center_id={COST_CENTER_ID}",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    _, rows_args = captured["rows"]
+    as_text = [str(a) for a in rows_args]
+    assert PM_ID in as_text
+    assert str(COST_CENTER_ID) in as_text
+
+
+async def test_list_purchases_exposes_payment_method_of_the_operation(
+    async_client, valid_token, mock_pool
+):
+    """La fila devuelta expone payment_method_id + nombre + kind para el badge."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "p.payment_method_id" in rows_query
+    assert "payment_method_name" in rows_query
+    assert "payment_method_kind" in rows_query

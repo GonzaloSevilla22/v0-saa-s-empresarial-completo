@@ -115,6 +115,14 @@ export const queryKeys = {
     lists:  () => ["costCenters", "list"] as const,
     active: () => ["costCenters", "active"] as const,
   },
+  // metodos-pago-operaciones
+  paymentMethods: {
+    all:    () => ["paymentMethods"] as const,
+    lists:  () => ["paymentMethods", "list"] as const,
+    active: () => ["paymentMethods", "active"] as const,
+    report: (accountId: string | null, start: string, end: string) =>
+      ["paymentMethods", "report", accountId, start, end] as const,
+  },
   // bank-payment-routing C2 (V2.5 BankReconciliation)
   bankAccounts: {
     all:    () => ["bankAccounts"] as const,

@@ -25,6 +25,8 @@ class PurchaseOperationIn(BaseModel):
     date: datetime.date | None = None
     # cost-center-dimension: optional, shared by all lines of the operation
     cost_center_id: uuid.UUID | None = None
+    # metodos-pago-operaciones: optional, shared by all lines of the operation
+    payment_method_id: uuid.UUID | None = None
 
 
 class PurchaseOperationOut(BaseModel):
@@ -42,11 +44,19 @@ class PurchaseOperationUpdateItemIn(BaseModel):
 
 class PurchaseOperationUpdateIn(BaseModel):
     """Payload del editor de compras: reemplaza los ítems de una operación.
-    Lo consume rpc_atomic_update_purchase_operation (REVERSE + APPLY sobre branch_stock)."""
+    Lo consume rpc_atomic_update_purchase_operation (REVERSE + APPLY sobre branch_stock).
+
+    metodos-pago-operaciones (D5): `payment_method_id` es tri-estado por
+    AUSENCIA, no por valor — se distingue con `model_fields_set` en el router/
+    service, NUNCA por `is None`. No incluir el campo en el JSON = preservar el
+    vigente; incluirlo con `null` = desimputar explícito ("Sin especificar");
+    incluirlo con un uuid = reimputar. Ver PaymentMethodSelect (frontend).
+    """
     purchase_ids: list[str]
     items: list[PurchaseOperationUpdateItemIn]
     date: datetime.date
     description: str | None = None
+    payment_method_id: uuid.UUID | None = None
 
 
 class PurchaseItemOut(BaseModel):
@@ -66,6 +76,11 @@ class PurchaseItemOut(BaseModel):
     # cost-center-surface: nombre del centro para el badge del listado, resuelto
     # en el mismo query (LEFT JOIN cost_centers) — evita un round-trip extra.
     cost_center_name: str | None = None
+    # metodos-pago-operaciones: forma de pago opcional (nullable), resuelta en
+    # el mismo query (LEFT JOIN payment_methods) para el badge del listado.
+    payment_method_id: uuid.UUID | None = None
+    payment_method_name: str | None = None
+    payment_method_kind: str | None = None
 
     @field_validator("date", mode="before")
     @classmethod

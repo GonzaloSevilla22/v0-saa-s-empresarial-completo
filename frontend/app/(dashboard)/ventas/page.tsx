@@ -17,7 +17,8 @@ export default function VentasPage() {
   const { clients } = useClients()
   const {
     sales, meta, isLoading, error,
-    dateFrom, setDateFrom, dateTo, setDateTo, clearFilters,
+    dateFrom, setDateFrom, dateTo, setDateTo,
+    paymentMethodId, setPaymentMethodId, clearFilters,
     setPage, setPageSize, refetch,
     deleteSale, deleteSalesByOperation,
   } = useSales()
@@ -83,6 +84,8 @@ export default function VentasPage() {
         setDateFrom={setDateFrom}
         dateTo={dateTo}
         setDateTo={setDateTo}
+        paymentMethodId={paymentMethodId}
+        setPaymentMethodId={setPaymentMethodId}
         clearFilters={clearFilters}
         onPageChange={setPage}
         onPageSizeChange={setPageSize}

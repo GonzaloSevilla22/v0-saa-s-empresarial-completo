@@ -28,6 +28,7 @@ from backend.routers import (
     health,
     journal_entries,
     outbox,
+    payment_methods,
     payments,
     products,
     purchases,
@@ -135,6 +136,9 @@ app.include_router(ws.router)
 app.include_router(auth_router.router)
 # cost-center-dimension (V2.5 Finanzas)
 app.include_router(cost_centers.router)
+# metodos-pago-operaciones
+app.include_router(payment_methods.router)
+app.include_router(payment_methods.report_router)
 app.include_router(fiscal.router)
 app.include_router(expenses.router)
 app.include_router(clients.router)

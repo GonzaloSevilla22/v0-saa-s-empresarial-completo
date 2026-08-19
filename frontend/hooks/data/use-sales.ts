@@ -28,6 +28,11 @@ interface SaleApiRow {
   total: string | number | null
   currency: string
   operation_id?: string | null
+  // metodos-pago-operaciones: resueltos en el mismo query del backend (LEFT
+  // JOIN payment_methods + derivación de lectura del POS por sales_orders — D7)
+  payment_method_id?: string | null
+  payment_method_name?: string | null
+  payment_method_kind?: string | null
 }
 
 interface SalesPageResponse {
@@ -57,6 +62,9 @@ function mapSale(s: SaleApiRow): Sale {
     total:       Number(s.total ?? s.amount),
     currency:    s.currency as Sale["currency"],
     operationId: s.operation_id ?? undefined,
+    paymentMethodId:   s.payment_method_id ?? null,
+    paymentMethodName: s.payment_method_name ?? null,
+    paymentMethodKind: (s.payment_method_kind ?? null) as Sale["paymentMethodKind"],
   }
 }
 
@@ -70,6 +78,8 @@ export function useSales() {
   const [pageSize, setPageSizeState] = useState<PageSizeOption>(25)
   const [dateFrom, setDateFromState] = useState("")
   const [dateTo,   setDateToState]   = useState("")
+  // metodos-pago-operaciones: filtro por forma de pago de la OPERACIÓN.
+  const [paymentMethodId, setPaymentMethodIdState] = useState<string | null>(null)
 
   const setPage = useCallback((p: number) => setPageState(p), [])
   const setPageSize = useCallback((s: PageSizeOption) => {
@@ -78,9 +88,14 @@ export function useSales() {
   }, [])
   const setDateFrom = useCallback((v: string) => { setDateFromState(v); setPageState(0) }, [])
   const setDateTo   = useCallback((v: string) => { setDateToState(v);   setPageState(0) }, [])
+  const setPaymentMethodId = useCallback((v: string | null) => {
+    setPaymentMethodIdState(v)
+    setPageState(0)
+  }, [])
   const clearFilters = useCallback(() => {
     setDateFromState("")
     setDateToState("")
+    setPaymentMethodIdState(null)
     setPageState(0)
   }, [])
 
@@ -92,8 +107,9 @@ export function useSales() {
     }
     if (dateFrom) p.date_from = dateFrom
     if (dateTo)   p.date_to   = dateTo
+    if (paymentMethodId) p.payment_method_id = paymentMethodId
     return p
-  }, [page, pageSize, dateFrom, dateTo])
+  }, [page, pageSize, dateFrom, dateTo, paymentMethodId])
 
   const query = useQuery({
     queryKey: [...queryKeys.sales.lists(), queryParams],
@@ -129,6 +145,8 @@ export function useSales() {
         branchId?: string | null
         canal?: string | null
         orgId: string
+        /** metodos-pago-operaciones: optional, shared by all lines of the operation */
+        paymentMethodId?: string | null
       }
     }): Promise<SaleOperationResult> => {
       const payload = {
@@ -137,6 +155,7 @@ export function useSales() {
         client_id:       opMeta.clientId ?? null,
         currency:        opMeta.currency,
         canal:           opMeta.canal ?? null,
+        payment_method_id: opMeta.paymentMethodId ?? null,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),
@@ -196,20 +215,34 @@ export function useSales() {
     }: {
       saleIds: string[]
       newItems: SaleCartItem[]
-      meta: { clientId: string | null; date: string; currency: string; orgId: string }
+      meta: {
+        clientId: string | null
+        date: string
+        currency: string
+        orgId: string
+        /**
+         * metodos-pago-operaciones (D5): tri-estado por AUSENCIA de la clave
+         * — ver el comentario espejo en use-purchases.ts.
+         */
+        paymentMethodId?: string | null
+      }
     }) => {
       const items = newItems.map(item => ({
         product_id: item.productId,
         amount:     item.unitPrice * (1 - item.discount / 100),
         quantity:   item.quantity,
       }))
-      return pythonClient.put<void>("/sales/operation", {
+      const payload: Record<string, unknown> = {
         sale_ids:  saleIds,
         client_id: opMeta.clientId ?? null,
         date:      opMeta.date,
         currency:  opMeta.currency,
         items,
-      })
+      }
+      if ("paymentMethodId" in opMeta) {
+        payload.payment_method_id = opMeta.paymentMethodId ?? null
+      }
+      return pythonClient.put<void>("/sales/operation", payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
@@ -227,6 +260,8 @@ export function useSales() {
     setDateFrom,
     dateTo,
     setDateTo,
+    paymentMethodId,
+    setPaymentMethodId,
     clearFilters,
     setPage,
     setPageSize,

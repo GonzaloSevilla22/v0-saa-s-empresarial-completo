@@ -32,6 +32,19 @@ jobs:
       # ya las aplicó una vez al levantar el stack; esto las reaplica a mano
       # y compara un fingerprint de estado antes/después — debe ser idéntico
       # (tasks 2.5 y 5.6: verificación de idempotencia real, no declarada).
+      #
+      # metodos-pago-operaciones: 20260924000001 hace CREATE OR REPLACE de
+      # rpc_create_sale_operation(_v2)/rpc_create_purchase_operation con SU
+      # firma vigente en esa fecha (sin payment_method_id). Re-aplicarla acá
+      # DESPUÉS de que 20260928000001 ya cambió esa firma no "reemplaza" nada
+      # — CREATE OR REPLACE con una lista de argumentos distinta crea un
+      # OVERLOAD nuevo (mismo mecanismo 42725 que el D4 de esta migración
+      # evita con DROP+CREATE), y ese overload nuevo nace con el ACL default
+      # (EXECUTE a PUBLIC → anon lo hereda) porque no hay una función con esa
+      # firma exacta para "heredarle" el REVOKE — exactamente el patrón
+      # advisor 0028/0029 que test_function_acl_gate.sql existe para atrapar.
+      # Se re-aplica 20260928000001 al final para converger al estado
+      # correcto (prueba, de paso, que la propia migración es re-appliable).
       - name: Verify G1/G4 migrations are idempotent on reapply
         run: |
           set -e
@@ -46,6 +59,10 @@ jobs:
             exit 1
           fi
           echo "Idempotent: fingerprint unchanged on reapply ($BEFORE)"
+          # metodos-pago-operaciones: reconverger la firma de las RPCs de
+          # creación tras el reapply de arriba (ver comentario extenso sobre
+          # el paso).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -118,6 +135,37 @@ jobs:
       # operación previamente EDITADA repone el stock.
       - name: Run stock movements edicion gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_movements_edicion.sql
+
+      # metodos-pago-operaciones: catálogo payment_methods (espejo de
+      # cost_centers + sort_order + soft delete), RLS activa, CHECK del
+      # vocabulario cerrado de kind, unique case-insensitive sobre filas
+      # vivas (reusable contra una fila soft-deleted) y aislamiento por
+      # cuenta bajo RLS real (SET LOCAL ROLE authenticated).
+      - name: Run payment methods catalog gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_methods_catalog.sql
+
+      # metodos-pago-operaciones: seed de 6 formas de pago — backfill
+      # idempotente de cuentas existentes, signup nuevo nace sembrado
+      # (handle_new_user) y un fallo forzado del sub-bloque de seed no
+      # aborta el signup (degrade-don't-fail, patrón v3-provisioning-seed).
+      - name: Run payment methods seed gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_methods_seed.sql
+
+      # metodos-pago-operaciones: las 4 RPCs de operaciones ganan
+      # payment_method_id opcional (D4, DROP+CREATE con cuerpo preservado
+      # byte a byte). Verifica alta/edición con y sin forma de pago,
+      # preservación por COALESCE al editar (D5), rechazo de forma de pago
+      # de otra cuenta, y que NO rompió el acarreo de líneas (#415) ni el
+      # espejo de stock_movements (#417) sobre la versión NUEVA de las RPCs.
+      - name: Run payment method operations gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_method_operations.sql
+
+      # metodos-pago-operaciones: rpc_payment_method_report — espejo de
+      # rpc_cost_center_report. Agregación por forma de pago, fila "Sin
+      # especificar", invariantes RN-D (COALESCE(total,amount), COUNT
+      # DISTINCT, borde superior < p_end+1) y rechazo P0401 a no-miembros.
+      - name: Run payment method report gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_method_report.sql
 
       # analytics-events-revival: choke point único de telemetría de producto
       # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,

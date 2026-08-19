@@ -29,6 +29,8 @@ class SaleOperationIn(BaseModel):
     # Canal de venta de la operación (instagram, mercadolibre, whatsapp, local,
     # otro). NULL = "Sin canal" — ventas legacy o sin canal elegido.
     canal: str | None = Field(default=None, max_length=40)
+    # metodos-pago-operaciones: optional, shared by all lines of the operation
+    payment_method_id: uuid.UUID | None = None
 
 
 class SaleOperationOut(BaseModel):
@@ -46,12 +48,20 @@ class SaleOperationUpdateItemIn(BaseModel):
 
 class SaleOperationUpdateIn(BaseModel):
     """Payload del editor de ventas: reemplaza los ítems de una operación.
-    Lo consume rpc_atomic_update_sale_operation (REVERSE + APPLY sobre branch_stock)."""
+    Lo consume rpc_atomic_update_sale_operation (REVERSE + APPLY sobre branch_stock).
+
+    metodos-pago-operaciones (D5): `payment_method_id` es tri-estado por
+    AUSENCIA, no por valor — se distingue con `model_fields_set` en el router/
+    service, NUNCA por `is None`. No incluir el campo en el JSON = preservar el
+    vigente; incluirlo con `null` = desimputar explícito ("Sin especificar");
+    incluirlo con un uuid = reimputar. Ver PaymentMethodSelect (frontend).
+    """
     sale_ids: list[str]
     items: list[SaleOperationUpdateItemIn]
     date: datetime.date
     client_id: str | None = None
     currency: str = "ARS"
+    payment_method_id: uuid.UUID | None = None
 
 
 class SaleItemOut(BaseModel):
@@ -68,6 +78,12 @@ class SaleItemOut(BaseModel):
     amount: Decimal
     total: Decimal | None = None
     currency: str = "ARS"
+    # metodos-pago-operaciones (D7): imputación explícita o, para ventas del
+    # POS sin imputar, derivada de lectura desde sales_orders.payment_method
+    # (LEFT JOIN, resuelto en el mismo query — ver SalesRepository).
+    payment_method_id: uuid.UUID | None = None
+    payment_method_name: str | None = None
+    payment_method_kind: str | None = None
 
     @field_validator("date", mode="before")
     @classmethod

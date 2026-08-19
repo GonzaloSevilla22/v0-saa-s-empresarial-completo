@@ -34,6 +34,9 @@ async def list_purchases(
     cost_center_id: uuid.UUID | None = Query(
         None, description="cost-center-surface: filtra por centro de costo de la operación"
     ),
+    payment_method_id: uuid.UUID | None = Query(
+        None, description="metodos-pago-operaciones: filtra por forma de pago de la operación"
+    ),
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: PurchaseRepository = Depends(get_repo),
@@ -41,6 +44,7 @@ async def list_purchases(
     return await purchases_service.list_purchases_paginated(
         repo, str(account_id), page, page_size, date_from, date_to,
         str(cost_center_id) if cost_center_id else None,
+        str(payment_method_id) if payment_method_id else None,
     )
 
 
@@ -85,5 +89,10 @@ async def update_purchase_operation(
 ):
     """Edita una operación de compra: reemplaza sus ítems vía
     rpc_atomic_update_purchase_operation (REVERSE + APPLY de stock, atómico)."""
-    await purchases_service.update_purchase_operation(repo, auth, payload)
+    # metodos-pago-operaciones (D5): "provided" se lee del JSON crudo
+    # (model_fields_set), NUNCA de payload.payment_method_id is None — de lo
+    # contrario "no lo mandé" y "lo mandé en null" serían indistinguibles y
+    # cualquier edición sin el campo BORRARÍA el método vigente en silencio.
+    payment_method_provided = "payment_method_id" in payload.model_fields_set
+    await purchases_service.update_purchase_operation(repo, auth, payload, payment_method_provided)
     return {"ok": True}

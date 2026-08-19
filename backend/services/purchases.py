@@ -17,11 +17,12 @@ async def list_purchases_paginated(
     date_from: str | None,
     date_to: str | None,
     cost_center_id: str | None = None,
+    payment_method_id: str | None = None,
 ) -> dict:
     df = datetime.date.fromisoformat(date_from) if date_from else None
     dt = datetime.date.fromisoformat(date_to) if date_to else None
     rows, total = await repo.list_paginated_by_operation(
-        account_id, page, page_size, df, dt, cost_center_id,
+        account_id, page, page_size, df, dt, cost_center_id, payment_method_id,
     )
     # v3-api-standards §2: envelope estándar {items,total,page,pages}
     pages = -(-total // page_size) if total > 0 else 0
@@ -47,15 +48,23 @@ async def delete_purchase_operation(
 
 
 async def update_purchase_operation(
-    repo: PurchaseRepository, auth: dict, payload: PurchaseOperationUpdateIn
+    repo: PurchaseRepository,
+    auth: dict,
+    payload: PurchaseOperationUpdateIn,
+    payment_method_provided: bool = False,
 ) -> None:
     require_role(auth, ["user", "admin"])
     items = [item.model_dump() for item in payload.items]
+    payment_method_id = (
+        str(payload.payment_method_id) if payload.payment_method_id is not None else None
+    )
     await repo.update_operation(
         payload.purchase_ids,
         payload.date,
         payload.description,
         items,
+        payment_method_id=payment_method_id,
+        payment_method_provided=payment_method_provided,
     )
 
 
@@ -68,6 +77,10 @@ async def create_purchase_operation(
     items = [item.model_dump() for item in payload.items]
     # cost-center-dimension: pass optional cost_center_id to RPC (propagated to all rows)
     cost_center_id = str(payload.cost_center_id) if payload.cost_center_id is not None else None
+    # metodos-pago-operaciones: pass optional payment_method_id to RPC (propagated to all rows)
+    payment_method_id = (
+        str(payload.payment_method_id) if payload.payment_method_id is not None else None
+    )
     record = await repo.create_operation(
         auth["user_id"],
         account_id,
@@ -76,6 +89,7 @@ async def create_purchase_operation(
         date=payload.date,
         description=description,
         cost_center_id=cost_center_id,
+        payment_method_id=payment_method_id,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de compra")

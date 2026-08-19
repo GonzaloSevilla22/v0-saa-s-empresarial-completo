@@ -23,7 +23,15 @@ class SalesRepository(BaseRepository):
         page_size: int,
         date_from: datetime.date | None = None,
         date_to: datetime.date | None = None,
+        payment_method_id: str | None = None,
     ) -> tuple[list[asyncpg.Record], int]:
+        # metodos-pago-operaciones: `payment_method_id` es un filtro OPCIONAL,
+        # atributo de la OPERACIÓN (todas sus líneas comparten el mismo valor)
+        # — mismo patrón que cost_center_id en PurchaseRepository. El filtro
+        # aplica sobre la IMPUTACIÓN EXPLÍCITA (s.payment_method_id), nunca
+        # sobre la derivación de lectura del POS (D7 — ver abajo), porque
+        # filtrar la CTE por la derivación forzaría el JOIN adentro de
+        # op_page y descuadraría el `total` de la paginación.
         total: int = await self._conn.fetchval(
             """
             SELECT COUNT(DISTINCT COALESCE(operation_id::text, id::text))
@@ -31,8 +39,9 @@ class SalesRepository(BaseRepository):
             WHERE account_id = $1::uuid
               AND ($2::date IS NULL OR date >= $2::date)
               AND ($3::date IS NULL OR date <= $3::date)
+              AND ($4::uuid IS NULL OR payment_method_id = $4::uuid)
             """,
-            account_id, date_from, date_to,
+            account_id, date_from, date_to, payment_method_id,
         ) or 0
 
         rows: list[asyncpg.Record] = await self._conn.fetch(
@@ -43,9 +52,10 @@ class SalesRepository(BaseRepository):
               WHERE account_id = $1::uuid
                 AND ($2::date IS NULL OR date >= $2::date)
                 AND ($3::date IS NULL OR date <= $3::date)
+                AND ($4::uuid IS NULL OR payment_method_id = $4::uuid)
               GROUP BY COALESCE(operation_id::text, id::text)
               ORDER BY MAX(date) DESC
-              LIMIT $4 OFFSET $5
+              LIMIT $5 OFFSET $6
             )
             SELECT s.id, s.date, s.client_id, s.operation_id, s.currency,
                    COALESCE(si.product_id, s.product_id) AS product_id,
@@ -53,16 +63,29 @@ class SalesRepository(BaseRepository):
                    COALESCE(si.price,      s.amount)     AS amount,
                    COALESCE(si.subtotal,   s.total)      AS total,
                    pr.name AS product_name,
-                   cl.name AS client_name
+                   cl.name AS client_name,
+                   -- metodos-pago-operaciones (D7): la imputación explícita
+                   -- gana; si no hay, se deriva DE LECTURA desde el texto
+                   -- legacy de la orden del POS (cash/other) mapeado por
+                   -- kind. Cero escritura — sales/sales_orders no se tocan.
+                   COALESCE(pm.id,   pos_pm.id)   AS payment_method_id,
+                   COALESCE(pm.name, pos_pm.name) AS payment_method_name,
+                   COALESCE(pm.kind, pos_pm.kind) AS payment_method_kind
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
             LEFT JOIN sale_items si ON si.sale_id = s.id AND si.product_id IS NOT NULL
             LEFT JOIN products pr ON COALESCE(si.product_id, s.product_id) = pr.id
             LEFT JOIN clients cl ON s.client_id = cl.id
+            LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id
+            LEFT JOIN sales_orders so ON so.sale_operation_id = s.operation_id
+            LEFT JOIN payment_methods pos_pm
+                   ON pos_pm.account_id = s.account_id
+                  AND pos_pm.kind       = so.payment_method
+                  AND pos_pm.deleted_at IS NULL
             WHERE s.account_id = $1::uuid
             ORDER BY s.date DESC, s.id
             """,
-            account_id, date_from, date_to, page_size, page * page_size,
+            account_id, date_from, date_to, payment_method_id, page_size, page * page_size,
         )
         return rows, total
 
@@ -154,22 +177,35 @@ class SalesRepository(BaseRepository):
         date: datetime.date,
         currency: str,
         items: list[dict],
+        payment_method_id: str | None = None,
+        payment_method_provided: bool = False,
     ) -> None:
         # rpc_atomic_update_sale_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
         # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
+        # metodos-pago-operaciones (D5): payment_method_provided distingue
+        # "ausente" (preserva el vigente, COALESCE en el RPC) de "informado
+        # explícito" (incluido NULL = desimputar) — por parámetro nombrado,
+        # como ya se hace con p_canal en la creación.
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
             raise TypeError(f"Not serializable: {type(obj)}")
 
         await self._conn.execute(
-            "SELECT rpc_atomic_update_sale_operation($1::text[]::uuid[], $2::text::uuid, $3::date, $4::text, $5::jsonb)",
+            """
+            SELECT rpc_atomic_update_sale_operation(
+                $1::text[]::uuid[], $2::text::uuid, $3::date, $4::text, $5::jsonb,
+                p_payment_method_id => $6, p_payment_method_provided => $7
+            )
+            """,
             sale_ids,
             client_id,
             date,
             currency,
             json.dumps(items, default=_default),
+            payment_method_id,
+            payment_method_provided,
         )
 
     async def promote_to_order(self, operation_id: str) -> dict:
@@ -202,6 +238,7 @@ class SalesRepository(BaseRepository):
         client_id: str | None = None,
         currency: str = "ARS",
         canal: str | None = None,
+        payment_method_id: str | None = None,
     ) -> dict | None:
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
@@ -215,7 +252,10 @@ class SalesRepository(BaseRepository):
         row = await self._conn.fetchrow(
             """
             SELECT
-                (rpc_create_sale_operation($1, $2::text::uuid, $3, $4, $5::jsonb, p_canal => $6)->>'operation_id')::uuid
+                (rpc_create_sale_operation(
+                    $1, $2::text::uuid, $3, $4, $5::jsonb,
+                    p_canal => $6, p_payment_method_id => $7
+                )->>'operation_id')::uuid
                     AS operation_id,
                 'sale'::text AS operation_kind
             """,
@@ -225,5 +265,6 @@ class SalesRepository(BaseRepository):
             currency,
             json.dumps(items, default=_default),
             canal,
+            payment_method_id,
         )
         return dict(row) if row else None

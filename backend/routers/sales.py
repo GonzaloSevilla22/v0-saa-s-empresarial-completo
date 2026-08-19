@@ -74,12 +74,16 @@ async def list_sales(
     page_size: int = Query(25, ge=1, le=100),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    payment_method_id: uuid.UUID | None = Query(
+        None, description="metodos-pago-operaciones: filtra por forma de pago de la operación"
+    ),
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     repo: SalesRepository = Depends(get_repo),
 ):
     return await sales_service.list_sales_paginated(
         repo, str(account_id), page, page_size, date_from, date_to,
+        str(payment_method_id) if payment_method_id else None,
     )
 
 
@@ -104,7 +108,9 @@ async def update_sale_operation(
 ):
     """Edita una operación de venta: reemplaza sus ítems vía
     rpc_atomic_update_sale_operation (REVERSE + APPLY de stock, atómico)."""
-    await sales_service.update_sale_operation(repo, auth, payload)
+    # metodos-pago-operaciones (D5): ver el comentario espejo en routers/purchases.py.
+    payment_method_provided = "payment_method_id" in payload.model_fields_set
+    await sales_service.update_sale_operation(repo, auth, payload, payment_method_provided)
     return {"ok": True}
 
 

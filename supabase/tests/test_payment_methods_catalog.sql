@@ -63,7 +63,7 @@ BEGIN
   -- Cuenta ancla mínima (sin trigger de signup — no hace falta un usuario
   -- real para estos checks; se usa un owner sintético para el FK).
   INSERT INTO public.accounts (owner_user_id, billing_plan, billing_status)
-  VALUES (gen_random_uuid(), 'free', 'active')
+  VALUES (gen_random_uuid(), 'gratis', 'active')
   RETURNING id INTO v_account_id;
 
   -- (2) kind fuera del vocabulario cerrado es rechazado por el CHECK.

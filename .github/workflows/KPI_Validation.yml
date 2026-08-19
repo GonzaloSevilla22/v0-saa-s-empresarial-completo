@@ -32,6 +32,19 @@ jobs:
       # ya las aplicó una vez al levantar el stack; esto las reaplica a mano
       # y compara un fingerprint de estado antes/después — debe ser idéntico
       # (tasks 2.5 y 5.6: verificación de idempotencia real, no declarada).
+      #
+      # metodos-pago-operaciones: 20260924000001 hace CREATE OR REPLACE de
+      # rpc_create_sale_operation(_v2)/rpc_create_purchase_operation con SU
+      # firma vigente en esa fecha (sin payment_method_id). Re-aplicarla acá
+      # DESPUÉS de que 20260928000001 ya cambió esa firma no "reemplaza" nada
+      # — CREATE OR REPLACE con una lista de argumentos distinta crea un
+      # OVERLOAD nuevo (mismo mecanismo 42725 que el D4 de esta migración
+      # evita con DROP+CREATE), y ese overload nuevo nace con el ACL default
+      # (EXECUTE a PUBLIC → anon lo hereda) porque no hay una función con esa
+      # firma exacta para "heredarle" el REVOKE — exactamente el patrón
+      # advisor 0028/0029 que test_function_acl_gate.sql existe para atrapar.
+      # Se re-aplica 20260928000001 al final para converger al estado
+      # correcto (prueba, de paso, que la propia migración es re-appliable).
       - name: Verify G1/G4 migrations are idempotent on reapply
         run: |
           set -e
@@ -46,6 +59,10 @@ jobs:
             exit 1
           fi
           echo "Idempotent: fingerprint unchanged on reapply ($BEFORE)"
+          # metodos-pago-operaciones: reconverger la firma de las RPCs de
+          # creación tras el reapply de arriba (ver comentario extenso sobre
+          # el paso).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

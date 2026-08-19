@@ -101,6 +101,24 @@ jobs:
       - name: Run operation edit lines gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_operation_edit_lines.sql
 
+      # stock-movements-edicion (OQ-B de edicion-operaciones-lineas): las RPCs
+      # de EDICIÓN (rpc_atomic_update_sale_operation / rpc_atomic_update_
+      # purchase_operation) mueven branch_stock pero nunca escribían una fila
+      # en stock_movements — SalesRepository.delete_by_id / PurchaseRepository.
+      # delete_by_id derivan la reversa LEYENDO stock_movements, así que una
+      # operación editada quedaba sin movimiento de referencia y su
+      # eliminación no reponía stock, en silencio (204 operaciones vivas en
+      # prod). Verifica el par espejo REVERSE (sale_return/purchase_return,
+      # reference_type sale_update/purchase_update, id viejo) + APPLY (sale/
+      # purchase, reference_type sale/purchase, id nuevo — indistinguible de
+      # la creación), unit_cost_snapshot acarreado (no re-valuado), línea de
+      # servicio sin movimientos, Σ quantity_delta reconstruye el delta de
+      # branch_stock, cero huérfanos nuevos, agregar/quitar línea, colisión
+      # legacy, doble edición encadenada, y el gate estrella: eliminar una
+      # operación previamente EDITADA repone el stock.
+      - name: Run stock movements edicion gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_movements_edicion.sql
+
       # analytics-events-revival: choke point único de telemetría de producto
       # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,
       # unicidad de activación, atomicidad, degrade-don't-fail, ACL/RLS,

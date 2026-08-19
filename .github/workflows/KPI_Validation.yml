@@ -119,6 +119,37 @@ jobs:
       - name: Run stock movements edicion gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_stock_movements_edicion.sql
 
+      # metodos-pago-operaciones: catálogo payment_methods (espejo de
+      # cost_centers + sort_order + soft delete), RLS activa, CHECK del
+      # vocabulario cerrado de kind, unique case-insensitive sobre filas
+      # vivas (reusable contra una fila soft-deleted) y aislamiento por
+      # cuenta bajo RLS real (SET LOCAL ROLE authenticated).
+      - name: Run payment methods catalog gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_methods_catalog.sql
+
+      # metodos-pago-operaciones: seed de 6 formas de pago — backfill
+      # idempotente de cuentas existentes, signup nuevo nace sembrado
+      # (handle_new_user) y un fallo forzado del sub-bloque de seed no
+      # aborta el signup (degrade-don't-fail, patrón v3-provisioning-seed).
+      - name: Run payment methods seed gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_methods_seed.sql
+
+      # metodos-pago-operaciones: las 4 RPCs de operaciones ganan
+      # payment_method_id opcional (D4, DROP+CREATE con cuerpo preservado
+      # byte a byte). Verifica alta/edición con y sin forma de pago,
+      # preservación por COALESCE al editar (D5), rechazo de forma de pago
+      # de otra cuenta, y que NO rompió el acarreo de líneas (#415) ni el
+      # espejo de stock_movements (#417) sobre la versión NUEVA de las RPCs.
+      - name: Run payment method operations gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_method_operations.sql
+
+      # metodos-pago-operaciones: rpc_payment_method_report — espejo de
+      # rpc_cost_center_report. Agregación por forma de pago, fila "Sin
+      # especificar", invariantes RN-D (COALESCE(total,amount), COUNT
+      # DISTINCT, borde superior < p_end+1) y rechazo P0401 a no-miembros.
+      - name: Run payment method report gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_method_report.sql
+
       # analytics-events-revival: choke point único de telemetría de producto
       # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,
       # unicidad de activación, atomicidad, degrade-don't-fail, ACL/RLS,

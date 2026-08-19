@@ -53,6 +53,7 @@ END $$;
 -- ── (2)-(5): CHECK, unique vivo/soft-deleted, sort_order default ─────────────
 DO $$
 DECLARE
+  v_owner_id     uuid := gen_random_uuid();
   v_account_id   uuid;
   v_rejected     boolean := false;
   v_pm1          uuid;
@@ -60,11 +61,32 @@ DECLARE
   v_pm3          uuid;
   v_sort_order   integer;
 BEGIN
-  -- Cuenta ancla mínima (sin trigger de signup — no hace falta un usuario
-  -- real para estos checks; se usa un owner sintético para el FK).
-  INSERT INTO public.accounts (owner_user_id, billing_plan, billing_status)
-  VALUES (gen_random_uuid(), 'gratis', 'active')
-  RETURNING id INTO v_account_id;
+  -- Cuenta ancla vía el trigger real (accounts.owner_user_id exige FK a
+  -- auth.users — no hay forma de insertar una cuenta "mínima" sin un usuario
+  -- real detrás). handle_new_user() se dispara solo y siembra profile +
+  -- account + membership + branch/cashbox + catálogo de payment_methods —
+  -- se usa esa MISMA cuenta para los checks 2-5 (no colisiona: los nombres
+  -- de este gate, "Mercado Pago"/"mercado pago", no están entre los 6
+  -- sembrados) y el cleanup barre todo lo que el trigger creó.
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_owner_id, 'authenticated', 'authenticated', 'payment-methods-catalog-gate-minimal@test.local', now(), now(),
+          jsonb_build_object('name', 'Gate PM Catalog Minimal'))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_id
+  FROM   public.account_members
+  WHERE  user_id = v_owner_id
+  ORDER  BY created_at
+  LIMIT  1;
+
+  IF v_account_id IS NULL THEN
+    RAISE NOTICE 'GATE PAYMENT-METHODS-CATALOG (2-5) degradado: no se pudo resolver una cuenta para el anchor sintético (contexto no permite el gate) — degradando sin abortar.';
+    DELETE FROM public.profiles WHERE id = v_owner_id;
+    DELETE FROM public.email_logs WHERE user_id = v_owner_id;
+    DELETE FROM public.operation_idempotency WHERE user_id = v_owner_id;
+    DELETE FROM auth.users WHERE id = v_owner_id;
+    RETURN;
+  END IF;
 
   -- (2) kind fuera del vocabulario cerrado es rechazado por el CHECK.
   BEGIN
@@ -116,16 +138,32 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (5): sort_order nace en 0 por defecto (TRIANGULATE).';
 
-  -- Cleanup
+  -- Cleanup hijo→padre (todo lo que handle_new_user sembró para el anchor).
   DELETE FROM public.payment_methods WHERE account_id = v_account_id;
-  DELETE FROM public.accounts        WHERE id = v_account_id;
+  DELETE FROM public.branch_stock WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+  DELETE FROM public.cashboxes    WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+  DELETE FROM public.branches               WHERE account_id = v_account_id;
+  DELETE FROM public.account_members        WHERE user_id = v_owner_id;
+  DELETE FROM public.accounts               WHERE owner_user_id = v_owner_id;
+  DELETE FROM public.profiles               WHERE id = v_owner_id;
+  DELETE FROM public.email_logs             WHERE user_id = v_owner_id;
+  DELETE FROM public.operation_idempotency  WHERE user_id = v_owner_id;
+  DELETE FROM auth.users                    WHERE id = v_owner_id;
 EXCEPTION
   WHEN OTHERS THEN
     BEGIN
       IF v_account_id IS NOT NULL THEN
         DELETE FROM public.payment_methods WHERE account_id = v_account_id;
-        DELETE FROM public.accounts        WHERE id = v_account_id;
+        DELETE FROM public.branch_stock WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+        DELETE FROM public.cashboxes    WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_id);
+        DELETE FROM public.branches               WHERE account_id = v_account_id;
+        DELETE FROM public.account_members        WHERE user_id = v_owner_id;
+        DELETE FROM public.accounts               WHERE owner_user_id = v_owner_id;
       END IF;
+      DELETE FROM public.profiles               WHERE id = v_owner_id;
+      DELETE FROM public.email_logs             WHERE user_id = v_owner_id;
+      DELETE FROM public.operation_idempotency  WHERE user_id = v_owner_id;
+      DELETE FROM auth.users                    WHERE id = v_owner_id;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     RAISE;

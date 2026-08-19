@@ -58,7 +58,7 @@
 - [x] 5.2 Alcance A: operaciones vivas con `product_id` y **cero** movimientos → un movimiento `sale`/`purchase` derivado del header, `quantity_before`/`quantity_after` NULL, `reason='backfill_edicion_sin_movimiento'`, `metadata.backfilled=true`.
 - [x] 5.3 Alcance B (ventas/compras con movimiento `sale_update`/`purchase_update` de mayo 2026, bug de `20260527000002`): par sintético append-only de neto cero (cancela + re-apunta con `reference_type` correcto). Nunca `UPDATE` (RN-21). Incluido en el mismo script para venta y compra (el conteo real de compras se mide en el dry-run al ejecutar).
 - [x] 5.4 Verificado localmente con datos sintéticos (4 casos: alcance A venta/compra, alcance B venta/compra) antes de tocar prod: dry-run conteos correctos (1/1/1/1), ejecución inserta exactamente lo esperado (6 filas: 2 alcance A + 4 alcance B cancel+correct), re-ejecución = 0 filas (idempotente), `branch_stock` bit-a-bit idéntico antes/después. **Ejecución real contra prod: PENDIENTE — corre post-merge de PR1 vía MCP con conteos antes/después, ver plan en el PR.**
-- [ ] 5.5 Post-ejecución CONTRA PROD: verificar `ventas_delete_inseguras_total = 0` y `compras_delete_inseguras_total = 0`, y que `branch_stock` no cambió en ninguna fila. **Pendiente hasta después del merge de PR1** (instrucción explícita: ejecutar UNA vez post-merge).
+- [x] 5.5 Post-ejecución CONTRA PROD: ejecutado post-merge de PR #417 vía MCP. `ventas_delete_inseguras_total`/`compras_delete_inseguras_total`: 204→0 (112 ventas + 92 compras). 253 filas insertadas (99+56 alcance A, 13+36 pares alcance B). Re-ejecución del script completo: 0 filas nuevas (idempotente). `branch_stock` no tocado: sin triggers en `stock_movements` (`pg_trigger` vacío) y el script no contiene ningún `UPDATE`/`DELETE` sobre `branch_stock`.
 
 ## 6. Huérfanos históricos — **FIRMADO por el PO 2026-08-19: dejarlos como están** (design §D7)
 
@@ -68,7 +68,7 @@
 
 ## 7. Documentación
 
-- [ ] 7.1 Actualizar `CHANGES.md`: ficha del change, cierre de **OQ-B** de `edicion-operaciones-lineas`, y el hallazgo nuevo (204 operaciones delete-inseguras; 77 huérfanos de compra nunca medidos).
-- [ ] 7.2 Actualizar `knowledge-base/05_reglas_de_negocio.md`: RN-21 gana la precisión de que **la edición también asienta** en el ledger, y que un huérfano con contramovimiento de cierre es un estado válido.
-- [ ] 7.3 Registrar en `CHANGES.md` la dimensión de **OQ-C** (6 `sales_orders` colgando): misma causa raíz que OQ-A, re-apuntar es técnicamente trivial pero el mapping no existe → revisión manual de 6 filas o esperar a OQ-A. **No es un change propio.**
-- [ ] 7.4 `mem_save` con `topic_key: "opsx/stock-movements-edicion/apply"` al cerrar la implementación.
+- [x] 7.1 Actualizado `CHANGES.md`: ficha del change, cierre de **OQ-B** de `edicion-operaciones-lineas`, y el hallazgo nuevo (204 operaciones delete-inseguras; 77 huérfanos de compra nunca medidos).
+- [x] 7.2 Actualizado `knowledge-base/05_reglas_de_negocio.md`: RN-21 gana la precisión de que **la edición también asienta** en el ledger, y que un huérfano con contramovimiento de cierre es un estado válido.
+- [x] 7.3 Registrada en `CHANGES.md` la dimensión de **OQ-C** (6 `sales_orders` colgando): misma causa raíz que OQ-A, re-apuntar es técnicamente trivial pero el mapping no existe → revisión manual de 6 filas o esperar a OQ-A. **No es un change propio.**
+- [x] 7.4 `mem_save` con `topic_key: "opsx/stock-movements-edicion/apply"` al cerrar la implementación (obs-c612b3881f90b679), a actualizar con el cierre del archive.

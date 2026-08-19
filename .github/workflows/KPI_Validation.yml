@@ -84,6 +84,23 @@ jobs:
       - name: Run sale_items_rpc_v2 activation gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_sale_items_rpc_v2_activation.sql
 
+      # edicion-operaciones-lineas (OQ-1 de deudas-menores-agosto): las RPCs de
+      # EDICIÓN (rpc_atomic_update_sale_operation / rpc_atomic_update_
+      # purchase_operation) implementan REVERSE→DELETE→APPLY; sale_items.
+      # sale_id / purchase_items.purchase_id son FK ON DELETE CASCADE, así que
+      # cada edición borraba la línea sin recrearla. Verifica: acarreo del
+      # snapshot por product_id cuando el producto no cambia (incluso con
+      # products.cost movido entre la creación y la edición — control
+      # positivo), snapshot fresco cuando cambia o cuando la operación nunca
+      # tuvo línea, colisión determinística (dos filas viejas con el mismo
+      # product_id), caso mixto (un ítem acarrea y otro re-snapshotea en la
+      # misma edición), compras con el header purchases también poblado
+      # (incondicional, D5), kill-switch (mismo flag que la creación),
+      # higiene referencial, doble submit y los guards P0400/P0403/P0409/
+      # P0422 intactos en la edición.
+      - name: Run operation edit lines gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_operation_edit_lines.sql
+
       # analytics-events-revival: choke point único de telemetría de producto
       # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,
       # unicidad de activación, atomicidad, degrade-don't-fail, ACL/RLS,

@@ -137,3 +137,24 @@ El sistema SHALL rechazar la edición de una operación de venta o de compra que
 - **WHEN** el usuario abre el listado de operaciones y una de ellas tiene cargo, movimiento de caja o movimiento bancario posteado
 - **THEN** la acción de editar aparece deshabilitada con la razón visible, en vez de fallar recién al confirmar
 
+### ADDED Requirement: Editar una venta con asiento contable emitido no la bloquea (override del PO, 2026-08-20)
+
+A diferencia de los otros tres ledgers (cuenta corriente, caja, banco), el asiento contable del libro diario de partida doble NO es causa de bloqueo de la edición. Una operación de venta del formulario que haya emitido un evento `SaleOperationCreated` (ya sea aún pendiente de procesamiento en el relay, o ya posteado como asiento en el libro diario) SHALL seguir siendo editable. La corrección del asiento contable ante una edición se resuelve ajustándolo en vez de bloqueando la operación: ver la capability `journal-entry`, requirement "SaleOperationAdjusted posts a contra-entry and a new entry", para el mecanismo (reemplazo del evento pendiente in-place, o contra-entry más entry nuevo si el asiento ya procesó). Este requirement documenta la decisión explícita porque el diseño original de este mismo change había recomendado lo contrario (extender el guard de este requirement al asiento contable) antes del override del PO.
+
+#### Scenario: Una venta del formulario con asiento contable emitido sigue siendo editable
+
+- **GIVEN** una venta registrada desde el formulario cuya transacción emitió el evento `SaleOperationCreated`, ya sea pendiente de proceso o ya posteado como asiento
+- **WHEN** se intenta editar esa operación, sin cargo en cuenta corriente, sin movimiento de caja y sin movimiento bancario
+- **THEN** la edición procede — no hay `P0423` por causa del asiento contable — y el rastro contable se ajusta según el mecanismo de la capability `journal-entry`
+
+#### Scenario: Una operación sin ningún rastro contable sigue siendo editable
+
+- **GIVEN** una venta del formulario registrada antes de que existiera el productor del evento contable, sin cargo en cuenta corriente, sin movimiento de caja, sin movimiento bancario y sin evento emitido
+- **WHEN** se edita esa operación cambiando importe y forma de pago
+- **THEN** la edición procede normalmente con el acarreo de contexto ya establecido, y no se emite ningún evento contable para esa edición
+
+#### Scenario: La superficie anticipa la falta de bloqueo por asiento
+
+- **WHEN** el usuario abre el listado de operaciones y una de ellas tiene un asiento contable emitido o posteado pero sin cargo de cuenta corriente, movimiento de caja o movimiento bancario
+- **THEN** la acción de editar aparece habilitada, porque el asiento contable no es causa de bloqueo
+

@@ -41,7 +41,7 @@ import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
   Plus, Trash2, Pencil, ChevronDown, ChevronRight,
   ShoppingCart, Search, PackageOpen, Download, CalendarDays, X, Loader2,
-  Receipt,
+  Receipt, Lock,
 } from "lucide-react"
 import { toast } from "sonner"
 // facturar-venta-manual: nueva ruta fiscal vía promote → emit
@@ -51,6 +51,13 @@ import { useFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 import { usePromoteToOrder } from "@/hooks/data/use-promote-to-order"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+
+// pagos-cableados-restantes (D6, task 12.4): motivo visible cuando "Editar"
+// se deshabilita por un cargo de cuenta corriente o movimiento de caja ya
+// posteado — el guard real vive en el backend (P0423), esto sólo evita que
+// el usuario llegue hasta ese error.
+const PAYMENT_LOCKED_REASON =
+  "No editable: esta operación ya tiene un cargo de cuenta corriente o un movimiento de caja registrado. Emití una nota de crédito y registrá una venta nueva."
 
 interface SaleOperationsListProps {
   // Paginated data from parent (usePaginatedQuery)
@@ -367,11 +374,19 @@ export function SaleOperationsList({
                         </Badge>
                       )}
                       {onEditOperation && (
-                        <Button type="button" variant="ghost" size="icon"
-                          onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
-                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        op.isPaymentLocked ? (
+                          <Button type="button" variant="ghost" size="icon" disabled
+                            title={PAYMENT_LOCKED_REASON} aria-label={PAYMENT_LOCKED_REASON}
+                            className="h-8 w-8 text-muted-foreground/50">
+                            <Lock className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <Button type="button" variant="ghost" size="icon"
+                            onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                            className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )
                       )}
                       <Button type="button" variant="ghost" size="icon"
                         onClick={(e) => handleDelete(e, op)} disabled={deletingKey === op.key}
@@ -428,11 +443,17 @@ export function SaleOperationsList({
                     {formatMoney(op.total, op.currency)}
                   </span>
                   {onEditOperation
-                    ? <Button type="button" variant="ghost" size="icon"
-                        onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
-                        className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                    ? op.isPaymentLocked
+                      ? <Button type="button" variant="ghost" size="icon" disabled
+                          title={PAYMENT_LOCKED_REASON} aria-label={PAYMENT_LOCKED_REASON}
+                          className="h-8 w-8 text-muted-foreground/50">
+                          <Lock className="h-3.5 w-3.5" />
+                        </Button>
+                      : <Button type="button" variant="ghost" size="icon"
+                          onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
                     : <span />
                   }
                   <Button type="button" variant="ghost" size="icon"

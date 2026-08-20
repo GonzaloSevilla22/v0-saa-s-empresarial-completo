@@ -99,22 +99,29 @@ interface PaymentMethodSupportTextProps {
 }
 
 /**
- * D8 / pos-catalogo-pagos D5 — Etiqueta honesta: el selector dice lo que
- * hace y lo que no. Elegir una forma de pago de kind 'credit' en el form NO
- * genera cargo en la cuenta corriente, y 'cash' en el form NO mueve caja —
- * la caja la mueve el CAMINO (el POS), no la etiqueta (regla de negocio
- * explícita en el spec `cash-session`). Si no se dice, el usuario asume que
+ * D8 / pos-catalogo-pagos D5, actualizado por pagos-cableados-restantes
+ * (OQ-C/OQ-D/OQ-E) — Etiqueta honesta: el selector dice lo que hace y lo que
+ * no, y el "no" cambió con este change. Si no se dice, el usuario asume que
  * la etiqueta sola alcanza (mismo patrón de superficie huérfana que dejó
  * `credit` cableado sin UI y la cuenta corriente en cero). Texto de apoyo
- * condicionado al kind elegido, para los tres consumidores (form de venta,
- * form de compra, filtros).
+ * condicionado al kind elegido Y al contexto (venta/compra — los efectos
+ * NO son simétricos: el lado proveedor sigue recortado, ver OQ-E).
+ *
+ * Venta — 'credit': ahora SÍ postea el cargo (POS y formulario, vía el
+ * helper compartido _pay_register_party_charge) — exige cliente.
+ * Venta — 'cash': el POS sigue moviendo caja automáticamente; el
+ * FORMULARIO puede ahora optar-in con el checkbox "Registrar en caja",
+ * condicionado a sesión abierta hoy en la sucursal.
+ * Compra — 'credit'/'cash': SIN CAMBIOS — el lado proveedor sigue sin cargo
+ * automático (0 proveedores, sin selector en el form — compras-proveedor-
+ * cuenta-corriente es un change aparte).
  */
 export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupportTextProps) {
   if (kind === "credit") {
     return (
       <p className="text-xs text-muted-foreground">
         {context === "sale"
-          ? "Esta etiqueta no genera un cargo en la cuenta corriente del cliente. Para eso, registrá el cobro desde la cuenta corriente del cliente."
+          ? "Esta forma de pago carga la venta a la cuenta corriente del cliente al confirmarla — requiere elegir un cliente."
           : "Esta etiqueta no genera un cargo en la cuenta corriente del proveedor. Para eso, registrá el pago desde la cuenta corriente del proveedor."}
       </p>
     )
@@ -122,11 +129,19 @@ export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupport
   if (kind === "cash") {
     return (
       <p className="text-xs text-muted-foreground">
-        Esta etiqueta registra cómo se cobró. El movimiento de caja lo genera la venta desde el{" "}
-        <Link href="/ventas/pos" className="underline underline-offset-2 hover:opacity-80">
-          POS
-        </Link>
-        , que exige una sesión abierta.
+        {context === "sale" ? (
+          <>
+            El{" "}
+            <Link href="/ventas/pos" className="underline underline-offset-2 hover:opacity-80">
+              POS
+            </Link>{" "}
+            registra el movimiento de caja automáticamente. Desde este formulario podés optar por
+            registrarlo también, tildando "Registrar en caja" — sólo si hay una sesión abierta hoy
+            en la sucursal.
+          </>
+        ) : (
+          "Esta etiqueta registra cómo se pagó. No genera ningún movimiento de caja."
+        )}
       </p>
     )
   }

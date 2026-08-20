@@ -40,6 +40,9 @@ interface SaleApiRow {
   // edicion-preserva-contexto (F2): derivado de lectura — true si tiene
   // comprobante fiscal pending_cae/authorized.
   is_invoiced?: boolean
+  // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
+  // cargo de cuenta corriente o movimiento de caja posteado.
+  is_payment_locked?: boolean
 }
 
 interface SalesPageResponse {
@@ -78,6 +81,7 @@ function mapSale(s: SaleApiRow): Sale {
     canal:    s.canal ?? null,
     unitId:   s.unit_id ?? undefined,
     isInvoiced: s.is_invoiced ?? false,
+    isPaymentLocked: s.is_payment_locked ?? false,
   }
 }
 
@@ -160,6 +164,13 @@ export function useSales() {
         orgId: string
         /** metodos-pago-operaciones: optional, shared by all lines of the operation */
         paymentMethodId?: string | null
+        /**
+         * pagos-cableados-restantes (OQ-C): opt-in de caja del formulario de
+         * venta — ausencia = no-op (D5). Las tres condiciones de servidor
+         * (kind=cash, sesión abierta en la sucursal efectiva, fecha=hoy) se
+         * validan en la RPC, nunca acá.
+         */
+        cashSessionId?: string | null
       }
     }): Promise<SaleOperationResult> => {
       const payload = {
@@ -169,6 +180,7 @@ export function useSales() {
         currency:        opMeta.currency,
         canal:           opMeta.canal ?? null,
         payment_method_id: opMeta.paymentMethodId ?? null,
+        cash_session_id: opMeta.cashSessionId ?? null,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),

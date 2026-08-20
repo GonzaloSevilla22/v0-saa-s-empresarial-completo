@@ -40,12 +40,12 @@ describe("PaymentMethodSelect", () => {
     expect(screen.queryByText(/sesión de caja/)).not.toBeInTheDocument()
   })
 
-  it("D8: muestra el texto de apoyo de 'credit' cuando la forma de pago elegida es cuenta corriente", () => {
+  it("pagos-cableados-restantes (OQ-D): el texto de apoyo de 'credit' en venta declara que SÍ carga la cuenta corriente del cliente", () => {
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
 
     render(<PaymentMethodSelect value="pm-credit" onChange={vi.fn()} context="sale" />)
 
-    expect(screen.getByText(/no genera un cargo en la cuenta corriente del cliente/)).toBeInTheDocument()
+    expect(screen.getByText(/carga la venta a la cuenta corriente del cliente al confirmarla/)).toBeInTheDocument()
   })
 
   it("D8: el texto de apoyo de 'credit' para compras menciona al proveedor, no al cliente", () => {
@@ -56,22 +56,38 @@ describe("PaymentMethodSelect", () => {
     expect(screen.getByText(/no genera un cargo en la cuenta corriente del proveedor/)).toBeInTheDocument()
   })
 
-  it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' nombra el POS como el camino que mueve caja", () => {
+  it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' en venta nombra al POS como el camino automático", () => {
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
 
-    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} />)
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="sale" />)
 
-    expect(screen.getByText(/el movimiento de caja lo genera la venta desde el/i)).toBeInTheDocument()
-    expect(screen.getByText(/que exige una sesión abierta/i)).toBeInTheDocument()
+    expect(screen.getByText(/registra el movimiento de caja automáticamente/i)).toBeInTheDocument()
   })
 
-  it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' enlaza a /ventas/pos", () => {
+  it("pagos-cableados-restantes (OQ-C): el texto de apoyo de 'cash' en venta menciona el opt-in del formulario y su condición", () => {
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
 
-    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} />)
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="sale" />)
+
+    expect(screen.getByText(/Registrar en caja/)).toBeInTheDocument()
+    expect(screen.getByText(/sesión abierta hoy en la sucursal/i)).toBeInTheDocument()
+  })
+
+  it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' en venta enlaza a /ventas/pos", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="sale" />)
 
     const link = screen.getByRole("link", { name: "POS" })
     expect(link).toHaveAttribute("href", "/ventas/pos")
+  })
+
+  it("pagos-cableados-restantes (OQ-E): el texto de apoyo de 'cash' en compra aclara que NO mueve caja (alcance recortado)", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="purchase" />)
+
+    expect(screen.getByText(/No genera ningún movimiento de caja/i)).toBeInTheDocument()
   })
 
   it("no muestra texto de apoyo para 'transfer' (sin efecto declarado que aclarar)", () => {

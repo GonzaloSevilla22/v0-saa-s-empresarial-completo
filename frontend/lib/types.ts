@@ -336,6 +336,8 @@ export interface Sale {
   canal?: string | null
   /** edicion-preserva-contexto (F2): true si tiene comprobante fiscal pending_cae/authorized — inmutable. */
   isInvoiced?: boolean
+  /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente o movimiento de caja posteado — inmutable. */
+  isPaymentLocked?: boolean
 }
 
 export interface Purchase {
@@ -361,6 +363,8 @@ export interface Purchase {
   paymentMethodKind?: PaymentMethodKind | null
   /** edicion-preserva-contexto: sucursal de la operación (editable, tri-estado). */
   branchId?: string | null
+  /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente posteado — inmutable. */
+  isPaymentLocked?: boolean
 }
 
 export interface UnitOfMeasure {

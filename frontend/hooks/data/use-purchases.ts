@@ -35,6 +35,9 @@ interface PurchaseApiRow {
   // edicion-preserva-contexto: expuestos para prefillear el form de edición.
   branch_id?: string | null
   unit_id?: string | null
+  // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
+  // cargo de cuenta corriente posteado.
+  is_payment_locked?: boolean
 }
 
 interface PurchasesPageResponse {
@@ -71,6 +74,7 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     // con qué prefillear sucursal/unidad.
     branchId: p.branch_id ?? null,
     unitId:   p.unit_id ?? undefined,
+    isPaymentLocked: p.is_payment_locked ?? false,
   }
 }
 

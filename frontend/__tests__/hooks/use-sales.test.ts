@@ -143,6 +143,7 @@ describe("useSales", () => {
         currency:  "ARS",
         canal:     null, // sin canal elegido → "Sin canal"
         payment_method_id: null, // metodos-pago-operaciones: sin forma de pago elegida → "Sin especificar"
+        cash_session_id: null, // pagos-cableados-restantes (OQ-C): sin opt-in de caja → no-op (D5)
         items: [{
           product_id: "prod-1",
           amount:     1500,

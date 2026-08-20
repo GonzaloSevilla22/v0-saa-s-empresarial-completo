@@ -147,3 +147,32 @@ BEGIN
 END $$;
 
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- G2 — Baja de las 4 RPCs get_admin_* huérfanas
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Verificado en prod (pg_proc de toda la base) y en el árbol de código: cero
+-- callers. Firma explícita (timestamptz, timestamptz) — nunca por nombre
+-- pelado, para no dropear un overload distinto por error. Sin GRANT que
+-- reponer: nunca tuvieron EXECUTE para anon (test_function_acl_gate.sql no
+-- requiere edición).
+DROP FUNCTION IF EXISTS public.get_admin_activation_rate(timestamptz, timestamptz);
+DROP FUNCTION IF EXISTS public.get_admin_umv_rate(timestamptz, timestamptz);
+DROP FUNCTION IF EXISTS public.get_admin_paid_conversion_rate(timestamptz, timestamptz);
+DROP FUNCTION IF EXISTS public.get_admin_insights_breakdown(timestamptz, timestamptz);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'get_admin_community_interactions'
+      AND pg_get_function_identity_arguments(p.oid) LIKE '%timestamp with time zone%'
+  ) THEN
+    RAISE EXCEPTION 'limpiezas-pagos-admin G2 ABORTADO: get_admin_community_interactions desapareció — esa RPC NO debía tocarse (la invocan rpc_admin_business_kpis y rpc_admin_kpi_overview).';
+  END IF;
+
+  RAISE NOTICE 'limpiezas-pagos-admin G2: 4 RPCs admin huérfanas dropeadas; get_admin_community_interactions sigue viva.';
+END $$;
+
+

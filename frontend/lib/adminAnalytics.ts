@@ -205,11 +205,12 @@ export const fetchModuleStats = async (
 // deudas-menores-agosto (G5): fetchActivationRate/fetchUmvRate/
 // fetchPaidConversionRate/fetchInsightsBreakdown se removieron acá — 0
 // consumidores en todo frontend/ (verificado por grep, cierra la OQ-6 de
-// admin-kpi-refresh). Las RPCs get_admin_activation_rate/get_admin_umv_rate/
-// get_admin_paid_conversion_rate/get_admin_insights_breakdown NO se tocan en
-// la base — dropearlas es un riesgo aparte (ACLs/dependencias), anotado como
-// deuda distinta (OQ-3 de este change). AdminInsightsBreakdownEntry (arriba)
-// se conserva: a diferencia de lo que asumía design.md, no era exclusiva de
+// admin-kpi-refresh). limpiezas-pagos-admin (G2, 2026-10-03): las RPCs
+// get_admin_activation_rate/get_admin_umv_rate/get_admin_paid_conversion_rate/
+// get_admin_insights_breakdown fueron DROPEADAS de la base (0 callers
+// verificado en prod y en todo el árbol de código) — cierra la OQ-3 que
+// dejaba esto pendiente. AdminInsightsBreakdownEntry (arriba) se conserva: a
+// diferencia de lo que asumía design.md, no era exclusiva de
 // fetchInsightsBreakdown — también tipa AdminKpiOverview.insights_breakdown,
 // que sí sigue en uso (fetchKpiOverview, consumido por
 // app/(dashboard)/admin/metricas y admin/analytics).

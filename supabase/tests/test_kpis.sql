@@ -8,7 +8,10 @@
 --      vulnerable (uuid, timestamptz, timestamptz) overload BOTH have 3 args,
 --      so counting arguments cannot tell them apart.
 --   2. No other overloads exist (vulnerable p_user_id variants stay dropped).
---   3. All admin RPCs are present.
+--   3. get_admin_community_interactions is present; the 4 orphaned admin
+--      RPCs (activation_rate/umv_rate/paid_conversion_rate/insights_
+--      breakdown) stay dropped (limpiezas-pagos-admin G2, zero callers
+--      verified in prod and in the code tree).
 --   4. Functions are SECURITY DEFINER.
 --
 -- All checks run; failures accumulate and a single RAISE EXCEPTION at the end
@@ -103,28 +106,41 @@ BEGIN
              'and must never come back', v_bad));
   END IF;
 
-  -- ── 5. All five admin RPCs must exist ────────────────────────────────────────
-  SELECT string_agg(expected.fn, ', ')
+  -- ── 5. get_admin_community_interactions exists; the 4 orphaned admin RPCs
+  --      were dropped by limpiezas-pagos-admin (G2) — verified zero callers
+  --      in prod (pg_proc/prosrc of the whole DB) and in the whole code tree.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = 'public'
+      AND p.proname = 'get_admin_community_interactions'
+  ) THEN
+    v_failures := array_append(v_failures,
+      'FAIL: get_admin_community_interactions not found (must stay — invoked by rpc_admin_business_kpis and rpc_admin_kpi_overview)');
+  ELSE
+    RAISE NOTICE 'PASS: get_admin_community_interactions exists';
+  END IF;
+
+  SELECT string_agg(fn, ', ')
   INTO v_missing
   FROM (VALUES
     ('get_admin_activation_rate'),
     ('get_admin_umv_rate'),
     ('get_admin_paid_conversion_rate'),
-    ('get_admin_community_interactions'),
     ('get_admin_insights_breakdown')
-  ) AS expected(fn)
-  WHERE NOT EXISTS (
+  ) AS dropped(fn)
+  WHERE EXISTS (
     SELECT 1 FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = 'public'
-      AND p.proname = expected.fn
+      AND p.proname = dropped.fn
   );
 
   IF v_missing IS NULL THEN
-    RAISE NOTICE 'PASS: all 5 admin RPCs exist';
+    RAISE NOTICE 'PASS: the 4 orphaned admin RPCs (activation_rate/umv_rate/paid_conversion_rate/insights_breakdown) are gone (limpiezas-pagos-admin G2)';
   ELSE
     v_failures := array_append(v_failures,
-      format('FAIL: admin RPCs not found: %s', v_missing));
+      format('FAIL: orphaned admin RPCs still exist (should have been dropped by limpiezas-pagos-admin G2): %s', v_missing));
   END IF;
 
   -- ── 6. Tenant RPCs are SECURITY DEFINER ─────────────────────────────────────
@@ -142,25 +158,21 @@ BEGIN
       'FAIL: tenant KPI functions are not SECURITY DEFINER');
   END IF;
 
-  -- ── 7. Admin RPCs are SECURITY DEFINER ──────────────────────────────────────
+  -- ── 7. get_admin_community_interactions is SECURITY DEFINER ─────────────────
+  -- limpiezas-pagos-admin (G2): las otras 4 fueron dropeadas, no quedan para
+  -- este check.
   SELECT bool_and(p.prosecdef)
   INTO v_ok
   FROM pg_proc p
   JOIN pg_namespace n ON p.pronamespace = n.oid
   WHERE n.nspname = 'public'
-    AND p.proname IN (
-      'get_admin_activation_rate',
-      'get_admin_umv_rate',
-      'get_admin_paid_conversion_rate',
-      'get_admin_community_interactions',
-      'get_admin_insights_breakdown'
-    );
+    AND p.proname = 'get_admin_community_interactions';
 
   IF COALESCE(v_ok, false) THEN
-    RAISE NOTICE 'PASS: admin KPI functions are SECURITY DEFINER';
+    RAISE NOTICE 'PASS: get_admin_community_interactions is SECURITY DEFINER';
   ELSE
     v_failures := array_append(v_failures,
-      'FAIL: admin KPI functions are not SECURITY DEFINER');
+      'FAIL: get_admin_community_interactions is not SECURITY DEFINER');
   END IF;
 
   -- ── 8. get_dashboard_critical_stock excludes min_stock = 0 products ─────────
@@ -185,23 +197,9 @@ BEGIN
       '(lost when 20260623000001 recreated the function without it)');
   END IF;
 
-  -- ── 9. get_admin_paid_conversion_rate accepts optional date params ──────────
-  -- Signature: (timestamptz DEFAULT NULL, timestamptz DEFAULT NULL).
-  SELECT EXISTS (
-    SELECT 1 FROM pg_proc p
-    JOIN pg_namespace n ON p.pronamespace = n.oid
-    WHERE n.nspname = 'public'
-      AND p.proname = 'get_admin_paid_conversion_rate'
-      AND p.pronargs = 2
-      AND p.pronargdefaults = 2   -- both params must default to NULL
-  ) INTO v_ok;
-
-  IF v_ok THEN
-    RAISE NOTICE 'PASS: get_admin_paid_conversion_rate has optional date-range signature';
-  ELSE
-    v_failures := array_append(v_failures,
-      'FAIL: get_admin_paid_conversion_rate does not have the 2-param (date-optional) signature');
-  END IF;
+  -- (§9 — get_admin_paid_conversion_rate signature check — removed by
+  -- limpiezas-pagos-admin G2: the RPC itself was dropped, verified above in
+  -- §5.)
 
   -- ── Verdict ─────────────────────────────────────────────────────────────────
   IF COALESCE(array_length(v_failures, 1), 0) > 0 THEN

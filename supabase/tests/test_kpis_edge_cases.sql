@@ -4,8 +4,11 @@
 -- Verifies runtime behaviour that can be checked without a live user session:
 --   1. get_dashboard_financials raises when called without a session (auth.uid() NULL).
 --   2. get_dashboard_critical_stock raises when called without a session.
---   3. Inverted date range path exists in get_dashboard_financials (syntax check).
 --   4. is_admin() function exists and is callable (used by admin RPCs).
+--   5. Function return types are correct.
+--
+-- (§3/§6, both against get_admin_paid_conversion_rate, were removed by
+-- limpiezas-pagos-admin G2 — that RPC was dropped, zero callers verified.)
 --
 -- Uses RAISE EXCEPTION so psql exits non-zero on any failure.
 -- =============================================================================
@@ -55,22 +58,12 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: get_dashboard_critical_stock rejects unauthenticated call';
 
-  -- ── 3. Admin RPCs must reject calls (no admin session) ──────────────────────
-  -- is_admin() returns false for NULL auth.uid(), so these should raise.
-  v_raised := false;
-  BEGIN
-    PERFORM public.get_admin_paid_conversion_rate();
-  EXCEPTION
-    WHEN insufficient_privilege THEN
-      v_raised := true;
-    WHEN OTHERS THEN
-      v_raised := true;
-  END;
-
-  IF NOT v_raised THEN
-    RAISE EXCEPTION 'FAIL: get_admin_paid_conversion_rate did not raise without admin session';
-  END IF;
-  RAISE NOTICE 'PASS: get_admin_paid_conversion_rate rejects non-admin call';
+  -- (§3 — "Admin RPCs must reject calls (no admin session)" via
+  -- get_admin_paid_conversion_rate — removed by limpiezas-pagos-admin G2:
+  -- the RPC was dropped, zero callers verified. get_admin_community_
+  -- interactions (the one admin RPC that stays) keeps its own is_admin()
+  -- guard and its functional behaviour — including admin/non-admin access —
+  -- stays covered by supabase/tests/test_admin_kpis.sql.)
 
   -- ── 4. is_admin() function itself must exist ─────────────────────────────────
   IF NOT EXISTS (
@@ -108,27 +101,11 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: get_dashboard_critical_stock is scalar (RETURNS bigint)';
 
-  -- ── 6. get_admin_paid_conversion_rate: inverted date range must be handled ───
-  -- The function has DEFAULT NULL params so inverted dates are possible.
-  -- When from > to for a non-NULL range the result should be 0 (not an error),
-  -- but since is_admin() raises without a session this just verifies the guard fires.
-  v_raised := false;
-  BEGIN
-    PERFORM public.get_admin_paid_conversion_rate(
-      now() + interval '1 day',   -- from > to: inverted
-      now() - interval '1 day'
-    );
-  EXCEPTION
-    WHEN insufficient_privilege THEN
-      v_raised := true;   -- expected: is_admin() fired first
-    WHEN OTHERS THEN
-      v_raised := true;
-  END;
-
-  IF NOT v_raised THEN
-    RAISE EXCEPTION 'FAIL: get_admin_paid_conversion_rate did not raise for non-admin inverted-date call';
-  END IF;
-  RAISE NOTICE 'PASS: get_admin_paid_conversion_rate rejects non-admin call with date params';
+  -- (§6 — "get_admin_paid_conversion_rate: inverted date range" — removed by
+  -- limpiezas-pagos-admin G2: the RPC was dropped, zero callers verified.
+  -- No replacement scenario needed here: this file only ever exercised
+  -- get_admin_paid_conversion_rate's own inverted-range branch, which no
+  -- longer exists.)
 
   RAISE NOTICE '=== All edge-case KPI tests passed ===';
 END;

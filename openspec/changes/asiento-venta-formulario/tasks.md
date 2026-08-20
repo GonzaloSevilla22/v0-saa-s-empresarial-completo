@@ -1,0 +1,78 @@
+## 0. Baseline y reconocimiento (antes de escribir una línea)
+
+- [x] 0.1 Guardar en `baseline/` la definición VIVA de prod (`pg_get_functiondef`, MCP `gxdhpxvdjjkmxhdkkwyb`, sólo SELECT) de `_journal_post_from_event`, `rpc_create_sale_operation_v2` y `rpc_atomic_update_sale_operation`. Toda reescritura parte de acá, nunca de la última migración del repo (regla del bloque `credit` de C-30 borrado en silencio).
+- [x] 0.2 Confirmar `MAX(version)` en `supabase_migrations.schema_migrations` (último conocido: `20261003000001`) y elegir el timestamp de la migración nueva por encima.
+- [x] 0.3 Leer `public.reporting_local_today()` y anotar el literal de zona horaria que usa — la rama nueva SHALL reusar ese mismo literal, no un segundo hardcode (D5).
+- [x] 0.4 Re-contar en prod, y dejar registrado en el PR, el estado del gap a la fecha de implementación: operaciones de venta del formulario sin evento, operaciones de compra sin `PurchaseCreated`, y total de `journal_entries` por `source_doc_type`. Los números del design (228 / 40 / 159) son del 2026-08-20.
+
+## 1. RED — tests que fallan contra el estado actual
+
+- [x] 1.1 Crear `supabase/tests/test_asiento_venta_formulario.sql` con el caso raíz del gap: registrar una venta por `rpc_create_sale_operation_v2`, correr `rpc_process_outbox_dispatch`, y aseverar que existe 1 asiento para esa `operation_id`. Debe fallar hoy con 0 asientos.
+- [x] 1.2 Agregar el caso de ruteo por `kind`: cuatro ventas (`credit`, `transfer`, `cash`, sin imputar) y las cuentas de débito esperadas (`1300`, `1110`, `1100`, `1100`), con crédito único `4100` por el total en las cuatro. Falla hoy.
+- [x] 1.3 Agregar el caso de balance: para cada asiento producido, Σdébito = Σcrédito y `status='posted'`. Falla hoy por ausencia.
+- [x] 1.4 Agregar el caso de fecha contable: venta fechada en el mes anterior → `posted_at` cae en ese mes, no en el día de proceso. Falla hoy.
+- [x] 1.5 **(override del PO, 2026-08-20 — reemplaza el caso de inmutabilidad)** Agregar los tres casos de edición ajustando el asiento, todos contra el estado actual (fallan hoy porque no existe ni el evento ni la rama que los procesa):
+  - [x] 1.5a **Pre-proceso**: crear una venta del formulario (evento `SaleOperationCreated` queda pendiente, sin correr el dispatcher), editarla vía `rpc_atomic_update_sale_operation`, y aseverar que sigue existiendo **un solo** evento pendiente (no dos), con `aggregate_id`/payload apuntando a la operación **nueva**; correr el dispatcher y aseverar **un solo** asiento final, correcto, referenciando el `operation_id` nuevo.
+  - [x] 1.5b **Post-proceso**: crear una venta, correr el dispatcher (asiento posteado), editarla cambiando importe y forma de pago, correr el dispatcher de nuevo, y aseverar: el asiento original queda `status='reversed'`, existe una contra-entry que lo revierte exactamente (`reversal_of`), existe un asiento nuevo con los valores editados referenciando el `operation_id` nuevo, y la Σ neta de la línea `4100 Ventas` de LOS TRES asientos de la cadena (original + contra-entry + nuevo, no sólo el par) equivale al total nuevo — el original y la contra-entry se cancelan exactamente entre sí, así que en la práctica alcanza con verificar que el asiento nuevo lleva el total nuevo, pero el test debe sumar los tres para no dar por válida una fórmula que sólo sumara el par (que NO da el total nuevo salvo que el total viejo fuera cero).
+  - [x] 1.5c **Cadena de dos ediciones**: repetir 1.5b y editar la operación resultante una segunda vez (con su ajuste ya procesado); aseverar que la segunda contra-entry revierte el asiento que dejó la PRIMERA edición (el vigente), no el original de la creación (que ya está `reversed`), y que sólo un asiento de esa cadena queda `status='posted'` al final. Repetir la variante "encadenada antes de procesar" (editar de nuevo mientras el ajuste de la primera edición sigue pendiente) y aseverar que colapsa en un solo evento de ajuste final, sin eventos fantasma intermedios.
+- [x] 1.6 Agregar el control negativo de doble posteo: una venta del POS produce `SaleConfirmed` y NO `SaleOperationCreated`, y un solo asiento. Debe pasar hoy y seguir pasando después (regresión).
+
+## 2. GREEN — rama nueva del consumidor
+
+- [x] 2.1 Escribir la migración idempotente (timestamp > el de 0.2) que hace `CREATE OR REPLACE FUNCTION public._journal_post_from_event(p_event events)` partiendo del baseline de 0.1, **con las cinco ramas vigentes intactas byte a byte**.
+- [x] 2.2 Agregar `'SaleOperationCreated'` al filtro de tipos en-scope del helper (el `IF v_event_type NOT IN (...)` de entrada).
+- [x] 2.3 Implementar la rama `SaleOperationCreated`: header con `source_doc_type='SaleOperation'`, `source_doc_ref = payload.operation_id`, `posted_at` por D5 (fecha del payload anclada al mediodía en la zona de 0.3, `COALESCE(..., now())`).
+- [x] 2.4 Implementar el débito ruteado por `kind` (D3) vía un helper nuevo `_journal_sale_debit_account(kind text)`: `credit`→`1300`; `transfer`/`card`/`check`/`wallet`→`1110`; `cash`/`other`/**NULL**→`1100`. El helper es el punto único que esta rama y la rama `SaleOperationAdjusted` (task 4.1) comparten, para que no puedan divergir entre sí — `SaleConfirmed` no se toca (2.1: byte a byte).
+- [x] 2.5 Implementar el crédito: línea única `4100 Ventas` por el total, `cost_center_id = NULL` en todas las líneas (D4).
+- [x] 2.6 Verificar que la rama nueva queda **antes** del ASSERT de balance común, de modo que `P0450` la cubra igual que a las demás.
+- [x] 2.7 Agregar `'SaleOperationCreated'` al filtro del Consumer 3 en `rpc_process_outbox_dispatch` (`CREATE OR REPLACE`, resto intacto) — los dos filtros deben listar el mismo conjunto.
+- [x] 2.8 Correr 1.1–1.4 → verde. Correr `test_confirm_core_integrity.sql` y `test_pagos_cableados_restantes.sql` → verdes (regresión de las ramas viejas).
+
+## 3. GREEN — productor en el formulario de venta
+
+- [x] 3.1 `CREATE OR REPLACE FUNCTION public.rpc_create_sale_operation_v2(...)` desde el baseline, **sin cambio de firma**, agregando el `INSERT INTO public.events` al final, después de caja / cuenta corriente / banco — la misma posición que ocupa el de `rpc_create_purchase_operation`.
+- [x] 3.2 Payload exacto de D6: `account_id`, `operation_id`, `total` (= `v_total_sum` ya acumulado), `payment_method` = `v_kind` **crudo sin COALESCE**, `client_id`, `sale_date` = `p_date`, `occurred_at`. `aggregate_type='SaleOperation'`, `aggregate_id = v_new_op_id`.
+- [x] 3.3 Verificar que el `INSERT` NO lleva bloque `EXCEPTION` (D6) y que la ruta de replay idempotente (`v_inserted = 0`) retorna ANTES de llegar al `INSERT`, para que un reintento no emita un segundo evento.
+- [x] 3.4 Correr 1.1–1.4 y 1.6 → verdes. Verificar que una venta que falla (stock insuficiente, crédito sin cliente) no deja evento.
+
+## 4. GREEN — edición ajusta el asiento (override del PO: sin guard, sin superficie frontend)
+
+- [x] 4.1 `CREATE OR REPLACE FUNCTION public._journal_post_from_event(p_event events)` — agregar la rama `SaleOperationAdjusted`: localizar el asiento vigente por `source_doc_type='SaleOperation' AND source_doc_ref=payload.old_operation_id AND status='posted'` (si no existe, `RAISE` con `P0451`, reusando el código que ya usa `CreditNoteIssued`); marcarlo `status='reversed'`; insertar la contra-entry (líneas copiadas con `side` invertido desde el asiento vigente, `reversal_of` apuntando a él, `source_doc_ref=old_operation_id`, `source_event_id=NULL`, `posted_at=now()`); insertar el asiento nuevo (líneas por `payload.new_operation_id`/`total`/`payment_method` con el mismo ruteo por `kind` que `SaleOperationCreated`, `source_doc_ref=new_operation_id`, `source_event_id=p_event.id`, `posted_at` por D5). Extraer el ruteo por `kind` a un helper compartido `_journal_sale_debit_account(kind text)` que usen `SaleOperationCreated` (task 2.4) y esta rama, para que las DOS ramas nuevas no puedan divergir entre sí — `SaleConfirmed` NO se toca (queda byte a byte, task 2.1); su ruteo inline ya coincide en comportamiento con el del helper. Agregar `SaleOperationAdjusted` al filtro de tipos en-scope del helper, junto a `SaleOperationCreated` (mismo `IF v_event_type NOT IN (...)` de 2.2).
+- [x] 4.2 Agregar `'SaleOperationAdjusted'` al filtro del Consumer 3 en `rpc_process_outbox_dispatch` (`CREATE OR REPLACE`, resto intacto) — los dos filtros (dispatcher y helper) deben listar el mismo conjunto, igual que 2.7 hizo para `SaleOperationCreated`.
+- [x] 4.3 `CREATE OR REPLACE FUNCTION public.rpc_atomic_update_sale_operation(...)` desde el baseline, sin cambio de firma y **sin agregar ningún guard de rechazo** (override del PO: los tres guards de pago vigentes y el guard fiscal quedan exactamente como están, en el mismo orden). Agregar: acumulación de `v_total_sum` en el loop STEP 3 (mismo patrón que el productor de creación); derivación de `v_kind_final` desde `payment_methods.kind` usando `v_final_payment_method_id`; antes del DELETE (junto a la captura ya existente de `v_old_operation_id`), un `SELECT ... FOR UPDATE` sobre el evento pendiente relevante (`SaleOperationCreated` con `aggregate_id=v_old_operation_id`, o `SaleOperationAdjusted` con `payload->>'new_operation_id' = v_old_operation_id`), con el re-chequeo de `processed_at` tras el lock.
+- [x] 4.4 Después del STEP 3 (con `v_new_op_id`, `v_total_sum` y `v_kind_final` ya resueltos): si el `SELECT ... FOR UPDATE` de 4.3 encontró una fila pendiente (y sigue pendiente tras el re-chequeo) → `UPDATE events SET aggregate_id=v_new_op_id, payload=...` in place (caso pre-proceso, D7 Caso B); si no, y existe un `journal_entries` `posted` para `v_old_operation_id` → `INSERT INTO events (...)` con `event_type='SaleOperationAdjusted'`, `aggregate_type='SaleOperation'`, `aggregate_id=v_new_op_id`, payload con `old_operation_id`/`new_operation_id`/valores nuevos, INSERT plano sin `EXCEPTION` (D6, caso post-proceso, D7 Caso C); si ninguna de las dos → no-op (D7 Caso A). Ningún camino nuevo debe ejecutarse antes del STEP 3 (los valores que necesita no existen todavía).
+- [x] 4.5 **Sin superficie frontend** (override del PO): no hay ningún archivo de `frontend/` ni de `backend/repositories`/`backend/schemas` que tocar en este grupo — `SalesRepository`/`SaleOut`/`sale-operations-list.tsx`/`sale-form.tsx` quedan sin cambios. Verificar (grep) que ningún archivo de esas rutas fue modificado por error.
+- [x] 4.6 Correr 1.5a/1.5b/1.5c → verdes. Correr `test_edicion_preserva_contexto.sql`, `test_operation_edit_lines.sql`, `test_stock_movements_edicion.sql`, `test_pos_banco_movimientos.sql` → verdes (los tres guards de pago y el guard fiscal siguen bloqueando exactamente lo mismo que antes).
+
+## 5. TRIANGULATE y hardening
+
+- [x] 5.1 Idempotencia del consumidor: despachar dos veces el mismo evento → exactamente 1 asiento (slot `(event_id,'JournalEntry')` + índice único parcial en `source_event_id`).
+- [x] 5.2 Aislamiento: un evento `SaleOperationCreated` deliberadamente inconsistente deja `processed_at` NULL, emite WARNING y **no aborta el batch**; los demás eventos del lote se procesan.
+- [x] 5.3 Vocabulario completo: los siete `kind` del catálogo (`cash`, `transfer`, `card`, `check`, `wallet`, `credit`, `other`) más NULL, cada uno con su cuenta de débito esperada.
+- [x] 5.4 Reafirmar en la misma migración `REVOKE ALL ON FUNCTION ... FROM anon, PUBLIC` y el `GRANT` a `authenticated` que corresponda para las tres funciones (D9). Correr `test_function_acl_gate.sql` y `test_errcode_5char_gate.sql` → verdes.
+- [x] 5.5 Correr la suite completa: vitest, pytest (≥87%), `validate-kpis`, Playwright E2E.
+- [x] 5.6 **(referenciado desde design.md §Riesgos)** Gate dedicado de edición encadenada + carrera con el relay: (a) repetir 1.5c con una tercera edición para confirmar que la cadena no se rompe con N>2; (b) simular la carrera del `SELECT ... FOR UPDATE` — abrir una transacción que sostenga el lock del evento pendiente (imitando al dispatcher), intentar editar en paralelo, confirmar que la edición espera y no lanza error ni corrompe el evento; (c) confirmar que si el evento pasó a `processed_at IS NOT NULL` mientras la edición esperaba el lock, la edición cae al camino de evento-ya-procesado (emite `SaleOperationAdjusted`) en vez de mutar una fila que ya no es pendiente.
+
+## 6. REFACTOR y documentación
+
+- [x] 6.1 Revisar que no quedó lógica duplicada entre la rama nueva y `SaleConfirmed` (vocabulario bancario en un solo lugar, tarea 2.4).
+- [x] 6.2 Comentar en la cabecera de `_journal_post_from_event` la rama nueva y la decisión D3 del `kind` sin imputar, con la razón (espejo de los subledgers), siguiendo el estilo de las cabeceras existentes.
+- [x] 6.3 Actualizar `CHANGES.md`: marcar el change y registrar el hallazgo de compras (backfill histórico de 40, sin gap vivo), el override del PO (editable + evento de ajuste, absorbe lo que iba a ser `asiento-edicion-reversa` — NO listar ese nombre como candidato futuro, ya está resuelto por este change) y los candidatos derivados que siguen abiertos (`delete-guard-ledgers`, superficie del libro diario / OQ-5).
+
+## 7. Verificación en producción (post-merge, sólo SELECT)
+
+- [ ] 7.1 Confirmar que la migración aplicó y que `MAX(version)` es la nueva.
+- [ ] 7.2 Registrar una venta de prueba desde el formulario y verificar: 1 evento `SaleOperationCreated`, y al minuto siguiente 1 asiento balanceado con la cuenta de débito correcta y `posted_at` en la fecha de la venta.
+- [ ] 7.3 Verificar que los 159 asientos preexistentes están intactos (conteo por `source_doc_type` y por `status`) y que `events` no acumula pendientes.
+- [ ] 7.4 Editar la venta de prueba de 7.2 ANTES de que el relay procese su evento y verificar que se reemplaza en el lugar (sigue existiendo un solo evento pendiente, ahora apuntando al `operation_id` nuevo) y que, al minuto siguiente, aparece exactamente 1 asiento correcto referenciando ese `operation_id` nuevo. Registrar una segunda venta de prueba, dejar que el relay la postee, editarla, y verificar en prod que aparecen la contra-entry y el asiento nuevo con la Σ neta correcta; editarla una segunda vez y verificar que la cadena de dos ediciones referencia el asiento vigente correcto (gate de edición encadenada, 1.5c/5.6).
+
+## 8. Backfill histórico — GATEADO A SIGN-OFF DEL PO
+
+> No ejecutar ningún paso de este grupo sin aprobación explícita del PO. Presentarle antes: los conteos de 0.4 y la respuesta a OQ-2 (OQ-1 ya está resuelta por el override del PO del 2026-08-20 — las operaciones backfilleadas quedan editables como cualquier otra, sin consecuencia de inmutabilidad que declarar).
+
+- [ ] 8.1 Escribir el backfill Grupo A como `INSERT INTO events ... SELECT ... WHERE NOT EXISTS` (una operación de venta del formulario sin evento previo → un `SaleOperationCreated` con `sale_date` de la operación, `payment_method` = kind imputado o NULL, `payload.source='backfill'`), en un archivo separado y re-corrible.
+- [ ] 8.2 Escribir el backfill Grupo B con la misma forma para `PurchaseCreated` sobre las operaciones de compra sin evento — sin código de consumidor nuevo.
+- [ ] 8.3 Ensayar ambos en un entorno no productivo, verificar idempotencia (segunda corrida = 0 filas) y balance de cada asiento resultante.
+- [ ] 8.4 Ejecutar en prod fuera de horario, con los conteos anotados antes y después. Esperado al 2026-08-20: Grupo A 228 eventos, Grupo B 40 eventos.
+- [ ] 8.5 Verificar el drenado del outbox (≈3 minutos a 100/minuto), que no quedan eventos pendientes y que todo asiento nuevo balancea.
+- [ ] 8.6 Dejar registrada la consulta de reversa del lote (`payload->>'source' = 'backfill'`) por si hay que deshacerlo.

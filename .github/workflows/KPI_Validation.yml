@@ -133,6 +133,22 @@ jobs:
           # sin la columna, y el DROP COLUMN/DROP FUNCTION, ya aplicados, son
           # no-op (de paso, prueba que esta migración es re-appliable).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261003000001_limpiezas_pagos_admin.sql
+          # asiento-venta-formulario: el reapply de 20261003000001 arriba
+          # redefine _journal_post_from_event, rpc_create_sale_operation_v2,
+          # rpc_atomic_update_sale_operation y rpc_process_outbox_dispatch
+          # con SU cuerpo vigente en esa fecha — ANTES de este change, sin
+          # las ramas SaleOperationCreated/SaleOperationAdjusted ni el
+          # reemplazo in-place de la edición. `supabase start` ya aplicó
+          # esta migración nueva una vez al levantar el stack (es la última
+          # de la cadena por timestamp); reaplicar una migración MÁS VIEJA
+          # después la revierte en silencio, y el gate nuevo de abajo
+          # fallaría con un "phantom regression" que no reproduce en local
+          # (mismo mecanismo que las notas anteriores, sin conflicto de
+          # firma/overload acá — CREATE OR REPLACE sin DROP en las cuatro
+          # funciones, REVOKE/GRANT idempotentes). Se reconverge reaplicando
+          # esta migración una última vez al final de toda la cadena (de
+          # paso, prueba que es re-appliable).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261004000001_asiento_venta_formulario.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -413,3 +429,25 @@ jobs:
       # editable) y P0424 sobre un período ya conciliado y cerrado.
       - name: Run pos-banco-movimientos gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pos_banco_movimientos.sql
+
+      # asiento-venta-formulario: rpc_create_sale_operation_v2 (ruta viva del
+      # formulario de venta) no emitía ningún evento al outbox — 228 ventas
+      # del formulario sin asiento contable, 66% de las operaciones de venta
+      # de la app. Verifica: (1) el gap raíz cerrado — una venta del
+      # formulario produce 1 asiento balanceado vía el relay real; (2) ruteo
+      # por kind (credit/transfer/cash/sin-imputar -> 1300/1110/1100/1100,
+      # crédito único 4100 sin IVA — sin-imputar rutea a Caja, no a
+      # Deudores, D3); (3) posted_at = fecha de la venta, no el instante del
+      # relay; (4) override del PO (2026-08-20, reemplaza la inmutabilidad
+      # que el design original recomendaba): editar una operación con
+      # rastro contable AJUSTA el asiento en vez de bloquear la edición —
+      # reemplazo in-place del evento pendiente si el relay no procesó
+      # todavía (4a), contra-entry + asiento nuevo si ya procesó (4b), y dos
+      # gates de cadena de ediciones — GATE ESTRELLA (4c: la segunda
+      # contra-entry revierte el asiento de la primera edición, no el
+      # original; 4d: dos ediciones antes de procesar colapsan en un solo
+      # evento de ajuste, sin eventos fantasma); (5) control negativo — el
+      # POS sigue emitiendo SOLO SaleConfirmed, nunca SaleOperationCreated,
+      # sin doble posteo.
+      - name: Run asiento-venta-formulario gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_asiento_venta_formulario.sql

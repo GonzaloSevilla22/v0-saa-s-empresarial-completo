@@ -55,7 +55,7 @@ On a `SaleOperationAdjusted` event the system SHALL post two `journal_entries` r
 #### Scenario: An edit after posting produces a contra-entry and a new entry
 
 - **WHEN** a `SaleOperationAdjusted` event is processed whose `old_operation_id` names an operation with a posted entry of 15000 debiting `1100 Caja`, and whose new values total 9000 with `payment_method='transfer'`
-- **THEN** the original entry is marked `status='reversed'`, a contra-entry balances with credit `1100 Caja` = 15000 and debit `4100 Ventas` = 15000, a new entry balances with debit `1110 Banco` = 9000 and credit `4100 Ventas` = 9000, and the net effect of the pair on `4100 Ventas` is a credit of 9000 — the new total, not the old one
+- **THEN** the original entry is marked `status='reversed'`, a contra-entry balances with credit `1100 Caja` = 15000 and debit `4100 Ventas` = 15000, a new entry balances with debit `1110 Banco` = 9000 and credit `4100 Ventas` = 9000, and — reading the original, the contra-entry and the new entry together as the operation's full lineage — the net `4100 Ventas` balance they leave is a credit of 9000 (the original's credit and the contra-entry's debit cancel exactly, leaving only the new entry's credit), the new total and not the old one
 
 #### Scenario: The pair is fully traceable
 

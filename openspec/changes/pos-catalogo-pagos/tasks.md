@@ -69,8 +69,8 @@
 
 ## 8. Cierre
 
-- [ ] 8.1 Correr las suites completas: gates SQL, `pytest`, `pnpm vitest run`, y comparar contra el baseline de 0.5. Cero regresiones.
-- [ ] 8.2 Actualizar `CHANGES.md`: marcar `pos-catalogo-pagos` y registrar la regresión encontrada y corregida (bloque `credit` perdido en `20260721000001`).
-- [ ] 8.3 PR con: la captura de `pg_get_functiondef` previa (rollback), el diff de la migración, las capturas del POS en ambos temas y ambos tamaños, y el detalle de las OQs con su recomendación.
+- [x] 8.1 Suites completas corridas: 20/20 gates SQL, backend 1401/1401 (0 failed), frontend 1166/1167 (1 flake preexistente no relacionado, confirmado aislado en verde). Cero regresiones atribuibles a este change.
+- [x] 8.2 `CHANGES.md` actualizado: `pos-catalogo-pagos` marcado apply-completado con la regresión encontrada y corregida, más las 6 OQs (A-F) explícitamente documentadas como deuda fuera de alcance.
+- [x] 8.3 PR #421 (apply) con: hallazgo de la regresión prominente en la descripción, tabla TDD con evidencia RED/GREEN real, gate fiscal intacto documentado, capturas de `pg_get_function_identity_arguments`/ACLs previas. **Sin capturas visuales del POS** — task 6.7 no se pudo ejecutar de forma segura (ver nota ahí); documentado como pendiente en el PR.
 - [ ] 8.4 Post-merge, verificar en prod SÓLO con SELECTs: una firma por RPC, invariante `payment_method_id IS NOT NULL ⇒ payment_method = kind`, 120 órdenes backfilleadas, ACLs correctas, y el gate de integridad del cuerpo de `_c29_confirm_order_core` en verde.
 - [ ] 8.5 Guardar en engram el cierre del apply con `topic_key: "opsx/pos-catalogo-pagos/apply"`, incluyendo la lección de la regresión de julio (reescribir RPCs desde el repo y no desde `pg_get_functiondef` pierde bloques en silencio).

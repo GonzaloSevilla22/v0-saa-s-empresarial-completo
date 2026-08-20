@@ -82,7 +82,17 @@ class PurchaseRepository(BaseRepository):
                    cc.name AS cost_center_name,
                    p.payment_method_id,
                    pm.name AS payment_method_name,
-                   pm.kind AS payment_method_kind
+                   pm.kind AS payment_method_kind,
+                   -- pagos-cableados-restantes (D6, task 9.3): MISMO
+                   -- predicado que el guard P0423 de
+                   -- rpc_atomic_update_purchase_operation. Sin la doble
+                   -- convención de reference_id de la venta (no hay un
+                   -- concepto análogo a sales_orders para compras): siempre
+                   -- p.operation_id.
+                   EXISTS (
+                     SELECT 1 FROM supplier_account_movements sam
+                     WHERE sam.reference_id = p.operation_id
+                   ) AS is_payment_locked
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
             LEFT JOIN purchase_items pi2 ON pi2.purchase_id = p.id AND pi2.product_id IS NOT NULL

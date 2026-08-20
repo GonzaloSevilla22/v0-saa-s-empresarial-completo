@@ -876,16 +876,27 @@ END;
 $function$;
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 4. ACLs — el DROP resetea las ACLs (deja la función abierta a PUBLIC). Sin
---    este paso, la función queda EXECUTE-able por anon y rompe el gate
---    test_function_acl_gate.sql (advisors 0028/0029). REVOKE+GRANT explícitos
---    inmediatamente después del CREATE, mismo archivo (§D4/Risks).
+-- 4. ACLs — el DROP resetea las ACLs. Este proyecto (bootstrap Supabase)
+--    tiene ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON
+--    FUNCTIONS TO anon, authenticated, service_role — así que una función
+--    NUEVA (DROP+CREATE, o cualquier CREATE que no matchee una firma
+--    existente) nace con `anon=X` GRANT DIRECTO, no vía PUBLIC. Por eso
+--    `REVOKE ALL ... FROM PUBLIC` solo NO alcanza (bug real, encontrado en
+--    CI: la firma nueva quedó anon-executable pese al REVOKE FROM PUBLIC —
+--    localmente no se reproducía porque el stack local ya tenía las ACLs
+--    de una corrida previa). Patrón completo de 3 líneas, igual que
+--    20260928000001 y el resto del proyecto (advisors 0028/0029):
+--    REVOKE ALL FROM PUBLIC + REVOKE EXECUTE FROM anon (el que realmente
+--    importa) + GRANT EXECUTE TO authenticated. Inmediatamente después del
+--    CREATE, mismo archivo (§D4/Risks).
 -- ═══════════════════════════════════════════════════════════════════════════
-REVOKE ALL ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) TO authenticated;
+REVOKE ALL     ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) TO authenticated;
 
-REVOKE ALL ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean) TO authenticated;
+REVOKE ALL     ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean) TO authenticated;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 5. Comentarios de trazabilidad (task 3.12).

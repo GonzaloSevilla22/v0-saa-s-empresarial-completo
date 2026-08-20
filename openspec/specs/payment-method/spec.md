@@ -1,10 +1,12 @@
 # payment-method Specification
 
+> Synced from change `metodos-pago-operaciones` — 2026-08-19; updated from `pos-catalogo-pagos` — 2026-08-20 (el POS pasa a ofrecer el catálogo y a disparar efectos tipados por camino, en vez de una etiqueta pasiva)
+
 ## Purpose
 
-Catálogo de formas de pago por cuenta (`payment_methods` + vocabulario cerrado `kind`), su seed automático de provisioning, la imputación **opcional** de la forma de pago en ventas y compras (alta y edición, por operación), las superficies que la hacen usable (gestor del catálogo, selectores, badges, filtros) y el read-model de distribución por forma de pago (`rpc_payment_method_report`).
+Catálogo de formas de pago por cuenta (`payment_methods` + vocabulario cerrado `kind`), su seed automático de provisioning, la imputación **opcional** de la forma de pago en ventas y compras (alta y edición, por operación), las superficies que la hacen usable (gestor del catálogo, selectores, POS, badges, filtros) y el read-model de distribución por forma de pago (`rpc_payment_method_report`).
 
-Es una **etiqueta**, no un efecto: elegir una forma de pago en un form NO dispara por sí sola ningún movimiento de caja, cargo en cuenta corriente ni asiento contable — esos cableados son changes deliberadamente posteriores (`pos-catalogo-pagos`). Las ventas nacidas en el POS (que sí declaran la forma de pago en `sales_orders.payment_method`, un CHECK de texto independiente) se muestran con su forma de pago derivada de lectura, sin que este change toque el POS.
+En el camino de los **formularios** (venta y compra) sigue siendo una **etiqueta**: elegirla ahí NO dispara por sí sola ningún movimiento de caja, cargo en cuenta corriente ni asiento contable. En el camino del **mostrador** (POS / `quickSale()` / confirmación de una orden de venta) pasa a ser el disparador **tipado**: `kind = 'cash'` mueve caja, `kind = 'credit'` postea el cargo en la cuenta corriente del cliente — la distinción es por camino, no por etiqueta (`pos-catalogo-pagos`, resuelve la regresión de C-30 documentada ahí).
 
 ## Requirements
 ### Requirement: Catálogo de formas de pago por cuenta
@@ -30,7 +32,7 @@ El sistema SHALL persistir un catálogo plano de formas de pago en la tabla `pay
 
 ### Requirement: Vocabulario cerrado de `kind` compatible con las taxonomías existentes
 
-El sistema SHALL restringir `payment_methods.kind` por CHECK al conjunto `{cash, transfer, card, check, wallet, credit, other}`. El `name` SHALL ser la etiqueta que ve y edita el usuario; el `kind` SHALL ser lo único que consuman los subsistemas para razonar sobre la forma de pago. El vocabulario SHALL ser un **superset de las dos taxonomías ya vivas** —el CHECK de `sales_orders.payment_method` (`{cash, transfer, card, other, credit}`) y la de las RPCs de cobro/pago (`{cash, transfer, card, check}`)— y este change NO SHALL modificar ninguna de las dos.
+El sistema SHALL restringir `payment_methods.kind` por CHECK al conjunto `{cash, transfer, card, check, wallet, credit, other}`. El `name` SHALL ser la etiqueta que ve y edita el usuario; el `kind` SHALL ser lo único que consuman los subsistemas para razonar sobre la forma de pago. El CHECK de `sales_orders.payment_method` SHALL ser **idéntico** a este vocabulario (ampliado por `pos-catalogo-pagos` de un subconjunto de 5 valores al conjunto completo — ver "El vocabulario de `sales_orders.payment_method` es el vocabulario del catálogo"). El CHECK de las RPCs de cobro/pago (`{cash, transfer, card, check}`) sigue siendo un subconjunto propio, sin tocar.
 
 #### Scenario: `kind` fuera del vocabulario es rechazado
 
@@ -148,33 +150,115 @@ El sistema SHALL permitir cambiar la forma de pago de una operación existente d
 - **WHEN** se edita informando la forma de pago "Transferencia bancaria"
 - **THEN** todas las líneas de la operación quedan imputadas a "Transferencia bancaria"
 
-### Requirement: La forma de pago es una etiqueta y no dispara asientos, caja ni cuenta corriente
+### Requirement: La forma de pago dispara efectos según el camino, no según la etiqueta
 
-El sistema NO SHALL derivar de `sales.payment_method_id` / `purchases.payment_method_id` ningún efecto automático sobre otros subsistemas: elegir una forma de pago de `kind = 'cash'` NO SHALL exigir sesión de caja abierta ni generar `cash_movements`; `kind = 'credit'` NO SHALL generar cargo en `customer_account_movements` ni en cuentas de proveedor; `kind = 'transfer'`/`card` NO SHALL generar `bank_movements` ni asiento. Las superficies que ofrecen el selector SHALL declarar explícitamente esa limitación al usuario, de forma que la etiqueta no se lea como una afordancia que el sistema no cumple.
+El sistema SHALL determinar los efectos sobre caja y cuenta corriente por el **camino** que registra la operación, no por la etiqueta elegida. En el camino del mostrador (POS / `quickSale` / confirmación de orden de venta), la forma de pago SHALL ser tipada: `kind = 'cash'` exige sesión de caja abierta y genera `cash_movements`; `kind = 'credit'` exige cliente y postea el cargo en `customer_account_movements`. En el camino de los formularios de venta y de compra, `sales.payment_method_id` / `purchases.payment_method_id` SHALL ser **sólo etiqueta**: NO SHALL exigir sesión de caja, NO SHALL generar `cash_movements`, NO SHALL generar cargo en cuentas corrientes de cliente ni de proveedor, y NO SHALL generar `bank_movements` ni asiento contable. Los `kind` sin cableado (`transfer`, `card`, `check`, `wallet`) SHALL comportarse como etiqueta en todos los caminos. Las superficies que ofrecen el selector SHALL declarar explícitamente esta división, nombrando el POS como el camino que sí mueve caja, de forma que la etiqueta no se lea como una afordancia que el sistema no cumple.
 
-#### Scenario: Venta a cuenta corriente desde el form de venta
-
-- **WHEN** se registra una venta con la forma de pago de `kind = 'credit'`
-- **THEN** la venta queda imputada a esa forma de pago
-- **AND** no se crea ningún movimiento en `customer_account_movements`
-- **AND** el form informa al usuario dónde se registra el cargo en la cuenta corriente
-
-#### Scenario: Venta en efectivo fuera del POS no exige caja abierta
+#### Scenario: Venta en efectivo desde el form no mueve caja
 
 - **GIVEN** una cuenta sin sesión de caja abierta
 - **WHEN** se registra una venta con la forma de pago de `kind = 'cash'` desde el form de venta
-- **THEN** la venta se registra normalmente y no se crea ningún `cash_movement`
+- **THEN** la venta se registra normalmente, no se crea ningún `cash_movement` y no se exige sesión
+
+#### Scenario: Venta en efectivo desde el POS sí mueve caja
+
+- **GIVEN** una sesión de caja abierta en la sucursal
+- **WHEN** se cobra desde el POS con la forma de pago de `kind = 'cash'`
+- **THEN** se crea un `cash_movements` de tipo `sale` por el total, en el mismo commit que el descuento de stock
+
+#### Scenario: Etiqueta de cuenta corriente en el form no genera cargo
+
+- **WHEN** se registra una venta desde el form con la forma de pago de `kind = 'credit'`
+- **THEN** la venta queda imputada a esa forma de pago, no se crea ningún movimiento en `customer_account_movements`, y el form informa dónde sí se registra el cargo
+
+#### Scenario: Forma de pago de transferencia no genera movimiento bancario
+
+- **WHEN** se cobra desde el POS con una forma de pago de `kind = 'transfer'`
+- **THEN** la venta se confirma, no se crea ningún `bank_movements` ni asiento, y la operación queda imputada a esa forma de pago
+
+#### Scenario: El texto de apoyo nombra el camino que mueve caja
+
+- **WHEN** el usuario elige en el form de venta una forma de pago de `kind = 'cash'`
+- **THEN** la pantalla explica que el movimiento de caja lo genera la venta desde el POS, con un enlace a esa pantalla
+
+### Requirement: El POS ofrece el catálogo de formas de pago de la cuenta
+
+El sistema SHALL ofrecer en el POS (`/ventas/pos`) las formas de pago **activas del catálogo de la cuenta**, ordenadas por `sort_order`, en lugar de un vocabulario fijo. El método preseleccionado SHALL ser el activo de `kind = 'cash'` con menor `sort_order` y, si la cuenta no tiene ninguno de ese `kind`, el primer activo por `sort_order`. Si la cuenta no tiene ninguna forma de pago activa, el POS SHALL seguir permitiendo cobrar por el camino legacy sin forma de pago imputada y SHALL mostrar un aviso con enlace al gestor del catálogo — degradar, nunca impedir el cobro. La grilla SHALL usar los tokens semánticos y componentes base del design system, con objetivos táctiles de al menos 44px, y SHALL verificarse en desktop y mobile y en tema claro y oscuro.
+
+#### Scenario: El POS lista las formas de pago de la cuenta
+
+- **GIVEN** una cuenta con las seis formas de pago sembradas y activas
+- **WHEN** el usuario abre el POS
+- **THEN** ve las seis opciones ordenadas por `sort_order`, con "Efectivo" preseleccionada
+
+#### Scenario: Una forma de pago desactivada no se ofrece en el POS
+
+- **GIVEN** una cuenta cuya forma de pago "Tarjeta" fue desactivada
+- **WHEN** el usuario abre el POS
+- **THEN** "Tarjeta" no aparece entre las opciones, y las ventas históricas imputadas a ella conservan su imputación
+
+#### Scenario: Cuenta sin formas de pago activas sigue pudiendo cobrar
+
+- **GIVEN** una cuenta que desactivó todas sus formas de pago
+- **WHEN** el usuario carga un carrito y cobra desde el POS
+- **THEN** la venta se confirma sin forma de pago imputada y la pantalla ofrece un enlace al gestor del catálogo
+
+### Requirement: El vocabulario de `sales_orders.payment_method` es el vocabulario del catálogo
+
+El sistema SHALL mantener un único vocabulario de formas de pago: el conjunto admitido por el CHECK de `sales_orders.payment_method` SHALL ser idéntico al admitido por `payment_methods.kind` (`cash`, `transfer`, `card`, `check`, `wallet`, `credit`, `other`). Cuando una orden de venta tiene `payment_method_id` imputado, su `payment_method` SHALL ser igual al `kind` de esa forma de pago; el texto SHALL ser escrito por la RPC y nunca elegido por el cliente. La columna `payment_method` SHALL conservarse como columna derivada —no se dropea en este change— documentada con un `COMMENT` que declare que su fuente es `payment_method_id`.
+
+#### Scenario: Los dos vocabularios coinciden
+
+- **WHEN** se inspeccionan las definiciones de `sales_orders_payment_method_check` y `payment_methods_kind_check`
+- **THEN** ambos enumeran exactamente el mismo conjunto de valores
+
+#### Scenario: El texto legacy queda derivado del kind
+
+- **WHEN** se confirma una venta imputada a una forma de pago de `kind = 'wallet'`
+- **THEN** la orden queda con `payment_method_id` de esa forma de pago y `payment_method = 'wallet'`
+
+#### Scenario: Una venta histórica sin imputación conserva su texto
+
+- **GIVEN** una orden anterior a este change con `payment_method = 'other'` cuyo backfill no encontró forma de pago viva
+- **WHEN** se la consulta
+- **THEN** conserva `payment_method = 'other'` con `payment_method_id = NULL` y se muestra por derivación de lectura
+
+### Requirement: El POS exige cliente y muestra el saldo al cobrar a cuenta corriente
+
+El sistema SHALL, cuando en el POS se elige una forma de pago de `kind = 'credit'`, exigir un cliente antes de permitir el cobro, mostrando el motivo en pantalla; SHALL mostrar el saldo actual de la cuenta corriente de ese cliente y el saldo proyectado tras la venta, reutilizando el read-model de cuenta corriente ya existente; y SHALL enlazar la cuenta corriente del cliente desde la confirmación de la venta. El bloqueo del cliente en la interfaz SHALL ser una comodidad, no la fuente de verdad: el rechazo definitivo SHALL provenir del backend.
+
+#### Scenario: Cobrar a cuenta corriente sin cliente está bloqueado
+
+- **GIVEN** un carrito con productos y la forma de pago de `kind = 'credit'` elegida
+- **WHEN** el usuario no seleccionó cliente
+- **THEN** el botón de cobro está deshabilitado y la pantalla explica que una venta a cuenta corriente se le carga a un cliente
+
+#### Scenario: El saldo del cliente es visible antes de cobrar
+
+- **GIVEN** un cliente con saldo deudor y la forma de pago de `kind = 'credit'` elegida
+- **WHEN** el usuario tiene un carrito armado
+- **THEN** ve el saldo actual del cliente y el saldo que quedará después de esta venta
+
+#### Scenario: Elegir cuenta corriente no exige sesión de caja
+
+- **GIVEN** una cuenta sin sesión de caja abierta
+- **WHEN** el usuario elige en el POS la forma de pago de `kind = 'credit'` y cobra
+- **THEN** la venta se confirma sin exigir sesión de caja y sin generar movimiento de caja
 
 ### Requirement: Lectura de la forma de pago en operaciones nacidas en el POS
 
-El sistema SHALL mostrar una forma de pago para las operaciones de venta originadas en el POS derivándola **de lectura** desde el texto legacy de su `sales_orders.payment_method` mapeado por `kind` (`cash` → la forma de pago de `kind = 'cash'` de la cuenta; `other` → la de `kind = 'other'`). Esta derivación NO SHALL escribir en `sales`, `sales_orders` ni `payment_methods`, y este change NO SHALL modificar `rpc_quick_sale`, `rpc_confirm_sales_order` ni el CHECK de `sales_orders.payment_method`.
+El sistema SHALL persistir `payment_method_id` en todas las filas legacy de `sales` de una venta nacida en el POS cuando la orden lleva forma de pago imputada, de modo que las ventas nuevas no dependan de ninguna derivación. Para las operaciones históricas sin imputación, el sistema SHALL conservar la derivación **de lectura** desde el texto legacy de `sales_orders.payment_method` mapeado por `kind`, como fallback. La imputación explícita SHALL ganar siempre sobre la derivación, y la derivación NO SHALL escribir en `sales`, `sales_orders` ni `payment_methods`.
 
-#### Scenario: Venta del POS en efectivo listada con su forma de pago
+#### Scenario: Venta nueva del POS trae su forma de pago persistida
 
-- **GIVEN** una venta creada en el POS cuya orden tiene `payment_method = 'cash'` y cuyas filas de `sales` tienen `payment_method_id = NULL`
+- **WHEN** se cobra desde el POS eligiendo una forma de pago del catálogo
+- **THEN** todas las filas de `sales` de esa operación quedan con ese `payment_method_id`, sin necesidad de derivación
+
+#### Scenario: Venta histórica sin imputación se sigue mostrando por derivación
+
+- **GIVEN** una venta previa a este change cuya orden tiene `payment_method = 'cash'` y cuyas filas de `sales` tienen `payment_method_id = NULL`
 - **WHEN** el usuario abre el listado de ventas
-- **THEN** la operación se muestra con la forma de pago "Efectivo"
-- **AND** ninguna fila de `sales` es modificada por la lectura
+- **THEN** la operación se muestra con la forma de pago de `kind = 'cash'` de la cuenta, y ninguna fila de `sales` es modificada por la lectura
 
 #### Scenario: La imputación explícita gana sobre la derivación
 
@@ -205,7 +289,7 @@ El sistema SHALL exponer `rpc_payment_method_report(p_account_id, p_start, p_end
 
 ### Requirement: Superficies de la forma de pago
 
-El sistema SHALL exponer la forma de pago en: (a) el gestor del catálogo dentro de `/configuracion`, junto al de centros de costo, visible sólo para `owner`/`admin`; (b) un selector "Forma de pago" en el alta y edición de ventas y de compras, que ofrece sólo las formas activas; (c) un badge con la forma de pago y un filtro por forma de pago en los listados de ventas y de compras; y (d) la pantalla `/reportes/formas-pago`, alcanzable desde una entrada propia del sidebar y sin gate de plan —mismo criterio que el reporte de centros de costo, porque gatearlo dejaría al plan free imputando datos que no puede leer. Toda superficie nueva SHALL usar los tokens semánticos y los componentes base del design system, y SHALL verificarse en desktop y mobile y en tema claro y oscuro.
+El sistema SHALL exponer la forma de pago en: (a) el gestor del catálogo dentro de `/configuracion`, junto al de centros de costo, visible sólo para `owner`/`admin`; (b) un selector "Forma de pago" en el alta y edición de ventas y de compras, que ofrece sólo las formas activas; (c) un badge con la forma de pago y un filtro por forma de pago en los listados de ventas y de compras; (d) la pantalla `/reportes/formas-pago`, alcanzable desde una entrada propia del sidebar y sin gate de plan —mismo criterio que el reporte de centros de costo, porque gatearlo dejaría al plan free imputando datos que no puede leer; y **(e) la grilla de formas de pago del POS (`/ventas/pos`)**, con sus estados propios: indicador de sesión de caja cuando el `kind` es `cash` y bloque de cliente y saldo cuando es `credit`. Toda superficie nueva SHALL usar los tokens semánticos y los componentes base del design system, y SHALL verificarse en desktop y mobile y en tema claro y oscuro.
 
 #### Scenario: Alta de venta con el selector
 
@@ -223,6 +307,12 @@ El sistema SHALL exponer la forma de pago en: (a) el gestor del catálogo dentro
 - **GIVEN** un usuario con rol `member`
 - **WHEN** abre `/configuracion`
 - **THEN** no se le ofrece la gestión del catálogo de formas de pago, aunque sí puede elegir formas de pago al operar
+
+#### Scenario: El POS muestra el estado de caja sólo para efectivo
+
+- **GIVEN** un usuario en el POS
+- **WHEN** elige una forma de pago de `kind` distinto de `cash`
+- **THEN** el indicador de sesión de caja no se muestra y el cobro no queda condicionado a una sesión abierta
 
 ### Requirement: Endpoints de formas de pago en el backend
 

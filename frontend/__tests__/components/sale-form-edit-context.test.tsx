@@ -29,7 +29,14 @@ vi.mock("@/components/branches/BranchSelect", () => ({
     <div data-testid="branch-select-value">{value ?? "null"}</div>
   ),
 }))
-vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
+vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
+  PaymentMethodSelect: () => null,
+  // pos-banco-movimientos (D9): mock no-op — este archivo sólo ejercita
+  // isEdit=true (donde BankAccountDestinationSelect no se monta, D8), pero
+  // se exporta igual para no dejar un import roto latente si algún test
+  // futuro cubre el modo alta.
+  BankAccountDestinationSelect: () => null,
+}))
 // pagos-cableados-restantes (OQ-C/OQ-D): mocks de los hooks nuevos del form
 // — sin esto, el import real de use-payment-methods dispara python-client
 // (NEXT_PUBLIC_BACKEND_URL no definida en el entorno de test).

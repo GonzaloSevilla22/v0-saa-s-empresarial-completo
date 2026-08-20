@@ -103,6 +103,21 @@ jobs:
           # deja 1 sola definición de cada función con el cuerpo final correcto
           # (de paso, prueba que esta migración es re-appliable).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261001000001_pagos_cableados_restantes.sql
+          # pos-banco-movimientos: 20261001000001 (reaplicada arriba) redefine
+          # _c29_confirm_order_core, rpc_create_sale_operation(_v2) y
+          # rpc_create_purchase_operation con SU firma vigente en esa fecha
+          # (sin p_bank_account_id) — mismo mecanismo de la nota anterior: su
+          # CREATE OR REPLACE ya no matchea la firma NUEVA vigente (esta
+          # migración le agregó p_bank_account_id trailing), así que crea un
+          # overload fantasma en vez de reemplazar (ambigüedad 42725 real,
+          # detectada en CI: "function ... is not unique" al llamar con menos
+          # argumentos posicionales que el total de ambas firmas). Reconverge
+          # reaplicando esta migración al final de la cadena: sus propios
+          # DROP FUNCTION IF EXISTS (firma exacta sin p_bank_account_id)
+          # matchean los overloads fantasma recién creados y los CREATE OR
+          # REPLACE que siguen dejan 1 sola definición de cada función (de
+          # paso, prueba que esta migración es re-appliable).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261002000001_pos_banco_movimientos.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

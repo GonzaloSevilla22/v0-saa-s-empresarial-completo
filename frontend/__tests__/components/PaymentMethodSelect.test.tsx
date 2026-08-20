@@ -22,6 +22,16 @@ vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: (...args: unknown[]) => usePaymentMethodsMock(...args),
 }))
 
+// pos-banco-movimientos (D9): el módulo ahora también exporta
+// BankAccountDestinationSelect, que importa useBankAccounts a nivel de
+// módulo — sin mockearlo, el import real de use-bank-accounts.ts dispara el
+// throw de arranque de python-client.ts (NEXT_PUBLIC_BACKEND_URL no
+// definida en el entorno de CI). Ninguno de estos tests ejercita el
+// selector de cuenta bancaria; sin cuentas por default alcanza.
+vi.mock("@/hooks/data/use-bank-accounts", () => ({
+  useBankAccounts: () => ({ data: [], isLoading: false, isError: false, error: null }),
+}))
+
 describe("PaymentMethodSelect", () => {
   it("muestra 'Sin especificar' cuando no hay valor seleccionado", () => {
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })

@@ -62,7 +62,30 @@ jobs:
           # metodos-pago-operaciones: reconverger la firma de las RPCs de
           # creación tras el reapply de arriba (ver comentario extenso sobre
           # el paso).
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql
+          #
+          # edicion-preserva-contexto: 20260928000001 también DROPea+CREATEa
+          # rpc_atomic_update_sale_operation/rpc_atomic_update_purchase_
+          # operation con SU firma vigente en esa fecha (7/6 args, sin
+          # branch_id/canal) — y 20260930000001 (este change) volvió a
+          # cambiar esa firma (11/8 args). Reaplicar 20260928000001 fuera de
+          # su orden cronológico real (después de una migración MÁS NUEVA
+          # que vuelve a tocar las mismas dos RPCs) hace que su propio gate
+          # ANTI-OVERLOAD interno se dispare — detecta correctamente el
+          # overload fantasma que la reaplicación misma crea (su `DROP
+          # FUNCTION IF EXISTS` con la firma de esa fecha no matchea la
+          # firma 11/8-arg vigente, así que el `CREATE OR REPLACE` que sigue
+          # crea un segundo overload en vez de reemplazar). Es el mismo
+          # mecanismo 42725 de la nota de arriba, un tramo más adelante en
+          # la cadena — se tolera el fallo de ESTE paso puntual (no de los
+          # demás) y se reconverge de inmediato reaplicando 20260930000001,
+          # cuyo propio `DROP FUNCTION IF EXISTS` con la firma 7/6-arg SÍ
+          # matchea el overload fantasma recién creado y lo limpia, dejando
+          # exactamente 1 definición de cada función con el cuerpo final
+          # correcto (de paso, prueba que 20260930000001 es re-appliable).
+          if ! psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql; then
+            echo "20260928000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20260930000001 ya cambió de nuevo la firma) — reconvergiendo con 20260930000001"
+          fi
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260930000001_edicion_preserva_contexto.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

@@ -1,11 +1,16 @@
 """
 C-29 v21-quote-salesorder — Schemas Pydantic v2 para SalesOrder / quickSale.
 facturar-venta-afip — EmitInvoiceIn / EmitInvoiceOut (task 2.2).
+pos-catalogo-pagos — PaymentMethod ampliado a los 7 kind del catálogo +
+  payment_method_id opcional (D2/D6): el cliente manda el id Y el kind que
+  renderizó; la RPC re-deriva y compara (payment_method_mismatch). El
+  validador cash ⇒ cash_session_id sigue viviendo acá (no se mueve al
+  service — no tiene acceso a la DB para resolver el kind desde el id).
 
 Reglas duras:
   - NUNCA usar `any` — tipos explícitos o `unknown`
   - Validación cross-field: cash ⇒ cash_session_id requerido
-  - Enums para payment_method (solo cash|other en C-29; crédito→C-30)
+  - Enums para payment_method: los 7 kind del catálogo (D4, pos-catalogo-pagos)
 """
 from __future__ import annotations
 
@@ -21,9 +26,13 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 # ── Enums ─────────────────────────────────────────────────────────────────────
 
 class PaymentMethod(str, Enum):
-    cash   = "cash"
-    other  = "other"
-    credit = "credit"   # C-30: venta a crédito — postea cargo en CustomerAccount
+    cash     = "cash"
+    transfer = "transfer"
+    card     = "card"
+    check    = "check"
+    wallet   = "wallet"
+    credit   = "credit"   # C-30: venta a crédito — postea cargo en CustomerAccount
+    other    = "other"
 
 
 class SalesOrderStatus(str, Enum):
@@ -112,6 +121,10 @@ class ConfirmIn(BaseModel):
     # durante la ventana de compatibilidad (OQ2: limpieza diferida).
     idempotency_key:   Optional[str] = None
     payment_method:    PaymentMethod
+    # pos-catalogo-pagos (D2/D6): id de una forma de pago del catálogo. La RPC
+    # deriva el kind desde acá y compara contra `payment_method` (mismatch si
+    # difieren). None → camino legacy (D2 regla 3), sin imputación.
+    payment_method_id: Optional[uuid.UUID] = None
     cash_session_id:   Optional[uuid.UUID] = None
     comprobante_type:  Optional[str] = None  # nullable = sin comprobante (OQ-1)
     point_of_sale_id:  Optional[uuid.UUID] = None
@@ -147,6 +160,8 @@ class QuickSaleIn(BaseModel):
     client_id:         Optional[uuid.UUID] = None
     items:             list[SalesOrderItemIn]
     payment_method:    PaymentMethod = PaymentMethod.other
+    # pos-catalogo-pagos (D2/D6): ídem ConfirmIn.payment_method_id.
+    payment_method_id: Optional[uuid.UUID] = None
     cash_session_id:   Optional[uuid.UUID] = None
     comprobante_type:  Optional[str] = None  # nullable (OQ-1)
     point_of_sale_id:  Optional[uuid.UUID] = None

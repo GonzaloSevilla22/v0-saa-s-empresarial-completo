@@ -167,6 +167,48 @@ jobs:
       - name: Run payment method report gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_payment_method_report.sql
 
+      # pos-catalogo-pagos: un solo vocabulario — el CHECK de
+      # sales_orders.payment_method pasa de 5 a los mismos 7 kind del
+      # catálogo (payment_methods_kind_check). Verifica la igualdad de
+      # conjuntos, que 'wallet' ahora pasa y 'bitcoin' sigue rechazado, y el
+      # mecanismo de backfill de payment_method_id (puebla + idempotente).
+      - name: Run pos-catalogo-pagos vocabulary gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pos_payment_vocabulary.sql
+
+      # pos-catalogo-pagos: gate anti-regresión de la regresión de julio 2026
+      # — 20260721000001 reescribió _c29_confirm_order_core desde una base
+      # anterior a C-30 y borró en silencio el bloque `credit` (cargo de
+      # cuenta corriente). Este gate lee la definición VIVA de la función
+      # (pg_get_functiondef) y falla si falta cualquiera de los bloques que
+      # confirm() SHALL incluir (caja, cuenta corriente, fiscal, outbox,
+      # status-history, snapshots) — corría en rojo antes de esta migración.
+      - name: Run confirm-core integrity gate (regresión de julio 2026)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_confirm_core_integrity.sql
+
+      # pos-catalogo-pagos: guard 42725 — rpc_quick_sale y
+      # rpc_confirm_sales_order tienen todos sus parámetros con DEFAULT desde
+      # el segundo; agregar payment_method_id trailing sin dropear la firma
+      # vieja crea un overload ambiguo. Verifica una sola firma por función
+      # (incluido el helper interno _c29_confirm_order_core) y que las ACLs
+      # (authenticated con EXECUTE, PUBLIC/anon sin acceso) sobrevivieron al
+      # DROP+CREATE.
+      - name: Run pos-catalogo-pagos RPC signature gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pos_rpc_signatures.sql
+
+      # pos-catalogo-pagos: gate funcional de punta a punta sobre
+      # rpc_quick_sale / _c29_confirm_order_core reales (no mocks) — el gate
+      # ESTRELLA es (5): una venta a crédito postea customer_account_movement
+      # + evento CustomerAccountCharged + CustomerAccount.balance, sin
+      # cash_movements, restaurando la regresión de julio 2026. Cubre también
+      # los guards P0404/P0400 de resolución de payment_method_id (otra
+      # cuenta, mismatch, inactiva), el camino legacy sin id, la
+      # materialización lazy de CustomerAccount, los kind sin cableado
+      # (transfer: cero efectos), idempotencia con replay en otra forma de
+      # pago, y regresión sobre branch_stock/unit_cost_snapshot/sale_items
+      # snapshots/día ART/document_status_history.
+      - name: Run pos-catalogo-pagos confirm + payment method gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pos_confirm_payment_method.sql
+
       # analytics-events-revival: choke point único de telemetría de producto
       # (trigger AFTER INSERT en sales/purchases/expenses). Verifica emisión,
       # unicidad de activación, atomicidad, degrade-don't-fail, ACL/RLS,

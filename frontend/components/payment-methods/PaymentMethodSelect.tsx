@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
@@ -98,11 +99,15 @@ interface PaymentMethodSupportTextProps {
 }
 
 /**
- * D8 — Etiqueta honesta: el selector dice lo que NO hace. Elegir una forma de
- * pago de kind 'credit' no genera cargo en la cuenta corriente, y 'cash' no
- * entra a la caja — si no se dice, el usuario asume que sí (mismo patrón de
- * superficie huérfana que dejó `credit` cableado sin UI y la cuenta corriente
- * en cero). Texto de apoyo condicionado al kind elegido, para ambos forms.
+ * D8 / pos-catalogo-pagos D5 — Etiqueta honesta: el selector dice lo que
+ * hace y lo que no. Elegir una forma de pago de kind 'credit' en el form NO
+ * genera cargo en la cuenta corriente, y 'cash' en el form NO mueve caja —
+ * la caja la mueve el CAMINO (el POS), no la etiqueta (regla de negocio
+ * explícita en el spec `cash-session`). Si no se dice, el usuario asume que
+ * la etiqueta sola alcanza (mismo patrón de superficie huérfana que dejó
+ * `credit` cableado sin UI y la cuenta corriente en cero). Texto de apoyo
+ * condicionado al kind elegido, para los tres consumidores (form de venta,
+ * form de compra, filtros).
  */
 export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupportTextProps) {
   if (kind === "credit") {
@@ -117,7 +122,11 @@ export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupport
   if (kind === "cash") {
     return (
       <p className="text-xs text-muted-foreground">
-        Esta etiqueta no requiere sesión de caja abierta ni genera un movimiento de caja.
+        Esta etiqueta registra cómo se cobró. El movimiento de caja lo genera la venta desde el{" "}
+        <Link href="/ventas/pos" className="underline underline-offset-2 hover:opacity-80">
+          POS
+        </Link>
+        , que exige una sesión abierta.
       </p>
     )
   }

@@ -2,6 +2,10 @@
 
 /**
  * C-29 v21-quote-salesorder — React Query hooks para SalesOrder / quickSale.
+ * pos-catalogo-pagos — PaymentMethod pasa a ser el vocabulario completo del
+ * catálogo (D2/D4); QuickSaleInput/ConfirmOrderInput ganan payment_method_id
+ * opcional — el cliente manda el id Y el kind renderizado (D6), la RPC
+ * re-deriva y compara.
  *
  * Reglas duras:
  *   - NUNCA usar `any` — tipos explícitos
@@ -12,10 +16,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import type { PaymentMethodKind } from "@/lib/types"
 
 // ── API shapes ─────────────────────────────────────────────────────────────────
 
-export type PaymentMethod = "cash" | "other"
+// pos-catalogo-pagos (task 5.2): reutiliza PaymentMethodKind de lib/types —
+// no se redeclara el vocabulario acá (regla "reutilización antes que repetición").
+export type PaymentMethod = PaymentMethodKind
 export type SalesOrderStatus = "draft" | "confirmed" | "canceled"
 
 export interface EmitInvoiceInput {
@@ -80,6 +87,9 @@ export interface SalesOrderItemInput {
 export interface ConfirmOrderInput {
   idempotency_key: string
   payment_method: PaymentMethod
+  /** pos-catalogo-pagos (D2/D6): id del catálogo — el backend lo re-deriva
+   *  y compara contra payment_method. null/omitido → camino legacy. */
+  payment_method_id?: string | null
   /** Requerido cuando payment_method = 'cash' */
   cash_session_id?: string | null
   comprobante_type?: string | null
@@ -93,6 +103,8 @@ export interface QuickSaleInput {
   client_id?: string | null
   items: SalesOrderItemInput[]
   payment_method: PaymentMethod
+  /** pos-catalogo-pagos (D2/D6): ídem ConfirmOrderInput.payment_method_id. */
+  payment_method_id?: string | null
   /** Requerido cuando payment_method = 'cash' */
   cash_session_id?: string | null
   comprobante_type?: string | null
@@ -129,6 +141,11 @@ function translateSalesOrderError(message: string): string {
   if (message.includes("order_not_in_draft"))    return "La orden ya fue confirmada o cancelada."
   if (message.includes("unauthorized"))          return "No tenés permisos para realizar esta acción."
   if (message.includes("no_branch_found"))       return "No se encontró sucursal activa para la cuenta."
+  // pos-catalogo-pagos (D2, task 6.6): errores nuevos de resolución de forma de pago.
+  if (message.includes("credit_requires_client"))    return "Elegí un cliente: una venta a cuenta corriente se le carga a alguien."
+  if (message.includes("payment_method_not_found"))  return "Esa forma de pago no existe en tu cuenta."
+  if (message.includes("payment_method_inactive"))   return "Esa forma de pago está desactivada. Elegí otra o reactivala en Configuración."
+  if (message.includes("payment_method_mismatch"))   return "La forma de pago no coincide con lo esperado. Volvé a intentar."
   return message || "Ocurrió un error inesperado."
 }
 

@@ -56,12 +56,22 @@ describe("PaymentMethodSelect", () => {
     expect(screen.getByText(/no genera un cargo en la cuenta corriente del proveedor/)).toBeInTheDocument()
   })
 
-  it("D8: muestra el texto de apoyo de 'cash' cuando la forma de pago elegida es efectivo", () => {
+  it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' nombra el POS como el camino que mueve caja", () => {
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
 
     render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} />)
 
-    expect(screen.getByText(/no requiere sesión de caja abierta/)).toBeInTheDocument()
+    expect(screen.getByText(/el movimiento de caja lo genera la venta desde el/i)).toBeInTheDocument()
+    expect(screen.getByText(/que exige una sesión abierta/i)).toBeInTheDocument()
+  })
+
+  it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' enlaza a /ventas/pos", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} />)
+
+    const link = screen.getByRole("link", { name: "POS" })
+    expect(link).toHaveAttribute("href", "/ventas/pos")
   })
 
   it("no muestra texto de apoyo para 'transfer' (sin efecto declarado que aclarar)", () => {

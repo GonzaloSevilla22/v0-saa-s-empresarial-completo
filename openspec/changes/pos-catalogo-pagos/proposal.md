@@ -1,0 +1,41 @@
+## Why
+
+`metodos-pago-operaciones` (PRs #419/#420) dejó el catálogo `payment_methods` vivo y sembrado (210 filas = 35 cuentas × 6 métodos) y la imputación funcionando en los forms de venta y compra — pero **el POS quedó afuera por decisión explícita del PO**, con sus dos botones de siempre (`Efectivo` / `Otro`) escribiendo texto plano en `sales_orders.payment_method`. Hoy conviven dos vocabularios: 7 `kind` en el catálogo y 5 valores en el CHECK de `sales_orders`, de los cuales el hot path acepta **solo 2**.
+
+Al mapear el código vivo con `pg_get_functiondef` apareció algo que no estaba en el enunciado de las OQs: **la venta a cuenta corriente no está "sin UI", está rota en el backend**. La migración `20260720000001_c30_customer_supplier_accounts.sql` agregó a `_c29_confirm_order_core` el bloque `credit` → `c30_get_or_create_customer_account` + `c30_register_customer_account_movement` + evento `CustomerAccountCharged`, y la migración del día siguiente (`20260721000001_c29_write_sale_items.sql`) **reescribió la función desde una base anterior y borró ese bloque en silencio**, volviendo la validación a `IF p_payment_method NOT IN ('cash','other')`. Las cuatro reescrituras posteriores (snapshot, status-history, timezone sweep, payment-methods) propagaron la versión revertida. Resultado verificado en prod: `customer_account_movements` tiene **0 filas** y una confirmación con `payment_method='credit'` hoy **falla con `invalid_payment_method`** — aunque el spec `sales-order` ya lo declara SHALL desde C-30, escenarios incluidos. Es drift spec↔implementación, no una feature faltante.
+
+## What Changes
+
+- **El POS ofrece el catálogo de la cuenta**, no dos botones: grilla de métodos activos ordenados por `sort_order`, táctil, con el `kind='cash'` como default. Reemplaza el par `cash`/`other` hardcodeado.
+- **`rpc_quick_sale` y `rpc_confirm_sales_order` aceptan `p_payment_method_id`** (parámetro nuevo, trailing, `DEFAULT NULL`). La RPC deriva el `kind` desde el catálogo, valida pertenencia a la cuenta y vida (`deleted_at IS NULL`), y **es la RPC quien escribe el texto legacy** — el cliente ya no elige la taxonomía. **BREAKING para la firma** (`DROP` + `CREATE` + re-`GRANT`; sin el DROP habría overload ambiguo 42725), no para el contrato: el camino legacy de solo texto sigue funcionando.
+- **Restauración del cargo de cuenta corriente (regresión C-30)**: `_c29_confirm_order_core` vuelve a postear el cargo cuando el `kind` resuelto es `credit`, con el guard `credit_requires_client` (P0400) **antes** de tocar stock y el evento `CustomerAccountCharged` al outbox — exactamente lo que el spec `sales-order` ya exige. El bloque fiscal (C-27) y el de caja (C-28) quedan **byte a byte intactos**.
+- **UX de cuenta corriente en el POS**: elegir un método `credit` vuelve el cliente obligatorio (botón bloqueado con mensaje, espejo del guard de caja ya existente), muestra el saldo actual y el saldo proyectado vía `useCustomerAccount` (ya existe de C-30), y el card de éxito enlaza a la cuenta corriente del cliente.
+- **Vocabulario único**: el CHECK de `sales_orders.payment_method` se amplía a los mismos 7 valores de `payment_methods_kind_check` (`cash,transfer,card,check,wallet,credit,other`), y el hot path acepta el vocabulario completo. Los `kind` sin cableado (`transfer`, `card`, `check`, `wallet`) se comportan como `other` se comportaba: etiqueta, sin caja, sin cuenta corriente, sin `bank_movements`.
+- **Columna `payment_method_id` en `sales_orders`** (nullable, FK `ON DELETE SET NULL`) + backfill idempotente de las 120 órdenes históricas por `kind = payment_method` dentro de su cuenta — mismo mapping firmado del backfill de #419. El TEXT **no se dropea**: convive como columna derivada (precedente RN-97), porque es el discriminador del hot path y viaja en el payload del evento `SaleConfirmed`.
+- **La venta del POS escribe `sales.payment_method_id` en todas sus líneas legacy**, con lo que las ventas nuevas dejan de depender de la derivación de lectura D7 (que se conserva como fallback para el histórico).
+- **Política de caja explícita (OQ-3 resuelta)**: la caja se mueve por el **camino del mostrador (POS)**, no por la etiqueta. Una venta "Efectivo" cargada desde el form de venta sigue **sin** generar `cash_movements` y sin exigir sesión — y eso pasa a ser **regla de negocio escrita en el spec**, no una asimetría accidental. El texto de apoyo del selector se reescribe para nombrar el POS como el camino que sí mueve caja.
+- **NO cambia**: el bloque fiscal/AFIP de `_c29_confirm_order_core`; el acarreo de líneas a `sale_items` (#415); el espejo `REVERSE`/`APPLY` de `stock_movements` (#417); la imputación en ventas/compras desde los forms (#419); `rpc_payment_method_report`; las RPCs de cobro/pago y su ruteo bancario.
+
+## Capabilities
+
+### New Capabilities
+
+Ninguna. Todo el comportamiento cae dentro de capabilities existentes.
+
+### Modified Capabilities
+
+- `payment-method`: la forma de pago deja de ser **solo** etiqueta — en el camino del POS pasa a ser el disparador tipado de caja y cuenta corriente. Cambian los requirements "La forma de pago es una etiqueta y no dispara asientos, caja ni cuenta corriente" (se acota al camino de los forms y se convierte en regla de negocio explícita), "Lectura de la forma de pago en operaciones nacidas en el POS" (la derivación pasa a fallback del histórico) y "Superficies de la forma de pago" (se suma el POS).
+- `sales-order`: `confirm()`/`quickSale()` reciben `payment_method_id`, resuelven el `kind` contra el catálogo, escriben el texto legacy derivado y **restauran** el cargo de cuenta corriente que el spec ya exigía; el vocabulario admitido pasa de `cash|other|credit` a los 7 `kind` del catálogo.
+- `cash-session`: se explicita qué caminos alimentan el arqueo — el POS sí, el form de venta no — para que `expected_balance` siga siendo una señal antifraude legible (RN-95) y no ruido.
+
+## Impact
+
+**Base de datos** (una migración idempotente, base `20260928000001` verificada como `MAX(version)` en prod): `ALTER TABLE sales_orders ADD COLUMN payment_method_id uuid NULL REFERENCES payment_methods(id) ON DELETE SET NULL`; `DROP CONSTRAINT` + `ADD CONSTRAINT` del CHECK de `payment_method` (7 valores); `DROP FUNCTION` + `CREATE` de `rpc_quick_sale(9 args)` y `rpc_confirm_sales_order(8 args)` con la firma nueva y re-`GRANT`/`REVOKE` en el mismo archivo; `CREATE OR REPLACE _c29_confirm_order_core` con firma nueva (`p_payment_method_id` trailing) — bloque fiscal y de caja copiados sin tocar desde la definición viva; backfill `UPDATE sales_orders ... WHERE payment_method_id IS NULL`.
+
+**Backend Python**: `backend/schemas/sales_orders.py` (enum `PaymentMethod` ampliado a los 7 `kind`, campo `payment_method_id` opcional, validador `cash ⇒ cash_session_id` intacto), `backend/repositories/sales_order_repository.py` (parámetro 10 en las dos llamadas), `backend/services/sales_orders.py` (passthrough), `backend/routers/sales_orders.py`.
+
+**Frontend**: `frontend/app/(dashboard)/ventas/pos/page.tsx` (grilla del catálogo, guard de cliente para `credit`, saldo de cuenta corriente, chip de caja condicionado al `kind` resuelto), `frontend/hooks/data/use-sales-orders.ts` (`PaymentMethod` deja de ser `"cash"|"other"`; entra `paymentMethodId`), `frontend/components/payment-methods/PaymentMethodSelect.tsx` (`PaymentMethodSupportText` reescrito: nombra el POS), reutilizando `usePaymentMethods` y `useCustomerAccount` sin duplicar lógica.
+
+**Datos**: cero reescritura de importes. Backfill de 120 filas de `sales_orders` (63 `cash`, 57 `other`) sobre una columna nacida `NULL`. Las 219 filas de `sales` con `payment_method_id` del backfill de #419 no se tocan.
+
+**Riesgos**: (a) **repetir la regresión de julio** — reescribir el core desde una base vieja y perder un bloque; se mitiga partiendo de la definición viva obtenida con `pg_get_functiondef` y con un gate SQL que exige que el cuerpo publicado contenga los bloques de caja, cuenta corriente, fiscal, outbox y status-history; (b) que el cargo de cuenta corriente restaurado sorprenda a un usuario que hoy usa `credit` — imposible: hoy `credit` es inalcanzable desde toda superficie y la RPC lo rechaza; (c) overload ambiguo 42725 si el `DROP FUNCTION` de la firma vieja no corriera — gate explícito de conteo de firmas.

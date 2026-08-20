@@ -58,6 +58,9 @@ async def confirm(
             point_of_sale_id=str(payload.point_of_sale_id) if payload.point_of_sale_id else None,
             branch_id=str(payload.branch_id) if payload.branch_id else None,
             canal=payload.canal,
+            # pos-catalogo-pagos (D2): passthrough — la RPC resuelve el kind,
+            # no el service (D6, sin round-trip extra a la DB acá).
+            payment_method_id=str(payload.payment_method_id) if payload.payment_method_id else None,
         )
     except asyncpg.PostgresError as exc:
         _map_postgres_error(exc)
@@ -102,6 +105,8 @@ async def quick_sale(
             point_of_sale_id=str(payload.point_of_sale_id) if payload.point_of_sale_id else None,
             branch_id=str(payload.branch_id) if payload.branch_id else None,
             canal=payload.canal,
+            # pos-catalogo-pagos (D2): passthrough — ídem confirm().
+            payment_method_id=str(payload.payment_method_id) if payload.payment_method_id else None,
         )
     except asyncpg.PostgresError as exc:
         _map_postgres_error(exc)

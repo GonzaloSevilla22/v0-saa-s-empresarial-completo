@@ -37,13 +37,13 @@
 
 ## 4. Backend Python (routers → services → repositories, TDD por capa)
 
-- [ ] 4.1 RED: `backend/tests/test_pos_catalogo_pagos.py` — `PaymentMethod` acepta los 7 `kind`; el validador `cash ⇒ cash_session_id` sigue vigente; `payment_method_id` opcional se serializa.
-- [ ] 4.2 GREEN: `backend/schemas/sales_orders.py` — ampliar el enum `PaymentMethod` a `{cash,transfer,card,check,wallet,credit,other}` y agregar `payment_method_id: UUID | None = None` en los schemas de `quick-sale` y de confirmación. **No mover el validador al service** (D6).
-- [ ] 4.3 RED: el mismo archivo — `repo.quick_sale` invoca `rpc_quick_sale` con **10** argumentos posicionales en el orden correcto (mock de asyncpg), y `repo.confirm` con 9.
-- [ ] 4.4 GREEN: `backend/repositories/sales_order_repository.py` — agregar `$10::uuid -- p_payment_method_id` a `quick_sale` y `$9::uuid` a `confirm`.
-- [ ] 4.5 GREEN: passthrough en `backend/services/sales_orders.py` y `backend/routers/sales_orders.py`, sin lógica de negocio en el router.
-- [ ] 4.6 TRIANGULATE: test de endpoint — `POST /sales-orders/quick-sale` con `payment_method_id` + `payment_method='credit'` sin `client_id` propaga el P0400 del backend como RFC 7807 (`api-standards`), y con `kind='cash'` sin `cash_session_id` es rechazado por Pydantic antes de tocar la DB.
-- [ ] 4.7 Verificar coverage ≥ umbral de CI (`pytest-coverage`) en los módulos tocados.
+- [x] 4.1 RED: `backend/tests/test_pos_catalogo_pagos.py` — `PaymentMethod` acepta los 7 `kind`; el validador `cash ⇒ cash_session_id` sigue vigente; `payment_method_id` opcional se serializa. **RED real confirmado (12/16 fallando) contra el código pre-implementación.**
+- [x] 4.2 GREEN: `backend/schemas/sales_orders.py` — ampliar el enum `PaymentMethod` a `{cash,transfer,card,check,wallet,credit,other}` y agregar `payment_method_id: UUID | None = None` en los schemas de `quick-sale` y de confirmación. **No mover el validador al service** (D6) — verificado con test dedicado.
+- [x] 4.3 RED: el mismo archivo — `repo.quick_sale` invoca `rpc_quick_sale` con **10** argumentos posicionales en el orden correcto (mock de asyncpg), y `repo.confirm` con 9.
+- [x] 4.4 GREEN: `backend/repositories/sales_order_repository.py` — agregar `$10::uuid -- p_payment_method_id` a `quick_sale` y `$9::uuid` a `confirm`. `payment_method_id` con default `None` preserva compatibilidad con callers existentes (test_c29_quote_salesorder.py sigue en verde sin tocarlo).
+- [x] 4.5 GREEN: passthrough en `backend/services/sales_orders.py`; `backend/routers/sales_orders.py` no requirió cambios (ya pasaba el payload completo al service, sin lógica de negocio en el router).
+- [x] 4.6 TRIANGULATE: test de endpoint — `POST /sales-orders/quick-sale` con `payment_method_id` + `payment_method='credit'` sin `client_id` propaga el P0400 del backend como HTTP 400, y con `kind='cash'` sin `cash_session_id` es rechazado por Pydantic (422) antes de tocar la DB (mock de `conn.fetchrow` lanza `AssertionError` si llega a invocarse).
+- [x] 4.7 Coverage verificado: 93% combinado en los 3 módulos tocados (schemas 96%, repository 87%, service 90%) corriendo la suite completa — sobre el umbral de CI (`--cov-fail-under=87`, `.github/workflows/Backend_Tests.yml`). Suite completa: 1401 passed, 3 skipped, 0 failed (baseline 1385 + 16 tests nuevos).
 
 ## 5. Frontend — hook y contrato
 

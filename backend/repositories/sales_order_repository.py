@@ -36,11 +36,16 @@ class SalesOrderRepository(BaseRepository):
         point_of_sale_id: str | None,
         branch_id: str | None,
         canal: str | None,
+        payment_method_id: str | None = None,
     ) -> dict:
         """
         Llama a rpc_confirm_sales_order — hot path transaccional:
         stock + caja + fiscal + outbox en un commit atómico.
         Idempotente por idempotency_key (DEC-06).
+
+        pos-catalogo-pagos (D2): payment_method_id es el arg trailing $9 —
+        la RPC deriva el kind desde el catálogo y compara contra
+        payment_method (texto). None (default) preserva el camino legacy.
         """
         row = await self.fetchrow(
             """
@@ -52,7 +57,8 @@ class SalesOrderRepository(BaseRepository):
               $5::text,   -- p_comprobante_type
               $6::uuid,   -- p_point_of_sale_id
               $7::uuid,   -- p_branch_id
-              $8::text    -- p_canal
+              $8::text,   -- p_canal
+              $9::uuid    -- p_payment_method_id
             ) AS result
             """,
             idempotency_key,
@@ -63,6 +69,7 @@ class SalesOrderRepository(BaseRepository):
             point_of_sale_id,
             branch_id,
             canal,
+            payment_method_id,
         )
         if row is None:
             raise ValueError("rpc_confirm_sales_order devolvió NULL")
@@ -79,10 +86,13 @@ class SalesOrderRepository(BaseRepository):
         point_of_sale_id: str | None,
         branch_id: str | None,
         canal: str | None,
+        payment_method_id: str | None = None,
     ) -> dict:
         """
         Llama a rpc_quick_sale — crea + confirma una SalesOrder en un paso (POS).
         Idempotente por idempotency_key (DEC-06).
+
+        pos-catalogo-pagos (D2): payment_method_id es el arg trailing $10.
         """
         items_json = json.dumps(items)
         row = await self.fetchrow(
@@ -96,7 +106,8 @@ class SalesOrderRepository(BaseRepository):
               $6::text,   -- p_comprobante_type
               $7::uuid,   -- p_point_of_sale_id
               $8::uuid,   -- p_branch_id
-              $9::text    -- p_canal
+              $9::text,   -- p_canal
+              $10::uuid   -- p_payment_method_id
             ) AS result
             """,
             idempotency_key,
@@ -108,6 +119,7 @@ class SalesOrderRepository(BaseRepository):
             point_of_sale_id,
             branch_id,
             canal,
+            payment_method_id,
         )
         if row is None:
             raise ValueError("rpc_quick_sale devolvió NULL")

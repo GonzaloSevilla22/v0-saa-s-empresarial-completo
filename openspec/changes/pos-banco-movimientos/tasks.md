@@ -79,7 +79,7 @@
 
 ## 11. Cierre
 
-- [ ] 11.1 PR con checks verdes (validate-kpis, vitest, pytest ≥87%, Playwright, Vercel) → merge → deploy y migración automáticos.
-- [ ] 11.2 Verificación post-deploy **read-only** vía MCP: configurar el destino en la cuenta que tiene bancos, registrar una venta de prueba y confirmar la fila en `bank_movements` con su `balance_after` y `unreconciled`.
-- [ ] 11.3 Documentar el procedimiento de conciliación de tarjeta (bruto + `fee` manual → match N:1) en la superficie de `/finanzas/conciliacion`.
-- [ ] 11.4 Actualizar `CHANGES.md` y registrar en engram las decisiones (D1 inmediato-vs-esperado, D2 regla de resolución, D9 UX) y las OQ-1..4 abiertas para el PO.
+- [x] 11.1 PR #427 con checks verdes (validate-kpis, vitest, pytest, Playwright, Vercel — 6/6) → merge (PR 1 de este change).
+- [ ] 11.2 Verificación post-deploy **read-only** vía MCP: configurar el destino en la cuenta que tiene bancos, registrar una venta de prueba y confirmar la fila en `bank_movements` con su `balance_after` y `unreconciled`. Pendiente hasta después del merge (deploy automático).
+- [x] 11.3 Documentado el procedimiento de conciliación de tarjeta (bruto + `fee` manual → match N:1) en `ReconciliationBoard.tsx`, junto a la acción de match manual.
+- [ ] 11.4 Actualizar `CHANGES.md` y registrar en engram — pendiente para el cierre del change (PR 2, etapa de archive).

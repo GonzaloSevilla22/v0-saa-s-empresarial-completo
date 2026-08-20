@@ -42,6 +42,9 @@ def _body(resp) -> dict:
         ("P0404", 404),
         ("P0409", 409),
         ("P0422", 422),
+        # edicion-preserva-contexto (F2): operación con comprobante fiscal
+        # emitido es inmutable — 409 porque el conflicto es de ESTADO.
+        ("P0423", 409),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

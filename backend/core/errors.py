@@ -101,6 +101,11 @@ _BUSINESS_ERRCODE_STATUS = {
     "P0432": 409,  # sesión cerrada (CLOSED es terminal)
     "P0433": 422,  # Σ montos de líneas ≠ Σ montos de movimientos
     "P0434": 409,  # línea/movimiento ya participa de un match activo
+    # edicion-preserva-contexto (F2): la operación tiene un comprobante fiscal
+    # pending_cae/authorized — 409 porque el conflicto es de ESTADO (misma
+    # familia que P0409), no de payload; el detail del RAISE ya nombra el
+    # camino correcto (nota de crédito + venta nueva).
+    "P0423": 409,
 }
 
 # bank-account-crud: mapeo específico por endpoint para POST /bank-accounts.

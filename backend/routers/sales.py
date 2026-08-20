@@ -110,7 +110,15 @@ async def update_sale_operation(
     rpc_atomic_update_sale_operation (REVERSE + APPLY de stock, atómico)."""
     # metodos-pago-operaciones (D5): ver el comentario espejo en routers/purchases.py.
     payment_method_provided = "payment_method_id" in payload.model_fields_set
-    await sales_service.update_sale_operation(repo, auth, payload, payment_method_provided)
+    # edicion-preserva-contexto (F1 §D3): mismo contrato tri-estado por
+    # AUSENCIA de la clave — "branch_id"/"canal" ausentes del JSON = preservar
+    # el vigente; presentes (incluso con null) = el RPC decide reimputar/
+    # desimputar. Nunca `payload.branch_id is None`.
+    branch_provided = "branch_id" in payload.model_fields_set
+    canal_provided = "canal" in payload.model_fields_set
+    await sales_service.update_sale_operation(
+        repo, auth, payload, payment_method_provided, branch_provided, canal_provided
+    )
     return {"ok": True}
 
 

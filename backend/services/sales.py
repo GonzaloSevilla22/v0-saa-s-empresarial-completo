@@ -52,12 +52,15 @@ async def update_sale_operation(
     auth: dict,
     payload: SaleOperationUpdateIn,
     payment_method_provided: bool = False,
+    branch_provided: bool = False,
+    canal_provided: bool = False,
 ) -> None:
     require_role(auth, ["user", "admin"])
     items = [item.model_dump() for item in payload.items]
     payment_method_id = (
         str(payload.payment_method_id) if payload.payment_method_id is not None else None
     )
+    branch_id = str(payload.branch_id) if payload.branch_id is not None else None
     await repo.update_operation(
         payload.sale_ids,
         payload.client_id,
@@ -66,6 +69,10 @@ async def update_sale_operation(
         items,
         payment_method_id=payment_method_id,
         payment_method_provided=payment_method_provided,
+        branch_id=branch_id,
+        branch_provided=branch_provided,
+        canal=payload.canal,
+        canal_provided=canal_provided,
     )
 
 

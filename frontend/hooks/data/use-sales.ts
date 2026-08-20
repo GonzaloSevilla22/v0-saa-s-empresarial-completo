@@ -33,6 +33,13 @@ interface SaleApiRow {
   payment_method_id?: string | null
   payment_method_name?: string | null
   payment_method_kind?: string | null
+  // edicion-preserva-contexto: expuestos para prefillear el form de edición.
+  branch_id?: string | null
+  canal?: string | null
+  unit_id?: string | null
+  // edicion-preserva-contexto (F2): derivado de lectura — true si tiene
+  // comprobante fiscal pending_cae/authorized.
+  is_invoiced?: boolean
 }
 
 interface SalesPageResponse {
@@ -65,6 +72,12 @@ function mapSale(s: SaleApiRow): Sale {
     paymentMethodId:   s.payment_method_id ?? null,
     paymentMethodName: s.payment_method_name ?? null,
     paymentMethodKind: (s.payment_method_kind ?? null) as Sale["paymentMethodKind"],
+    // edicion-preserva-contexto (D11): sin esto el form de edición no tiene
+    // con qué prefillear sucursal/canal/unidad.
+    branchId: s.branch_id ?? null,
+    canal:    s.canal ?? null,
+    unitId:   s.unit_id ?? undefined,
+    isInvoiced: s.is_invoiced ?? false,
   }
 }
 
@@ -225,12 +238,24 @@ export function useSales() {
          * — ver el comentario espejo en use-purchases.ts.
          */
         paymentMethodId?: string | null
+        /**
+         * edicion-preserva-contexto (F1 §D3): branchId/canal usan el MISMO
+         * contrato tri-estado por ausencia. Omitir la clave del objeto meta
+         * preserva la sucursal/canal vigente; `null` explícito desimputa;
+         * un valor reimputa.
+         */
+        branchId?: string | null
+        canal?: string | null
       }
     }) => {
       const items = newItems.map(item => ({
         product_id: item.productId,
         amount:     item.unitPrice * (1 - item.discount / 100),
         quantity:   item.quantity,
+        // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la
+        // línea — el form lo prefillea desde SaleItemOut.unit_id y lo
+        // reenvía, igual que quantity/price.
+        unit_id:    item.unitId ?? null,
       }))
       const payload: Record<string, unknown> = {
         sale_ids:  saleIds,
@@ -241,6 +266,16 @@ export function useSales() {
       }
       if ("paymentMethodId" in opMeta) {
         payload.payment_method_id = opMeta.paymentMethodId ?? null
+      }
+      // edicion-preserva-contexto: mismo patrón de inclusión condicional —
+      // JSON.stringify omite claves con valor `undefined`, así que "ausente"
+      // viaja literalmente ausente y el backend (model_fields_set) distingue
+      // "preservar" de "informado con null" (desimputar).
+      if ("branchId" in opMeta) {
+        payload.branch_id = opMeta.branchId ?? null
+      }
+      if ("canal" in opMeta) {
+        payload.canal = opMeta.canal ?? null
       }
       return pythonClient.put<void>("/sales/operation", payload)
     },

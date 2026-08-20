@@ -74,6 +74,10 @@ class PurchaseRepository(BaseRepository):
                    COALESCE(pi2.price,      p.amount)     AS amount,
                    COALESCE(pi2.subtotal,   p.total)      AS total,
                    pr.name AS product_name,
+                   -- edicion-preserva-contexto (D11): expuestos para
+                   -- prefillear el form de edición (espejo de SalesRepository).
+                   p.branch_id,
+                   COALESCE(pi2.unit_id, p.unit_id) AS unit_id,
                    p.cost_center_id,
                    cc.name AS cost_center_name,
                    p.payment_method_id,
@@ -184,11 +188,14 @@ class PurchaseRepository(BaseRepository):
         items: list[dict],
         payment_method_id: str | None = None,
         payment_method_provided: bool = False,
+        branch_id: str | None = None,
+        branch_provided: bool = False,
     ) -> None:
         # rpc_atomic_update_purchase_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
         # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
         # metodos-pago-operaciones (D5): mismo patrón que SalesRepository.update_operation.
+        # edicion-preserva-contexto (F1 §D3): branch_provided, mismo contrato tri-estado.
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
@@ -198,7 +205,8 @@ class PurchaseRepository(BaseRepository):
             """
             SELECT rpc_atomic_update_purchase_operation(
                 $1::text[]::uuid[], $2::date, $3::text, $4::jsonb,
-                p_payment_method_id => $5, p_payment_method_provided => $6
+                p_payment_method_id => $5, p_payment_method_provided => $6,
+                p_branch_id => $7, p_branch_provided => $8
             )
             """,
             purchase_ids,
@@ -207,6 +215,8 @@ class PurchaseRepository(BaseRepository):
             json.dumps(items, default=_default),
             payment_method_id,
             payment_method_provided,
+            branch_id,
+            branch_provided,
         )
 
     async def create_operation(

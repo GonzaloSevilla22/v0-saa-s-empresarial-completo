@@ -94,5 +94,9 @@ async def update_purchase_operation(
     # contrario "no lo mandé" y "lo mandé en null" serían indistinguibles y
     # cualquier edición sin el campo BORRARÍA el método vigente en silencio.
     payment_method_provided = "payment_method_id" in payload.model_fields_set
-    await purchases_service.update_purchase_operation(repo, auth, payload, payment_method_provided)
+    # edicion-preserva-contexto (F1 §D3): mismo contrato tri-estado para branch_id.
+    branch_provided = "branch_id" in payload.model_fields_set
+    await purchases_service.update_purchase_operation(
+        repo, auth, payload, payment_method_provided, branch_provided
+    )
     return {"ok": True}

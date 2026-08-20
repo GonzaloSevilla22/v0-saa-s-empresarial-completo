@@ -36,23 +36,23 @@
 
 ## 4. Backend Python
 
-- [ ] 4.1 `backend/schemas/sales.py`: `SaleOperationUpdateItemIn` suma `unit_id: str | None = None`; `SaleOperationUpdateIn` suma `branch_id: uuid.UUID | None` y `canal: str | None` (documentando que el tri-estado se resuelve por `model_fields_set`, nunca por `is None`)
-- [ ] 4.2 `backend/schemas/purchases.py`: equivalente para la compra (`unit_id` por ítem, `branch_id` en el header de update)
-- [ ] 4.3 `backend/repositories/sales_repository.py` y `purchase_repository.py`: pasar los parámetros nuevos por nombre (`p_branch_id =>`, `p_branch_provided =>`, …), igual que el patrón ya usado para `payment_method_id`
-- [ ] 4.4 `backend/services/sales.py` y `purchases.py`: derivar los flags `*_provided` desde `model_fields_set` del payload
-- [ ] 4.5 Routers: mapear `P0423` a RFC 7807 (`api-standards`) con título y detalle que nombren el camino de nota de crédito; mapear `P0422` de sucursal inválida
-- [ ] 4.6 Exponer en la lectura lo que el form necesita para prefillear: `branch_id`, `canal` y `unit_id` en `SaleItemOut` (y equivalente de compra) + el `SELECT` del repositorio
-- [ ] 4.7 Tests pytest de los servicios/repos: tri-estado (ausente / `null` explícito / valor) para sucursal y canal, y propagación de `P0423`
+- [x] 4.1 `backend/schemas/sales.py`: `SaleOperationUpdateItemIn` suma `unit_id: str | None = None`; `SaleOperationUpdateIn` suma `branch_id: uuid.UUID | None` y `canal: str | None` (documentando que el tri-estado se resuelve por `model_fields_set`, nunca por `is None`)
+- [x] 4.2 `backend/schemas/purchases.py`: equivalente para la compra (`unit_id` por ítem, `branch_id` en el header de update)
+- [x] 4.3 `backend/repositories/sales_repository.py` y `purchase_repository.py`: pasar los parámetros nuevos por nombre (`p_branch_id =>`, `p_branch_provided =>`, …), igual que el patrón ya usado para `payment_method_id`
+- [x] 4.4 `backend/services/sales.py` y `purchases.py`: derivar los flags `*_provided` desde `model_fields_set` del payload
+- [x] 4.5 Routers: mapear `P0423` a RFC 7807 (`api-standards`) con título y detalle que nombren el camino de nota de crédito; mapear `P0422` de sucursal inválida — **hallazgo**: ambos ya se resuelven casi gratis vía el handler global `asyncpg_error_handler` (`backend/core/errors.py`) que ya existía para P0400/.../P0422; solo faltaba agregar `"P0423": 409` a `_BUSINESS_ERRCODE_STATUS` (P0422 ya estaba mapeado). El router no necesita un `except` propio — el mensaje del RAISE (con la guía de nota de crédito) llega intacto al cliente.
+- [x] 4.6 Exponer en la lectura lo que el form necesita para prefillear: `branch_id`, `canal` y `unit_id` en `SaleItemOut` (y equivalente de compra) + el `SELECT` del repositorio — **se agregó además `is_invoiced`** (derivado de lectura, mismo predicado del guard F2, vía el JOIN a `sales_orders`/`fiscal_documents` que ya existía para el payment_method del POS): sin esto el form no podía saber que debía abrirse en solo lectura (task 5.4) sin antes intentar el submit y recibir el 409.
+- [x] 4.7 Tests pytest de los servicios/repos: tri-estado (ausente / `null` explícito / valor) para sucursal y canal, y propagación de `P0423` — incluye actualizar 3 tests preexistentes de payment_method_id cuyas aserciones posicionales (`args[-1]`/`args[-2]`) se movieron porque los parámetros nuevos se agregan DESPUÉS en la firma (§D4)
 
 ## 5. Frontend
 
-- [ ] 5.1 `frontend/lib/group-operations.ts`: `SaleOperation` y `PurchaseOperation` suman `branchId`, `canal`, `unitId`; `frontend/hooks/data/use-sales.ts` y `use-purchases.ts` mapean los campos nuevos
-- [ ] 5.2 `sale-form.tsx`: `branchId` y `canal` se inicializan desde `editingOperation` (hoy arrancan en `null` ignorándolo) y se incluyen en el payload de edición
-- [ ] 5.3 `purchase-form.tsx`: equivalente para sucursal; verificar que centro de costo y proveedor no se pisen al editar
-- [ ] 5.4 Banner de bloqueo fiscal: form en solo lectura, explicación del motivo, camino de nota de crédito, botón de guardar deshabilitado con motivo accesible (no solo gris)
-- [ ] 5.5 Verificar que el modo edición conserva `step`/`min` por unidad en el input de cantidad (decimales para productos medibles) y que la cantidad decimal pre-cargada no se degrada
-- [ ] 5.6 Revisión visual con tokens semánticos del design system: **desktop y mobile**, **tema claro y oscuro**
-- [ ] 5.7 Tests vitest de los forms: prefill de sucursal/canal en modo edición, payload de edición completo, render de solo lectura con operación facturada
+- [x] 5.1 `frontend/lib/group-operations.ts`: `SaleOperation` y `PurchaseOperation` suman `branchId`, `canal`, `unitId` (+ `isInvoiced` en venta, F2); `frontend/hooks/data/use-sales.ts` y `use-purchases.ts` mapean los campos nuevos
+- [x] 5.2 `sale-form.tsx`: `branchId` y `canal` se inicializan desde `editingOperation` (hoy arrancan en `null` ignorándolo) y se incluyen en el payload de edición
+- [x] 5.3 `purchase-form.tsx`: equivalente para sucursal; verificado que centro de costo y proveedor no se pisan al editar — cierto por construcción: `PurchaseOperationUpdateIn` no acepta esos dos campos (D2/OQ-1), así que ningún valor del form llega a pisarlos, tenga o no selector visible. Deuda anotada: `CostCenterSelect` sigue montado durante la edición sin efecto real (no estaba en el alcance de este change tocar esa UI — ver Return del reporte)
+- [x] 5.4 Banner de bloqueo fiscal: form en solo lectura, explicación del motivo, camino de nota de crédito, botón de guardar deshabilitado con motivo accesible (no solo gris) — `<fieldset disabled>` envolviendo el form completo (cascada nativa sobre todos los controles, incluidos los de `listContent`/`footerContent`) + banner `role="status"` + `aria-describedby` en el botón
+- [x] 5.5 Verificado que el modo edición conserva `step`/`min` por unidad en el input de cantidad (sin cambios — ya funcionaba, gate de no-regresión) y que la cantidad decimal pre-cargada no se degrada (cubierto por los gates SQL 2.5, extremo a extremo)
+- [ ] 5.6 Revisión visual con tokens semánticos del design system: **desktop y mobile**, **tema claro y oscuro** — pendiente verificación visual real (ver Return del reporte); el banner usa tokens ya establecidos (`border-destructive/30 bg-destructive/10 text-destructive`, el mismo patrón que el banner de error de `sale-operations-list.tsx`), no colores crudos
+- [x] 5.7 Tests vitest de los forms: prefill de sucursal/canal en modo edición, payload de edición completo, render de solo lectura con operación facturada (`sale-form-edit-context.test.tsx`, `purchase-form-edit-context.test.tsx`, `group-operations.test.ts`)
 
 ## 6. Verificación y cierre
 

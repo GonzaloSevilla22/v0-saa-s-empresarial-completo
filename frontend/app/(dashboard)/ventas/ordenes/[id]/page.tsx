@@ -20,10 +20,19 @@ export const metadata = {
   title: "Detalle de orden — Aliadata",
 }
 
+/**
+ * limpiezas-pagos-admin (G1b, task 5.5): sales_orders.payment_method (TEXT)
+ * fue retirado — la forma de pago se lee únicamente por payment_method_id,
+ * resuelto vía el join embebido de PostgREST hacia payment_methods. Sin
+ * imputación, PostgREST devuelve `payment_methods: null` (relación N:1
+ * opcional) — se muestra "Sin especificar", nunca un binario cash/otro que
+ * ya no describía los 7 kind del catálogo.
+ */
 interface SalesOrderRow {
   id: string
   status: string
-  payment_method: string | null
+  payment_method_id: string | null
+  payment_methods: { name: string; kind: string } | null
   total: number | string
   created_at: string
   fiscal_document_id: string | null
@@ -53,7 +62,9 @@ export default async function SalesOrderDetailPage({
 
   const { data: order } = (await supabase
     .from("sales_orders")
-    .select("id, status, payment_method, total, created_at, fiscal_document_id")
+    .select(
+      "id, status, payment_method_id, total, created_at, fiscal_document_id, payment_methods(name, kind)"
+    )
     .eq("id", id)
     .maybeSingle()) as { data: SalesOrderRow | null }
 
@@ -99,11 +110,9 @@ export default async function SalesOrderDetailPage({
         <span className="text-sm font-medium tabular-nums">
           {formatMoney(Number(order.total), "ARS")}
         </span>
-        {order.payment_method && (
-          <span className="text-xs text-muted-foreground">
-            {order.payment_method === "cash" ? "Efectivo" : "Otro medio"}
-          </span>
-        )}
+        <span className="text-xs text-muted-foreground">
+          {order.payment_methods?.name ?? "Sin especificar"}
+        </span>
       </div>
 
       {/* Línea de tiempo de la orden */}

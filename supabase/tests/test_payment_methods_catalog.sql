@@ -233,12 +233,13 @@ BEGIN
 
     IF v_count_a IS NULL THEN
       RAISE NOTICE 'GATE PAYMENT-METHODS-CATALOG (6) degradado: el entorno no otorga GRANT base de authenticated sobre payment_methods (permission denied, no RLS) — omitido sin fallar.';
-    ELSIF v_count_a <> 6 THEN
-      RAISE EXCEPTION 'GATE PAYMENT-METHODS-CATALOG FAILED (6a): la cuenta A esperaba ver sus 6 formas de pago sembradas bajo RLS real, vio %.', v_count_a;
+    ELSIF v_count_a <> 7 THEN
+      -- limpiezas-pagos-admin (OQ-1): el seed pasó de 6 a 7 (+ 'Cheque').
+      RAISE EXCEPTION 'GATE PAYMENT-METHODS-CATALOG FAILED (6a): la cuenta A esperaba ver sus 7 formas de pago sembradas bajo RLS real, vio %.', v_count_a;
     ELSIF v_seen_other THEN
       RAISE EXCEPTION 'GATE PAYMENT-METHODS-CATALOG FAILED (6b): bajo RLS real, la cuenta A vio filas de la cuenta B — aislamiento roto.';
     ELSE
-      RAISE NOTICE 'PASS (6): aislamiento por cuenta verificado bajo RLS real (rol authenticated) — A ve sus 6, no ve las de B.';
+      RAISE NOTICE 'PASS (6): aislamiento por cuenta verificado bajo RLS real (rol authenticated) — A ve sus 7, no ve las de B.';
     END IF;
   END IF;
 

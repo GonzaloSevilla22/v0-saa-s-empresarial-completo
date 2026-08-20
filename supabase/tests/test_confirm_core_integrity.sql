@@ -165,5 +165,62 @@ BEGIN
 
   RAISE NOTICE 'PASS (4): rpc_create_purchase_operation ya no hardcodea el literal credit — emite el kind real derivado de p_payment_method_id.';
 
-  RAISE NOTICE 'PASS: gate transitivo completo — confirm-core → helper → C-30, formulario cubierto, hardcode de compras corregido.';
+  -- ── (5) pos-banco-movimientos: cadena _pay_register_operation_bank_movement ──
+  -- Extiende el gate transitivo (D10) al ledger bancario operativo: los TRES
+  -- caminos de alta (mostrador, formulario de venta, formulario de compra)
+  -- deben llamar al escritor único _pay_register_operation_bank_movement, y
+  -- ese helper debe llamar a _register_bank_movement (C1) y a
+  -- _pay_resolve_bank_account (D2). Ejecutado ANTES de la migración
+  -- 20261002000001, este bloque falla en los tres primeros SELECT (ninguna
+  -- de las tres RPCs contiene el literal, el helper no existe todavía) —
+  -- evidencia RED capturada en el PR de pos-banco-movimientos.
+  FOREACH v_req IN ARRAY ARRAY[
+    '_c29_confirm_order_core',
+    'rpc_create_sale_operation_v2',
+    'rpc_create_purchase_operation'
+  ]
+  LOOP
+    SELECT pg_get_functiondef(p.oid) INTO v_def
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_req;
+
+    IF v_def IS NULL THEN
+      RAISE EXCEPTION 'GATE CONFIRM-CORE-INTEGRITY FAILED (5): public.% no existe.', v_req;
+    END IF;
+
+    IF position('_pay_register_operation_bank_movement' IN v_def) = 0 THEN
+      RAISE EXCEPTION 'GATE CONFIRM-CORE-INTEGRITY FAILED (5): el cuerpo publicado de % no llama a _pay_register_operation_bank_movement — la venta/compra por método bancario no escribiría bank_movements (pos-banco-movimientos design.md D5).', v_req;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE 'PASS (5a): _c29_confirm_order_core, rpc_create_sale_operation_v2 y rpc_create_purchase_operation llaman a _pay_register_operation_bank_movement.';
+
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = '_pay_register_operation_bank_movement';
+
+  IF v_def IS NULL THEN
+    RAISE EXCEPTION 'GATE CONFIRM-CORE-INTEGRITY FAILED (5): public._pay_register_operation_bank_movement no existe — el escritor único del ledger bancario operativo (pos-banco-movimientos design.md D5) todavía no fue creado.';
+  END IF;
+
+  v_missing := ARRAY[]::text[];
+  FOREACH v_req IN ARRAY ARRAY[
+    '_register_bank_movement',
+    '_pay_resolve_bank_account'
+  ]
+  LOOP
+    IF position(v_req IN v_def) = 0 THEN
+      v_missing := array_append(v_missing, v_req);
+    END IF;
+  END LOOP;
+
+  IF array_length(v_missing, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE CONFIRM-CORE-INTEGRITY FAILED (5): el cuerpo publicado de _pay_register_operation_bank_movement no contiene:\n  %\npos-banco-movimientos design.md D5.', array_to_string(v_missing, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (5b): _pay_register_operation_bank_movement llama a _register_bank_movement (C1) y a _pay_resolve_bank_account (D2).';
+
+  RAISE NOTICE 'PASS: gate transitivo completo — confirm-core → helper → C-30, formulario cubierto, hardcode de compras corregido, ledger bancario operativo cableado.';
 END $$;

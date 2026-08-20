@@ -359,3 +359,17 @@ jobs:
       # editable).
       - name: Run pagos-cableados-restantes gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pagos_cableados_restantes.sql
+
+      # pos-banco-movimientos: la venta y la compra por método bancario
+      # escriben su bank_movement intra-transacción (0 filas en prod hoy —
+      # gate ESTRELLA). Verifica: default por método + override + sin cuenta
+      # resuelta = no-op byte a byte (D2), mapa kind→movement_type (D3:
+      # transfer/wallet → transfer_in/out, card bruto → card_settlement),
+      # venta a crédito + cobro posterior = exactamente UN movimiento (sin
+      # doble contabilización), contrato con la conciliación de C3 (match 1:1
+      # deja el movimiento matched, sin piezas nuevas), P0423 extendido a
+      # bank_movements en la edición de venta y de compra (con el control
+      # negativo de que una operación sin ningún cargo/movimiento sigue
+      # editable) y P0424 sobre un período ya conciliado y cerrado.
+      - name: Run pos-banco-movimientos gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pos_banco_movimientos.sql

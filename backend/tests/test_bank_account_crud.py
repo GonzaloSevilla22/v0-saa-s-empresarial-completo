@@ -227,6 +227,47 @@ class TestBankAccountRepositoryCreate:
         second_call_args = conn.fetchrow.call_args_list[1][0][1:]
         assert BANK_ACCOUNT_ID in second_call_args
 
+    @pytest.mark.asyncio
+    async def test_create_parses_jsonb_string_result(self, bank_account_repo):
+        """Regresión prod 2026-08-20: asyncpg SIN type codec entrega el jsonb de la
+        RPC como STRING JSON, no como dict. El código tomaba el string entero como
+        si fuera el UUID y el re-SELECT explotaba con `invalid UUID ... got 202`.
+        El mock replica el comportamiento real de asyncpg (str), no el idealizado."""
+        import json as _json
+
+        repo, conn = bank_account_repo
+        jsonb_as_string = _json.dumps(
+            {
+                "name": "Mercado Pago",
+                "currency": "ARS",
+                "is_active": True,
+                "account_id": "c4145451-7eee-46c1-854e-896735e35e25",
+                "bank_account_id": BANK_ACCOUNT_ID,
+                "opening_balance": 160000,
+            }
+        )
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"result": jsonb_as_string},  # asyncpg real: jsonb → str
+                BANK_ACCOUNT_ROW,
+            ]
+        )
+
+        result = await repo.create(
+            name="Mercado Pago",
+            bank_name=None,
+            cbu=None,
+            alias=None,
+            currency="ARS",
+            opening_balance=Decimal("160000"),
+            opening_date=None,
+        )
+
+        assert result is not None
+        # El re-SELECT debe recibir el UUID limpio, no el JSON de 202 caracteres
+        second_call_args = conn.fetchrow.call_args_list[1][0][1:]
+        assert second_call_args == (BANK_ACCOUNT_ID,)
+
     # ── 2.3 TRIANGULATE ──────────────────────────────────────────────────────────
 
     @pytest.mark.asyncio

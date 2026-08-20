@@ -9,10 +9,20 @@ completo de BankAccountOut (D2 del design: consistencia con lo persistido).
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 
 from backend.repositories.base import BaseRepository
+
+
+def _jsonb(value):
+    """asyncpg entrega jsonb como str cuando no hay type codec registrado.
+
+    Mismo helper canónico que usan los demás repositories del proyecto
+    (cash_session, sales_order, customer_account, etc.).
+    """
+    return json.loads(value) if isinstance(value, str) else value
 
 
 class BankAccountRepository(BaseRepository):
@@ -65,7 +75,7 @@ class BankAccountRepository(BaseRepository):
         )
         if rpc_row is None:
             return None
-        result = rpc_row["result"]
+        result = _jsonb(rpc_row["result"])
         bank_account_id = result["bank_account_id"] if isinstance(result, dict) else result
         return await self._get_by_id(bank_account_id)
 

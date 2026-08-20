@@ -61,6 +61,8 @@ async def confirm(
             # pos-catalogo-pagos (D2): passthrough — la RPC resuelve el kind,
             # no el service (D6, sin round-trip extra a la DB acá).
             payment_method_id=str(payload.payment_method_id) if payload.payment_method_id else None,
+            # pos-banco-movimientos (D2): passthrough del override — ídem.
+            bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
         )
     except asyncpg.PostgresError as exc:
         _map_postgres_error(exc)
@@ -107,6 +109,8 @@ async def quick_sale(
             canal=payload.canal,
             # pos-catalogo-pagos (D2): passthrough — ídem confirm().
             payment_method_id=str(payload.payment_method_id) if payload.payment_method_id else None,
+            # pos-banco-movimientos (D2): passthrough — ídem confirm().
+            bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
         )
     except asyncpg.PostgresError as exc:
         _map_postgres_error(exc)
@@ -163,7 +167,13 @@ def _map_postgres_error(exc: asyncpg.PostgresError) -> None:
         raise HTTPException(status_code=400, detail=f"Payload inválido: {message}")
     if sqlstate == "P0404":
         raise HTTPException(status_code=404, detail=f"No encontrado: {message}")
-    if sqlstate in ("P0409", "P0422"):
+    # pos-banco-movimientos: P0412 (cuenta bancaria no encontrada/inactiva/
+    # borrada) es un 404 — mismo criterio que _BUSINESS_ERRCODE_STATUS en
+    # backend/core/errors.py; P0424 (período conciliado cerrado) es un 409,
+    # misma familia de conflicto de estado que P0409/P0422/P0423.
+    if sqlstate == "P0412":
+        raise HTTPException(status_code=404, detail=f"No encontrado: {message}")
+    if sqlstate in ("P0409", "P0422", "P0423", "P0424"):
         raise HTTPException(status_code=409, detail=f"Conflicto: {message}")
 
     raise HTTPException(status_code=500, detail=f"Error de base de datos: {message}")

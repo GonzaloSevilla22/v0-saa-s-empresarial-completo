@@ -499,6 +499,63 @@ class TestSalesOrderRepository:
         )
         assert items_in_args, "items JSONB no encontrado en args del RPC"
 
+    # ── pos-banco-movimientos (D2/D9, task 8.3): bank_account_id trailing ────
+
+    @pytest.mark.asyncio
+    async def test_confirm_passes_bank_account_id(self, sales_order_repo):
+        """El override del chip de destino del POS llega al RPC
+        rpc_confirm_sales_order como argumento trailing."""
+        repo, conn = sales_order_repo
+        conn.fetchrow = AsyncMock(
+            return_value={"result": json.dumps(CONFIRM_RPC_RESULT)}
+        )
+        bank_account_id = "99999999-9999-9999-9999-999999999999"
+
+        await repo.confirm(
+            idempotency_key=IDEMPOTENCY_KEY,
+            sales_order_id=SALES_ORDER_ID,
+            payment_method="transfer",
+            cash_session_id=None,
+            comprobante_type=None,
+            point_of_sale_id=None,
+            branch_id=None,
+            canal=None,
+            bank_account_id=bank_account_id,
+        )
+
+        query = conn.fetchrow.call_args[0][0].lower()
+        args = conn.fetchrow.call_args[0]
+        assert "p_bank_account_id" in query
+        assert bank_account_id in args
+
+    @pytest.mark.asyncio
+    async def test_quick_sale_passes_bank_account_id(self, sales_order_repo):
+        """Ídem confirm, para rpc_quick_sale — chip de destino del POS."""
+        repo, conn = sales_order_repo
+        conn.fetchrow = AsyncMock(
+            return_value={"result": json.dumps(QUICK_SALE_RPC_RESULT)}
+        )
+        items = [{"product_id": PRODUCT_ID, "quantity": 1, "price": 500, "subtotal": 500}]
+        bank_account_id = "99999999-9999-9999-9999-999999999999"
+
+        await repo.quick_sale(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=None,
+            items=items,
+            payment_method="transfer",
+            cash_session_id=None,
+            comprobante_type=None,
+            point_of_sale_id=None,
+            branch_id=None,
+            canal=None,
+            bank_account_id=bank_account_id,
+        )
+
+        query = conn.fetchrow.call_args[0][0].lower()
+        args = conn.fetchrow.call_args[0]
+        assert "p_bank_account_id" in query
+        assert bank_account_id in args
+
     @pytest.mark.asyncio
     async def test_list_orders_queries_account(self, sales_order_repo):
         """list_orders filtra por account_id."""

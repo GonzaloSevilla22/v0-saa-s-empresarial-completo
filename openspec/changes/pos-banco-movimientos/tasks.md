@@ -48,13 +48,13 @@
 
 ## 8. Backend Python
 
-- [ ] 8.1 RED: tests de `payment_methods` para `bank_account_id` en create/update/out y el tri-estado por `model_fields_set` (asignar, conservar, desasignar).
-- [ ] 8.2 GREEN: `backend/schemas/payment_methods.py`, `payment_method_repository.py`, service y router.
-- [ ] 8.3 RED: tests de ventas (`sales`, `sales_orders`) y compras para `bank_account_id` opcional en el payload y su passthrough hasta la RPC.
-- [ ] 8.4 GREEN: schemas, repositories, services y routers de `sales`, `sales_orders` y `purchases`.
-- [ ] 8.5 RED→GREEN: predicado `editable` de `sales_repository.py` y `purchase_repository.py` extendido con el `EXISTS` sobre `bank_movements` (espejo exacto del guard SQL de 6.1/6.2).
-- [ ] 8.6 TRIANGULATE: caso sin cuenta resuelta (no escribe), caso con override, caso `P0412` (cuenta ajena/inactiva), caso `P0400` (cuenta sobre `kind` no bancario), caso `P0424` (período conciliado) — y su mapeo RFC 7807 (`P0424` → 409, agregado a `backend/core/errors.py`).
-- [ ] 8.7 Coverage de backend ≥ el umbral vigente de CI (87%).
+- [x] 8.1 RED: tests de `payment_methods` para `bank_account_id` en create/update/out y el tri-estado por `model_fields_set` — 8 tests nuevos en `test_payment_method_service.py`, 3 en `test_payment_method_router.py`, 5 en `test_payment_method_repository.py`.
+- [x] 8.2 GREEN: `backend/schemas/payment_methods.py`, `payment_method_repository.py`, service y router. **Desviación documentada (3.4/D7)**: sin RPC nueva — `PaymentMethodRepository.update` (escritura directa) + `PaymentMethodRepository.get_bank_account_for_validation` (pertenencia/activa/no-borrada, espejo Python de `_pay_resolve_bank_account`) + rechazo 422 si el `kind` no es bancario.
+- [x] 8.3 RED: tests de ventas (`sales`, `sales_orders`) y compras para `bank_account_id` opcional en el payload y su passthrough hasta la RPC — nuevos tests en `test_sales.py`, `test_purchases.py`, `test_c29_quote_salesorder.py`; 4 tests de conteo posicional de `test_pos_catalogo_pagos.py` actualizados (9→10 / 10→11 args) tras el trailing nuevo.
+- [x] 8.4 GREEN: schemas (`SaleOperationIn`, `PurchaseOperationIn`, `ConfirmIn`, `QuickSaleIn`), repositories (`sales_repository.py`, `purchase_repository.py`, `sales_order_repository.py`), services y routers (routers sin cambios — el payload ya trae el campo, Pydantic lo propaga).
+- [x] 8.5 RED→GREEN: predicado `editable`/`is_payment_locked` de `sales_repository.py` y `purchase_repository.py` extendido con el `EXISTS` sobre `bank_movements` (espejo exacto del guard SQL de 6.1/6.2, misma doble referencia para venta).
+- [x] 8.6 TRIANGULATE: sin cuenta resuelta (no escribe, gate 2b del SQL), override (gate 2a), `P0412` (parametrizado en `test_errors_business_codes.py`, ya cubierto por el gate SQL funcional para el caso real), `P0400`/`P0424` (parametrizados/extendidos en `test_errors_business_codes.py` y `backend/services/sales_orders.py._map_postgres_error`, que NO tenía P0412/P0424/P0423 mapeados — **hallazgo real**: `confirm`/`quick_sale` envuelven en try/except propio y caían al 500 genérico antes de este fix).
+- [x] 8.7 Coverage de backend: 97% total tras el change (suite completa: 1437 passed, 3 skipped, 0 failed) — sobre el umbral de CI (87%).
 
 ## 9. Frontend
 

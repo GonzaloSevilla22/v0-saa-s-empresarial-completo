@@ -163,6 +163,79 @@ class TestPaymentMethodRepositoryUpdate:
 
         assert result is None
 
+    # ── pos-banco-movimientos (D7, task 8.1/8.6) ────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_update_without_bank_account_provided_omits_column(self, payment_method_repo):
+        """bank_account_provided=False (default) — el UPDATE liso, sin tocar
+        la columna bank_account_id (sigue en el RETURNING, que expone el
+        estado vigente sea cual sea, pero no en el SET — nada la escribe)."""
+        repo, conn = payment_method_repo
+        conn.fetchrow = AsyncMock(return_value=PM_ROW_ACTIVE)
+
+        await repo.update(PM_ID, ACCOUNT_ID, name="Efectivo", sort_order=None)
+
+        sql = conn.fetchrow.call_args[0][0]
+        assert "bank_account_id  =" not in sql and "bank_account_id =" not in sql
+
+    @pytest.mark.asyncio
+    async def test_update_with_bank_account_provided_sets_column(self, payment_method_repo):
+        BANK_ACCOUNT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        repo, conn = payment_method_repo
+        conn.fetchrow = AsyncMock(return_value={**PM_ROW_ACTIVE, "bank_account_id": BANK_ACCOUNT_ID})
+
+        await repo.update(
+            PM_ID, ACCOUNT_ID, name="Transferencia", sort_order=None,
+            bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True,
+        )
+
+        sql = conn.fetchrow.call_args[0][0]
+        args = conn.fetchrow.call_args[0]
+        assert "bank_account_id" in sql
+        assert BANK_ACCOUNT_ID in args
+
+    @pytest.mark.asyncio
+    async def test_update_bank_account_provided_null_unassigns(self, payment_method_repo):
+        """provided=True + bank_account_id=None → desasigna explícitamente
+        (distinto de no informar el campo)."""
+        repo, conn = payment_method_repo
+        conn.fetchrow = AsyncMock(return_value={**PM_ROW_ACTIVE, "bank_account_id": None})
+
+        await repo.update(
+            PM_ID, ACCOUNT_ID, name="Transferencia", sort_order=None,
+            bank_account_id=None, bank_account_provided=True,
+        )
+
+        sql = conn.fetchrow.call_args[0][0]
+        args = conn.fetchrow.call_args[0]
+        assert "bank_account_id" in sql
+        assert None in args
+
+
+class TestPaymentMethodRepositoryBankAccountValidation:
+    @pytest.mark.asyncio
+    async def test_get_bank_account_for_validation_scopes_active_not_deleted(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        conn.fetchrow = AsyncMock(return_value={"id": "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"})
+
+        result = await repo.get_bank_account_for_validation(
+            "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", ACCOUNT_ID
+        )
+
+        assert result is not None
+        sql = conn.fetchrow.call_args[0][0].lower()
+        assert "is_active = true" in sql
+        assert "deleted_at is null" in sql
+
+    @pytest.mark.asyncio
+    async def test_get_bank_account_for_validation_not_found_returns_none(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.get_bank_account_for_validation("nonexistent", ACCOUNT_ID)
+
+        assert result is None
+
 
 # ── 4.1 RED: deactivate ────────────────────────────────────────────────────────
 

@@ -98,11 +98,16 @@ class SalesRepository(BaseRepository):
                    -- de lectura, reusando el `so` ya montado para
                    -- payment_method/is_invoiced — nunca una columna
                    -- denormalizada (misma regla D5 de arriba).
+                   -- pos-banco-movimientos (D8): tercer término — bank_movements,
+                   -- mismo predicado que el tercer EXISTS de
+                   -- rpc_atomic_update_sale_operation (source_doc_type='sale').
                    (
                      EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
                      OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))
                      OR EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = s.operation_id)
                      OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = so.id))
+                     OR EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = s.operation_id)
+                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = so.id))
                    ) AS is_payment_locked
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
@@ -286,6 +291,7 @@ class SalesRepository(BaseRepository):
         canal: str | None = None,
         payment_method_id: str | None = None,
         cash_session_id: str | None = None,
+        bank_account_id: str | None = None,
     ) -> dict | None:
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
@@ -301,7 +307,8 @@ class SalesRepository(BaseRepository):
             SELECT
                 (rpc_create_sale_operation(
                     $1, $2::text::uuid, $3, $4, $5::jsonb,
-                    p_canal => $6, p_payment_method_id => $7, p_cash_session_id => $8
+                    p_canal => $6, p_payment_method_id => $7, p_cash_session_id => $8,
+                    p_bank_account_id => $9
                 )->>'operation_id')::uuid
                     AS operation_id,
                 'sale'::text AS operation_kind
@@ -314,5 +321,6 @@ class SalesRepository(BaseRepository):
             canal,
             payment_method_id,
             cash_session_id,
+            bank_account_id,
         )
         return dict(row) if row else None

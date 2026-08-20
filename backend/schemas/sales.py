@@ -36,6 +36,11 @@ class SaleOperationIn(BaseModel):
     # (kind=cash derivado de payment_method_id, sesión abierta en la
     # sucursal efectiva, fecha=hoy en ART) se validan en la RPC, nunca acá.
     cash_session_id: uuid.UUID | None = None
+    # pos-banco-movimientos (D2): override explícito de la cuenta bancaria
+    # destino. None = usar el default configurado en la forma de pago (o no
+    # escribir nada si tampoco hay default) — la RPC resuelve, valida y
+    # aplica el guard de período conciliado (P0412/P0400/P0424), nunca acá.
+    bank_account_id: uuid.UUID | None = None
 
 
 class SaleOperationOut(BaseModel):

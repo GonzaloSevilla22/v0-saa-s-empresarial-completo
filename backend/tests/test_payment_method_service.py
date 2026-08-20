@@ -46,6 +46,9 @@ def _make_conn(fallback_role: object = "__unset__") -> AsyncMock:
 _SENTINEL = object()
 
 
+BANK_ACCOUNT_ID = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+
+
 def _make_repo(
     *,
     list_result=_SENTINEL,
@@ -53,6 +56,8 @@ def _make_repo(
     update_result=_SENTINEL,
     deactivate_result=_SENTINEL,
     report_result=_SENTINEL,
+    get_by_id_result=_SENTINEL,
+    bank_account_result=_SENTINEL,
 ):
     repo = AsyncMock()
     repo.list_by_account = AsyncMock(return_value=[PM_ROW] if list_result is _SENTINEL else list_result)
@@ -62,6 +67,12 @@ def _make_repo(
         return_value={**PM_ROW, "is_active": False} if deactivate_result is _SENTINEL else deactivate_result
     )
     repo.get_report = AsyncMock(return_value=[] if report_result is _SENTINEL else report_result)
+    # pos-banco-movimientos (D7): usados sólo cuando bank_account_provided=True
+    # y bank_account_id no es None (ver update_payment_method).
+    repo.get_by_id = AsyncMock(return_value=PM_ROW if get_by_id_result is _SENTINEL else get_by_id_result)
+    repo.get_bank_account_for_validation = AsyncMock(
+        return_value={"id": BANK_ACCOUNT_ID} if bank_account_result is _SENTINEL else bank_account_result
+    )
     return repo
 
 
@@ -289,6 +300,148 @@ class TestPaymentMethodServiceReport:
 
         assert exc_info.value.status_code == 422
         repo.get_report.assert_not_awaited()
+
+
+# ── pos-banco-movimientos (D7, task 8.1/8.6): bank_account_id tri-estado ────
+
+class TestPaymentMethodServiceBankAccount:
+    @pytest.mark.asyncio
+    async def test_assign_bank_account_on_bank_kind_ok(self):
+        """RED→GREEN: asignar un destino a un método bancario (transfer) con
+        una cuenta válida — pasa la validación y llama a repo.update con el
+        tri-estado provided=True."""
+        from backend.services.payment_methods import update_payment_method
+
+        pm_transfer = {**PM_ROW, "kind": "transfer"}
+        repo = _make_repo(get_by_id_result=pm_transfer, update_result={**pm_transfer, "bank_account_id": BANK_ACCOUNT_ID})
+        auth = _make_auth("owner")
+
+        result = await update_payment_method(
+            repo, auth, ACCOUNT_ID, PM_ID, name="Transferencia bancaria", sort_order=None,
+            bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+        )
+
+        assert result["bank_account_id"] == BANK_ACCOUNT_ID
+        repo.update.assert_awaited_once_with(
+            PM_ID, ACCOUNT_ID, name="Transferencia bancaria", sort_order=None,
+            bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_field_absent_preserves_bank_account(self):
+        """Ausencia del campo (provided=False) → no valida nada, conserva
+        el destino vigente vía COALESCE del lado del repository."""
+        from backend.services.payment_methods import update_payment_method
+
+        repo = _make_repo()
+        auth = _make_auth("owner")
+
+        await update_payment_method(
+            repo, auth, ACCOUNT_ID, PM_ID, name="Efectivo", sort_order=None,
+            bank_account_id=None, bank_account_provided=False, conn=_make_conn(),
+        )
+
+        repo.get_by_id.assert_not_awaited()
+        repo.get_bank_account_for_validation.assert_not_awaited()
+        repo.update.assert_awaited_once_with(
+            PM_ID, ACCOUNT_ID, name="Efectivo", sort_order=None,
+            bank_account_id=None, bank_account_provided=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_unassign_bank_account_explicit_null(self):
+        """provided=True + valor NULL → desasigna explícitamente (no se
+        confunde con "no lo mandé")."""
+        from backend.services.payment_methods import update_payment_method
+
+        pm_transfer = {**PM_ROW, "kind": "transfer"}
+        repo = _make_repo(update_result={**pm_transfer, "bank_account_id": None})
+        auth = _make_auth("owner")
+
+        result = await update_payment_method(
+            repo, auth, ACCOUNT_ID, PM_ID, name="Transferencia bancaria", sort_order=None,
+            bank_account_id=None, bank_account_provided=True, conn=_make_conn(),
+        )
+
+        assert result["bank_account_id"] is None
+        # bank_account_id=None con provided=True no dispara validación (nada
+        # que validar al desasignar).
+        repo.get_bank_account_for_validation.assert_not_awaited()
+        repo.update.assert_awaited_once_with(
+            PM_ID, ACCOUNT_ID, name="Transferencia bancaria", sort_order=None,
+            bank_account_id=None, bank_account_provided=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_assign_on_non_bank_kind_raises_422(self):
+        """Spec payment-method: 'Destino bancario sobre un kind no bancario
+        es rechazado' — cash no es kind bancario."""
+        from backend.services.payment_methods import update_payment_method
+
+        pm_cash = {**PM_ROW, "kind": "cash"}
+        repo = _make_repo(get_by_id_result=pm_cash)
+        auth = _make_auth("owner")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_payment_method(
+                repo, auth, ACCOUNT_ID, PM_ID, name="Efectivo", sort_order=None,
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+            )
+
+        assert exc_info.value.status_code == 422
+        repo.update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_assign_nonexistent_or_inactive_bank_account_raises_404(self):
+        from backend.services.payment_methods import update_payment_method
+
+        pm_transfer = {**PM_ROW, "kind": "transfer"}
+        repo = _make_repo(get_by_id_result=pm_transfer, bank_account_result=None)
+        auth = _make_auth("owner")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_payment_method(
+                repo, auth, ACCOUNT_ID, PM_ID, name="Transferencia bancaria", sort_order=None,
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+            )
+
+        assert exc_info.value.status_code == 404
+        repo.update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_assign_bank_account_nonexistent_payment_method_raises_404(self):
+        from backend.services.payment_methods import update_payment_method
+
+        repo = _make_repo(get_by_id_result=None)
+        auth = _make_auth("owner")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_payment_method(
+                repo, auth, ACCOUNT_ID, "nonexistent", name="X", sort_order=None,
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+            )
+
+        assert exc_info.value.status_code == 404
+        repo.update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_update_member_with_bank_account_raises_403_before_validation(self):
+        """El guard de rol corre ANTES que cualquier validación de la cuenta
+        bancaria — un member no debe poder ni intentarlo."""
+        from backend.services.payment_methods import update_payment_method
+
+        repo = _make_repo()
+        auth = _make_auth("member")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await update_payment_method(
+                repo, auth, ACCOUNT_ID, PM_ID, name="X", sort_order=None,
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+            )
+
+        assert exc_info.value.status_code == 403
+        repo.get_by_id.assert_not_awaited()
+        repo.update.assert_not_awaited()
 
 
 # ── 4.3 TRIANGULATE ──────────────────────────────────────────────────────────

@@ -214,6 +214,68 @@ class TestPaymentMethodUpdateEndpoint:
         assert resp.json()["kind"] == "cash"  # el kind sembrado NO cambió
 
 
+# ── pos-banco-movimientos (D7, task 8.1/8.6): PATCH bank_account_id ────────
+
+class TestPaymentMethodUpdateBankAccountEndpoint:
+    @pytest.mark.asyncio
+    async def test_patch_assigns_bank_account_ok(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        pm_transfer = {**PM_ROW, "kind": "transfer"}
+        bank_account_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        # Orden real de llamadas en el service: get_by_id (kind) →
+        # get_bank_account_for_validation (pertenencia/activa) → update.
+        conn.fetchrow = AsyncMock(side_effect=[
+            pm_transfer,
+            {"id": bank_account_id},
+            {**pm_transfer, "bank_account_id": bank_account_id},
+        ])
+        owner_token = _account_role_token("owner")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/payment-methods/{PM_ID}",
+                json={"name": "Transferencia bancaria", "bank_account_id": bank_account_id},
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["bank_account_id"] == bank_account_id
+
+    @pytest.mark.asyncio
+    async def test_patch_without_bank_account_field_preserves_it(self, async_client, mock_pool):
+        """Ausencia de la clave en el JSON = tri-estado 'preservar' — un
+        único fetchrow (el UPDATE liso), sin tocar la validación bancaria."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={**PM_ROW, "name": "Banco Nación"})
+        owner_token = _account_role_token("owner")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/payment-methods/{PM_ID}",
+                json={"name": "Banco Nación"},
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 200
+        conn.fetchrow.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_patch_bank_account_on_cash_kind_returns_422(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        bank_account_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        conn.fetchrow = AsyncMock(return_value=PM_ROW)  # kind='cash'
+        owner_token = _account_role_token("owner")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/payment-methods/{PM_ID}",
+                json={"name": "Efectivo", "bank_account_id": bank_account_id},
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 422
+
+
 # ── 4.1 RED: PATCH /payment-methods/{id}/deactivate ─────────────────────────
 
 class TestPaymentMethodDeactivateEndpoint:

@@ -97,8 +97,9 @@ async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
 
     metodos-pago-operaciones agregó payment_method_id después de canal;
     pagos-cableados-restantes (OQ-C) agrega cash_session_id trailing después
-    de payment_method_id — se verifica canal/payment_method_id/cash_session_id
-    por posición (-3/-2/-1), no por "último".
+    de payment_method_id; pos-banco-movimientos agrega bank_account_id
+    trailing después de cash_session_id — se verifica canal/payment_method_id/
+    cash_session_id/bank_account_id por posición (-4/-3/-2/-1), no por "último".
     """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
@@ -118,9 +119,40 @@ async def test_create_sale_without_canal_passes_none(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    assert captured["args"][-3] is None  # canal
-    assert captured["args"][-2] is None  # payment_method_id
-    assert captured["args"][-1] is None  # cash_session_id
+    assert captured["args"][-4] is None  # canal
+    assert captured["args"][-3] is None  # payment_method_id
+    assert captured["args"][-2] is None  # cash_session_id
+    assert captured["args"][-1] is None  # bank_account_id
+
+
+async def test_create_sale_passes_bank_account_id_to_rpc(async_client, mock_pool):
+    """pos-banco-movimientos (D2): el bank_account_id del payload (override
+    del chip de destino) llega como argumento trailing del RPC
+    rpc_create_sale_operation — passthrough sin lógica de negocio en el
+    backend (la RPC resuelve/valida/aplica el guard de período conciliado)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+    bank_account_id = "99999999-9999-9999-9999-999999999999"
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["query"] = query
+        captured["args"] = args
+        return OPERATION_ROW
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/sales",
+            json={**SALE_PAYLOAD, "bank_account_id": bank_account_id},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "rpc_create_sale_operation" in captured["query"]
+    assert "p_bank_account_id" in captured["query"]
+    assert bank_account_id in [str(a) for a in captured["args"]]
 
 
 async def test_create_sale_passes_cash_session_id_to_rpc(async_client, mock_pool):
@@ -752,7 +784,8 @@ async def test_list_sales_row_exposes_is_payment_locked_flag(async_client, valid
 async def test_list_sales_row_exposes_payment_lock_query_predicate(async_client, valid_token, mock_pool):
     """El predicado de is_payment_locked cubre AMBAS convenciones de
     reference_id de la migración pagos-cableados-restantes: operation_id
-    (formulario) y sales_orders.id (POS)."""
+    (formulario) y sales_orders.id (POS). pos-banco-movimientos (D8) suma
+    bank_movements al mismo predicado, mismas dos convenciones."""
     pool, conn = mock_pool
     captured = _capture_sales_queries(conn)
     with patch("backend.core.database.pool", pool):
@@ -763,6 +796,7 @@ async def test_list_sales_row_exposes_payment_lock_query_predicate(async_client,
     rows_query, _ = captured["rows"]
     assert "customer_account_movements" in rows_query
     assert "cash_movements" in rows_query
+    assert "bank_movements" in rows_query
     assert "is_payment_locked" in rows_query
 
 

@@ -69,14 +69,23 @@ async def update_payment_method(
     repo: PaymentMethodRepository = Depends(get_repo),
     conn: asyncpg.Connection = Depends(get_db_conn),
 ):
-    """Update name/sort_order of a payment method. Requires TENANT role owner or admin.
+    """Update name/sort_order/bank_account_id of a payment method. Requires
+    TENANT role owner or admin.
 
     `kind` is immutable (D2) — not accepted in this payload.
+
+    pos-banco-movimientos (D7): `bank_account_id` is tri-state by ABSENCE of
+    the key, never by `is None` — same contract as `payment_method_id` in
+    `SaleOperationUpdateIn`. Not sending the field preserves the current
+    default; sending it as `null` unassigns; sending a uuid (re)assigns.
     """
+    bank_account_provided = "bank_account_id" in payload.model_fields_set
     return await pm_service.update_payment_method(
         repo, auth, str(account_id), payment_method_id,
         name=payload.name,
         sort_order=payload.sort_order,
+        bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
+        bank_account_provided=bank_account_provided,
         conn=conn,
     )
 

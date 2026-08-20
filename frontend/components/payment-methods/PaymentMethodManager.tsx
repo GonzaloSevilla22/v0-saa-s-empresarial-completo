@@ -10,10 +10,11 @@ import {
 } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { Plus, Pencil, PowerOff, Loader2 } from "lucide-react"
+import { Plus, Pencil, PowerOff, Loader2, Landmark } from "lucide-react"
 import { toast } from "sonner"
-import type { PaymentMethod, PaymentMethodKind } from "@/lib/types"
+import { isBankPaymentKind, type PaymentMethod, type PaymentMethodKind } from "@/lib/types"
 
 const KIND_LABELS: Record<PaymentMethodKind, string> = {
   cash: "Efectivo",
@@ -50,22 +51,33 @@ export function PaymentMethodManager() {
     updatePaymentMethodMutation,
     deactivatePaymentMethodMutation,
   } = usePaymentMethods(true) // includeInactive=true for management view
+  // pos-banco-movimientos (D7, task 9.3): cuentas para resolver el nombre
+  // (columna) y poblar el selector (dialog de edición) — reusa el hook ya
+  // existente desde C2, sin duplicar fetch.
+  const { data: bankAccounts } = useBankAccounts()
+  const bankAccountName = (id: string | null) =>
+    id ? (bankAccounts ?? []).find((b) => b.id === id)?.name ?? null : null
 
   const [addOpen, setAddOpen] = useState(false)
   const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null)
 
   const [formName, setFormName] = useState("")
   const [formKind, setFormKind] = useState<PaymentMethodKind>("other")
+  // pos-banco-movimientos (D7): destino bancario editado en el dialog — sólo
+  // relevante cuando formKind es bancario.
+  const [formBankAccountId, setFormBankAccountId] = useState<string | null>(null)
 
   function openAdd() {
     setFormName("")
     setFormKind("other")
+    setFormBankAccountId(null)
     setAddOpen(true)
   }
 
   function openEdit(pm: PaymentMethod) {
     setFormName(pm.name)
     setFormKind(pm.kind)
+    setFormBankAccountId(pm.bankAccountId)
     setEditingMethod(pm)
   }
 
@@ -74,6 +86,7 @@ export function PaymentMethodManager() {
     setEditingMethod(null)
     setFormName("")
     setFormKind("other")
+    setFormBankAccountId(null)
   }
 
   async function handleSave() {
@@ -85,7 +98,15 @@ export function PaymentMethodManager() {
 
     try {
       if (editingMethod) {
-        await updatePaymentMethod({ id: editingMethod.id, name })
+        // pos-banco-movimientos (D7): el destino sólo se envía cuando el
+        // kind del método es bancario — el dialog no lo muestra para los
+        // demás kinds, así que no hay nada que informar (tri-estado por
+        // AUSENCIA de la clave, ver use-payment-methods.ts).
+        await updatePaymentMethod(
+          isBankPaymentKind(editingMethod.kind)
+            ? { id: editingMethod.id, name, bankAccountId: formBankAccountId }
+            : { id: editingMethod.id, name },
+        )
         toast.success("Forma de pago actualizada")
       } else {
         await createPaymentMethod({ name, kind: formKind })
@@ -151,6 +172,18 @@ export function PaymentMethodManager() {
                   {!pm.isActive && (
                     <Badge variant="secondary" className="text-xs shrink-0">
                       Inactiva
+                    </Badge>
+                  )}
+                  {/* pos-banco-movimientos (D7): columna "Cuenta bancaria" —
+                      sólo para kinds bancarios, rótulo explícito cuando no
+                      tiene destino ("no registra movimiento bancario"). */}
+                  {isBankPaymentKind(pm.kind) && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs shrink-0 gap-1 text-muted-foreground"
+                    >
+                      <Landmark className="h-3 w-3" />
+                      {bankAccountName(pm.bankAccountId) ?? "Sin cuenta (no registra movimiento)"}
                     </Badge>
                   )}
                 </div>
@@ -229,6 +262,36 @@ export function PaymentMethodManager() {
                   : "El tipo es lo que el sistema usa para razonar — el nombre es lo que vos ves y podés cambiar cuando quieras."}
               </p>
             </div>
+
+            {/* pos-banco-movimientos (D7, task 9.3): destino bancario por
+                defecto — sólo editable, sólo para kinds bancarios (el kind
+                es inmutable y se elige al crear; el destino se configura
+                después, acá). */}
+            {editingMethod && isBankPaymentKind(editingMethod.kind) && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="pm-bank-account">Cuenta bancaria (opcional)</Label>
+                <Select
+                  value={formBankAccountId ?? "__none__"}
+                  onValueChange={(v) => setFormBankAccountId(v === "__none__" ? null : v)}
+                >
+                  <SelectTrigger id="pm-bank-account" className="bg-background border-border">
+                    <SelectValue placeholder="Sin cuenta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Sin cuenta (no registra movimiento)</SelectItem>
+                    {(bankAccounts ?? [])
+                      .filter((b) => b.isActive)
+                      .map((b) => (
+                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Las ventas y compras imputadas a esta forma de pago registrarán su movimiento en
+                  esta cuenta — configurala una vez, el mostrador no vuelve a preguntar.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 justify-end pt-2">

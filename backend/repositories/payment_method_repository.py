@@ -17,6 +17,8 @@ class PaymentMethodRepository(BaseRepository):
     mantiene la RLS activa.
     """
 
+    _COLUMNS = "id, account_id, name, kind, is_active, sort_order, created_at, bank_account_id"
+
     async def list_by_account(
         self,
         account_id: str,
@@ -35,8 +37,8 @@ class PaymentMethodRepository(BaseRepository):
         # DESACTIVADAS (is_active=false) — baja lógica reversible, no borrado.
         if active_only:
             return await self.fetch(
-                """
-                SELECT id, account_id, name, kind, is_active, sort_order, created_at
+                f"""
+                SELECT {self._COLUMNS}
                 FROM   payment_methods
                 WHERE  account_id = $1
                   AND  is_active = TRUE
@@ -46,8 +48,8 @@ class PaymentMethodRepository(BaseRepository):
                 account_id,
             )
         return await self.fetch(
-            """
-            SELECT id, account_id, name, kind, is_active, sort_order, created_at
+            f"""
+            SELECT {self._COLUMNS}
             FROM   payment_methods
             WHERE  account_id = $1
               AND  deleted_at IS NULL
@@ -63,8 +65,8 @@ class PaymentMethodRepository(BaseRepository):
     ) -> asyncpg.Record | None:
         """Fetch a single payment method by id scoped to the account."""
         return await self.fetchrow(
-            """
-            SELECT id, account_id, name, kind, is_active, sort_order, created_at
+            f"""
+            SELECT {self._COLUMNS}
             FROM   payment_methods
             WHERE  id = $1 AND account_id = $2
               AND  deleted_at IS NULL
@@ -86,12 +88,16 @@ class PaymentMethodRepository(BaseRepository):
         case-insensitive uniqueness among LIVE rows at the DB level. Callers
         should normalize name (strip) before calling this; the service layer
         is responsible for trimming.
+
+        `bank_account_id` no se acepta en el alta (D7 — pos-banco-
+        movimientos): nace siempre NULL, igual que las 210 filas sembradas
+        por provisioning; se asigna después vía `update`.
         """
         return await self.fetchrow(
-            """
+            f"""
             INSERT INTO payment_methods (account_id, name, kind, sort_order)
             VALUES ($1, $2, $3, $4)
-            RETURNING id, account_id, name, kind, is_active, sort_order, created_at
+            RETURNING {self._COLUMNS}
             """,
             account_id,
             name,
@@ -105,23 +111,72 @@ class PaymentMethodRepository(BaseRepository):
         account_id: str,
         name: str,
         sort_order: int | None,
+        *,
+        bank_account_id: str | None = None,
+        bank_account_provided: bool = False,
     ) -> asyncpg.Record | None:
-        """Update name and/or sort_order of a payment method. `kind` is
-        immutable by design (D2: renombrar no cambia la semántica) — no hay
-        columna kind en este UPDATE a propósito."""
+        """Update name/sort_order/bank_account_id of a payment method. `kind`
+        is immutable by design (D2: renombrar no cambia la semántica) — no
+        hay columna kind en este UPDATE a propósito.
+
+        pos-banco-movimientos (D7): `bank_account_id` es tri-estado por
+        AUSENCIA — `bank_account_provided=False` preserva el valor vigente
+        (COALESCE), `True` lo asigna o desasigna (incluido a NULL, explícito).
+        Devuelve None si la fila no existe/no pertenece a la cuenta; la
+        validación de la cuenta bancaria (pertenencia/activa/no-borrada,
+        kind bancario del método) corre en el SERVICE antes de llamar acá
+        (P0412/422 — mismo criterio que costo/branch en las RPCs SQL).
+        """
+        if bank_account_provided:
+            return await self.fetchrow(
+                f"""
+                UPDATE payment_methods
+                SET    name             = $3,
+                       sort_order       = COALESCE($4, sort_order),
+                       bank_account_id  = $5
+                WHERE  id = $1 AND account_id = $2
+                  AND  deleted_at IS NULL
+                RETURNING {self._COLUMNS}
+                """,
+                payment_method_id,
+                account_id,
+                name,
+                sort_order,
+                bank_account_id,
+            )
         return await self.fetchrow(
-            """
+            f"""
             UPDATE payment_methods
             SET    name       = $3,
                    sort_order = COALESCE($4, sort_order)
             WHERE  id = $1 AND account_id = $2
               AND  deleted_at IS NULL
-            RETURNING id, account_id, name, kind, is_active, sort_order, created_at
+            RETURNING {self._COLUMNS}
             """,
             payment_method_id,
             account_id,
             name,
             sort_order,
+        )
+
+    async def get_bank_account_for_validation(
+        self,
+        bank_account_id: str,
+        account_id: str,
+    ) -> asyncpg.Record | None:
+        """pos-banco-movimientos (D7): valida la cuenta bancaria destino
+        ANTES del UPDATE — pertenece a la cuenta, activa, no borrada. Espejo
+        Python de la validación que `_pay_resolve_bank_account` hace en SQL
+        para el camino operativo (D2); acá corre del lado del catálogo,
+        donde la escritura es directa (sin RPC SECURITY DEFINER)."""
+        return await self.fetchrow(
+            """
+            SELECT id FROM bank_accounts
+            WHERE id = $1 AND account_id = $2
+              AND is_active = TRUE AND deleted_at IS NULL
+            """,
+            bank_account_id,
+            account_id,
         )
 
     async def deactivate(
@@ -137,12 +192,12 @@ class PaymentMethodRepository(BaseRepository):
         last-resort safety net only) — mismo criterio que CostCenterRepository.
         """
         return await self.fetchrow(
-            """
+            f"""
             UPDATE payment_methods
             SET    is_active = FALSE
             WHERE  id = $1 AND account_id = $2
               AND  deleted_at IS NULL
-            RETURNING id, account_id, name, kind, is_active, sort_order, created_at
+            RETURNING {self._COLUMNS}
             """,
             payment_method_id,
             account_id,

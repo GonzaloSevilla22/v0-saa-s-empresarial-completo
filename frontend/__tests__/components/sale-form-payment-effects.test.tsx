@@ -106,6 +106,10 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
       <span data-testid="pm-selected-value">{value ?? "null"}</span>
     </div>
   ),
+  // pos-banco-movimientos (D9): SaleForm ahora también monta el selector de
+  // cuenta bancaria contiguo — mock no-op, no ejercitado por estos tests
+  // (que verifican el bloque de crédito/caja, no el destino bancario).
+  BankAccountDestinationSelect: () => null,
 }))
 
 describe("SaleForm — bloque de crédito (OQ-D)", () => {

@@ -130,6 +130,10 @@ class ConfirmIn(BaseModel):
     point_of_sale_id:  Optional[uuid.UUID] = None
     branch_id:         Optional[uuid.UUID] = None
     canal:             Optional[str] = None
+    # pos-banco-movimientos (D2/D9): override de una pulsación en el chip del
+    # POS. None = usar el default del método (o no escribir nada). La RPC
+    # resuelve, valida y aplica el guard de período conciliado.
+    bank_account_id:   Optional[uuid.UUID] = None
 
     @model_validator(mode="after")
     def validate_cash_requires_session(self) -> "ConfirmIn":
@@ -167,6 +171,8 @@ class QuickSaleIn(BaseModel):
     point_of_sale_id:  Optional[uuid.UUID] = None
     branch_id:         Optional[uuid.UUID] = None
     canal:             Optional[str] = None
+    # pos-banco-movimientos (D2/D9): ídem ConfirmIn.bank_account_id.
+    bank_account_id:   Optional[uuid.UUID] = None
 
     @model_validator(mode="after")
     def validate_cash_requires_session(self) -> "QuickSaleIn":

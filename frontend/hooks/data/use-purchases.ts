@@ -165,6 +165,11 @@ export function usePurchases() {
         costCenterId?: string | null
         /** metodos-pago-operaciones: optional, shared by all lines of the operation */
         paymentMethodId?: string | null
+        /**
+         * pos-banco-movimientos (D2): override explícito de la cuenta
+         * bancaria destino del egreso. null/ausente = default del método.
+         */
+        bankAccountId?: string | null
       }
     }): Promise<PurchaseOperationResult> => {
       const payload = {
@@ -174,6 +179,7 @@ export function usePurchases() {
         cost_center_id:   opMeta.costCenterId ?? null,
         // metodos-pago-operaciones: shared by all lines of the operation
         payment_method_id: opMeta.paymentMethodId ?? null,
+        bank_account_id:  opMeta.bankAccountId ?? null,
         items: items.map(item => ({
           product_id:  item.productId,
           amount:      item.unitCost,

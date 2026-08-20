@@ -12,14 +12,24 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 import type { PaymentMethod } from "@/lib/types"
 
 const METHODS: PaymentMethod[] = [
-  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z" },
-  { id: "pm-credit", accountId: "a", name: "Cuenta corriente", kind: "credit", isActive: true, sortOrder: 5, createdAt: "2026-08-19T00:00:00Z" },
-  { id: "pm-transfer", accountId: "a", name: "Transferencia bancaria", kind: "transfer", isActive: true, sortOrder: 2, createdAt: "2026-08-19T00:00:00Z" },
+  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
+  { id: "pm-credit", accountId: "a", name: "Cuenta corriente", kind: "credit", isActive: true, sortOrder: 5, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
+  { id: "pm-transfer", accountId: "a", name: "Transferencia bancaria", kind: "transfer", isActive: true, sortOrder: 2, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
 ]
 
 const usePaymentMethodsMock = vi.fn()
 vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: (...args: unknown[]) => usePaymentMethodsMock(...args),
+}))
+
+// pos-banco-movimientos (D9): el módulo ahora también exporta
+// BankAccountDestinationSelect, que importa useBankAccounts a nivel de
+// módulo — sin mockearlo, el import real de use-bank-accounts.ts dispara el
+// throw de arranque de python-client.ts (NEXT_PUBLIC_BACKEND_URL no
+// definida en el entorno de CI). Ninguno de estos tests ejercita el
+// selector de cuenta bancaria; sin cuentas por default alcanza.
+vi.mock("@/hooks/data/use-bank-accounts", () => ({
+  useBankAccounts: () => ({ data: [], isLoading: false, isError: false, error: null }),
 }))
 
 describe("PaymentMethodSelect", () => {

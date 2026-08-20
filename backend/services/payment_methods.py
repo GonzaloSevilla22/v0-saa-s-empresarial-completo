@@ -8,6 +8,10 @@ from backend.core.guards import require_account_role
 from backend.repositories.payment_method_repository import PaymentMethodRepository
 from backend.schemas.payment_methods import PAYMENT_METHOD_KINDS
 
+# pos-banco-movimientos (D2): mismo vocabulario bancario que el helper SQL
+# _pay_register_operation_bank_movement — kind ∈ {transfer, card, check, wallet}.
+BANK_KINDS = ("transfer", "card", "check", "wallet")
+
 
 async def list_payment_methods(
     repo: PaymentMethodRepository,
@@ -60,16 +64,53 @@ async def update_payment_method(
     name: str,
     sort_order: int | None,
     *,
+    bank_account_id: str | None = None,
+    bank_account_provided: bool = False,
     conn,
 ) -> dict:
-    """Update name/sort_order of a payment method. Requires TENANT role owner or admin.
+    """Update name/sort_order/bank_account_id of a payment method. Requires
+    TENANT role owner or admin.
 
     `kind` es inmutable (D2: renombrar no cambia la semántica) — no se acepta
     en este payload.
+
+    pos-banco-movimientos (D7): `bank_account_id` tri-estado por
+    `bank_account_provided` (derivado de `model_fields_set` en el router,
+    mismo contrato que `payment_method_id` en `SaleOperationUpdateIn`).
+    Asignar un destino a un método cuyo `kind` no es bancario se rechaza
+    (422): ese destino nunca se usaría (spec `payment-method`, requirement
+    "Destino bancario sobre un kind no bancario es rechazado").
     """
     await require_account_role(conn, auth, ["owner", "admin"])
     normalised_name = name.strip()
-    record = await repo.update(payment_method_id, account_id, name=normalised_name, sort_order=sort_order)
+
+    if bank_account_provided and bank_account_id is not None:
+        existing = await repo.get_by_id(payment_method_id, account_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Forma de pago no encontrada")
+        if existing["kind"] not in BANK_KINDS:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"No se puede asignar un destino bancario a una forma de pago de kind "
+                    f"'{existing['kind']}' — sólo aplica a {', '.join(BANK_KINDS)}"
+                ),
+            )
+        bank_account = await repo.get_bank_account_for_validation(bank_account_id, account_id)
+        if bank_account is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Cuenta bancaria no encontrada, inactiva o borrada",
+            )
+
+    record = await repo.update(
+        payment_method_id,
+        account_id,
+        name=normalised_name,
+        sort_order=sort_order,
+        bank_account_id=bank_account_id,
+        bank_account_provided=bank_account_provided,
+    )
     if record is None:
         raise HTTPException(status_code=404, detail="Forma de pago no encontrada")
     return dict(record)

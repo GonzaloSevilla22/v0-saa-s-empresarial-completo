@@ -106,6 +106,11 @@ _BUSINESS_ERRCODE_STATUS = {
     # familia que P0409), no de payload; el detail del RAISE ya nombra el
     # camino correcto (nota de crédito + venta nueva).
     "P0423": 409,
+    # pos-banco-movimientos (D4): value_date cae dentro de un período de
+    # conciliación bancaria ya CERRADO — mismo tratamiento 409 que P0423
+    # (conflicto de estado, no de payload). El mensaje del RAISE indica el
+    # ajuste manual como vía de corrección.
+    "P0424": 409,
 }
 
 # bank-account-crud: mapeo específico por endpoint para POST /bank-accounts.

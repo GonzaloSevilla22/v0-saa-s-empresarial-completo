@@ -329,6 +329,19 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
         </div>
       )}
 
+      {/* pos-banco-movimientos (task 11.3): procedimiento de conciliación de
+          tarjeta — el bruto se asienta como card_settlement (D3) y el
+          extracto acredita el neto en fecha posterior. No hace falta una
+          pieza nueva: es el mismo match manual de arriba, agrupando N:1. */}
+      {!isClosed && (
+        <p className="text-xs text-muted-foreground rounded-md border border-dashed border-border px-3 py-2">
+          <b>Tarjeta:</b> la venta se asienta bruta (antes de la comisión). Para conciliarla contra el
+          neto que acredita el extracto, registrá la comisión como movimiento manual
+          (tipo &quot;Comisión bancaria&quot;, importe negativo) y seleccioná ambos movimientos junto
+          con la línea del extracto — la conciliación N:1 de arriba cierra cuando la suma coincide.
+        </p>
+      )}
+
       {/* ── Conciliados (undo) ────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="pb-2">

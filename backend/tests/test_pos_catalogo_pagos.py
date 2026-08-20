@@ -153,8 +153,9 @@ class TestSalesOrderRepositoryPaymentMethodId:
 
     @pytest.mark.asyncio
     async def test_confirm_passes_9_positional_args(self, sales_order_repo):
-        """confirm invoca rpc_confirm_sales_order con 9 args posicionales
-        (payment_method_id trailing, $9)."""
+        """confirm invoca rpc_confirm_sales_order con 10 args posicionales
+        (payment_method_id $9, bank_account_id trailing $10 — pos-banco-
+        movimientos)."""
         repo, conn = sales_order_repo
         conn.fetchrow = AsyncMock(return_value={"result": json.dumps(CONFIRM_RPC_RESULT)})
 
@@ -172,8 +173,9 @@ class TestSalesOrderRepositoryPaymentMethodId:
 
         query, *bound_args = conn.fetchrow.call_args[0]
         assert "rpc_confirm_sales_order" in query.lower()
-        assert len(bound_args) == 9, f"esperaba 9 args posicionales, hay {len(bound_args)}"
-        assert bound_args[-1] == PAYMENT_METHOD_ID, "payment_method_id debe ser el arg trailing ($9)"
+        assert len(bound_args) == 10, f"esperaba 10 args posicionales, hay {len(bound_args)}"
+        assert bound_args[-2] == PAYMENT_METHOD_ID, "payment_method_id debe ser $9"
+        assert bound_args[-1] is None, "bank_account_id debe ser el arg trailing ($10), default None"
 
     @pytest.mark.asyncio
     async def test_confirm_payment_method_id_defaults_to_none(self, sales_order_repo):
@@ -193,13 +195,15 @@ class TestSalesOrderRepositoryPaymentMethodId:
         )
 
         query, *bound_args = conn.fetchrow.call_args[0]
-        assert len(bound_args) == 9
+        assert len(bound_args) == 10
+        assert bound_args[-2] is None
         assert bound_args[-1] is None
 
     @pytest.mark.asyncio
     async def test_quick_sale_passes_10_positional_args(self, sales_order_repo):
-        """quick_sale invoca rpc_quick_sale con 10 args posicionales
-        (payment_method_id trailing, $10)."""
+        """quick_sale invoca rpc_quick_sale con 11 args posicionales
+        (payment_method_id $10, bank_account_id trailing $11 — pos-banco-
+        movimientos)."""
         repo, conn = sales_order_repo
         conn.fetchrow = AsyncMock(return_value={"result": json.dumps(QUICK_SALE_RPC_RESULT)})
         items = [{"product_id": PRODUCT_ID, "quantity": 1, "price": 1000, "subtotal": 1000}]
@@ -219,8 +223,9 @@ class TestSalesOrderRepositoryPaymentMethodId:
 
         query, *bound_args = conn.fetchrow.call_args[0]
         assert "rpc_quick_sale" in query.lower()
-        assert len(bound_args) == 10, f"esperaba 10 args posicionales, hay {len(bound_args)}"
-        assert bound_args[-1] == PAYMENT_METHOD_ID, "payment_method_id debe ser el arg trailing ($10)"
+        assert len(bound_args) == 11, f"esperaba 11 args posicionales, hay {len(bound_args)}"
+        assert bound_args[-2] == PAYMENT_METHOD_ID, "payment_method_id debe ser $10"
+        assert bound_args[-1] is None, "bank_account_id debe ser el arg trailing ($11), default None"
 
     @pytest.mark.asyncio
     async def test_quick_sale_payment_method_id_defaults_to_none(self, sales_order_repo):
@@ -241,7 +246,8 @@ class TestSalesOrderRepositoryPaymentMethodId:
         )
 
         query, *bound_args = conn.fetchrow.call_args[0]
-        assert len(bound_args) == 10
+        assert len(bound_args) == 11
+        assert bound_args[-2] is None
         assert bound_args[-1] is None
 
 

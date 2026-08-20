@@ -75,7 +75,9 @@ async def test_create_purchase_passes_payment_method_id_to_rpc(async_client, moc
 
 
 async def test_create_purchase_without_payment_method_passes_none(async_client, mock_pool):
-    """Sin payment_method_id en el payload, el RPC recibe NULL."""
+    """Sin payment_method_id/bank_account_id en el payload, el RPC recibe
+    NULL en ambos (pos-banco-movimientos agrega bank_account_id trailing
+    después de payment_method_id — por eso -2/-1, no sólo -1)."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     captured: dict = {}
@@ -94,7 +96,36 @@ async def test_create_purchase_without_payment_method_passes_none(async_client, 
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    assert captured["args"][-1] is None  # payment_method_id
+    assert captured["args"][-2] is None  # payment_method_id
+    assert captured["args"][-1] is None  # bank_account_id
+
+
+async def test_create_purchase_passes_bank_account_id_to_rpc(async_client, mock_pool):
+    """pos-banco-movimientos (D2): el bank_account_id del payload (egreso,
+    override del destino) llega como argumento trailing del RPC
+    rpc_create_purchase_operation."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+    bank_account_id = "99999999-9999-9999-9999-999999999999"
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["query"] = query
+        captured["args"] = args
+        return {"operation_id": PURCHASE_ID, "operation_kind": "purchase"}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/purchases",
+            json={**CREATE_PURCHASE_PAYLOAD, "bank_account_id": bank_account_id},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "rpc_create_purchase_operation" in captured["query"]
+    assert bank_account_id in [str(a) for a in captured["args"]]
 
 
 # ── metodos-pago-operaciones: edición preserva/cambia/desimputa (D5) ────────
@@ -629,7 +660,8 @@ async def test_list_purchases_row_exposes_payment_lock_query_predicate(
 ):
     """El predicado de is_payment_locked consulta supplier_account_movements
     por p.operation_id (espejo del de ventas, sin la complejidad de doble
-    referencia — las compras no tienen un concepto análogo a sales_orders)."""
+    referencia — las compras no tienen un concepto análogo a sales_orders).
+    pos-banco-movimientos (D8) suma bank_movements al mismo predicado."""
     pool, conn = mock_pool
     captured = _capture_queries(conn)
     with patch("backend.core.database.pool", pool):
@@ -639,6 +671,7 @@ async def test_list_purchases_row_exposes_payment_lock_query_predicate(
     assert resp.status_code == 200
     rows_query, _ = captured["rows"]
     assert "supplier_account_movements" in rows_query
+    assert "bank_movements" in rows_query
     assert "is_payment_locked" in rows_query
     assert "payment_method_name" in rows_query
     assert "payment_method_kind" in rows_query

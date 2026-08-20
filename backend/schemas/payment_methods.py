@@ -20,10 +20,21 @@ class PaymentMethodCreate(BaseModel):
 
 
 class PaymentMethodUpdate(BaseModel):
-    """Payload for PATCH /payment-methods/{id}."""
+    """Payload for PATCH /payment-methods/{id}.
+
+    pos-banco-movimientos (D7): `bank_account_id` es tri-estado por AUSENCIA,
+    no por valor — se distingue con `model_fields_set` en el router/service,
+    NUNCA por `is None` (mismo contrato que `payment_method_id` en
+    SaleOperationUpdateIn). No incluir el campo = conservar el destino
+    vigente; incluirlo con `null` = desasignar; incluirlo con un uuid =
+    asignar/reasignar.
+    """
 
     name: str = Field(..., min_length=1, description="Nuevo nombre de la forma de pago")
     sort_order: int | None = Field(None, description="Nuevo orden del selector")
+    bank_account_id: uuid.UUID | None = Field(
+        None, description="Destino bancario por defecto (tri-estado por ausencia — ver docstring)"
+    )
 
 
 class PaymentMethodOut(BaseModel):
@@ -38,6 +49,9 @@ class PaymentMethodOut(BaseModel):
     is_active: bool
     sort_order: int
     created_at: datetime.datetime
+    # pos-banco-movimientos (D7): destino bancario por defecto — NULL = "no
+    # registra movimiento bancario" (estado inicial de todo método sembrado).
+    bank_account_id: uuid.UUID | None = None
 
 
 # ── Reporte de distribución por forma de pago ─────────────────────────────────

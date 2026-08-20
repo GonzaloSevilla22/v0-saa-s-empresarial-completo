@@ -15,6 +15,9 @@ interface PaymentMethodApiRow {
   is_active: boolean
   sort_order: number
   created_at: string
+  // pos-banco-movimientos (D7): ausente en filas sembradas por otros
+  // changes que el backend no re-serializó — se degrada a null.
+  bank_account_id?: string | null
 }
 
 function mapPaymentMethod(r: PaymentMethodApiRow): PaymentMethod {
@@ -26,6 +29,7 @@ function mapPaymentMethod(r: PaymentMethodApiRow): PaymentMethod {
     isActive:  r.is_active,
     sortOrder: r.sort_order,
     createdAt: r.created_at,
+    bankAccountId: r.bank_account_id ?? null,
   }
 }
 
@@ -71,19 +75,29 @@ export function usePaymentMethods(includeInactive = false) {
   })
 
   const updatePaymentMethodMutation = useMutation({
-    mutationFn: async ({
-      id,
-      name,
-      sortOrder,
-    }: {
+    mutationFn: async (params: {
       id: string
       name: string
       sortOrder?: number | null
+      /**
+       * pos-banco-movimientos (D7): tri-estado por AUSENCIA de la clave —
+       * mismo contrato que paymentMethodId/branchId en use-sales.ts. Omitir
+       * el campo conserva el destino vigente; `null` explícito lo
+       * desasigna; un uuid lo asigna/reasigna. JSON.stringify omite claves
+       * `undefined`, así que "ausente" viaja literalmente ausente y el
+       * backend (model_fields_set) distingue "preservar" de "informado".
+       */
+      bankAccountId?: string | null
     }) => {
-      return pythonClient.patch<PaymentMethodApiRow>(`/payment-methods/${id}`, {
+      const { id, name, sortOrder, bankAccountId } = params
+      const payload: Record<string, unknown> = {
         name,
         sort_order: sortOrder ?? null,
-      })
+      }
+      if ("bankAccountId" in params) {
+        payload.bank_account_id = bankAccountId ?? null
+      }
+      return pythonClient.patch<PaymentMethodApiRow>(`/payment-methods/${id}`, payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.paymentMethods.all() })

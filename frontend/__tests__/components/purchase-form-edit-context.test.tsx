@@ -24,7 +24,19 @@ vi.mock("@/components/branches/BranchSelect", () => ({
   ),
 }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
-vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
+vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
+  PaymentMethodSelect: () => null,
+  // pos-banco-movimientos (D9): mock no-op, no ejercitado por este test
+  // (edición no monta el selector de cuenta bancaria — D8).
+  BankAccountDestinationSelect: () => null,
+}))
+// pos-banco-movimientos: PurchaseForm ahora llama a usePaymentMethods()
+// directo (para resolver el kind de la forma elegida) — mock explícito en
+// vez del useQuery real, que el mock estrecho de @tanstack/react-query de
+// arriba no provee.
+vi.mock("@/hooks/data/use-payment-methods", () => ({
+  usePaymentMethods: () => ({ paymentMethods: [], isLoading: false }),
+}))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))

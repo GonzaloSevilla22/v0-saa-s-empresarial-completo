@@ -42,9 +42,16 @@ def _body(resp) -> dict:
         ("P0404", 404),
         ("P0409", 409),
         ("P0422", 422),
+        # bank-account-ledger (C1): cuenta bancaria no encontrada, ajena o
+        # inactiva — 404. Reutilizado por pos-banco-movimientos (D2) en la
+        # resolución de destino de la operación.
+        ("P0412", 404),
         # edicion-preserva-contexto (F2): operación con comprobante fiscal
         # emitido es inmutable — 409 porque el conflicto es de ESTADO.
         ("P0423", 409),
+        # pos-banco-movimientos (D4): value_date cae dentro de un período de
+        # conciliación bancaria ya cerrado — misma familia 409.
+        ("P0424", 409),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

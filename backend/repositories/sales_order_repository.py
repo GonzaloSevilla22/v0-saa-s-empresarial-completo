@@ -37,6 +37,7 @@ class SalesOrderRepository(BaseRepository):
         branch_id: str | None,
         canal: str | None,
         payment_method_id: str | None = None,
+        bank_account_id: str | None = None,
     ) -> dict:
         """
         Llama a rpc_confirm_sales_order — hot path transaccional:
@@ -46,6 +47,9 @@ class SalesOrderRepository(BaseRepository):
         pos-catalogo-pagos (D2): payment_method_id es el arg trailing $9 —
         la RPC deriva el kind desde el catálogo y compara contra
         payment_method (texto). None (default) preserva el camino legacy.
+
+        pos-banco-movimientos (D2): bank_account_id es el arg trailing $10 —
+        override del chip de destino en el POS.
         """
         row = await self.fetchrow(
             """
@@ -58,7 +62,8 @@ class SalesOrderRepository(BaseRepository):
               $6::uuid,   -- p_point_of_sale_id
               $7::uuid,   -- p_branch_id
               $8::text,   -- p_canal
-              $9::uuid    -- p_payment_method_id
+              $9::uuid,   -- p_payment_method_id
+              $10::uuid   -- p_bank_account_id
             ) AS result
             """,
             idempotency_key,
@@ -70,6 +75,7 @@ class SalesOrderRepository(BaseRepository):
             branch_id,
             canal,
             payment_method_id,
+            bank_account_id,
         )
         if row is None:
             raise ValueError("rpc_confirm_sales_order devolvió NULL")
@@ -87,12 +93,14 @@ class SalesOrderRepository(BaseRepository):
         branch_id: str | None,
         canal: str | None,
         payment_method_id: str | None = None,
+        bank_account_id: str | None = None,
     ) -> dict:
         """
         Llama a rpc_quick_sale — crea + confirma una SalesOrder en un paso (POS).
         Idempotente por idempotency_key (DEC-06).
 
         pos-catalogo-pagos (D2): payment_method_id es el arg trailing $10.
+        pos-banco-movimientos (D2): bank_account_id es el arg trailing $11.
         """
         items_json = json.dumps(items)
         row = await self.fetchrow(
@@ -107,7 +115,8 @@ class SalesOrderRepository(BaseRepository):
               $7::uuid,   -- p_point_of_sale_id
               $8::uuid,   -- p_branch_id
               $9::text,   -- p_canal
-              $10::uuid   -- p_payment_method_id
+              $10::uuid,  -- p_payment_method_id
+              $11::uuid   -- p_bank_account_id
             ) AS result
             """,
             idempotency_key,
@@ -120,6 +129,7 @@ class SalesOrderRepository(BaseRepository):
             branch_id,
             canal,
             payment_method_id,
+            bank_account_id,
         )
         if row is None:
             raise ValueError("rpc_quick_sale devolvió NULL")

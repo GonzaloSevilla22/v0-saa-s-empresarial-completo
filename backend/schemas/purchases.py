@@ -27,6 +27,9 @@ class PurchaseOperationIn(BaseModel):
     cost_center_id: uuid.UUID | None = None
     # metodos-pago-operaciones: optional, shared by all lines of the operation
     payment_method_id: uuid.UUID | None = None
+    # pos-banco-movimientos (D2): override explícito de la cuenta bancaria
+    # destino del egreso. None = default del método (o no escribir nada).
+    bank_account_id: uuid.UUID | None = None
 
 
 class PurchaseOperationOut(BaseModel):

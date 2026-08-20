@@ -12,7 +12,14 @@ vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1" }
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: {} }) }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
-vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
+vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
+  PaymentMethodSelect: () => null,
+  BankAccountDestinationSelect: () => null,
+}))
+// pos-banco-movimientos: ver comentario espejo en purchase-form-edit-context.test.tsx.
+vi.mock("@/hooks/data/use-payment-methods", () => ({
+  usePaymentMethods: () => ({ paymentMethods: [], isLoading: false }),
+}))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))

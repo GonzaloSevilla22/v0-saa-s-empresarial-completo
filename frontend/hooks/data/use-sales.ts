@@ -171,6 +171,12 @@ export function useSales() {
          * validan en la RPC, nunca acá.
          */
         cashSessionId?: string | null
+        /**
+         * pos-banco-movimientos (D2): override explícito de la cuenta
+         * bancaria destino. null/ausente = usar el default del método (o no
+         * escribir nada si tampoco hay default) — la RPC resuelve y valida.
+         */
+        bankAccountId?: string | null
       }
     }): Promise<SaleOperationResult> => {
       const payload = {
@@ -181,6 +187,7 @@ export function useSales() {
         canal:           opMeta.canal ?? null,
         payment_method_id: opMeta.paymentMethodId ?? null,
         cash_session_id: opMeta.cashSessionId ?? null,
+        bank_account_id: opMeta.bankAccountId ?? null,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),

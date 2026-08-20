@@ -89,9 +89,18 @@ class PurchaseRepository(BaseRepository):
                    -- convención de reference_id de la venta (no hay un
                    -- concepto análogo a sales_orders para compras): siempre
                    -- p.operation_id.
-                   EXISTS (
-                     SELECT 1 FROM supplier_account_movements sam
-                     WHERE sam.reference_id = p.operation_id
+                   -- pos-banco-movimientos (D8): segundo término —
+                   -- bank_movements, mismo predicado que el EXISTS de
+                   -- rpc_atomic_update_purchase_operation (source_doc_type='purchase').
+                   (
+                     EXISTS (
+                       SELECT 1 FROM supplier_account_movements sam
+                       WHERE sam.reference_id = p.operation_id
+                     )
+                     OR EXISTS (
+                       SELECT 1 FROM bank_movements bm
+                       WHERE bm.source_doc_type = 'purchase' AND bm.source_doc_ref = p.operation_id
+                     )
                    ) AS is_payment_locked
             FROM purchases p
             JOIN op_page ON COALESCE(p.operation_id::text, p.id::text) = op_page.op_key
@@ -239,9 +248,11 @@ class PurchaseRepository(BaseRepository):
         description: str | None = None,
         cost_center_id: str | None = None,
         payment_method_id: str | None = None,
+        bank_account_id: str | None = None,
     ) -> dict | None:
         # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         # metodos-pago-operaciones: payment_method_id propagated the same way
+        # pos-banco-movimientos: bank_account_id propagated the same way (D2)
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
             return dict(existing)
@@ -259,7 +270,7 @@ class PurchaseRepository(BaseRepository):
         row = await self._conn.fetchrow(
             """
             SELECT
-                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid)->>'operation_id')::uuid
+                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid)->>'operation_id')::uuid
                     AS operation_id,
                 'purchase'::text AS operation_kind
             """,
@@ -269,6 +280,7 @@ class PurchaseRepository(BaseRepository):
             json.dumps(clean_items, default=_default),
             cost_center_id,
             payment_method_id,
+            bank_account_id,
         )
         return dict(row) if row else None
 
@@ -283,6 +295,7 @@ class PurchaseRepository(BaseRepository):
         description: str | None = None,
         cost_center_id: str | None = None,
         payment_method_id: str | None = None,
+        bank_account_id: str | None = None,
     ) -> dict | None:
         """C-25 producer: create purchase + emit PurchaseCreated in the SAME transaction.
 
@@ -312,7 +325,7 @@ class PurchaseRepository(BaseRepository):
             row = await self._conn.fetchrow(
                 """
                 SELECT
-                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid)->>'operation_id')::uuid
+                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid)->>'operation_id')::uuid
                         AS operation_id,
                     'purchase'::text AS operation_kind
                 """,
@@ -322,6 +335,7 @@ class PurchaseRepository(BaseRepository):
                 json.dumps(clean_items, default=_default),
                 cost_center_id,
                 payment_method_id,
+                bank_account_id,
             )
 
             if row is None:

@@ -2,17 +2,23 @@
 
 /**
  * C-29 v21-quote-salesorder — POS quickSale screen.
+ * pos-catalogo-pagos — la grilla del catálogo reemplaza el par hardcodeado
+ * cash/other (D7); credit exige cliente y muestra saldo (D8); la caja se
+ * condiciona al kind RESUELTO, no al texto (D5).
  *
  * Fast mostrador flow: pick products → build cart → choose payment
- * method → resolve cash session (if cash) → submit via useQuickSale.
+ * method (catálogo de la cuenta) → resolve cash session (if cash) →
+ * submit via useQuickSale.
  *
  * Mirrors the Ventas page for auth guard + NoWriteAccessBanner.
- * Reuses: ProductPicker, CartItemList, ScrollableCartShell, SearchableSelect.
+ * Reuses: ProductPicker, CartItemList, ScrollableCartShell, SearchableSelect,
+ * usePaymentMethods (metodos-pago-operaciones), useCustomerAccount (C-30) —
+ * regla "reutilización antes que repetición".
  *
  * Cash session integration:
  *   - Fetches branches → first branch → cashboxes → first cashbox → currentSession.
- *   - For cash payment, blocks submit if no open session and shows a link to /sucursales.
- *   - For 'other' payment, no session needed (cash_session_id omitted).
+ *   - Blocks submit if kind resuelto = 'cash' y no hay sesión abierta.
+ *   - Para cualquier otro kind, no se exige sesión (cash_session_id omitido).
  */
 
 import { useState, useMemo, useRef, useCallback } from "react"
@@ -37,7 +43,9 @@ import { useClients } from "@/hooks/data/use-clients"
 import { useBranches } from "@/hooks/data/use-branches"
 import { useCashboxes } from "@/hooks/data/use-cashboxes"
 import { useCurrentSession } from "@/hooks/data/use-cash-session"
-import { useQuickSale, type QuickSaleInput, type PaymentMethod } from "@/hooks/data/use-sales-orders"
+import { useQuickSale, type QuickSaleInput } from "@/hooks/data/use-sales-orders"
+import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 
@@ -75,6 +83,15 @@ function friendlyError(message: string): string {
     return "La cuenta no tiene puntos de venta activos. Configurá uno en Perfil Fiscal."
   if (message.includes("ambiguous_point_of_sale"))
     return "La cuenta tiene varios puntos de venta activos. Seleccioná cuál usar."
+  // pos-catalogo-pagos (D2, task 6.6): errores nuevos de resolución de forma de pago.
+  if (message.includes("credit_requires_client"))
+    return "Elegí un cliente: una venta a cuenta corriente se le carga a alguien."
+  if (message.includes("payment_method_not_found"))
+    return "Esa forma de pago no existe en tu cuenta. Elegí otra."
+  if (message.includes("payment_method_inactive"))
+    return "Esa forma de pago está desactivada. Elegí otra o reactivala en Configuración."
+  if (message.includes("payment_method_mismatch"))
+    return "La forma de pago no coincide con lo esperado. Volvé a elegirla e intentá de nuevo."
   return message || "Ocurrió un error inesperado."
 }
 
@@ -83,6 +100,10 @@ function friendlyError(message: string): string {
 interface LastSaleResult {
   salesOrderId: string
   total: number
+  /** pos-catalogo-pagos D8: si la venta fue a cuenta corriente, el card de
+   *  éxito enlaza a la cuenta del cliente en vez de solo a /ventas/ordenes. */
+  wasCredit: boolean
+  clientId: string | null
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -109,6 +130,11 @@ export default function PosPage() {
   const { data: currentSession, isLoading: sessionLoading } =
     useCurrentSession(firstCashbox?.id ?? null)
 
+  // ── Catálogo de formas de pago (pos-catalogo-pagos D7) ────────────────────────
+  // Reutiliza usePaymentMethods (metodos-pago-operaciones) — el backend ya
+  // ordena por sort_order. Solo activas (default de la firma).
+  const { paymentMethods, isLoading: methodsLoading } = usePaymentMethods()
+
   // ── Cart state ───────────────────────────────────────────────────────────────
   const [cartItems, setCartItems] = useState<SaleCartItem[]>([])
 
@@ -123,8 +149,34 @@ export default function PosPage() {
   const [subtotalDraft,   setSubtotalDraft]   = useState(0)
 
   // ── Header fields ─────────────────────────────────────────────────────────────
-  const [clientId,       setClientId]       = useState("")
-  const [paymentMethod,  setPaymentMethod]  = useState<PaymentMethod>("cash")
+  const [clientId, setClientId] = useState("")
+
+  // pos-catalogo-pagos (D7): el método elegido es un id del catálogo. Sin
+  // selección explícita del usuario, el default es 'cash' de menor
+  // sort_order (o el primero activo si no hay cash). Derivado, no efecto.
+  const [userSelectedMethodId, setUserSelectedMethodId] = useState<string | null>(null)
+
+  const defaultPaymentMethod = useMemo(() => {
+    if (paymentMethods.length === 0) return null
+    return paymentMethods.find((pm) => pm.kind === "cash") ?? paymentMethods[0]
+  }, [paymentMethods])
+
+  const selectedPaymentMethod = useMemo(() => {
+    if (userSelectedMethodId) {
+      return paymentMethods.find((pm) => pm.id === userSelectedMethodId) ?? defaultPaymentMethod
+    }
+    return defaultPaymentMethod
+  }, [userSelectedMethodId, paymentMethods, defaultPaymentMethod])
+
+  // D2: el "kind resuelto" — null cuando la cuenta no tiene ningún método
+  // activo (D7: degradar al camino legacy 'other', nunca impedir el cobro).
+  const resolvedKind = selectedPaymentMethod?.kind ?? null
+  const noActiveMethods = !methodsLoading && paymentMethods.length === 0
+
+  // ── Cuenta corriente (D8, resuelve OQ-2) ──────────────────────────────────────
+  const isCreditSelected = resolvedKind === "credit"
+  const { data: customerAccount } = useCustomerAccount(isCreditSelected ? (clientId || null) : null)
+  const creditBlockedNoClient = isCreditSelected && !clientId
 
   // ── Submission state ──────────────────────────────────────────────────────────
   const [submitting,  setSubmitting]  = useState(false)
@@ -178,21 +230,26 @@ export default function PosPage() {
 
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
 
+  // pos-catalogo-pagos D8: saldo proyectado tras esta venta (0 si aún no
+  // resolvió la CustomerAccount — degrada a mostrar solo el total del carrito).
+  const projectedBalance = (customerAccount?.balance ?? 0) + cartTotal
+
   const clientOptions = useMemo(
     () => clients.map((c) => ({ value: c.id, label: c.name })),
     [clients],
   )
 
-  // ── Cash session validation ───────────────────────────────────────────────────
-  // For cash payments: we need an open session. If none, block and show a link.
+  // ── Cash session validation (pos-catalogo-pagos D5: sobre el kind RESUELTO,
+  // no sobre el texto elegido — un id de kind='cash' se comporta igual que
+  // el legacy 'cash') ───────────────────────────────────────────────────────
   const cashSessionMissing =
-    paymentMethod === "cash" &&
+    resolvedKind === "cash" &&
     !sessionLoading &&
     firstCashbox !== null &&
     !currentSession
 
   const noCashboxForBranch =
-    paymentMethod === "cash" &&
+    resolvedKind === "cash" &&
     !sessionLoading &&
     activeBranch !== null &&
     !firstCashbox
@@ -315,6 +372,7 @@ export default function PosPage() {
     setQuantity(1)
     setUnitId("")
     setLastSale(null)
+    setUserSelectedMethodId(null)
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -331,9 +389,17 @@ export default function PosPage() {
     if (submittingRef.current) return
     submittingRef.current = true
 
-    // Cash payment without open session → block
-    if (paymentMethod === "cash" && !currentSession) {
+    // Cash (kind resuelto) sin sesión abierta → block
+    if (resolvedKind === "cash" && !currentSession) {
       toast.error("No hay caja abierta. Abrí una sesión de caja antes de cobrar en efectivo.")
+      submittingRef.current = false
+      return
+    }
+
+    // pos-catalogo-pagos D8: crédito exige cliente — el backend es la
+    // verdad (credit_requires_client), esto solo evita el viaje.
+    if (creditBlockedNoClient) {
+      toast.error("Elegí un cliente: una venta a cuenta corriente se le carga a alguien.")
       submittingRef.current = false
       return
     }
@@ -345,12 +411,18 @@ export default function PosPage() {
     // La venta nace sin comprobante; el botón "Facturar" en el detalle
     // de la venta emite para cualquier SalesOrder confirmada.
     // Se elimina el hardcode `comprobante_type: "factura_c"` (causa raíz del bug fiscal).
+    //
+    // pos-catalogo-pagos (D2/D6): se manda payment_method_id (el id elegido
+    // del catálogo, o null en el camino legacy) Y payment_method (el kind
+    // resuelto en memoria — usePaymentMethods ya lo trae, sin fetch extra).
+    // La RPC re-deriva y compara; el cliente no elige la taxonomía.
     const payload: QuickSaleInput = {
-      idempotency_key: idempotencyKey,
-      client_id:       clientId || null,
-      payment_method:  paymentMethod,
-      cash_session_id: paymentMethod === "cash" ? (currentSession?.id ?? null) : null,
-      branch_id:       activeBranch?.id ?? null,
+      idempotency_key:    idempotencyKey,
+      client_id:          clientId || null,
+      payment_method:     resolvedKind ?? "other",
+      payment_method_id:  selectedPaymentMethod?.id ?? null,
+      cash_session_id:    resolvedKind === "cash" ? (currentSession?.id ?? null) : null,
+      branch_id:          activeBranch?.id ?? null,
       // comprobante_type y point_of_sale_id se omiten intencionalmente:
       // la emisión ocurre DESPUÉS de confirmar, vía el endpoint /emit-invoice.
       items: cartItems.map((item) => ({
@@ -368,6 +440,8 @@ export default function PosPage() {
       setLastSale({
         salesOrderId: result.sales_order_id,
         total:        Number(result.total),
+        wasCredit:    isCreditSelected,
+        clientId:     clientId || null,
       })
       setCartItems([])
       setClientId("")
@@ -430,6 +504,15 @@ export default function PosPage() {
             >
               Facturar esta venta →
             </Link>
+            {/* pos-catalogo-pagos D8: venta a cuenta corriente enlaza a la cuenta del cliente */}
+            {lastSale.wasCredit && lastSale.clientId && (
+              <Link
+                href={`/clientes/${lastSale.clientId}/cuenta`}
+                className="text-xs underline underline-offset-2 text-green-600/80 dark:text-green-400/80 hover:opacity-80 mt-0.5"
+              >
+                Ver cuenta corriente del cliente →
+              </Link>
+            )}
           </div>
           <Button
             size="sm"
@@ -442,8 +525,8 @@ export default function PosPage() {
         </div>
       )}
 
-      {/* Cash session warning */}
-      {(cashSessionMissing || noCashboxForBranch) && paymentMethod === "cash" && (
+      {/* Cash session warning — solo cuando el kind resuelto es 'cash' (D5) */}
+      {(cashSessionMissing || noCashboxForBranch) && resolvedKind === "cash" && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div className="flex flex-col gap-1">
@@ -455,7 +538,7 @@ export default function PosPage() {
             <span className="text-xs">
               {noCashboxForBranch
                 ? "Creá una caja para poder cobrar en efectivo."
-                : "Abrí una sesión de caja antes de cobrar en efectivo, o cambiá el método de pago a 'Otro'."}
+                : "Abrí una sesión de caja antes de cobrar en efectivo, o elegí otra forma de pago."}
             </span>
             {activeBranch && (
               <Link
@@ -518,7 +601,8 @@ export default function PosPage() {
                   !isWriter ||
                   submitting ||
                   cartItems.length === 0 ||
-                  (paymentMethod === "cash" && !currentSession)
+                  (resolvedKind === "cash" && !currentSession) ||
+                  creditBlockedNoClient
                 }
               >
                 {submitting
@@ -549,39 +633,50 @@ export default function PosPage() {
               />
             </div>
 
-            {/* Método de pago */}
+            {/* Método de pago — pos-catalogo-pagos D7: grilla del catálogo de
+                la cuenta, no un vocabulario fijo. grid-cols-2 en mobile,
+                grid-cols-3 en desktop; targets ≥44px (h-11). */}
             <div className="flex flex-col gap-1.5">
               <Label className="text-foreground">Método de pago</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("cash")}
-                  className={[
-                    "rounded-lg border py-3 text-sm font-medium transition-colors",
-                    paymentMethod === "cash"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground",
-                  ].join(" ")}
-                >
-                  Efectivo
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("other")}
-                  className={[
-                    "rounded-lg border py-3 text-sm font-medium transition-colors",
-                    paymentMethod === "other"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground",
-                  ].join(" ")}
-                >
-                  Otro / Transferencia
-                </button>
-              </div>
+
+              {noActiveMethods ? (
+                <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    No hay formas de pago activas en tu cuenta. La venta se cobra igual, sin
+                    imputar.{" "}
+                    <Link href="/configuracion" className="underline underline-offset-2 hover:opacity-80">
+                      Configurar catálogo →
+                    </Link>
+                  </span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {paymentMethods.map((pm) => {
+                    const isSelected = selectedPaymentMethod?.id === pm.id
+                    return (
+                      <button
+                        key={pm.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => setUserSelectedMethodId(pm.id)}
+                        className={[
+                          "min-h-[44px] rounded-lg border px-3 py-3 text-sm font-medium transition-colors",
+                          isSelected
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-background text-muted-foreground hover:text-foreground hover:border-muted-foreground",
+                        ].join(" ")}
+                      >
+                        {pm.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
-            {/* Cash session status chip */}
-            {paymentMethod === "cash" && !sessionLoading && (
+            {/* Cash session status chip — solo cuando el kind resuelto es 'cash' (D5) */}
+            {resolvedKind === "cash" && !sessionLoading && (
               <div
                 className={[
                   "flex items-center gap-2 rounded-md px-3 py-2 text-xs",
@@ -599,6 +694,28 @@ export default function PosPage() {
                 {currentSession
                   ? `Caja abierta — sesión ${currentSession.id.slice(0, 8)}…`
                   : "Sin caja abierta"}
+              </div>
+            )}
+
+            {/* Bloque de cuenta corriente — pos-catalogo-pagos D8 (resuelve OQ-2):
+                cliente obligatorio + saldo actual/proyectado, solo con 'credit'. */}
+            {isCreditSelected && (
+              <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
+                {creditBlockedNoClient ? (
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      Elegí un cliente: una venta a cuenta corriente se le carga a alguien.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                    <span>Saldo actual: {formatMoney(customerAccount?.balance ?? 0, "ARS")}</span>
+                    <span className="font-medium text-foreground">
+                      Después de esta venta: {formatMoney(projectedBalance, "ARS")}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

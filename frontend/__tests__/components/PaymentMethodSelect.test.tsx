@@ -12,9 +12,9 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 import type { PaymentMethod } from "@/lib/types"
 
 const METHODS: PaymentMethod[] = [
-  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z" },
-  { id: "pm-credit", accountId: "a", name: "Cuenta corriente", kind: "credit", isActive: true, sortOrder: 5, createdAt: "2026-08-19T00:00:00Z" },
-  { id: "pm-transfer", accountId: "a", name: "Transferencia bancaria", kind: "transfer", isActive: true, sortOrder: 2, createdAt: "2026-08-19T00:00:00Z" },
+  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
+  { id: "pm-credit", accountId: "a", name: "Cuenta corriente", kind: "credit", isActive: true, sortOrder: 5, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
+  { id: "pm-transfer", accountId: "a", name: "Transferencia bancaria", kind: "transfer", isActive: true, sortOrder: 2, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
 ]
 
 const usePaymentMethodsMock = vi.fn()

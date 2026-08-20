@@ -58,6 +58,13 @@ vi.mock("@/hooks/data/use-sales-orders", () => ({
 vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: () => paymentMethodsMockValue,
 }))
+// pos-banco-movimientos (D9): la grilla del POS ahora también llama a
+// useBankAccounts para el chip de destino — sin cuentas cargadas por
+// default (D9: "cero render" cuando la organización no tiene bancos), ni
+// una de estas ventas ejercita el destino bancario.
+vi.mock("@/hooks/data/use-bank-accounts", () => ({
+  useBankAccounts: () => ({ data: [], isLoading: false, isError: false, error: null }),
+}))
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useCustomerAccount: () => customerAccountMockValue,
 }))

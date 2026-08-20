@@ -96,6 +96,9 @@ export interface ConfirmOrderInput {
   point_of_sale_id?: string | null
   branch_id?: string | null
   canal?: string | null
+  /** pos-banco-movimientos (D2/D9): override del chip de destino del POS.
+   *  null/omitido = default del método (o no escribe si tampoco hay). */
+  bank_account_id?: string | null
 }
 
 export interface QuickSaleInput {
@@ -111,6 +114,8 @@ export interface QuickSaleInput {
   point_of_sale_id?: string | null
   branch_id?: string | null
   canal?: string | null
+  /** pos-banco-movimientos (D2/D9): ídem ConfirmOrderInput.bank_account_id. */
+  bank_account_id?: string | null
 }
 
 // ── Error translation ─────────────────────────────────────────────────────────

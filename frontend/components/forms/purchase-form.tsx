@@ -37,7 +37,8 @@ import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-rea
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
-import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -48,6 +49,7 @@ interface PurchaseFormProps {
 export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps) {
   const { products, addProduct }                           = useProducts()
   const { addPurchaseOperation, updatePurchaseOperation } = usePurchases()
+  const { paymentMethods } = usePaymentMethods()
   const queryClient = useQueryClient()
   const { user }    = useAuth()
   const refreshData = () => queryClient.invalidateQueries()
@@ -110,6 +112,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
     () => editingOperation?.paymentMethodId ?? null,
   )
+  // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino
+  // del egreso — sólo en alta (espejo de SaleForm; la edición no tiene
+  // parámetro de banco en la RPC, D8).
+  const [bankAccountId, setBankAccountId] = useState<string | null>(null)
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -118,6 +124,13 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === productId),
     [products, productId],
+  )
+
+  // pos-banco-movimientos: kind resuelto de la forma de pago elegida — sólo
+  // condiciona el render del selector de cuenta bancaria.
+  const resolvedKind = useMemo(
+    () => paymentMethods.find((pm) => pm.id === paymentMethodId)?.kind ?? null,
+    [paymentMethods, paymentMethodId],
   )
 
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
@@ -410,6 +423,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           orgId: user?.accountId ?? "",
           costCenterId,
           paymentMethodId,
+          // pos-banco-movimientos (D2): override opcional del destino del
+          // egreso — null cuando el selector no está montado o el usuario
+          // dejó "usar el destino configurado".
+          bankAccountId,
         },
       })
       resetIdempotencyKey()
@@ -542,6 +559,19 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             context="purchase"
             className="bg-background border-border text-foreground text-sm"
           />
+
+          {/* ── Cuenta bancaria destino del egreso (pos-banco-movimientos D9)
+              Contiguo al selector de forma de pago; cero render si el kind
+              no es bancario o la cuenta no tiene bancos cargados. Sin
+              equivalente en edición (D8). */}
+          {!isEdit && (
+            <BankAccountDestinationSelect
+              paymentMethodKind={resolvedKind}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              className="bg-background border-border text-foreground text-sm"
+            />
+          )}
         </div>
 
         <div className="border-t border-border" />

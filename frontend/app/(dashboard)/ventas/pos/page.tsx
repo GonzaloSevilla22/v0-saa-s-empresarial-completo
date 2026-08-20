@@ -23,7 +23,7 @@
 
 import { useState, useMemo, useRef, useCallback } from "react"
 import Link from "next/link"
-import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2 } from "lucide-react"
+import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2, Landmark, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
 
 import { Celebration3D } from "@/components/three/Celebration3D"
@@ -36,6 +36,7 @@ import { CartItemList } from "@/components/shared/cart-item-list"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
+import { ResponsiveModal } from "@/components/shared/responsive-modal"
 
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { useProducts } from "@/hooks/data/use-products"
@@ -45,9 +46,11 @@ import { useCashboxes } from "@/hooks/data/use-cashboxes"
 import { useCurrentSession } from "@/hooks/data/use-cash-session"
 import { useQuickSale, type QuickSaleInput } from "@/hooks/data/use-sales-orders"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
+import { isBankPaymentKind } from "@/lib/types"
 
 import { formatMoney } from "@/lib/format"
 import {
@@ -172,6 +175,28 @@ export default function PosPage() {
   // activo (D7: degradar al camino legacy 'other', nunca impedir el cobro).
   const resolvedKind = selectedPaymentMethod?.kind ?? null
   const noActiveMethods = !methodsLoading && paymentMethods.length === 0
+
+  // ── pos-banco-movimientos (D2/D9): destino bancario + override de una
+  // pulsación ─────────────────────────────────────────────────────────────
+  const { data: bankAccounts } = useBankAccounts()
+  const activeBankAccounts = useMemo(
+    () => (bankAccounts ?? []).filter((b) => b.isActive),
+    [bankAccounts],
+  )
+  const [bankAccountOverrideId, setBankAccountOverrideId] = useState<string | null>(null)
+  const [bankSheetOpen, setBankSheetOpen] = useState(false)
+  // El override es de la OPERACIÓN, no del método — cambiar de forma de pago
+  // descarta cualquier elección previa (evita "arrastrar" la cuenta A elegida
+  // para transfer hacia card sin que el usuario lo haya pedido).
+  function selectPaymentMethod(id: string) {
+    setUserSelectedMethodId(id)
+    setBankAccountOverrideId(null)
+  }
+  const resolvedBankAccountId = bankAccountOverrideId ?? selectedPaymentMethod?.bankAccountId ?? null
+  const resolvedBankAccount = activeBankAccounts.find((b) => b.id === resolvedBankAccountId) ?? null
+  // D9: el indicador sólo existe si el kind es bancario Y la organización
+  // tiene bancos cargados — para el resto, el POS queda idéntico a hoy.
+  const showBankAccountChip = isBankPaymentKind(resolvedKind) && activeBankAccounts.length > 0
 
   // ── Cuenta corriente (D8, resuelve OQ-2) ──────────────────────────────────────
   const isCreditSelected = resolvedKind === "credit"
@@ -423,6 +448,11 @@ export default function PosPage() {
       payment_method_id:  selectedPaymentMethod?.id ?? null,
       cash_session_id:    resolvedKind === "cash" ? (currentSession?.id ?? null) : null,
       branch_id:          activeBranch?.id ?? null,
+      // pos-banco-movimientos (D2/D9): override de una pulsación del chip.
+      // null = usar el default configurado en el método (o no escribir
+      // nada si tampoco hay uno) — la RPC resuelve, esto es sólo la
+      // intención del usuario.
+      bank_account_id:    bankAccountOverrideId,
       // comprobante_type y point_of_sale_id se omiten intencionalmente:
       // la emisión ocurre DESPUÉS de confirmar, vía el endpoint /emit-invoice.
       items: cartItems.map((item) => ({
@@ -445,6 +475,9 @@ export default function PosPage() {
       })
       setCartItems([])
       setClientId("")
+      // pos-banco-movimientos: el override no debe arrastrarse a la próxima
+      // venta — cada cobro parte del default configurado.
+      setBankAccountOverrideId(null)
       toast.success(
         cartItems.length > 1
           ? `Venta registrada (${cartItems.length} ítems) — $${Number(result.total).toLocaleString("es-AR")}`
@@ -659,7 +692,7 @@ export default function PosPage() {
                         key={pm.id}
                         type="button"
                         aria-pressed={isSelected}
-                        onClick={() => setUserSelectedMethodId(pm.id)}
+                        onClick={() => selectPaymentMethod(pm.id)}
                         className={[
                           "min-h-[44px] rounded-lg border px-3 py-3 text-sm font-medium transition-colors",
                           isSelected
@@ -695,6 +728,29 @@ export default function PosPage() {
                   ? `Caja abierta — sesión ${currentSession.id.slice(0, 8)}…`
                   : "Sin caja abierta"}
               </div>
+            )}
+
+            {/* Destino bancario — pos-banco-movimientos (D9): indicador +
+                override de una pulsación, sólo cuando el kind es bancario Y
+                hay cuentas cargadas. Nunca bloquea el cobro. */}
+            {showBankAccountChip && (
+              <button
+                type="button"
+                onClick={() => setBankSheetOpen(true)}
+                className="flex min-h-[44px] items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-left hover:border-muted-foreground transition-colors"
+              >
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Landmark className="h-3.5 w-3.5 shrink-0" />
+                  {resolvedBankAccount ? (
+                    <span className="text-foreground font-medium">{resolvedBankAccount.name}</span>
+                  ) : (
+                    "Elegir cuenta (opcional)"
+                  )}
+                </span>
+                <span className="flex items-center gap-0.5 text-primary shrink-0">
+                  Cambiar <ChevronRight className="h-3.5 w-3.5" />
+                </span>
+              </button>
             )}
 
             {/* Bloque de cuenta corriente — pos-catalogo-pagos D8 (resuelve OQ-2):
@@ -845,6 +901,54 @@ export default function PosPage() {
           </div>
         </ScrollableCartShell>
       </form>
+
+      {/* pos-banco-movimientos (D9): override del destino bancario — Sheet
+          en mobile / Dialog en desktop (ResponsiveModal), botones ≥44px. */}
+      <ResponsiveModal
+        open={bankSheetOpen}
+        onOpenChange={setBankSheetOpen}
+        title="Cuenta bancaria destino"
+      >
+        <div className="flex flex-col gap-2 py-2">
+          <button
+            type="button"
+            onClick={() => { setBankAccountOverrideId(null); setBankSheetOpen(false) }}
+            className={[
+              "min-h-[44px] rounded-lg border px-4 py-3 text-left text-sm transition-colors",
+              bankAccountOverrideId === null
+                ? "border-primary bg-primary/10 text-primary font-medium"
+                : "border-border bg-background text-foreground hover:border-muted-foreground",
+            ].join(" ")}
+          >
+            Usar destino configurado
+            {selectedPaymentMethod?.bankAccountId && (
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                {activeBankAccounts.find((b) => b.id === selectedPaymentMethod.bankAccountId)?.name}
+              </span>
+            )}
+            {!selectedPaymentMethod?.bankAccountId && (
+              <span className="block text-xs text-muted-foreground mt-0.5">
+                Sin destino — no registra movimiento bancario
+              </span>
+            )}
+          </button>
+          {activeBankAccounts.map((b) => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => { setBankAccountOverrideId(b.id); setBankSheetOpen(false) }}
+              className={[
+                "min-h-[44px] rounded-lg border px-4 py-3 text-left text-sm transition-colors",
+                bankAccountOverrideId === b.id
+                  ? "border-primary bg-primary/10 text-primary font-medium"
+                  : "border-border bg-background text-foreground hover:border-muted-foreground",
+              ].join(" ")}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+      </ResponsiveModal>
     </div>
   )
 }

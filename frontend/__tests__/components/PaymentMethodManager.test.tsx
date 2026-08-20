@@ -9,13 +9,22 @@ import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethod
 import type { PaymentMethod } from "@/lib/types"
 
 const METHODS: PaymentMethod[] = [
-  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z" },
-  { id: "pm-check", accountId: "a", name: "Cheque", kind: "check", isActive: false, sortOrder: 7, createdAt: "2026-08-19T00:00:00Z" },
+  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
+  { id: "pm-check", accountId: "a", name: "Cheque", kind: "check", isActive: false, sortOrder: 7, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
 ]
 
 const usePaymentMethodsMock = vi.fn()
 vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: (...args: unknown[]) => usePaymentMethodsMock(...args),
+}))
+
+// pos-banco-movimientos (D7): PaymentMethodManager ahora también llama a
+// useBankAccounts (columna "Cuenta bancaria" + selector del dialog) — sin
+// cuentas cargadas por default, espejo del "cero render" de D9 en estos
+// tests que no ejercitan el destino bancario.
+const useBankAccountsMock = vi.fn()
+vi.mock("@/hooks/data/use-bank-accounts", () => ({
+  useBankAccounts: () => useBankAccountsMock(),
 }))
 
 const useOrgRoleMock = vi.fn()
@@ -43,6 +52,7 @@ function defaultHookReturn() {
 describe("PaymentMethodManager — gating por rol (D9-espejo)", () => {
   beforeEach(() => {
     usePaymentMethodsMock.mockReturnValue(baseHookReturn())
+    useBankAccountsMock.mockReturnValue({ data: [], isLoading: false, isError: false, error: null })
   })
 
   it("member: NO ve el botón 'Nueva' ni las acciones de editar/desactivar", () => {

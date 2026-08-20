@@ -22,6 +22,9 @@ interface PaymentMethodApiRow {
   is_active: boolean
   sort_order: number
   created_at: string
+  // pos-banco-movimientos (D7): destino bancario por defecto, opcional en
+  // la respuesta (ausente = null).
+  bank_account_id?: string | null
 }
 
 function mapPaymentMethod(r: PaymentMethodApiRow): PaymentMethod {
@@ -33,6 +36,7 @@ function mapPaymentMethod(r: PaymentMethodApiRow): PaymentMethod {
     isActive:  r.is_active,
     sortOrder: r.sort_order,
     createdAt: r.created_at,
+    bankAccountId: r.bank_account_id ?? null,
   }
 }
 
@@ -94,6 +98,29 @@ describe("mapPaymentMethod — API row → PaymentMethod", () => {
 
     expect(pm.isActive).toBe(false)
   })
+
+  it("pos-banco-movimientos: maps bank_account_id when present", () => {
+    const row: PaymentMethodApiRow = {
+      id: "f", account_id: "a", name: "Transferencia bancaria", kind: "transfer",
+      is_active: true, sort_order: 2, created_at: "2026-08-20T00:00:00+00:00",
+      bank_account_id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+    }
+
+    const pm = mapPaymentMethod(row)
+
+    expect(pm.bankAccountId).toBe("dddddddd-dddd-dddd-dddd-dddddddddddd")
+  })
+
+  it("pos-banco-movimientos: bank_account_id absent maps to null", () => {
+    const row: PaymentMethodApiRow = {
+      id: "g", account_id: "a", name: "Efectivo", kind: "cash",
+      is_active: true, sort_order: 1, created_at: "2026-08-20T00:00:00+00:00",
+    }
+
+    const pm = mapPaymentMethod(row)
+
+    expect(pm.bankAccountId).toBeNull()
+  })
 })
 
 // ── filterActiveMethods — selector shows only active ─────────────────────────
@@ -102,10 +129,12 @@ describe("filterActiveMethods — only active shown in new-entry selector", () =
   const active: PaymentMethod = {
     id: "1", accountId: "a", name: "Efectivo", kind: "cash",
     isActive: true, sortOrder: 1, createdAt: "2026-08-19T10:00:00+00:00",
+    bankAccountId: null,
   }
   const inactive: PaymentMethod = {
     id: "2", accountId: "a", name: "Cheque", kind: "check",
     isActive: false, sortOrder: 7, createdAt: "2026-07-01T09:00:00+00:00",
+    bankAccountId: null,
   }
 
   it("returns only active methods", () => {

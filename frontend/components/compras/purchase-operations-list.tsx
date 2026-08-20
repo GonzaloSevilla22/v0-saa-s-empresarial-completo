@@ -29,8 +29,10 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // pagos-cableados-restantes (D6, task 9.3/12.4): espejo del motivo de
 // sale-operations-list.tsx — el guard real vive en el backend (P0423), esto
 // sólo evita que el usuario llegue hasta ese error.
+// pos-banco-movimientos (D8): is_payment_locked ahora también se dispara por
+// un bank_movement posteado (egreso) — mensaje actualizado.
 const PAYMENT_LOCKED_REASON =
-  "No editable: esta operación ya tiene un cargo de cuenta corriente registrado. Emití una nota de crédito y registrá una compra nueva."
+  "No editable: esta operación ya tiene un cargo de cuenta corriente o un movimiento bancario registrado. Emití una nota de crédito y registrá una compra nueva."
 
 interface PurchaseOperationsListProps {
   purchases:       Purchase[]

@@ -432,6 +432,20 @@ export interface CostCenterReportRow {
 export type PaymentMethodKind = "cash" | "transfer" | "card" | "check" | "wallet" | "credit" | "other"
 
 /**
+ * pos-banco-movimientos (D2): subconjunto bancario del vocabulario — espejo
+ * de `BANK_KINDS` en `backend/services/payment_methods.py` y del `IN
+ * ('transfer','card','check','wallet')` de `_pay_register_operation_bank_
+ * movement`. Fuente canónica única para toda superficie que necesite decidir
+ * si un `kind` puede tener/mostrar un destino bancario (POS, formularios,
+ * PaymentMethodManager) — no reimplementar este chequeo en cada componente.
+ */
+export const BANK_PAYMENT_KINDS: readonly PaymentMethodKind[] = ["transfer", "card", "check", "wallet"]
+
+export function isBankPaymentKind(kind: PaymentMethodKind | null | undefined): boolean {
+  return kind != null && BANK_PAYMENT_KINDS.includes(kind)
+}
+
+/**
  * A payment method catalog entry (account-scoped, flat catalog, no
  * hierarchies). Source of truth: payment_methods table
  * (metodos-pago-operaciones). Espejo de CostCenter + kind + sort_order.
@@ -445,6 +459,11 @@ export interface PaymentMethod {
   isActive: boolean
   sortOrder: number
   createdAt: string
+  /**
+   * pos-banco-movimientos (D7): destino bancario por defecto — null = "no
+   * registra movimiento bancario" (estado inicial de todo método sembrado).
+   */
+  bankAccountId: string | null
 }
 
 /**

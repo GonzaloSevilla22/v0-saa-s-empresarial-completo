@@ -6,7 +6,8 @@ import {
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
-import type { PaymentMethodKind } from "@/lib/types"
+import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
+import { isBankPaymentKind, type PaymentMethodKind } from "@/lib/types"
 
 interface PaymentMethodSelectProps {
   value: string | null
@@ -117,6 +118,10 @@ interface PaymentMethodSupportTextProps {
  * cuenta-corriente es un change aparte).
  */
 export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupportTextProps) {
+  // pos-banco-movimientos: la etiqueta bancaria dice lo que hace — el texto
+  // se resuelve en BankAccountDestinationSelect (nombra la cuenta elegida o
+  // el default configurado), acá sólo se cubre la ausencia de contexto de
+  // cuenta bancaria (sin bank_accounts cargadas — D9, cero UI).
   if (kind === "credit") {
     return (
       <p className="text-xs text-muted-foreground">
@@ -146,4 +151,64 @@ export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupport
     )
   }
   return null
+}
+
+// ── pos-banco-movimientos (D9, task 9.5): selector de cuenta contiguo ──────
+
+interface BankAccountDestinationSelectProps {
+  /** El kind de la forma de pago actualmente elegida (o null si ninguna). */
+  paymentMethodKind: PaymentMethodKind | null
+  value: string | null
+  onChange: (value: string | null) => void
+  className?: string
+}
+
+/**
+ * Selector de cuenta bancaria destino, contiguo al de forma de pago —
+ * override de la operación sobre el default configurado en el método (D2).
+ *
+ * Visible SÓLO cuando el kind elegido es bancario (transfer/card/check/
+ * wallet) Y la organización tiene al menos una cuenta bancaria activa
+ * cargada — D9: "cero render" para el resto (34 de 35 cuentas hoy). Nunca
+ * exige elegir: dejarlo en blanco usa el default del método (o no registra
+ * nada si tampoco hay default).
+ */
+export function BankAccountDestinationSelect({
+  paymentMethodKind,
+  value,
+  onChange,
+  className,
+}: BankAccountDestinationSelectProps) {
+  const { data: bankAccounts, isLoading } = useBankAccounts()
+  const activeAccounts = (bankAccounts ?? []).filter((b) => b.isActive)
+
+  if (!isBankPaymentKind(paymentMethodKind)) return null
+  if (activeAccounts.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label className="text-foreground text-sm">
+        Cuenta bancaria <span className="text-muted-foreground font-normal">(opcional)</span>
+      </Label>
+      <Select
+        value={value ?? "__default__"}
+        onValueChange={(v) => onChange(v === "__default__" ? null : v)}
+        disabled={isLoading}
+      >
+        <SelectTrigger className={className ?? "bg-background border-border text-foreground"}>
+          <SelectValue placeholder="Usar el destino configurado" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__default__">Usar el destino configurado</SelectItem>
+          {activeAccounts.map((b) => (
+            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        Registra el movimiento en la cuenta bancaria elegida. Sin elegir ninguna, se usa el destino
+        configurado en la forma de pago — si tampoco tiene uno, no se registra ningún movimiento.
+      </p>
+    </div>
+  )
 }

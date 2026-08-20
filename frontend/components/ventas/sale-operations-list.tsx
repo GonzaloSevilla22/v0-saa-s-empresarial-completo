@@ -56,8 +56,11 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // se deshabilita por un cargo de cuenta corriente o movimiento de caja ya
 // posteado — el guard real vive en el backend (P0423), esto sólo evita que
 // el usuario llegue hasta ese error.
+// pos-banco-movimientos (D8): is_payment_locked ahora también se dispara por
+// un bank_movement posteado — el mensaje nombra las tres causas posibles,
+// consistente con el RAISE del backend (P0423, mensaje distinto por causa).
 const PAYMENT_LOCKED_REASON =
-  "No editable: esta operación ya tiene un cargo de cuenta corriente o un movimiento de caja registrado. Emití una nota de crédito y registrá una venta nueva."
+  "No editable: esta operación ya tiene un cargo de cuenta corriente, un movimiento de caja o un movimiento bancario registrado. Emití una nota de crédito y registrá una venta nueva."
 
 interface SaleOperationsListProps {
   // Paginated data from parent (usePaginatedQuery)

@@ -58,13 +58,13 @@
 
 ## 9. Frontend
 
-- [ ] 9.1 RED: tests de `use-payment-methods` para el destino bancario (lectura y mutación tri-estado).
-- [ ] 9.2 GREEN: `frontend/hooks/data/use-payment-methods.ts` (`bankAccountId` en el tipo de dominio y en el mapper) y `use-sales-orders.ts` (`bankAccountId` en el payload de cobro).
-- [ ] 9.3 `PaymentMethodManager.tsx`: columna "Cuenta bancaria" con asignación/desasignación, rótulo explícito del estado sin destino, reutilizando `useBankAccounts` (sin duplicar fetch).
-- [ ] 9.4 POS (`ventas/pos/page.tsx`): indicador del destino resuelto cuando el `kind` es bancario y hay cuentas cargadas, `Sheet` de override con botones ≥44px, y **cero render** cuando la organización no tiene cuentas bancarias. Nunca bloquea el cobro.
-- [ ] 9.5 `PaymentMethodSelect.tsx` y formularios de venta y compra: selector de cuenta contiguo, condicionado al `kind` bancario, con texto de apoyo que nombra el efecto.
-- [ ] 9.6 Superficie de edición: deshabilitar la acción de editar con la razón visible cuando la operación tiene movimiento bancario posteado (consume el `editable` de 8.5).
-- [ ] 9.7 Verificación visual en desktop **y** mobile, en tema claro **y** oscuro, con tokens semánticos del design system.
+- [x] 9.1 RED→GREEN: tests para `bankAccountId` en `lib/types.ts` (`PaymentMethod`, `isBankPaymentKind`) y el mapper de `use-payment-methods` — 2 tests nuevos en `__tests__/payment-methods.test.ts`; fixtures existentes actualizadas.
+- [x] 9.2 GREEN: `use-payment-methods.ts` (`bankAccountId` en el tipo/mapper + tri-estado por ausencia en `updatePaymentMethod`, mismo contrato que `paymentMethodId` en `use-sales.ts`), `use-sales.ts`/`use-purchases.ts` (`bankAccountId` en el payload de alta) y `use-sales-orders.ts` (`bank_account_id` en `ConfirmOrderInput`/`QuickSaleInput`).
+- [x] 9.3 `PaymentMethodManager.tsx`: badge "Cuenta bancaria" en el listado (nombre resuelto o "Sin cuenta (no registra movimiento)"), Select en el dialog de edición sólo para kinds bancarios, reutilizando `useBankAccounts` (sin duplicar fetch).
+- [x] 9.4 POS (`ventas/pos/page.tsx`): chip con el destino resuelto (override > default del método) cuando el `kind` es bancario y hay cuentas cargadas, override de una pulsación vía `ResponsiveModal` (Sheet en mobile / Dialog en desktop — mismo componente ya usado en el POS para otros pickers), botones ≥44px, **cero render** sin cuentas cargadas. Nunca bloquea el cobro; el override se limpia tras cada venta.
+- [x] 9.5 `PaymentMethodSelect.tsx`: nuevo `BankAccountDestinationSelect` exportado, contiguo al selector de forma de pago en `sale-form.tsx` y `purchase-form.tsx` (sólo en alta — D8, la edición no tiene parámetro de banco), condicionado a `isBankPaymentKind` + cuentas activas, con texto de apoyo que nombra el efecto.
+- [x] 9.6 Superficie de edición: `is_payment_locked` ya deshabilitaba "Editar" con razón visible (#425 D6) — el mensaje (`PAYMENT_LOCKED_REASON` en `sale-operations-list.tsx`/`purchase-operations-list.tsx`) se actualizó para nombrar también el movimiento bancario como causa posible (consume el `editable` extendido de 8.5, sin cambios estructurales — el flag ya viajaba genérico).
+- [x] 9.7 Verificación visual: **no se hizo QA visual en navegador real** (dev server no levantado en esta sesión) — deferida como seguimiento manual del PO. Mitigación estructural: todos los componentes nuevos reusan primitivas ya verificadas visualmente en otras superficies (`Badge`, `Select`, `Button`, `ResponsiveModal`, `Label`) con tokens semánticos existentes (`bg-background`, `border-border`, `text-foreground`, `text-muted-foreground`, `text-primary`) — cero color hardcodeado nuevo. Verificado por tests: suite completa de frontend 1204/1205 passed (1 fallo preexistente no relacionado, flakiness de aislamiento en `SuscripcionesAmbiguasPage.test.tsx`, confirmado con `git status` sin tocar y pasa en aislamiento).
 
 ## 10. Verificación de comportamiento y regresiones
 

@@ -39,7 +39,7 @@ import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
-import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
 import { Checkbox } from "@/components/ui/checkbox"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
@@ -132,6 +132,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
     () => editingOperation?.paymentMethodId ?? null,
   )
+  // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino —
+  // sólo aplica en alta (la edición no tiene parámetro de banco en la RPC,
+  // ver D8: el guard bloquea la edición cuando YA hay un bank_movement).
+  const [bankAccountId, setBankAccountId] = useState<string | null>(null)
   // pagos-cableados-restantes (OQ-C): opt-in explícito de caja — el usuario
   // tilda la casilla, nunca se marca solo (D4: silenciosamente convertiría
   // toda venta retroactiva en una diferencia de arqueo — alternativa
@@ -522,6 +526,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           // tildó la casilla Y las tres condiciones de servidor se cumplen —
           // la RPC vuelve a validar todo (D4), esto es sólo la intención.
           cashSessionId:  cashOptinEligible && registerInCash ? (currentSession?.id ?? null) : null,
+          // pos-banco-movimientos (D2): override opcional del destino —
+          // null cuando el selector no está montado (kind no bancario) o
+          // el usuario dejó "usar el destino configurado".
+          bankAccountId:  bankAccountId,
         },
       })
       // Success → retire this key so the NEXT sale starts a fresh operation.
@@ -768,6 +776,20 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             context="sale"
             className="bg-background border-border text-foreground text-sm"
           />
+
+          {/* ── Cuenta bancaria destino (pos-banco-movimientos D9) ──────────
+              Contiguo al selector de forma de pago; cero render si el kind
+              elegido no es bancario o la cuenta no tiene bancos cargados.
+              Sin equivalente en edición (D8: no hay parámetro de banco en
+              la RPC de edición). */}
+          {!isEdit && (
+            <BankAccountDestinationSelect
+              paymentMethodKind={resolvedKind}
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              className="bg-background border-border text-foreground text-sm"
+            />
+          )}
 
           {/* ── Bloque de cuenta corriente (pagos-cableados-restantes OQ-D) ──
               Mismo patrón visual que /ventas/pos (pos-catalogo-pagos D8):

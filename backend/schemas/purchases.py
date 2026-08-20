@@ -95,6 +95,11 @@ class PurchaseItemOut(BaseModel):
     # se expone: sin selector en el form hoy (D2/OQ-1).
     branch_id: uuid.UUID | None = None
     unit_id: uuid.UUID | None = None
+    # pagos-cableados-restantes (D6): derivado de lectura (mismo predicado
+    # que el guard P0423 de rpc_atomic_update_purchase_operation), para que
+    # la lista deshabilite "Editar" con motivo visible ANTES de que el
+    # usuario llegue al error del backend.
+    is_payment_locked: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

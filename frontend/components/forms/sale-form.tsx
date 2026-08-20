@@ -36,10 +36,16 @@ import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
-import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler } from "lucide-react"
+import { Plus, UserPlus, ShoppingCart, PackagePlus, CalendarIcon, Ruler, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import { Checkbox } from "@/components/ui/checkbox"
+import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { useCustomerAccount } from "@/hooks/data/use-customer-account"
+import { useBranches } from "@/hooks/data/use-branches"
+import { useCashboxes } from "@/hooks/data/use-cashboxes"
+import { useCurrentSession } from "@/hooks/data/use-cash-session"
 
 interface SaleFormProps {
   onSuccess: () => void
@@ -57,6 +63,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const { units, unitsById } = useUnitsOfMeasure()
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("sale-create")
   const isEdit = !!editingOperation
+
+  // ── pagos-cableados-restantes (OQ-C/OQ-D): catálogo + kind resuelto ────────
+  // Mismo patrón que /ventas/pos (pos-catalogo-pagos D7/D8) — reutilización
+  // antes que repetición: usePaymentMethods, useCustomerAccount, useBranches/
+  // useCashboxes/useCurrentSession son los mismos hooks, no una copia.
+  const { paymentMethods } = usePaymentMethods()
   // edicion-preserva-contexto (F2 §D11): la operación ya tiene comprobante
   // fiscal emitido (pending_cae/authorized) — el form se abre en solo
   // lectura. El P0423 del backend sigue siendo la defensa real (RPC guard);
@@ -120,6 +132,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
     () => editingOperation?.paymentMethodId ?? null,
   )
+  // pagos-cableados-restantes (OQ-C): opt-in explícito de caja — el usuario
+  // tilda la casilla, nunca se marca solo (D4: silenciosamente convertiría
+  // toda venta retroactiva en una diferencia de arqueo — alternativa
+  // descartada en el design). Sólo se envía cuando las tres condiciones de
+  // servidor también se cumplen (ver cashOptinEligible más abajo).
+  const [registerInCash, setRegisterInCash] = useState(false)
 
   // ── Inline new client ───────────────────────────────────────────────────────
   const [showNewClient, setShowNewClient] = useState(false)
@@ -140,6 +158,35 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     [clients, clientId],
   )
 
+  // ── pagos-cableados-restantes (OQ-D): kind resuelto + cuenta corriente ─────
+  const selectedPaymentMethod = useMemo(
+    () => paymentMethods.find((pm) => pm.id === paymentMethodId) ?? null,
+    [paymentMethods, paymentMethodId],
+  )
+  const resolvedKind = selectedPaymentMethod?.kind ?? null
+  const isCreditSelected = resolvedKind === "credit"
+  const { data: customerAccount } = useCustomerAccount(isCreditSelected ? (clientId || null) : null)
+  const creditBlockedNoClient = isCreditSelected && !clientId
+
+  // ── pagos-cableados-restantes (OQ-C): opt-in de caja ────────────────────────
+  // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
+  // cuenta cuando no se eligió ninguna (mismo fallback que la RPC —
+  // c26_default_branch — y que /ventas/pos).
+  const isCashSelected = resolvedKind === "cash"
+  const { branches } = useBranches()
+  const effectiveBranchId = branchId || branches[0]?.id || null
+  const { data: cashboxes } = useCashboxes(isCashSelected ? effectiveBranchId : null)
+  const firstCashbox = cashboxes?.[0] ?? null
+  const { data: currentSession } = useCurrentSession(isCashSelected ? (firstCashbox?.id ?? null) : null)
+  const isDateToday = date === argentinaToday()
+  // Las TRES condiciones de servidor (D4) — el checkbox sólo aparece cuando
+  // las tres se cumplen; si no, se explica el motivo (nunca se oculta en
+  // silencio).
+  const cashOptinEligible = isCashSelected && !!currentSession && isDateToday
+  const cashOptinReason = !isDateToday
+    ? "Sólo se puede registrar en caja una venta fechada hoy."
+    : "No hay caja abierta en esta sucursal — el efectivo no se registrará en el arqueo."
+
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(
     () => resolveUnit(unitId, unitsById),
@@ -151,6 +198,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const stagedMin  = useMemo(() => unitInputMin(selectedUnit),  [selectedUnit])
 
   const cartTotal = useMemo(() => calcCartTotal(cartItems), [cartItems])
+
+  // pagos-cableados-restantes (D8): saldo proyectado tras esta venta — mismo
+  // patrón visual que /ventas/pos (0 si aún no resolvió la CustomerAccount).
+  const projectedBalance = (customerAccount?.balance ?? 0) + cartTotal
 
   const stagedSubtotal = useMemo(
     () => (selectedProduct ? calcSaleSubtotal(unitPrice, quantity, discount) : 0),
@@ -467,6 +518,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           canal,
           paymentMethodId,
           orgId:          user?.accountId ?? "",
+          // pagos-cableados-restantes (OQ-C): sólo viaja cuando el usuario
+          // tildó la casilla Y las tres condiciones de servidor se cumplen —
+          // la RPC vuelve a validar todo (D4), esto es sólo la intención.
+          cashSessionId:  cashOptinEligible && registerInCash ? (currentSession?.id ?? null) : null,
         },
       })
       // Success → retire this key so the NEXT sale starts a fresh operation.
@@ -713,6 +768,55 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             context="sale"
             className="bg-background border-border text-foreground text-sm"
           />
+
+          {/* ── Bloque de cuenta corriente (pagos-cableados-restantes OQ-D) ──
+              Mismo patrón visual que /ventas/pos (pos-catalogo-pagos D8):
+              cliente obligatorio + saldo actual/proyectado, sólo con 'credit'. */}
+          {!isEdit && isCreditSelected && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
+              {creditBlockedNoClient ? (
+                <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Elegí un cliente: una venta a cuenta corriente se le carga a alguien.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                  <span>Saldo actual: {formatMoney(customerAccount?.balance ?? 0, "ARS")}</span>
+                  <span className="font-medium text-foreground">
+                    Después de esta venta: {formatMoney(projectedBalance, "ARS")}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Opt-in de caja (pagos-cableados-restantes OQ-C) ─────────────
+              El checkbox SÓLO aparece cuando las tres condiciones de
+              servidor se cumplen (kind=cash + sesión abierta en la sucursal
+              efectiva + fecha=hoy) — si no, se explica el motivo (D4: nunca
+              se oculta en silencio, y nunca se marca solo). */}
+          {!isEdit && isCashSelected && (
+            <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
+              {cashOptinEligible ? (
+                <label className="flex items-center gap-2 cursor-pointer text-foreground">
+                  <Checkbox
+                    checked={registerInCash}
+                    onCheckedChange={(v) => setRegisterInCash(v === true)}
+                  />
+                  <span>
+                    Registrar en caja — sesión {currentSession?.id.slice(0, 8)}…
+                  </span>
+                </label>
+              ) : (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span>{cashOptinReason}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="border-t border-border" />

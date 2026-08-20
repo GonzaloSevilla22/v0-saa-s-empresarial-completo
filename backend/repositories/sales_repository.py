@@ -88,7 +88,22 @@ class SalesRepository(BaseRepository):
                    -- (D5: segunda fuente de verdad = fuente de bugs
                    -- silenciosos). sale_operation_id tiene índice único
                    -- parcial → sin fan-out.
-                   COALESCE(fd.status IN ('pending_cae', 'authorized'), false) AS is_invoiced
+                   COALESCE(fd.status IN ('pending_cae', 'authorized'), false) AS is_invoiced,
+                   -- pagos-cableados-restantes (D6): MISMO predicado que el
+                   -- guard P0423 de rpc_atomic_update_sale_operation — cubre
+                   -- las DOS convenciones de reference_id que la migración
+                   -- deja conviviendo: operation_id (formulario, vía el
+                   -- helper _pay_register_party_charge / opt-in de caja) y
+                   -- sales_orders.id (POS, _c29_confirm_order_core). Derivado
+                   -- de lectura, reusando el `so` ya montado para
+                   -- payment_method/is_invoiced — nunca una columna
+                   -- denormalizada (misma regla D5 de arriba).
+                   (
+                     EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
+                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))
+                     OR EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = s.operation_id)
+                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = so.id))
+                   ) AS is_payment_locked
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
             LEFT JOIN sale_items si ON si.sale_id = s.id AND si.product_id IS NOT NULL
@@ -270,6 +285,7 @@ class SalesRepository(BaseRepository):
         currency: str = "ARS",
         canal: str | None = None,
         payment_method_id: str | None = None,
+        cash_session_id: str | None = None,
     ) -> dict | None:
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
@@ -285,7 +301,7 @@ class SalesRepository(BaseRepository):
             SELECT
                 (rpc_create_sale_operation(
                     $1, $2::text::uuid, $3, $4, $5::jsonb,
-                    p_canal => $6, p_payment_method_id => $7
+                    p_canal => $6, p_payment_method_id => $7, p_cash_session_id => $8
                 )->>'operation_id')::uuid
                     AS operation_id,
                 'sale'::text AS operation_kind
@@ -297,5 +313,6 @@ class SalesRepository(BaseRepository):
             json.dumps(items, default=_default),
             canal,
             payment_method_id,
+            cash_session_id,
         )
         return dict(row) if row else None

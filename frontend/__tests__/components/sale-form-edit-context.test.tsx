@@ -30,6 +30,14 @@ vi.mock("@/components/branches/BranchSelect", () => ({
   ),
 }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
+// pagos-cableados-restantes (OQ-C/OQ-D): mocks de los hooks nuevos del form
+// — sin esto, el import real de use-payment-methods dispara python-client
+// (NEXT_PUBLIC_BACKEND_URL no definida en el entorno de test).
+vi.mock("@/hooks/data/use-payment-methods", () => ({ usePaymentMethods: () => ({ paymentMethods: [] }) }))
+vi.mock("@/hooks/data/use-customer-account", () => ({ useCustomerAccount: () => ({ data: null }) }))
+vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
+vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))
+vi.mock("@/hooks/data/use-cash-session", () => ({ useCurrentSession: () => ({ data: null }) }))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))

@@ -73,6 +73,27 @@ describe("groupSalesByOperation — contexto edicion-preserva-contexto", () => {
     expect(op.isGrouped).toBe(true)
     expect(op.isInvoiced).toBe(true)
   })
+
+  // pagos-cableados-restantes (D6): mismo contrato que isInvoiced, para el
+  // guard de inmutabilidad por cargo de cuenta corriente / movimiento de caja.
+  it("isPaymentLocked=false por defecto cuando la fila no lo trae", () => {
+    const [op] = groupSalesByOperation([makeSale({ isPaymentLocked: undefined })])
+    expect(op.isPaymentLocked).toBe(false)
+  })
+
+  it("isPaymentLocked=true se propaga a la operación agrupada", () => {
+    const [op] = groupSalesByOperation([makeSale({ isPaymentLocked: true })])
+    expect(op.isPaymentLocked).toBe(true)
+  })
+
+  it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea tiene cargo/movimiento posteado, la operación queda bloqueada", () => {
+    const [op] = groupSalesByOperation([
+      makeSale({ id: "s1", isPaymentLocked: false }),
+      makeSale({ id: "s2", isPaymentLocked: true }),
+    ])
+    expect(op.isGrouped).toBe(true)
+    expect(op.isPaymentLocked).toBe(true)
+  })
 })
 
 describe("groupPurchasesByOperation — contexto edicion-preserva-contexto", () => {
@@ -86,5 +107,26 @@ describe("groupPurchasesByOperation — contexto edicion-preserva-contexto", () 
     const [op] = groupPurchasesByOperation([makePurchase({ branchId: undefined, unitId: undefined })])
     expect(op.branchId).toBeNull()
     expect(op.unitId).toBeNull()
+  })
+
+  // pagos-cableados-restantes (D6, task 9.3): espejo de sales — inmutabilidad
+  // por cargo de cuenta corriente posteado.
+  it("isPaymentLocked=false por defecto cuando la fila no lo trae", () => {
+    const [op] = groupPurchasesByOperation([makePurchase({ isPaymentLocked: undefined })])
+    expect(op.isPaymentLocked).toBe(false)
+  })
+
+  it("isPaymentLocked=true se propaga a la operación agrupada", () => {
+    const [op] = groupPurchasesByOperation([makePurchase({ isPaymentLocked: true })])
+    expect(op.isPaymentLocked).toBe(true)
+  })
+
+  it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea tiene cargo posteado, la operación queda bloqueada", () => {
+    const [op] = groupPurchasesByOperation([
+      makePurchase({ id: "pu1", isPaymentLocked: false }),
+      makePurchase({ id: "pu2", isPaymentLocked: true }),
+    ])
+    expect(op.isGrouped).toBe(true)
+    expect(op.isPaymentLocked).toBe(true)
   })
 })

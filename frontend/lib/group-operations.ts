@@ -35,6 +35,9 @@ export interface SaleOperation {
   /** edicion-preserva-contexto (F2): true si la operación tiene un comprobante
    * fiscal pending_cae/authorized — el form de edición se abre en solo lectura. */
   isInvoiced: boolean
+  /** pagos-cableados-restantes (D6): true si la operación tiene un cargo de
+   * cuenta corriente o movimiento de caja posteado — inmutable (P0423). */
+  isPaymentLocked: boolean
 }
 
 export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
@@ -50,6 +53,7 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.total += sale.total
       op.isGrouped = true
       op.isInvoiced = op.isInvoiced || !!sale.isInvoiced
+      op.isPaymentLocked = op.isPaymentLocked || !!sale.isPaymentLocked
     } else {
       map.set(key, {
         key,
@@ -66,6 +70,7 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         canal: sale.canal ?? null,
         unitId: sale.unitId ?? null,
         isInvoiced: !!sale.isInvoiced,
+        isPaymentLocked: !!sale.isPaymentLocked,
       })
     }
   }
@@ -90,6 +95,9 @@ export interface PurchaseOperation {
   branchId: string | null
   /** edicion-preserva-contexto: unidad de medida de la primera línea. */
   unitId: string | null
+  /** pagos-cableados-restantes (D6, task 9.3): true si la operación tiene un
+   * cargo de cuenta corriente posteado — inmutable (P0423). */
+  isPaymentLocked: boolean
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -103,6 +111,7 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.items.push(purchase)
       op.total += purchase.total
       op.isGrouped = true
+      op.isPaymentLocked = op.isPaymentLocked || !!purchase.isPaymentLocked
     } else {
       map.set(key, {
         key,
@@ -115,6 +124,7 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         paymentMethodId: purchase.paymentMethodId ?? null,
         branchId: purchase.branchId ?? null,
         unitId: purchase.unitId ?? null,
+        isPaymentLocked: !!purchase.isPaymentLocked,
       })
     }
   }

@@ -594,5 +594,51 @@ async def test_list_purchases_exposes_payment_method_of_the_operation(
     assert resp.status_code == 200
     rows_query, _ = captured["rows"]
     assert "p.payment_method_id" in rows_query
+
+
+# ── pagos-cableados-restantes (D6, task 9.3/12.4): inmutabilidad expuesta ────
+
+async def test_list_purchases_row_exposes_is_payment_locked_flag(
+    async_client, valid_token, mock_pool
+):
+    """is_payment_locked viaja en la fila para que la lista deshabilite
+    'Editar' ANTES de que el usuario intente modificar una compra con cargo
+    de cuenta corriente ya posteado (mismo predicado que el guard P0423 de
+    rpc_atomic_update_purchase_operation — ver PurchaseRepository)."""
+    pool, conn = mock_pool
+    row = {
+        "id": PURCHASE_ID, "date": "2026-01-15", "operation_id": None,
+        "description": "Insumos", "product_id": None, "quantity": "1",
+        "amount": "100.00", "total": "100.00", "product_name": None,
+        "cost_center_id": None, "cost_center_name": None,
+        "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
+        "is_payment_locked": True,
+    }
+    conn.fetch = AsyncMock(return_value=[row])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["is_payment_locked"] is True
+
+
+async def test_list_purchases_row_exposes_payment_lock_query_predicate(
+    async_client, valid_token, mock_pool
+):
+    """El predicado de is_payment_locked consulta supplier_account_movements
+    por p.operation_id (espejo del de ventas, sin la complejidad de doble
+    referencia — las compras no tienen un concepto análogo a sales_orders)."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "supplier_account_movements" in rows_query
+    assert "is_payment_locked" in rows_query
     assert "payment_method_name" in rows_query
     assert "payment_method_kind" in rows_query

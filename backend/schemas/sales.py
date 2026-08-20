@@ -31,6 +31,11 @@ class SaleOperationIn(BaseModel):
     canal: str | None = Field(default=None, max_length=40)
     # metodos-pago-operaciones: optional, shared by all lines of the operation
     payment_method_id: uuid.UUID | None = None
+    # pagos-cableados-restantes (OQ-C): opt-in de caja del formulario de
+    # venta — ausencia = no-op (D5). Las tres condiciones de servidor
+    # (kind=cash derivado de payment_method_id, sesión abierta en la
+    # sucursal efectiva, fecha=hoy en ART) se validan en la RPC, nunca acá.
+    cash_session_id: uuid.UUID | None = None
 
 
 class SaleOperationOut(BaseModel):
@@ -102,6 +107,11 @@ class SaleItemOut(BaseModel):
     # predicado que el guard P0423), para que el form se abra en solo-lectura
     # ANTES de que el usuario llegue al error del backend.
     is_invoiced: bool = False
+    # pagos-cableados-restantes (D6): derivado de lectura (mismo predicado
+    # que el guard P0423 de rpc_atomic_update_sale_operation), para que la
+    # lista deshabilite "Editar" con motivo visible ANTES de que el usuario
+    # llegue al error del backend.
+    is_payment_locked: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

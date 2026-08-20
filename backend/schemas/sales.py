@@ -44,6 +44,10 @@ class SaleOperationUpdateItemIn(BaseModel):
     product_id: str
     quantity: Decimal
     amount: Decimal
+    # edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la línea, no
+    # al header — se preserva SIN exponerse re-enviando el valor que el form
+    # prefilleó desde la lectura (SaleItemOut.unit_id), igual que quantity.
+    unit_id: str | None = None
 
 
 class SaleOperationUpdateIn(BaseModel):
@@ -55,6 +59,9 @@ class SaleOperationUpdateIn(BaseModel):
     service, NUNCA por `is None`. No incluir el campo en el JSON = preservar el
     vigente; incluirlo con `null` = desimputar explícito ("Sin especificar");
     incluirlo con un uuid = reimputar. Ver PaymentMethodSelect (frontend).
+
+    edicion-preserva-contexto (F1 §D3): `branch_id` y `canal` usan el MISMO
+    contrato tri-estado por ausencia — `model_fields_set`, nunca `is None`.
     """
     sale_ids: list[str]
     items: list[SaleOperationUpdateItemIn]
@@ -62,6 +69,8 @@ class SaleOperationUpdateIn(BaseModel):
     client_id: str | None = None
     currency: str = "ARS"
     payment_method_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = None
+    canal: str | None = Field(default=None, max_length=40)
 
 
 class SaleItemOut(BaseModel):
@@ -84,6 +93,15 @@ class SaleItemOut(BaseModel):
     payment_method_id: uuid.UUID | None = None
     payment_method_name: str | None = None
     payment_method_kind: str | None = None
+    # edicion-preserva-contexto (D11): expuestos para que el form de edición
+    # pueda prefillear sucursal/canal/unidad — sin esto no hay con qué.
+    branch_id: uuid.UUID | None = None
+    canal: str | None = None
+    unit_id: uuid.UUID | None = None
+    # edicion-preserva-contexto (F2/D11): derivado de lectura (mismo
+    # predicado que el guard P0423), para que el form se abra en solo-lectura
+    # ANTES de que el usuario llegue al error del backend.
+    is_invoiced: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

@@ -62,7 +62,30 @@ jobs:
           # metodos-pago-operaciones: reconverger la firma de las RPCs de
           # creación tras el reapply de arriba (ver comentario extenso sobre
           # el paso).
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql
+          #
+          # edicion-preserva-contexto: 20260928000001 también DROPea+CREATEa
+          # rpc_atomic_update_sale_operation/rpc_atomic_update_purchase_
+          # operation con SU firma vigente en esa fecha (7/6 args, sin
+          # branch_id/canal) — y 20260930000001 (este change) volvió a
+          # cambiar esa firma (11/8 args). Reaplicar 20260928000001 fuera de
+          # su orden cronológico real (después de una migración MÁS NUEVA
+          # que vuelve a tocar las mismas dos RPCs) hace que su propio gate
+          # ANTI-OVERLOAD interno se dispare — detecta correctamente el
+          # overload fantasma que la reaplicación misma crea (su `DROP
+          # FUNCTION IF EXISTS` con la firma de esa fecha no matchea la
+          # firma 11/8-arg vigente, así que el `CREATE OR REPLACE` que sigue
+          # crea un segundo overload en vez de reemplazar). Es el mismo
+          # mecanismo 42725 de la nota de arriba, un tramo más adelante en
+          # la cadena — se tolera el fallo de ESTE paso puntual (no de los
+          # demás) y se reconverge de inmediato reaplicando 20260930000001,
+          # cuyo propio `DROP FUNCTION IF EXISTS` con la firma 7/6-arg SÍ
+          # matchea el overload fantasma recién creado y lo limpia, dejando
+          # exactamente 1 definición de cada función con el cuerpo final
+          # correcto (de paso, prueba que 20260930000001 es re-appliable).
+          if ! psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql; then
+            echo "20260928000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20260930000001 ya cambió de nuevo la firma) — reconvergiendo con 20260930000001"
+          fi
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260930000001_edicion_preserva_contexto.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -280,3 +303,25 @@ jobs:
       # precreado en el stack local (D7/OQ-3).
       - name: Run internal logs retention gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_internal_logs_retention.sql
+
+      # edicion-preserva-contexto: rpc_atomic_update_sale_operation /
+      # rpc_atomic_update_purchase_operation preservan el contexto del header
+      # (branch_id, canal, unit_id, supplier_id, cost_center_id) al editar en
+      # vez de dejarlo NULL en silencio — branch_id/canal se vuelven además
+      # editables con el mismo contrato tri-estado que #419 le dio a
+      # payment_method_id. Una venta con comprobante fiscal pending_cae/
+      # authorized es inmutable (P0423 antes del REVERSE; rejected y sin
+      # comprobante no bloquean). La pata APPLY del ledger aterriza en la
+      # sucursal EFECTIVA (no en la default) y la sales_orders promovida sin
+      # comprobante real se re-apunta al operation_id nuevo. quantity acepta
+      # decimales en la ruta de edición, igual que en la de creación.
+      #
+      # Incluye (§0 de la migración) la reparación de un gap de historial
+      # descubierto en RED: sales.quantity/purchases.quantity ya son
+      # numeric(15,4) en prod pero ningún archivo de migración lo registraba
+      # — el stack local/CI reconstruido desde cero los dejaba en integer,
+      # redondeando en silencio. Gateado por el tipo actual de la columna:
+      # no-op en prod, repara acá reconstruyendo v_sales_flat/v_purchases_flat
+      # con su definición exacta (incluido security_invoker=true).
+      - name: Run edicion-preserva-contexto gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_edicion_preserva_contexto.sql

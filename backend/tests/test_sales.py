@@ -343,7 +343,13 @@ PM_ID = "88888888-8888-8888-8888-888888888888"
 
 async def test_update_sale_operation_without_field_preserves(async_client, mock_pool):
     """Sin payment_method_id en el JSON, p_payment_method_provided=false — el
-    RPC preserva el vigente vía COALESCE."""
+    RPC preserva el vigente vía COALESCE.
+
+    edicion-preserva-contexto agregó branch_id/branch_provided/canal/
+    canal_provided DESPUÉS de payment_method_id/payment_method_provided en la
+    firma del RPC (parámetros nuevos al final, §D4) — por eso ahora son
+    args[-6]/args[-5], no args[-2]/args[-1].
+    """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     captured: dict = {}
@@ -361,8 +367,8 @@ async def test_update_sale_operation_without_field_preserves(async_client, mock_
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] is None      # payment_method_id
-    assert captured["args"][-1] is False     # payment_method_provided
+    assert captured["args"][-6] is None      # payment_method_id
+    assert captured["args"][-5] is False     # payment_method_provided
 
 
 async def test_update_sale_operation_with_payment_method_reimputes(async_client, mock_pool):
@@ -384,7 +390,7 @@ async def test_update_sale_operation_with_payment_method_reimputes(async_client,
         )
     assert resp.status_code == 200
     assert PM_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-1] is True  # payment_method_provided
+    assert captured["args"][-5] is True  # payment_method_provided
 
 
 async def test_update_sale_operation_with_explicit_null_clears(async_client, mock_pool):
@@ -406,8 +412,142 @@ async def test_update_sale_operation_with_explicit_null_clears(async_client, moc
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] is None   # payment_method_id explícito NULL
-    assert captured["args"][-1] is True   # provided=true (distinto del caso ausente)
+    assert captured["args"][-6] is None   # payment_method_id explícito NULL
+    assert captured["args"][-5] is True   # provided=true (distinto del caso ausente)
+
+
+# ── edicion-preserva-contexto: branch_id/canal tri-estado (F1 §D3) ─────────
+#
+# Mismo contrato tri-estado que payment_method_id, ahora para branch_id y
+# canal: ausente en el JSON = preservar (RPC hace COALESCE contra el
+# vigente); presente (incluso null) = el RPC decide reimputar/desimputar.
+
+BRANCH_ID = "99999999-9999-9999-9999-999999999999"
+
+
+async def test_update_sale_operation_without_branch_canal_preserves(async_client, mock_pool):
+    """Sin branch_id/canal en el JSON → ambos *_provided=false; el RPC preserva."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert captured["args"][-4] is None   # branch_id
+    assert captured["args"][-3] is False  # branch_provided
+    assert captured["args"][-2] is None   # canal
+    assert captured["args"][-1] is False  # canal_provided
+
+
+async def test_update_sale_operation_with_branch_id_reimputes(async_client, mock_pool):
+    """Con branch_id explícito → branch_provided=true, el uuid viaja al RPC."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json={**UPDATE_PAYLOAD, "branch_id": BRANCH_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert BRANCH_ID in [str(a) for a in captured["args"]]
+    assert captured["args"][-3] is True  # branch_provided
+
+
+async def test_update_sale_operation_with_canal_reimputes(async_client, mock_pool):
+    """Con canal explícito → canal_provided=true."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json={**UPDATE_PAYLOAD, "canal": "instagram"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert captured["args"][-2] == "instagram"
+    assert captured["args"][-1] is True  # canal_provided
+
+
+async def test_update_sale_operation_with_explicit_null_branch_clears(async_client, mock_pool):
+    """branch_id: null EXPLÍCITO en el JSON → provided=true, desimputa (no
+    indistinguible del caso ausente)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json={**UPDATE_PAYLOAD, "branch_id": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert captured["args"][-4] is None  # branch_id explícito NULL
+    assert captured["args"][-3] is True  # provided=true
+
+
+async def test_update_sale_operation_propagates_invoiced_immutable_as_409(async_client, mock_pool):
+    """edicion-preserva-contexto (F2): P0423 del RPC (operación facturada,
+    inmutable) llega al cliente como 409 problem+json vía el handler global
+    de asyncpg.PostgresError — el router no necesita un except propio."""
+    import asyncpg
+
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+
+    class _FakePgError(asyncpg.PostgresError):
+        def __init__(self, message, sqlstate):
+            super().__init__(message)
+            self.sqlstate = sqlstate
+
+    async def execute_side_effect(query, *args):
+        raise _FakePgError(
+            "invoiced_operation_immutable: emití una nota de crédito y registrá una venta nueva",
+            "P0423",
+        )
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/sales/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 409
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    body = resp.json()
+    assert body["code"] == "P0423"
+    assert "nota de crédito" in body["detail"]
 
 
 async def test_list_sales_ok(async_client, valid_token, mock_pool):
@@ -509,6 +649,45 @@ async def test_list_sales_filters_by_payment_method(async_client, valid_token, m
     assert "payment_method_id" in count_query
     assert PM_ID in [str(a) for a in rows_args]
     assert PM_ID in [str(a) for a in count_args]
+
+
+async def test_list_sales_exposes_branch_canal_unit_for_edit_prefill(async_client, valid_token, mock_pool):
+    """edicion-preserva-contexto (D11): sin branch_id/canal/unit_id en la
+    lectura, el form de edición no tiene con qué prefillear."""
+    pool, conn = mock_pool
+    captured = _capture_sales_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "s.branch_id" in rows_query
+    assert "s.canal" in rows_query
+    assert "unit_id" in rows_query
+
+
+async def test_list_sales_row_exposes_is_invoiced_flag(async_client, valid_token, mock_pool):
+    """edicion-preserva-contexto (F2/D11): is_invoiced viaja en la fila para
+    que el form se abra en solo lectura antes de que el usuario intente
+    editar una operación facturada."""
+    pool, conn = mock_pool
+    row = {
+        "id": SALE_ID, "date": "2026-01-15", "client_id": None, "operation_id": OPERATION_ID,
+        "currency": "ARS", "product_id": None, "quantity": "1", "amount": "100.00",
+        "total": "100.00", "product_name": None, "client_name": None,
+        "branch_id": None, "canal": None, "unit_id": None,
+        "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
+        "is_invoiced": True,
+    }
+    conn.fetch = AsyncMock(return_value=[row])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["is_invoiced"] is True
 
 
 async def test_list_sales_exposes_payment_method_of_the_operation(async_client, valid_token, mock_pool):

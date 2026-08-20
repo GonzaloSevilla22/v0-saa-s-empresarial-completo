@@ -70,6 +70,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
       unitCost:    item.unitCost,
       quantity:    item.quantity,
       subtotal:    Math.round(item.unitCost * item.quantity * 10_000) / 10_000,
+      // edicion-preserva-contexto (F1 §D7): unit_id se prefillea y se
+      // reenvía tal cual — espejo de SaleForm.
+      unitId:      item.unitId,
     }))
   })
 
@@ -97,7 +100,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
 
   // ── Operation date ──────────────────────────────────────────────────────────
   const [date, setDate] = useState(() => editingOperation?.date ?? argentinaToday())
-  const [branchId, setBranchId] = useState<string | null>(null)
+  // edicion-preserva-contexto (F1 §D11): prefillear desde editingOperation —
+  // espejo de SaleForm (antes arrancaba en null ignorándolo).
+  const [branchId, setBranchId] = useState<string | null>(() => editingOperation?.branchId ?? null)
   // cost-center-dimension: optional analytic dimension for the whole operation
   const [costCenterId, setCostCenterId] = useState<string | null>(null)
   // metodos-pago-operaciones: forma de pago de la operación, opcional.
@@ -373,6 +378,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             orgId: user?.accountId ?? "",
             // metodos-pago-operaciones (D5): ver el comentario espejo en sale-form.tsx.
             paymentMethodId,
+            // edicion-preserva-contexto (F1 §D11): mismo criterio — el
+            // selector siempre está montado, así que branchId viaja siempre
+            // con el valor vigente del form.
+            branchId,
           },
         })
         toast.success("✅ Compra actualizada correctamente")

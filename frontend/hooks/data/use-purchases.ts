@@ -32,6 +32,9 @@ interface PurchaseApiRow {
   payment_method_id?: string | null
   payment_method_name?: string | null
   payment_method_kind?: string | null
+  // edicion-preserva-contexto: expuestos para prefillear el form de edición.
+  branch_id?: string | null
+  unit_id?: string | null
 }
 
 interface PurchasesPageResponse {
@@ -64,6 +67,10 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     paymentMethodId:   p.payment_method_id ?? null,
     paymentMethodName: p.payment_method_name ?? null,
     paymentMethodKind: (p.payment_method_kind ?? null) as Purchase["paymentMethodKind"],
+    // edicion-preserva-contexto (D11): sin esto el form de edición no tiene
+    // con qué prefillear sucursal/unidad.
+    branchId: p.branch_id ?? null,
+    unitId:   p.unit_id ?? undefined,
   }
 }
 
@@ -234,12 +241,19 @@ export function usePurchases() {
          * ("Sin especificar"); pasar un uuid reimputa.
          */
         paymentMethodId?: string | null
+        /**
+         * edicion-preserva-contexto (F1 §D3): branchId usa el mismo contrato
+         * tri-estado por ausencia — ver el comentario espejo en use-sales.ts.
+         */
+        branchId?: string | null
       }
     }) => {
       const items = newItems.map(item => ({
         product_id: item.productId,
         amount:     item.unitCost,
         quantity:   item.quantity,
+        // edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la línea.
+        unit_id:    item.unitId ?? null,
       }))
       const payload: Record<string, unknown> = {
         purchase_ids: purchaseIds,
@@ -253,6 +267,10 @@ export function usePurchases() {
       // ausente y el backend (model_fields_set) lo distingue de `null`.
       if ("paymentMethodId" in opMeta) {
         payload.payment_method_id = opMeta.paymentMethodId ?? null
+      }
+      // edicion-preserva-contexto: mismo patrón de inclusión condicional.
+      if ("branchId" in opMeta) {
+        payload.branch_id = opMeta.branchId ?? null
       }
       return pythonClient.put<void>("/purchases/operation", payload)
     },

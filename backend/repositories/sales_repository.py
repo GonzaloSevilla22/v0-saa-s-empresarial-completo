@@ -64,13 +64,31 @@ class SalesRepository(BaseRepository):
                    COALESCE(si.subtotal,   s.total)      AS total,
                    pr.name AS product_name,
                    cl.name AS client_name,
+                   -- edicion-preserva-contexto (D11): expuestos para
+                   -- prefillear el form de edición. branch_id/canal son del
+                   -- header (por operación); unit_id sigue a la línea igual
+                   -- que quantity/amount (COALESCE con el header como
+                   -- fallback legacy).
+                   s.branch_id,
+                   s.canal,
+                   COALESCE(si.unit_id, s.unit_id) AS unit_id,
                    -- metodos-pago-operaciones (D7): la imputación explícita
                    -- gana; si no hay, se deriva DE LECTURA desde el texto
                    -- legacy de la orden del POS (cash/other) mapeado por
                    -- kind. Cero escritura — sales/sales_orders no se tocan.
                    COALESCE(pm.id,   pos_pm.id)   AS payment_method_id,
                    COALESCE(pm.name, pos_pm.name) AS payment_method_name,
-                   COALESCE(pm.kind, pos_pm.kind) AS payment_method_kind
+                   COALESCE(pm.kind, pos_pm.kind) AS payment_method_kind,
+                   -- edicion-preserva-contexto (F2/D11): MISMO predicado que
+                   -- el guard P0423 de rpc_atomic_update_sale_operation
+                   -- (sales_orders.fiscal_document_id → fiscal_documents.
+                   -- status IN pending_cae/authorized) — derivado de lectura,
+                   -- reusando el acceso a sales_orders ya montado más arriba
+                   -- para el payment_method del POS, NUNCA una columna denormalizada
+                   -- (D5: segunda fuente de verdad = fuente de bugs
+                   -- silenciosos). sale_operation_id tiene índice único
+                   -- parcial → sin fan-out.
+                   COALESCE(fd.status IN ('pending_cae', 'authorized'), false) AS is_invoiced
             FROM sales s
             JOIN op_page ON COALESCE(s.operation_id::text, s.id::text) = op_page.op_key
             LEFT JOIN sale_items si ON si.sale_id = s.id AND si.product_id IS NOT NULL
@@ -82,6 +100,7 @@ class SalesRepository(BaseRepository):
                    ON pos_pm.account_id = s.account_id
                   AND pos_pm.kind       = so.payment_method
                   AND pos_pm.deleted_at IS NULL
+            LEFT JOIN fiscal_documents fd ON fd.id = so.fiscal_document_id
             WHERE s.account_id = $1::uuid
             ORDER BY s.date DESC, s.id
             """,
@@ -179,6 +198,10 @@ class SalesRepository(BaseRepository):
         items: list[dict],
         payment_method_id: str | None = None,
         payment_method_provided: bool = False,
+        branch_id: str | None = None,
+        branch_provided: bool = False,
+        canal: str | None = None,
+        canal_provided: bool = False,
     ) -> None:
         # rpc_atomic_update_sale_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
@@ -187,6 +210,8 @@ class SalesRepository(BaseRepository):
         # "ausente" (preserva el vigente, COALESCE en el RPC) de "informado
         # explícito" (incluido NULL = desimputar) — por parámetro nombrado,
         # como ya se hace con p_canal en la creación.
+        # edicion-preserva-contexto (F1 §D3): branch_provided/canal_provided
+        # son el MISMO contrato tri-estado, parámetros nombrados nuevos.
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
@@ -196,7 +221,9 @@ class SalesRepository(BaseRepository):
             """
             SELECT rpc_atomic_update_sale_operation(
                 $1::text[]::uuid[], $2::text::uuid, $3::date, $4::text, $5::jsonb,
-                p_payment_method_id => $6, p_payment_method_provided => $7
+                p_payment_method_id => $6, p_payment_method_provided => $7,
+                p_branch_id => $8, p_branch_provided => $9,
+                p_canal => $10, p_canal_provided => $11
             )
             """,
             sale_ids,
@@ -206,6 +233,10 @@ class SalesRepository(BaseRepository):
             json.dumps(items, default=_default),
             payment_method_id,
             payment_method_provided,
+            branch_id,
+            branch_provided,
+            canal,
+            canal_provided,
         )
 
     async def promote_to_order(self, operation_id: str) -> dict:

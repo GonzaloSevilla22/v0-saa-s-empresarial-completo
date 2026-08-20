@@ -330,6 +330,12 @@ export interface Sale {
   paymentMethodId?: string | null
   paymentMethodName?: string | null
   paymentMethodKind?: PaymentMethodKind | null
+  /** edicion-preserva-contexto: sucursal de la operación (editable, tri-estado). */
+  branchId?: string | null
+  /** edicion-preserva-contexto: canal de venta de la operación (editable, tri-estado). */
+  canal?: string | null
+  /** edicion-preserva-contexto (F2): true si tiene comprobante fiscal pending_cae/authorized — inmutable. */
+  isInvoiced?: boolean
 }
 
 export interface Purchase {
@@ -353,6 +359,8 @@ export interface Purchase {
   paymentMethodId?: string | null
   paymentMethodName?: string | null
   paymentMethodKind?: PaymentMethodKind | null
+  /** edicion-preserva-contexto: sucursal de la operación (editable, tri-estado). */
+  branchId?: string | null
 }
 
 export interface UnitOfMeasure {

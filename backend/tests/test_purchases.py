@@ -101,7 +101,12 @@ async def test_create_purchase_without_payment_method_passes_none(async_client, 
 
 async def test_update_purchase_operation_without_field_preserves(async_client, mock_pool):
     """Sin payment_method_id en el JSON, p_payment_method_provided=false — el
-    RPC preserva el vigente vía COALESCE."""
+    RPC preserva el vigente vía COALESCE.
+
+    edicion-preserva-contexto agregó branch_id/branch_provided DESPUÉS de
+    payment_method_id/payment_method_provided en la firma del RPC (§D4) — por
+    eso ahora son args[-4]/args[-3], no args[-2]/args[-1].
+    """
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     captured: dict = {}
@@ -119,8 +124,8 @@ async def test_update_purchase_operation_without_field_preserves(async_client, m
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] is None
-    assert captured["args"][-1] is False
+    assert captured["args"][-4] is None
+    assert captured["args"][-3] is False
 
 
 async def test_update_purchase_operation_with_explicit_null_clears(async_client, mock_pool):
@@ -142,8 +147,8 @@ async def test_update_purchase_operation_with_explicit_null_clears(async_client,
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 200
-    assert captured["args"][-2] is None
-    assert captured["args"][-1] is True
+    assert captured["args"][-4] is None
+    assert captured["args"][-3] is True
 
 
 async def test_update_purchase_operation_with_payment_method_reimputes(async_client, mock_pool):
@@ -164,7 +169,56 @@ async def test_update_purchase_operation_with_payment_method_reimputes(async_cli
         )
     assert resp.status_code == 200
     assert PM_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-1] is True
+    assert captured["args"][-3] is True
+
+
+# ── edicion-preserva-contexto: branch_id tri-estado (F1 §D3) ────────────────
+
+BRANCH_ID = "99999999-9999-9999-9999-999999999999"
+
+
+async def test_update_purchase_operation_without_branch_preserves(async_client, mock_pool):
+    """Sin branch_id en el JSON → branch_provided=false; el RPC preserva."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json=UPDATE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert captured["args"][-2] is None   # branch_id
+    assert captured["args"][-1] is False  # branch_provided
+
+
+async def test_update_purchase_operation_with_branch_id_reimputes(async_client, mock_pool):
+    """Con branch_id explícito → branch_provided=true, el uuid viaja al RPC."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def execute_side_effect(query, *args):
+        captured["args"] = args
+        return "SELECT 1"
+
+    conn.execute = AsyncMock(side_effect=execute_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json={**UPDATE_PAYLOAD, "branch_id": BRANCH_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    assert BRANCH_ID in [str(a) for a in captured["args"]]
+    assert captured["args"][-1] is True  # branch_provided
 
 
 async def test_update_purchase_operation_member_forbidden(async_client, mock_pool):
@@ -508,6 +562,23 @@ async def test_list_purchases_payment_method_and_cost_center_coexist(
     as_text = [str(a) for a in rows_args]
     assert PM_ID in as_text
     assert str(COST_CENTER_ID) in as_text
+
+
+async def test_list_purchases_exposes_branch_and_unit_for_edit_prefill(
+    async_client, valid_token, mock_pool
+):
+    """edicion-preserva-contexto (D11): sin branch_id/unit_id en la lectura,
+    el form de edición no tiene con qué prefillear."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "p.branch_id" in rows_query
+    assert "unit_id" in rows_query
 
 
 async def test_list_purchases_exposes_payment_method_of_the_operation(

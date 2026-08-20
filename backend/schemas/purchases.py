@@ -40,6 +40,9 @@ class PurchaseOperationUpdateItemIn(BaseModel):
     product_id: str
     quantity: Decimal
     amount: Decimal
+    # edicion-preserva-contexto (F1 §D7): unit_id viaja pegado a la línea —
+    # espejo de SaleOperationUpdateItemIn.unit_id.
+    unit_id: str | None = None
 
 
 class PurchaseOperationUpdateIn(BaseModel):
@@ -51,12 +54,18 @@ class PurchaseOperationUpdateIn(BaseModel):
     service, NUNCA por `is None`. No incluir el campo en el JSON = preservar el
     vigente; incluirlo con `null` = desimputar explícito ("Sin especificar");
     incluirlo con un uuid = reimputar. Ver PaymentMethodSelect (frontend).
+
+    edicion-preserva-contexto (F1 §D3): `branch_id` usa el mismo contrato
+    tri-estado — `model_fields_set`, nunca `is None`. `supplier_id`/
+    `cost_center_id` se preservan pero NO son parámetro acá (D2/OQ-1): el
+    form de edición de compra no tiene selector para ninguno de los dos hoy.
     """
     purchase_ids: list[str]
     items: list[PurchaseOperationUpdateItemIn]
     date: datetime.date
     description: str | None = None
     payment_method_id: uuid.UUID | None = None
+    branch_id: uuid.UUID | None = None
 
 
 class PurchaseItemOut(BaseModel):
@@ -81,6 +90,11 @@ class PurchaseItemOut(BaseModel):
     payment_method_id: uuid.UUID | None = None
     payment_method_name: str | None = None
     payment_method_kind: str | None = None
+    # edicion-preserva-contexto (D11): branch_id/unit_id expuestos para
+    # prefillear el form de edición (espejo de SaleItemOut). supplier_id NO
+    # se expone: sin selector en el form hoy (D2/OQ-1).
+    branch_id: uuid.UUID | None = None
+    unit_id: uuid.UUID | None = None
 
     @field_validator("date", mode="before")
     @classmethod

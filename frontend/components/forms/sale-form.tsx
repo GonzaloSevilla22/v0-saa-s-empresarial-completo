@@ -57,6 +57,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const { units, unitsById } = useUnitsOfMeasure()
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("sale-create")
   const isEdit = !!editingOperation
+  // edicion-preserva-contexto (F2 §D11): la operación ya tiene comprobante
+  // fiscal emitido (pending_cae/authorized) — el form se abre en solo
+  // lectura. El P0423 del backend sigue siendo la defensa real (RPC guard);
+  // esto solo evita que el usuario llegue hasta ese error.
+  const isInvoiced = isEdit && !!editingOperation?.isInvoiced
+  const invoicedBannerId = "sale-form-invoiced-banner"
 
   // Synchronous re-entrancy guard: closes the double-click window before the
   // async `submitting` state has a chance to re-render the disabled button.
@@ -76,6 +82,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       quantity:    item.quantity,
       discount:    0,
       subtotal:    Math.round(item.unitPrice * item.quantity * 10_000) / 10_000,
+      // edicion-preserva-contexto (F1 §D7): unit_id se prefillea y se
+      // reenvía tal cual — el form no ofrece cambiar la unidad al editar,
+      // pero el valor tiene que sobrevivir el round-trip para no perderse.
+      unitId:      item.unitId,
     }))
   })
 
@@ -98,9 +108,13 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const [clientId, setClientId] = useState(() => editingOperation?.clientId ?? "")
   const [currency, setCurrency] = useState<Currency>(() => (editingOperation?.currency as Currency) ?? "ARS")
   const [date, setDate] = useState(() => editingOperation?.date ?? argentinaToday())
-  const [branchId, setBranchId] = useState<string | null>(null)
+  // edicion-preserva-contexto (F1 §D11): al editar, prefillear desde
+  // editingOperation — antes arrancaba en null ignorándolo, así que el
+  // payload de edición ni siquiera los incluía y la sucursal/canal quedaban
+  // en NULL tras cada edición (mismo patrón que clientId/currency/date más abajo).
+  const [branchId, setBranchId] = useState<string | null>(() => editingOperation?.branchId ?? null)
   // Canal de venta (Fase B Bloque KPI): alimenta "Margen por Canal". Opcional.
-  const [canal, setCanal] = useState<string | null>(null)
+  const [canal, setCanal] = useState<string | null>(() => editingOperation?.canal ?? null)
   // metodos-pago-operaciones: forma de pago de la operación, opcional.
   // Precargada al editar (D5) — el resto de las líneas la siguen (D3).
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
@@ -375,6 +389,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (isInvoiced) {
+      // Defensa en profundidad: el botón ya está deshabilitado y el
+      // fieldset ya bloquea los inputs — esto cubre un submit programático.
+      toast.error("Esta operación ya tiene un comprobante fiscal emitido y no puede editarse.")
+      return
+    }
     if (cartItems.length === 0) {
       toast.error("Agregá al menos un producto al carrito")
       return
@@ -403,6 +423,11 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             // — nunca se omite, así que "reimputar con el mismo valor" y
             // "preservar" son observacionalmente idénticos para quien edita.
             paymentMethodId,
+            // edicion-preserva-contexto (F1 §D11): mismo criterio — el
+            // selector siempre está montado, así que branchId/canal viajan
+            // siempre con el valor vigente del form.
+            branchId,
+            canal,
           },
         })
         toast.success("✅ Venta actualizada correctamente")
@@ -469,6 +494,26 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <form onSubmit={handleSubmit}>
+      {/* edicion-preserva-contexto (F2 §D11): banner de bloqueo fiscal —
+          explica el motivo ANTES de que el usuario intente guardar. El
+          fieldset de más abajo deja todos los controles inertes; este
+          párrafo (con role="status" para que un lector de pantalla lo
+          anuncie al entrar en modo edición) es el "motivo accesible" del
+          botón deshabilitado. */}
+      {isInvoiced && (
+        <div
+          id={invoicedBannerId}
+          role="status"
+          className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <p className="font-semibold">Esta venta ya tiene un comprobante fiscal emitido</p>
+          <p className="mt-1 text-destructive/90">
+            No se puede editar una operación facturada. Para corregirla, emití una nota de
+            crédito por el comprobante actual y registrá una venta nueva con los datos correctos.
+          </p>
+        </div>
+      )}
+      <fieldset disabled={isInvoiced} className="contents">
       <ScrollableCartShell
         hasItems={cartItems.length > 0}
 
@@ -518,9 +563,13 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || cartItems.length === 0}
+              disabled={submitting || cartItems.length === 0 || isInvoiced}
+              aria-disabled={isInvoiced}
+              aria-describedby={isInvoiced ? invoicedBannerId : undefined}
             >
-              {submitting
+              {isInvoiced
+                ? "No editable — comprobante emitido"
+                : submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
                 : isEdit
                 ? `Guardar cambios (${cartItems.length} ítem${cartItems.length !== 1 ? "s" : ""})`
@@ -801,6 +850,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           </Button>
         </div>
       </ScrollableCartShell>
+      </fieldset>
     </form>
   )
 }

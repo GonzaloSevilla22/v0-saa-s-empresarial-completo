@@ -26,6 +26,15 @@ export interface SaleOperation {
   isGrouped: boolean
   /** metodos-pago-operaciones: forma de pago de la operación (D3: por operación, todas las líneas comparten el valor). */
   paymentMethodId: string | null
+  /** edicion-preserva-contexto: sucursal de la operación (editable, tri-estado). */
+  branchId: string | null
+  /** edicion-preserva-contexto: canal de venta de la operación (editable, tri-estado). */
+  canal: string | null
+  /** edicion-preserva-contexto: unidad de medida de la primera línea (viaja pegada al producto, no al header). */
+  unitId: string | null
+  /** edicion-preserva-contexto (F2): true si la operación tiene un comprobante
+   * fiscal pending_cae/authorized — el form de edición se abre en solo lectura. */
+  isInvoiced: boolean
 }
 
 export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
@@ -40,6 +49,7 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.items.push(sale)
       op.total += sale.total
       op.isGrouped = true
+      op.isInvoiced = op.isInvoiced || !!sale.isInvoiced
     } else {
       map.set(key, {
         key,
@@ -52,6 +62,10 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         total: sale.total,
         isGrouped: false,
         paymentMethodId: sale.paymentMethodId ?? null,
+        branchId: sale.branchId ?? null,
+        canal: sale.canal ?? null,
+        unitId: sale.unitId ?? null,
+        isInvoiced: !!sale.isInvoiced,
       })
     }
   }
@@ -72,6 +86,10 @@ export interface PurchaseOperation {
   isGrouped: boolean
   /** metodos-pago-operaciones: forma de pago de la operación (D3: por operación, todas las líneas comparten el valor). */
   paymentMethodId: string | null
+  /** edicion-preserva-contexto: sucursal de la operación (editable, tri-estado). */
+  branchId: string | null
+  /** edicion-preserva-contexto: unidad de medida de la primera línea. */
+  unitId: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -95,6 +113,8 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         description: purchase.description,
         isGrouped: false,
         paymentMethodId: purchase.paymentMethodId ?? null,
+        branchId: purchase.branchId ?? null,
+        unitId: purchase.unitId ?? null,
       })
     }
   }

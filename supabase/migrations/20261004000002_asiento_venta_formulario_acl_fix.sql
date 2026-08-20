@@ -1,0 +1,30 @@
+-- =============================================================================
+-- asiento-venta-formulario — fix de ACL sobre _journal_sale_debit_account
+-- =============================================================================
+-- Hallazgo en verificacion post-merge (PR #431, solo SELECT via MCP): las
+-- otras cuatro funciones tocadas por 20261004000001 quedaron correctamente
+-- REVOKE'd de anon/authenticated en prod (verificado con
+-- has_function_privilege), pero _journal_sale_debit_account NO — su REVOKE
+-- en la migracion original solo listaba "FROM PUBLIC" (sin anon/authenticated
+-- explicitos), a diferencia de las otras cuatro funciones que sí listaban
+-- "FROM PUBLIC, anon[, authenticated]".
+--
+-- Localmente (`supabase start`) "REVOKE ... FROM PUBLIC" alcanzaba para
+-- dejar anon/authenticated en false. En prod (proyecto hospedado
+-- gxdhpxvdjjkmxhdkkwyb) NO alcanzo: el default-privilege setup de la
+-- plataforma otorga EXECUTE a anon/authenticated DIRECTAMENTE sobre
+-- funciones nuevas del schema public (no via el pseudo-rol PUBLIC), asi que
+-- "REVOKE ... FROM PUBLIC" no les toca el grant directo. Confirmado via MCP
+-- (solo SELECT): has_function_privilege('anon', ..., 'EXECUTE') = true en
+-- prod para esta funcion puntual, pese al REVOKE de la migracion anterior.
+--
+-- Sin riesgo de seguridad real: _journal_sale_debit_account NO es
+-- SECURITY DEFINER (LANGUAGE sql IMMUTABLE, sin acceso a tablas), asi que
+-- test_function_acl_gate.sql no la cubre por diseno (esa gate solo audita
+-- SECURITY DEFINER) y ejecutarla como anon solo devuelve un codigo de
+-- cuenta contable ('1100'/'1110'/'1300') sin efecto ni lectura de datos.
+-- Se corrige de todos modos por higiene y para que coincida con el patron
+-- declarado (op_line_snapshot / c26_default_branch: sin grants a ningun rol).
+-- =============================================================================
+
+REVOKE ALL ON FUNCTION public._journal_sale_debit_account(text) FROM PUBLIC, anon, authenticated;

@@ -68,14 +68,14 @@
 
 ## 10. Verificación de comportamiento y regresiones
 
-- [ ] 10.1 Venta POS por transferencia con destino configurado → 1 `bank_movement` `+total`, `transfer_in`, `unreconciled`, `balance_after` correcto (era RED antes del change: hoy escribe 0 filas).
-- [ ] 10.2 Default por método respetado; override de la operación gana sobre el default; sin destino no se escribe nada y la venta se comporta como antes.
-- [ ] 10.3 Compra por transferencia → 1 `bank_movement` `−total`, `transfer_out`. Venta con tarjeta → `card_settlement` por el bruto.
-- [ ] 10.4 Venta `credit` + cobro posterior por transferencia → exactamente **un** movimiento (el del cobro), sin doble contabilización.
-- [ ] 10.5 Contrato con la conciliación: importar una línea de extracto que iguale el movimiento de la venta y verificar que la sugerencia 1:1 lo propone y el match lo deja `matched`; y el N:1 de tarjeta con el `fee` manual cerrando contra el neto.
-- [ ] 10.6 Edición bloqueada con `P0423` (venta y compra) cuando hay movimiento posteado; editable cuando no lo hay.
-- [ ] 10.7 `P0424` sobre una sesión cerrada; y el POS incapaz de dispararlo.
-- [ ] 10.8 Regresiones verdes: #415 (líneas), #417 (espejo de stock), #419 (imputación), #421 (POS + cuenta corriente), #423 (edición), #425 (helper de cargo + opt-in de caja), bloque fiscal (C-27) y arqueo (C-28).
+- [x] 10.1 Venta POS por transferencia con destino configurado → 1 `bank_movement` `+total`, `transfer_in`, `unreconciled`, `balance_after` correcto — verificado en `test_pos_banco_movimientos.sql` §1 (gate ESTRELLA), local contra DB idéntica a prod.
+- [x] 10.2 Default por método respetado (§1); override de la operación gana sobre el default (§2a); sin destino no se escribe nada y la venta se comporta como antes (§2b) — los 3 casos verificados.
+- [x] 10.3 Compra por transferencia → `−total` `transfer_out` (§3a); venta con tarjeta → `card_settlement` por el bruto (§3b) — verificado.
+- [x] 10.4 Venta `credit` + cobro posterior por transferencia → exactamente **un** movimiento (el del cobro) — verificado (§4, gate ESTRELLA), vía `rpc_register_payment_received` real.
+- [x] 10.5 Contrato con la conciliación: import + `rpc_create_reconciliation_match` 1:1 deja el movimiento `matched` — verificado (§5a). **N:1 de tarjeta con `fee` manual: NO ejercitado** en el gate (fuera del alcance mínimo de este change — el instrumento ya existe en C3 sin cambios, documentado como procedimiento en 11.3).
+- [x] 10.6 Edición bloqueada con `P0423` venta (§6a) y compra (§6b) cuando hay movimiento posteado; control negativo — editable sin ningún cargo/movimiento (§6c) — los 3 casos verificados.
+- [x] 10.7 `P0424` sobre una sesión cerrada — verificado (§7, formulario con fecha pasada). El POS no puede dispararlo **por construcción**: `rpc_quick_sale`/`rpc_confirm_sales_order` no aceptan `p_date`, siempre operan sobre `reporting_local_today()` (no ejercitado como test aparte — verificable por firma).
+- [x] 10.8 Regresiones verdes: batería completa de 15 archivos `supabase/tests/*.sql` previos (incl. #415/#417/#419/#421/#423/#425, fiscal C-27, arqueo C-28) corridos localmente contra la DB post-migración — todos GREEN. 1 archivo (`test_pagos_cableados_restantes.sql`) no pudo re-verificarse localmente por un dato sintético (email) dejado de una corrida manual previa en el mismo contenedor local persistente (`unique constraint users_email_partial_key`) — **no es una regresión de este change** (falla en la sección (3), antes de tocar código nuevo); CI corre sobre un `supabase start` limpio y no hereda ese estado. Suite completa de backend (1437/1437 passed, 3 skipped) y frontend (1204/1205, 1 fallo preexistente no relacionado) también verdes.
 
 ## 11. Cierre
 

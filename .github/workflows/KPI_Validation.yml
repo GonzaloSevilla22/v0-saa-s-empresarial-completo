@@ -86,6 +86,23 @@ jobs:
             echo "20260928000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20260930000001 ya cambió de nuevo la firma) — reconvergiendo con 20260930000001"
           fi
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260930000001_edicion_preserva_contexto.sql
+          # pagos-cableados-restantes: 20260930000001 (edicion-preserva-contexto)
+          # NO toca rpc_create_sale_operation/rpc_create_purchase_operation —
+          # sólo rpc_atomic_update_sale_operation/rpc_atomic_update_purchase_
+          # operation (las RPCs de EDICIÓN, no de creación). El reapply de
+          # 20260924000001 más arriba en esta misma secuencia SÍ redefine
+          # rpc_create_sale_operation con SU firma vigente en esa fecha (7 args,
+          # sin payment_method_id) — su propio DROP FUNCTION IF EXISTS matchea el
+          # overload fantasma de esa reaplicación puntual, pero dispara a su vez
+          # el gate ANTI-OVERLOAD de 20260928000001 (tolerado arriba) porque dejó
+          # un segundo overload (8 args, con payment_method_id, sin
+          # cash_session_id) que nada de lo que sigue vuelve a tocar. Reconverge
+          # reaplicando esta migración al final de la cadena: su propio DROP
+          # FUNCTION IF EXISTS con la firma 8-arg (SIN cash_session_id) matchea
+          # exactamente ese overload fantasma y el CREATE OR REPLACE que sigue
+          # deja 1 sola definición de cada función con el cuerpo final correcto
+          # (de paso, prueba que esta migración es re-appliable).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261001000001_pagos_cableados_restantes.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -325,3 +342,20 @@ jobs:
       # con su definición exacta (incluido security_invoker=true).
       - name: Run edicion-preserva-contexto gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_edicion_preserva_contexto.sql
+
+      # pagos-cableados-restantes: helper compartido _pay_register_party_charge
+      # (cliente/proveedor, invalid_party_kind, balance_after acumulado),
+      # formulario de venta a crédito (postea cargo, guard credit_requires_client
+      # antes del descuento de stock, no-crédito no toca la cuenta — en ambas
+      # ramas del strangler, incl. la legacy con el flag off), opt-in de caja
+      # (las tres condiciones de servidor + expected_balance con/sin opt-in),
+      # rpc_create_purchase_operation emite el kind real (ya no hardcodea
+      # 'credit'), _journal_post_from_event rutea wallet a 1110 Banco en las
+      # tres ramas con predicado bancario (PurchaseCreated queda sin cambios,
+      # documentado), y D6 (inmutabilidad de operaciones con cargo o
+      # movimiento posteado, cubriendo las DOS convenciones de reference_id —
+      # operation_id del formulario y sales_orders.id del POS — en venta y
+      # compra, con el control negativo de que una operación sin cargo sigue
+      # editable).
+      - name: Run pagos-cableados-restantes gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_pagos_cableados_restantes.sql

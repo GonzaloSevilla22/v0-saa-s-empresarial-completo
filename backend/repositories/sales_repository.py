@@ -82,9 +82,9 @@ class SalesRepository(BaseRepository):
                    -- edicion-preserva-contexto (F2/D11): MISMO predicado que
                    -- el guard P0423 de rpc_atomic_update_sale_operation
                    -- (sales_orders.fiscal_document_id → fiscal_documents.
-                   -- status IN pending_cae/authorized) — derivado de lectura
-                   -- vía el JOIN de sales_orders que ya existe para el
-                   -- payment_method del POS, NUNCA una columna denormalizada
+                   -- status IN pending_cae/authorized) — derivado de lectura,
+                   -- reusando el acceso a sales_orders ya montado más arriba
+                   -- para el payment_method del POS, NUNCA una columna denormalizada
                    -- (D5: segunda fuente de verdad = fuente de bugs
                    -- silenciosos). sale_operation_id tiene índice único
                    -- parcial → sin fan-out.

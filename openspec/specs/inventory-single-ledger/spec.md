@@ -120,6 +120,8 @@ La pata de reversa SHALL escribirse con `type = 'sale_return'` (venta) o `'purch
 
 La pata de aplicación SHALL escribirse con `type = 'sale'` / `'purchase'`, `reference_id` = id de la fila **nueva** y `reference_type = 'sale'` / `'purchase'`, es decir **indistinguible del movimiento que emite la creación**. Esto es normativo, no cosmético: es el contrato del que depende la reversa de stock al eliminar.
 
+Cada pata SHALL aplicarse sobre una sucursal explícita, nunca sobre la sucursal default por omisión: la **reversa** SHALL aplicarse sobre la sucursal a la que estaba imputada la operación vieja, y la **aplicación** sobre la sucursal efectiva de la operación editada — la reimputada si la edición informó una sucursal nueva, o la preservada de la operación vieja si no la informó. Editar una operación sin cambiarle la sucursal NO SHALL mover stock entre sucursales. Editar una operación reimputándola a otra sucursal SHALL producir dos patas en sucursales distintas, que describen el traslado.
+
 Cada movimiento emitido por la edición SHALL poblar `quantity_before`, `quantity_after`, `branch_id`, `product_name` y `operation_group_id` con la misma forma que la creación, y SHALL congelar `unit_cost_snapshot` **reusando la decisión de acarreo de snapshot de la línea** (acarrea el costo viejo si el producto no cambió; congela uno fresco si cambió o si no había línea previa). Corregir una cantidad NO SHALL re-valuar el movimiento al costo actual del producto.
 
 Una línea sin `product_id` (línea de servicio) NO SHALL emitir movimiento, ni en la reversa ni en la aplicación.
@@ -154,6 +156,19 @@ Una línea sin `product_id` (línea de servicio) NO SHALL emitir movimiento, ni 
 - **GIVEN** una operación con una línea sin `product_id`
 - **WHEN** se edita esa operación
 - **THEN** no se inserta ninguna fila en `stock_movements` por esa línea, y la edición procede sin error
+
+#### Scenario: editar una venta de una sucursal no default no muda el stock
+
+- **GIVEN** una venta imputada a una sucursal distinta de la default, y una cuenta con varias sucursales con stock
+- **WHEN** se edita la cantidad de esa venta sin informar sucursal
+- **THEN** ambas patas del par espejo se registran sobre la sucursal original
+- **AND** el stock de la sucursal default no se modifica
+
+#### Scenario: reimputar la sucursal produce un par espejo entre sucursales
+
+- **GIVEN** una venta imputada a la sucursal A
+- **WHEN** se edita la operación reimputándola a la sucursal B
+- **THEN** la pata de reversa se registra sobre la sucursal A y la de aplicación sobre la sucursal B, y `branch_stock` de ambas refleja el traslado
 
 ### Requirement: Invariante de reconstrucción y de no-orfandad del ledger de operaciones
 

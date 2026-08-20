@@ -56,9 +56,9 @@
 
 ## 6. Verificación y cierre
 
-- [ ] 6.1 Todos los gates del grupo 2 en verde
-- [ ] 6.2 Gates de regresión de #415/#417/#419/#421 en verde **sin modificar** (líneas acarreadas, par espejo del ledger, tri-estado de forma de pago, POS)
-- [ ] 6.3 Post-merge: verificar en prod con `pg_get_function_arguments` que quedó **una sola** función con cada nombre (sin overload fantasma → `42725`) y que las ACLs son las esperadas
-- [ ] 6.4 Post-merge: verificar que `MAX(version)` avanzó a `20260930000001`
-- [ ] 6.5 Confirmar que no quedan `sales_orders` huérfanas nuevas y consultar al PO por las 3 históricas (no reconstruibles, design §D10)
-- [ ] 6.6 Registrar en engram las decisiones y el resultado; llevar las OQ-1..4 del design al PO para firma
+- [x] 6.1 Todos los gates del grupo 2 en verde (`test_edicion_preserva_contexto.sql`, 18 assertions, CI `validate-kpis`)
+- [x] 6.2 Gates de regresión de #415/#417/#419/#421 en verde **sin modificar** (líneas acarreadas, par espejo del ledger, tri-estado de forma de pago, POS) — corridos localmente y en CI contra el cuerpo reescrito
+- [x] 6.3 Post-merge: verificado en prod (`gxdhpxvdjjkmxhdkkwyb`) — **una sola** función con cada nombre, firma final 11/8-arg, `anon_exec=false`, `authenticated`/`service_role` con EXECUTE. **Hallazgo real durante el proceso** (no solo verificación defensiva): el `REVOKE ALL ... FROM PUBLIC` solo no alcanzaba — el proyecto tiene `ALTER DEFAULT PRIVILEGES` otorgando `EXECUTE` directo a `anon` en toda función nueva; corregido con `REVOKE EXECUTE ... FROM anon` explícito antes del merge (mismo gotcha ya documentado en `20260828000001`/`20260929000001`)
+- [x] 6.4 Post-merge: verificado `MAX(version) = 20260930000001` en prod
+- [x] 6.5 Confirmado: **0 huérfanas nuevas**; las 3 históricas siguen ahí (no reconstruibles, design §D10) — quedan pendientes de decisión del PO, tal como especifica esta task (no se tocan con un UPDATE ad-hoc: no hay forma de reconstruir a qué operation_id nuevo deberían apuntar, y el design las declara pérdida asumida)
+- [x] 6.6 Registrado en engram; OQ-1..4 documentadas en el PR #423 para firma del PO

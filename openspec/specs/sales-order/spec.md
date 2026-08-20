@@ -7,7 +7,7 @@
 Agregado `SalesOrder` que representa una orden de venta transaccional. Centraliza el hot path de confirmación: descuento de `branch_stock` (C-21/C-26), registro de caja (C-28), numeración fiscal (C-27) e inserción en el outbox — todo en una sola transacción atómica. Reemplaza el flujo disperso de `rpc_create_sale_operation_v2` como punto de entrada principal. Incluye `quickSale()` para el punto de venta (POS). Retrocompatible: escribe también en `sales`/`sale_items` para que los listados y Edge Functions existentes sigan funcionando sin cambios.
 ## Requirements
 ### Requirement: Agregado SalesOrder con líneas
-El sistema SHALL proveer un agregado `SalesOrder` (tabla `sales_orders`) con `id`, `account_id` (tenancy), `branch_id` (FK→`branches`, nullable — el RPC resuelve y persiste la branch efectiva), `client_id` (FK→`clients`, nullable), `source_quote_id` (FK→`quotes`, nullable), `status` (CHECK `draft|confirmed|canceled`), `payment_method` (CHECK `cash|other|credit`), `total numeric(15,2)`, `sale_operation_id` (puente a la venta legacy generada), `fiscal_document_id` (FK→`fiscal_documents`, nullable), `created_by`, `created_at`. Las líneas viven en `sales_order_items` con `sales_order_id`, `product_id` (nullable), `account_id`, `quantity numeric(15,4)`, `unit_id` (nullable), `price`, `subtotal`. Toda la escritura del agregado SHALL ocurrir vía RPC `SECURITY DEFINER` (sin INSERT/UPDATE directo del rol `authenticated`).
+El sistema SHALL proveer un agregado `SalesOrder` (tabla `sales_orders`) con `id`, `account_id` (tenancy), `branch_id` (FK→`branches`, nullable — el RPC resuelve y persiste la branch efectiva), `client_id` (FK→`clients`, nullable), `source_quote_id` (FK→`quotes`, nullable), `status` (CHECK `draft|confirmed|canceled`), `payment_method_id` (FK→`payment_methods`, nullable — única fuente de la forma de pago de la orden), `total numeric(15,2)`, `sale_operation_id` (puente a la venta legacy generada), `fiscal_document_id` (FK→`fiscal_documents`, nullable), `created_by`, `created_at`. El agregado NO SHALL tener una columna de texto con la forma de pago: el `kind` SHALL obtenerse siempre resolviendo `payment_method_id` contra `payment_methods`. Las líneas viven en `sales_order_items` con `sales_order_id`, `product_id` (nullable), `account_id`, `quantity numeric(15,4)`, `unit_id` (nullable), `price`, `subtotal`. Toda la escritura del agregado SHALL ocurrir vía RPC `SECURITY DEFINER` (sin INSERT/UPDATE directo del rol `authenticated`).
 
 #### Scenario: orden creada en draft no descuenta stock
 - **WHEN** se crea un `SalesOrder` en estado `draft` (por ejemplo desde `Quote.accept()`)
@@ -17,12 +17,17 @@ El sistema SHALL proveer un agregado `SalesOrder` (tabla `sales_orders`) con `id
 - **WHEN** un usuario consulta `sales_orders`
 - **THEN** solo ve las órdenes cuyo `account_id` pertenece a su cuenta (política SELECT con `account_id IN (SELECT current_account_ids())`)
 
-#### Scenario: payment_method credit es aceptado por el CHECK
-- **WHEN** se inserta (vía RPC) un `SalesOrder` con `payment_method = 'credit'`
-- **THEN** el CHECK lo acepta (el dominio admitido es `cash|other|credit`); este escenario fue agregado en C-30 que amplió el CHECK originalmente definido en C-29 como `cash|other`
+#### Scenario: la orden no tiene columna de texto de forma de pago
+- **WHEN** se inspecciona la definición de la tabla `sales_orders`
+- **THEN** no existe la columna `payment_method` ni el CHECK `sales_orders_payment_method_check`, y la forma de pago solo es alcanzable por `payment_method_id`
+
+#### Scenario: la forma de pago de una orden se lee del catálogo
+- **GIVEN** una orden confirmada imputada a una forma de pago de `kind = 'credit'`
+- **WHEN** un consumidor necesita el `kind` de esa orden
+- **THEN** lo obtiene resolviendo `payment_method_id` contra `payment_methods`, y obtiene `credit`
 
 ### Requirement: SalesOrder.confirm() es transaccional y atómico
-El sistema SHALL proveer `confirm()` mediante un único RPC `SECURITY DEFINER` (`rpc_confirm_sales_order`, wrapper del helper interno `_c29_confirm_order_core`) que, en UNA sola transacción, ejecuta: (a) valida permiso de escritura (`is_account_writer`) y que la branch efectiva esté operativa; **(a-bis) resuelve la forma de pago: si se indicó `payment_method_id`, SHALL validar que pertenezca a la cuenta y esté viva y activa —si no, `P0404 payment_method_not_found` / `P0400 payment_method_inactive`—, SHALL derivar de ella el `kind` efectivo, y si además se envió el texto y difiere del `kind` derivado SHALL fallar con `P0400 payment_method_mismatch`; si no se indicó `payment_method_id`, el `kind` efectivo es el texto recibido y la orden queda sin forma de pago imputada;** (b) por cada línea con producto, valida stock disponible per-branch y descuenta `branch_stock` vía la mecánica de C-21/C-26, registrando el `stock_movements` con `reference_type = 'sale'`; (c) si el `kind` efectivo es `cash`, invoca el helper intra-transacción `c28_register_cash_movement(session_id, total, 'sale', sales_order_id)`; **(c-bis) si el `kind` efectivo es `credit`, resuelve o crea la `CustomerAccount` del cliente e invoca `c30_register_customer_account_movement(customer_account_id, total, 'sale', sales_order_id)` (cargo positivo) en el mismo commit, sin movimiento de caja, e inserta el hecho `CustomerAccountCharged` en el outbox; una venta a crédito SHALL exigir `client_id` (sino `P0400 credit_requires_client`), validado antes de tocar stock;** (d) si se indicó tipo de comprobante, reserva número fiscal e inserta el `fiscal_documents` en `pending_cae` vía la maquinaria de C-27; (e) inserta el hecho `SaleConfirmed` en el outbox (`events`); (f) transiciona la orden a `confirmed`, **persistiendo `payment_method_id` y `payment_method = kind` efectivo**. **Cada fila legacy de `sales` generada por la confirmación SHALL nacer con el mismo `payment_method_id`.** Si CUALQUIER paso falla, la transacción entera SHALL hacer rollback, sin efectos parciales en stock, caja, cuenta corriente, numeración ni outbox. El `kind` admitido SHALL ser el vocabulario completo del catálogo de formas de pago (`cash`, `transfer`, `card`, `check`, `wallet`, `credit`, `other`); los `kind` sin cableado SHALL persistirse como etiqueta sin efectos sobre caja, cuenta corriente ni movimientos bancarios.
+El sistema SHALL proveer `confirm()` mediante un único RPC `SECURITY DEFINER` (`rpc_confirm_sales_order`, wrapper del helper interno `_c29_confirm_order_core`) que, en UNA sola transacción, ejecuta: (a) valida permiso de escritura (`is_account_writer`) y que la branch efectiva esté operativa; **(a-bis) resuelve la forma de pago: si se indicó `payment_method_id`, SHALL validar que pertenezca a la cuenta y esté viva y activa —si no, `P0404 payment_method_not_found` / `P0400 payment_method_inactive`—, SHALL derivar de ella el `kind` efectivo, y si además se envió el texto y difiere del `kind` derivado SHALL fallar con `P0400 payment_method_mismatch`; si no se indicó `payment_method_id`, el `kind` efectivo es el texto recibido y el sistema SHALL intentar resolver la forma de pago viva y activa de la cuenta con ese `kind` (desempate por `sort_order`, luego `id`) para imputarla; si no existe ninguna, la orden SHALL quedar sin forma de pago imputada, sin abortar la confirmación;** (b) por cada línea con producto, valida stock disponible per-branch y descuenta `branch_stock` vía la mecánica de C-21/C-26, registrando el `stock_movements` con `reference_type = 'sale'`; (c) si el `kind` efectivo es `cash`, invoca el helper intra-transacción `c28_register_cash_movement(session_id, total, 'sale', sales_order_id)`; **(c-bis) si el `kind` efectivo es `credit`, resuelve o crea la `CustomerAccount` del cliente e invoca `c30_register_customer_account_movement(customer_account_id, total, 'sale', sales_order_id)` (cargo positivo) en el mismo commit, sin movimiento de caja, e inserta el hecho `CustomerAccountCharged` en el outbox; una venta a crédito SHALL exigir `client_id` (sino `P0400 credit_requires_client`), validado antes de tocar stock;** (d) si se indicó tipo de comprobante, reserva número fiscal e inserta el `fiscal_documents` en `pending_cae` vía la maquinaria de C-27; (e) inserta el hecho `SaleConfirmed` en el outbox (`events`), **cuyo payload SHALL transportar la clave `payment_method` con el `kind` efectivo**; (f) transiciona la orden a `confirmed`, **persistiendo únicamente `payment_method_id`**. **Cada fila legacy de `sales` generada por la confirmación SHALL nacer con el mismo `payment_method_id`.** Si CUALQUIER paso falla, la transacción entera SHALL hacer rollback, sin efectos parciales en stock, caja, cuenta corriente, numeración ni outbox. El `kind` admitido SHALL ser el vocabulario completo del catálogo de formas de pago (`cash`, `transfer`, `card`, `check`, `wallet`, `credit`, `other`); los `kind` sin cableado SHALL persistirse como imputación sin efectos sobre caja, cuenta corriente ni movimientos bancarios.
 
 #### Scenario: confirm descuenta stock atómicamente
 - **WHEN** se confirma una orden de 2 unidades de un producto con `branch_stock = 5` en la branch de la operación
@@ -64,17 +69,27 @@ El sistema SHALL proveer `confirm()` mediante un único RPC `SECURITY DEFINER` (
 - **WHEN** se confirma una orden indicando un `payment_method_id` de `kind = 'credit'` junto con el texto `cash`
 - **THEN** la operación falla con `P0400 payment_method_mismatch` sin efectos parciales
 
-#### Scenario: forma de pago sin cableado se persiste como etiqueta
+#### Scenario: forma de pago sin cableado se persiste como imputación
 - **WHEN** se confirma una orden con una forma de pago de `kind = 'transfer'`
-- **THEN** la orden queda confirmada con `payment_method_id` imputado y `payment_method = 'transfer'`, sin `cash_movements`, sin `customer_account_movements` y sin `bank_movements`
+- **THEN** la orden queda confirmada con ese `payment_method_id` imputado, sin `cash_movements`, sin `customer_account_movements` y sin `bank_movements`
 
 #### Scenario: la venta legacy hereda la forma de pago de la orden
 - **WHEN** se confirma una orden de dos líneas con una forma de pago imputada
 - **THEN** las dos filas de `sales` generadas quedan con ese mismo `payment_method_id`
 
-#### Scenario: confirmación sin forma de pago imputada sigue el camino legacy
-- **WHEN** se confirma una orden sin `payment_method_id`, informando solamente el texto `other`
-- **THEN** la orden queda confirmada con `payment_method = 'other'` y `payment_method_id = NULL`, y las filas de `sales` nacen sin forma de pago imputada
+#### Scenario: el camino legacy resuelve la forma de pago desde el kind
+- **GIVEN** una cuenta con la forma de pago sembrada de `kind = 'cash'`
+- **WHEN** se confirma una orden sin `payment_method_id`, informando solamente el texto `cash`
+- **THEN** la orden queda confirmada con el `payment_method_id` de esa forma de pago, y las filas de `sales` nacen con la misma imputación
+
+#### Scenario: el camino legacy sin forma de pago resoluble no aborta
+- **GIVEN** una cuenta sin ninguna forma de pago viva y activa de `kind = 'check'`
+- **WHEN** se confirma una orden sin `payment_method_id`, informando solamente el texto `check`
+- **THEN** la orden queda confirmada con `payment_method_id = NULL` y el evento `SaleConfirmed` transporta `payment_method = 'check'`
+
+#### Scenario: el evento transporta el kind efectivo
+- **WHEN** se confirma una orden imputada a una forma de pago de `kind = 'wallet'`
+- **THEN** el payload del hecho `SaleConfirmed` insertado en `events` contiene `payment_method = 'wallet'`
 
 #### Scenario: comprobante fiscal reserva número pending_cae sin tocar AFIP
 - **WHEN** se confirma una orden indicando un tipo de comprobante y la cuenta tiene perfil fiscal con un PV activo
@@ -160,7 +175,7 @@ El sistema SHALL proveer una RPC `SECURITY DEFINER` `rpc_promote_legacy_sale_to_
 La RPC SHALL:
 - (a) Validar autenticación (`auth.uid()`) y permiso de escritura sobre la cuenta de la operación (`is_account_writer(account_id)`), y validar la **tenencia** de la operación (existe al menos una fila `sales` con ese `operation_id` perteneciente a una cuenta del usuario); si la operación no existe o no pertenece al usuario SHALL fallar con `P0404`; si no hay permiso de escritura SHALL fallar con `P0401`.
 - (b) Resolver la branch efectiva como `COALESCE(MIN(sales.branch_id) de la operación, c26_default_branch(account_id))`; si no hay branch resoluble SHALL fallar con `P0422`.
-- (c) Insertar una fila en `sales_orders` con `account_id`, `branch_id` (resuelto en (b)), `client_id` (de la venta legacy), `status = 'confirmed'`, `payment_method = 'other'`, `sale_operation_id = p_operation_id`, `total = Σ subtotales reconstruidos`, `fiscal_document_id = NULL`, `created_by = auth.uid()`.
+- (c) Insertar una fila en `sales_orders` con `account_id`, `branch_id` (resuelto en (b)), `client_id` (de la venta legacy), `status = 'confirmed'`, `sale_operation_id = p_operation_id`, `total = Σ subtotales reconstruidos`, `fiscal_document_id = NULL`, `created_by = auth.uid()`. La orden SHALL nacer **sin forma de pago imputada** (`payment_method_id = NULL`): la forma de pago de una venta legacy cargada a mano es genuinamente desconocida y NO SHALL inventarse una etiqueta por defecto.
 - (d) Reconstruir `sales_order_items` a partir de `sale_items` de la operación; para ventas pre-backfill sin `sale_items`, reconstruir desde el header plano de `sales` (`product_id`, `quantity`, `amount`, `total`) vía `COALESCE`. Las líneas de servicio (`product_id IS NULL`) SHALL promoverse sin error (la columna `sales_order_items.product_id` es nullable).
 - (e) Devolver el `sales_order_id` (y `sale_operation_id`), indicando si fue una promoción nueva o una idempotente (`promoted` / `replayed`).
 
@@ -170,43 +185,41 @@ La RPC SHALL ser idempotente por `sale_operation_id` (ver requisito "Idempotenci
 
 - **GIVEN** una venta legacy con `operation_id = OP` que tiene 2 líneas en `sale_items` (productos P1 y P2) y `branch_id = B`
 - **WHEN** se invoca `rpc_promote_legacy_sale_to_order(OP)`
-- **THEN** se crea exactamente una fila en `sales_orders` con `status = 'confirmed'`, `sale_operation_id = OP`, `branch_id = B`, `payment_method = 'other'`, `fiscal_document_id = NULL` y `total` igual a la suma de los subtotales
+- **THEN** se crea exactamente una fila en `sales_orders` con `status = 'confirmed'`, `sale_operation_id = OP`, `branch_id = B`, `payment_method_id = NULL`, `fiscal_document_id = NULL` y `total` igual a la suma de los subtotales
 - **AND** existen 2 filas en `sales_order_items` reconstruidas desde las líneas de `sale_items` de OP
 - **AND** la orden queda lista para `emit-invoice` (capability `afip-fiscal-document`)
 
-#### Scenario: la promoción NO re-descuenta stock
+#### Scenario: la promoción no inventa una forma de pago
 
-- **GIVEN** una venta legacy de 3 unidades de un producto con `branch_stock = 4` en su branch (ya descontado al crear la venta)
-- **WHEN** se promueve esa venta a SalesOrder vía `rpc_promote_legacy_sale_to_order`
-- **THEN** `branch_stock` permanece en 4 (sin cambio) y NO se crea ningún `stock_movements` nuevo para la promoción
+- **GIVEN** una venta legacy cargada a mano sin forma de pago conocida
+- **WHEN** se la promueve a `SalesOrder`
+- **THEN** la orden resultante queda con `payment_method_id = NULL` y se muestra como "Sin especificar", en vez de aparecer imputada a una forma de pago que el usuario nunca eligió
 
-#### Scenario: la promoción NO registra caja
-
-- **WHEN** se promueve una venta legacy a SalesOrder
-- **THEN** NO se crea ningún `cash_movement` ni se exige una `cash_session` abierta (la promoción no toca caja, independientemente de cómo se haya cobrado la venta original)
-
-#### Scenario: la promoción NO dispara el outbox SaleConfirmed
-
-- **WHEN** se promueve una venta legacy a SalesOrder
-- **THEN** NO se inserta ninguna fila `SaleConfirmed` en `events` para esa orden (evita un asiento contable fantasma vía el Consumer 3 del outbox / journal-entry V2.5)
-
-#### Scenario: idempotencia en doble clic devuelve la orden existente
-
-- **GIVEN** una venta legacy `OP` ya promovida (existe una `sales_orders` con `sale_operation_id = OP`)
-- **WHEN** se invoca `rpc_promote_legacy_sale_to_order(OP)` por segunda vez (doble clic en "Facturar")
-- **THEN** NO se crea una segunda `sales_orders` y la llamada devuelve el `sales_order_id` ya existente marcado como idempotente (`replayed`)
-
-#### Scenario: línea de servicio sin producto se promueve sin error
-
-- **GIVEN** una venta legacy cuya operación tiene una línea de servicio (`sale_items.product_id IS NULL` o header con `product_id NULL`)
-- **WHEN** se promueve esa venta
-- **THEN** la `sales_order_items` correspondiente se crea con `product_id = NULL`, `quantity`, `price` y `subtotal` preservados, sin fallar
-
-#### Scenario: reconstrucción desde el header plano para ventas pre-backfill
-
-- **GIVEN** una venta legacy cuya operación NO tiene filas en `sale_items` (cargada antes del backfill de C-29) pero sí header plano en `sales` (`product_id`, `quantity`, `amount`, `total`)
-- **WHEN** se promueve esa venta
-- **THEN** las `sales_order_items` se reconstruyen desde el header plano vía `COALESCE`, con la misma cantidad, precio y subtotal
+<!--
+NOTA (corrección al archivar): este delta originalmente traía una sección
+"## REMOVED Requirements" para "payment_method credit es aceptado por el
+CHECK", pero esa entrada no correspondía a un Requirement propio del spec
+principal — era un `#### Scenario` dentro de "Agregado SalesOrder con
+líneas" (ver openspec/specs/sales-order/spec.md). El openspec CLI abortó el
+archive ("REMOVED failed... not found") porque REMOVED exige matchear un
+header de Requirement real. El propio "Reason" original ya lo decía: "Era
+un escenario del agregado SalesOrder". Se retira esta sección — el
+escenario desaparece igual, de forma implícita, porque el MODIFIED de
+arriba reemplaza el texto COMPLETO de "Agregado SalesOrder con líneas" y
+ya no lo incluye. Contenido del Reason/Migration originales preservado acá
+para que no se pierda el razonamiento:
+  Reason: Era un escenario del agregado SalesOrder que gateaba el dominio
+  del CHECK sales_orders_payment_method_check. Ese CHECK desaparece junto
+  con la columna sales_orders.payment_method, por lo que el escenario ya
+  no describe ningún comportamiento observable. El invariante equivalente
+  que sigue vivo —que credit es un kind admitido— lo cubre
+  payment_methods_kind_check en la capability payment-method.
+  Migration: Una venta a cuenta corriente se expresa imputando una forma
+  de pago de kind='credit' del catálogo (payment_method_id), no
+  escribiendo el literal 'credit' en la orden. El comportamiento de
+  negocio asociado (cargo en CustomerAccount, exigencia de client_id)
+  sigue especificado en "SalesOrder.confirm() es transaccional y atómico".
+-->
 
 ### Requirement: Snapshot congelado en las líneas de la orden de venta
 

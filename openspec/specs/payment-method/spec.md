@@ -31,7 +31,7 @@ El sistema SHALL persistir un catálogo plano de formas de pago en la tabla `pay
 
 ### Requirement: Vocabulario cerrado de `kind` compatible con las taxonomías existentes
 
-El sistema SHALL restringir `payment_methods.kind` por CHECK al conjunto `{cash, transfer, card, check, wallet, credit, other}`. El `name` SHALL ser la etiqueta que ve y edita el usuario; el `kind` SHALL ser lo único que consuman los subsistemas para razonar sobre la forma de pago. El CHECK de `sales_orders.payment_method` SHALL ser **idéntico** a este vocabulario (ampliado por `pos-catalogo-pagos` de un subconjunto de 5 valores al conjunto completo — ver "El vocabulario de `sales_orders.payment_method` es el vocabulario del catálogo"). El CHECK de las RPCs de cobro/pago (`{cash, transfer, card, check}`) sigue siendo un subconjunto propio, sin tocar.
+El sistema SHALL restringir `payment_methods.kind` por CHECK al conjunto `{cash, transfer, card, check, wallet, credit, other}`, y ese CHECK SHALL ser el **único** lugar donde vive el vocabulario de formas de pago del sistema. El `name` SHALL ser la etiqueta que ve y edita el usuario; el `kind` SHALL ser lo único que consuman los subsistemas para razonar sobre la forma de pago. `sales_orders` NO SHALL tener una columna de texto con su propia copia del vocabulario: la forma de pago de una orden SHALL leerse siempre por `payment_method_id → payment_methods.kind`. El CHECK de las RPCs de cobro/pago (`{cash, transfer, card, check}`) sigue siendo un subconjunto propio, sin tocar.
 
 #### Scenario: `kind` fuera del vocabulario es rechazado
 
@@ -44,14 +44,19 @@ El sistema SHALL restringir `payment_methods.kind` por CHECK al conjunto `{cash,
 - **WHEN** el usuario la renombra a "Banco Nación"
 - **THEN** el `kind` sigue siendo `transfer` y todo consumidor que agrupa por `kind` la sigue tratando como transferencia
 
+#### Scenario: El vocabulario tiene una sola definición
+
+- **WHEN** se inspecciona el schema en busca de CHECKs que enumeren formas de pago
+- **THEN** existe únicamente `payment_methods_kind_check` con los 7 valores, y no existe ningún `sales_orders_payment_method_check`
+
 ### Requirement: Seed de formas de pago en el provisioning de la cuenta
 
-El sistema SHALL sembrar seis formas de pago al crear una cuenta —Efectivo (`cash`), Transferencia bancaria (`transfer`), Tarjeta (`card`), Billetera virtual (`wallet`), Cuenta corriente (`credit`) y Otro (`other`)— de modo que un tenant nuevo pueda imputar la forma de pago sin configuración manual. El seed SHALL ejecutarse dentro de `handle_new_user` envuelto de forma que un fallo suyo **NUNCA** aborte el signup (degrada con warning), SHALL ser idempotente, y SHALL aplicarse por backfill a las cuentas ya existentes.
+El sistema SHALL sembrar siete formas de pago al crear una cuenta —Efectivo (`cash`), Transferencia bancaria (`transfer`), Tarjeta (`card`), Billetera virtual (`wallet`), Cuenta corriente (`credit`), Otro (`other`) y **Cheque (`check`)**— de modo que un tenant nuevo pueda imputar la forma de pago sin configuración manual, incluyendo el `kind` `check` que el CHECK del vocabulario admite pero que el seed original (`metodos-pago-operaciones`) no sembraba (OQ-1: sin este 7º método, la resolución legacy de `sales-order` nunca imputaba una venta con cheque). El seed SHALL ejecutarse dentro de `handle_new_user` envuelto de forma que un fallo suyo **NUNCA** aborte el signup (degrada con warning), SHALL ser idempotente, y SHALL aplicarse por backfill a las cuentas ya existentes.
 
 #### Scenario: Cuenta nueva nace con el catálogo sembrado
 
 - **WHEN** se registra un usuario nuevo y se provisiona su cuenta
-- **THEN** la cuenta tiene las seis formas de pago activas, sin intervención manual
+- **THEN** la cuenta tiene las siete formas de pago activas, sin intervención manual
 
 #### Scenario: El seed no puede romper el registro
 
@@ -64,6 +69,12 @@ El sistema SHALL sembrar seis formas de pago al crear una cuenta —Efectivo (`c
 - **GIVEN** una cuenta que ya tiene el catálogo sembrado
 - **WHEN** el backfill vuelve a ejecutarse
 - **THEN** no se duplica ninguna forma de pago
+
+#### Scenario: Cuenta existente sin Cheque lo recibe por backfill
+
+- **GIVEN** una cuenta sembrada antes de este change, con las 6 formas de pago originales y sin `kind = 'check'`
+- **WHEN** se aplica la migración de `limpiezas-pagos-admin`
+- **THEN** la cuenta queda con una 7ª forma de pago "Cheque" (`kind = 'check'`), activa, sin alterar las 6 existentes
 
 ### Requirement: Gestión del catálogo gateada por rol
 
@@ -224,26 +235,6 @@ El sistema SHALL ofrecer en el POS (`/ventas/pos`) las formas de pago **activas 
 - **WHEN** el usuario carga un carrito y cobra desde el POS
 - **THEN** la venta se confirma sin forma de pago imputada y la pantalla ofrece un enlace al gestor del catálogo
 
-### Requirement: El vocabulario de `sales_orders.payment_method` es el vocabulario del catálogo
-
-El sistema SHALL mantener un único vocabulario de formas de pago: el conjunto admitido por el CHECK de `sales_orders.payment_method` SHALL ser idéntico al admitido por `payment_methods.kind` (`cash`, `transfer`, `card`, `check`, `wallet`, `credit`, `other`). Cuando una orden de venta tiene `payment_method_id` imputado, su `payment_method` SHALL ser igual al `kind` de esa forma de pago; el texto SHALL ser escrito por la RPC y nunca elegido por el cliente. La columna `payment_method` SHALL conservarse como columna derivada —no se dropea en este change— documentada con un `COMMENT` que declare que su fuente es `payment_method_id`.
-
-#### Scenario: Los dos vocabularios coinciden
-
-- **WHEN** se inspeccionan las definiciones de `sales_orders_payment_method_check` y `payment_methods_kind_check`
-- **THEN** ambos enumeran exactamente el mismo conjunto de valores
-
-#### Scenario: El texto legacy queda derivado del kind
-
-- **WHEN** se confirma una venta imputada a una forma de pago de `kind = 'wallet'`
-- **THEN** la orden queda con `payment_method_id` de esa forma de pago y `payment_method = 'wallet'`
-
-#### Scenario: Una venta histórica sin imputación conserva su texto
-
-- **GIVEN** una orden anterior a este change con `payment_method = 'other'` cuyo backfill no encontró forma de pago viva
-- **WHEN** se la consulta
-- **THEN** conserva `payment_method = 'other'` con `payment_method_id = NULL` y se muestra por derivación de lectura
-
 ### Requirement: El POS exige cliente y muestra el saldo al cobrar a cuenta corriente
 
 El sistema SHALL, cuando en el POS se elige una forma de pago de `kind = 'credit'`, exigir un cliente antes de permitir el cobro, mostrando el motivo en pantalla; SHALL mostrar el saldo actual de la cuenta corriente de ese cliente y el saldo proyectado tras la venta, reutilizando el read-model de cuenta corriente ya existente; y SHALL enlazar la cuenta corriente del cliente desde la confirmación de la venta. El bloqueo del cliente en la interfaz SHALL ser una comodidad, no la fuente de verdad: el rechazo definitivo SHALL provenir del backend.
@@ -268,7 +259,9 @@ El sistema SHALL, cuando en el POS se elige una forma de pago de `kind = 'credit
 
 ### Requirement: Lectura de la forma de pago en operaciones nacidas en el POS
 
-El sistema SHALL persistir `payment_method_id` en todas las filas legacy de `sales` de una venta nacida en el POS cuando la orden lleva forma de pago imputada, de modo que las ventas nuevas no dependan de ninguna derivación. Para las operaciones históricas sin imputación, el sistema SHALL conservar la derivación **de lectura** desde el texto legacy de `sales_orders.payment_method` mapeado por `kind`, como fallback. La imputación explícita SHALL ganar siempre sobre la derivación, y la derivación NO SHALL escribir en `sales`, `sales_orders` ni `payment_methods`.
+El sistema SHALL persistir `payment_method_id` en todas las filas legacy de `sales` de una venta nacida en el POS cuando la orden lleva forma de pago imputada, de modo que las ventas nuevas no dependan de ninguna derivación. Para las operaciones históricas cuyas filas de `sales` no tienen `payment_method_id`, el sistema SHALL conservar la derivación **de lectura** desde el `payment_method_id` de la orden de venta asociada (`sales_orders`), resolviendo el catálogo por identidad y NO por `kind`. La imputación explícita SHALL ganar siempre sobre la derivación, y la derivación NO SHALL escribir en `sales`, `sales_orders` ni `payment_methods`.
+
+La derivación por identidad SHALL reemplazar a la derivación por `kind`: `payment_methods.kind` no es único dentro de una cuenta, por lo que un JOIN por `kind` puede devolver más de una fila y duplicar la operación en los listados. El JOIN SHALL ser por `payment_methods.id = sales_orders.payment_method_id`.
 
 #### Scenario: Venta nueva del POS trae su forma de pago persistida
 
@@ -277,15 +270,27 @@ El sistema SHALL persistir `payment_method_id` en todas las filas legacy de `sal
 
 #### Scenario: Venta histórica sin imputación se sigue mostrando por derivación
 
-- **GIVEN** una venta previa a este change cuya orden tiene `payment_method = 'cash'` y cuyas filas de `sales` tienen `payment_method_id = NULL`
+- **GIVEN** una venta previa cuyas filas de `sales` tienen `payment_method_id = NULL` pero cuya orden de venta tiene `payment_method_id` imputado
 - **WHEN** el usuario abre el listado de ventas
-- **THEN** la operación se muestra con la forma de pago de `kind = 'cash'` de la cuenta, y ninguna fila de `sales` es modificada por la lectura
+- **THEN** la operación se muestra con la forma de pago de la orden, y ninguna fila de `sales` es modificada por la lectura
 
 #### Scenario: La imputación explícita gana sobre la derivación
 
-- **GIVEN** una operación con `payment_method_id` persistido
+- **GIVEN** una operación con `payment_method_id` persistido en `sales`
 - **WHEN** se lista
-- **THEN** se muestra la forma de pago persistida, sin consultar el texto legacy de la orden
+- **THEN** se muestra la forma de pago persistida, sin consultar la orden de venta
+
+#### Scenario: Dos formas de pago del mismo kind no duplican la operación
+
+- **GIVEN** una cuenta con dos formas de pago vivas de `kind = 'transfer'` y una venta del POS imputada a una de ellas
+- **WHEN** el usuario abre el listado de ventas
+- **THEN** la operación aparece exactamente una vez, con la forma de pago efectivamente imputada
+
+#### Scenario: Operación sin forma de pago resoluble se muestra sin imputar
+
+- **GIVEN** una venta cuyas filas de `sales` y cuya orden de venta tienen ambas `payment_method_id = NULL`
+- **WHEN** el usuario abre el listado de ventas
+- **THEN** la operación se muestra sin forma de pago ("Sin especificar"), sin error
 
 ### Requirement: Read-model de distribución por forma de pago
 

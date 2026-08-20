@@ -124,10 +124,28 @@ La RPC SHALL ser idempotente por `sale_operation_id` (ver requisito "Idempotenci
 - **WHEN** se la promueve a `SalesOrder`
 - **THEN** la orden resultante queda con `payment_method_id = NULL` y se muestra como "Sin especificar", en vez de aparecer imputada a una forma de pago que el usuario nunca eligió
 
-## REMOVED Requirements
-
-### Requirement: payment_method credit es aceptado por el CHECK
-
-**Reason**: Era un escenario del agregado `SalesOrder` que gateaba el dominio del CHECK `sales_orders_payment_method_check`. Ese CHECK desaparece junto con la columna `sales_orders.payment_method`, por lo que el escenario ya no describe ningún comportamiento observable. El invariante equivalente que sigue vivo —que `credit` es un `kind` admitido— lo cubre `payment_methods_kind_check` en la capability `payment-method`.
-
-**Migration**: Una venta a cuenta corriente se expresa imputando una forma de pago de `kind = 'credit'` del catálogo (`payment_method_id`), no escribiendo el literal `'credit'` en la orden. El comportamiento de negocio asociado (cargo en `CustomerAccount`, exigencia de `client_id`) sigue especificado en "SalesOrder.confirm() es transaccional y atómico".
+<!--
+NOTA (corrección al archivar): este delta originalmente traía una sección
+"## REMOVED Requirements" para "payment_method credit es aceptado por el
+CHECK", pero esa entrada no correspondía a un Requirement propio del spec
+principal — era un `#### Scenario` dentro de "Agregado SalesOrder con
+líneas" (ver openspec/specs/sales-order/spec.md). El openspec CLI abortó el
+archive ("REMOVED failed... not found") porque REMOVED exige matchear un
+header de Requirement real. El propio "Reason" original ya lo decía: "Era
+un escenario del agregado SalesOrder". Se retira esta sección — el
+escenario desaparece igual, de forma implícita, porque el MODIFIED de
+arriba reemplaza el texto COMPLETO de "Agregado SalesOrder con líneas" y
+ya no lo incluye. Contenido del Reason/Migration originales preservado acá
+para que no se pierda el razonamiento:
+  Reason: Era un escenario del agregado SalesOrder que gateaba el dominio
+  del CHECK sales_orders_payment_method_check. Ese CHECK desaparece junto
+  con la columna sales_orders.payment_method, por lo que el escenario ya
+  no describe ningún comportamiento observable. El invariante equivalente
+  que sigue vivo —que credit es un kind admitido— lo cubre
+  payment_methods_kind_check en la capability payment-method.
+  Migration: Una venta a cuenta corriente se expresa imputando una forma
+  de pago de kind='credit' del catálogo (payment_method_id), no
+  escribiendo el literal 'credit' en la orden. El comportamiento de
+  negocio asociado (cargo en CustomerAccount, exigencia de client_id)
+  sigue especificado en "SalesOrder.confirm() es transaccional y atómico".
+-->

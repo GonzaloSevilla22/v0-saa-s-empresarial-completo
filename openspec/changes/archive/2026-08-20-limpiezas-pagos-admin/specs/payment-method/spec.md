@@ -1,5 +1,32 @@
 ## MODIFIED Requirements
 
+### Requirement: Seed de formas de pago en el provisioning de la cuenta
+
+El sistema SHALL sembrar siete formas de pago al crear una cuenta —Efectivo (`cash`), Transferencia bancaria (`transfer`), Tarjeta (`card`), Billetera virtual (`wallet`), Cuenta corriente (`credit`), Otro (`other`) y **Cheque (`check`)**— de modo que un tenant nuevo pueda imputar la forma de pago sin configuración manual, incluyendo el `kind` `check` que el CHECK del vocabulario admite pero que el seed original (`metodos-pago-operaciones`) no sembraba (OQ-1: sin este 7º método, la resolución legacy de `sales-order` nunca imputaba una venta con cheque). El seed SHALL ejecutarse dentro de `handle_new_user` envuelto de forma que un fallo suyo **NUNCA** aborte el signup (degrada con warning), SHALL ser idempotente, y SHALL aplicarse por backfill a las cuentas ya existentes.
+
+#### Scenario: Cuenta nueva nace con el catálogo sembrado
+
+- **WHEN** se registra un usuario nuevo y se provisiona su cuenta
+- **THEN** la cuenta tiene las siete formas de pago activas, sin intervención manual
+
+#### Scenario: El seed no puede romper el registro
+
+- **GIVEN** una condición que hace fallar el sub-bloque de seed de formas de pago
+- **WHEN** se registra un usuario nuevo
+- **THEN** el perfil, la cuenta y la membresía se crean igual y el fallo del seed sólo deja un warning
+
+#### Scenario: Re-ejecución idempotente
+
+- **GIVEN** una cuenta que ya tiene el catálogo sembrado
+- **WHEN** el backfill vuelve a ejecutarse
+- **THEN** no se duplica ninguna forma de pago
+
+#### Scenario: Cuenta existente sin Cheque lo recibe por backfill
+
+- **GIVEN** una cuenta sembrada antes de este change, con las 6 formas de pago originales y sin `kind = 'check'`
+- **WHEN** se aplica la migración de `limpiezas-pagos-admin`
+- **THEN** la cuenta queda con una 7ª forma de pago "Cheque" (`kind = 'check'`), activa, sin alterar las 6 existentes
+
 ### Requirement: Vocabulario cerrado de `kind` compatible con las taxonomías existentes
 
 El sistema SHALL restringir `payment_methods.kind` por CHECK al conjunto `{cash, transfer, card, check, wallet, credit, other}`, y ese CHECK SHALL ser el **único** lugar donde vive el vocabulario de formas de pago del sistema. El `name` SHALL ser la etiqueta que ve y edita el usuario; el `kind` SHALL ser lo único que consuman los subsistemas para razonar sobre la forma de pago. `sales_orders` NO SHALL tener una columna de texto con su propia copia del vocabulario: la forma de pago de una orden SHALL leerse siempre por `payment_method_id → payment_methods.kind`. El CHECK de las RPCs de cobro/pago (`{cash, transfer, card, check}`) sigue siendo un subconjunto propio, sin tocar.

@@ -466,7 +466,14 @@ $function$;
 
 -- ACLs de _c29_confirm_order_core: solo postgres/service_role (no expuesta a
 -- PostgREST). El DROP+CREATE resetea a default (EXECUTE a PUBLIC) — re-emitir.
-REVOKE ALL ON FUNCTION public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid) FROM PUBLIC;
+-- REVOKE debe listar "PUBLIC, anon, authenticated" explícitamente: "FROM
+-- PUBLIC" solo no alcanza porque Supabase setea ALTER DEFAULT PRIVILEGES
+-- que otorga EXECUTE directo a anon/authenticated en cada función nueva
+-- (no vía el pseudo-rol PUBLIC) — gotcha de los advisors 0028/0029, mismo
+-- patrón que 20260828000001_v31_rls_collision_rpcs.sql. Confirmado en CI
+-- (gate test_function_acl_gate.sql) sobre este mismo change: el REVOKE
+-- "FROM PUBLIC" a secas dejaba anon con EXECUTE en las 3 funciones.
+REVOKE ALL ON FUNCTION public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid) TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -505,7 +512,7 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.rpc_confirm_sales_order(text, uuid, text, uuid, text, uuid, uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_confirm_sales_order(text, uuid, text, uuid, text, uuid, uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_confirm_sales_order(text, uuid, text, uuid, text, uuid, uuid, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_confirm_sales_order(text, uuid, text, uuid, text, uuid, uuid, text, uuid) TO service_role;
 
@@ -628,7 +635,7 @@ BEGIN
 END;
 $function$;
 
-REVOKE ALL ON FUNCTION public.rpc_quick_sale(text, uuid, jsonb, text, uuid, text, uuid, uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_quick_sale(text, uuid, jsonb, text, uuid, text, uuid, uuid, text, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_quick_sale(text, uuid, jsonb, text, uuid, text, uuid, uuid, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_quick_sale(text, uuid, jsonb, text, uuid, text, uuid, uuid, text, uuid) TO service_role;
 

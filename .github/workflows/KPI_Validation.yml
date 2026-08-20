@@ -86,6 +86,8 @@ jobs:
             echo "20260928000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20260930000001 ya cambió de nuevo la firma) — reconvergiendo con 20260930000001"
           fi
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260930000001_edicion_preserva_contexto.sql
+          echo "--- DEBUG edicion-preserva-contexto: ACL state right after reapply ---"
+          psql "$DSN" -c "SELECT p.proname, count(*) AS n, array_agg(pg_get_function_identity_arguments(p.oid)) AS sigs, array_agg(p.proacl::text) AS acls, array_agg(has_function_privilege('anon', p.oid, 'EXECUTE')) AS anon_exec FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('rpc_atomic_update_sale_operation','rpc_atomic_update_purchase_operation') GROUP BY p.proname;"
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

@@ -118,6 +118,21 @@ jobs:
           # REPLACE que siguen dejan 1 sola definición de cada función (de
           # paso, prueba que esta migración es re-appliable).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261002000001_pos_banco_movimientos.sql
+          # limpiezas-pagos-admin: el reapply de 20261002000001 arriba
+          # redefine _c29_confirm_order_core y rpc_create_purchase_operation
+          # (entre otras) con SU cuerpo vigente en esa fecha — que todavía
+          # escribe sales_orders.payment_method (columna que esta migración
+          # dropea) y todavía usa los ERRCODE de 4 caracteres que G3
+          # corrige. A diferencia de las notas anteriores, acá NO hay
+          # conflicto de firma/overload (esta migración no cambia ninguna
+          # firma, solo cuerpos vía CREATE OR REPLACE + dos DROP FUNCTION
+          # permanentes + un ALTER TABLE DROP COLUMN, todos idempotentes por
+          # diseño) — se reconverge reaplicando esta migración una última
+          # vez al final de toda la cadena: el DO de G3 vuelve a corregir
+          # cualquier ERRCODE revertido, G1a/G1b vuelven a dejar los cuerpos
+          # sin la columna, y el DROP COLUMN/DROP FUNCTION, ya aplicados, son
+          # no-op (de paso, prueba que esta migración es re-appliable).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261003000001_limpiezas_pagos_admin.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -132,6 +147,16 @@ jobs:
       # función SECURITY DEFINER queda anon-executable fuera de la allowlist.
       - name: Run function ACL anti-regression gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_function_acl_gate.sql
+
+      # limpiezas-pagos-admin (G3, D5): gate PERMANENTE — falla el pipeline si
+      # cualquier función viva de public/community usa un ERRCODE custom de
+      # menos de 5 caracteres. Postgres los rechaza en runtime (42704
+      # unrecognized_exception, mensaje original perdido, degrada a 500
+      # genérico en backend/core/errors.py). La corrección puntual de
+      # 20260624000001 se perdió porque nada la sostenía — este gate es la
+      # red permanente, mismo patrón que test_function_acl_gate.sql.
+      - name: Run ERRCODE 5-char anti-regression gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_errcode_5char_gate.sql
 
       # Invariantes del ledger de idempotencia (H-1 QA #361): contrato por-fila
       # de operation_id, kinds del CHECK en sincronía con los escritores, y

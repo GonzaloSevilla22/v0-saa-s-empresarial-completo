@@ -97,9 +97,10 @@ class SaleItemOut(BaseModel):
     amount: Decimal
     total: Decimal | None = None
     currency: str = "ARS"
-    # metodos-pago-operaciones (D7): imputación explícita o, para ventas del
-    # POS sin imputar, derivada de lectura desde sales_orders.payment_method
-    # (LEFT JOIN, resuelto en el mismo query — ver SalesRepository).
+    # metodos-pago-operaciones (D7) + limpiezas-pagos-admin (G1b, D3):
+    # imputación explícita o, para ventas del POS sin imputar, derivada de
+    # lectura desde sales_orders.payment_method_id (LEFT JOIN por identidad,
+    # resuelto en el mismo query — ver SalesRepository).
     payment_method_id: uuid.UUID | None = None
     payment_method_name: str | None = None
     payment_method_kind: str | None = None

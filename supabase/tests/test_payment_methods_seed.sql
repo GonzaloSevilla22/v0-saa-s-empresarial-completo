@@ -2,21 +2,23 @@
 -- GATE: test_payment_methods_seed.sql
 -- CHANGE: metodos-pago-operaciones (task 1.4 RED / D11)
 --
--- Verifica el seed de 6 formas de pago (D11):
---   (1) toda cuenta existente tiene las 6 formas sembradas (backfill Parte A
---       — verificado sobre las cuentas reales del stack, degrada si no hay
+-- Verifica el seed de formas de pago (D11). limpiezas-pagos-admin (OQ-1,
+-- 2026-10-03) agregó 'Cheque' como 7º método — el seed pasó de 6 a 7:
+--   (1) toda cuenta existente tiene las 7 formas sembradas (backfill Parte A
+--       original + el backfill de 'Cheque' de limpiezas-pagos-admin —
+--       verificado sobre las cuentas reales del stack, degrada si no hay
 --       ninguna);
---   (2) re-ejecutar el backfill de Parte A no duplica (idempotencia real,
+--   (2) re-ejecutar AMBOS backfills no duplica (idempotencia real,
 --       fingerprint antes/después);
---   (3) un signup nuevo nace con las 6 formas de pago sin intervención
---       manual (handle_new_user, Parte B);
+--   (3) un signup nuevo nace con las 7 formas de pago sin intervención
+--       manual (handle_new_user, Parte B, actualizado a 7 por OQ-1);
 --   (4) un fallo forzado del sub-bloque de seed NO aborta el signup: el
 --       perfil, la cuenta y la membresía se crean igual (degrade-don't-fail,
 --       técnica CHECK ... NOT VALID — mismo patrón que
 --       test_analytics_events.sql Gate 4).
 -- =============================================================================
 
--- ── (1) Toda cuenta existente tiene las 6 formas sembradas ───────────────────
+-- ── (1) Toda cuenta existente tiene las 7 formas sembradas ───────────────────
 DO $$
 DECLARE
   v_total_accounts   integer;
@@ -32,19 +34,19 @@ BEGIN
     WHERE (
       SELECT COUNT(*) FROM public.payment_methods pm
       WHERE pm.account_id = a.id AND pm.deleted_at IS NULL
-    ) < 6;
+    ) < 7;
 
     IF v_accounts_missing > 0 THEN
-      RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (1): % de % cuentas tienen menos de 6 formas de pago vivas (backfill Parte A incompleto).',
+      RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (1): % de % cuentas tienen menos de 7 formas de pago vivas (backfill Parte A + Cheque incompleto).',
         v_accounts_missing, v_total_accounts;
     END IF;
 
-    RAISE NOTICE 'PASS (1): las % cuentas existentes tienen las 6 formas de pago sembradas.', v_total_accounts;
+    RAISE NOTICE 'PASS (1): las % cuentas existentes tienen las 7 formas de pago sembradas.', v_total_accounts;
   END IF;
 END $$;
 
 
--- ── (2) Re-ejecutar el backfill de Parte A no duplica (idempotencia real) ────
+-- ── (2) Re-ejecutar AMBOS backfills no duplica (idempotencia real) ───────────
 DO $$
 DECLARE
   v_before bigint;
@@ -71,17 +73,29 @@ BEGIN
         AND pm.deleted_at IS NULL
   );
 
+  -- limpiezas-pagos-admin (OQ-1): mismo INSERT exacto que el backfill de
+  -- 'Cheque' de la migración 20261003000001.
+  INSERT INTO public.payment_methods (account_id, name, kind, sort_order)
+  SELECT a.id, 'Cheque', 'check', 7
+  FROM public.accounts a
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.payment_methods pm
+    WHERE pm.account_id = a.id
+      AND pm.kind        = 'check'
+      AND pm.deleted_at IS NULL
+  );
+
   SELECT COUNT(*) INTO v_after FROM public.payment_methods;
 
   IF v_before <> v_after THEN
     RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (2): el backfill NO es idempotente — % filas antes, % después de re-ejecutarlo.', v_before, v_after;
   END IF;
 
-  RAISE NOTICE 'PASS (2): backfill de Parte A idempotente — % filas antes y después.', v_before;
+  RAISE NOTICE 'PASS (2): backfill de Parte A + Cheque idempotente — % filas antes y después.', v_before;
 END $$;
 
 
--- ── (3) Signup nuevo nace con las 6 formas de pago ────────────────────────────
+-- ── (3) Signup nuevo nace con las 7 formas de pago ────────────────────────────
 DO $$
 DECLARE
   v_anchor_email text := 'payment-methods-seed-gate-new@test.local';
@@ -107,11 +121,11 @@ BEGIN
     FROM public.payment_methods
     WHERE account_id = v_account_id AND deleted_at IS NULL AND is_active = TRUE;
 
-    IF v_pm_count <> 6 THEN
-      RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (3): un signup nuevo esperaba nacer con 6 formas de pago activas, tiene %.', v_pm_count;
+    IF v_pm_count <> 7 THEN
+      RAISE EXCEPTION 'GATE PAYMENT-METHODS-SEED FAILED (3): un signup nuevo esperaba nacer con 7 formas de pago activas, tiene %.', v_pm_count;
     END IF;
 
-    RAISE NOTICE 'PASS (3): el signup nuevo nace con las 6 formas de pago sembradas.';
+    RAISE NOTICE 'PASS (3): el signup nuevo nace con las 7 formas de pago sembradas.';
   END IF;
 
   -- Cleanup hijo→padre

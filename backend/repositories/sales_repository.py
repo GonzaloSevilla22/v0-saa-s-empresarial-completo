@@ -72,10 +72,14 @@ class SalesRepository(BaseRepository):
                    s.branch_id,
                    s.canal,
                    COALESCE(si.unit_id, s.unit_id) AS unit_id,
-                   -- metodos-pago-operaciones (D7): la imputación explícita
-                   -- gana; si no hay, se deriva DE LECTURA desde el texto
-                   -- legacy de la orden del POS (cash/other) mapeado por
-                   -- kind. Cero escritura — sales/sales_orders no se tocan.
+                   -- metodos-pago-operaciones (D7) + limpiezas-pagos-admin
+                   -- (G1b, D3): la imputación explícita gana; si no hay, se
+                   -- deriva DE LECTURA desde la orden del POS por identidad
+                   -- (payment_method_id), ya no desde el kind: payment_
+                   -- methods.kind no es único por cuenta, así que unir desde
+                   -- ahí devolvía más de una fila y duplicaba la operación
+                   -- en el listado (fan-out latente). Cero escritura —
+                   -- sales/sales_orders no se tocan.
                    COALESCE(pm.id,   pos_pm.id)   AS payment_method_id,
                    COALESCE(pm.name, pos_pm.name) AS payment_method_name,
                    COALESCE(pm.kind, pos_pm.kind) AS payment_method_kind,
@@ -117,8 +121,7 @@ class SalesRepository(BaseRepository):
             LEFT JOIN payment_methods pm ON pm.id = s.payment_method_id
             LEFT JOIN sales_orders so ON so.sale_operation_id = s.operation_id
             LEFT JOIN payment_methods pos_pm
-                   ON pos_pm.account_id = s.account_id
-                  AND pos_pm.kind       = so.payment_method
+                   ON pos_pm.id          = so.payment_method_id
                   AND pos_pm.deleted_at IS NULL
             LEFT JOIN fiscal_documents fd ON fd.id = so.fiscal_document_id
             WHERE s.account_id = $1::uuid

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -815,3 +816,35 @@ async def test_list_sales_exposes_payment_method_of_the_operation(async_client, 
     assert "sales_orders" in rows_query
     assert "payment_method_name" in rows_query
     assert "payment_method_kind" in rows_query
+
+
+async def test_list_sales_pos_derivation_joins_by_payment_method_id_not_kind(
+    async_client, valid_token, mock_pool
+):
+    """limpiezas-pagos-admin (G1b, D3, task 5.1): la derivación de lectura del
+    POS SHALL unir payment_methods por identidad (pos_pm.id = so.payment_
+    method_id), no por kind. `payment_methods.kind` no es único dentro de
+    una cuenta — nada impide crear dos formas de pago del mismo kind desde
+    el manager de Configuración — así que un JOIN por kind puede devolver
+    más de una fila por venta y duplicar la operación en el listado (bug
+    latente, D3 de design.md). No hay forma de ejercitar el fan-out con
+    filas reales contra este pool mockeado (conn.fetch no ejecuta SQL de
+    verdad), así que el gate verifica la propiedad estructural que lo
+    elimina por construcción: el texto de la query nunca vuelve a unir
+    payment_methods por kind contra sales_orders.payment_method (columna
+    retirada en este mismo change) y siempre lo hace por
+    sales_orders.payment_method_id."""
+    pool, conn = mock_pool
+    captured = _capture_sales_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/sales", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "pos_pm.id" in rows_query
+    assert "so.payment_method_id" in rows_query
+    # El JOIN por kind (bug latente de fan-out) no debe reaparecer. pos_pm.kind
+    # sigue apareciendo en el SELECT (expone el kind del método resuelto) —
+    # lo que no debe existir es la CONDICIÓN de join contra el kind.
+    assert re.search(r"pos_pm\.kind\s*=\s*so\.payment_method", rows_query) is None

@@ -422,8 +422,8 @@ BEGIN
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
 
-  INSERT INTO public.sales_orders (account_id, branch_id, status, payment_method, total, created_by, sale_operation_id, fiscal_document_id)
-  VALUES (v_account_a, v_branch_a, 'confirmed', 'cash', 200, v_user_a, v_op, v_doc_authorized)
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 200, v_user_a, v_op, v_doc_authorized)
   RETURNING id INTO v_so_id;
 
   SELECT quantity INTO v_stock_before FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_branch_a;
@@ -464,8 +464,8 @@ BEGIN
   );
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
-  INSERT INTO public.sales_orders (account_id, branch_id, status, payment_method, total, created_by, sale_operation_id, fiscal_document_id)
-  VALUES (v_account_a, v_branch_a, 'confirmed', 'cash', 100, v_user_a, v_op, v_doc_pending);
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 100, v_user_a, v_op, v_doc_pending);
 
   v_caught_sqlstate := NULL;
   BEGIN
@@ -491,8 +491,8 @@ BEGIN
   );
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
-  INSERT INTO public.sales_orders (account_id, branch_id, status, payment_method, total, created_by, sale_operation_id, fiscal_document_id)
-  VALUES (v_account_a, v_branch_a, 'confirmed', 'cash', 100, v_user_a, v_op, v_doc_rejected);
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 100, v_user_a, v_op, v_doc_rejected);
 
   BEGIN
     v_result := public.rpc_atomic_update_sale_operation(
@@ -537,8 +537,8 @@ BEGIN
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
 
-  INSERT INTO public.sales_orders (account_id, branch_id, status, payment_method, total, created_by, sale_operation_id, fiscal_document_id)
-  VALUES (v_account_a, v_branch_a, 'confirmed', 'cash', 300, v_user_a, v_op, NULL)
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 300, v_user_a, v_op, NULL)
   RETURNING id INTO v_so_id;
 
   v_result := public.rpc_atomic_update_sale_operation(

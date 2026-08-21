@@ -81,7 +81,11 @@ export function CustomerAccountHistory({ movements, loading }: CustomerAccountHi
 
       {movements.map((m) => {
         const isDebit = m.movementType === "sale"
-        const formattedAmount = m.amount.toLocaleString("es-AR", {
+        // El signo visual lo pone el componente ("+"/"−") según el tipo; el
+        // monto se formatea en valor absoluto para no duplicarlo (los cobros,
+        // NC y ajustes viven NEGATIVOS en el ledger — reporte PO 2026-08-21:
+        // "Cobro −$-58.750,00").
+        const formattedAmount = Math.abs(m.amount).toLocaleString("es-AR", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })

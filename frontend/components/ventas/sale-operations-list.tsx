@@ -32,6 +32,8 @@ import { Badge }    from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operations"
+import { getDeleteCompensation } from "@/lib/delete-compensation"
+import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate, type Currency } from "@/lib/format"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
@@ -39,7 +41,7 @@ import type { Sale, Client } from "@/lib/types"
 import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
-  Plus, Trash2, Pencil, ChevronDown, ChevronRight,
+  Plus, Pencil, ChevronDown, ChevronRight,
   ShoppingCart, Search, PackageOpen, Download, CalendarDays, X, Loader2,
   Receipt, Lock,
 } from "lucide-react"
@@ -167,10 +169,7 @@ export function SaleOperationsList({
   }
 
   const handleDelete = useCallback(
-    async (e: React.MouseEvent, op: SaleOperation) => {
-      e.stopPropagation()
-      const label = op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"
-      if (!confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) return
+    async (op: SaleOperation) => {
       setDeletingKey(op.key)
       try {
         await onDeleteOperation(op)
@@ -391,11 +390,13 @@ export function SaleOperationsList({
                           </Button>
                         )
                       )}
-                      <Button type="button" variant="ghost" size="icon"
-                        onClick={(e) => handleDelete(e, op)} disabled={deletingKey === op.key}
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <DeleteOperationDialog
+                        label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
+                        info={getDeleteCompensation(op, "cliente")}
+                        onConfirm={() => handleDelete(op)}
+                        isDeleting={deletingKey === op.key}
+                        onTriggerClick={(e) => e.stopPropagation()}
+                      />
                     </div>
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
@@ -459,11 +460,13 @@ export function SaleOperationsList({
                         </Button>
                     : <span />
                   }
-                  <Button type="button" variant="ghost" size="icon"
-                    onClick={(e) => handleDelete(e, op)} disabled={deletingKey === op.key}
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <DeleteOperationDialog
+                    label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
+                    info={getDeleteCompensation(op, "cliente")}
+                    onConfirm={() => handleDelete(op)}
+                    isDeleting={deletingKey === op.key}
+                    onTriggerClick={(e) => e.stopPropagation()}
+                  />
                 </div>
               </div>
 

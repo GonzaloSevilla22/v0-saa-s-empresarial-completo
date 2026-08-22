@@ -92,6 +92,18 @@ class PurchaseRepository(BaseRepository):
                    -- pos-banco-movimientos (D8): segundo término —
                    -- bank_movements, mismo predicado que el EXISTS de
                    -- rpc_atomic_update_purchase_operation (source_doc_type='purchase').
+                   -- delete-guard-ledgers (task 9.2): expuestos también por
+                   -- separado para que el diálogo de borrado enumere qué
+                   -- libro compensaría (no hay pata de caja para compras —
+                   -- las compras no tienen opt-in de caja, design.md Non-Goals).
+                   EXISTS (
+                     SELECT 1 FROM supplier_account_movements sam
+                     WHERE sam.reference_id = p.operation_id
+                   ) AS has_account_charge,
+                   EXISTS (
+                     SELECT 1 FROM bank_movements bm
+                     WHERE bm.source_doc_type = 'purchase' AND bm.source_doc_ref = p.operation_id
+                   ) AS has_bank_movement,
                    (
                      EXISTS (
                        SELECT 1 FROM supplier_account_movements sam

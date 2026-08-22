@@ -85,6 +85,9 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     paymentMethodId: null,
     branchId: "branch-b",
     unitId: "unit-kg",
+    isPaymentLocked: false,
+    hasAccountCharge: false,
+    hasBankMovement: false,
     ...overrides,
   }
 }

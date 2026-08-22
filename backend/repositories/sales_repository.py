@@ -105,6 +105,24 @@ class SalesRepository(BaseRepository):
                    -- pos-banco-movimientos (D8): tercer término — bank_movements,
                    -- mismo predicado que el tercer EXISTS de
                    -- rpc_atomic_update_sale_operation (source_doc_type='sale').
+                   -- delete-guard-ledgers (task 9.2): los tres EXISTS se
+                   -- exponen TAMBIÉN por separado (has_account_charge/
+                   -- has_cash_movement/has_bank_movement) para que el diálogo
+                   -- de borrado enumere específicamente qué libro compensaría
+                   -- — is_payment_locked (el OR de los tres) se preserva tal
+                   -- cual para no romper el badge de lock de edición existente.
+                   (
+                     EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
+                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))
+                   ) AS has_account_charge,
+                   (
+                     EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = s.operation_id)
+                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM cash_movements cm WHERE cm.reference_id = so.id))
+                   ) AS has_cash_movement,
+                   (
+                     EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = s.operation_id)
+                     OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM bank_movements bm WHERE bm.source_doc_type = 'sale' AND bm.source_doc_ref = so.id))
+                   ) AS has_bank_movement,
                    (
                      EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = s.operation_id)
                      OR (so.id IS NOT NULL AND EXISTS (SELECT 1 FROM customer_account_movements cam WHERE cam.reference_id = so.id))

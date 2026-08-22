@@ -13,12 +13,14 @@ import { Badge }    from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-operations"
+import { getDeleteCompensation } from "@/lib/delete-compensation"
+import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate } from "@/lib/format"
 import type { Purchase } from "@/lib/types"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
-  Plus, Trash2, Pencil, ChevronDown, ChevronRight,
+  Plus, Pencil, ChevronDown, ChevronRight,
   ShoppingCart, Search, PackageOpen, Download, CalendarDays, X, Loader2,
   Lock,
 } from "lucide-react"
@@ -109,10 +111,7 @@ export function PurchaseOperationsList({
   }
 
   const handleDelete = useCallback(
-    async (e: React.MouseEvent, op: PurchaseOperation) => {
-      e.stopPropagation()
-      const label = op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"
-      if (!confirm(`¿Eliminar ${label}? Esta acción no se puede deshacer.`)) return
+    async (op: PurchaseOperation) => {
       setDeletingKey(op.key)
       try {
         await onDeleteOperation(op)
@@ -310,11 +309,13 @@ export function PurchaseOperationsList({
                           </Button>
                         )
                       )}
-                      <Button type="button" variant="ghost" size="icon"
-                        onClick={(e) => handleDelete(e, op)} disabled={deletingKey === op.key}
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <DeleteOperationDialog
+                        label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
+                        info={getDeleteCompensation(op, "proveedor")}
+                        onConfirm={() => handleDelete(op)}
+                        isDeleting={deletingKey === op.key}
+                        onTriggerClick={(e) => e.stopPropagation()}
+                      />
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2">
@@ -380,11 +381,13 @@ export function PurchaseOperationsList({
                         </Button>
                     : <span />
                   }
-                  <Button type="button" variant="ghost" size="icon"
-                    onClick={(e) => handleDelete(e, op)} disabled={deletingKey === op.key}
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <DeleteOperationDialog
+                    label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
+                    info={getDeleteCompensation(op, "proveedor")}
+                    onConfirm={() => handleDelete(op)}
+                    isDeleting={deletingKey === op.key}
+                    onTriggerClick={(e) => e.stopPropagation()}
+                  />
                 </div>
               </div>
 

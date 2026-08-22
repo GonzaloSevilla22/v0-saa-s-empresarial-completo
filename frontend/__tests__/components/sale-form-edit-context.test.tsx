@@ -105,6 +105,10 @@ function makeOperation(overrides: Partial<SaleOperation> = {}): SaleOperation {
     canal: "instagram",
     unitId: "unit-kg",
     isInvoiced: false,
+    isPaymentLocked: false,
+    hasAccountCharge: false,
+    hasCashMovement: false,
+    hasBankMovement: false,
     ...overrides,
   }
 }

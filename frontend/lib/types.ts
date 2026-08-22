@@ -338,6 +338,12 @@ export interface Sale {
   isInvoiced?: boolean
   /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente o movimiento de caja posteado — inmutable. */
   isPaymentLocked?: boolean
+  /** delete-guard-ledgers: mismos tres EXISTS de isPaymentLocked, separados
+   * para que el diálogo de borrado enumere específicamente qué libro
+   * compensaría (cta-cte / caja / banco). */
+  hasAccountCharge?: boolean
+  hasCashMovement?: boolean
+  hasBankMovement?: boolean
 }
 
 export interface Purchase {
@@ -365,6 +371,10 @@ export interface Purchase {
   branchId?: string | null
   /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente posteado — inmutable. */
   isPaymentLocked?: boolean
+  /** delete-guard-ledgers: mismos EXISTS de isPaymentLocked, separados
+   * (sin caja — las compras no tienen opt-in de caja). */
+  hasAccountCharge?: boolean
+  hasBankMovement?: boolean
 }
 
 export interface UnitOfMeasure {

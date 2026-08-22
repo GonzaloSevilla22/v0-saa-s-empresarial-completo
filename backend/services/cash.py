@@ -7,6 +7,8 @@ Repositories handle data access only.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from fastapi import HTTPException
 
 from backend.core.guards import require_role
@@ -89,12 +91,16 @@ async def register_movement(
     session_id: str,
     payload: RegisterMovementIn,
 ) -> dict:
+    """require_role(["user","admin"]) ya cubre task 6.5 (un usuario de
+    sólo lectura no puede ajustar) — mismo guard que gobierna el resto de
+    movimientos, sin código nuevo (el ajuste reusa este endpoint, task 6.2)."""
     require_role(auth, ["user", "admin"])
     return await repo.register_movement(
         session_id,
         float(payload.amount),
         payload.movement_type.value,
         str(payload.reference_id) if payload.reference_id else None,
+        payload.description,
     )
 
 
@@ -103,3 +109,23 @@ async def list_movements(
     session_id: str,
 ) -> list:
     return await repo.list_movements(session_id)
+
+
+async def list_movements_by_cashbox(
+    repo: CashSessionRepository,
+    cashbox_id: str,
+    *,
+    page: int,
+    size: int,
+    types: list[str] | None,
+    q: str | None,
+    date_from: date | None,
+    date_to: date | None,
+) -> dict:
+    """D2 del design: historial de TODAS las sesiones de la caja (no solo
+    la abierta). Lectura — sin require_role, mismo criterio que list_movements
+    y list_sessions (cualquier miembro autenticado de la cuenta puede leer;
+    RLS ya aísla por cuenta)."""
+    return await repo.list_movements_by_cashbox_page(
+        cashbox_id, page=page, size=size, types=types, q=q, date_from=date_from, date_to=date_to,
+    )

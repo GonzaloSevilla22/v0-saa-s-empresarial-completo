@@ -16,6 +16,7 @@ from backend.core.redis_client import close_redis, init_redis
 from backend.routers import (
     auth as auth_router,
     bank_accounts,
+    bank_movements,
     bank_reconciliation,
     branches,
     cash,
@@ -165,3 +166,5 @@ app.include_router(journal_entries.router)
 # bank-payment-routing C2 (V2.5 BankReconciliation) — read-only picker de cuenta bancaria
 app.include_router(bank_accounts.router)
 app.include_router(bank_reconciliation.router)
+# banco-caja-historial-ajustes (D3) — historial paginado de movimientos bancarios
+app.include_router(bank_movements.router)

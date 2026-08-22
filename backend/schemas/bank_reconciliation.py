@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Import de extracto ─────────────────────────────────────────────────────────
@@ -156,6 +156,12 @@ class ManualMovementIn(BaseModel):
 
     card_settlement queda fuera del Literal — reservado a los escritores
     automáticos de C2 (doble red con el P0410 de la RPC).
+
+    banco-caja-historial-ajustes (D6): `description` es obligatorio no vacío
+    SOLO para movement_type='manual_adjustment' (validado acá como primera
+    red — el guard P0413 de rpc_register_bank_movement es la autoridad
+    final, D9 del design: el cliente/backend no reemplazan al servidor). Los
+    demás tipos manuales conservan el motivo como opcional.
     """
 
     # v3-api-standards §3.2: opcional+deprecado (ver StatementImportIn).
@@ -165,7 +171,21 @@ class ManualMovementIn(BaseModel):
         "transfer_in", "transfer_out", "manual_adjustment", "fee", "tax_debit", "interest"
     ]
     value_date: date | None = None
-    description: str | None = None
+    # validate_default=True: sin esto, Pydantic v2 saltea el field_validator
+    # cuando `description` viene ausente del payload (el caso real más común
+    # — un formulario que no manda el campo, no que lo mande en null) — ver
+    # el mismo hallazgo documentado en schemas/cash.py.
+    description: str | None = Field(default=None, validate_default=True)
+
+    @field_validator("description")
+    @classmethod
+    def validate_adjustment_reason(cls, v, info):
+        movement_type_value = info.data.get("movement_type")
+        if movement_type_value == "manual_adjustment" and (v is None or not v.strip()):
+            raise ValueError(
+                "un ajuste bancario manual_adjustment requiere un motivo no vacío (description)."
+            )
+        return v
 
 
 class ManualMovementOut(BaseModel):

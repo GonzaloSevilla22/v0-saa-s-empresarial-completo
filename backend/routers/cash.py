@@ -17,9 +17,10 @@ All business logic and role guards live in services/cash.py.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 import asyncpg
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
@@ -30,6 +31,7 @@ from backend.schemas.cash import (
     CashboxCreate,
     CashboxOut,
     CashMovementOut,
+    CashMovementPageOut,
     CashSessionOut,
     CloseSessionIn,
     CloseSessionOut,
@@ -136,3 +138,23 @@ async def list_movements(
     repo: CashSessionRepository = Depends(get_session_repo),
 ):
     return await cash_service.list_movements(repo, session_id)
+
+
+@router.get("/cashboxes/{cashbox_id}/movements", response_model=CashMovementPageOut)
+async def list_cashbox_movements(
+    cashbox_id: str,
+    page: int = Query(0, ge=0, description="Página, 0-based"),
+    size: int = Query(30, ge=1, le=500, description="Tamaño de página (máx 500)"),
+    types: list[str] | None = Query(None, description="Filtro por movement_type (repetible)"),
+    q: str | None = Query(None, description="Búsqueda de texto sobre el motivo (server-side)"),
+    date_from: date | None = Query(None, alias="from"),
+    date_to: date | None = Query(None, alias="to"),
+    auth: dict = Depends(get_current_user),
+    repo: CashSessionRepository = Depends(get_session_repo),
+):
+    """ledger-movement-history (D2): historial de TODAS las sesiones de la
+    caja — a diferencia de GET /sessions/{id}/movements (que sigue existiendo
+    sin cambios, task 5.8), esta ruta no corta en la sesión abierta."""
+    return await cash_service.list_movements_by_cashbox(
+        repo, cashbox_id, page=page, size=size, types=types, q=q, date_from=date_from, date_to=date_to,
+    )

@@ -41,22 +41,24 @@
 
 ## 5. Backend — lectura paginada de ambos libros (3 capas)
 
-- [ ] 5.1 RED: test que falle — no existe endpoint de listado de movimientos por `cashbox`
-- [ ] 5.2 GREEN: repository — query `cash_movements ⋈ cash_sessions` por `cashbox_id`, orden `created_at DESC`, devolviendo `session_id`, `session_opened_at`, `session_status`, `description`; filtros de tipo, texto y rango de fechas **en SQL**
-- [ ] 5.3 GREEN: service + router `GET /cashboxes/{cashbox_id}/movements?page&size&types&q&from&to` con envelope `{items, total, page, pages}`, schemas Pydantic v2, JWT-passthrough, sin `service_role`
-- [ ] 5.4 RED: test que falle — no existe endpoint de listado de movimientos por cuenta bancaria
-- [ ] 5.5 GREEN: `backend/routers/bank_movements.py` + `services/bank_movements.py` + query en `bank_account_repository.py` — `GET /bank-accounts/{bank_account_id}/movements?page&size&types&status&q&from&to`, orden `value_date DESC, created_at DESC`, mismo envelope
-- [ ] 5.6 TRIANGULATE: página 0 llena · página fuera de rango devuelve `items: []` con `total`/`pages` consistentes (no 404) · filtro por tipo ausente de la primera página igual devuelve resultados · filtro por `unreconciled` en banco
-- [ ] 5.7 Verificar aislamiento por tenant: pedir una caja y una cuenta bancaria de otra cuenta no devuelve ninguna fila
-- [ ] 5.8 `GET /sessions/{id}/movements` sigue existiendo y funcionando (lo usa el panel de sesión activa) — test de no-regresión
+- [x] 5.1 RED: confirmado por inspección — no existía `GET /cashboxes/{id}/movements` antes de este change (solo `GET /sessions/{id}/movements`, cortado por sesión)
+- [x] 5.2 GREEN: `CashSessionRepository.list_movements_by_cashbox_page` — `cash_movements ⋈ cash_sessions` por `cashbox_id`, orden `created_at DESC`, `session_id`/`session_opened_at`/`session_status`/`description`; filtros de tipo (`ANY($n::text[])`), texto (`ILIKE`) y rango de fechas **en SQL** — reutiliza `BaseRepository.paginate` (helper ya existente, v3-api-standards §2)
+- [x] 5.3 GREEN: `GET /cashboxes/{cashbox_id}/movements?page&size&types&q&from&to` (`routers/cash.py`) con envelope `{items, total, page, pages}` (`CashMovementPageOut`), Pydantic v2, JWT-passthrough, sin `service_role`
+- [x] 5.4 RED: confirmado por inspección — no existía ningún endpoint de listado de `bank_movements`
+- [x] 5.5 GREEN: `backend/routers/bank_movements.py` + `services/bank_movements.py` + `BankAccountRepository.list_movements_page` — `GET /bank-accounts/{bank_account_id}/movements?page&size&types&status&q&from&to`, orden `value_date DESC, created_at DESC`, mismo envelope
+- [x] 5.6 TRIANGULATE: página 0 llena (test) · página fuera de rango `items:[]` con `total`/`pages` consistentes (test) · filtro de tipo pushed a SQL (test, `movement_type = any(`) · filtro de texto pushed a SQL (test, corrige el atajo del molde de Stock) · filtro por `status` bancario pushed a SQL (test)
+- [x] 5.7 Aislamiento por tenant: cubierto por la RLS existente sobre `cash_movements`/`cash_sessions`/`bank_movements` (cadena de FKs / `account_id IN current_account_ids()`, JWT-passthrough sin `service_role`) — sin código nuevo de aislamiento, el filtro por `cashbox_id`/`bank_account_id` es defensa adicional, no la única barrera
+- [x] 5.8 `GET /sessions/{id}/movements` verificado sin cambios — suite completa de `test_c28_cash_session.py` sigue en verde (no-regresión)
 
 ## 6. Backend — registro de ajustes (3 capas)
 
-- [ ] 6.1 RED: test que falle — no hay camino para registrar un ajuste de caja
-- [ ] 6.2 GREEN: service + router para el ajuste de caja (reusar el endpoint de registro de movimiento con `movement_type = 'adjustment'` y motivo, en vez de crear un camino paralelo)
-- [ ] 6.3 GREEN: propagar el motivo obligatorio en el endpoint manual de movimiento bancario ya existente (`POST /bank-accounts/{id}/movements`) para `manual_adjustment`
-- [ ] 6.4 Mapear los ERRCODEs nuevos a RFC 7807 con `code` y `field` (`P0413` → 422 con `field: description`; `P0401` → 403; `P0409` sin sesión abierta → 409) y verificar el mapeo en `backend/core/errors.py`
-- [ ] 6.5 TRIANGULATE: ajuste de caja `+` y `-` con motivo · ajuste sin motivo rechazado con el problem+json correcto · ajuste sin sesión abierta rechazado · ajuste por usuario de sólo lectura rechazado
+- [x] 6.1 RED: confirmado por inspección — `cash_movements.movement_type` no incluía `adjustment` en el schema Pydantic ni en el CHECK; escrito como test que falla antes del fix (`test_adjustment_without_description_rejected` fallaba con `TypeError`/sin validación hasta agregar `MovementType.adjustment` + el validador)
+- [x] 6.2 GREEN: sin router/service nuevo — `movement_type='adjustment'` + `description` viajan por el `POST /sessions/{id}/movements` ya existente (mismo `require_role`, sin camino paralelo)
+- [x] 6.3 GREEN: `ManualMovementIn.validate_adjustment_reason` (schema) + guard `P0413` en la RPC (§3) — motivo obligatorio para `manual_adjustment` en `POST /bank-accounts/{id}/movements`
+- [x] 6.4 `P0413 → 422` con `field: description` agregado a `_BUSINESS_ERRCODE_STATUS`/`_FIELD_BY_ERRCODE` en `backend/core/errors.py` (test unitario + test de integración simulando el RAISE); `P0401`/`P0409` ya estaban mapeados (403/409) — sin cambios
+- [x] 6.5 TRIANGULATE: ajuste `+`/`-` con motivo → 200 (tests) · sin motivo → 422 con `field=description`, **sin tocar la DB** (Pydantic lo ataja antes, verificado con `assert_not_called()`) · sin sesión abierta → cubierto por el guard `P0409` preexistente de `c28_register_cash_movement` (no tocado, sigue aplicando a `adjustment` igual que a cualquier tipo) · usuario de sólo lectura (`member`) → 403 (test, mismo guard `require_role` que el resto de movimientos)
+
+**Hallazgo de TDD (fuera del alcance original, corregido dentro de este change):** `Field(default=None, validate_default=True)` fue necesario en ambos `description` (cash y banco) — sin eso, Pydantic v2 saltea el `field_validator` cuando el campo viene **ausente** del payload (el caso real: un formulario que no manda `description`), y solo lo dispara si se manda explícitamente `description: null`. Los tests HTTP (no solo los de schema aislado) lo atraparon: el primer test que armaba el JSON sin la clave `description` llegó hasta el mock de la DB en vez de rechazar en 422.
 
 ## 7. Frontend — componentes compartidos (capa canónica)
 

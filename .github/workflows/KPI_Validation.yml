@@ -168,6 +168,21 @@ jobs:
           # reaplicadas arriba; los dos consumers cambian solo de cuerpo vía
           # CREATE OR REPLACE) — de paso, prueba que es re-appliable.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261005000001_delete_guard_ledgers.sql
+          # banco-caja-historial-ajustes: `supabase start` ya aplicó esta
+          # migración una vez al levantar el stack (es la más nueva por
+          # timestamp). Ninguna migración reaplicada arriba en esta cadena
+          # (hasta 20261005000001 inclusive) toca la firma de
+          # rpc_register_cash_movement, c28_register_cash_movement,
+          # rpc_close_cash_session o rpc_register_bank_movement — sin
+          # conflicto de firma/overload al reaplicar esta migración al final.
+          # rpc_register_cash_movement/c28_register_cash_movement ganaron
+          # p_description trailing (DROP+CREATE con la firma NUEVA de 5 args,
+          # ya vigente tras el primer apply) — el DROP FUNCTION IF EXISTS de
+          # este archivo matchea esa firma de 5 args y el CREATE que sigue
+          # deja 1 sola definición (de paso, prueba que es re-appliable —
+          # verificado también localmente con `docker exec ... psql -f`,
+          # doble aplicación sin error y sin cambio de fingerprint).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261006000001_banco_caja_historial_ajustes.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -489,3 +504,20 @@ jobs:
       # inexistente devuelve false sin excepción.
       - name: Run delete-guard-ledgers gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_delete_guard_ledgers.sql
+
+      # banco-caja-historial-ajustes: pedido textual del PO 2026-08-22 — Caja y
+      # Banco pasan a módulos propios con historial completo (molde Stock) y
+      # ajuste manual con motivo obligatorio en ambos libros, sin tapar la
+      # señal antifraude del arqueo (RN-95) y sin postear asiento (OQ-2).
+      # Verifica: ANTI-OVERLOAD 42725 (rpc_register_cash_movement y
+      # c28_register_cash_movement, ambas con p_description trailing) + ACLs
+      # de las 4 funciones tocadas; ajuste de caja sobrante/faltante con
+      # motivo (balance_after correcto) y rechazo por CHECK sin motivo (vía
+      # RPC y vía INSERT directo); cierre de sesión con adjustments_total y
+      # difference_before_adjustments — GATE ANTIFRAUDE: un ajuste que lleva
+      # difference a 0 deja difference_before_adjustments como evidencia, con
+      # signos mixtos sumando correctamente; ajuste bancario P0413 sin motivo
+      # SIN quemar el slot de idempotencia (reintento con la misma clave +
+      # motivo tiene éxito real) y transfer_in sin motivo intacto.
+      - name: Run banco-caja-historial-ajustes gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_banco_caja_historial_ajustes.sql

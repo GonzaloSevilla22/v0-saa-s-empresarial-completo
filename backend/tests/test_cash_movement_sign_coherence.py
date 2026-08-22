@@ -11,8 +11,12 @@ negativo llegaba a la RPC sin que el backend lo rechazara.
 
 Comportamientos cubiertos:
   - Schema: ingresos (sale/advance) con amount<0 → ValidationError en
-    loc=('amount',); egresos (purchase_payment/expense/withdrawal) con
-    amount>0 → ValidationError en loc=('amount',).
+    loc=('amount',); egresos (purchase_payment/expense/withdrawal/
+    sale_reversal) con amount>0 → ValidationError en loc=('amount',).
+    sale_reversal entra al conjunto de egresos por pedido del PO
+    (2026-08-22): la spec cash-movement ya lo define como egreso con signo
+    negativo esperado y la RPC de delete-guard-ledgers lo inserta con
+    -v_cash_amount; quedaba fuera solo porque el validador era un no-op.
   - Schema: signo correcto en ambos conjuntos → aceptado; movement_type
     inválido → un solo error (el del enum), sin explotar el validador de
     signo.
@@ -48,7 +52,7 @@ class TestRegisterMovementInSignCoherence:
         # corre con movement_type ya disponible.
         assert errors[0]["loc"] == ("amount",)
 
-    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal"])
+    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal", "sale_reversal"])
     def test_expense_with_positive_amount_rejected(self, movement_type):
         with pytest.raises(ValidationError, match="egreso") as exc_info:
             RegisterMovementIn(amount=Decimal("100"), movement_type=movement_type)
@@ -61,7 +65,7 @@ class TestRegisterMovementInSignCoherence:
         payload = RegisterMovementIn(amount=Decimal("100"), movement_type=movement_type)
         assert payload.amount == Decimal("100")
 
-    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal"])
+    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal", "sale_reversal"])
     def test_expense_with_negative_amount_accepted(self, movement_type):
         payload = RegisterMovementIn(amount=Decimal("-100"), movement_type=movement_type)
         assert payload.amount == Decimal("-100")

@@ -29,11 +29,21 @@ class MovementType(str, Enum):
 
 # Movement types that are expected to be income (positive amount)
 _INCOME_TYPES = {MovementType.sale, MovementType.advance}
-# Movement types that are expected to be expenses (negative amount)
-_EXPENSE_TYPES = {MovementType.purchase_payment, MovementType.expense, MovementType.withdrawal}
-# adjustment y sale_reversal quedan FUERA de ambos conjuntos a propósito:
-# adjustment es signado libremente (sobrante/faltante, D4 del design);
-# sale_reversal ya existía sin esta validación de signo (delete-guard-ledgers).
+# Movement types that are expected to be expenses (negative amount).
+# sale_reversal entra acá por pedido del PO (2026-08-22, sucesor de PR #442): la spec
+# cash-movement lo define como egreso con signo negativo esperado y la RPC de
+# delete-guard-ledgers (el único productor real) lo inserta con
+# -v_cash_amount. Había quedado fuera "a propósito" solo porque el validador
+# era un no-op (ver PR #442) y nunca se lo había validado a nadie.
+_EXPENSE_TYPES = {
+    MovementType.purchase_payment,
+    MovementType.expense,
+    MovementType.withdrawal,
+    MovementType.sale_reversal,
+}
+# adjustment queda FUERA de ambos conjuntos a propósito: es signado
+# libremente (sobrante +/faltante -, D4 del design de
+# banco-caja-historial-ajustes).
 
 
 # ── Cashbox ───────────────────────────────────────────────────────────────────

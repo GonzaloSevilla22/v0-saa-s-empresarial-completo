@@ -86,6 +86,10 @@ export const queryKeys = {
   cashMovements: {
     all:       () => ["cashMovements"] as const,
     bySession: (sessionId: string) => ["cashMovements", "session", sessionId] as const,
+    // banco-caja-historial-ajustes (D2): el historial por caja no pasa por
+    // TanStack Query (LedgerMovementsPanel administra su propio estado
+    // imperativo, ver hooks/data/use-cash-movements.ts:
+    // fetchCashMovementsByCashboxPage) — sin key acá por diseño.
   },
   // C-29: Quote / SalesOrder
   quotes: {
@@ -128,6 +132,9 @@ export const queryKeys = {
     all:    () => ["bankAccounts"] as const,
     active: () => ["bankAccounts", "active"] as const,
   },
+  // banco-caja-historial-ajustes (D3): el historial de la cuenta bancaria no
+  // pasa por TanStack Query — mismo criterio que cashMovements arriba (ver
+  // hooks/data/use-bank-movements.ts: fetchBankMovementsPage).
   // bank-reconciliation C3 (V2.5 BankReconciliation)
   bankReconciliation: {
     all:         () => ["bankReconciliation"] as const,

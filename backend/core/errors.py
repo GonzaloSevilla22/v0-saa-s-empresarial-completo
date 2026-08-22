@@ -120,6 +120,19 @@ _BUSINESS_ERRCODE_STATUS = {
     # sesión abierta en esa caja — 409, mismo criterio. El mensaje del RAISE
     # ya nombra la acción que destraba (abrir la caja).
     "P0426": 409,
+    # banco-caja-historial-ajustes: ajuste bancario manual_adjustment sin
+    # motivo — 422 porque es un error de VALIDACIÓN de payload (falta un
+    # campo requerido condicionalmente), no un conflicto de estado.
+    "P0413": 422,
+}
+
+# banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar
+# `field` — el nombre del campo ofensor, mismo criterio que usa ya
+# validation_error_handler (main.py) para los 422 de Pydantic. P0413 es el
+# único con esta necesidad hoy; el resto de _BUSINESS_ERRCODE_STATUS no
+# apunta a un campo concreto del payload.
+_FIELD_BY_ERRCODE: dict[str, str] = {
+    "P0413": "description",
 }
 
 # bank-account-crud: mapeo específico por endpoint para POST /bank-accounts.
@@ -143,7 +156,10 @@ async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) ->
     code = exc.sqlstate if hasattr(exc, "sqlstate") else None
     if code in _BUSINESS_ERRCODE_STATUS:
         status = _BUSINESS_ERRCODE_STATUS[code]
-        return problem_response(status=status, detail=str(exc), code=code, headers=headers)
+        return problem_response(
+            status=status, detail=str(exc), code=code,
+            field=_FIELD_BY_ERRCODE.get(code), headers=headers,
+        )
     if code == "23503":
         return problem_response(
             status=409,

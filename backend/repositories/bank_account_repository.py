@@ -79,6 +79,63 @@ class BankAccountRepository(BaseRepository):
         bank_account_id = result["bank_account_id"] if isinstance(result, dict) else result
         return await self._get_by_id(bank_account_id)
 
+    # ── Historial de movimientos — D3 (ledger-movement-history) ────────────────
+
+    async def list_movements_page(
+        self,
+        bank_account_id: str,
+        *,
+        page: int,
+        size: int,
+        types: list[str] | None = None,
+        status: str | None = None,
+        q: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> dict:
+        """GET /bank-accounts/{id}/movements (D3): todos los bank_movements de
+        la cuenta, orden value_date DESC, created_at DESC para desempatar
+        movimientos del mismo día. RLS de bank_movements (account_id IN
+        current_account_ids(), denormalizado) más el filtro explícito por
+        bank_account_id — mismo criterio de aislamiento por tenant que
+        list_active (JWT-passthrough, sin service_role)."""
+        where = ["bm.bank_account_id = $1"]
+        params: list = [bank_account_id]
+
+        if types:
+            params.append(types)
+            where.append(f"bm.movement_type = ANY(${len(params)}::text[])")
+        if status:
+            params.append(status)
+            where.append(f"bm.reconciliation_status = ${len(params)}")
+        if q:
+            params.append(f"%{q}%")
+            where.append(f"bm.description ILIKE ${len(params)}")
+        if date_from:
+            params.append(date_from)
+            where.append(f"bm.value_date >= ${len(params)}")
+        if date_to:
+            params.append(date_to)
+            where.append(f"bm.value_date <= ${len(params)}")
+
+        where_sql = " AND ".join(where)
+
+        select_sql = f"""
+            SELECT
+              bm.id, bm.bank_account_id, bm.amount, bm.balance_after,
+              bm.movement_type, bm.value_date, bm.description, bm.created_at,
+              bm.reconciliation_status
+            FROM public.bank_movements bm
+            WHERE {where_sql}
+            ORDER BY bm.value_date DESC, bm.created_at DESC
+        """
+        count_sql = f"""
+            SELECT COUNT(*)
+            FROM public.bank_movements bm
+            WHERE {where_sql}
+        """
+        return await self.paginate(select_sql, count_sql, *params, page=page, size=size)
+
     async def _get_by_id(self, bank_account_id) -> dict | None:
         record = await self.fetchrow(
             """

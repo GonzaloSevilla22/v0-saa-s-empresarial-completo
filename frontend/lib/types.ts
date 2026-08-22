@@ -153,13 +153,17 @@ export interface PlanLimits {
 
 // ── C-28: CashSession / CashMovement ──────────────────────────────────────
 
-/** Cash movement types (C-28). Distinct from stock MovementType (inventory). */
+/** Cash movement types (C-28). Distinct from stock MovementType (inventory).
+ * sale_reversal: contra-movimiento de delete-guard-ledgers (2026-08-22).
+ * adjustment: ajuste manual con motivo obligatorio, banco-caja-historial-ajustes. */
 export type CashMovementType =
   | "sale"
   | "purchase_payment"
   | "expense"
   | "advance"
   | "withdrawal"
+  | "sale_reversal"
+  | "adjustment"
 
 /**
  * A physical cash register assigned to a branch.
@@ -190,6 +194,9 @@ export interface CashSession {
   closedBy: string | null
   openedAt: string
   closedAt: string | null
+  /** banco-caja-historial-ajustes (D5): snapshot al cierre; calculado al
+   * vuelo para sesiones abiertas. */
+  adjustmentsTotal: number
 }
 
 /**
@@ -205,6 +212,47 @@ export interface CashMovement {
   balanceAfter: number
   createdBy: string
   createdAt: string
+  /** banco-caja-historial-ajustes: motivo — obligatorio solo para 'adjustment'. */
+  description: string | null
+}
+
+/** Fila del historial por caja (D2) — CashMovement + contexto de sesión. */
+export interface CashMovementHistoryRow extends CashMovement {
+  sessionOpenedAt: string
+  sessionStatus: "open" | "closed"
+}
+
+/** Tipos de bank_movements (V2.5 C1 + banco-caja-historial-ajustes). */
+export type BankMovementType =
+  | "transfer_in"
+  | "transfer_out"
+  | "card_settlement"
+  | "fee"
+  | "tax_debit"
+  | "interest"
+  | "manual_adjustment"
+
+export type ReconciliationStatus = "unreconciled" | "matched"
+
+/** Fila del historial de una cuenta bancaria (D3). */
+export interface BankMovementRow {
+  id: string
+  bankAccountId: string
+  amount: number
+  balanceAfter: number
+  movementType: BankMovementType
+  valueDate: string | null
+  description: string | null
+  createdAt: string
+  reconciliationStatus: ReconciliationStatus
+}
+
+/** Envelope estándar de paginación (v3-api-standards §2), espejo del backend. */
+export interface Page<T> {
+  items: T[]
+  total: number
+  page: number
+  pages: number
 }
 
 export type UserRole = "user" | "admin"

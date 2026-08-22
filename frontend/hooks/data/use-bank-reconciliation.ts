@@ -362,7 +362,15 @@ export function useCloseSession(sessionId: string | null) {
   })
 }
 
-/** "Solo anotar" (V1): cargo del extracto sin contraparte → movimiento manual. */
+/** "Solo anotar" (V1): cargo del extracto sin contraparte → movimiento manual.
+ * banco-caja-historial-ajustes: ahora también cubre manual_adjustment con
+ * motivo obligatorio (D6, validado por ManualMovementIn en el backend).
+ *
+ * El historial de la cuenta (D3, LedgerMovementsPanel en modo bank) NO usa
+ * TanStack Query — administra su propio estado imperativo (ver
+ * hooks/data/use-bank-movements.ts) — así que refrescarlo tras un ajuste es
+ * responsabilidad del componente que monta el panel (bumpear su
+ * `refreshToken`), no de esta mutation. */
 export function useRegisterManualMovement(bankAccountId: string | null) {
   const invalidate = useInvalidateReconciliation()
   return useMutation({

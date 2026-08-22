@@ -20,6 +20,9 @@ interface CashSessionApiRow {
   closed_by: string | null
   opened_at: string
   closed_at: string | null
+  // banco-caja-historial-ajustes (D5): snapshot al cierre; calculado al
+  // vuelo por el repository para sesiones abiertas.
+  adjustments_total: string | number
 }
 
 interface OpenSessionApiResult {
@@ -37,6 +40,8 @@ interface CloseSessionApiResult {
   counted_balance: string | number
   difference: string | number
   closing_balance: string | number
+  adjustments_total: string | number
+  difference_before_adjustments: string | number
 }
 
 // ── Error translation ─────────────────────────────────────────────────────────
@@ -66,6 +71,7 @@ function mapSession(r: CashSessionApiRow): CashSession {
     closedBy:        r.closed_by,
     openedAt:        r.opened_at,
     closedAt:        r.closed_at,
+    adjustmentsTotal: Number(r.adjustments_total),
   }
 }
 

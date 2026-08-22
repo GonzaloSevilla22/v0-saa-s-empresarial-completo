@@ -27,6 +27,10 @@ CLOSE_SESSION_RESULT = {
     "counted_balance": 6200.00,
     "difference": 0.00,
     "closing_balance": 6200.00,
+    # banco-caja-historial-ajustes (D5): rpc_close_cash_session ahora siempre
+    # devuelve estas dos claves — sesión sin ajustes, así que quedan en 0.
+    "adjustments_total": 0.00,
+    "difference_before_adjustments": 0.00,
 }
 
 

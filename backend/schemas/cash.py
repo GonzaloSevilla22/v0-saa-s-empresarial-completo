@@ -6,7 +6,9 @@ from decimal import Decimal
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from backend.schemas.common import PageOut
 
 
 # ── Enums ─────────────────────────────────────────────────────────────────────
@@ -17,12 +19,21 @@ class MovementType(str, Enum):
     expense          = "expense"
     advance          = "advance"
     withdrawal       = "withdrawal"
+    sale_reversal    = "sale_reversal"
+    # banco-caja-historial-ajustes (D4): ajuste manual con motivo obligatorio
+    # (ver RegisterMovementIn.validate_adjustment_reason). Signo libre —
+    # sobrante (+) o faltante (-), a diferencia de los tipos de abajo que
+    # tienen un signo esperado fijo.
+    adjustment       = "adjustment"
 
 
 # Movement types that are expected to be income (positive amount)
 _INCOME_TYPES = {MovementType.sale, MovementType.advance}
 # Movement types that are expected to be expenses (negative amount)
 _EXPENSE_TYPES = {MovementType.purchase_payment, MovementType.expense, MovementType.withdrawal}
+# adjustment y sale_reversal quedan FUERA de ambos conjuntos a propósito:
+# adjustment es signado libremente (sobrante/faltante, D4 del design);
+# sale_reversal ya existía sin esta validación de signo (delete-guard-ledgers).
 
 
 # ── Cashbox ───────────────────────────────────────────────────────────────────
@@ -73,6 +84,10 @@ class CashSessionOut(BaseModel):
     closed_by: uuid.UUID | None = None
     opened_at: datetime.datetime
     closed_at: datetime.datetime | None = None
+    # banco-caja-historial-ajustes (D5): snapshot persistido para sesiones
+    # cerradas; el repository lo calcula al vuelo (Σ adjustment) para las
+    # sesiones abiertas, donde la columna todavía no se materializó.
+    adjustments_total: Decimal = Decimal("0")
 
 
 class OpenSessionOut(BaseModel):
@@ -92,6 +107,13 @@ class CloseSessionOut(BaseModel):
     counted_balance: Decimal
     difference: Decimal
     closing_balance: Decimal
+    # banco-caja-historial-ajustes (D5): expected_balance/difference NO
+    # cambian de fórmula — siguen incluyendo los ajustes. adjustments_total
+    # es el snapshot de Σ(adjustment) de la sesión; difference_before_
+    # adjustments = difference + adjustments_total es la señal antifraude
+    # (RN-95) que reconstruye lo que habría dado el arqueo sin los ajustes.
+    adjustments_total: Decimal
+    difference_before_adjustments: Decimal
 
 
 # ── CashMovement ──────────────────────────────────────────────────────────────
@@ -103,10 +125,28 @@ class RegisterMovementIn(BaseModel):
     OQ-2 (resuelto): amount lleva signo (ingresos +, egresos −).
     La coherencia signo↔tipo se valida acá (service layer — no en DB CHECK).
     El DB CHECK valida solo que movement_type pertenece al enum.
+
+    banco-caja-historial-ajustes (D4): `description` es el motivo del
+    ajuste — obligatorio no vacío SOLO para movement_type='adjustment'
+    (validado acá como primera red; el CHECK de DB
+    cash_movements_adjustment_needs_reason es la autoridad final, D9 del
+    design — el cliente/backend no reemplazan al servidor). Este mismo
+    endpoint sirve para registrar el ajuste — no hay un camino paralelo
+    (task 6.2).
     """
     amount: Decimal
     movement_type: MovementType
     reference_id: uuid.UUID | None = None
+    # validate_default=True: Pydantic v2 SALTEA los field_validator de un
+    # campo cuando el valor viene del DEFAULT (campo ausente del payload) en
+    # vez de haber sido enviado explícitamente — el caso más común en la
+    # práctica (un cliente que no manda `description` en absoluto, no que
+    # mande `description: null`). Sin esto, validate_adjustment_reason NUNCA
+    # se dispara para el payload real que un formulario manda al omitir el
+    # campo — solo para el caso artificial de mandarlo explícitamente en null
+    # (hallazgo del propio TDD de este change, ver test_banco_caja_historial_
+    # ajustes.py).
+    description: str | None = Field(default=None, validate_default=True)
 
     @field_validator("amount")
     @classmethod
@@ -122,6 +162,17 @@ class RegisterMovementIn(BaseModel):
         if movement_type_value in _EXPENSE_TYPES and v > 0:
             raise ValueError(
                 f"movement_type '{movement_type_value}' es un egreso: amount debe ser negativo."
+            )
+        # adjustment: signo libre (sobrante +/faltante -) — sin validación acá.
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_adjustment_reason(cls, v, info):
+        movement_type_value = info.data.get("movement_type")
+        if movement_type_value == MovementType.adjustment and (v is None or not v.strip()):
+            raise ValueError(
+                "un ajuste de caja requiere un motivo no vacío (description)."
             )
         return v
 
@@ -143,3 +194,23 @@ class CashMovementOut(BaseModel):
     balance_after: Decimal
     created_by: uuid.UUID
     created_at: datetime.datetime
+    # banco-caja-historial-ajustes: motivo del movimiento (solo poblado para
+    # 'adjustment' hoy; nullable para las 65 filas históricas y el resto de
+    # tipos, que no lo exigen).
+    description: str | None = None
+
+
+# ── Historial paginado por cashbox (D2, ledger-movement-history) ──────────────
+
+class CashMovementPageItem(CashMovementOut):
+    """Fila del historial de una CAJA (no de una sesión) — D2 del design.
+
+    Suma el contexto de sesión que el molde de Stock no necesita: en qué
+    sesión cayó el movimiento y si esa sesión sigue abierta o ya cerró.
+    """
+    session_opened_at: datetime.datetime
+    session_status: str
+
+
+class CashMovementPageOut(PageOut[CashMovementPageItem]):
+    """v3-api-standards §2: envelope estándar {items,total,page,pages}."""

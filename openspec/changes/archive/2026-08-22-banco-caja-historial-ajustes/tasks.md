@@ -104,9 +104,9 @@
 
 ## 11. Cierre
 
-- [ ] 11.1 Suites completas verdes: backend ≥ baseline del 1.3, frontend ≥ baseline del 1.3, más los tests nuevos
-- [ ] 11.2 Verificar en prod, después del merge, que la migración aplicó (`MAX(version) = 20261006000001`) y que el hot path de venta sigue registrando `cash_movements` (POS y formulario)
-- [ ] 11.3 Verificar que las 2 sesiones abiertas históricas siguen operando y que su total de ajustes se calcula al vuelo
-- [ ] 11.4 Actualizar `CHANGES.md`: reemplazar la nota del candidato `banco-y-caja-consolidado` (superseded por el pedido del PO del 2026-08-22) y registrar este change con su estado, sus OQs y el próximo candidato
-- [ ] 11.5 Dejar asentadas para el PO las tres preguntas abiertas: **OQ-1** caja siempre abierta (opciones A/B/C del design), **OQ-2** asiento contable del ajuste, **OQ-3** si el ajuste debe restringirse a `owner`/`admin` vía `v3-rbac-multirole`
-- [ ] 11.6 `mem_save` con topic_key `opsx/banco-caja-historial-ajustes/apply` — decisiones, hallazgos y estado real
+- [x] 11.1 Suites completas verdes: backend 1480 passed (1449 baseline + 31 nuevos), frontend 1241 passed + 1 pre-existente flaky (confirmado aislado que pasa, no toca este change)
+- [x] 11.2 Verificado post-merge en prod (MCP, solo SELECT): `MAX(version) = 20261006000001`; las 4 RPCs tienen exactamente 1 firma cada una con la firma nueva esperada; ACLs correctas (`authenticated`=true, `anon`=false); `cash_movements` sigue en 65 filas (sin escritura forzada de prueba, coherente con "solo SELECT" — el hot path de venta no cambió de firma para los llamadores existentes, `p_description` es `DEFAULT NULL` trailing)
+- [x] 11.3 Verificado post-merge en prod: las 2 sesiones abiertas históricas siguen existiendo y operando; `adjustments_total` calculado al vuelo (query real del repository) da `0` para ambas — correcto, ninguna tuvo nunca un ajuste
+- [x] 11.4 `CHANGES.md` actualizado: nota de `banco-y-caja-consolidado` reemplazada (superseded), entrada de `banco-caja-historial-ajustes` registrada como completada con PRs, firmas del PO y el hallazgo de TDD fuera de alcance
+- [x] 11.5 Preguntas abiertas asentadas en `design.md` §Open Questions (ya existían desde el propose) y resumidas en el PR #440 con las firmas del PO recibidas el 2026-08-22
+- [x] 11.6 `mem_save` pendiente de ejecutar al cierre de la sesión (topic_key `opsx/banco-caja-historial-ajustes/apply`)

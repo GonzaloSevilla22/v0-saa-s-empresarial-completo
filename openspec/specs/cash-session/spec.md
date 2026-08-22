@@ -105,12 +105,12 @@ El sistema SHALL impedir abrir una segunda `CashSession` mientras exista una con
 - **THEN** la apertura tiene éxito (el índice parcial solo restringe sesiones `open`)
 
 ### Requirement: Cierre de sesión con arqueo
-El sistema SHALL cerrar una `CashSession` vía `rpc_close_cash_session(p_session_id, p_counted_balance)`, calculando `expected_balance = opening_balance + Σ(cash_movements.amount)` de la sesión, registrando `counted_balance`, `difference = counted_balance - expected_balance`, `closing_balance = counted_balance`, `status = 'closed'`, `closed_by` y `closed_at = now()`. La diferencia SHALL persistirse aunque sea distinta de cero (señal antifraude, RN-95).
+El sistema SHALL cerrar una `CashSession` vía `rpc_close_cash_session(p_session_id, p_counted_balance)`, calculando `expected_balance = opening_balance + Σ(cash_movements.amount)` de la sesión, registrando `counted_balance`, `difference = counted_balance - expected_balance`, `closing_balance = counted_balance`, `status = 'closed'`, `closed_by` y `closed_at = now()`. La diferencia SHALL persistirse aunque sea distinta de cero (señal antifraude, RN-95). El cierre SHALL además materializar `adjustments_total = Σ(cash_movements.amount) FILTER (movement_type = 'adjustment')` de la sesión y SHALL devolver `difference_before_adjustments = difference + adjustments_total`, sin alterar la definición de `expected_balance` ni la de `difference`, de modo que los ajustes manuales queden separables del arqueo en lugar de disolverse en él.
 
 #### Scenario: Cierre con arqueo exacto
 - **GIVEN** una sesión con `opening_balance = 5000` y movimientos que suman `+3000`
 - **WHEN** el usuario cierra declarando `counted_balance = 8000`
-- **THEN** `expected_balance = 8000`, `difference = 0`, `status = 'closed'`, `closed_at = now()`
+- **THEN** `expected_balance = 8000`, `difference = 0`, `adjustments_total = 0`, `status = 'closed'`, `closed_at = now()`
 
 #### Scenario: Cierre con faltante (diferencia negativa)
 - **GIVEN** una sesión con `expected_balance = 8000`
@@ -122,6 +122,16 @@ El sistema SHALL cerrar una `CashSession` vía `rpc_close_cash_session(p_session
 - **WHEN** un usuario llama a `rpc_close_cash_session` sobre ella
 - **THEN** la RPC retorna `P0409 session_not_open` y no modifica la fila
 
+#### Scenario: Cierre de una sesión con ajustes manuales
+- **GIVEN** una sesión cuyo `opening_balance + Σ(movimientos no ajuste) = 900` y que tiene un ajuste de `+100`
+- **WHEN** el usuario cierra declarando `counted_balance = 1000`
+- **THEN** `expected_balance = 1000`, `difference = 0`, `adjustments_total = +100` y `difference_before_adjustments = +100`
+
+#### Scenario: El total de ajustes queda en el registro de la transición de cierre
+- **GIVEN** una sesión con al menos un movimiento de ajuste
+- **WHEN** se cierra la sesión
+- **THEN** el motivo de la transición `open → closed` menciona los ajustes aplicados, y el evento de cierre emitido lleva `adjustments_total` en su payload
+
 ### Requirement: Operación de caja solo contra sucursales operativas
 El sistema SHALL rechazar abrir una sesión o registrar un movimiento en una caja cuya sucursal tiene `status = 'closed'`, con error `P0422 branch_closed`.
 
@@ -129,19 +139,6 @@ El sistema SHALL rechazar abrir una sesión o registrar un movimiento en una caj
 - **GIVEN** una caja cuya `branch.status = 'closed'`
 - **WHEN** un usuario llama a `rpc_open_cash_session`
 - **THEN** la RPC retorna `P0422 branch_closed` y no crea sesión
-
-### Requirement: UI de caja por sucursal
-El sistema SHALL exponer la ruta `/sucursales/:id/caja` para abrir sesión (saldo inicial), ver los movimientos de la sesión activa, cerrar con arqueo (input de efectivo contado → diferencia visible) y consultar el historial de sesiones cerradas con su diferencia.
-
-#### Scenario: El cajero abre y opera la caja del día
-- **GIVEN** un usuario con permiso navega a `/sucursales/:id/caja` sin sesión abierta
-- **WHEN** ingresa el saldo inicial y confirma la apertura
-- **THEN** la vista muestra la sesión `open`, el listado (vacío) de movimientos y el botón de cierre
-
-#### Scenario: El cajero cierra con arqueo y ve la diferencia
-- **GIVEN** una sesión `open` con movimientos registrados
-- **WHEN** el usuario ingresa el efectivo contado y confirma el cierre
-- **THEN** la vista muestra esperado, contado y diferencia, y la sesión pasa a `closed` en el historial
 
 ### Requirement: La sesión de caja registra sus transiciones de estado en el historial
 El sistema SHALL registrar en `document_status_history` (con `document_type = 'cash_session'`) tanto la apertura de la sesión (`from_status = NULL`, `to_status = 'open'`) como su cierre (`open → closed`) durante `rpc_close_cash_session`, en la misma transacción del cierre. Cuando el arqueo registra una diferencia distinta de cero, el sistema SHALL exigir un `reason` no vacío para la transición de cierre (RN-A5).
@@ -157,4 +154,21 @@ El sistema SHALL registrar en `document_status_history` (con `document_type = 'c
 #### Scenario: Cerrar una sesión con diferencia exige motivo
 - **WHEN** `rpc_close_cash_session` cierra una sesión cuyo arqueo arroja una diferencia distinta de cero y no se provee `reason`
 - **THEN** el registro de la transición aborta la operación con un error de payload inválido y el cierre no se confirma
+
+### Requirement: La sesión de caja persiste el total de sus ajustes manuales
+El sistema SHALL persistir en `cash_sessions` la columna aditiva `adjustments_total NUMERIC NULL`, materializada al cerrar la sesión como la suma firmada de los movimientos de tipo `adjustment` de esa sesión, y SHALL calcular esa misma cifra al vuelo para las sesiones que aún están abiertas, de modo que la señal esté disponible sin depender de que alguien cierre la sesión.
+
+#### Scenario: Sesión cerrada con ajustes
+- **WHEN** se cierra una sesión que contiene ajustes por `+100` y `-30`
+- **THEN** la fila queda con `adjustments_total = +70`
+
+#### Scenario: Sesión abierta con ajustes
+- **GIVEN** una sesión `open` con un ajuste de `+100`
+- **WHEN** se consulta el estado de la sesión
+- **THEN** la lectura informa un total de ajustes de `+100` aunque `adjustments_total` todavía no esté materializado
+
+#### Scenario: Sesiones históricas sin ajustes
+- **GIVEN** sesiones cerradas antes de este cambio
+- **WHEN** se consultan
+- **THEN** su `adjustments_total` es nulo y se interpreta como cero, sin reescritura de datos históricos
 

@@ -230,7 +230,7 @@ BEGIN
   END IF;
 
   -- Despachar el outbox para que el contra-asiento se postee.
-  PERFORM public.rpc_process_outbox_dispatch(50);
+  PERFORM public.rpc_process_outbox_dispatch(1000);
 
   -- (1) Cuenta corriente vuelve a 0
   SELECT balance INTO v_balance FROM public.customer_accounts WHERE id = v_ca1_id;
@@ -498,8 +498,8 @@ BEGIN
 
   -- Contable: resuelve por la convención SalesOrder (segunda), y despachar el
   -- evento DOS veces no debe postear un segundo contra-asiento.
-  PERFORM public.rpc_process_outbox_dispatch(50);
-  PERFORM public.rpc_process_outbox_dispatch(50);  -- reproceso — no debe pasar nada
+  PERFORM public.rpc_process_outbox_dispatch(1000);
+  PERFORM public.rpc_process_outbox_dispatch(1000);  -- reproceso — no debe pasar nada
 
   SELECT COUNT(*) INTO v_count FROM public.journal_entries WHERE reversal_of = v_entry1_id;
   IF v_count <> 1 THEN
@@ -553,7 +553,7 @@ BEGIN
     RAISE EXCEPTION 'GATE DGL FAILED (compra-stock): stock esperado 1000 tras borrar la compra, es %.', v_qty_after;
   END IF;
 
-  PERFORM public.rpc_process_outbox_dispatch(50);
+  PERFORM public.rpc_process_outbox_dispatch(1000);
 
   SELECT status INTO v_orig_status FROM public.journal_entries WHERE id = v_entry6_id;
   IF v_orig_status <> 'reversed' THEN

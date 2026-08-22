@@ -149,68 +149,31 @@ class SalesRepository(BaseRepository):
         )
 
     async def delete_by_id(self, sale_id: str, account_id: str) -> bool:
-        async with self._conn.transaction():
-            # Espejo de PurchaseRepository.delete_by_id. La reversa de stock se
-            # deriva de stock_movements (product_id, quantity_delta, branch_id),
-            # que TODA ruta de creación escribe (v2, legacy y C-29/POS). Antes se
-            # gateaba por sale_items, pero la ruta C-29 (rpc_quick_sale /
-            # rpc_confirm_sales_order) no escribe sale_items → el stock no volvía.
-            row = await self._conn.fetchrow(
-                "SELECT id, operation_id FROM sales WHERE id = $1::uuid AND account_id = $2::uuid",
-                sale_id,
-                account_id,
-            )
-            if row is None:
-                return False
-            # v31-tenancy-pool-rls (colisión #3, sign-off PO 2026-08-01): ver
-            # PurchaseRepository.delete_by_id — reversa vía contramovimiento
-            # (type sale_return), sin borrar del ledger append-only.
-            await self._conn.fetch(
-                "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'sale', $2)",
-                sale_id,
-                "Venta eliminada",
-            )
-            await self._conn.execute("DELETE FROM sales WHERE id = $1::uuid", sale_id)
-            if row["operation_id"] is not None:
-                count = await self._conn.fetchval(
-                    "SELECT COUNT(*) FROM sales WHERE operation_id = $1",
-                    row["operation_id"],
-                )
-                if count == 0:
-                    await self._conn.execute(
-                        "DELETE FROM operation_idempotency WHERE operation_id = $1",
-                        row["operation_id"],
-                    )
-            return True
+        # delete-guard-ledgers: caller fino de rpc_delete_sale_operation
+        # (SECURITY DEFINER) — la secuencia anterior (SELECT header → reversa
+        # de stock → DELETE → limpieza de idempotencia) vive ahora ENTERA
+        # dentro de la RPC, junto con el guard fiscal (P0423) y la
+        # compensación de los cuatro libros (cuenta corriente P0425, caja
+        # P0426, banco espejo, contable async vía evento). account_id no se
+        # pasa a la RPC — resuelve la cuenta del auth.uid() bajo el pool
+        # JWT-passthrough, igual que update_operation.
+        row = await self._conn.fetchrow(
+            "SELECT public.rpc_delete_sale_operation(p_sale_id => $1::uuid, p_reason => $2::text) AS result",
+            sale_id,
+            "Venta eliminada",
+        )
+        return bool(row["result"]) if row is not None else False
 
     async def delete_by_operation(self, operation_id: str, account_id: str) -> bool:
-        async with self._conn.transaction():
-            # Espejo de PurchaseRepository.delete_by_operation.
-            rows = await self._conn.fetch(
-                "SELECT id FROM sales WHERE operation_id = $1::uuid AND account_id = $2::uuid",
-                operation_id,
-                account_id,
-            )
-            if not rows:
-                return False
-            for row in rows:
-                sale_id = row["id"]
-                # v31-tenancy-pool-rls (colisión #3): ver delete_by_id.
-                await self._conn.fetch(
-                    "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'sale', $2)",
-                    sale_id,
-                    "Venta eliminada (operación)",
-                )
-            await self._conn.execute(
-                "DELETE FROM sales WHERE operation_id = $1::uuid AND account_id = $2::uuid",
-                operation_id,
-                account_id,
-            )
-            await self._conn.execute(
-                "DELETE FROM operation_idempotency WHERE operation_id = $1::uuid",
-                operation_id,
-            )
-            return True
+        # delete-guard-ledgers: caller fino — mismo molde que delete_by_id,
+        # vía p_operation_id (cubre TODAS las filas de la operación en una
+        # sola llamada, en vez de iterar rpc_reverse_stock_movement por fila).
+        row = await self._conn.fetchrow(
+            "SELECT public.rpc_delete_sale_operation(p_operation_id => $1::uuid, p_reason => $2::text) AS result",
+            operation_id,
+            "Venta eliminada (operación)",
+        )
+        return bool(row["result"]) if row is not None else False
 
     async def update_operation(
         self,

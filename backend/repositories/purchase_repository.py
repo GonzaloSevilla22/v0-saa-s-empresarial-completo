@@ -133,71 +133,28 @@ class PurchaseRepository(BaseRepository):
         )
 
     async def delete_by_id(self, purchase_id: str, account_id: str) -> bool:
-        async with self._conn.transaction():
-            # C-20 Group 6.3: fetch purchase_id and operation_id from header,
-            # product_id from purchase_items (preparing for DROP of flat columns).
-            row = await self._conn.fetchrow(
-                "SELECT id, operation_id FROM purchases WHERE id = $1::uuid AND account_id = $2::uuid",
-                purchase_id,
-                account_id,
-            )
-            if row is None:
-                return False
-            # v31-tenancy-pool-rls (colisión #3, sign-off PO 2026-08-01):
-            # stock_movements tiene policies DELETE/UPDATE con qual=false
-            # (deny explícito — ledger append-only). rpc_reverse_stock_movement
-            # NO borra: inserta el contramovimiento (type purchase_return) con
-            # referencia al original, que permanece. No-op silencioso (SETOF
-            # vacío) si no hay movimiento con este reference_id/type — mismo
-            # comportamiento observable que antes (nada para revertir).
-            await self._conn.fetch(
-                "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'purchase', $2)",
-                purchase_id,
-                "Compra eliminada",
-            )
-            await self._conn.execute("DELETE FROM purchases WHERE id = $1::uuid", purchase_id)
-            if row["operation_id"] is not None:
-                count = await self._conn.fetchval(
-                    "SELECT COUNT(*) FROM purchases WHERE operation_id = $1",
-                    row["operation_id"],
-                )
-                if count == 0:
-                    await self._conn.execute(
-                        "DELETE FROM operation_idempotency WHERE operation_id = $1",
-                        row["operation_id"],
-                    )
-            return True
+        # delete-guard-ledgers: caller fino de rpc_delete_purchase_operation
+        # (SECURITY DEFINER) — la secuencia anterior vive ahora ENTERA dentro
+        # de la RPC, junto con la compensación de cuenta corriente de
+        # proveedor (P0425) y banco. account_id no se pasa — la RPC resuelve
+        # la cuenta del auth.uid() bajo el pool JWT-passthrough.
+        row = await self._conn.fetchrow(
+            "SELECT public.rpc_delete_purchase_operation(p_purchase_id => $1::uuid, p_reason => $2::text) AS result",
+            purchase_id,
+            "Compra eliminada",
+        )
+        return bool(row["result"]) if row is not None else False
 
     async def delete_by_operation(self, operation_id: str, account_id: str) -> bool:
-        async with self._conn.transaction():
-            # C-20 Group 6.3: fetch purchase ids first; get product_id per id from
-            # purchase_items (not from purchases flat column — prepares for DROP).
-            rows = await self._conn.fetch(
-                "SELECT id FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
-                operation_id,
-                account_id,
-            )
-            if not rows:
-                return False
-            for row in rows:
-                purchase_id = row["id"]
-                # v31-tenancy-pool-rls (colisión #3): ver delete_by_id — reversa
-                # vía contramovimiento, sin borrar del ledger.
-                await self._conn.fetch(
-                    "SELECT * FROM public.rpc_reverse_stock_movement($1::uuid, 'purchase', $2)",
-                    purchase_id,
-                    "Compra eliminada (operación)",
-                )
-            await self._conn.execute(
-                "DELETE FROM purchases WHERE operation_id = $1::uuid AND account_id = $2::uuid",
-                operation_id,
-                account_id,
-            )
-            await self._conn.execute(
-                "DELETE FROM operation_idempotency WHERE operation_id = $1::uuid",
-                operation_id,
-            )
-            return True
+        # delete-guard-ledgers: caller fino — mismo molde que delete_by_id,
+        # vía p_operation_id (cubre TODAS las filas de la operación en una
+        # sola llamada).
+        row = await self._conn.fetchrow(
+            "SELECT public.rpc_delete_purchase_operation(p_operation_id => $1::uuid, p_reason => $2::text) AS result",
+            operation_id,
+            "Compra eliminada (operación)",
+        )
+        return bool(row["result"]) if row is not None else False
 
     async def update_operation(
         self,

@@ -183,7 +183,7 @@ COMMENT ON FUNCTION public._pay_reverse_party_charge(uuid, text, uuid, numeric, 
   'originó. Traduce el P0409 interno de c30_register_*_account_movement a '
   'P0425. Solo callable desde RPCs SECURITY DEFINER de este módulo.';
 
-REVOKE ALL ON FUNCTION public._pay_reverse_party_charge(uuid, text, uuid, numeric, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public._pay_reverse_party_charge(uuid, text, uuid, numeric, uuid, uuid) FROM PUBLIC, anon, authenticated;
 
 -- =============================================================================
 -- 4. _journal_post_from_event — dos ramas nuevas (SaleOperationDeleted,
@@ -1300,7 +1300,7 @@ COMMENT ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) IS
   'stock (#417), emite SaleOperationDeleted, cancela la sales_order del POS. '
   'Acepta p_sale_id (delete_by_id) o p_operation_id (delete_by_operation).';
 
-REVOKE ALL ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) TO authenticated;
 
 -- =============================================================================
@@ -1444,5 +1444,5 @@ COMMENT ON FUNCTION public.rpc_delete_purchase_operation(uuid, uuid, text) IS
   'PurchaseDeleted. Acepta p_purchase_id (delete_by_id) o p_operation_id '
   '(delete_by_operation). Sin pata fiscal ni de sales_order (no aplican a compras).';
 
-REVOKE ALL ON FUNCTION public.rpc_delete_purchase_operation(uuid, uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_delete_purchase_operation(uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_delete_purchase_operation(uuid, uuid, text) TO authenticated;

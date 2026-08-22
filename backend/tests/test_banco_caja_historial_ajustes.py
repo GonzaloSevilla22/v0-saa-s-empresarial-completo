@@ -123,28 +123,17 @@ class TestRegisterMovementInAdjustmentReason:
         )
         assert payload.amount == Decimal("-300")
 
-    def test_sale_sign_validator_preexisting_gap_documented(self):
-        """HALLAZGO (fuera de alcance de este change, no se corrige acá):
-        `validate_sign_coherence` está declarado sobre `amount`, que en el
-        modelo viene ANTES que `movement_type` — en Pydantic v2, `info.data`
-        dentro del validador de un campo solo trae los campos YA validados
-        (los declarados antes en la clase), así que `movement_type` todavía
-        no está disponible cuando corre el validador de `amount` y la
-        validación de signo para sale/purchase_payment/expense/advance/
-        withdrawal es un no-op silencioso — nunca tuvo test propio (grep
-        confirmó cero coincidencias antes de este change). Se documenta acá
-        (Strict TDD: reportar fallo preexistente, NO arreglarlo dentro de
-        este change) en vez de dejarlo invisible. `validate_adjustment_reason`
-        (D4, nuevo en este change) NO tiene este problema: está declarado
-        sobre `description`, que va DESPUÉS de `movement_type` en la clase —
-        confirmado por los tests de arriba, que si pasan."""
+    def test_sale_sign_validator_gap_fixed(self):
+        """El hallazgo preexistente de este change (validate_sign_coherence
+        como no-op: `amount` iba declarado ANTES que `movement_type`, y en
+        Pydantic v2 `info.data` solo trae los campos ya validados) se corrigio
+        en fix/caja-sign-coherence-validator reordenando movement_type antes
+        que amount. Cobertura completa en test_cash_movement_sign_coherence.py;
+        aca queda el caso minimo para que el hallazgo no vuelva invisible."""
         from backend.schemas.cash import RegisterMovementIn
 
-        # Comportamiento REAL hoy: no rechaza (ver hallazgo). Si algún día se
-        # corrige el orden de campos, este test debe empezar a fallar — señal
-        # de que hay que actualizarlo, no una regresión de este change.
-        payload = RegisterMovementIn(amount=Decimal("-100"), movement_type="sale")
-        assert payload.amount == Decimal("-100")
+        with pytest.raises(ValidationError, match="ingreso"):
+            RegisterMovementIn(amount=Decimal("-100"), movement_type="sale")
 
     def test_non_adjustment_without_description_still_valid(self):
         """Triangulación: sale sin description sigue siendo válido — la

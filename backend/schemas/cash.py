@@ -134,8 +134,20 @@ class RegisterMovementIn(BaseModel):
     endpoint sirve para registrar el ajuste — no hay un camino paralelo
     (task 6.2).
     """
-    amount: Decimal
+    # EL ORDEN IMPORTA: movement_type va ANTES que amount y description a
+    # proposito. Pydantic v2 valida los campos en orden de declaracion y el
+    # `info.data` de un field_validator solo trae los campos YA validados —
+    # validate_sign_coherence (sobre amount) y validate_adjustment_reason
+    # (sobre description) leen movement_type de ahi, asi que si alguien lo
+    # mueve abajo vuelven a ser no-ops silenciosos. Fue un bug real: amount
+    # iba primero y un `sale` con amount<0 llegaba a la RPC sin rechazo
+    # (hallazgo de banco-caja-historial-ajustes, PR #440; corregido en
+    # fix/caja-sign-coherence-validator). NO se usa model_validator porque
+    # pierde el `loc` del error (el 422 RFC 7807 saldria con field="body" y
+    # api-standards exige field = campo ofensor). Guardado por
+    # test_cash_movement_sign_coherence.py, que asserta loc == ('amount',).
     movement_type: MovementType
+    amount: Decimal
     reference_id: uuid.UUID | None = None
     # validate_default=True: Pydantic v2 SALTEA los field_validator de un
     # campo cuando el valor viene del DEFAULT (campo ausente del payload) en
@@ -151,7 +163,9 @@ class RegisterMovementIn(BaseModel):
     @field_validator("amount")
     @classmethod
     def validate_sign_coherence(cls, v, info):
-        # Solo validar si tenemos el movement_type
+        # movement_type ya esta validado (va antes en la clase, ver arriba).
+        # Solo falta de info.data si el enum fallo — en ese caso Pydantic ya
+        # reporta ese error y aca no agregamos un segundo.
         movement_type_value = info.data.get("movement_type")
         if movement_type_value is None:
             return v

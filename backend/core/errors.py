@@ -111,6 +111,15 @@ _BUSINESS_ERRCODE_STATUS = {
     # (conflicto de estado, no de payload). El mensaje del RAISE indica el
     # ajuste manual como vía de corrección.
     "P0424": 409,
+    # delete-guard-ledgers: borrar una operación revertiría un cargo de
+    # cuenta corriente por debajo de cero (el cliente/proveedor ya pagó) —
+    # 409, misma familia que P0423 (conflicto de estado). El mensaje del
+    # RAISE ya nombra la acción que destraba (registrar la devolución).
+    "P0425": 409,
+    # delete-guard-ledgers: hay que compensar un movimiento de caja y no hay
+    # sesión abierta en esa caja — 409, mismo criterio. El mensaje del RAISE
+    # ya nombra la acción que destraba (abrir la caja).
+    "P0426": 409,
 }
 
 # bank-account-crud: mapeo específico por endpoint para POST /bank-accounts.

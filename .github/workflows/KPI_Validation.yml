@@ -149,6 +149,25 @@ jobs:
           # esta migración una última vez al final de toda la cadena (de
           # paso, prueba que es re-appliable).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261004000001_asiento_venta_formulario.sql
+          # delete-guard-ledgers: el reapply de 20261004000001 arriba redefine
+          # _journal_post_from_event y rpc_process_outbox_dispatch con SU
+          # cuerpo vigente en esa fecha — ANTES de este change, sin las ramas
+          # SaleOperationDeleted/PurchaseDeleted ni el filtro ampliado del
+          # Consumer 3. Mismo mecanismo que la nota anterior: `supabase start`
+          # ya aplicó esta migración nueva una vez al levantar el stack (es la
+          # última de la cadena por timestamp); reaplicar una migración MÁS
+          # VIEJA después la revierte en silencio — el evento
+          # SaleOperationDeleted queda marcado processed_at sin haber pasado
+          # por ningún consumer (el filtro de tipo del dispatcher no lo
+          # reconoce), así que el gate de abajo fallaría con "asiento
+          # esperado reversed, es posted" que no reproduce en local (mismo
+          # patrón "phantom regression" documentado arriba). Se reconverge
+          # reaplicando esta migración una última vez al final de toda la
+          # cadena — sin conflicto de firma/overload (las dos RPCs de borrado
+          # son firmas NUEVAS, nunca tocadas por las migraciones más viejas
+          # reaplicadas arriba; los dos consumers cambian solo de cuerpo vía
+          # CREATE OR REPLACE) — de paso, prueba que es re-appliable.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261005000001_delete_guard_ledgers.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -451,3 +470,22 @@ jobs:
       # sin doble posteo.
       - name: Run asiento-venta-formulario gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_asiento_venta_formulario.sql
+
+      # delete-guard-ledgers: borrar una operación con dinero posteado no
+      # compensaba ningún libro (cargo fantasma real de $75.150 el
+      # 2026-08-21). Verifica: (GATE ESTRELLA) una operación con dinero en
+      # LOS CUATRO LIBROS a la vez (cuenta corriente, caja, banco, contable)
+      # vuelve a cero neto tras borrarla, con contra-asiento balanceado y
+      # kardex repuesto; (P0423) venta con comprobante fiscal emitido no se
+      # puede borrar; (P0425) venta a crédito ya cobrada no se puede
+      # borrar — el saldo no se toca; (P0426) sin sesión de caja abierta no
+      # se puede borrar, y con una sesión cerrada + otra abierta la
+      # compensación cae en la abierta sin tocar el arqueo firmado de la
+      # cerrada; (D8) borrar una venta del POS cancela su sales_order
+      # (status + desvínculo + transición en el historial); idempotencia
+      # del reproceso del outbox; espejo de rpc_delete_purchase_operation
+      # (debit_note de proveedor, cost_center_id preservado en la
+      # reversión); operación sin dinero se borra como antes; id
+      # inexistente devuelve false sin excepción.
+      - name: Run delete-guard-ledgers gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_delete_guard_ledgers.sql

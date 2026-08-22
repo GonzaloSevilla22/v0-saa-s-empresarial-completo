@@ -52,6 +52,12 @@ def _body(resp) -> dict:
         # pos-banco-movimientos (D4): value_date cae dentro de un período de
         # conciliación bancaria ya cerrado — misma familia 409.
         ("P0424", 409),
+        # delete-guard-ledgers: revertir el cargo de un borrado dejaría el
+        # saldo de cuenta corriente negativo (el cliente/proveedor ya pagó).
+        ("P0425", 409),
+        # delete-guard-ledgers: hay que compensar caja y no hay sesión
+        # abierta en esa caja.
+        ("P0426", 409),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

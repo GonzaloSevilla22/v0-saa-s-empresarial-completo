@@ -43,6 +43,12 @@ interface SaleApiRow {
   // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
   // cargo de cuenta corriente o movimiento de caja posteado.
   is_payment_locked?: boolean
+  // delete-guard-ledgers (task 9.2): mismos tres EXISTS de is_payment_locked,
+  // expuestos por separado para que el diálogo de borrado enumere
+  // específicamente qué libro compensaría.
+  has_account_charge?: boolean
+  has_cash_movement?: boolean
+  has_bank_movement?: boolean
 }
 
 interface SalesPageResponse {
@@ -82,6 +88,9 @@ function mapSale(s: SaleApiRow): Sale {
     unitId:   s.unit_id ?? undefined,
     isInvoiced: s.is_invoiced ?? false,
     isPaymentLocked: s.is_payment_locked ?? false,
+    hasAccountCharge: s.has_account_charge ?? false,
+    hasCashMovement:  s.has_cash_movement  ?? false,
+    hasBankMovement:  s.has_bank_movement  ?? false,
   }
 }
 

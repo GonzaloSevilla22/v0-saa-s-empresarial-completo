@@ -7,6 +7,7 @@ import pytest
 from backend.tests.conftest import make_token
 
 PURCHASE_ID = "22222222-2222-2222-2222-222222222222"
+OPERATION_ID = "33333333-3333-3333-3333-333333333333"
 
 UPDATE_PAYLOAD = {
     "purchase_ids": [PURCHASE_ID],
@@ -264,42 +265,138 @@ async def test_update_purchase_operation_member_forbidden(async_client, mock_poo
     assert resp.status_code == 403
 
 
-async def test_delete_purchase_calls_stock_reversal_rpc(async_client, mock_pool):
-    """v31-tenancy-pool-rls (colisión #3, sign-off PO 2026-08-01): el borrado
-    de una compra ya NO hace su propio lookup de stock_movements + rpc_apply_
-    product_stock_delta + DELETE — delega TODO eso, de una, a
-    rpc_reverse_stock_movement (que inserta un contramovimiento en vez de
-    borrar del ledger append-only). La aritmética de stock/branch_stock se
-    prueba contra Postgres real en el gate SQL (stock-a/b/c de
-    20260828000001_v31_rls_collision_rpcs.sql) — acá se prueba el CONTRATO:
-    delete_by_id llama la RPC exactamente una vez, con (purchase_id, reason)."""
+async def test_delete_purchase_member_forbidden(async_client, mock_pool):
+    """task 8.6: require_role sigue rechazando roles sin permiso ANTES de
+    tocar la RPC — ni siquiera se resuelve el pool/conn."""
+    pool, conn = mock_pool
+    member_token = make_token({"role": "member"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases/{PURCHASE_ID}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+    assert resp.status_code == 403
+    conn.fetchrow.assert_not_called()
+
+
+async def test_delete_purchases_by_operation_member_forbidden(async_client, mock_pool):
+    pool, conn = mock_pool
+    member_token = make_token({"role": "member"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases?operation_id={OPERATION_ID}",
+            headers={"Authorization": f"Bearer {member_token}"},
+        )
+    assert resp.status_code == 403
+    conn.fetchrow.assert_not_called()
+
+
+async def test_delete_purchase_ok(async_client, mock_pool):
+    """DELETE /purchases/{id} → 204."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
-    reversal_calls: list = []
-
-    async def fetchrow_side_effect(query, *args):
-        if "FROM purchases WHERE id" in query:
-            return {"id": PURCHASE_ID, "operation_id": None}
-        return None
-
-    async def fetch_side_effect(query, *args):
-        if "rpc_reverse_stock_movement" in query:
-            reversal_calls.append(args)
-            return []
-        return []
-
-    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
-    conn.fetch = AsyncMock(side_effect=fetch_side_effect)
+    conn.fetchrow = AsyncMock(return_value={"result": True})
     with patch("backend.core.database.pool", pool):
         resp = await async_client.delete(
             f"/purchases/{PURCHASE_ID}",
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 204
-    assert len(reversal_calls) == 1, "rpc_reverse_stock_movement no se llamó"
-    purchase_id, reason = reversal_calls[0]
-    assert purchase_id == PURCHASE_ID
-    assert reason == "Compra eliminada"
+
+
+async def test_delete_purchase_not_found(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={"result": False})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases/{PURCHASE_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 404
+
+
+async def test_delete_purchases_by_operation_ok(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={"result": True})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases?operation_id={OPERATION_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 204
+
+
+async def test_delete_purchases_by_operation_not_found(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={"result": False})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases?operation_id={OPERATION_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 404
+
+
+async def test_delete_purchase_calls_rpc_exactly_once(async_client, mock_pool):
+    """delete-guard-ledgers (task 8.2, RED→GREEN): delete_by_id ya NO
+    orquesta una secuencia (SELECT header → rpc_reverse_stock_movement →
+    DELETE → limpieza de idempotencia) — emite UNA sola llamada a
+    rpc_delete_purchase_operation(p_purchase_id, p_reason), que concentra
+    compensación de cuenta corriente de proveedor, banco y reversa de stock
+    del lado SQL (probado contra Postgres real en
+    supabase/tests/test_delete_guard_ledgers.sql). Acá se prueba el
+    CONTRATO del repositorio: una única llamada, sin ninguna otra query de
+    escritura."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    calls: list = []
+
+    async def fetchrow_side_effect(query, *args):
+        calls.append((query, args))
+        return {"result": True}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases/{PURCHASE_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 204
+    assert len(calls) == 1, "delete_by_id debe emitir exactamente una llamada a la RPC"
+    query, args = calls[0]
+    assert "rpc_delete_purchase_operation" in query
+    assert "p_purchase_id" in query
+    assert args == (PURCHASE_ID, "Compra eliminada")
+    conn.fetch.assert_not_called()
+
+
+async def test_delete_purchases_by_operation_calls_rpc_exactly_once(async_client, mock_pool):
+    """Espejo de test_delete_purchase_calls_rpc_exactly_once para
+    delete_by_operation — UNA llamada con p_operation_id."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    calls: list = []
+
+    async def fetchrow_side_effect(query, *args):
+        calls.append((query, args))
+        return {"result": True}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            f"/purchases?operation_id={OPERATION_ID}",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 204
+    assert len(calls) == 1, "delete_by_operation debe emitir exactamente una llamada a la RPC"
+    query, args = calls[0]
+    assert "rpc_delete_purchase_operation" in query
+    assert "p_operation_id" in query
+    assert args == (OPERATION_ID, "Compra eliminada (operación)")
+    conn.fetch.assert_not_called()
 
 
 # ── v3-api-standards §2.5: envelope estándar {items,total,page,pages} ───────

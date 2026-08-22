@@ -38,6 +38,11 @@ export interface SaleOperation {
   /** pagos-cableados-restantes (D6): true si la operación tiene un cargo de
    * cuenta corriente o movimiento de caja posteado — inmutable (P0423). */
   isPaymentLocked: boolean
+  /** delete-guard-ledgers: desglose de isPaymentLocked por libro, para que
+   * el diálogo de borrado enumere específicamente qué se va a compensar. */
+  hasAccountCharge: boolean
+  hasCashMovement: boolean
+  hasBankMovement: boolean
 }
 
 export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
@@ -54,6 +59,9 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.isGrouped = true
       op.isInvoiced = op.isInvoiced || !!sale.isInvoiced
       op.isPaymentLocked = op.isPaymentLocked || !!sale.isPaymentLocked
+      op.hasAccountCharge = op.hasAccountCharge || !!sale.hasAccountCharge
+      op.hasCashMovement = op.hasCashMovement || !!sale.hasCashMovement
+      op.hasBankMovement = op.hasBankMovement || !!sale.hasBankMovement
     } else {
       map.set(key, {
         key,
@@ -71,6 +79,9 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         unitId: sale.unitId ?? null,
         isInvoiced: !!sale.isInvoiced,
         isPaymentLocked: !!sale.isPaymentLocked,
+        hasAccountCharge: !!sale.hasAccountCharge,
+        hasCashMovement: !!sale.hasCashMovement,
+        hasBankMovement: !!sale.hasBankMovement,
       })
     }
   }
@@ -98,6 +109,10 @@ export interface PurchaseOperation {
   /** pagos-cableados-restantes (D6, task 9.3): true si la operación tiene un
    * cargo de cuenta corriente posteado — inmutable (P0423). */
   isPaymentLocked: boolean
+  /** delete-guard-ledgers: desglose de isPaymentLocked por libro (sin
+   * caja — las compras no tienen opt-in de caja). */
+  hasAccountCharge: boolean
+  hasBankMovement: boolean
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -112,6 +127,8 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.total += purchase.total
       op.isGrouped = true
       op.isPaymentLocked = op.isPaymentLocked || !!purchase.isPaymentLocked
+      op.hasAccountCharge = op.hasAccountCharge || !!purchase.hasAccountCharge
+      op.hasBankMovement = op.hasBankMovement || !!purchase.hasBankMovement
     } else {
       map.set(key, {
         key,
@@ -125,6 +142,8 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         branchId: purchase.branchId ?? null,
         unitId: purchase.unitId ?? null,
         isPaymentLocked: !!purchase.isPaymentLocked,
+        hasAccountCharge: !!purchase.hasAccountCharge,
+        hasBankMovement: !!purchase.hasBankMovement,
       })
     }
   }

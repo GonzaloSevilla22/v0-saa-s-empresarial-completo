@@ -38,6 +38,10 @@ interface PurchaseApiRow {
   // pagos-cableados-restantes (D6): derivado de lectura — true si tiene
   // cargo de cuenta corriente posteado.
   is_payment_locked?: boolean
+  // delete-guard-ledgers (task 9.2): mismos EXISTS de is_payment_locked,
+  // expuestos por separado (sin pata de caja — las compras no la tienen).
+  has_account_charge?: boolean
+  has_bank_movement?: boolean
 }
 
 interface PurchasesPageResponse {
@@ -75,6 +79,8 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     branchId: p.branch_id ?? null,
     unitId:   p.unit_id ?? undefined,
     isPaymentLocked: p.is_payment_locked ?? false,
+    hasAccountCharge: p.has_account_charge ?? false,
+    hasBankMovement:  p.has_bank_movement  ?? false,
   }
 }
 

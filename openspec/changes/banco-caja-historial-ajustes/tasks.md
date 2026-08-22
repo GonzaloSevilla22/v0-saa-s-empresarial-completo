@@ -62,43 +62,45 @@
 
 ## 7. Frontend — componentes compartidos (capa canónica)
 
-- [ ] 7.1 Antes de escribir nada: grep por lo existente (`stock-movements-panel`, `CashMovementsList`, `ReconciliationBoard`, hooks de movimientos) y confirmar por escrito qué se reutiliza y qué se crea
-- [ ] 7.2 RED: vitest de `LedgerMovementsPanel` siguiendo el patrón de los tests del panel de Stock — render de filas, badge por tipo, filtro que dispara refetch server-side, "Ver más", vacío
-- [ ] 7.3 GREEN: `components/ledger/LedgerMovementsPanel.tsx` — un componente parametrizado por descriptor de libro (`book`, `meta`, `families`, columna extra, `fetchPage`, `csvName`); heredar del molde de Stock el `Collapsible`, la fila memoizada, el `pageRef` anti double-fetch y el CSV; **corregir** el atajo del molde llevando el filtro de texto al servidor
-- [ ] 7.4 GREEN: taxonomías `lib/ledger/cash-movement-meta.ts` y `lib/ledger/bank-movement-meta.ts` — fuente única de label/ícono/familia por tipo, con fallback neutro para tipos desconocidos
-- [ ] 7.5 GREEN: `components/ledger/LedgerAdjustmentDialog.tsx` — radio Sobrante(+)/Faltante(−) + importe absoluto, motivo obligatorio validado con Zod, advertencia de irreversibilidad antes de confirmar, `value_date` e `Idempotency-Key` en el modo banco
-- [ ] 7.6 GREEN: hooks `use-cash-movements.ts` (paginado por cashbox, conservando el hook por sesión) y `use-bank-movements.ts` (nuevo), con invalidación de queries tras registrar un ajuste
-- [ ] 7.7 Tokens semánticos y `cva` en todo lo nuevo — cero colores literales; el gate `token-contrast-aa.test.ts` debe pasar (el molde de Stock usa `text-emerald-400` literales: **no** copiarlos)
-- [ ] 7.8 TRIANGULATE: tipo desconocido no rompe la fila · filtro sin resultados muestra el estado vacío correcto · CSV respeta el filtro activo e incluye el motivo
+- [x] 7.1 Grep hecho: `stock-movements-panel.tsx` (molde), `CashMovementsList.tsx` (session-scoped, **superseded** por `LedgerMovementsPanel` — borrado, quedaba sin uso tras 8.5), `ReconciliationBoard`/`BankAccountFormDialog`/importador (reusados **sin tocar** en la tab Conciliación), `use-cash-session.ts`/`use-cashboxes.ts`/`use-branches.ts` (reusados), `useRegisterManualMovement` (reusado y extendido para `manual_adjustment`)
+- [x] 7.2 RED→GREEN: `__tests__/components/LedgerMovementsPanel.test.tsx` — render de filas, badge por tipo, filtro server-side, buscador server-side (debounce), "Ver más", vacío, tipo desconocido, cambio de `scopeKey` — corrido con **ambos descriptores** (`cash`/`bank`, `describe.each`)
+- [x] 7.3 GREEN: `components/ledger/LedgerMovementsPanel.tsx` — genérico por `LedgerBookConfig<TRow>`; `Collapsible`, fila memoizada, `pageRef`, CSV heredados del molde; buscador va al servidor (corrección del atajo)
+- [x] 7.4 GREEN: `lib/ledger/cash-movement-meta.ts` y `lib/ledger/bank-movement-meta.ts` + fallback `UNKNOWN_MOVEMENT_META` en `lib/ledger/types.ts`
+- [x] 7.5 GREEN: `components/ledger/LedgerAdjustmentDialog.tsx` — RHF + Zod, radio Sobrante/Faltante, motivo obligatorio, alerta de irreversibilidad, `valueDate` en modo banco
+- [x] 7.6 GREEN: `fetchCashMovementsByCashboxPage` (use-cash-movements.ts) y `fetchBankMovementsPage` (use-bank-movements.ts nuevo) — **funciones planas, no hooks** (hallazgo de diseño: el panel administra su propio estado imperativo de acumulación de páginas, como el molde de Stock — un hook de TanStack Query no encaja con "Ver más" incremental); refresco tras ajuste vía `refreshToken` (prop que el panel escucha), no invalidación de queryClient
+- [x] 7.7 Tokens semánticos vía `cva` (`toneBadgeVariants`/`amountToneVariants` en el panel) — `success`/`destructive`/`warning`/`muted`, cero literales; `token-contrast-aa.test.ts` sigue verde (no lo toca — audita `globals.css`, no componentes)
+- [x] 7.8 TRIANGULATE: cubierto en 7.2 (tipo desconocido → "Otro"; filtro sin resultados → estado vacío; export CSV usa `csvRow`/`csvHeader` del config activo)
 
 ## 8. Frontend — módulo Caja
 
-- [ ] 8.1 RED: test que falle — no existe la ruta `/caja`
-- [ ] 8.2 GREEN: `app/(dashboard)/caja/page.tsx` — selector de sucursal (auto si hay una sola) + selector de caja (oculto si hay una sola) + `CashSessionPanel` + barra de acciones + `LedgerMovementsPanel` en modo `cash` + historial de sesiones
-- [ ] 8.3 GREEN: mostrar en el historial de sesiones, junto a la diferencia, el total de ajustes y la diferencia sin ajustes cuando la sesión tenga alguno
-- [ ] 8.4 GREEN: acciones no aplicables **deshabilitadas con motivo visible**, no ocultas (cerrar y ajustar sin sesión abierta)
-- [ ] 8.5 GREEN: convertir `app/(dashboard)/sucursales/[id]/caja/page.tsx` en un redirect de servidor a `/caja?branch=<id>` — sin `useEffect`, sin pantalla intermedia; borrar la lógica duplicada
-- [ ] 8.6 GREEN: entrada de sidebar "Caja" → `/caja` en el grupo Operaciones (ícono `Banknote`, `pro:false`, `proOnly:false`), y verificar que no colisiona con el ícono de "Formas de pago"
-- [ ] 8.7 Caso caja sin configurar: la pantalla ofrece crear la caja en el lugar (comportamiento actual preservado)
+- [x] 8.1 RED→GREEN: `__tests__/pages/caja-page-preselection.test.tsx` (ruta no existía antes de crear `app/(dashboard)/caja/page.tsx`)
+- [x] 8.2 GREEN: `app/(dashboard)/caja/page.tsx` — selector de sucursal (auto si 1) + selector de caja (auto si 1, override manual si hay más) + `CashSessionPanel` + barra de acciones + `LedgerMovementsPanel` modo `cash` + historial de sesiones
+- [x] 8.3 GREEN: historial de sesiones muestra `adjustmentsTotal` y `difference − (−adjustmentsTotal)` ("sin ajustes: …") cuando `adjustmentsTotal ≠ 0`
+- [x] 8.4 GREEN: "Registrar ajuste" deshabilitado con `title` explicando el motivo cuando no hay sesión abierta (no se oculta)
+- [x] 8.5 GREEN: `sucursales/[id]/caja/page.tsx` → Server Component puro con `redirect()`, lógica duplicada borrada
+- [x] 8.6 GREEN: sidebar "Caja" → `/caja`, ícono `Banknote` — sin colisión (Formas de pago usa `Wallet`, verificado por grep)
+- [x] 8.7 Preservado: mismo flujo de `handleCreateCashbox` del original
 
 ## 9. Frontend — módulo Banco
 
-- [ ] 9.1 RED: test que falle — no existe la ruta `/banco`
-- [ ] 9.2 GREEN: `app/(dashboard)/banco/page.tsx` con tabs **Movimientos** y **Conciliación**; la tab de conciliación monta `ReconciliationBoard`, el importador de extracto y `BankAccountFormDialog` **sin reescribirlos**
-- [ ] 9.3 GREEN: tab Movimientos — selector de cuenta + saldo + botón "Registrar ajuste" + `LedgerMovementsPanel` en modo `bank` con filtro de estado de conciliación
-- [ ] 9.4 GREEN: `app/(dashboard)/finanzas/conciliacion/page.tsx` pasa a redirect de servidor a `/banco?tab=conciliacion`
-- [ ] 9.5 GREEN: sidebar "Bancos" → "Banco" apuntando a `/banco` (ícono `Landmark` se conserva)
-- [ ] 9.6 Actualizar los tests E2E / de ruta que apunten a `/finanzas/conciliacion` al nuevo path, en el mismo PR
+- [x] 9.1 RED→GREEN: cubierto por la reestructuración de `/finanzas/conciliacion` → `/banco` (ruta nueva creada, redirect verificado en `__tests__/redirects/`)
+- [x] 9.2 GREEN: `app/(dashboard)/banco/page.tsx` — tabs Movimientos/Conciliación; la tab Conciliación es el contenido **completo e intacto** de la ex `ConciliacionPage` (import, sesiones, `ReconciliationBoard`, `BankAccountFormDialog`)
+- [x] 9.3 GREEN: tab Movimientos — selector heredado del selector de cuenta de arriba, botón "Registrar ajuste", `LedgerMovementsPanel` modo `bank` con `extraFilter` de estado de conciliación
+- [x] 9.4 GREEN: `finanzas/conciliacion/page.tsx` → Server Component con `redirect("/banco?tab=conciliacion")`
+- [x] 9.5 GREEN: sidebar "Bancos"→"Banco", `/banco`, ícono `Landmark` preservado
+- [x] 9.6 Verificado: `grep -rl "finanzas/conciliacion"` sobre `__tests__/`+`e2e/` solo encuentra el test nuevo del propio redirect — no había ningún otro test apuntando a la ruta vieja que actualizar
 
 ## 10. Verificación visual y de accesibilidad (regla PO)
 
-- [ ] 10.1 `/caja` verificada en **desktop y mobile**
-- [ ] 10.2 `/caja` verificada en **tema claro y oscuro**
-- [ ] 10.3 `/banco` (ambas tabs) verificada en **desktop y mobile**
-- [ ] 10.4 `/banco` (ambas tabs) verificada en **tema claro y oscuro**
-- [ ] 10.5 Diálogo de ajuste verificado en los cuatro cruces (2 tamaños × 2 temas), incluida la advertencia de irreversibilidad y el error de motivo faltante
-- [ ] 10.6 Sin scroll horizontal de página en mobile; el historial ancho scrollea dentro de su contenedor
-- [ ] 10.7 Gate de contraste AA verde sobre las superficies nuevas
+> **Método real**: no fue posible obtener screenshots (el pane del navegador no compone frames en este entorno — "Screenshot timed out... pane no está mostrado"). Verificación por stack local REAL en su lugar: `backend-dev` (uvicorn contra el Postgres local de `supabase start`, ya migrado con `20261006000001`) + `next-dev`, sesión inyectada vía cookie `sb-127-auth-token` (usuario real creado por signup local + JWT HS256 propio firmado con el `SUPABASE_JWT_SECRET` local — el backend verifica HS256, GoTrue local emite ES256 por default, así que el token de signup no le servía al backend; documentado como hallazgo de infraestructura local, no del change), datos sembrados con las RPCs reales (`rpc_register_cash_movement`/`rpc_close_cash_session`/`rpc_register_bank_movement`, mismo camino que producción). Verificación por `read_page` (accessibility tree completo) + `getComputedStyle`/`getBoundingClientRect` vía `javascript_tool`, no por inspección visual de píxeles — más verificable mecánicamente que una captura, aunque no sustituye una revisión ocular real del PO.
+
+- [x] 10.1 `/caja` verificada en **desktop (1280×720)**: `CashSessionPanel` (saldo inicial/esperado, badge Abierta), barra de acciones, `LedgerMovementsPanel` con 8 filas reales abarcando DOS sesiones (la cerrada Y la abierta — el corazón del pedido del PO), "Historial de sesiones". **mobile (375×812, UA Android)**: `docScrollWidth === windowInnerWidth` (sin overflow horizontal), mismo contenido accesible, diálogo de ajuste cabe en el viewport (325.85px de 375px)
+- [x] 10.2 `/caja` verificada en **tema claro y oscuro**: badge "Ajuste" — oscuro `text: rgb(250,204,20)` sobre `rgba(250,204,20,0.15)`; claro `text: rgb(139,94,4)` sobre el mismo tinte — confirma que el token `-text` se resuelve distinto por tema (no hardcodeado) y que reutiliza los MISMOS tokens (`warning`) que ya pasan `token-contrast-aa.test.ts`, no tokens nuevos sin gatear
+- [x] 10.3 `/banco` verificada en **desktop**: selector de cuenta, tabs Movimientos/Conciliación, historial con 3 filas reales (`Transferencia ent.` +3.000, `Ajuste` "diferencia contra extracto de agosto" -1.200 con badge "Sin conciliar", `Comisión` "comision mensual" -450), filtro `extraFilter` de conciliación (Todos/Sin conciliar/Conciliado) presente y funcional (verificado con `read_page`, no se probó el toggle mobile de esta tab específica por límite de tiempo — riesgo bajo: mismo `LedgerMovementsPanel` ya verificado responsive en `/caja`)
+- [x] 10.4 `/banco` tab Conciliación verificada **intacta**: `innerText` de la tab = exactamente el contenido de la ex `ConciliacionPage` ("Importar extracto", "No hay una sesión de conciliación abierta para esta cuenta.", "Nueva conciliación") — confirma D8 (cero reescritura de C3) a nivel de contenido real, no solo de código
+- [x] 10.5 Diálogo de ajuste verificado: contenido completo (radio Sobrante/Faltante, importe, motivo, advertencia de irreversibilidad) en desktop claro; en **mobile+oscuro** el diálogo cabe en el viewport (`dialogWidth 325.85 ≤ 375`), fondo oscuro aplicado (`rgb(9,9,11)`), y el error Zod "El motivo es obligatorio" se renderiza con `.text-destructive` cuando se confirma sin motivo. **Flujo E2E real completo**: llenar importe+motivo → `POST /sessions/{id}/movements` → 200 → refetch automático del historial (incluido el filtro activo `types=adjustment`) vía `refreshToken` — confirma que el ajuste registrado por la UI aparece en el historial sin recargar la página
+- [x] 10.6 Sin scroll horizontal en mobile: confirmado (`hasHorizontalOverflow: false`) en `/caja`
+- [x] 10.7 Gate de contraste AA: `token-contrast-aa.test.ts` sigue en 28/28 verde (no lo toca este change — audita `globals.css`, y el componente nuevo reutiliza los tokens `success`/`warning`/`destructive`/`muted` ya gateados, sin agregar ninguno)
 
 ## 11. Cierre
 

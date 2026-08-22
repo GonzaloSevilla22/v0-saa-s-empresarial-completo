@@ -34,7 +34,7 @@ El sistema SHALL fijar mediante CHECK el conjunto completo de `movement_type` de
 - **THEN** la inserción falla por violación del CHECK del enum
 
 ### Requirement: RPC de carga manual de movimiento bancario
-El sistema SHALL exponer `rpc_register_bank_movement` (SECURITY DEFINER, GRANT a `authenticated`) para registrar movimientos bancarios **manualmente**. Esta RPC SHALL aceptar el subconjunto manual de `movement_type`: `{'transfer_in', 'transfer_out', 'manual_adjustment', 'fee', 'tax_debit', 'interest'}` — los tres últimos habilitados por C3 `bank-reconciliation` para anotar cargos del extracto sin contraparte en el sistema — rechazando el tipo reservado a escritores automáticos (`card_settlement`) con `P0410`. La RPC SHALL estar guardada por `is_account_writer` (`P0401` si no), SHALL rechazar movimientos sobre una cuenta inexistente o inactiva (`P0412`), y SHALL ser idempotente vía `idempotency_key` (slot en `operation_idempotency`, replay devuelve el resultado original sin re-insertar).
+El sistema SHALL exponer `rpc_register_bank_movement` (SECURITY DEFINER, GRANT a `authenticated`) para registrar movimientos bancarios **manualmente**. Esta RPC SHALL aceptar el subconjunto manual de `movement_type`: `{'transfer_in', 'transfer_out', 'manual_adjustment', 'fee', 'tax_debit', 'interest'}` — los tres últimos habilitados por C3 `bank-reconciliation` para anotar cargos del extracto sin contraparte en el sistema — rechazando el tipo reservado a escritores automáticos (`card_settlement`) con `P0410`. La RPC SHALL estar guardada por `is_account_writer` (`P0401` si no), SHALL rechazar movimientos sobre una cuenta inexistente o inactiva (`P0412`), y SHALL ser idempotente vía `idempotency_key` (slot en `operation_idempotency`, replay devuelve el resultado original sin re-insertar). Adicionalmente, cuando el `movement_type` es `manual_adjustment`, la RPC SHALL exigir una descripción no vacía y rechazar la llamada con `P0413` si no se provee, porque un ajuste sin motivo es indistinguible de un error de carga.
 
 #### Scenario: Registrar una transferencia manual
 - **WHEN** un usuario con permiso llama a `rpc_register_bank_movement` con `amount = +5000`, `movement_type = 'transfer_in'` y una `idempotency_key` nueva sobre una cuenta activa
@@ -59,6 +59,14 @@ El sistema SHALL exponer `rpc_register_bank_movement` (SECURITY DEFINER, GRANT a
 #### Scenario: Doble submit con la misma idempotency_key no duplica
 - **WHEN** se llama dos veces a `rpc_register_bank_movement` con la misma `idempotency_key` y los mismos datos
 - **THEN** la segunda llamada devuelve el resultado original con `replayed = true` y existe una sola fila en `bank_movements`
+
+#### Scenario: Ajuste manual sin motivo es rechazado
+- **WHEN** un usuario con permiso llama a `rpc_register_bank_movement` con `movement_type = 'manual_adjustment'` y `p_description` nula o en blanco
+- **THEN** la RPC retorna `P0413` y no inserta ninguna fila, y el slot de idempotencia no queda consumido para esa clave
+
+#### Scenario: Ajuste manual con motivo se registra
+- **WHEN** un usuario con permiso llama a `rpc_register_bank_movement` con `movement_type = 'manual_adjustment'`, `amount = -1200` y una descripción no vacía
+- **THEN** el movimiento se registra con su `balance_after` y la descripción persistida
 
 ### Requirement: Helper transaccional reutilizable (contrato C1→C2)
 El sistema SHALL exponer un helper SQL `_register_bank_movement(p_bank_account_id, p_amount, p_type, ...)` invocable desde **dentro de otra transacción** (p.ej. las futuras RPCs de pago de C2), que inserta el `bank_movement` con `balance_after` calculado (bajo `FOR UPDATE` sobre la cabecera `bank_accounts`) y `account_id` denormalizado, sin abrir transacción propia. El helper SHALL ser SECURITY DEFINER con `SET search_path`, y su EXECUTE SHALL estar REVOCADO de `PUBLIC`/`anon`/`authenticated` (callable solo desde RPCs SECURITY DEFINER de este módulo o de C2). Este es el análogo exacto de `c28_register_cash_movement` que C-29 reutilizó en el hot path de venta.
@@ -270,4 +278,27 @@ El movimiento bancario espejo SHALL nacer con estado de conciliación `unreconci
 - **WHEN** se lista la conciliación bancaria después de borrar una operación con movimiento bancario
 - **THEN** el movimiento espejo aparece entre los pendientes de conciliar
 - **AND** no se concilia automáticamente contra ninguna línea de extracto
+
+### Requirement: El motivo obligatorio del ajuste bancario está garantizado por la tabla
+El sistema SHALL replicar la exigencia de motivo del ajuste bancario mediante un CHECK sobre `bank_movements` que obligue a `description` no vacía cuando `movement_type = 'manual_adjustment'`, para que ningún escritor —presente o futuro, RPC o helper— pueda insertar un ajuste sin motivo. El CHECK SHALL agregarse sin reescribir las filas históricas, que no incluyen ajustes manuales.
+
+#### Scenario: Inserción directa de un ajuste sin motivo
+- **WHEN** cualquier camino de escritura intenta insertar un `bank_movement` con `movement_type = 'manual_adjustment'` y `description` nula o en blanco
+- **THEN** la inserción falla por violación del CHECK
+
+#### Scenario: Los demás tipos no quedan alcanzados
+- **WHEN** se inserta un `bank_movement` de tipo `transfer_in` sin descripción
+- **THEN** la inserción se completa normalmente
+
+### Requirement: Los movimientos bancarios son consultables por cuenta desde el módulo Banco
+El sistema SHALL exponer el ledger bancario como un historial legible por cuenta bancaria en el módulo Banco, ordenado por fecha valor descendente, con el tipo de movimiento etiquetado, el importe con signo, el saldo resultante y el estado de conciliación de cada fila. El historial SHALL ser de sólo lectura y NO SHALL ofrecer edición ni borrado, en coherencia con el carácter append-only del ledger.
+
+#### Scenario: Consultar los movimientos de una cuenta
+- **GIVEN** una cuenta bancaria con movimientos automáticos de pagos y movimientos manuales
+- **WHEN** el usuario abre el historial de esa cuenta
+- **THEN** ve unos y otros en la misma lista, cada uno con su tipo etiquetado y su estado de conciliación
+
+#### Scenario: El historial no altera el ledger
+- **WHEN** el usuario opera el historial (filtra, pagina, exporta)
+- **THEN** ninguna fila de `bank_movements` es modificada
 

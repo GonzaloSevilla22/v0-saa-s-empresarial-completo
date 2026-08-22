@@ -279,20 +279,6 @@ BEGIN
   -- (4) Contable: original reversed + contra-asiento balanceado con reversal_of
   SELECT status INTO v_orig_status FROM public.journal_entries WHERE id = v_entry1_id;
   IF v_orig_status <> 'reversed' THEN
-    -- DIAGNÓSTICO temporal (task 6.1 debug CI): estado del evento y del backlog.
-    RAISE NOTICE 'DEBUG estrella-4a: v_op1=%, v_entry1_id=%', v_op1, v_entry1_id;
-    RAISE NOTICE 'DEBUG evento: %', (
-      SELECT to_jsonb(e) FROM public.events e
-      WHERE e.event_type = 'SaleOperationDeleted' AND e.aggregate_id = v_op1
-    );
-    RAISE NOTICE 'DEBUG pending total=%, oldest_pending_occurred_at=%',
-      (SELECT COUNT(*) FROM public.events WHERE processed_at IS NULL),
-      (SELECT MIN(occurred_at) FROM public.events WHERE processed_at IS NULL);
-    RAISE NOTICE 'DEBUG idempotency claim: %', (
-      SELECT COUNT(*) FROM public.operation_idempotency
-      WHERE consumer_type = 'JournalEntry'
-        AND idempotency_key = (SELECT id::text || ':JournalEntry' FROM public.events WHERE event_type = 'SaleOperationDeleted' AND aggregate_id = v_op1)
-    );
     RAISE EXCEPTION 'GATE DGL FAILED (estrella-4a): asiento original esperado reversed, es %.', v_orig_status;
   END IF;
 

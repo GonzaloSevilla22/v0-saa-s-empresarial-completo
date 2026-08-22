@@ -451,3 +451,22 @@ jobs:
       # sin doble posteo.
       - name: Run asiento-venta-formulario gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_asiento_venta_formulario.sql
+
+      # delete-guard-ledgers: borrar una operación con dinero posteado no
+      # compensaba ningún libro (cargo fantasma real de $75.150 el
+      # 2026-08-21). Verifica: (GATE ESTRELLA) una operación con dinero en
+      # LOS CUATRO LIBROS a la vez (cuenta corriente, caja, banco, contable)
+      # vuelve a cero neto tras borrarla, con contra-asiento balanceado y
+      # kardex repuesto; (P0423) venta con comprobante fiscal emitido no se
+      # puede borrar; (P0425) venta a crédito ya cobrada no se puede
+      # borrar — el saldo no se toca; (P0426) sin sesión de caja abierta no
+      # se puede borrar, y con una sesión cerrada + otra abierta la
+      # compensación cae en la abierta sin tocar el arqueo firmado de la
+      # cerrada; (D8) borrar una venta del POS cancela su sales_order
+      # (status + desvínculo + transición en el historial); idempotencia
+      # del reproceso del outbox; espejo de rpc_delete_purchase_operation
+      # (debit_note de proveedor, cost_center_id preservado en la
+      # reversión); operación sin dinero se borra como antes; id
+      # inexistente devuelve false sin excepción.
+      - name: Run delete-guard-ledgers gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_delete_guard_ledgers.sql

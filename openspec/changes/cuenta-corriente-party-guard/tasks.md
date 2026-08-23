@@ -53,7 +53,7 @@
 
 > 🛑 **Checkpoint OQ-2 antes de empezar el grupo**: confirmar con el PO si este tramo entra en el change o se separa como hotfix inmediato al estilo #446. La recomendación es que entre acá. Lo que **no** es aceptable es dejarlo abierto esperando el apply.
 >
-> **Resuelto 2026-08-23 — se separó como hotfix** (orden del PO): ver `supabase/migrations/20261010000001_revoke_internal_money_helpers.sql` (rama `fix/revoke-internal-money-helpers`). Este grupo entero queda SUPERSEDED — el `REVOKE` de 5.3/5.4 ya está aplicado en `main`; no repetirlo acá. Ver nota en `design.md` OQ-2.
+> **Resuelto 2026-08-23 — se separó como hotfix** (orden del PO): PR #454, ver `supabase/migrations/20261010000001_revoke_internal_money_helpers.sql` (rama `fix/revoke-internal-money-helpers`). Este grupo entero queda SUPERSEDED — el `REVOKE` de 5.3/5.4 ya está aplicado en `main`; no repetirlo acá. Ver nota en `design.md` OQ-2.
 
 - [ ] 5.1 **RED**: assert en el test SQL — con `SET LOCAL ROLE authenticated`, invocar directamente `public._pay_register_party_charge(<account_id de B>, 'customer', <client_id de B>, 1000, …)` y esperar `insufficient_privilege` (42501). Debe **fallar hoy**: hoy la llamada tiene éxito y escribe en los libros del tenant B.
 - [ ] 5.2 **RED**: espejo con `public._journal_post_from_event(<fila events forjada con account_id de B>)` → `insufficient_privilege`. Debe fallar hoy.

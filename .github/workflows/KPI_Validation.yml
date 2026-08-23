@@ -234,8 +234,10 @@ jobs:
           # verificado también localmente con `docker exec ... psql -f`,
           # doble aplicación sin error y sin cambio de fingerprint).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261006000001_banco_caja_historial_ajustes.sql
-          # compras-proveedor-cuenta-corriente: ÚLTIMO eslabón de la cadena, y
-          # tiene que serlo. Esta migración cambia DOS firmas —
+          # compras-proveedor-cuenta-corriente: último eslabón de la cadena
+          # que cambia FIRMAS (lo sigue cuenta-corriente-party-guard, que no
+          # cambia ninguna), y tiene que estar acá. Esta migración cambia DOS
+          # firmas —
           # rpc_create_purchase_operation (8 -> 9 args, + p_supplier_id) y
           # rpc_atomic_update_purchase_operation (8 -> 12 args, + supplier y
           # cost_center tri-estado). Los reapplies de arriba redefinen esas dos
@@ -258,8 +260,12 @@ jobs:
           # quedara más de una firma por función, así que la reconvergencia no
           # es una promesa sino una aserción.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261009000001_compras_proveedor_cuenta_corriente.sql
-          # revoke-internal-money-helpers (hotfix 2026-08-23): TIENE que ser el
-          # ÚLTIMO eslabón de la cadena. Dos de los reapplies de arriba
+          # revoke-internal-money-helpers (hotfix 2026-08-23): tiene que ir
+          # DESPUÉS de todos los reapplies que reabren el agujero — es el
+          # ANTEÚLTIMO eslabón desde que cuenta-corriente-party-guard se sumó
+          # abajo (ver el bloque siguiente: esa migración verifica en su gate
+          # final que este REVOKE ya corrió, así que también depende de que
+          # este eslabón la preceda). Dos de los reapplies de arriba
           # reintroducen en silencio el GRANT EXECUTE ... TO authenticated que
           # este hotfix revoca: 20261001000001 (L137, _pay_register_party_
           # charge — GRANT explícito desde su creación) y 20261004000001
@@ -273,6 +279,34 @@ jobs:
           # EXECUTE de dos ya existentes) — mismo mecanismo "phantom
           # regression" documentado en las notas anteriores, un eslabón más.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261010000001_revoke_internal_money_helpers.sql
+          # cuenta-corriente-party-guard: ÚLTIMO eslabón de la cadena, y tiene
+          # que serlo. Esta migración es el caso más simple de todos —solo
+          # CREATE OR REPLACE (ninguna de las 5 funciones cambia de firma, así
+          # que no puede generar overloads fantasma: su propio gate
+          # ANTI-OVERLOAD lo verifica) más REVOKE/GRANT y COMMENT, todos
+          # idempotentes—, pero va al final por DOS razones concretas:
+          #   1. Revoca c30_get_or_create_customer_account / _supplier_account
+          #      (los dos choke points), y el reapply de 20261001000001 (L137)
+          #      y 20261004000001 (~L1778) más arriba en esta cadena vuelve a
+          #      ejecutar bloques REVOKE+GRANT del "patrón uniforme" — el mismo
+          #      mecanismo que le devolvió el GRANT a authenticated a
+          #      _pay_register_party_charge y a _journal_post_from_event
+          #      (L1914) y que motivó el eslabón anterior.
+          #   2. Su gate final NO revoca esos dos helpers de dinero (eso lo
+          #      hace el hotfix #454, eslabón de arriba) pero SÍ VERIFICA que
+          #      sigan sin EXECUTE para anon/authenticated. O sea que este
+          #      eslabón sólo puede correr DESPUÉS del de #454: es el candado
+          #      que detecta si un reapply futuro vuelve a reabrirlos.
+          # Va DESPUÉS de 20261009000001 (compras-proveedor-cuenta-corriente):
+          # ese archivo no re-otorga ningún EXECUTE sobre estos helpers ni
+          # redefine ninguna de las 5 funciones que este change reescribe
+          # (verificado), así que el orden entre ambos es libre por ese lado —
+          # pero el invariante "la nuestra última" se mantiene por si un
+          # eslabón futuro vuelve a arrastrar el patrón REVOKE+GRANT.
+          # De paso, prueba que el archivo es re-appliable (verificado también
+          # en local: doble aplicación sin error y sin cambio de fingerprint de
+          # cuerpos, ACLs y comments de las 7 funciones tocadas).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261008000001_cuenta_corriente_party_guard.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -681,3 +715,24 @@ jobs:
       # de datos real hace fallar el gate.
       - name: Run tenancy RLS role gates (v31-tenancy-pool-rls Paso 2)
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_tenancy_rls_role.sql
+
+      # cuenta-corriente-party-guard: las RPCs de cuenta corriente resolvían el
+      # tenant de la sesión pero nunca validaban que el cliente/proveedor
+      # recibido por parámetro perteneciera a ese tenant (el FK no está
+      # scopeado por tenant), y dos helpers SECURITY DEFINER que reciben el
+      # account_id COMO PARÁMETRO estaban GRANT-eados a authenticated, o sea
+      # invocables desde PostgREST contra cualquier tenant.
+      # Verifica, con DOS tenants sintéticos: P0404 en las 3 RPCs de pago con
+      # parte ajena; GATE ESTRELLA — venta a crédito por FORMULARIO y por POS
+      # con cliente ajeno rechazada por el choke point, sin tocar
+      # rpc_create_sale_operation_v2 ni _c29_confirm_order_core, y con cero
+      # filas nuevas en los 6 libros; control positivo por los 4 caminos con
+      # parte propia (cuenta creada en el mismo commit, balance_after
+      # esperado); id ajeno e id inexistente indistinguibles (no filtrar
+      # información entre tenants); orden de guards congelado (amount P0400 →
+      # bank_account P0412 → parte P0404); la clave de idempotencia no se
+      # quema en el rechazo; y las dos primitivas cross-tenant inalcanzables
+      # para authenticated (42501) sin romper ningún caller real (formulario,
+      # POS y dispatcher del outbox siguen posteando).
+      - name: Run cuenta-corriente-party-guard gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cuenta_corriente_party_guard.sql

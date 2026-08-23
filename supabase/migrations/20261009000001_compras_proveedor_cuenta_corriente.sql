@@ -705,6 +705,21 @@ COMMENT ON FUNCTION public.rpc_create_purchase_operation(text, date, text, jsonb
 --     (decían "preservado, no expuesto (OQ-1)", heredado del baseline: desde
 --     este change AMBOS son parámetros del tri-estado).
 --
+-- DELTAS DE REVIEW C (intencionales, sobre el cuerpo de review A):
+--   * S1 — la regla (a) credit_requires_supplier se condiciona a que la
+--     edición TOQUE el contrato de crédito (p_payment_method_provided OR
+--     p_supplier_provided). Tal como estaba, una compra legacy imputada a un
+--     kind='credit' SIN proveedor —el estado de las 38 operaciones vivas en
+--     prod, que hasta este change no tenía proveedores a los que imputar—
+--     quedaba INEDITABLE: cambiarle una cantidad rebotaba con P0400. Contradecía
+--     la spec operation-edit-context y el comentario del propio guard (b).
+--     Cubierto por los gates 8c-bis (pasa) y 8d-bis (rechaza al tocar la forma
+--     de pago). La regla (b) no cambia.
+--   * S3 — el anti-regresión de STEP 4 sobre el copy del P0423 deja de ser un
+--     `position('nota de crédito') > 0` (que matchea COMENTARIOS y depende del
+--     acento) y pasa a ser un check POSITIVO sobre el RAISE nuevo más uno
+--     NEGATIVO sobre el texto exacto del RAISE viejo del lado venta.
+--
 -- La edición NO postea ni revierte cargos: una compra con cargo ya es inmutable
 -- por P0423, así que el unico caso editable es el de una compra sin cargo — y
 -- por eso mismo la edición no puede CONVERTIR una compra en compra a crédito.
@@ -999,7 +1014,25 @@ BEGIN
   --     edición. MISMO mensaje y MISMO ERRCODE que el camino de creación —
   --     el mapeo backend/frontend es uno solo. Cubre el caso "compra a crédito
   --     legacy a la que se le desimputa el proveedor".
-  IF v_final_kind = 'credit' AND v_final_supplier_id IS NULL THEN
+  --
+  --     review C (S1): la regla sólo alcanza a la edición que TOCA el contrato
+  --     de crédito — es decir, la que informa la forma de pago o el proveedor.
+  --     Sin ese condicionante, una compra legacy que YA estaba imputada a un
+  --     kind='credit' y NO tiene proveedor (el estado de las 38 operaciones
+  --     vivas en prod, donde hasta este change había 0 proveedores) quedaba
+  --     INEDITABLE: cambiarle una cantidad rebotaba con P0400 sin que el
+  --     usuario hubiera tocado ni la forma de pago ni el proveedor. Eso
+  --     contradice tanto la spec operation-edit-context ("una compra que YA
+  --     estaba imputada a kind='credit' y no tiene cargo SHALL seguir siendo
+  --     editable") como el comentario de (b) acá abajo. Con el condicionante:
+  --       - desimputar el proveedor (p_supplier_provided)            -> rechaza
+  --       - reimputar la forma de pago, aunque siga en credit
+  --         (p_payment_method_provided)                              -> rechaza
+  --       - editar cantidades/fecha/descripción sin tocar ninguno    -> pasa
+  IF (p_payment_method_provided OR p_supplier_provided)
+     AND v_final_kind = 'credit'
+     AND v_final_supplier_id IS NULL
+  THEN
     RAISE EXCEPTION 'credit_requires_supplier: una compra a crédito necesita un proveedor identificado para cargar su cuenta corriente'
       USING ERRCODE = 'P0400';
   END IF;
@@ -1270,7 +1303,19 @@ BEGIN
   END IF;
   -- review A (SPEC-05): el P0423 de cuenta corriente nombra el camino de
   -- corrección de COMPRAS (borrar + recargar), no la nota de crédito de venta.
-  IF position('nota de crédito' in v_def) > 0 THEN
+  --
+  -- review C (S3): el check era `position('nota de crédito' in v_def) > 0`, y
+  -- pg_get_functiondef devuelve el cuerpo CON sus comentarios: cualquier
+  -- comentario legítimo que mencionara la nota de crédito de venta —incluido
+  -- el que explica por qué acá NO va— tumbaba el gate. Además dependía del
+  -- acento ('credito' sin tilde lo esquivaba). Se reemplaza por un check
+  -- POSITIVO sobre el texto del RAISE nuevo (específico de compras) más uno
+  -- NEGATIVO sobre el texto EXACTO del RAISE viejo del lado venta, que ningún
+  -- comentario reproduce.
+  IF position('operation_has_account_charge_immutable: compra con cargo en cuenta corriente del proveedor' in v_def) = 0 THEN
+    v_missing := array_append(v_missing, 'update/P0423-copy-de-compras');
+  END IF;
+  IF position('emití una nota de crédito' in v_def) > 0 THEN
     v_missing := array_append(v_missing, 'update/P0423-copy-de-venta');
   END IF;
 

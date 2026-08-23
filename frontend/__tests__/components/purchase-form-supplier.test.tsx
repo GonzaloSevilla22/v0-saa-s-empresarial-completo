@@ -20,6 +20,12 @@ const addSupplierMock = vi.fn()
 let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive: boolean }> = []
 let supplierAccountMock: { balance: number } | null = null
 let suppliersMock: Array<{ id: string; name: string }> = []
+// review C (F1): el hint "proveedor dado de baja" se computaba sin mirar el
+// estado de la query — mientras `/suppliers` no respondía (primer open del
+// diálogo de edición, sin caché) o si fallaba, un proveedor VIVO se reportaba
+// como dado de baja.
+let suppliersLoadingMock = false
+let suppliersErrorMock = false
 
 const PRODUCT = { id: "prod-1", name: "Insumo Test", cost: 10, baseUnitId: "" }
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [PRODUCT], addProduct: vi.fn() }) }))
@@ -65,14 +71,26 @@ vi.mock("@/components/shared/scrollable-cart-shell", () => ({
   ),
 }))
 
+// review C (F2): el mock ahora respeta `includeInactive` — así el test puede
+// distinguir la lista ACTIVA (la que ve el selector) de la lista COMPLETA (la
+// que el form necesita para resolver el kind ORIGINAL de la operación, que
+// puede estar imputada a una forma de pago desde entonces desactivada).
 vi.mock("@/hooks/data/use-payment-methods", () => ({
-  usePaymentMethods: () => ({ paymentMethods: paymentMethodsMock, isLoading: false }),
+  usePaymentMethods: (includeInactive = false) => ({
+    paymentMethods: includeInactive ? paymentMethodsMock : paymentMethodsMock.filter((pm) => pm.isActive),
+    isLoading: false,
+  }),
 }))
 vi.mock("@/hooks/data/use-supplier-account", () => ({
   useSupplierAccount: () => ({ data: supplierAccountMock }),
 }))
 vi.mock("@/hooks/data/use-suppliers", () => ({
-  useSuppliers: () => ({ suppliers: suppliersMock, addSupplier: addSupplierMock }),
+  useSuppliers: () => ({
+    suppliers: suppliersMock,
+    addSupplier: addSupplierMock,
+    isLoading: suppliersLoadingMock,
+    isError: suppliersErrorMock,
+  }),
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -96,6 +114,12 @@ vi.mock("@/components/ui/searchable-select", () => ({
           {o.label}
         </button>
       ))}
+      {/* review C (F3): el camino de "limpiar" del combobox — SearchableSelect
+          emite "" al deseleccionar. Faltaba cubrirlo (el equivalente de
+          cost-center-clear en purchase-form-edit-context.test.tsx). */}
+      <button type="button" data-testid="supplier-clear" onClick={() => onValueChange("")}>
+        limpiar proveedor
+      </button>
     </div>
   ),
 }))
@@ -138,12 +162,17 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
 
 const PM_CREDIT = { id: "pm-credit", name: "Cuenta corriente", kind: "credit", isActive: true }
 const PM_CASH   = { id: "pm-cash", name: "Efectivo", kind: "cash", isActive: true }
+// review C (F2): la forma de pago a la que la operación fue imputada en su
+// momento y que después se dio de baja — no aparece en la lista activa.
+const PM_CREDIT_OLD = { id: "pm-credit-old", name: "Cta cte (dada de baja)", kind: "credit", isActive: false }
 
 afterEach(() => {
   vi.clearAllMocks()
   paymentMethodsMock = []
   supplierAccountMock = null
   suppliersMock = []
+  suppliersLoadingMock = false
+  suppliersErrorMock = false
 })
 
 describe("PurchaseForm — selector de proveedor (D10)", () => {
@@ -414,5 +443,158 @@ describe("PurchaseForm — edición: bloque de crédito (F3)", () => {
 
     fireEvent.click(submitButton)
     await vi.waitFor(() => expect(updatePurchaseOperationMock).toHaveBeenCalledTimes(1))
+  })
+})
+
+// review C (F1/F2/F3): tres falsos positivos de la superficie de edición —
+// el hint que declaraba "dado de baja" un proveedor que todavía no había
+// llegado por red, el aviso de transición a crédito cuando el kind original
+// no se podía resolver, y el botón de guardar bloqueado en compras legacy que
+// el servidor SÍ acepta editar (S1: credit_requires_supplier solo alcanza a
+// la edición que TOCA la forma de pago o el proveedor).
+
+describe("PurchaseForm — hint 'proveedor no disponible' (review C, F1)", () => {
+  const opWithSupplier = () =>
+    makeOperation({ supplierId: "sup-deleted", supplierName: "Proveedor de baja" })
+
+  it("mientras /suppliers no respondió (isLoading), NO afirma que el proveedor fue dado de baja", () => {
+    suppliersMock = []
+    suppliersLoadingMock = true
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={opWithSupplier()} />)
+
+    expect(screen.queryByText(/proveedor actual no disponible/i)).not.toBeInTheDocument()
+  })
+
+  it("si la lista de proveedores falló (isError), tampoco lo afirma", () => {
+    suppliersMock = []
+    suppliersErrorMock = true
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={opWithSupplier()} />)
+
+    expect(screen.queryByText(/proveedor actual no disponible/i)).not.toBeInTheDocument()
+  })
+
+  it("TRIANGULATE: con la lista ya cargada y sin el id, SÍ muestra el hint", () => {
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={opWithSupplier()} />)
+
+    expect(screen.getByText(/proveedor actual no disponible/i)).toBeInTheDocument()
+  })
+})
+
+describe("PurchaseForm — aviso de transición a crédito (review C, F2)", () => {
+  it("la forma de pago ORIGINAL está desactivada: elegir una de crédito NO inventa una transición", () => {
+    // La operación ya era a crédito, solo que con una forma de pago que después
+    // se dio de baja. El servidor resuelve el kind viejo contra la fila real
+    // (v_old_kind = 'credit') y NO rechaza: el aviso sería falso.
+    paymentMethodsMock = [PM_CREDIT_OLD, PM_CREDIT, PM_CASH]
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(
+      <PurchaseForm
+        onSuccess={vi.fn()}
+        editingOperation={makeOperation({
+          paymentMethodId: PM_CREDIT_OLD.id,
+          supplierId: "sup-1",
+          supplierName: "Distribuidora Mendoza",
+        })}
+      />,
+    )
+    selectPaymentMethod(PM_CREDIT.id)
+
+    expect(screen.queryByText(/no postea cargos/i)).not.toBeInTheDocument()
+  })
+
+  it("la forma de pago original no resuelve en ninguna lista: tampoco inventa una transición", () => {
+    paymentMethodsMock = [PM_CREDIT, PM_CASH]
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(
+      <PurchaseForm
+        onSuccess={vi.fn()}
+        editingOperation={makeOperation({
+          paymentMethodId: "pm-gone",
+          supplierId: "sup-1",
+          supplierName: "Distribuidora Mendoza",
+        })}
+      />,
+    )
+    selectPaymentMethod(PM_CREDIT.id)
+
+    expect(screen.queryByText(/no postea cargos/i)).not.toBeInTheDocument()
+  })
+
+  it("TRIANGULATE: la operación NO tenía forma de pago — pasar a crédito SÍ es una transición y se avisa", () => {
+    // v_old_kind NULL IS DISTINCT FROM 'credit' ⇒ el servidor rechaza con
+    // credit_transition_not_allowed. "Sin forma de pago" es un kind ausente
+    // conocido, no un kind desconocido.
+    paymentMethodsMock = [PM_CASH, PM_CREDIT]
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(
+      <PurchaseForm
+        onSuccess={vi.fn()}
+        editingOperation={makeOperation({
+          paymentMethodId: null,
+          supplierId: "sup-1",
+          supplierName: "Distribuidora Mendoza",
+        })}
+      />,
+    )
+    selectPaymentMethod(PM_CREDIT.id)
+
+    expect(screen.getByText(/no postea cargos/i)).toBeInTheDocument()
+  })
+})
+
+describe("PurchaseForm — edición: 'Guardar cambios' y el contrato de crédito (review C, F3)", () => {
+  const legacyCreditNoSupplier = () =>
+    makeOperation({ paymentMethodId: PM_CREDIT.id, supplierId: null, supplierName: null })
+
+  it("compra legacy a crédito SIN proveedor, sin tocar nada: 'Guardar cambios' queda HABILITADO", () => {
+    // Espejo del gate SQL 8c-bis: el servidor acepta esta edición porque no
+    // toca el contrato de crédito. Bloquear el botón dejaba ineditables las
+    // 38 operaciones vivas de producción.
+    paymentMethodsMock = [PM_CREDIT, PM_CASH]
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={legacyCreditNoSupplier()} />)
+
+    expect(screen.getByRole("button", { name: /Guardar cambios/i })).not.toBeDisabled()
+  })
+
+  it("esa misma compra, tras reimputar la forma de pago sin elegir proveedor: se DESHABILITA", () => {
+    // Espejo del gate SQL 8d-bis: tocar la forma de pago ES tocar el contrato.
+    paymentMethodsMock = [PM_CREDIT, PM_CASH]
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={legacyCreditNoSupplier()} />)
+    selectPaymentMethod(PM_CREDIT.id)
+
+    expect(screen.getByRole("button", { name: /Guardar cambios/i })).toBeDisabled()
+  })
+
+  it("esa misma compra, tras tocar el selector de proveedor y dejarlo vacío: se DESHABILITA", () => {
+    // Espejo del gate SQL 8d: desimputar el proveedor de una compra a crédito.
+    paymentMethodsMock = [PM_CREDIT, PM_CASH]
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={legacyCreditNoSupplier()} />)
+    fireEvent.click(screen.getByTestId("supplier-clear"))
+
+    expect(screen.getByRole("button", { name: /Guardar cambios/i })).toBeDisabled()
+  })
+
+  it("limpiar el selector manda supplierId: null en el payload (desimputar explícito)", async () => {
+    // Camino "informado con null" del contrato tri-estado — el equivalente del
+    // test de cost-center-clear, que faltaba para proveedor.
+    suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
+    render(
+      <PurchaseForm
+        onSuccess={vi.fn()}
+        editingOperation={makeOperation({ supplierId: "sup-1", supplierName: "Distribuidora Mendoza" })}
+      />,
+    )
+
+    fireEvent.click(screen.getByTestId("supplier-clear"))
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+
+    await vi.waitFor(() => expect(updatePurchaseOperationMock).toHaveBeenCalledTimes(1))
+    const call = updatePurchaseOperationMock.mock.calls[0][0]
+    expect("supplierId" in call.meta).toBe(true)
+    expect(call.meta.supplierId).toBeNull()
   })
 })

@@ -45,12 +45,12 @@ La reimputación del proveedor NO SHALL postear, mover ni revertir cargos de cue
 
 Como la edición de una compra NO postea cargos en cuenta corriente, el sistema SHALL rechazar toda edición cuyo resultado sea una compra imputada a una forma de pago de `kind = 'credit'` **sin el cargo correspondiente**. Concretamente, sobre el `kind` **efectivo** que queda tras aplicar el contrato tri-estado de forma de pago:
 
-- si el `kind` efectivo final es `credit` y el proveedor efectivo final queda sin informar, la edición SHALL rechazarse con el **mismo código y el mismo mensaje de negocio** que usa el alta de compra a crédito sin proveedor, de modo que el mapeo de error del backend y de la superficie sea uno solo;
+- si la edición **toca el contrato de crédito** —es decir, informa la forma de pago, el proveedor, o ambos— y el `kind` efectivo final es `credit` con el proveedor efectivo final sin informar, la edición SHALL rechazarse con el **mismo código y el mismo mensaje de negocio** que usa el alta de compra a crédito sin proveedor, de modo que el mapeo de error del backend y de la superficie sea uno solo. Una edición que NO informa ni la forma de pago ni el proveedor NO SHALL ser alcanzada por esta regla, aunque la operación quede en `credit` sin proveedor: no introduce la inconsistencia, solo la hereda;
 - si la edición **informa explícitamente** la forma de pago y con ello mueve la operación desde un `kind` distinto de `credit` (incluida la ausencia de forma de pago) **hacia** `credit`, la edición SHALL rechazarse, y el mensaje SHALL nombrar el camino de corrección: borrar la compra y volver a cargarla como compra a crédito, que es el camino que sí postea el cargo.
 
 Ambos rechazos SHALL ocurrir **antes** de cualquier reversa, borrado o reaplicación de líneas y de stock, y SHALL usar el código de error de negocio ya existente para entrada inválida, sin acuñar uno nuevo.
 
-Una compra que **ya** estaba imputada a `kind = 'credit'` y no tiene cargo posteado —el estado de las compras registradas antes de que este circuito existiera— SHALL seguir siendo editable: la restricción alcanza la **transición** hacia crédito, no la permanencia en él. Salir de `credit` hacia cualquier otro `kind` SHALL estar permitido cuando no hay cargo posteado; si lo hay, la operación ya es inmutable por la capability `supplier-account` y ese bloqueo SHALL tener precedencia.
+Una compra que **ya** estaba imputada a `kind = 'credit'` y no tiene cargo posteado —el estado de las compras registradas antes de que este circuito existiera, que además **no tienen proveedor** porque el maestro de proveedores no existía— SHALL seguir siendo editable **incluso sin proveedor**, mientras la edición no informe ni la forma de pago ni el proveedor: la restricción alcanza a quien **toca** el contrato de crédito, no a quien solo corrige una cantidad, una fecha o una descripción. Salir de `credit` hacia cualquier otro `kind` SHALL estar permitido cuando no hay cargo posteado; si lo hay, la operación ya es inmutable por la capability `supplier-account` y ese bloqueo SHALL tener precedencia.
 
 #### Scenario: mover una compra a crédito desde la edición es rechazado
 
@@ -74,6 +74,18 @@ Una compra que **ya** estaba imputada a `kind = 'credit'` y no tiene cargo poste
 - **GIVEN** una compra imputada a `kind = 'credit'` sin ningún movimiento posteado en la cuenta corriente del proveedor
 - **WHEN** se edita su cantidad sin tocar la forma de pago
 - **THEN** la edición se aplica normalmente y no se postea ningún cargo
+
+#### Scenario: la compra a crédito histórica, sin proveedor, sigue siendo editable
+
+- **GIVEN** una compra imputada a `kind = 'credit'`, **sin proveedor** y sin cargo posteado —el estado de las compras anteriores a este circuito—
+- **WHEN** se edita su cantidad sin informar ni la forma de pago ni el proveedor
+- **THEN** la edición se aplica normalmente, sin rechazo y sin postear ningún cargo
+
+#### Scenario: reimputar la forma de pago de esa misma compra sí es rechazado
+
+- **GIVEN** la misma compra a `kind = 'credit'` sin proveedor y sin cargo posteado
+- **WHEN** se edita informando otra forma de pago de `kind = 'credit'`
+- **THEN** la edición es rechazada con el mismo error que el alta de una compra a crédito sin proveedor, y la operación queda intacta
 
 #### Scenario: salir de crédito está permitido cuando no hay cargo
 

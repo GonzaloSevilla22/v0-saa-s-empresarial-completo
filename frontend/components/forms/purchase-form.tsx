@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
 import type { PurchaseOperation } from "@/lib/group-operations"
+import type { PaymentMethodKind } from "@/lib/types"
 import {
   unitInputStep,
   unitInputMin,
@@ -51,18 +52,29 @@ interface PurchaseFormProps {
 }
 
 export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps) {
+  const isEdit = !!editingOperation
+
   const { products, addProduct }                           = useProducts()
   const { addPurchaseOperation, updatePurchaseOperation } = usePurchases()
-  const { paymentMethods } = usePaymentMethods()
+  // review C (F2): en EDICIÓN se pide el catálogo COMPLETO (incluidas las
+  // formas de pago dadas de baja). La operación que se está editando puede
+  // estar imputada a una que ya se desactivó, y esta lista es la que resuelve
+  // su `kind` — sin ella el form no puede distinguir "ya era crédito" de
+  // "está pasando a crédito". En ALTA sigue pidiendo solo las activas, que es
+  // exactamente la misma queryKey que usa PaymentMethodSelect: el camino
+  // caliente no paga ningún request extra. La edición paga uno (catálogo
+  // completo, cacheado 5 min) a cambio de no mentir sobre el kind original.
+  const { paymentMethods } = usePaymentMethods(isEdit)
   // compras-proveedor-cuenta-corriente (D10): mismo patrón que useClients en
   // SaleForm — combobox buscable + alta inline.
-  const { suppliers, addSupplier } = useSuppliers()
+  // review C (F1): isLoading/isError entran al cálculo del hint de "proveedor
+  // dado de baja" — sin ellos, "todavía no llegó" se leía como "no existe".
+  const { suppliers, addSupplier, isLoading: suppliersLoading, isError: suppliersError } = useSuppliers()
   const queryClient = useQueryClient()
   const { user }    = useAuth()
   const refreshData = () => queryClient.invalidateQueries()
   const { units, unitsById } = useUnitsOfMeasure()
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("purchase-create")
-  const isEdit = !!editingOperation
 
   // Synchronous re-entrancy guard: closes the double-click window before the
   // async `submitting` state re-renders the disabled button.
@@ -137,6 +149,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
     () => editingOperation?.paymentMethodId ?? null,
   )
+  // review C (F3): "tocó la forma de pago" — no cambia lo que viaja en el
+  // payload (paymentMethodId se reenvía siempre en la edición, D5), sino el
+  // bloqueo del botón de guardar: el servidor solo aplica
+  // credit_requires_supplier cuando la edición TOCA el contrato de crédito.
+  const [paymentMethodTouched, setPaymentMethodTouched] = useState(false)
+  const handlePaymentMethodChange = useCallback((v: string | null) => {
+    setPaymentMethodId(v)
+    setPaymentMethodTouched(true)
+  }, [])
   // pos-banco-movimientos (D2/D9): override de la cuenta bancaria destino
   // del egreso — sólo en alta (espejo de SaleForm; la edición no tiene
   // parámetro de banco en la RPC, D8).
@@ -182,6 +203,17 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // edición (mismo P0400 credit_requires_supplier, batch A). Antes el botón
   // solo se deshabilitaba en alta (`!isEdit && creditBlockedNoSupplier`).
   const creditBlockedNoSupplier = isCreditSelected && !supplierId
+  // review C (F3): en EDICIÓN el servidor aplica credit_requires_supplier sólo
+  // cuando la edición informa la forma de pago o el proveedor (migración
+  // 20261009000001, review C/S1) — una compra legacy que YA estaba a crédito y
+  // nunca tuvo proveedor (el estado de las 38 operaciones vivas en prod) sigue
+  // siendo editable mientras no se toque ninguno de los dos. Bloquear el botón
+  // ahí dejaba esas operaciones sin forma de corregirles ni una cantidad.
+  // En ALTA no hay nada "vigente" que preservar: el bloqueo aplica siempre.
+  const creditContractTouched = supplierTouched || paymentMethodTouched
+  const submitBlockedNoSupplier = isEdit
+    ? creditBlockedNoSupplier && creditContractTouched
+    : creditBlockedNoSupplier
 
   const supplierOptions = useMemo(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
@@ -193,19 +225,42 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // `suppliers`, la lista del selector). Solo importa mostrarlo cuando el
   // usuario todavía no tocó el campo — en cuanto elige algo, supplierId pasa
   // a apuntar a una opción real de la lista.
+  // review C (F1): `suppliers` está vacío tanto cuando el proveedor fue dado de
+  // baja como cuando la query todavía no respondió (primer open del diálogo de
+  // edición: no hay caché) o falló. Sin mirar isLoading/isError, el form
+  // afirmaba "dado de baja" sobre un proveedor perfectamente vivo.
   const supplierUnresolved =
-    isEdit && !supplierTouched && !!supplierId && !suppliers.some((s) => s.id === supplierId)
+    isEdit &&
+    !supplierTouched &&
+    !suppliersLoading &&
+    !suppliersError &&
+    !!supplierId &&
+    !suppliers.some((s) => s.id === supplierId)
 
   // review B (F3): kind ORIGINAL de la operación (antes de cualquier cambio
   // en este form) — distingue "ya era crédito" (D7: editable sin postear
   // nada) de "está TRANSICIONANDO a crédito" (server: credit_transition_not_
   // allowed, batch A). Comparación por KIND, no por payment_method_id: dos
   // formas de pago distintas con el mismo kind='credit' no son una transición.
-  const originalKind = useMemo(
-    () => paymentMethods.find((pm) => pm.id === editingOperation?.paymentMethodId)?.kind ?? null,
-    [paymentMethods, editingOperation],
-  )
-  const isTransitioningToCredit = isEdit && isCreditSelected && originalKind !== "credit"
+  //
+  // review C (F2): el resultado es TRI-ESTADO, no "kind o null":
+  //   "none" → la operación no tenía forma de pago. Pasarla a crédito SÍ es una
+  //            transición (el servidor: v_old_kind NULL IS DISTINCT FROM
+  //            'credit' ⇒ credit_transition_not_allowed).
+  //   kind   → resuelto contra el catálogo COMPLETO (incluye las dadas de baja,
+  //            ver usePaymentMethods(isEdit) arriba).
+  //   null   → todavía no se pudo resolver (la query no respondió). DESCONOCIDO
+  //            no es "no era crédito": antes se colapsaban los tres casos en
+  //            null y una operación que YA era a crédito mostraba el aviso
+  //            "borrala y volvé a cargarla" — un camino de corrección
+  //            innecesario para una edición que el servidor acepta.
+  const originalKind = useMemo<PaymentMethodKind | "none" | null>(() => {
+    if (!editingOperation) return null
+    if (!editingOperation.paymentMethodId) return "none"
+    return paymentMethods.find((pm) => pm.id === editingOperation.paymentMethodId)?.kind ?? null
+  }, [paymentMethods, editingOperation])
+  const isTransitioningToCredit =
+    isEdit && isCreditSelected && originalKind !== null && originalKind !== "credit"
 
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(
@@ -621,7 +676,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || creditBlockedNoSupplier}
+              disabled={submitting || cartItems.length === 0 || submitBlockedNoSupplier}
             >
               {submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
@@ -680,7 +735,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           {/* ── Forma de pago (metodos-pago-operaciones) ───────────────── */}
           <PaymentMethodSelect
             value={paymentMethodId}
-            onChange={setPaymentMethodId}
+            onChange={handlePaymentMethodChange}
             context="purchase"
             className="bg-background border-border text-foreground text-sm"
           />

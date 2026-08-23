@@ -31,6 +31,8 @@
 
 `knowledge-base/04_modelo_de_datos.md` (H5) y `modelo-dominio-aliadata-v2.md` (§H5) afirman *"`suppliers` sí tiene `tax_id`"*. **Es falso para `public.suppliers`**: la tabla que tiene `cuit`/`address`/`email`/`phone` es `invoice_suppliers`, el directorio del módulo OCR, keyed por `user_id` y sin relación con `suppliers`. La afirmación de la KB describe la tabla equivocada. Este change cierra el gap real en `public.suppliers` y deja la KB alineada.
 
+> **Corrección (apply, 2026-08-23)**: este párrafo estaba equivocado. La task 2.2 (fase A) verificó contra prod, read-only, que `public.suppliers` **ya tenía** `tax_id`/`email`/`phone` — la afirmación original de la KB era correcta, no describía la tabla equivocada. `invoice_suppliers` existe y es en efecto una tabla distinta (OCR, keyed por `user_id`), pero eso no invalidaba lo que decía la KB sobre `suppliers`. Lo que este change agrega de verdad es `iva_condition`+`legal_name` (D2) y `company_id` nullable (hallazgo de fase B, ver nota al final de D2). La KB (`knowledge-base/04_modelo_de_datos.md` H5 + nueva sección `suppliers`, y `modelo-dominio-aliadata-v2.md` H5) quedó corregida en consecuencia por la task 15.1.
+
 ### Restricciones
 
 - **Governance MEDIUM**: se toca dinero sobre helpers que ya están en producción (`_pay_register_party_charge`) y sobre la RPC de alta de compra, que es el hot path de un módulo con tráfico real (104 compras en 30 días). Implementación por pasos, con checkpoints explícitos (ver §Migration Plan).
@@ -75,6 +77,8 @@ RN-96 lo pide explícitamente (*"`FiscalIdentity` es un Value Object compartido 
 *Alternativa descartada*: solo `tax_id` + contacto, sin `iva_condition`/`legal_name`. Ahorra dos columnas nullable y rompe la simetría que la regla de negocio pide por escrito. Ver **OQ-3**.
 
 **Hallazgo del apply (fase B)**: además de las cinco columnas nuevas, `suppliers.company_id` seguía siendo `NOT NULL` legacy (FK a `companies(id)`, de antes de `v20-tenancy-cleanup`) — `clients.company_id` ya es nullable desde `20260613000003`, pero nadie había ejercitado un INSERT real en `suppliers` hasta el ABM de este change, así que el gap nunca se manifestó. Se agregó un `ALTER TABLE ... DROP NOT NULL` guardado (drift-tolerant, mismo patrón que `20260702000002`/`20260804000006`) al STEP 1 de la migración, sin tocar el FK ni backfillear. `SupplierRepository.create()` es ahora un mirror exacto de `ClientRepository.create()` — sin `company_id` en el INSERT.
+
+> **Corrección (apply, 2026-08-23, task 15.1)**: el primer párrafo de esta sección dice *"`suppliers` suma `tax_id`, `iva_condition`, `legal_name`, `email`, `phone`"* como si las cinco fueran nuevas. No lo son: la task 2.2 (fase A) verificó contra prod que `tax_id`/`email`/`phone` **ya existían** en `public.suppliers` antes de este change. Lo que efectivamente agrega este change es `iva_condition` + `legal_name` (el CHECK y el VO compartido siguen siendo correctos, RN-96) y, como documenta el párrafo de arriba, `company_id` nullable. Ver `knowledge-base/04_modelo_de_datos.md` §`suppliers` para las columnas finales documentadas.
 
 ### D3 — El límite por plan se delega en el trigger; el service NO cuenta
 

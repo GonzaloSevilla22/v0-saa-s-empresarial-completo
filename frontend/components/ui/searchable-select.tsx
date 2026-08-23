@@ -44,6 +44,14 @@ interface SearchableSelectProps {
    * The button height expands to fit multi-line content automatically.
    */
   renderTrigger?: (opt: SearchableSelectOption) => React.ReactNode
+  /**
+   * task 14.4 (compras-proveedor-cuenta-corriente): nombre accesible fijo del
+   * trigger. Sin esto, el nombre accesible del botón es su propio contenido
+   * de texto — el placeholder mientras no hay selección, pero el `label` de
+   * la opción elegida en cuanto la hay — y pierde la identidad del campo
+   * ("Proveedor", "Cliente") apenas el usuario elige algo.
+   */
+  "aria-label"?: string
 }
 
 export function SearchableSelect({
@@ -57,6 +65,7 @@ export function SearchableSelect({
   disabled = false,
   renderOption,
   renderTrigger,
+  "aria-label": ariaLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false)
 
@@ -77,6 +86,7 @@ export function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={ariaLabel}
           disabled={disabled}
           className={cn(
             "w-full justify-between font-normal bg-background border-border text-foreground",

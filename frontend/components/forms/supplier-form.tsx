@@ -158,12 +158,16 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label className="text-foreground">Condición IVA</Label>
+            {/* task 14.4: htmlFor/id explícitos — sin esto, "Condición IVA"
+                no es alcanzable por getByLabelText ni por lectores de
+                pantalla (el Label queda huérfano, gap heredado del mold
+                client-form.tsx). */}
+            <Label htmlFor="supplier-iva-condition" className="text-foreground">Condición IVA</Label>
             <Select
               value={ivaCondition || IVA_NONE}
               onValueChange={(v) => setIvaCondition(v === IVA_NONE ? "" : (v as IvaCondition))}
             >
-              <SelectTrigger className="bg-background border-border text-foreground">
+              <SelectTrigger id="supplier-iva-condition" className="bg-background border-border text-foreground">
                 <SelectValue placeholder="Sin especificar" />
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">

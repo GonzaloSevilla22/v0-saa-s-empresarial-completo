@@ -687,6 +687,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
               placeholder="Seleccionar proveedor"
               searchPlaceholder="Buscar proveedor..."
               emptyMessage="No se encontraron proveedores."
+              aria-label="Proveedor"
             />
           )}
         </div>

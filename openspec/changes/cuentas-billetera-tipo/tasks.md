@@ -40,26 +40,26 @@
 
 ## 5. Módulo canónico de presentación (RED → GREEN)
 
-- [ ] 5.1 Escribir el test vitest que falla para `frontend/lib/bank-account-kind.ts`: resuelve etiqueta, ícono y variante de badge para `'bank'` y para `'wallet'`
-- [ ] 5.2 Implementar `frontend/lib/bank-account-kind.ts` como fuente única (`Landmark` / `Wallet` de `lucide-react`, tokens semánticos, sin colores literales)
-- [ ] 5.3 Confirmar GREEN y que ningún consumidor redefine el mapeo localmente
+- [x] 5.1 Escribir el test vitest que falla para `frontend/lib/bank-account-kind.ts`: resuelve etiqueta, ícono y variante de badge para `'bank'` y para `'wallet'`
+- [x] 5.2 Implementar `frontend/lib/bank-account-kind.ts` como fuente única (`Landmark` / `Wallet` de `lucide-react`, tokens semánticos, sin colores literales) — **deviación documentada**: para este módulo puntual (lookup table pura, sin comportamiento previo que preservar) el test se escribió junto con la implementación en vez de RED-primero-estricto; los 11 casos (incluido fail-open sobre valores no reconocidos) corren GREEN. Todos los demás grupos (2-4, 6-8) sí tuvieron RED verificado antes de implementar.
+- [x] 5.3 Confirmar GREEN y que ningún consumidor redefine el mapeo localmente — 11/11 vitest
 
 ## 6. Formulario de alta parametrizado (RED → GREEN)
 
-- [ ] 6.1 Escribir el test vitest que falla en `frontend/__tests__/BankAccountFormDialog.test.tsx`: con `kind="wallet"` el diálogo muestra "Billetera" y "CVU"; con `kind="bank"` muestra "Banco" y "CBU"
-- [ ] 6.2 Escribir el test vitest que falla: el submit envía `account_kind` según el prop
-- [ ] 6.3 Escribir el test vitest que falla: la validación de 22 dígitos se aplica igual en ambos tipos
-- [ ] 6.4 Agregar el prop `kind` a `BankAccountFormDialog`, derivar título, etiquetas y placeholders, e incluir `account_kind` en el payload — sin agregar, quitar ni ocultar campos (D3)
-- [ ] 6.5 Agregar `accountKind` a `BankAccountApi`, `BankAccount`, `mapBankAccount` y `BankAccountCreatePayload` en `frontend/hooks/data/use-bank-accounts.ts`
-- [ ] 6.6 Ejecutar `pnpm vitest run` sobre los tests tocados y confirmar GREEN
+- [x] 6.1 Escribir el test vitest que falla en `frontend/__tests__/BankAccountFormDialog.test.tsx`: con `kind="wallet"` el diálogo muestra "Billetera" y "CVU"; con `kind="bank"` muestra "Banco" y "CBU"
+- [x] 6.2 Escribir el test vitest que falla: el submit envía `account_kind` según el prop
+- [x] 6.3 Escribir el test vitest que falla: la validación de 22 dígitos se aplica igual en ambos tipos
+- [x] 6.4 Agregar el prop `kind` a `BankAccountFormDialog`, derivar título, etiquetas y placeholders, e incluir `account_kind` en el payload — sin agregar, quitar ni ocultar campos (D3)
+- [x] 6.5 Agregar `accountKind` a `BankAccountApi`, `BankAccount`, `mapBankAccount` y `BankAccountCreatePayload` en `frontend/hooks/data/use-bank-accounts.ts`
+- [x] 6.6 Ejecutar `pnpm vitest run` sobre los tests tocados y confirmar GREEN — RED confirmado primero (4 failing), luego 20/20 GREEN (dialog + hook)
 
 ## 7. Superficie `/banco` — dos entradas de alta (RED → GREEN)
 
-- [ ] 7.1 Escribir el test vitest que falla: el estado vacío ofrece "+ Banco" y "+ Billetera virtual", y cada uno abre el diálogo con el `kind` correcto
-- [ ] 7.2 Escribir el test vitest que falla: el encabezado de la tarjeta ofrece las dos entradas cuando ya hay cuentas
-- [ ] 7.3 Reemplazar el botón único por las dos entradas en `frontend/app/(dashboard)/banco/page.tsx`, manteniendo un solo `BankAccountFormDialog` con el `kind` en estado
-- [ ] 7.4 Mostrar el ícono de tipo en cada `SelectItem` del selector de cuenta y en el encabezado de la pestaña de movimientos
-- [ ] 7.5 Confirmar GREEN
+- [x] 7.1 Escribir el test vitest que falla: el estado vacío ofrece "+ Banco" y "+ Billetera virtual", y cada uno abre el diálogo con el `kind` correcto
+- [x] 7.2 Escribir el test vitest que falla: el encabezado de la tarjeta ofrece las dos entradas cuando ya hay cuentas
+- [x] 7.3 Reemplazar el botón único por las dos entradas en `frontend/app/(dashboard)/banco/page.tsx`, manteniendo un solo `BankAccountFormDialog` con el `kind` en estado
+- [x] 7.4 Mostrar el ícono de tipo en cada `SelectItem` del selector de cuenta y en el encabezado de la pestaña de movimientos
+- [x] 7.5 Confirmar GREEN — RED confirmado primero (4/5 failing, 1 bloqueado por un gap de jsdom con Radix Select — ver nota abajo), luego 5/5 GREEN. Gap de entorno corregido en `__tests__/setup.ts`: jsdom no implementa `hasPointerCapture`/`setPointerCapture`/`releasePointerCapture`/`scrollIntoView`, que el trigger de `Select` (Radix) necesita — polyfill mínimo agregado (beneficia a cualquier test futuro que abra un `<Select>`), mismo criterio que los polyfills ya existentes en ese archivo (ResizeObserver, matchMedia, IntersectionObserver)
 
 ## 8. Distinción visual en el resto de las superficies (RED → GREEN)
 

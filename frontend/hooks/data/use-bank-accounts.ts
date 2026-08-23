@@ -14,6 +14,7 @@ export interface BankAccountApi {
   cbu: string | null
   alias: string | null
   currency: string
+  account_kind: "bank" | "wallet"
   is_active: boolean
 }
 
@@ -27,19 +28,23 @@ export interface BankAccount {
   cbu: string | null
   alias: string | null
   currency: string
+  accountKind: "bank" | "wallet"
   isActive: boolean
 }
 
 function mapBankAccount(r: BankAccountApi): BankAccount {
   return {
-    id:        r.id,
-    accountId: r.account_id,
-    name:      r.name,
-    bankName:  r.bank_name,
-    cbu:       r.cbu,
-    alias:     r.alias,
-    currency:  r.currency,
-    isActive:  r.is_active,
+    id:          r.id,
+    accountId:   r.account_id,
+    name:        r.name,
+    bankName:    r.bank_name,
+    cbu:         r.cbu,
+    alias:       r.alias,
+    currency:    r.currency,
+    // cuentas-billetera-tipo: fail-open a 'bank' si el backend todavía no
+    // manda el campo (mismo criterio que lib/bank-account-kind.ts).
+    accountKind: r.account_kind ?? "bank",
+    isActive:    r.is_active,
   }
 }
 
@@ -53,6 +58,7 @@ export interface BankAccountCreatePayload {
   currency?: string
   opening_balance?: number
   opening_date?: string
+  account_kind?: "bank" | "wallet"
 }
 
 /**

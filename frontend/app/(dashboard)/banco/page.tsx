@@ -10,7 +10,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Plus, Landmark, Scale } from "lucide-react"
+import { Landmark, Scale } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -41,9 +41,35 @@ import type { BankMovementRow } from "@/lib/types"
 import {
   hashFileSHA256, parseBankStatementFile, type NormalizedStatementLine,
 } from "@/lib/bank-statement-parser"
+import { getAccountKindIcon, type AccountKind } from "@/lib/bank-account-kind"
 
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+
+// cuentas-billetera-tipo: dos entradas de alta diferenciadas por tipo, sobre
+// el mismo BankAccountFormDialog (D5) — reutilizadas en el estado vacío y en
+// el encabezado de la card cuando ya hay cuentas.
+function NewAccountButtons({
+  onSelectKind,
+  size = "sm",
+}: {
+  onSelectKind: (kind: AccountKind) => void
+  size?: "sm" | "default"
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      {/* Copy literal "+ Banco" / "+ Billetera virtual" (spec bank-account,
+          Requirement "Alta diferenciada de banco y de billetera virtual") —
+          sin ícono Plus separado, para no duplicar el "+". */}
+      <Button size={size} variant="outline" onClick={() => onSelectKind("bank")}>
+        + Banco
+      </Button>
+      <Button size={size} onClick={() => onSelectKind("wallet")}>
+        + Billetera virtual
+      </Button>
+    </div>
+  )
+}
 
 export default function BancoPage() {
   const searchParams = useSearchParams()
@@ -51,7 +77,10 @@ export default function BancoPage() {
 
   const { data: bankAccounts, isLoading: loadingAccounts } = useBankAccounts()
   const [bankAccountId, setBankAccountId] = useState<string | null>(null)
-  const [newAccountDialogOpen, setNewAccountDialogOpen] = useState(false)
+  // cuentas-billetera-tipo: dos entradas de alta ("+ Banco" / "+ Billetera
+  // virtual") sobre el mismo BankAccountFormDialog, parametrizado por el
+  // tipo elegido — null = diálogo cerrado.
+  const [newAccountKind, setNewAccountKind] = useState<AccountKind | null>(null)
 
   const selectedAccount = (bankAccounts ?? []).find((ba) => ba.id === bankAccountId) ?? null
 
@@ -72,10 +101,7 @@ export default function BancoPage() {
         <CardHeader className="pb-2 flex flex-row items-center justify-between">
           <CardTitle className="text-base">Cuenta bancaria</CardTitle>
           {(bankAccounts ?? []).length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => setNewAccountDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Nueva cuenta bancaria
-            </Button>
+            <NewAccountButtons onSelectKind={setNewAccountKind} />
           )}
         </CardHeader>
         <CardContent>
@@ -84,12 +110,9 @@ export default function BancoPage() {
           ) : (bankAccounts ?? []).length === 0 ? (
             <div className="flex flex-col items-start gap-3">
               <p className="text-sm text-muted-foreground">
-                No hay cuentas bancarias activas. Registrá una cuenta para empezar.
+                No hay cuentas bancarias activas. Registrá un banco o una billetera virtual para empezar.
               </p>
-              <Button size="sm" onClick={() => setNewAccountDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                Nueva cuenta bancaria
-              </Button>
+              <NewAccountButtons onSelectKind={setNewAccountKind} size="default" />
             </div>
           ) : (
             <Select value={bankAccountId ?? undefined} onValueChange={setBankAccountId}>
@@ -97,19 +120,29 @@ export default function BancoPage() {
                 <SelectValue placeholder="Elegí la cuenta" />
               </SelectTrigger>
               <SelectContent>
-                {(bankAccounts ?? []).map((ba) => (
-                  <SelectItem key={ba.id} value={ba.id}>
-                    {ba.name}
-                    {ba.bankName ? ` — ${ba.bankName}` : ""}
-                  </SelectItem>
-                ))}
+                {(bankAccounts ?? []).map((ba) => {
+                  const KindIcon = getAccountKindIcon(ba.accountKind)
+                  return (
+                    <SelectItem key={ba.id} value={ba.id}>
+                      <span className="flex items-center gap-1.5">
+                        <KindIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        {ba.name}
+                        {ba.bankName ? ` — ${ba.bankName}` : ""}
+                      </span>
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
           )}
         </CardContent>
       </Card>
 
-      <BankAccountFormDialog open={newAccountDialogOpen} onOpenChange={setNewAccountDialogOpen} />
+      <BankAccountFormDialog
+        open={newAccountKind !== null}
+        onOpenChange={(open) => { if (!open) setNewAccountKind(null) }}
+        kind={newAccountKind ?? "bank"}
+      />
 
       {bankAccountId && (
         <Tabs defaultValue={initialTab} className="w-full">
@@ -119,7 +152,11 @@ export default function BancoPage() {
           </TabsList>
 
           <TabsContent value="movimientos" className="mt-4">
-            <MovimientosTab bankAccountId={bankAccountId} accountName={selectedAccount?.name ?? ""} />
+            <MovimientosTab
+              bankAccountId={bankAccountId}
+              accountName={selectedAccount?.name ?? ""}
+              accountKind={selectedAccount?.accountKind ?? "bank"}
+            />
           </TabsContent>
 
           <TabsContent value="conciliacion" className="mt-4">
@@ -133,10 +170,19 @@ export default function BancoPage() {
 
 // ── Tab: Movimientos (D3 + D9) ───────────────────────────────────────────────
 
-function MovimientosTab({ bankAccountId, accountName }: { bankAccountId: string; accountName: string }) {
+function MovimientosTab({
+  bankAccountId,
+  accountName,
+  accountKind,
+}: {
+  bankAccountId: string
+  accountName: string
+  accountKind: AccountKind
+}) {
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const registerMovement = useRegisterManualMovement(bankAccountId)
+  const AccountKindIcon = getAccountKindIcon(accountKind)
 
   const bookConfig: LedgerBookConfig<BankMovementRow> = useMemo(
     () => ({
@@ -188,7 +234,10 @@ function MovimientosTab({ bankAccountId, accountName }: { bankAccountId: string;
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <p className="text-sm text-muted-foreground">Cuenta: <strong>{accountName}</strong></p>
+        <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+          <AccountKindIcon className="h-3.5 w-3.5 shrink-0" />
+          Cuenta: <strong>{accountName}</strong>
+        </p>
         <Button variant="outline" size="sm" onClick={() => setAdjustDialogOpen(true)}>
           <Scale className="mr-1.5 h-3.5 w-3.5" />
           Registrar ajuste

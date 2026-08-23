@@ -52,3 +52,23 @@ if (typeof globalThis.IntersectionObserver === 'undefined') {
     thresholds: ReadonlyArray<number> = []
   } as unknown as typeof IntersectionObserver
 }
+
+// jsdom no implementa la Pointer Capture API (hasPointerCapture/set.../
+// release...) ni scrollIntoView, que usa el Select de Radix (components/ui/
+// select.tsx) al abrir el trigger con userEvent.click — sin esto, cualquier
+// test que abra un <Select> Radix explota con
+// "target.hasPointerCapture is not a function" (cuentas-billetera-tipo,
+// __tests__/pages/BancoPage.test.tsx). Polyfill mínimo, mismo criterio que
+// los de arriba: solo si el entorno no lo implementa.
+if (typeof Element.prototype.hasPointerCapture === 'undefined') {
+  Element.prototype.hasPointerCapture = () => false
+}
+if (typeof Element.prototype.setPointerCapture === 'undefined') {
+  Element.prototype.setPointerCapture = () => {}
+}
+if (typeof Element.prototype.releasePointerCapture === 'undefined') {
+  Element.prototype.releasePointerCapture = () => {}
+}
+if (typeof Element.prototype.scrollIntoView === 'undefined') {
+  Element.prototype.scrollIntoView = () => {}
+}

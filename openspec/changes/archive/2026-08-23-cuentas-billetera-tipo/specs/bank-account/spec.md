@@ -151,7 +151,7 @@ El sistema SHALL exponer un endpoint `POST /bank-accounts` en el backend FastAPI
 - **WHEN** se hace `POST /bank-accounts` con `name` vacío o solo espacios
 - **THEN** la operación es rechazada (validación Pydantic o `P0400` de la RPC) con HTTP 422 y no se inserta ninguna fila
 
-### Requirement: Alta de cuenta bancaria desde la pantalla de banco
+### Requirement: Alta de cuenta bancaria desde la pantalla de conciliación
 
 El sistema SHALL permitir crear una cuenta bancaria desde la pantalla de banco (`/banco`, a la que la ruta previa `/finanzas/conciliacion` redirige) mediante un formulario (React Hook Form + Zod) presentado en un diálogo. El formulario SHALL ser accesible tanto desde el estado vacío (cuando no hay cuentas activas) como desde el encabezado de la tarjeta de selección de cuenta cuando ya existen cuentas, en ambos casos a través de las **dos entradas diferenciadas por tipo** ("+ Banco" y "+ Billetera virtual"). Al crear exitosamente una cuenta, el sistema SHALL invalidar las queries de cuentas bancarias (`queryKeys.bankAccounts`) para que la nueva cuenta aparezca en el selector sin recargar la página.
 

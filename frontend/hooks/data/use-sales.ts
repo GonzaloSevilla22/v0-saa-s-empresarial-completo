@@ -213,6 +213,10 @@ export function useSales() {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): una venta a
+      // crédito postea un cargo en customerAccounts — sin esto la cuenta
+      // corriente del cliente queda stale (staleTime 30s en useCustomerAccount).
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 
@@ -227,6 +231,9 @@ export function useSales() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): ver
+      // comentario arriba.
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 
@@ -236,6 +243,10 @@ export function useSales() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): borrar una
+      // venta a crédito revierte el cargo — sin esto la UI seguía mostrando
+      // el saldo/movimiento ya reversado en DB.
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 
@@ -245,6 +256,9 @@ export function useSales() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): ver
+      // comentario arriba.
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 
@@ -310,6 +324,10 @@ export function useSales() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, lado ventas): editar una
+      // operación de venta puede reimputar/desimputar el cliente o cambiar
+      // montos que ya postearon cargo — ver comentario arriba.
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 

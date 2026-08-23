@@ -218,6 +218,11 @@ export function useConfirmSalesOrder() {
       // Confirmar una venta afecta branch_stock y la lista de ventas legacy
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.branchStock.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, camino SalesOrder): una
+      // confirmación con payment_method="credit" postea un cargo en
+      // customerAccounts — sin esto la cuenta corriente del cliente queda
+      // stale (mismo bug que usePurchases/useSales, misma clase).
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 }
@@ -283,6 +288,9 @@ export function useQuickSale() {
       queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.branchStock.all() })
+      // fix-supplier-account-ui-post-delete (bug 1, camino quickSale/POS): ver
+      // comentario en useConfirmSalesOrder — mismo camino de cargo a crédito.
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
     },
   })
 }

@@ -218,6 +218,10 @@ export function usePurchases() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+      // fix-supplier-account-ui-post-delete (bug 1): una compra a crédito
+      // postea un cargo en supplierAccounts — sin esto la cuenta corriente
+      // del proveedor queda stale (staleTime 30s en useSupplierAccount).
+      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
     },
   })
 
@@ -231,6 +235,8 @@ export function usePurchases() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
+      // fix-supplier-account-ui-post-delete (bug 1): ver comentario arriba.
+      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
     },
   })
 
@@ -240,6 +246,10 @@ export function usePurchases() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
+      // fix-supplier-account-ui-post-delete (bug 1): borrar una compra a
+      // crédito revierte el cargo (SupplierAccountChargeReversed) — sin
+      // esto la UI seguía mostrando el saldo/movimiento ya reversado en DB.
+      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
     },
   })
 
@@ -249,6 +259,8 @@ export function usePurchases() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
+      // fix-supplier-account-ui-post-delete (bug 1): ver comentario arriba.
+      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
     },
   })
 
@@ -332,6 +344,10 @@ export function usePurchases() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+      // fix-supplier-account-ui-post-delete (bug 1): editar una operación de
+      // compra puede reimputar/desimputar el proveedor o cambiar montos que
+      // ya postearon cargo — ver comentario arriba.
+      queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
     },
   })
 

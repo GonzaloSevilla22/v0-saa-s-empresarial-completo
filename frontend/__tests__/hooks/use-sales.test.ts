@@ -50,6 +50,18 @@ function makeWrapper() {
     React.createElement(QueryClientProvider, { client: queryClient }, children)
 }
 
+// fix-supplier-account-ui-post-delete (bug 1, lado ventas): igual que
+// makeWrapper, pero devuelve también el QueryClient para poder espiar
+// invalidateQueries.
+function makeWrapperWithClient() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children)
+  return { wrapper, queryClient }
+}
+
 const mockSaleCartItems = [
   {
     id:          "cart-1",
@@ -249,5 +261,103 @@ describe("useSales", () => {
     })
 
     expect(pythonClient.delete).toHaveBeenCalledWith("/sales/sale-1")
+  })
+})
+
+// fix-supplier-account-ui-post-delete (bug 1, lado ventas): mismo bug que en
+// usePurchases pero con customerAccounts — una venta a crédito postea un
+// cargo en la cuenta corriente del cliente y un borrado lo revierte, pero
+// las mutaciones de useSales solo invalidaban sales/products.
+describe("useSales — invalida customerAccounts tras crear/editar/borrar (misma clase de bug que supplierAccounts)", () => {
+  const invalidatesCustomerAccounts = (spy: ReturnType<typeof vi.spyOn>) =>
+    spy.mock.calls.some((c: unknown[]) => (c[0] as { queryKey?: unknown[] })?.queryKey?.[0] === "customerAccounts")
+
+  it("addSaleOperation invalida customerAccounts", async () => {
+    const { wrapper, queryClient } = makeWrapperWithClient()
+    const spy = vi.spyOn(queryClient, "invalidateQueries")
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ operation_id: "op-1", operation_kind: "sale" })
+    const { result } = renderHook(() => useSales(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.addSaleOperation({
+        items: mockSaleCartItems,
+        meta: {
+          idempotencyKey: "key-1", clientId: "client-1", date: "2026-08-19",
+          currency: "ARS", branchId: null, orgId: "org-1",
+        },
+      })
+    })
+
+    await waitFor(() => expect(invalidatesCustomerAccounts(spy)).toBe(true))
+  })
+
+  it("updateSale invalida customerAccounts", async () => {
+    const { wrapper, queryClient } = makeWrapperWithClient()
+    const spy = vi.spyOn(queryClient, "invalidateQueries")
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
+    vi.mocked(pythonClient.put).mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useSales(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.updateSale({
+        id: "sale-1", date: "2026-08-19", productId: "prod-1", productName: "X",
+        clientId: "client-1", clientName: "Juan", quantity: 1, unitPrice: 100,
+        total: 100, currency: "ARS",
+      })
+    })
+
+    expect(invalidatesCustomerAccounts(spy)).toBe(true)
+  })
+
+  it("deleteSale invalida customerAccounts (la reversa del cargo)", async () => {
+    const { wrapper, queryClient } = makeWrapperWithClient()
+    const spy = vi.spyOn(queryClient, "invalidateQueries")
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
+    vi.mocked(pythonClient.delete).mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useSales(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.deleteSale("sale-1")
+    })
+
+    expect(invalidatesCustomerAccounts(spy)).toBe(true)
+  })
+
+  it("deleteSalesByOperation invalida customerAccounts", async () => {
+    const { wrapper, queryClient } = makeWrapperWithClient()
+    const spy = vi.spyOn(queryClient, "invalidateQueries")
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
+    vi.mocked(pythonClient.delete).mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useSales(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.deleteSalesByOperation("op-1")
+    })
+
+    expect(invalidatesCustomerAccounts(spy)).toBe(true)
+  })
+
+  it("updateSaleOperation invalida customerAccounts", async () => {
+    const { wrapper, queryClient } = makeWrapperWithClient()
+    const spy = vi.spyOn(queryClient, "invalidateQueries")
+    vi.mocked(pythonClient.get).mockResolvedValue({ items: [], total: 0 })
+    vi.mocked(pythonClient.put).mockResolvedValueOnce(undefined)
+    const { result } = renderHook(() => useSales(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.updateSaleOperation({
+        saleIds: ["sale-1"],
+        newItems: mockSaleCartItems,
+        meta: { clientId: "client-1", date: "2026-08-19", currency: "ARS", orgId: "org-1" },
+      })
+    })
+
+    expect(invalidatesCustomerAccounts(spy)).toBe(true)
   })
 })

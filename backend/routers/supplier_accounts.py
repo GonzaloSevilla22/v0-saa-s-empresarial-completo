@@ -71,15 +71,19 @@ async def list_supplier_movements(
     size: int = Query(50, ge=1, le=200),
     auth: dict = Depends(get_current_user),
     repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """v3-api-standards §2.8: envelope estándar {items,total,page,pages}.
 
     (Fix de paso: el endpoint llamaba a `get_account` con el
     `supplier_account_id` en lugar del `supplier_id` — nunca devolvía
     movimientos correctamente. Ahora usa el listado dedicado.)
+
+    fix/tenancy-bank-accounts-leak: account_id resuelto del caller y pasado
+    explícito — nunca confiar solo en RLS.
     """
     return await supplier_account_service.list_movements(
-        repo, str(supplier_account_id), page=page, size=size
+        repo, str(supplier_account_id), str(account_id), page=page, size=size
     )
 
 

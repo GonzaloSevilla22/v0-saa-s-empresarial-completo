@@ -206,16 +206,39 @@ class TestCustomerAccountRepository:
 
     @pytest.mark.asyncio
     async def test_list_movements_selects_by_account(self, mock_conn):
-        """list_movements hace SELECT paginado de customer_account_movements."""
+        """list_movements hace SELECT paginado de customer_account_movements,
+        scopeado por account_id (fix/tenancy-bank-accounts-leak)."""
         from backend.repositories.customer_account_repository import CustomerAccountRepository
         mock_conn.fetch.return_value = [dict(CUSTOMER_MOVEMENT_ROW)]
 
         repo = CustomerAccountRepository(mock_conn)
-        results = await repo.list_movements(CUSTOMER_ACCOUNT_ID, limit=20, offset=0)
+        results = await repo.list_movements(CUSTOMER_ACCOUNT_ID, ACCOUNT_ID, limit=20, offset=0)
 
-        call_args = mock_conn.fetch.call_args[0][0]
-        assert "customer_account_movements" in call_args
+        call_args = mock_conn.fetch.call_args[0]
+        assert "customer_account_movements" in call_args[0]
+        assert "account_id" in call_args[0]
+        assert ACCOUNT_ID in call_args[1:]
         assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_list_movements_page_scopes_by_account(self, mock_conn):
+        """fix/tenancy-bank-accounts-leak: RED (pre-fix) — GET
+        /customer-accounts/{id}/movements no filtraba por account_id (IDOR:
+        un customer_account_id de OTRO tenant devolvía sus movimientos).
+        GREEN: ambas queries (select+count) llevan account_id."""
+        from backend.repositories.customer_account_repository import CustomerAccountRepository
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+
+        repo = CustomerAccountRepository(mock_conn)
+        await repo.list_movements_page(CUSTOMER_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=50)
+
+        select_sql, *select_params = mock_conn.fetch.call_args[0]
+        count_sql, *count_params = mock_conn.fetchval.call_args[0]
+        assert "account_id" in select_sql
+        assert "account_id" in count_sql
+        assert ACCOUNT_ID in select_params
+        assert ACCOUNT_ID in count_params
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -288,6 +311,25 @@ class TestSupplierAccountRepository:
         call_args = mock_conn.fetchrow.call_args[0][0]
         assert "rpc_register_supplier_charge" in call_args
         assert result["balance_after"] == "1500.00"
+
+    @pytest.mark.asyncio
+    async def test_list_movements_page_scopes_by_account(self, mock_conn):
+        """fix/tenancy-bank-accounts-leak: espejo del test de customer —
+        GET /supplier-accounts/{id}/movements no filtraba por account_id
+        (IDOR). GREEN: ambas queries llevan account_id."""
+        from backend.repositories.supplier_account_repository import SupplierAccountRepository
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+
+        repo = SupplierAccountRepository(mock_conn)
+        await repo.list_movements_page(SUPPLIER_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=50)
+
+        select_sql, *select_params = mock_conn.fetch.call_args[0]
+        count_sql, *count_params = mock_conn.fetchval.call_args[0]
+        assert "account_id" in select_sql
+        assert "account_id" in count_sql
+        assert ACCOUNT_ID in select_params
+        assert ACCOUNT_ID in count_params
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

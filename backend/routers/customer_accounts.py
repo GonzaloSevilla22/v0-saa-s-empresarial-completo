@@ -70,10 +70,14 @@ async def list_customer_movements(
     size: int = Query(50, ge=1, le=200),
     auth: dict = Depends(get_current_user),
     repo: CustomerAccountRepository = Depends(get_customer_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    """v3-api-standards §2.7: envelope estándar {items,total,page,pages}."""
+    """v3-api-standards §2.7: envelope estándar {items,total,page,pages}.
+
+    fix/tenancy-bank-accounts-leak: account_id resuelto del caller y pasado
+    explícito — nunca confiar solo en RLS."""
     return await customer_account_service.list_movements(
-        repo, str(customer_account_id), page=page, size=size
+        repo, str(customer_account_id), str(account_id), page=page, size=size
     )
 
 

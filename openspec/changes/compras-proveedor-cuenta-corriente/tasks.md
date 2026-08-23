@@ -1,0 +1,136 @@
+> **Strict TDD activo.** Cada task de código sigue RED → GREEN → TRIANGULATE → REFACTOR, con safety net previo sobre los archivos que se tocan. Los tests van **antes** de la implementación, nunca después.
+>
+> **Governance MEDIUM** — checkpoints marcados con 🛑 requieren mostrarle el resultado al PO antes de seguir.
+>
+> Las tasks marcadas **[OQ-5]** dependen de la respuesta del PO a la Open Question 5 (`cost_center_id` tri-estado). Si responde B, se eliminan y se agrega en su lugar 10.7.
+
+## 1. Reconocimiento y safety net
+
+- [ ] 1.1 Correr la suite backend completa (`pytest`) y registrar el baseline `N/N passing`. Cualquier fallo preexistente se **reporta**, no se arregla en este change.
+- [ ] 1.2 Correr los tests de frontend de compras (`pnpm vitest run` sobre `purchase-form-*`, `purchase-operations-list-*`, `use-purchases-*`) y registrar el baseline.
+- [ ] 1.3 Verificar el **MAX de `supabase_migrations.schema_migrations` vivo en prod** y confirmar que el archivo nuevo se llama `20261007000001_compras_proveedor_cuenta_corriente.sql`. Si el MAX vivo es mayor que `20261006000001`, renombrar en consecuencia y anotarlo en el PR.
+- [ ] 1.4 Capturar `pg_get_functiondef` de `public.rpc_create_purchase_operation` y de `public.rpc_atomic_update_purchase_operation` **vivas en prod**, guardarlas como baseline en `openspec/changes/compras-proveedor-cuenta-corriente/baseline/`, y diffearlas contra el cuerpo de `20261002000001_pos_banco_movimientos.sql`. 🛑 **Si difieren, reportar antes de escribir una línea de SQL** (regla de la saga: el bloque `credit` de C-30 se perdió exactamente así).
+- [ ] 1.5 Confirmar contra prod el conteo actual de `suppliers` (esperado 0), de `purchases` con `supplier_id IS NOT NULL` (esperado 0) y de `supplier_account_movements` (esperado 0). Anotar los números reales en el PR — son la línea de base del change.
+- [ ] 1.6 Verificar que el trigger `trg_guard_supplier_plan_limit` está **activo** en prod sobre `public.suppliers` y que `plan_limits.max_suppliers` tiene los cuatro valores esperados (20/100/300/1000).
+
+## 2. DB — el maestro `suppliers` gana identidad fiscal
+
+- [ ] 2.1 **RED**: gate SQL dentro de la migración que falle si `public.suppliers` no tiene las columnas `tax_id`, `iva_condition`, `legal_name`, `email`, `phone`. Verificar que falla contra el schema actual.
+- [ ] 2.2 **GREEN**: `ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS ...` para las cinco columnas (todas nullable, sin default). Verificar que el gate 2.1 pasa.
+- [ ] 2.3 **TRIANGULATE**: gate que verifique que el CHECK de `iva_condition` admite exactamente los cuatro valores de `clients` y rechaza cualquier otro. Crear el CHECK con `DROP CONSTRAINT IF EXISTS` previo y `NOT VALID`.
+- [ ] 2.4 Índice de listado `idx_suppliers_account_alive` sobre `(account_id, name) WHERE deleted_at IS NULL`, con `IF NOT EXISTS`.
+- [ ] 2.5 `COMMENT ON COLUMN` en las cinco columnas nuevas, citando RN-96 (`FiscalIdentity` como VO compartido con `clients`).
+- [ ] 2.6 Reaplicar el archivo de migración **dos veces seguidas** en local y verificar que el segundo apply es no-op (idempotencia).
+
+## 3. DB — `rpc_create_purchase_operation` recibe proveedor y postea el cargo
+
+- [ ] 3.1 **RED**: test SQL/pytest que llame al alta de compra con proveedor y forma de pago de `kind='credit'` y asserte un movimiento en `supplier_account_movements`. Debe fallar hoy (la RPC ni siquiera acepta el parámetro).
+- [ ] 3.2 **GREEN (parte A — firma)**: `DROP FUNCTION IF EXISTS public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid);` + `CREATE OR REPLACE` con `p_supplier_id uuid DEFAULT NULL` **trailing** (9 args), partiendo del cuerpo capturado en 1.4. En el PR, **enumerar cada bloque preservado**: flag `sale_items_rpc_v2`, snapshots v3, `purchase_items`, `branch_stock` + `c21_apply_branch_stock_delta`, `stock_movements`, `_pay_register_operation_bank_movement`, evento `PurchaseCreated`.
+- [ ] 3.3 **GREEN (parte B — persistencia)**: persistir `supplier_id = p_supplier_id` en **las dos ramas** del INSERT a `purchases` (línea con producto y línea `ELSE` sin producto). Test que asserte que ambas ramas lo escriben.
+- [ ] 3.4 **GREEN (parte C — guard de pertenencia)**: validar que `p_supplier_id`, cuando no es NULL, existe en `public.suppliers` con `account_id = v_account_id` y `deleted_at IS NULL`; si no, `RAISE ... USING ERRCODE = 'P0404'`. Sin acuñar códigos nuevos.
+- [ ] 3.5 **GREEN (parte D — guard de crédito)**: `IF v_kind = 'credit' AND p_supplier_id IS NULL THEN RAISE 'credit_requires_supplier: ...' USING ERRCODE = 'P0400'`, ubicado **antes** del loop de ítems (antes de tocar stock), espejo exacto de `credit_requires_client`.
+- [ ] 3.6 **GREEN (parte E — el cargo)**: `IF v_kind = 'credit' THEN PERFORM public._pay_register_party_charge(v_account_id, 'supplier', p_supplier_id, v_total_sum, v_new_op_id, v_new_op_id); END IF;`, ubicado junto al bloque de banco (después del loop). Verificar que el test 3.1 pasa.
+- [ ] 3.7 **TRIANGULATE (D5 — el caso que no debe disparar)**: tres casos en un mismo test — (a) `kind='credit'` → 1 movimiento; (b) `kind='cash'` → 0 movimientos; (c) **sin `payment_method_id`** → 0 movimientos **y** evento `PurchaseCreated` con `payment_method='credit'`. El caso (c) es el que protege contra el `COALESCE`.
+- [ ] 3.8 **TRIANGULATE**: compra a crédito **sin** proveedor → falla con `P0400`, y verificar que **no** quedó ninguna fila en `purchases`, ninguna en `stock_movements` y ningún delta en `branch_stock`.
+- [ ] 3.9 **TRIANGULATE**: proveedor de otra cuenta y proveedor con `deleted_at` → ambos fallan con `P0404` sin efectos.
+- [ ] 3.10 **TRIANGULATE**: compra a crédito de un proveedor **sin cuenta corriente previa** → el helper la crea en el mismo commit y el movimiento queda con `balance_after` = total.
+- [ ] 3.11 ACLs: `REVOKE ALL ... FROM PUBLIC`, `REVOKE EXECUTE ... FROM anon` (explícito — gotcha `ALTER DEFAULT PRIVILEGES`) y `GRANT EXECUTE ... TO authenticated` sobre la firma de 9 args, en el mismo archivo. `COMMENT ON FUNCTION` actualizado.
+- [ ] 3.12 Gate anti-overload: `SELECT count(*) FROM pg_proc WHERE proname = 'rpc_create_purchase_operation'` = 1, dentro de la migración.
+
+## 4. DB — `rpc_atomic_update_purchase_operation` reimputa proveedor (tri-estado)
+
+- [ ] 4.1 **RED**: test que edite una compra sin cargo informando un proveedor distinto y asserte que las líneas quedan con el proveedor nuevo. Debe fallar hoy.
+- [ ] 4.2 **GREEN**: `DROP FUNCTION IF EXISTS public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean);` + `CREATE OR REPLACE` con `p_supplier_id uuid DEFAULT NULL, p_supplier_provided boolean DEFAULT false` trailing (10 args), partiendo del cuerpo capturado en 1.4. Enumerar en el PR los bloques preservados: guards `P0403`/`P0404`, los dos `EXISTS` de `P0423` (cta cte y banco), flag `sale_items_rpc_v2`, acarreo de snapshots por `product_id`, reversa/aplicación de stock, tri-estado de `payment_method_id` y `branch_id`.
+- [ ] 4.3 **GREEN**: resolución tri-estado — `p_supplier_provided = false` preserva el vigente (capturado antes del DELETE de las filas viejas); `true` con valor reimputa; `true` con NULL desimputa.
+- [ ] 4.4 **GREEN**: validar el proveedor reimputado contra la cuenta y `deleted_at IS NULL` → `P0404` si no cumple, sin reversa ni reaplicación de stock.
+- [ ] 4.5 **TRIANGULATE**: los tres estados del contrato en tres tests (ausente / presente-con-valor / presente-en-NULL), más el caso de proveedor ajeno rechazado.
+- [ ] 4.6 **TRIANGULATE (invariante de D7)**: editar una compra sin cargo cambiando el proveedor **no** crea, mueve ni revierte ningún `supplier_account_movement`.
+- [ ] 4.7 **[OQ-5]** Mismo tratamiento tri-estado para `p_cost_center_id` / `p_cost_center_provided` (12 args), con sus tres tests. Cierra la OQ-1 de `edicion-preserva-contexto` completa.
+- [ ] 4.8 ACLs sobre la firma nueva (REVOKE PUBLIC + REVOKE anon + GRANT authenticated) + `COMMENT ON FUNCTION` + gate anti-overload = 1.
+
+## 5. DB — cobertura de lo ya construido que nunca se ejercitó
+
+- [ ] 5.1 Test: una compra a crédito con su cargo posteado **no se puede editar** → `P0423` (verifica el guard escrito por `pagos-cableados-restantes` D6, hasta hoy inalcanzable).
+- [ ] 5.2 Test: borrar esa compra vía `rpc_delete_purchase_operation` revierte el cargo (`debit_note` negativo), deja el saldo del proveedor en su valor previo, repone el stock y emite `PurchaseDeleted`.
+- [ ] 5.3 Test: borrar una compra a crédito cuyo cargo ya fue cancelado por un `PaymentMade` → rechazo con `P0425` sin efectos parciales.
+- [ ] 5.4 Test de no-regresión contable: la compra a crédito con proveedor produce el mismo asiento que hoy (`2100 Proveedores` acreditada), sin tocar `_journal_post_from_event`.
+
+## 6. CI — reapply y gates
+
+- [ ] 6.1 Agregar `psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261007000001_compras_proveedor_cuenta_corriente.sql` como **último eslabón** de la cadena del paso "Verify G1/G4 migrations are idempotent on reapply" en `.github/workflows/KPI_Validation.yml`, con el comentario que explique el mecanismo (dos firmas cambiadas ⇒ los reapplies previos crean overloads fantasma 42725).
+- [ ] 6.2 Verificar en CI que `test_function_acl_gate.sql` pasa (las dos RPCs recreadas no quedan con EXECUTE para `anon`).
+- [ ] 6.3 Verificar que `validate-kpis` sigue verde (la migración no toca ningún read-model de KPIs, pero el gate corre igual).
+
+## 7. Backend — ABM de proveedores (3 capas)
+
+- [ ] 7.1 **RED**: `backend/tests/test_suppliers_api.py` con los casos de listado, alta, edición y baja. Falla: no existe el router.
+- [ ] 7.2 `backend/schemas/suppliers.py`: `SupplierCreate`, `SupplierUpdate`, `SupplierOut`, reutilizando el `Literal` de condición IVA (importado del módulo canónico, **no** redeclarado). Sin `Any`.
+- [ ] 7.3 Extender `backend/repositories/supplier_repository.py` con `create`, `update` y `count_by_org` (el repositorio ya existe con `list_by_org` / `get_by_id` — **no** crear uno nuevo).
+- [ ] 7.4 `backend/services/suppliers.py`: `require_role(auth, ["user","admin"])` en create/update/delete; baja vía `repo.soft_delete("suppliers", ...)`; **sin** pre-conteo del límite de plan (D3 — comentario apuntando al trigger como única fuente).
+- [ ] 7.5 `backend/routers/suppliers.py` (prefix `/suppliers`) + registro en `backend/main.py`.
+- [ ] 7.6 **TRIANGULATE**: proveedor de otra cuenta → 404 en get/update/delete; usuario sin rol de escritura → rechazo; borrar dos veces → no-op; listado excluye borrados y ordena por nombre.
+- [ ] 7.7 **TRIANGULATE**: alta con identidad fiscal completa y alta solo con nombre, ambas persistidas correctamente.
+
+## 8. Backend — el límite de plan llega traducido
+
+- [ ] 8.1 **RED**: test que asserte 403 al crear un proveedor por encima del límite del plan. Falla hoy con 500 (`P0B10` sin mapear).
+- [ ] 8.2 **GREEN**: mapear `"P0B10": 403` en `_BUSINESS_ERRCODE_STATUS` (`backend/core/errors.py`) con comentario que cite el trigger de origen.
+- [ ] 8.3 **TRIANGULATE**: el mensaje del guard (plan + límite + acción que destraba) llega al cliente en el `detail` del RFC 7807, y un proveedor borrado libera cupo.
+
+## 9. Backend — compras con proveedor
+
+- [ ] 9.1 **RED**: test del endpoint de alta de compra con `supplier_id`, asserteando que llega a la RPC y que el listado devuelve `supplier_id`/`supplier_name`.
+- [ ] 9.2 `backend/schemas/purchases.py`: `supplier_id: uuid.UUID | None` en `PurchaseOperationIn`; `supplier_id` en `PurchaseOperationUpdateIn` (tri-estado, documentado como los otros); `supplier_id` + `supplier_name` en `PurchaseItemOut` (reemplazando el comentario D11 que decía "supplier_id NO se expone").
+- [ ] 9.3 `backend/repositories/purchase_repository.py`: passthrough de `supplier_id` en `create_operation` (y en `create_operation_with_event` si comparte la llamada) y de `supplier_id`/`supplier_provided` en `update_operation`; `LEFT JOIN public.suppliers` en `list_paginated_by_operation` para resolver `supplier_name` en el mismo query (mismo patrón que `cost_center_name` y `payment_method_name`).
+- [ ] 9.4 `backend/services/purchases.py` + `backend/routers/purchases.py`: `supplier_provided = "supplier_id" in payload.model_fields_set` en el router (**nunca** `is None`), passthrough al service y al repo.
+- [ ] 9.5 **TRIANGULATE**: alta con proveedor / sin proveedor; edición sin el campo (preserva) / con uuid (reimputa) / con `null` (desimputa).
+- [ ] 9.6 **TRIANGULATE**: el error `P0400` de `credit_requires_supplier` sale como 400 RFC 7807 con `code` y `detail` legibles, y el `P0404` de proveedor inválido sale como 404.
+- [ ] 9.7 **[OQ-5]** Mismo passthrough tri-estado para `cost_center_id` en la edición.
+
+## 10. Frontend — datos, tipos y hooks
+
+- [ ] 10.1 **RED**: `frontend/__tests__/hooks/use-suppliers.test.ts` con listado + alta + edición + baja mockeando `pythonClient`.
+- [ ] 10.2 `Supplier` en `frontend/lib/types.ts` (sin `any`), `suppliers` en `frontend/lib/query-keys.ts` (`all` / `lists`), y `frontend/hooks/data/use-suppliers.ts` calcado de `use-clients.ts` (mismos mappers snake_case → camelCase, misma invalidación).
+- [ ] 10.3 `frontend/lib/group-operations.ts`: `supplierId` y `supplierName` en `PurchaseOperation` + su agregación en `groupPurchasesByOperation`, con test.
+- [ ] 10.4 `frontend/hooks/data/use-purchases.ts`: `supplierId` en el mapper de `Purchase` y en el payload de alta y de edición (tri-estado: solo se incluye la clave cuando el selector está montado).
+
+## 11. Frontend — pantalla de proveedores y navegación
+
+- [ ] 11.1 **RED**: test de componente de `SupplierForm` (alta y edición, validación de nombre obligatorio y de CUIT).
+- [ ] 11.2 `frontend/components/forms/supplier-form.tsx`, molde de `client-form.tsx`, **reutilizando** `frontend/lib/cuit-utils.ts` para la validación de CUIT (no reimplementarla).
+- [ ] 11.3 `frontend/app/(dashboard)/proveedores/page.tsx`: listado con búsqueda, alta/edición en `Dialog`, baja con confirmación, export CSV vía `exportToCSV`, banner y botón deshabilitado al alcanzar `limits.maxSuppliers` (`usePlanLimits`), y acción de fila "Cuenta corriente" → `/proveedores/[id]/cuenta`.
+- [ ] 11.4 `frontend/components/app-sidebar.tsx`: entrada "Proveedores" (`href: "/proveedores"`, ícono `Truck`, `pro: false`, `proOnly: false`) en el grupo **Catálogo**, inmediatamente debajo de "Clientes".
+- [ ] 11.5 `frontend/app/(dashboard)/proveedores/[id]/cuenta/page.tsx`: el `Link` de "volver" pasa de `/compras` a `/proveedores`. Test que lo asserte.
+- [ ] 11.6 **TRIANGULATE**: listado vacío (empty state con CTA), listado con resultados, búsqueda sin resultados, y estado de límite alcanzado.
+
+## 12. Frontend — selector de proveedor en el formulario de compra
+
+- [ ] 12.1 **RED**: `frontend/__tests__/components/purchase-form-supplier.test.tsx` — el form envía `supplierId` en el payload de alta.
+- [ ] 12.2 Selector de proveedor buscable en el header de `PurchaseForm` (mismo componente de combobox que usa el selector de cliente en `sale-form.tsx`), precargado en modo edición desde `editingOperation.supplierId`.
+- [ ] 12.3 Alta inline "Nuevo proveedor": crea vía `useSuppliers().addSupplier`, preselecciona el creado y **no** pierde los ítems ya cargados en el carrito.
+- [ ] 12.4 Bloque de cuenta corriente cuando `resolvedKind === "credit"`, molde exacto del bloque de venta a crédito: aviso "elegí un proveedor" si falta, y saldo actual / proyectado (vía `useSupplierAccount`) si está.
+- [ ] 12.5 El botón de confirmar queda deshabilitado con `kind='credit'` y sin proveedor (la UI impide llegar al `P0400`, pero el servidor sigue siendo el que decide).
+- [ ] 12.6 **TRIANGULATE**: `credit` con proveedor (envía y muestra saldo) / `credit` sin proveedor (bloquea) / `cash` (no muestra el bloque) / sin forma de pago (no muestra el bloque ni promete cuenta corriente).
+- [ ] 12.7 **[OQ-5 alternativa]** Si el PO responde **B** a la OQ-5: desmontar `CostCenterSelect` en modo edición de `PurchaseForm` (hoy está montado y no tiene efecto — UI que miente en producción).
+
+## 13. Frontend — listado de compras
+
+- [ ] 13.1 **RED**: test de `purchase-operations-list` asserteando el badge de proveedor y el texto "Sin proveedor" cuando no hay.
+- [ ] 13.2 Badge de proveedor en la fila de operación (desktop y mobile), junto a los badges de centro de costo y forma de pago ya existentes.
+- [ ] 13.3 Verificar que el motivo del bloqueo de edición (`isPaymentLocked` / `hasAccountCharge`) nombra explícitamente el cargo de cuenta corriente del proveedor y el camino de corrección (borrar y recargar).
+
+## 14. Verificación integral
+
+- [ ] 14.1 Suite backend completa verde, comparada contra el baseline de 1.1.
+- [ ] 14.2 Suite frontend (`pnpm vitest run`) verde, comparada contra el baseline de 1.2.
+- [ ] 14.3 Verificación visual en **desktop y mobile**, **tema claro y oscuro**: `/proveedores`, el diálogo de alta, `/proveedores/[id]/cuenta`, y el form de compra con el bloque de crédito. Capturas en el PR.
+- [ ] 14.4 Accesibilidad: labels asociadas en el form de proveedor y en el selector de compra, foco visible, navegación por teclado en la fila del listado (mismo patrón que `/clientes`).
+- [ ] 14.5 E2E local del recorrido completo: crear proveedor → cargar compra a crédito → ver el saldo en `/proveedores/[id]/cuenta` → intentar editar (bloqueo) → borrar (compensación) → saldo vuelve a 0.
+- [ ] 14.6 🛑 **Checkpoint PO**: demo del recorrido de 14.5, con foco en el bloqueo de edición y el camino de corrección por borrado (el escenario que produjo el cargo fantasma de $75.150 del lado venta).
+
+## 15. Documentación
+
+- [ ] 15.1 Corregir `knowledge-base/04_modelo_de_datos.md` (H5) y la mención equivalente del modelo V2: la tabla con CUIT es `invoice_suppliers` (módulo OCR, keyed por `user_id`), **no** `public.suppliers`. Documentar las columnas nuevas de `suppliers`.
+- [ ] 15.2 `CHANGES.md`: entrada del change con el resultado, las firmas de las OQ, los conteos de prod antes/después, y actualización de la lista de candidatos (quitar `compras-proveedor-cuenta-corriente`, agregar `historial-compras-por-proveedor` y, si la OQ-5 se responde B, `edicion-cost-center-tri-estado`).
+- [ ] 15.3 Registrar como deuda menor (no se arregla acá): `create_client` duplica el conteo del límite de plan que su trigger ya enforcea.
+- [ ] 15.4 PR con conventional commit `feat(compras): proveedor en la compra + cargo real en cuenta corriente`, describiendo los bloques preservados de las dos RPCs reescritas (tasks 3.2 y 4.2). **Nunca commitear a main** — siempre rama + PR.

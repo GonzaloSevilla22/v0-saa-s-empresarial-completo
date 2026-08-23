@@ -55,6 +55,16 @@ El sistema SHALL soportar en el mismo helper las dos partes del circuito —clie
 - **WHEN** se postea un cargo con tipo de parte `customer`
 - **THEN** no se inserta ninguna fila en `supplier_accounts` ni en `supplier_account_movements`
 
+#### Scenario: El alta de compra a crédito despacha por el helper compartido
+
+- **WHEN** se registra una compra imputada a una forma de pago de `kind = 'credit'` con proveedor
+- **THEN** el cargo se resuelve invocando el helper compartido con tipo de parte `supplier`, y la RPC de alta de compra no contiene lógica propia de cuenta corriente
+
+#### Scenario: Las dos partes producen la misma forma de movimiento
+
+- **WHEN** se comparan el cargo producido por una venta a crédito y el producido por una compra a crédito del mismo importe
+- **THEN** ambos son movimientos con signo positivo sobre la cuenta corriente de su parte, con `balance_after` calculado por el helper C-30 correspondiente y `reference_id` apuntando a la operación de origen
+
 ### Requirement: Contraparte de reversión del cargo de tercero
 El helper compartido de cargo en cuenta de tercero SHALL exponer una contraparte de reversión que atienda por igual a clientes y proveedores, de modo que el borrado de una venta y el de una compra reviertan su cargo por el mismo camino, sin lógica duplicada por dominio.
 

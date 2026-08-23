@@ -53,36 +53,16 @@ class SupplierRepository(BaseRepository):
         return int(row["total"]) if row else 0
 
     async def create(self, account_id: str, data: dict) -> asyncpg.Record | None:
-        # HALLAZGO (compras-proveedor-cuenta-corriente, fuera de alcance tocar
-        # la migración en esta fase): suppliers.company_id sigue siendo
-        # NOT NULL legacy con FK a companies(id) — nunca se dropeó tras
-        # v20-tenancy-cleanup (20260613000002/3, ver también
-        # 20260804000007:1070 y 20260817000001:928, que documentan el mismo
-        # gotcha para sus companies sintéticas de test). Se resuelve acá con
-        # el MISMO join company_users -> account_members que usó el backfill
-        # histórico de 20260613000002 — no se crea una companies nueva desde
-        # el endpoint. Si la cuenta no tiene ningún mapeo legacy (no debería
-        # pasar: toda cuenta real viene de esa migración), el INSERT falla
-        # con 23502 (not_null_violation) y sale 500 genérico — no hay un
-        # ERRCODE de negocio propio para ese caso. Reportado como deuda a
-        # verificar por el PO/orchestrator; la corrección correcta es una
-        # migración futura que dropee la columna o el NOT NULL.
+        # Mirror exacto de ClientRepository.create() (mismas 7 columnas). Hasta
+        # el fix de 20261009000001 STEP 1, suppliers.company_id era NOT NULL
+        # legacy con FK a companies(id) y este INSERT necesitaba resolverlo vía
+        # un subquery company_users -> account_members (deuda documentada en
+        # el apply original de este change). Ese DROP NOT NULL ya está en la
+        # migración — company_id queda sin proveer, igual que clients.
         return await self.fetchrow(
             """
-            INSERT INTO suppliers (
-                account_id, company_id, name, tax_id, iva_condition, legal_name, email, phone
-            )
-            VALUES (
-                $1,
-                (
-                    SELECT cu.company_id
-                    FROM company_users cu
-                    JOIN account_members am ON am.user_id = cu.user_id
-                    WHERE am.account_id = $1::uuid
-                    LIMIT 1
-                ),
-                $2, $3, $4, $5, $6, $7
-            )
+            INSERT INTO suppliers (account_id, name, tax_id, iva_condition, legal_name, email, phone)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             """,
             account_id,

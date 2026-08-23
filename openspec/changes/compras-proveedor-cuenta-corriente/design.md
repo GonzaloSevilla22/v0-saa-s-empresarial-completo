@@ -74,6 +74,8 @@ RN-96 lo pide explícitamente (*"`FiscalIdentity` es un Value Object compartido 
 
 *Alternativa descartada*: solo `tax_id` + contacto, sin `iva_condition`/`legal_name`. Ahorra dos columnas nullable y rompe la simetría que la regla de negocio pide por escrito. Ver **OQ-3**.
 
+**Hallazgo del apply (fase B)**: además de las cinco columnas nuevas, `suppliers.company_id` seguía siendo `NOT NULL` legacy (FK a `companies(id)`, de antes de `v20-tenancy-cleanup`) — `clients.company_id` ya es nullable desde `20260613000003`, pero nadie había ejercitado un INSERT real en `suppliers` hasta el ABM de este change, así que el gap nunca se manifestó. Se agregó un `ALTER TABLE ... DROP NOT NULL` guardado (drift-tolerant, mismo patrón que `20260702000002`/`20260804000006`) al STEP 1 de la migración, sin tocar el FK ni backfillear. `SupplierRepository.create()` es ahora un mirror exacto de `ClientRepository.create()` — sin `company_id` en el INSERT.
+
 ### D3 — El límite por plan se delega en el trigger; el service NO cuenta
 
 `trg_guard_supplier_plan_limit` ya es, en palabras de su propio `COMMENT`, *"la única capa que ve todos los inserts"*. El service de proveedores **no** replica el conteo: deja que el trigger falle y mapea `P0B10` → **403** en `backend/core/errors.py`, donde hoy no está mapeado y saldría 500.

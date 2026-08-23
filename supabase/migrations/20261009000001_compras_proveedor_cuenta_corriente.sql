@@ -10,7 +10,9 @@
 --
 --   1. public.suppliers gana identidad fiscal (RN-96 — FiscalIdentity es un
 --      Value Object COMPARTIDO con clients: mismos nombres, mismos tipos,
---      mismo vocabulario de condición IVA).
+--      mismo vocabulario de condición IVA) y suppliers.company_id deja de
+--      ser NOT NULL (legacy de v20-tenancy-cleanup, nunca ejercitado hasta
+--      que el ABM de proveedores de este change hace el primer INSERT real).
 --   2. rpc_create_purchase_operation recibe el proveedor (8 -> 9 args) y, si
 --      la forma de pago imputada es de kind='credit', postea el cargo real.
 --   3. rpc_atomic_update_purchase_operation reimputa proveedor y centro de
@@ -69,9 +71,16 @@
 --
 -- IDEMPOTENCIA: ADD COLUMN IF NOT EXISTS, DROP CONSTRAINT IF EXISTS antes de
 --   ADD CONSTRAINT, CREATE INDEX IF NOT EXISTS, DROP FUNCTION IF EXISTS +
---   CREATE OR REPLACE. Reaplicar el archivo dos veces seguidas es no-op —
---   verificado en local (docker exec ... psql -f, doble aplicación sin error
---   y sin cambio de fingerprint).
+--   CREATE OR REPLACE, DROP NOT NULL guardado con chequeo de is_nullable
+--   (mismo patrón que 20260702000002/20260804000006: en el segundo apply
+--   encuentra la columna ya nullable y no-opea, sin error). Reaplicar el
+--   archivo dos veces seguidas es no-op — verificado en local para las
+--   piezas originales (docker exec ... psql -f, doble aplicación sin error
+--   y sin cambio de fingerprint) ANTES de este fix; el DROP NOT NULL de
+--   company_id se agregó después con el stack local caído — su idempotencia
+--   se sostiene por construcción (ALTER ... DROP NOT NULL es intrínsecamente
+--   idempotente en Postgres, y el guard de is_nullable lo hace además
+--   silencioso en el reapply) y por el gate 2.5, no por reapply verificado.
 --
 -- GOVERNANCE: MEDIUM — toca dinero sobre helpers ya en producción y sobre la
 --   RPC de alta de compra (hot path, 104 compras en 30 días).
@@ -103,6 +112,29 @@ ALTER TABLE public.suppliers
   ADD COLUMN IF NOT EXISTS iva_condition TEXT,
   ADD COLUMN IF NOT EXISTS email         TEXT,
   ADD COLUMN IF NOT EXISTS phone         TEXT;
+
+-- suppliers.company_id: legacy de v20-tenancy-cleanup. clients.company_id ya
+-- es nullable (20260613000003_v20_companies_to_accounts.sql); suppliers se
+-- quedó atrás con el NOT NULL + FK a companies(id) porque, hasta este change,
+-- nada insertaba un supplier desde el backend — el gap nunca se ejercitó.
+-- Mismo precedente drift-tolerant que 20260702000002 (events.company_id) y
+-- 20260804000006 (audit_logs.company_id): guardado con un chequeo de
+-- is_nullable para no tocar la columna si ya está nullable (p. ej. reapply).
+-- El FK a companies(id) NO se toca — solo se relaja la nulabilidad. Sin
+-- backfill: las filas legacy con company_id NOT NULL siguen intactas.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'suppliers'
+      AND column_name = 'company_id' AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE public.suppliers ALTER COLUMN company_id DROP NOT NULL;
+    RAISE NOTICE 'suppliers.company_id: DROP NOT NULL aplicado';
+  ELSE
+    RAISE NOTICE 'suppliers.company_id: ya nullable o inexistente — no-op';
+  END IF;
+END $$;
 
 -- CHECK de dominio cerrado, mismos 4 valores que clients_iva_condition_check.
 -- DROP IF EXISTS + ADD NOT VALID (D12): idempotente y sin escanear la tabla.
@@ -183,7 +215,19 @@ BEGIN
     RAISE EXCEPTION 'GATE compras-proveedor (2.4) FAILED: falta el indice idx_suppliers_account_alive.';
   END IF;
 
-  RAISE NOTICE 'compras-proveedor STEP 1 OK: identidad fiscal + CHECK + indice.';
+  -- Gate (fix post-apply, phase B backend): suppliers.company_id debe quedar
+  -- nullable. Sin este DROP NOT NULL, SupplierRepository.create() (que ya NO
+  -- provee company_id — mirror de ClientRepository.create()) revienta con
+  -- 23502 en el primer INSERT real de proveedor.
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'suppliers'
+      AND column_name = 'company_id' AND is_nullable = 'YES'
+  ) THEN
+    RAISE EXCEPTION 'GATE compras-proveedor (2.5) FAILED: suppliers.company_id sigue NOT NULL.';
+  END IF;
+
+  RAISE NOTICE 'compras-proveedor STEP 1 OK: identidad fiscal + CHECK + indice + company_id nullable.';
 END $$;
 
 

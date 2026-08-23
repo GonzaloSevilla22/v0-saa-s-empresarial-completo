@@ -65,7 +65,7 @@
 
 - [x] 7.1 **RED**: `backend/tests/test_suppliers_api.py` con los casos de listado, alta, edición y baja. Falla: no existe el router.
 - [x] 7.2 `backend/schemas/suppliers.py`: `SupplierCreate`, `SupplierUpdate`, `SupplierOut`, reutilizando el `Literal` de condición IVA (importado del módulo canónico, **no** redeclarado). Sin `Any`.
-- [x] 7.3 Extender `backend/repositories/supplier_repository.py` con `create`, `update` y `count_by_org` (el repositorio ya existe con `list_by_org` / `get_by_id` — **no** crear uno nuevo).
+- [x] 7.3 Extender `backend/repositories/supplier_repository.py` con `create`, `update` y `count_by_org` (el repositorio ya existe con `list_by_org` / `get_by_id` — **no** crear uno nuevo). ✅ **Follow-up (orchestrator, verificado contra prod)**: `create()` originalmente resolvía `company_id` vía subquery `company_users`/`account_members` porque `suppliers.company_id` era `NOT NULL` legacy — confirmado real contra prod (FK `suppliers_company_id_fkey`, `clients.company_id` ya nullable). Corregido en la migración (`DROP NOT NULL` guardado, STEP 1) y `create()` es ahora mirror exacto de `ClientRepository.create()`, sin `company_id`.
 - [x] 7.4 `backend/services/suppliers.py`: `require_role(auth, ["user","admin"])` en create/update/delete; baja vía `repo.soft_delete("suppliers", ...)`; **sin** pre-conteo del límite de plan (D3 — comentario apuntando al trigger como única fuente).
 - [x] 7.5 `backend/routers/suppliers.py` (prefix `/suppliers`) + registro en `backend/main.py`.
 - [x] 7.6 **TRIANGULATE**: proveedor de otra cuenta → 404 en get/update/delete; usuario sin rol de escritura → rechazo; borrar dos veces → no-op; listado excluye borrados y ordena por nombre.

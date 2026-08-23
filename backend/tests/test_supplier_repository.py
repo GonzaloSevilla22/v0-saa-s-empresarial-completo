@@ -98,11 +98,12 @@ async def test_count_by_org_excludes_soft_deleted(mock_conn):
 
 
 @pytest.mark.asyncio
-async def test_create_resolves_legacy_company_id_via_account_members(mock_conn):
-    """suppliers.company_id sigue NOT NULL legacy (FK a companies) — nunca se
-    dropeó tras v20-tenancy-cleanup. El INSERT lo resuelve con el mismo join
-    company_users -> account_members que usó el backfill histórico de
-    20260613000002, sin crear una companies nueva desde el endpoint."""
+async def test_create_does_not_touch_legacy_company_id(mock_conn):
+    """Fix post-apply (fase B, follow-up del orchestrator): suppliers.company_id
+    dejó de ser NOT NULL en la migración (20261009000001, STEP 1) — el INSERT
+    ya NO necesita resolverlo vía company_users/account_members. create() es
+    ahora un mirror exacto de ClientRepository.create() (mismas 7 columnas,
+    sin company_id ni subquery)."""
     repo = SupplierRepository(mock_conn)
 
     await repo.create(
@@ -113,8 +114,9 @@ async def test_create_resolves_legacy_company_id_via_account_members(mock_conn):
 
     sql = mock_conn.fetchrow.call_args.args[0]
     assert "INSERT INTO suppliers" in sql
-    assert "company_users" in sql
-    assert "account_members" in sql
+    assert "company_users" not in sql
+    assert "account_members" not in sql
+    assert "company_id" not in sql
     args = mock_conn.fetchrow.call_args.args
     assert ACCOUNT_ID in args
     assert "Distribuidora Sur" in args

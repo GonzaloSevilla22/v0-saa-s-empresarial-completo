@@ -81,8 +81,9 @@ async def get_order(
     sales_order_id: str,
     auth: dict = Depends(get_current_user),
     repo: SalesOrderRepository = Depends(get_so_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await so_service.get_order(repo, sales_order_id)
+    return await so_service.get_order(repo, sales_order_id, str(account_id))
 
 
 @router.post("/sales-orders/{sales_order_id}/confirm", response_model=ConfirmOut)

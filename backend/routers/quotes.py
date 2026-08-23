@@ -67,8 +67,9 @@ async def get_quote(
     quote_id: str,
     auth: dict = Depends(get_current_user),
     repo: QuoteRepository = Depends(get_quote_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await quotes_service.get_quote(repo, quote_id)
+    return await quotes_service.get_quote(repo, quote_id, str(account_id))
 
 
 @router.post("/quotes/{quote_id}/transition", response_model=QuoteOut)
@@ -77,8 +78,9 @@ async def transition_quote(
     payload: QuoteTransitionIn,
     auth: dict = Depends(get_current_user),
     repo: QuoteRepository = Depends(get_quote_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await quotes_service.transition_quote(repo, auth, quote_id, payload)
+    return await quotes_service.transition_quote(repo, auth, quote_id, payload, str(account_id))
 
 
 @router.post("/quotes/{quote_id}/accept", response_model=AcceptQuoteOut)

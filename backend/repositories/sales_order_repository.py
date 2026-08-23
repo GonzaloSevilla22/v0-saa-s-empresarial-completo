@@ -148,11 +148,16 @@ class SalesOrderRepository(BaseRepository):
             account_id,
         )
 
-    async def get_order(self, sales_order_id: str) -> asyncpg.Record | None:
-        """Obtiene una orden de venta por id."""
+    async def get_order(self, sales_order_id: str, account_id: str) -> asyncpg.Record | None:
+        """Obtiene una orden de venta por id, SCOPEADA a la cuenta del caller.
+
+        fix/tenancy-bank-accounts-leak (2026-08-22): antes no filtraba por
+        account_id — GET /sales-orders/{id} era un IDOR (cualquier usuario
+        autenticado podía leer la orden de venta de OTRO tenant)."""
         return await self.fetchrow(
-            "SELECT * FROM public.sales_orders WHERE id = $1::uuid",
+            "SELECT * FROM public.sales_orders WHERE id = $1::uuid AND account_id = $2::uuid",
             sales_order_id,
+            account_id,
         )
 
     # ── facturar-venta-afip ───────────────────────────────────────────────────
@@ -182,13 +187,16 @@ class SalesOrderRepository(BaseRepository):
             raise ValueError("rpc_emit_sale_invoice devolvió NULL")
         return _jsonb(row["result"])
 
-    async def list_order_items(self, sales_order_id: str) -> list[dict]:
-        """Lista los ítems de una orden de venta."""
+    async def list_order_items(self, sales_order_id: str, account_id: str) -> list[dict]:
+        """Lista los ítems de una orden de venta, scopeado a la cuenta del
+        caller (account_id está desnormalizado en sales_order_items —
+        fix/tenancy-bank-accounts-leak, mismo criterio que get_order)."""
         return await self.fetch(
             """
             SELECT * FROM public.sales_order_items
-            WHERE sales_order_id = $1::uuid
+            WHERE sales_order_id = $1::uuid AND account_id = $2::uuid
             ORDER BY id
             """,
             sales_order_id,
+            account_id,
         )

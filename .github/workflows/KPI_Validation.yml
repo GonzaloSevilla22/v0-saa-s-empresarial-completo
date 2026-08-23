@@ -82,8 +82,29 @@ jobs:
           # matchea el overload fantasma recién creado y lo limpia, dejando
           # exactamente 1 definición de cada función con el cuerpo final
           # correcto (de paso, prueba que 20260930000001 es re-appliable).
-          if ! psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql; then
-            echo "20260928000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20260930000001 ya cambió de nuevo la firma) — reconvergiendo con 20260930000001"
+          # La tolerancia es ESTRECHA (compras-proveedor-cuenta-corriente,
+          # review A / CI-1): sólo se acepta el fallo cuyo output contiene el
+          # marcador literal del gate ANTI-OVERLOAD de este archivo. Cualquier
+          # otro error del reapply (sintaxis, permisos, una regresión real)
+          # imprime el output y falla el paso — antes, un `if ! psql ...`
+          # pelado se tragaba TODO fallo de esta migración en silencio.
+          # Nota: a diferencia de 20261002000001 más abajo, el gate de este
+          # archivo NO es lo último (le siguen el CREATE de
+          # rpc_payment_method_report y sus ACLs), así que el reapply tolerado
+          # los saltea — no-op en la práctica: nada posterior en esta cadena
+          # los redefine y ya quedaron aplicados en el apply inicial del stack.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260928000001_payment_methods_operaciones.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'GATE ANTI-OVERLOAD FAILED'; then
+              echo "20260928000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20260930000001 ya cambió de nuevo la firma) — reconvergiendo con 20260930000001"
+            else
+              echo "ERROR: el reapply de 20260928000001 falló por un motivo DISTINTO del gate ANTI-OVERLOAD esperado."
+              exit 1
+            fi
           fi
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260930000001_edicion_preserva_contexto.sql
           # pagos-cableados-restantes: 20260930000001 (edicion-preserva-contexto)
@@ -131,8 +152,22 @@ jobs:
           # así que tolerar el fallo no saltea nada: se reconverge al final de
           # la cadena con 20261009000001, cuyos DROP FUNCTION IF EXISTS con las
           # firmas EXACTAS de 8 args limpian los dos fantasmas.
-          if ! psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261002000001_pos_banco_movimientos.sql; then
-            echo "20261002000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20261009000001 ya cambió de nuevo las dos firmas) — reconvergiendo al final de la cadena"
+          # La tolerancia es ESTRECHA (review A / CI-1): se acepta ÚNICAMENTE
+          # el fallo cuyo output contiene el marcador literal de ese gate
+          # ANTI-OVERLOAD. Cualquier otro error imprime el output y falla el
+          # paso, en vez de quedar tapado por un `if ! psql ...` pelado.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261002000001_pos_banco_movimientos.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'GATE POS-BANCO-MOVIMIENTOS FAILED (1, 42725)'; then
+              echo "20261002000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20261009000001 ya cambió de nuevo las dos firmas) — reconvergiendo al final de la cadena"
+            else
+              echo "ERROR: el reapply de 20261002000001 falló por un motivo DISTINTO del gate ANTI-OVERLOAD esperado."
+              exit 1
+            fi
           fi
           # limpiezas-pagos-admin: el reapply de 20261002000001 arriba
           # redefine _c29_confirm_order_core y rpc_create_purchase_operation

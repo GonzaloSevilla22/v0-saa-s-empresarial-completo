@@ -16,7 +16,9 @@
 --   2. rpc_create_purchase_operation recibe el proveedor (8 -> 9 args) y, si
 --      la forma de pago imputada es de kind='credit', postea el cargo real.
 --   3. rpc_atomic_update_purchase_operation reimputa proveedor y centro de
---      costo por contrato tri-estado (8 -> 12 args).
+--      costo por contrato tri-estado (8 -> 12 args), y rechaza con P0400 que
+--      la EDICIÓN convierta una compra en compra a crédito (la edición no
+--      postea cargos — review A, SQL-1/BE-2/SEC-1).
 --
 -- BASELINE (regla dura de la saga): las dos RPCs se reescriben partiendo del
 --   cuerpo VIVO en prod (gxdhpxvdjjkmxhdkkwyb), capturado y verificado por
@@ -691,8 +693,21 @@ COMMENT ON FUNCTION public.rpc_create_purchase_operation(text, date, text, jsonb
 --   de supplier_id (D7) y de cost_center_id (OQ-5 opción A), y el uso de esos
 --   efectivos en las dos ramas del INSERT.
 --
+-- DELTAS DE REVIEW A (intencionales, sobre el baseline vivo):
+--   * SQL-1/BE-2/SEC-1 — guard de transición a crédito: dos variables más en
+--     el DECLARE (v_old_kind/v_final_kind) y dos RAISE P0400
+--     (credit_requires_supplier / credit_transition_not_allowed) ubicados
+--     junto al resto de los guards de parámetros, ANTES del REVERSE.
+--   * SPEC-05 — el mensaje del P0423 de cuenta corriente deja de ofrecer "una
+--     nota de crédito" (camino del lado VENTA, inexistente en compras) y pasa
+--     a nombrar el camino real: borrar + volver a cargar.
+--   * SQL-3 — comentarios del DECLARE de v_old_supplier_id/v_old_cost_center_id
+--     (decían "preservado, no expuesto (OQ-1)", heredado del baseline: desde
+--     este change AMBOS son parámetros del tri-estado).
+--
 -- La edición NO postea ni revierte cargos: una compra con cargo ya es inmutable
--- por P0423, así que el unico caso editable es el de una compra sin cargo.
+-- por P0423, así que el unico caso editable es el de una compra sin cargo — y
+-- por eso mismo la edición no puede CONVERTIR una compra en compra a crédito.
 
 DROP FUNCTION IF EXISTS public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean);
 
@@ -721,8 +736,12 @@ DECLARE
   v_final_payment_method_id uuid;  -- metodos-pago-operaciones (D5)
   -- edicion-preserva-contexto (F1):
   v_old_branch_id      uuid;       -- §D1/§D3
-  v_old_supplier_id    uuid;       -- §D2: preservado, no expuesto (OQ-1)
-  v_old_cost_center_id uuid;       -- §D2: preservado, no expuesto (OQ-1)
+  -- valor vigente capturado antes del DELETE — base del tri-estado
+  -- (compras-proveedor-cuenta-corriente D7/OQ-5)
+  v_old_supplier_id    uuid;
+  -- valor vigente capturado antes del DELETE — base del tri-estado
+  -- (compras-proveedor-cuenta-corriente D7/OQ-5)
+  v_old_cost_center_id uuid;
   v_final_branch_id    uuid;       -- §D3/§D8: sucursal EFECTIVA
   v_branch             RECORD;
   -- compras-proveedor-cuenta-corriente (D7 + OQ-5): proveedor y centro de
@@ -730,6 +749,11 @@ DECLARE
   -- abierta ("preservados pero no parámetro, porque el form no los expone").
   v_final_supplier_id    uuid;
   v_final_cost_center_id uuid;
+  -- compras-proveedor-cuenta-corriente (review A, SQL-1/BE-2/SEC-1): kind
+  -- EFECTIVO de la forma de pago — el vigente antes de la edición y el que
+  -- queda después. Base del guard de transición a crédito.
+  v_old_kind             text;
+  v_final_kind           text;
 BEGIN
   -- Identity always comes from the JWT — never from caller input
   v_uid := (SELECT auth.uid());
@@ -779,7 +803,13 @@ BEGIN
       SELECT p.operation_id FROM public.purchases p WHERE p.id = ANY(p_purchase_ids)
     )
   ) THEN
-    RAISE EXCEPTION 'operation_has_account_charge_immutable: la operación tiene un cargo de cuenta corriente posteado y no puede editarse — emití una nota de crédito y registrá una compra nueva'
+    -- compras-proveedor-cuenta-corriente (review A, SPEC-05): el texto venía
+    -- copiado del lado VENTA y ofrecía un camino de corrección que en compras
+    -- NO existe (el listado de compras ya lo dice en la UI). El camino real es
+    -- borrar + recargar: rpc_delete_purchase_operation compensa el cargo, el
+    -- banco y el stock de forma atómica.
+    -- (El gate de STEP 4 verifica que la copia de venta no vuelva a colarse.)
+    RAISE EXCEPTION 'operation_has_account_charge_immutable: compra con cargo en cuenta corriente del proveedor posteado — borrá esta compra (revierte el cargo y repone el stock) y volvé a cargarla'
       USING ERRCODE = 'P0423';
   END IF;
 
@@ -940,6 +970,61 @@ BEGIN
     v_final_cost_center_id := v_old_cost_center_id;
   END IF;
 
+  -- compras-proveedor-cuenta-corriente (review A — SQL-1/BE-2/SEC-1): guard de
+  -- transición a crédito en la EDICIÓN.
+  --
+  -- D7 es explícito: la edición NO postea ni revierte cargos de cuenta
+  -- corriente. Sin este guard, el camino de edición podía mover una compra a
+  -- una forma de pago de kind='credit' —con o sin proveedor— y dejarla
+  -- registrada como "a crédito" SIN cargo posteado: exactamente el defecto que
+  -- la spec `supplier-account` declara ("Una compra imputada a kind='credit'
+  -- que quede registrada sin su cargo correspondiente SHALL considerarse un
+  -- defecto, no una configuración válida"). Y como el guard P0423 de más
+  -- arriba mira supplier_account_movements, la compra resultante quedaba
+  -- además indefinidamente editable — deuda invisible y mutable.
+  --
+  -- Se resuelven los DOS kinds efectivos: el que queda tras la edición
+  -- (v_final_payment_method_id, ya validado por el tri-estado de arriba) y el
+  -- que la operación tenía antes (v_old_payment_method_id). SELECT INTO sobre
+  -- un id NULL deja la variable en NULL — "sin forma de pago imputada".
+  SELECT kind INTO v_final_kind
+  FROM   public.payment_methods
+  WHERE  id = v_final_payment_method_id;
+
+  SELECT kind INTO v_old_kind
+  FROM   public.payment_methods
+  WHERE  id = v_old_payment_method_id;
+
+  -- (a) Simetría con el alta (D6): no hay deuda sin acreedor, tampoco por
+  --     edición. MISMO mensaje y MISMO ERRCODE que el camino de creación —
+  --     el mapeo backend/frontend es uno solo. Cubre el caso "compra a crédito
+  --     legacy a la que se le desimputa el proveedor".
+  IF v_final_kind = 'credit' AND v_final_supplier_id IS NULL THEN
+    RAISE EXCEPTION 'credit_requires_supplier: una compra a crédito necesita un proveedor identificado para cargar su cuenta corriente'
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  -- (b) Transición HACIA crédito: sólo se rechaza cuando la edición informa
+  --     explícitamente la forma de pago (p_payment_method_provided) y el kind
+  --     pasa de "no crédito" (incluido NULL, sin forma de pago) a 'credit'.
+  --     El camino de corrección es borrar + recargar, que sí postea el cargo.
+  --
+  --     Las compras a crédito YA existentes sin cargo posteado (las históricas
+  --     de antes de este change) siguen siendo editables: v_old_kind ya es
+  --     'credit', así que este IF no se dispara y sólo aplica (a). Sin ese
+  --     matiz, el change habría vuelto inmutables en silencio a las 38
+  --     operaciones de compra vivas en prod.
+  --
+  --     No se acuña un ERRCODE nuevo: P0400 (ya mapeado a 400) con el prefijo
+  --     de mensaje distinguiendo el caso, mismo criterio que D6.
+  IF p_payment_method_provided
+     AND v_final_kind = 'credit'
+     AND v_old_kind IS DISTINCT FROM 'credit'
+  THEN
+    RAISE EXCEPTION 'credit_transition_not_allowed: la edición no postea cargos en cuenta corriente — borrá esta compra y volvé a cargarla como compra a crédito'
+      USING ERRCODE = 'P0400';
+  END IF;
+
   -- ── STEP 1: REVERSE ─────────────────────────────────────────────────────────
   -- stock-movements-edicion: id/operation_id agregados al SELECT — espejo de
   -- la venta, signos invertidos. REVERSE sigue sobre la sucursal VIEJA de
@@ -1096,7 +1181,7 @@ REVOKE EXECUTE ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], d
 GRANT  EXECUTE ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean, uuid, boolean, uuid, boolean) IS
-  'Edicion atomica de una operacion de compra (REVERSE -> DELETE -> APPLY). compras-proveedor-cuenta-corriente: supplier_id (D7) y cost_center_id (OQ-5) pasan a contrato TRI-ESTADO, igual que payment_method_id y branch_id - no informado preserva, informado con uuid reimputa, informado con NULL desimputa. El router resuelve el "provided" con model_fields_set, NUNCA con `is None`. Cierra la OQ-1 de edicion-preserva-contexto: el CostCenterSelect ya estaba montado en el form de edicion sin ningun efecto. La edicion no postea ni revierte cargos de cuenta corriente (una compra con cargo es inmutable por P0423).';
+  'Edicion atomica de una operacion de compra (REVERSE -> DELETE -> APPLY). compras-proveedor-cuenta-corriente: supplier_id (D7) y cost_center_id (OQ-5) pasan a contrato TRI-ESTADO, igual que payment_method_id y branch_id - no informado preserva, informado con uuid reimputa, informado con NULL desimputa. El router resuelve el "provided" con model_fields_set, NUNCA con `is None`. Cierra la OQ-1 de edicion-preserva-contexto: el CostCenterSelect ya estaba montado en el form de edicion sin ningun efecto. La edicion no postea ni revierte cargos de cuenta corriente (una compra con cargo es inmutable por P0423) y por eso rechaza con P0400 tanto dejar la compra en kind=credit sin proveedor (credit_requires_supplier, mismo mensaje que el alta) como MOVERLA a kind=credit desde otro kind (credit_transition_not_allowed) - el camino de correccion es borrar y volver a cargar. Las compras que YA eran a credito sin cargo posteado siguen siendo editables.';
 
 
 -- =============================================================================
@@ -1173,6 +1258,20 @@ BEGIN
   END IF;
   IF position('v_old_snapshots' in v_def) = 0 THEN
     v_missing := array_append(v_missing, 'update/acarreo-snapshots');
+  END IF;
+  -- review A (SQL-1/BE-2/SEC-1): el guard de transición a crédito de la
+  -- edición. Sin él, la edición podía dejar una compra en kind='credit' sin
+  -- cargo posteado — el defecto que la spec supplier-account declara.
+  IF position('credit_requires_supplier' in v_def) = 0 THEN
+    v_missing := array_append(v_missing, 'update/credit_requires_supplier');
+  END IF;
+  IF position('credit_transition_not_allowed' in v_def) = 0 THEN
+    v_missing := array_append(v_missing, 'update/credit_transition_not_allowed');
+  END IF;
+  -- review A (SPEC-05): el P0423 de cuenta corriente nombra el camino de
+  -- corrección de COMPRAS (borrar + recargar), no la nota de crédito de venta.
+  IF position('nota de crédito' in v_def) > 0 THEN
+    v_missing := array_append(v_missing, 'update/P0423-copy-de-venta');
   END IF;
 
   IF array_length(v_missing, 1) > 0 THEN

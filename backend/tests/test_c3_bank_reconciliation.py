@@ -369,6 +369,7 @@ class TestRepositoryReads:
 
         await repo.suggestions(
             bank_account_id=BANK_ACCOUNT_ID,
+            account_id=ACCOUNT_ID,
             period_from=date(2026, 7, 1),
             period_to=date(2026, 7, 31),
         )
@@ -377,6 +378,9 @@ class TestRepositoryReads:
         assert "l.amount = bm.amount" in query
         assert "3" in query  # ventana ±3 días (D4)
         assert "status = 'active'" in query
+        # fix/tenancy-bank-accounts-leak: account_id explícito, no solo RLS.
+        assert "l.account_id" in query
+        assert ACCOUNT_ID in conn.fetch.call_args.args
 
     @pytest.mark.asyncio
     async def test_pending_lines_excludes_matched(self):
@@ -384,6 +388,7 @@ class TestRepositoryReads:
 
         await repo.pending_lines(
             bank_account_id=BANK_ACCOUNT_ID,
+            account_id=ACCOUNT_ID,
             period_from=date(2026, 7, 1),
             period_to=date(2026, 7, 31),
         )
@@ -391,6 +396,8 @@ class TestRepositoryReads:
         query = conn.fetch.call_args.args[0]
         assert "NOT EXISTS" in query
         assert "reconciliation_matches" in query
+        assert "l.account_id" in query
+        assert ACCOUNT_ID in conn.fetch.call_args.args
 
     @pytest.mark.asyncio
     async def test_pending_movements_filters_unreconciled(self):
@@ -398,11 +405,69 @@ class TestRepositoryReads:
 
         await repo.pending_movements(
             bank_account_id=BANK_ACCOUNT_ID,
+            account_id=ACCOUNT_ID,
             period_to=date(2026, 7, 31),
         )
 
         query = conn.fetch.call_args.args[0]
         assert "reconciliation_status = 'unreconciled'" in query
+        assert "bm.account_id" in query
+        assert ACCOUNT_ID in conn.fetch.call_args.args
+
+    # ── fix/tenancy-bank-accounts-leak: nueva cobertura para los métodos sin
+    #    test dedicado previo (list_imports/list_import_lines/get_session/
+    #    list_sessions/list_matches) ──────────────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_list_imports_scopes_by_account(self):
+        repo, conn = _repo(fetch_result=[])
+
+        await repo.list_imports(BANK_ACCOUNT_ID, ACCOUNT_ID)
+
+        query, *params = conn.fetch.call_args.args
+        assert "account_id" in query
+        assert ACCOUNT_ID in params
+
+    @pytest.mark.asyncio
+    async def test_list_import_lines_scopes_by_account(self):
+        repo, conn = _repo(fetch_result=[])
+
+        await repo.list_import_lines(IMPORT_ID, ACCOUNT_ID)
+
+        query, *params = conn.fetch.call_args.args
+        assert "l.account_id" in query
+        assert ACCOUNT_ID in params
+
+    @pytest.mark.asyncio
+    async def test_get_session_scopes_by_account(self):
+        repo, conn = _repo(fetchrow_result=None)
+
+        row = await repo.get_session(SESSION_ID, ACCOUNT_ID)
+
+        query, *params = conn.fetchrow.call_args.args
+        assert "account_id" in query
+        assert ACCOUNT_ID in params
+        assert row is None
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_scopes_by_account(self):
+        repo, conn = _repo(fetch_result=[])
+
+        await repo.list_sessions(BANK_ACCOUNT_ID, ACCOUNT_ID)
+
+        query, *params = conn.fetch.call_args.args
+        assert "account_id" in query
+        assert ACCOUNT_ID in params
+
+    @pytest.mark.asyncio
+    async def test_list_matches_scopes_by_account(self):
+        repo, conn = _repo(fetch_result=[])
+
+        await repo.list_matches(SESSION_ID, ACCOUNT_ID)
+
+        query, *params = conn.fetch.call_args.args
+        assert "m.account_id" in query
+        assert ACCOUNT_ID in params
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

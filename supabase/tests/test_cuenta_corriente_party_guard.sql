@@ -1,7 +1,7 @@
 -- =============================================================================
 -- GATE: test_cuenta_corriente_party_guard.sql
 -- CHANGE: cuenta-corriente-party-guard (tasks 2.1-2.7, 3.5-3.8, 4.1-4.3,
---         4.5-4.7, 5.1-5.2, 5.5-5.6 — RED + GREEN + TRIANGULATE)
+--         4.5-4.7, 5.1-5.2, 5.5-5.6, 9 — RED + GREEN + TRIANGULATE)
 --
 -- Ejercita de verdad (sesión sintética vía request.jwt.claims, mismo patrón
 -- que test_delete_guard_ledgers.sql y test_pagos_cableados_restantes.sql) el
@@ -46,9 +46,13 @@
 --           el esperado, por los cinco caminos (venta a crédito, cobro, cargo
 --           a proveedor virgen, cargo a proveedor con cuenta, pago a
 --           proveedor). Sin este assert el guard podría estar rechazando
---           todo. Ojo con el proveedor: 3.5c usa v_supplier_a2, que llega
---           VIRGEN, porque v_supplier_a ya tiene cuenta corriente desde 2.3 y
---           con él "se crea en el mismo commit" no se ejercita nunca.
+--           todo. No alcanza con el saldo: los specs dicen que la operación
+--           "se registra con su movimiento, su fila de cobro y su evento", así
+--           que 3.5a cuenta el evento CustomerAccountCharged y 3.5b cuenta la
+--           fila de payments_received Y el evento PaymentReceived.
+--           Ojo con el proveedor: 3.5c usa v_supplier_a2, que llega VIRGEN,
+--           porque v_supplier_a ya tiene cuenta corriente desde 2.3 y con él
+--           "se crea en el mismo commit" no se ejercita nunca.
 --     (3.6) identificador INEXISTENTE → mismo P0404 y MISMO texto de mensaje
 --           que el caso "ajeno" — el error no distingue uno de otro (no
 --           filtrar información entre tenants). 3.6 cubre el lado cliente;
@@ -58,10 +62,16 @@
 --           validaban desde C-30— siguen comportándose igual con el guard
 --           ahora duplicado en el choke point. Redundancia deliberada.
 --     (4.6) ORDEN de los guards: cliente ajeno + amount = 0 → P0400, no
---           P0404. Congela la ubicación documentada en D2.
+--           P0404. Congela la ubicación documentada en D2. 4.6b y 4.6c son el
+--           espejo del lado PROVEEDOR (pago y cargo manual): el escenario
+--           "Las validaciones de payload preceden al guard de parte" del spec
+--           de supplier-account habla de "un pago o un cargo manual", así que
+--           el orden tiene que estar congelado también ahí.
 --     (4.7) cobro por transferencia + cliente ajeno → P0404 y CERO filas en
 --           bank_movements; y con bank_account inexistente → P0412 (el
---           bloque bancario corre ANTES del guard de parte, D2).
+--           bloque bancario corre ANTES del guard de parte, D2). 4.7c es el
+--           espejo en rpc_register_payment_made. Sólo el PAGO tiene espejo
+--           bancario: rpc_register_supplier_charge no recibe cuenta bancaria.
 --     (4.5) la clave de idempotencia NO se quema en el rechazo: reintentar
 --           la misma clave con un cliente válido registra de verdad
 --           (replayed = false).
@@ -88,7 +98,12 @@
 -- request.jwt.claims local, el gate emite NOTICE y no aborta.
 --
 -- Cleanup: el archivo termina con un DO block que borra los dos tenants
--- sintéticos y todo lo que colgaba de ellos. Sin eso la SEGUNDA corrida
+-- sintéticos y todo lo que colgaba de ellos, INCLUIDOS los dos residuos que
+-- no cuelgan por account_id ni por user_id del anchor y que por eso se
+-- escapaban: las claves `event_consumer` que escribe el dispatcher del outbox
+-- en 5.6 (user_id sentinela, event_id sin FK → 21 huérfanas por corrida) y
+-- las filas de `email_logs` de los emails sintéticos (FK ON DELETE SET NULL →
+-- 4 filas por corrida con user_id NULL). Sin eso la SEGUNDA corrida
 -- sobre la misma base aborta con `users_email_partial_key` (los anchors usan
 -- un email fijo y un id nuevo, así que el ON CONFLICT (id) no los cubre) —
 -- reproducido en local. Verificado: el gate corre VERDE dos veces seguidas.
@@ -161,6 +176,7 @@ DECLARE
   v_n_pay_recv        integer;
   v_n_pay_made        integer;
   v_n_ev_charged      integer;
+  v_n_ev_payrecv      integer;
 
   -- Libros del tenant B (la víctima): los specs dicen "los libros de B
   -- quedan sin cambios" y eso hay que medirlo, no suponerlo.
@@ -543,7 +559,17 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5a-evento): la venta a crédito con cliente propio debe emitir exactamente 1 CustomerAccountCharged; hay % y esperaba %.', v_count, v_n_ev_charged + 1;
   END IF;
 
-  -- (3.5b) cobro parcial sobre esa cuenta recién creada → balance_after 600
+  -- (3.5b) cobro parcial sobre esa cuenta recién creada → balance_after 600.
+  --        El spec de customer-account no promete sólo el saldo: dice que el
+  --        cobro "se registra con su movimiento, su fila de cobro y su
+  --        evento". El balance_after prueba el movimiento; la fila de
+  --        payments_received y el evento PaymentReceived hay que contarlos
+  --        (mismo patrón que 3.5a con CustomerAccountCharged).
+  SELECT COUNT(*) INTO v_n_pay_recv FROM public.payments_received
+   WHERE account_id = v_account_a;
+  SELECT COUNT(*) INTO v_n_ev_payrecv FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'PaymentReceived';
+
   SELECT public.rpc_register_payment_received(
     p_idempotency_key => 'gate-ccpg-3-5b',
     p_client_id       => v_client_a2,
@@ -554,6 +580,18 @@ BEGIN
   END IF;
   IF (v_result->>'replayed')::boolean THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5b-replay): el cobro con clave nueva no debería devolver replayed = true.';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.payments_received
+   WHERE account_id = v_account_a;
+  IF v_count <> v_n_pay_recv + 1 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5b-cobro): el cobro con cliente propio debe dejar exactamente 1 fila nueva en payments_received; hay % y esperaba %.', v_count, v_n_pay_recv + 1;
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'PaymentReceived';
+  IF v_count <> v_n_ev_payrecv + 1 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5b-evento): el cobro con cliente propio debe emitir exactamente 1 PaymentReceived; hay % y esperaba %.', v_count, v_n_ev_payrecv + 1;
   END IF;
 
   -- (3.5c) cargo de proveedor PROPIO FRESCO — el espejo real de 3.5a del lado
@@ -719,6 +757,43 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.6): cliente ajeno + amount = 0 debe fallar con P0400 (validación de payload PRIMERO), falló con % — el guard de parte quedó mal ubicado respecto de D2.', COALESCE(v_sqlstate, '<sin error>');
   END IF;
 
+  -- (4.6b/4.6c) ESPEJO DEL LADO PROVEEDOR. El escenario "Las validaciones de
+  -- payload preceden al guard de parte" del spec de supplier-account habla de
+  -- "un pago o un cargo manual" con proveedor ajeno: sin estos dos asserts el
+  -- orden estaba congelado sólo del lado cliente y las dos RPCs de proveedor
+  -- podían invertirlo (P0404 antes que P0400) sin que nada fallara.
+  v_rejected := false;
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public.rpc_register_payment_made(
+      p_idempotency_key => 'gate-ccpg-4-6b',
+      p_supplier_id     => v_supplier_b,
+      p_amount          => 0
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      v_sqlstate := SQLSTATE; v_rejected := true;
+  END;
+  IF NOT v_rejected OR v_sqlstate <> 'P0400' THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.6b): en rpc_register_payment_made, proveedor ajeno + amount = 0 debe fallar con P0400 (validación de payload PRIMERO), falló con % — el guard de parte quedó mal ubicado respecto de D2.', COALESCE(v_sqlstate, '<sin error>');
+  END IF;
+
+  v_rejected := false;
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public.rpc_register_supplier_charge(
+      p_idempotency_key => 'gate-ccpg-4-6c',
+      p_supplier_id     => v_supplier_b,
+      p_amount          => 0
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      v_sqlstate := SQLSTATE; v_rejected := true;
+  END;
+  IF NOT v_rejected OR v_sqlstate <> 'P0400' THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.6c): en rpc_register_supplier_charge, proveedor ajeno + amount = 0 debe fallar con P0400 (validación de payload PRIMERO), falló con % — el guard de parte quedó mal ubicado respecto de D2.', COALESCE(v_sqlstate, '<sin error>');
+  END IF;
+
   -- ═ (4.7) transferencia: bank_account primero (P0412), después la parte ════
   -- (4.7a) bank_account VÁLIDO + cliente ajeno → P0404 y cero bank_movements
   SELECT COUNT(*) INTO v_n_bank_movs FROM public.bank_movements WHERE bank_account_id = v_bank_a;
@@ -765,7 +840,30 @@ BEGIN
   IF NOT v_rejected OR v_sqlstate <> 'P0412' THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.7b): cliente ajeno + bank_account inexistente debe fallar con P0412 (el bloque bancario corre ANTES del guard de parte, D2), falló con %.', COALESCE(v_sqlstate, '<sin error>');
   END IF;
-  RAISE NOTICE 'PASS (4.6 + 4.7): el orden documentado en D2 queda congelado — amount (P0400) → payment_method → bank_account (P0412) → parte (P0404) → idempotencia; y el guard corta antes del ruteo bancario.';
+
+  -- (4.7c) espejo del lado PROVEEDOR: pago por transferencia con proveedor
+  -- ajeno + bank_account inexistente → P0412, no P0404. Sólo aplica al PAGO:
+  -- rpc_register_supplier_charge no recibe cuenta bancaria (su firma es
+  -- p_idempotency_key, p_supplier_id, p_amount, p_reference_id), así que del
+  -- cargo manual sólo se puede congelar el orden contra el importe (4.6c).
+  v_rejected := false;
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public.rpc_register_payment_made(
+      p_idempotency_key => 'gate-ccpg-4-7c',
+      p_supplier_id     => v_supplier_b,
+      p_amount          => 100,
+      p_payment_method  => 'transfer',
+      p_bank_account_id => v_ghost
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      v_sqlstate := SQLSTATE; v_rejected := true;
+  END;
+  IF NOT v_rejected OR v_sqlstate <> 'P0412' THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.7c): en rpc_register_payment_made, proveedor ajeno + bank_account inexistente debe fallar con P0412 (el bloque bancario corre ANTES del guard de parte, D2), falló con %.', COALESCE(v_sqlstate, '<sin error>');
+  END IF;
+  RAISE NOTICE 'PASS (4.6 + 4.7): el orden documentado en D2 queda congelado por los DOS lados — cliente (4.6/4.7a/4.7b) y proveedor (4.6b/4.6c/4.7c): amount (P0400) → payment_method → bank_account (P0412) → parte (P0404) → idempotencia; y el guard corta antes del ruteo bancario.';
 
   -- ═══ (4.1-4.3) CANDADO DE CUERPO del guard explícito en las 3 RPCs ════════
   -- Por qué hace falta: TODOS los asserts de comportamiento de arriba pasan
@@ -1109,6 +1207,17 @@ BEGIN
     DELETE FROM public.sales_order_items i USING public.sales_orders o
       WHERE i.sales_order_id = o.id AND o.account_id = ANY(v_accounts);
     DELETE FROM public.sales_orders             WHERE account_id = ANY(v_accounts);
+    -- Antes de borrar los events: las claves de idempotencia que escribe el
+    -- dispatcher del outbox en 5.6 (rpc_process_outbox_dispatch) llevan
+    -- operation_kind='event_consumer' y un user_id SENTINELA
+    -- (00000000-0000-0000-0000-000000000000), no el del anchor, así que el
+    -- `DELETE … WHERE user_id = ANY(v_users)` de más abajo NO las alcanza.
+    -- Como operation_idempotency.event_id no tiene FK, quedaban apuntando a
+    -- events ya borrados: 21 filas huérfanas POR CORRIDA. Tiene que ir acá,
+    -- mientras los events todavía existen y se las puede resolver por cuenta.
+    DELETE FROM public.operation_idempotency
+     WHERE operation_kind = 'event_consumer'
+       AND event_id IN (SELECT id FROM public.events WHERE account_id = ANY(v_accounts));
     DELETE FROM public.events                   WHERE account_id = ANY(v_accounts);
     DELETE FROM public.branch_stock             WHERE account_id = ANY(v_accounts);
     DELETE FROM public.products                 WHERE account_id = ANY(v_accounts);
@@ -1121,6 +1230,15 @@ BEGIN
   DELETE FROM public.account_members       WHERE user_id = ANY(v_users);
   DELETE FROM public.accounts              WHERE owner_user_id = ANY(v_users);
   DELETE FROM public.profiles              WHERE id = ANY(v_users);
+  -- email_logs.user_id es FK ON DELETE SET NULL: borrar el anchor NO borra la
+  -- fila, la deja con user_id NULL y el recipient sintético adentro. Mismo
+  -- patrón que test_tenancy_rls_role.sql (L~207): se borra por user_id ANTES
+  -- del DELETE de auth.users y por recipient para las corridas que ya
+  -- perdieron el vínculo.
+  DELETE FROM public.email_logs
+   WHERE user_id = ANY(v_users)
+      OR recipient IN ('cuenta-corriente-party-guard-a@test.local',
+                       'cuenta-corriente-party-guard-b@test.local');
   DELETE FROM auth.users                   WHERE id = ANY(v_users);
 
   RAISE NOTICE 'GATE CUENTA-CORRIENTE-PARTY-GUARD: cleanup completo (% anchors) — el gate vuelve a correr en verde sobre la misma base.', array_length(v_users, 1);

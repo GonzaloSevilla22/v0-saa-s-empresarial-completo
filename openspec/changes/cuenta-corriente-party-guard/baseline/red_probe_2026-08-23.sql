@@ -17,8 +17,8 @@
 -- ejercitar las RPCs de verdad— pero nada se persiste. Nunca se corrió contra
 -- producción y no debe correrse contra producción.
 --
--- Para reproducir el RED hoy: aplicar el esquema hasta 20261009000001
--- (`npx supabase db reset` con la migración 20261010000001 removida) y correr
+-- Para reproducir el RED hoy: aplicar el esquema hasta 20261010000001
+-- (`npx supabase db reset` con la migración 20261011000001 removida) y correr
 -- este archivo; o, más barato, correr el gate y verlo abortar en 2.2.
 --
 -- Uso:

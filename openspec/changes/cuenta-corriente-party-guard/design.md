@@ -141,7 +141,7 @@ Se espera que la primera corrida encuentre offenders más allá de los dos que e
 
 ### D5 — Migración idempotente, sin `DROP`, con reafirmación de ACLs
 
-- Nombre: `20261010000001_cuenta_corriente_party_guard.sql` (renumerado desde `20261008000001` — ver "Post-apply (2026-08-23)", punto (f)). El MAX local era `20261006000001` al abrir el propose, pero `20261007000001_cuentas_billetera_tipo.sql` (PR #447) aterrizó en `main` **mientras este propose estaba en revisión** y se quedó con ese número — de ahí el `20261008`. **La task 1.1 vuelve a verificar el MAX vivo en prod antes de escribir el archivo** y renumera si prod está más adelante todavía.
+- Nombre: `20261011000001_cuenta_corriente_party_guard.sql` (renumerado dos veces desde `20261008000001` — ver "Post-apply (2026-08-23)", puntos (f) e (i)). El MAX local era `20261006000001` al abrir el propose, pero `20261007000001_cuentas_billetera_tipo.sql` (PR #447) aterrizó en `main` **mientras este propose estaba en revisión** y se quedó con ese número — de ahí el `20261008`. **La task 1.1 vuelve a verificar el MAX vivo en prod antes de escribir el archivo** y renumera si prod está más adelante todavía.
 - `CREATE OR REPLACE` puro: ninguna de las cinco funciones cambia de firma, así que no hay overload 42725 ni hace falta `DROP`. `CREATE OR REPLACE` preserva ACLs, pero se reafirman igual tras cada `CREATE` —patrón uniforme documentado en la cabecera de `20261001000001`—, **con una corrección importante**: para los helpers internos la reafirmación es `REVOKE ALL ... FROM PUBLIC, anon, authenticated` **sin `GRANT`**. Copiar el bloque REVOKE+GRANT tal cual es precisamente el bug que produjo el hallazgo (D3).
 - Sin BOM UTF-8 (hay gate en CI).
 - Se reaplica dos veces en local y se verifica que el segundo apply es no-op.
@@ -188,11 +188,11 @@ Se dejan documentadas acá las **referencias de archivo** contra las que hay que
 
 1. **Pre**: safety net (suite backend 1495/1495 — el baseline real medido fue **1530/1530**, ver Post-apply (b) —, gates SQL verdes), MAX de migraciones en prod, captura de baselines 🛑.
 2. **RED**: `supabase/tests/test_cuenta_corriente_party_guard.sql` escrito y fallando contra el schema actual.
-3. **GREEN**: `20261010000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
+3. **GREEN**: `20261011000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
 4. **CI**: eslabón de reapply + step del test nuevo + chequeo (3) en el gate de ACLs.
 5. **Backend**: tests pytest de propagación `P0404 → 404`.
 6. **Auditoría read-only en prod** de filas corruptas → si hay, checkpoint 🛑.
-7. **Post-merge**: verificar en prod `MAX(version) = 20261010000001` y que `has_function_privilege('authenticated', ...)` es `false` para los dos helpers revocados.
+7. **Post-merge**: verificar en prod `MAX(version) = 20261011000001` y que `has_function_privilege('authenticated', ...)` es `false` para los dos choke points `c30_get_or_create_*` **y** para los dos helpers de dinero que revocó el hotfix #454 (que ya deberían estar cerrados desde su merge).
 
 **Rollback.** Cada pieza revierte por separado y sin pérdida de datos:
 - Guards: `CREATE OR REPLACE` con el cuerpo del baseline (por eso el baseline es obligatorio).
@@ -258,8 +258,10 @@ el único conflicto fue `KPI_Validation.yml`, resuelto conservando ambos lados
 con nuestro eslabón y nuestro step al final.
 
 **(g) OQ-2 y OQ-5 cerradas.**
-OQ-2 (🛑, ¿el REVOKE entra en este change o sale como hotfix?): el PO no
-respondió → se implementó la recomendación, **entra en este change**. OQ-5 (¿qué
+OQ-2 (🛑, ¿el REVOKE entra en este change o sale como hotfix?): el apply se
+escribió con la recomendación (**entra en este change**) porque el PO todavía
+no había respondido; **el mismo día respondió, y respondió lo contrario** —
+salió como hotfix (PR #454). La reconciliación está en el punto (i). OQ-5 (¿qué
 hacer con las filas corruptas?): **cerrada por ausencia de datos** — los 9
 conteos de la auditoría dieron **0** en todos, así que no hay nada que decidir.
 Las demás quedan como estaban: OQ-1 = B, OQ-3 = allowlist, OQ-4 = change propio
@@ -272,6 +274,61 @@ explícitamente por el gotcha #432 (prod concede EXECUTE directo, no vía
 ningún gate de CI puede probar que la enumeración es la correcta: se verifica
 por revisión del archivo y por la task 9.2 contra prod post-merge. Se acepta
 así, con la limitación escrita en vez de simulada.
+
+**(i) Reconciliación con el hotfix #454 y segunda renumeración: `20261010000001` → `20261011000001`.**
+Después de que esta rama terminara su apply y su verificación final, `main`
+avanzó dos commits y uno de ellos se superpuso con el trabajo de acá:
+
+- **PR #454 (`c4c18c8`), hotfix de seguridad de otra sesión, por orden del PO** —
+  resolvió **OQ-2 como hotfix inmediato** (patrón #446), justo la opción que la
+  recomendación descartaba. Aportó
+  `supabase/migrations/20261010000001_revoke_internal_money_helpers.sql`
+  (`REVOKE ALL … FROM PUBLIC, anon, authenticated` sobre
+  `_pay_register_party_charge(uuid,text,uuid,numeric,uuid,uuid)` y
+  `_journal_post_from_event(events)`, sin tocar cuerpos ni firmas), su eslabón
+  en la cadena de reapply de `KPI_Validation.yml`, y un **check (3) angosto** en
+  `test_function_acl_gate.sql` (lista cerrada `v_internal_only_fns` de 3 firmas,
+  sin allowlist).
+- **PR #455 (`40704f0`)** — sólo frontend (invalidación de queries de cuenta
+  corriente + signo del historial de proveedor). No toca migraciones, gates ni
+  ninguna de las funciones de este change.
+- **PR #456 (`fc0a9b3`)**, aterrizado mientras corría esta reconciliación —
+  archiva `compras-proveedor-cuenta-corriente` y sincroniza sus delta specs a
+  `openspec/specs/` (incluida `supplier-directory/spec.md`, nueva). Esta rama
+  **no toca `openspec/specs/`** —sus deltas viven bajo
+  `openspec/changes/cuenta-corriente-party-guard/specs/`—, así que el rebase
+  sobre él fue limpio, sin un solo conflicto. Efecto colateral esperable:
+  `openspec validate --changes --strict` pasa de 7 a **6 changes** activos.
+
+**Cómo quedó repartido el trabajo** (rebase lineal sobre `origin/main`, sin
+merge commits):
+
+| Pieza | Dónde vive ahora | Por qué |
+|---|---|---|
+| `REVOKE` de los 2 helpers de dinero | **#454** (`20261010000001`) | Ya mergeado en `main`. Repetirlo acá sería una segunda fuente de verdad sobre el mismo ACL — la clase exacta de divergencia que este change cierra. |
+| `COMMENT ON FUNCTION` de esos 2 helpers | **este change** | #454 no escribe comentarios (verificado: cero `COMMENT` en su archivo), así que no se pisan. Se corrigió la atribución: el `REVOKE` es de #454, no de acá. |
+| **Verificación** de que esos 2 siguen cerrados | **este change**, gate final de la migración, bloque (b) | Esta migración corre **después** del hotfix en la cadena de reapply, así que es la última en tocar el schema: si un eslabón intermedio les devolviera el `EXECUTE`, lo detecta y falla con un mensaje que apunta a #454. No re-ejecuta el `REVOKE`: lo audita. |
+| `REVOKE` de `c30_get_or_create_customer_account` / `_supplier_account` | **este change** | #454 no los tocó. |
+| Gate ACL amplio (patrón de nombre + allowlist) | **este change**, renumerado a **check (4)** | El (3) quedó ocupado por la lista cerrada de #454. Los dos conviven: (3) es nominal y sin excepciones, (4) descubre helpers internos nuevos. Un helper reabierto hace fallar los dos, a propósito. |
+| Eslabón en la cadena de reapply | **los dos**, en este orden: #454 y después el nuestro | El nuestro va último porque su gate verifica el estado que deja el de #454. |
+
+**Por qué el número saltó a `20261011000001`:** el hotfix se quedó con
+`20261010000001`, que era el nombre que esta rama había tomado en la
+renumeración (f). El `MAX(version)` vivo en prod al reconciliar es
+`20261010000001` (259 migraciones), y un archivo con número menor o igual al MAX
+remoto no lo aplica el push automático de Supabase — mismo motivo que en (f),
+tercer nombre del archivo. Ninguna línea de cuerpo de las 5 funciones cambió en
+esta reconciliación (verificado por md5 de la región completa de definiciones
+contra el commit previo al rebase: **idéntica**).
+
+**Verificación de la reconciliación** (detalle completo en `tasks.md` 6.8):
+`db reset` limpio a 260 migraciones, cadena de reapply de 13 eslabones con los
+mismos dos fallos tolerados de siempre, los 4 ACLs en `false` al final,
+`test_cuenta_corriente_party_guard` verde **dos veces** (19 `PASS`) sin
+residuos, `test_function_acl_gate` verde con los cuatro chequeos, y controles
+positivos separados para (3), para (4) y para la verificación (b) de la
+migración. Suite backend: **1604 passed / 3 skipped** (el baseline creció desde
+los 1538 del apply por #452/#453/#454; #455 no suma tests de pytest).
 
 ### Hallazgos laterales de la revisión de seguridad
 
@@ -339,6 +396,8 @@ para su rol interno; lo que corresponde revisar es el parámetro, no el permiso.
 *Recomendación: **entra en este change**, salvo que el PO prefiera cortarlo antes.* Es la mitad más grave del hallazgo y son tres líneas de SQL con rollback de una línea, así que no justifica un change propio. Pero es una decisión del PO: si prefiere el patrón de #446 (hotfix de seguridad directo a `main`, mergeado el mismo día), las dos líneas de `REVOKE` se separan a un PR propio y este change se queda con los guards y el gate. **Lo que no es aceptable es dejarlo abierto esperando el apply.** Marcado 🛑 porque cambia el orden de trabajo.
 
 **Resuelto 2026-08-23 — hotfix, no apply.** El PO ordenó "arreglalo" el mismo día que se detectó: el `REVOKE` salió como hotfix directo a `main` (PR #454, rama `fix/revoke-internal-money-helpers`, `supabase/migrations/20261010000001_revoke_internal_money_helpers.sql`), patrón #446. El **grupo 5** de `tasks.md` queda SUPERSEDED por ese PR — no repetir el `REVOKE` en el apply de este change. El gate que agregó ese hotfix a `test_function_acl_gate.sql` es un **check (3) angosto** (lista cerrada `v_internal_only_fns`: los 2 helpers + `_pay_reverse_party_charge`), distinto del **gate (3) amplio** que describe este design (patrón de nombre `_%`/`c28_%`/`c29_%`/`c30_%` + allowlist, tasks 6.1-6.8) — el apply de este change debe agregar el suyo como **check (4)**, no (3), y actualizar la numeración de las tasks del grupo 6 en consecuencia.
+
+**Aplicado en la reconciliación (2026-08-23, ver Post-apply (i)).** Esta rama **ya no repite el `REVOKE`**: la migración se quedó sólo con los dos `COMMENT ON FUNCTION` (que #454 no escribe) y con una **verificación** en su gate final de que ambos helpers siguen sin `EXECUTE` para `anon`/`authenticated`, con `RAISE EXCEPTION` que apunta a #454 si alguien los reabrió. Los tests **5.1 y 5.2 se conservan como candados**: son asserts de esta rama que hoy pasan **gracias a** #454 — si el hotfix se revirtiera, el gate de este change lo grita. El gate amplio quedó renumerado a **check (4)** y el eslabón de reapply de esta migración va **después** del de #454 en `KPI_Validation.yml`.
 
 **OQ-3 — Los offenders preexistentes del gate (3): ¿allowlist o revoke?**
 *Recomendación: **allowlist con comentario, revoke en un change propio**.* Se conocen al menos dos candidatos (`c28_register_cash_movement` con su `GRANT` inmediatamente después del `REVOKE` en `20261006000001` L266-267 — **que resultó no ser `SECURITY DEFINER`**, Post-apply (a) —, y `_c29_confirm_order_core`, que **sí es alcanzable cross-tenant** vía `p_cash_session_id` (ver h1 en Post-apply); se allowlistea igual porque el hueco es alcanzable por sus wrappers públicos `rpc_quick_sale`/`rpc_confirm_sales_order`, fuera del filtro de nombre del chequeo (3) — revocar el helper no cierra nada y arriesga el POS (ver `test_function_acl_gate.sql` L80-92)). Revocarlos sin auditar sus llamadores arriesga el POS. El gate los deja anotados y visibles, que es el 90% del valor.

@@ -55,18 +55,39 @@
 --
 -- MAX(version) prod verificado 2026-08-23: 20261007000001 (cuentas-billetera-
 -- tipo, PR #447) al capturar el baseline → el archivo nació como
--- 20261008000001. RENUMERADA a 20261010000001 el 2026-08-23: mientras esta
--- rama estaba en revisión, compras-proveedor-cuenta-corriente (PR #452) tomó
--- 20261009000001 y elevó el MAX vivo de prod a ese número, así que
--- 20261008000001 habría quedado POR DEBAJO del MAX remoto y el push
--- automático de Supabase no la habría aplicado nunca.
+-- 20261008000001. RENUMERADA DOS VECES el 2026-08-23, siempre por el mismo
+-- motivo —un archivo con número menor al MAX vivo de prod no lo aplica nunca
+-- el push automático de Supabase—, cada salto por un merge a `main` ocurrido
+-- mientras esta rama estaba en revisión:
+--   20261008000001 → 20261010000001: compras-proveedor-cuenta-corriente
+--     (PR #452) tomó 20261009000001 y elevó el MAX vivo de prod a ese número.
+--   20261010000001 → 20261011000001: el hotfix de seguridad
+--     revoke-internal-money-helpers (PR #454, ver más abajo) tomó
+--     20261010000001 y volvió a elevar el MAX.
+--
+-- FAMILIA 2 — QUÉ QUEDÓ ACÁ Y QUÉ NO (reconciliación con el PR #454).
+-- El `REVOKE` de _pay_register_party_charge y _journal_post_from_event, que
+-- este archivo traía, **salió antes como hotfix** por orden del PO
+-- (OQ-2 resuelta el 2026-08-23 → hotfix, no apply):
+-- 20261010000001_revoke_internal_money_helpers.sql. No se repite acá — dos
+-- migraciones revocando lo mismo con textos distintos es exactamente el tipo
+-- de divergencia que produce los bugs que este change cierra. Lo que sí queda
+-- acá es (i) el `REVOKE` de los DOS choke points c30_get_or_create_* (que el
+-- hotfix no tocó) y (ii) una VERIFICACIÓN —no un REVOKE— en el gate final:
+-- este archivo corre DESPUÉS del hotfix en la cadena de reapply de CI, así
+-- que si algún eslabón intermedio les devolviera el EXECUTE a
+-- anon/authenticated, el gate de acá lo detecta y falla. Ver design.md
+-- §"Post-apply (2026-08-23)" punto (i).
 --
 -- ORDEN EN CI (no negociable): en .github/workflows/KPI_Validation.yml esta
 -- migración va DESPUÉS de 20261001000001 (L137) y de 20261004000001 (~L1778)
 -- en la cadena de reapply del step "Verify G1/G4 migrations are idempotent on
 -- reapply": ambas re-otorgan el GRANT EXECUTE a `authenticated` de los dos
--- helpers que este archivo revoca, o sea que reabren el agujero de la
--- Familia 2. 20261009000001, en cambio, no re-otorga nada de esto
+-- helpers de la Familia 2, o sea que reabren el agujero — y también vuelven a
+-- ejecutar bloques REVOKE+GRANT "de plantilla" del mismo tipo que el que se
+-- lo devolvió. Va además DESPUÉS de 20261010000001 (el hotfix), porque el
+-- gate final de este archivo VERIFICA el estado que ese hotfix deja.
+-- 20261009000001, en cambio, no re-otorga nada de esto
 -- (verificado), así que el orden contra ella es libre. Baseline de las 5
 -- funciones reescritas + las 2 revocadas capturado en
 -- openspec/changes/cuenta-corriente-party-guard/baseline/*.sql vía
@@ -100,15 +121,20 @@
 -- sin efecto. Verificado con doble apply en local (sin error, sin cambio de
 -- fingerprint de las 7 funciones ni de sus ACLs).
 --
--- BREAKING (superficie pública de PostgREST): _pay_register_party_charge y
--- _journal_post_from_event dejan de ser invocables por `authenticated`. Son
--- helpers internos sin ningún caller del lado app —el grep sobre frontend/,
--- backend/ y supabase/functions/ los encuentra solo en comentarios, en tests
--- de migración y en frontend/lib/database.types.ts (generado, y su presencia
--- ahí es justamente la confirmación de que PostgREST los expone)—. Los
--- PERFORM internos corren con los privilegios del definer, así que el revoke
--- es transparente para todos los callers reales. Rollback: un GRANT de una
--- línea.
+-- BREAKING (superficie pública de PostgREST): c30_get_or_create_customer_
+-- account y c30_get_or_create_supplier_account dejan de ser invocables por
+-- `anon`/`authenticated` (lo eran en prod por concesión directa, gotcha
+-- #432). Son helpers internos sin ningún caller del lado app —el grep sobre
+-- frontend/, backend/ y supabase/functions/ los encuentra solo en
+-- comentarios, en tests de migración y en frontend/lib/database.types.ts
+-- (generado, y su presencia ahí es justamente la confirmación de que
+-- PostgREST los expone)—. Los PERFORM internos corren con los privilegios del
+-- definer, así que el revoke es transparente para todos los callers reales.
+-- Rollback: un GRANT de una línea.
+-- El BREAKING equivalente sobre _pay_register_party_charge y
+-- _journal_post_from_event ya lo aplicó el hotfix
+-- 20261010000001_revoke_internal_money_helpers.sql (PR #454); acá sólo se
+-- verifica que siga en pie.
 -- =============================================================================
 
 
@@ -778,26 +804,40 @@ GRANT EXECUTE ON FUNCTION public.rpc_register_supplier_charge(text, uuid, numeri
 
 -- =============================================================================
 -- 6. Cierre de la primitiva de escritura cross-tenant (Familia 2, D3).
---    SOLO ACL — el cuerpo de las dos funciones NO se toca.
+--    SOLO DOCUMENTACIÓN — el `REVOKE` ya no vive acá.
 --
---    No se les agrega validación de sesión (alternativa descartada en D3):
---    son helpers INTRA-TRANSACCIÓN llamados desde RPCs que ya validaron;
---    duplicar el chequeo en el hot path no aporta, y en el caso de
---    _journal_post_from_event sería directamente incorrecto — lo invoca el
---    dispatcher del outbox (rpc_process_outbox_dispatch, SECURITY DEFINER,
---    disparado por el job de pg_cron `relay-process-outbox` como `postgres`),
---    que corre SIN sesión de usuario. El diseño correcto para un helper
---    interno es no ser alcanzable: es lo que ya hace _pay_reverse_party_charge
---    (20261005000001 L186), el molde de este bloque.
+--    OQ-2 se resolvió el 2026-08-23 como HOTFIX, no como parte de este apply
+--    (orden del PO, patrón #446): el `REVOKE ALL … FROM PUBLIC, anon,
+--    authenticated` de _pay_register_party_charge y _journal_post_from_event
+--    está en 20261010000001_revoke_internal_money_helpers.sql (PR #454), que
+--    ya se mergeó a `main` y corre ANTES que este archivo en la cadena de
+--    reapply de CI. Repetirlo acá sería una segunda fuente de verdad sobre el
+--    mismo ACL —dos migraciones que hay que acordarse de mantener en
+--    sincronía— que es exactamente la clase de divergencia silenciosa que
+--    este change existe para cerrar.
 --
---    `service_role` NO se nombra: conserva su EXECUTE (jobs administrativos).
+--    Lo que sí queda de este tramo:
+--      · los dos `COMMENT ON FUNCTION` de abajo (el hotfix no escribe
+--        comentarios: verificado, no hay `COMMENT` en su archivo), que dejan
+--        el "por qué" pegado a la función y no sólo en una migración vieja;
+--      · la VERIFICACIÓN del gate del punto 7: este archivo corre después del
+--        hotfix, así que puede —y debe— asegurarse de que el REVOKE sigue en
+--        pie. No lo re-ejecuta: lo audita y falla si alguien lo reabrió.
+--
+--    Por qué no se les agrega validación de sesión (alternativa descartada en
+--    D3, sigue vigente): son helpers INTRA-TRANSACCIÓN llamados desde RPCs
+--    que ya validaron; duplicar el chequeo en el hot path no aporta, y en el
+--    caso de _journal_post_from_event sería directamente incorrecto — lo
+--    invoca el dispatcher del outbox (rpc_process_outbox_dispatch, SECURITY
+--    DEFINER, disparado por el job de pg_cron `relay-process-outbox` como
+--    `postgres`), que corre SIN sesión de usuario. El diseño correcto para un
+--    helper interno es no ser alcanzable: es lo que ya hace
+--    _pay_reverse_party_charge (20261005000001 L186).
 -- =============================================================================
 
 -- Callers reales (todos SECURITY DEFINER → el PERFORM corre como el definer,
--- el revoke es transparente): _c29_confirm_order_core (POS),
+-- el revoke del hotfix es transparente): _c29_confirm_order_core (POS),
 -- rpc_create_sale_operation y rpc_create_sale_operation_v2 (formulario).
-REVOKE ALL ON FUNCTION public._pay_register_party_charge(uuid, text, uuid, numeric, uuid, uuid) FROM PUBLIC, anon, authenticated;
-
 COMMENT ON FUNCTION public._pay_register_party_charge(uuid, text, uuid, numeric, uuid, uuid) IS
   'pagos-cableados-restantes (party-account-charge): postea el cargo en la '
   'cuenta corriente de un tercero (cliente o proveedor). '
@@ -806,18 +846,17 @@ COMMENT ON FUNCTION public._pay_register_party_charge(uuid, text, uuid, numeric,
   '`authenticated` es una primitiva de escritura cross-tenant invocable desde '
   'PostgREST con el account_id de cualquier otro tenant (verificado en local: '
   'escribió en los libros reales de un tenant víctima). Solo callable desde '
-  'RPCs SECURITY DEFINER, cuyo PERFORM corre como el definer. '
-  'cuenta-corriente-party-guard revocó el GRANT que le puso 20261001000001 '
-  'L137; el chequeo (3) de supabase/tests/test_function_acl_gate.sql impide '
-  'que vuelva.';
+  'RPCs SECURITY DEFINER, cuyo PERFORM corre como el definer. El GRANT que le '
+  'puso 20261001000001 L137 lo revocó el hotfix '
+  '20261010000001_revoke_internal_money_helpers.sql (PR #454); los chequeos '
+  '(3) y (4) de supabase/tests/test_function_acl_gate.sql impiden que vuelva.';
 
 -- Nació con REVOKE en 20260803000001 L517, reafirmado en 20260804000007 L934,
 -- y lo PERDIÓ en 20261001000001 L1914 (arrastrado por 20261004000001 L1778),
 -- donde el "patrón uniforme" REVOKE+GRANT —pensado para el gotcha de ALTER
 -- DEFAULT PRIVILEGES en DROP+CREATE— se le aplicó en piloto automático a un
--- helper que nunca lo tuvo. Esto restaura el estado original.
-REVOKE ALL ON FUNCTION public._journal_post_from_event(public.events) FROM PUBLIC, anon, authenticated;
-
+-- helper que nunca lo tuvo. El hotfix 20261010000001 restauró el estado
+-- original.
 COMMENT ON FUNCTION public._journal_post_from_event(public.events) IS
   'journal-entry-outbox (journal-entry): Consumer 3 — postea la partida doble '
   'de un evento del outbox. '
@@ -827,8 +866,9 @@ COMMENT ON FUNCTION public._journal_post_from_event(public.events) IS
   'arbitrario en otro tenant (verificado en local). Único caller: '
   'rpc_process_outbox_dispatch (SECURITY DEFINER), disparado por el job de '
   'pg_cron `relay-process-outbox`. Perdió su REVOKE original en '
-  '20261001000001 L1914; cuenta-corriente-party-guard lo restaura y el '
-  'chequeo (3) de supabase/tests/test_function_acl_gate.sql impide que vuelva '
+  '20261001000001 L1914; lo restauró el hotfix '
+  '20261010000001_revoke_internal_money_helpers.sql (PR #454) y los chequeos '
+  '(3) y (4) de supabase/tests/test_function_acl_gate.sql impiden que vuelva '
   'a perderse.';
 
 
@@ -863,12 +903,36 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Los helpers internos quedan inalcanzables para los dos roles de aplicación.
+  -- (a) Los dos choke points que ESTE archivo revoca quedan inalcanzables para
+  --     los dos roles de aplicación.
   SELECT string_agg(sig, ', ') INTO v_bad
   FROM (
     SELECT unnest(ARRAY[
       'public.c30_get_or_create_customer_account(uuid,uuid)',
-      'public.c30_get_or_create_supplier_account(uuid,uuid)',
+      'public.c30_get_or_create_supplier_account(uuid,uuid)'
+    ]) AS sig
+  ) s
+  WHERE has_function_privilege('anon',          s.sig::regprocedure, 'EXECUTE')
+     OR has_function_privilege('authenticated', s.sig::regprocedure, 'EXECUTE');
+
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'cuenta-corriente-party-guard ACL: los helpers internos no deben ser ejecutables por anon/authenticated, siguen expuestos: %', v_bad;
+  END IF;
+
+  -- (b) VERIFICACIÓN (no REVOKE) de la Familia 2: los dos helpers de dinero
+  --     que revoca el hotfix 20261010000001_revoke_internal_money_helpers.sql
+  --     (PR #454) tienen que seguir cerrados. Este archivo corre DESPUÉS de
+  --     ese hotfix —en `supabase start`/`db push` por número, y en la cadena
+  --     de reapply de KPI_Validation.yml por orden explícito—, así que es el
+  --     último en tocar el schema y por lo tanto el lugar natural para
+  --     detectar que un eslabón intermedio se los reabrió: 20261001000001
+  --     (L137) y 20261004000001 (~L1778) lo hacen cada vez que se reaplican.
+  --     Si esto falla, el problema NO está en este archivo: está en el orden
+  --     de la cadena o en una migración nueva que volvió a arrastrar el
+  --     bloque REVOKE+GRANT "de plantilla" sobre un helper interno.
+  SELECT string_agg(sig, ', ') INTO v_bad
+  FROM (
+    SELECT unnest(ARRAY[
       'public._pay_register_party_charge(uuid,text,uuid,numeric,uuid,uuid)',
       'public._journal_post_from_event(public.events)'
     ]) AS sig
@@ -877,7 +941,7 @@ BEGIN
      OR has_function_privilege('authenticated', s.sig::regprocedure, 'EXECUTE');
 
   IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION 'cuenta-corriente-party-guard ACL: los helpers internos no deben ser ejecutables por anon/authenticated, siguen expuestos: %', v_bad;
+    RAISE EXCEPTION 'cuenta-corriente-party-guard ACL: los helpers de dinero revocados por 20261010000001_revoke_internal_money_helpers.sql (PR #454) volvieron a ser ejecutables por anon/authenticated — alguien los reabrió después de ese hotfix (¿bloque REVOKE+GRANT "de plantilla" en una migración nueva, o eslabón mal ordenado en la cadena de reapply de KPI_Validation.yml?): %', v_bad;
   END IF;
 
   -- Las 3 RPCs públicas conservan su EXECUTE para authenticated y NO lo tienen
@@ -897,5 +961,5 @@ BEGIN
     RAISE EXCEPTION 'cuenta-corriente-party-guard ACL: las RPCs públicas deben conservar EXECUTE para authenticated y NO tenerlo para anon, están mal: %', v_bad;
   END IF;
 
-  RAISE NOTICE 'cuenta-corriente-party-guard OK: 5 funciones con una sola definición, 4 helpers internos cerrados a anon/authenticated, 3 RPCs públicas con su GRANT intacto.';
+  RAISE NOTICE 'cuenta-corriente-party-guard OK: 5 funciones con una sola definición, 2 choke points revocados acá + 2 helpers de dinero verificados (revocados por 20261010000001, PR #454) cerrados a anon/authenticated, 3 RPCs públicas con su GRANT intacto.';
 END $$;

@@ -1,7 +1,7 @@
 """
 cuenta-corriente-party-guard — propagación del guard de tenencia a HTTP.
 
-La migración 20261010000001 hace que las RPCs de cuenta corriente y el choke
+La migración 20261011000001 hace que las RPCs de cuenta corriente y el choke
 point `c30_get_or_create_*` levanten `P0404 client_not_found` /
 `P0404 supplier_not_found` cuando la parte recibida por parámetro no pertenece
 al tenant de la sesión. Estos tests son el CANDADO de que ese P0404 llega al

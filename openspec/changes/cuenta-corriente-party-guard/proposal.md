@@ -63,7 +63,7 @@ Ninguna. El change endurece capabilities existentes; no introduce dominio nuevo.
 
 **CI**
 
-- `.github/workflows/KPI_Validation.yml`: la migración nueva (`20261010000001`, renumerada desde `20261008000001` porque #452 tomó `20261009000001`) se suma como último eslabón de la cadena de reapply — **obligatoriamente último**: el reapply de `20261001000001` y `20261004000001` re-otorga el GRANT a `authenticated` de los dos helpers que este change revoca, y un step nuevo corre `supabase/tests/test_cuenta_corriente_party_guard.sql`.
+- `.github/workflows/KPI_Validation.yml`: la migración nueva (`20261011000001`, renumerada dos veces desde `20261008000001` porque #452 tomó `20261009000001` y el hotfix #454 tomó `20261010000001`) se suma como último eslabón de la cadena de reapply — **obligatoriamente último**: el reapply de `20261001000001` y `20261004000001` re-otorga el GRANT a `authenticated` de los helpers internos, y esta migración verifica al final que el `REVOKE` del hotfix #454 (eslabón inmediatamente anterior) siga en pie. Además, un step nuevo corre `supabase/tests/test_cuenta_corriente_party_guard.sql`.
 - `supabase/tests/test_function_acl_gate.sql`: chequeo (3) nuevo.
 - Gates que deben seguir verdes sin cambios: `test_function_acl_gate.sql`, `test_errcode_5char_gate.sql`, `test_idempotency.sql`, `test_pagos_cableados_restantes.sql`, `test_delete_guard_ledgers.sql`, `test_asiento_venta_formulario.sql`.
 

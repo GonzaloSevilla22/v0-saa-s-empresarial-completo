@@ -1,7 +1,7 @@
 -- =============================================================================
 -- GATE: test_cuenta_corriente_party_guard.sql
--- CHANGE: cuenta-corriente-party-guard (tasks 2.1-2.7, 3.5-3.8, 4.5-4.7,
---         5.1-5.2, 5.5-5.6 — RED + GREEN + TRIANGULATE)
+-- CHANGE: cuenta-corriente-party-guard (tasks 2.1-2.7, 3.5-3.8, 4.1-4.3,
+--         4.5-4.7, 5.1-5.2, 5.5-5.6 — RED + GREEN + TRIANGULATE)
 --
 -- Ejercita de verdad (sesión sintética vía request.jwt.claims, mismo patrón
 -- que test_delete_guard_ledgers.sql y test_pagos_cableados_restantes.sql) el
@@ -17,12 +17,17 @@
 --     (2.2) rpc_register_payment_received  + cliente ajeno  → P0404
 --     (2.3) rpc_register_payment_made      + proveedor ajeno → P0404
 --     (2.4) rpc_register_supplier_charge   + proveedor ajeno → P0404
+--     En las tres NO alcanza con el SQLSTATE: se compara el conteo de
+--     movimientos, cobros/pagos y eventos antes y después, porque los specs
+--     piden "sin efectos parciales", no sólo "falla".
 --     (2.5) rpc_create_sale_operation_v2 (FORMULARIO) a crédito + cliente
 --           ajeno → P0404 y CERO filas nuevas en sales / sale_items /
 --           customer_accounts / customer_account_movements / stock_movements
 --           / events. Cubierto por el choke point, SIN tocar la RPC de venta.
 --     (2.6) rpc_quick_sale (POS) a crédito + cliente ajeno → P0404 y ninguna
 --           sales_order confirmada. Mismo choke point.
+--     (2.5/2.6-B) los libros del TENANT VÍCTIMA quedan sin cambios: cuentas
+--           corrientes, movimientos y eventos de B contados antes y después.
 --
 --   FAMILIA 2 — primitiva de escritura cross-tenant (lo más grave). Dos
 --   helpers SECURITY DEFINER que reciben el account_id COMO PARÁMETRO —sin
@@ -38,12 +43,17 @@
 --   TRIANGULACIÓN (el guard no sobre-bloquea ni se cuela por otro lado):
 --     (3.5) control positivo — cliente/proveedor PROPIOS sin cuenta corriente
 --           previa: la cuenta se crea en el mismo commit y balance_after es
---           el esperado, por los cuatro caminos (venta a crédito, cobro,
---           cargo de proveedor, pago a proveedor). Sin este assert el guard
---           podría estar rechazando todo.
+--           el esperado, por los cinco caminos (venta a crédito, cobro, cargo
+--           a proveedor virgen, cargo a proveedor con cuenta, pago a
+--           proveedor). Sin este assert el guard podría estar rechazando
+--           todo. Ojo con el proveedor: 3.5c usa v_supplier_a2, que llega
+--           VIRGEN, porque v_supplier_a ya tiene cuenta corriente desde 2.3 y
+--           con él "se crea en el mismo commit" no se ejercita nunca.
 --     (3.6) identificador INEXISTENTE → mismo P0404 y MISMO texto de mensaje
 --           que el caso "ajeno" — el error no distingue uno de otro (no
---           filtrar información entre tenants).
+--           filtrar información entre tenants). 3.6 cubre el lado cliente;
+--           3.6b y 3.6c el lado proveedor (pago y cargo manual), que tienen
+--           su propio escenario en el spec de supplier-account.
 --     (3.7) rpc_create_customer_account / rpc_create_supplier_account —que ya
 --           validaban desde C-30— siguen comportándose igual con el guard
 --           ahora duplicado en el choke point. Redundancia deliberada.
@@ -55,14 +65,33 @@
 --     (4.5) la clave de idempotencia NO se quema en el rechazo: reintentar
 --           la misma clave con un cliente válido registra de verdad
 --           (replayed = false).
+--     (4.1-4.3) CANDADO DE CUERPO. Todos los asserts de comportamiento de
+--           arriba pasan IGUAL con las 3 RPCs revertidas a su cuerpo
+--           pre-guard, porque el choke point levanta el mismo P0404
+--           (verificado empíricamente: baseline aplicado en una transacción
+--           → el proveedor ajeno sigue dando P0404). O sea que la capa 2 de
+--           D1 —el guard explícito— podía borrarse sin que nada fallara. Se
+--           cierra con pg_get_functiondef: el literal del guard existe, y su
+--           posición cae DESPUÉS del último guard de payload y ANTES del
+--           INSERT de idempotencia (que es exactamente D2).
 --     (5.5) control positivo del revoke — venta a crédito por FORMULARIO y
 --           por POS sigue posteando su cargo. Prueba que el PERFORM interno
 --           corre como definer y el revoke es transparente.
 --     (5.6) rpc_process_outbox_dispatch sigue posteando un asiento que
 --           BALANCEA tras el revoke de _journal_post_from_event.
+--     (9)   BARRIDO GLOBAL del invariante que los specs declaran a nivel
+--           TABLA: cero customer_accounts / supplier_accounts cuya parte
+--           pertenezca a otro tenant, en toda la base — no sólo en los
+--           caminos que este gate ejercita.
 --
 -- Degrade-don't-fail: si el anchor sintético no resuelve auth.uid() bajo
 -- request.jwt.claims local, el gate emite NOTICE y no aborta.
+--
+-- Cleanup: el archivo termina con un DO block que borra los dos tenants
+-- sintéticos y todo lo que colgaba de ellos. Sin eso la SEGUNDA corrida
+-- sobre la misma base aborta con `users_email_partial_key` (los anchors usan
+-- un email fijo y un id nuevo, así que el ON CONFLICT (id) no los cubre) —
+-- reproducido en local. Verificado: el gate corre VERDE dos veces seguidas.
 -- =============================================================================
 
 DO $$
@@ -78,8 +107,11 @@ DECLARE
   v_pm_cash           uuid;
   v_pm_transfer       uuid;
   v_client_a          uuid;   -- cliente propio "de trabajo"
-  v_client_a2         uuid;   -- cliente propio FRESCO (control positivo 3.5)
-  v_supplier_a        uuid;   -- proveedor propio FRESCO (control positivo 3.5)
+  v_client_a2         uuid;   -- cliente propio FRESCO (control positivo 3.5a)
+  v_supplier_a        uuid;   -- proveedor propio DE TRABAJO: 2.3 le crea la
+                              -- cuenta corriente con 5000, así que en 3.5d ya
+                              -- NO es fresco (por eso espera 5700, no 700).
+  v_supplier_a2       uuid;   -- proveedor propio FRESCO de verdad (3.5c)
 
   -- ── Tenant B (la víctima: sus ids se usan desde la sesión de A) ───────────
   v_anchor_b_email    text := 'cuenta-corriente-party-guard-b@test.local';
@@ -92,8 +124,16 @@ DECLARE
   v_ghost             uuid := gen_random_uuid();   -- id que no existe en ningún tenant
   v_rejected          boolean;
   v_sqlstate          text;
-  v_msg_foreign       text;
-  v_msg_ghost         text;
+  v_msg_foreign       text;   -- SQLERRM de "cliente ajeno"      (2.2)
+  v_msg_ghost         text;   -- SQLERRM de "cliente inexistente" (3.6)
+  v_msg_foreign_sup   text;   -- SQLERRM de "proveedor ajeno" en payment_made      (2.3)
+  v_msg_ghost_sup     text;   -- SQLERRM de "proveedor inexistente" en payment_made (3.6b)
+  v_msg_foreign_chg   text;   -- SQLERRM de "proveedor ajeno" en supplier_charge      (2.4)
+  v_msg_ghost_chg     text;   -- SQLERRM de "proveedor inexistente" en supplier_charge (3.6c)
+  v_def               text;   -- pg_get_functiondef, candados de cuerpo (4.1-4.3)
+  v_pos_guard         integer;
+  v_pos_prev          integer;
+  v_pos_idem          integer;
   v_result            jsonb;
   v_count             integer;
   v_balance           numeric;
@@ -116,6 +156,18 @@ DECLARE
   v_n_stock_movs      integer;
   v_n_events          integer;
   v_n_bank_movs       integer;
+  v_n_sup_accounts    integer;
+  v_n_sup_movs        integer;
+  v_n_pay_recv        integer;
+  v_n_pay_made        integer;
+  v_n_ev_charged      integer;
+
+  -- Libros del tenant B (la víctima): los specs dicen "los libros de B
+  -- quedan sin cambios" y eso hay que medirlo, no suponerlo.
+  v_nb_cust_accounts  integer;
+  v_nb_cust_movs      integer;
+  v_nb_events         integer;
+  v_nb_journal        integer;
 BEGIN
   -- ── Anchor sintético del tenant A ─────────────────────────────────────────
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
@@ -177,6 +229,13 @@ BEGIN
   VALUES (v_account_a, '__gate_ccpg_supplier_a__')
   RETURNING id INTO v_supplier_a;
 
+  -- Proveedor propio que NO va a tener cuenta corriente hasta 3.5c: es el
+  -- único control positivo honesto de "la cuenta se crea en el mismo commit"
+  -- del lado proveedor (v_supplier_a ya la tiene desde 2.3).
+  INSERT INTO public.suppliers (account_id, name)
+  VALUES (v_account_a, '__gate_ccpg_supplier_a2__')
+  RETURNING id INTO v_supplier_a2;
+
   -- Parte del tenant B: existe, es válida, pero NO pertenece a la cuenta A.
   INSERT INTO public.clients (user_id, account_id, name, status)
   VALUES (v_user_b, v_account_b, '__gate_ccpg_client_b__', 'active')
@@ -203,6 +262,12 @@ BEGIN
   v_ca_id := public.c30_get_or_create_customer_account(v_account_a, v_client_a);
   PERFORM public.c30_register_customer_account_movement(v_ca_id, 5000, 'sale', gen_random_uuid());
 
+  -- El spec no pide sólo el P0404: pide que NO quede movimiento, ni cobro,
+  -- ni evento en el outbox. Se mide antes y después (mismo patrón que 2.5).
+  SELECT COUNT(*) INTO v_n_cust_movs FROM public.customer_account_movements WHERE customer_account_id = v_ca_id;
+  SELECT COUNT(*) INTO v_n_pay_recv  FROM public.payments_received          WHERE account_id = v_account_a;
+  SELECT COUNT(*) INTO v_n_events    FROM public.events                     WHERE account_id = v_account_a;
+
   v_rejected := false;
   BEGIN
     PERFORM public.rpc_register_payment_received(
@@ -224,11 +289,28 @@ BEGIN
   IF v_count <> 0 THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.2-fila): el rechazo no debe dejar una customer_account con la parte ajena, hay %.', v_count;
   END IF;
-  RAISE NOTICE 'PASS (2.2): rpc_register_payment_received rechaza el cliente de otro tenant con P0404 y no crea cuenta corriente.';
+
+  SELECT COUNT(*) INTO v_count FROM public.customer_account_movements WHERE customer_account_id = v_ca_id;
+  IF v_count <> v_n_cust_movs THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.2-movimiento): el rechazo dejó % movimientos en la cuenta corriente propia, esperaba %.', v_count, v_n_cust_movs;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.payments_received WHERE account_id = v_account_a;
+  IF v_count <> v_n_pay_recv THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.2-cobro): el rechazo dejó % filas en payments_received, esperaba %.', v_count, v_n_pay_recv;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.events WHERE account_id = v_account_a;
+  IF v_count <> v_n_events THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.2-evento): el rechazo dejó % eventos, esperaba % — no debe emitirse ningún evento de cobro.', v_count, v_n_events;
+  END IF;
+  RAISE NOTICE 'PASS (2.2): rpc_register_payment_received rechaza el cliente de otro tenant con P0404, sin cuenta corriente, sin movimiento, sin cobro y sin evento.';
 
   -- ═══════════ (2.3) rpc_register_payment_made + proveedor ajeno ════════════
   v_sa_id := public.c30_get_or_create_supplier_account(v_account_a, v_supplier_a);
   PERFORM public.c30_register_supplier_account_movement(v_sa_id, 5000, 'purchase', gen_random_uuid());
+
+  SELECT COUNT(*) INTO v_n_sup_movs FROM public.supplier_account_movements WHERE supplier_account_id = v_sa_id;
+  SELECT COUNT(*) INTO v_n_pay_made FROM public.payments_made              WHERE account_id = v_account_a;
+  SELECT COUNT(*) INTO v_n_events   FROM public.events                     WHERE account_id = v_account_a;
 
   v_rejected := false;
   BEGIN
@@ -239,7 +321,9 @@ BEGIN
     );
   EXCEPTION
     WHEN OTHERS THEN
-      IF SQLSTATE = 'P0404' THEN v_rejected := true; ELSE RAISE; END IF;
+      -- El SQLERRM se guarda para 3.6b: "ajeno" e "inexistente" tienen que
+      -- ser indistinguibles también del lado proveedor.
+      IF SQLSTATE = 'P0404' THEN v_rejected := true; v_msg_foreign_sup := SQLERRM; ELSE RAISE; END IF;
   END;
 
   IF NOT v_rejected THEN
@@ -251,9 +335,26 @@ BEGIN
   IF v_count <> 0 THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.3-fila): el rechazo no debe dejar una supplier_account con la parte ajena, hay %.', v_count;
   END IF;
-  RAISE NOTICE 'PASS (2.3): rpc_register_payment_made rechaza el proveedor de otro tenant con P0404.';
+
+  SELECT COUNT(*) INTO v_count FROM public.supplier_account_movements WHERE supplier_account_id = v_sa_id;
+  IF v_count <> v_n_sup_movs THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.3-movimiento): el rechazo dejó % movimientos, esperaba %.', v_count, v_n_sup_movs;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.payments_made WHERE account_id = v_account_a;
+  IF v_count <> v_n_pay_made THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.3-pago): el rechazo dejó % filas en payments_made, esperaba %.', v_count, v_n_pay_made;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.events WHERE account_id = v_account_a;
+  IF v_count <> v_n_events THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.3-evento): el rechazo dejó % eventos, esperaba %.', v_count, v_n_events;
+  END IF;
+  RAISE NOTICE 'PASS (2.3): rpc_register_payment_made rechaza el proveedor de otro tenant con P0404, sin cuenta, sin movimiento, sin pago y sin evento.';
 
   -- ═══════════ (2.4) rpc_register_supplier_charge + proveedor ajeno ═════════
+  SELECT COUNT(*) INTO v_n_sup_accounts FROM public.supplier_accounts           WHERE account_id = v_account_a;
+  SELECT COUNT(*) INTO v_n_sup_movs     FROM public.supplier_account_movements  WHERE supplier_account_id = v_sa_id;
+  SELECT COUNT(*) INTO v_n_events       FROM public.events                      WHERE account_id = v_account_a;
+
   v_rejected := false;
   BEGIN
     PERFORM public.rpc_register_supplier_charge(
@@ -263,19 +364,45 @@ BEGIN
     );
   EXCEPTION
     WHEN OTHERS THEN
-      IF SQLSTATE = 'P0404' THEN v_rejected := true; ELSE RAISE; END IF;
+      IF SQLSTATE = 'P0404' THEN v_rejected := true; v_msg_foreign_chg := SQLERRM; ELSE RAISE; END IF;
   END;
 
   IF NOT v_rejected THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.4): rpc_register_supplier_charge con un supplier_id de OTRO tenant debería fallar con P0404.';
   END IF;
-  RAISE NOTICE 'PASS (2.4): rpc_register_supplier_charge rechaza el proveedor de otro tenant con P0404.';
+
+  -- El spec de supplier-account dice "no se crea ni la cuenta corriente ni el
+  -- movimiento ni el evento de cargo": las tres cosas se miden.
+  SELECT COUNT(*) INTO v_count FROM public.supplier_accounts WHERE account_id = v_account_a AND supplier_id = v_supplier_b;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.4-fila): el rechazo dejó % supplier_accounts con la parte ajena, esperaba 0.', v_count;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.supplier_accounts WHERE account_id = v_account_a;
+  IF v_count <> v_n_sup_accounts THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.4-cuentas): el rechazo dejó % supplier_accounts en total, esperaba %.', v_count, v_n_sup_accounts;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.supplier_account_movements WHERE supplier_account_id = v_sa_id;
+  IF v_count <> v_n_sup_movs THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.4-movimiento): el rechazo dejó % movimientos, esperaba %.', v_count, v_n_sup_movs;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.events WHERE account_id = v_account_a;
+  IF v_count <> v_n_events THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.4-evento): el rechazo dejó % eventos, esperaba % — no debe emitirse SupplierAccountCharged.', v_count, v_n_events;
+  END IF;
+  RAISE NOTICE 'PASS (2.4): rpc_register_supplier_charge rechaza el proveedor de otro tenant con P0404, sin cuenta, sin movimiento y sin evento.';
 
   -- ════ (2.5) FORMULARIO — venta a crédito con cliente ajeno (choke point) ══
   -- El camino de más volumen: rpc_create_sale_operation_v2 NO valida la parte
   -- (no hay una sola ocurrencia de `FROM public.clients` en su migración).
   -- Lo cubre el guard del choke point c30_get_or_create_customer_account, sin
   -- tocar una línea de la RPC de venta (ver 3.8).
+  -- Libros del TENANT B: el spec dice "los libros de B quedan sin cambios" y
+  -- eso no se mide en ningún lado. Se mide acá y se compara tras 2.6.
+  SELECT COUNT(*) INTO v_nb_cust_accounts FROM public.customer_accounts WHERE account_id = v_account_b;
+  SELECT COUNT(*) INTO v_nb_cust_movs     FROM public.customer_account_movements m
+    JOIN public.customer_accounts a ON a.id = m.customer_account_id WHERE a.account_id = v_account_b;
+  SELECT COUNT(*) INTO v_nb_events        FROM public.events WHERE account_id = v_account_b;
+
   SELECT COUNT(*) INTO v_n_sales         FROM public.sales                       WHERE account_id = v_account_a;
   SELECT COUNT(*) INTO v_n_sale_items    FROM public.sale_items                  WHERE account_id = v_account_a;
   SELECT COUNT(*) INTO v_n_cust_accounts FROM public.customer_accounts           WHERE account_id = v_account_a;
@@ -355,12 +482,44 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (2.6, ESTRELLA): venta a crédito del POS con cliente ajeno → P0404 y ninguna orden confirmada.';
 
+  -- ══ (2.5/2.6-B) los libros del TENANT B quedan intactos ═══════════════════
+  SELECT COUNT(*) INTO v_count FROM public.customer_accounts WHERE account_id = v_account_b;
+  IF v_count <> v_nb_cust_accounts THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.5/2.6-B-cuentas): los intentos cross-tenant dejaron % customer_accounts en el tenant víctima, esperaba %.', v_count, v_nb_cust_accounts;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.customer_account_movements m
+    JOIN public.customer_accounts a ON a.id = m.customer_account_id WHERE a.account_id = v_account_b;
+  IF v_count <> v_nb_cust_movs THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.5/2.6-B-movimientos): los libros de B tienen % movimientos, esperaba %.', v_count, v_nb_cust_movs;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.events WHERE account_id = v_account_b;
+  IF v_count <> v_nb_events THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (2.5/2.6-B-eventos): el tenant víctima tiene % eventos, esperaba % — no debe recibir ningún evento originado por A.', v_count, v_nb_events;
+  END IF;
+  RAISE NOTICE 'PASS (2.5/2.6-B): los libros del tenant víctima quedan sin cambios — ni cuenta, ni movimiento, ni evento.';
+
   -- ═══════════════════ (3.8) el choke point es lo que cubre ═════════════════
-  RAISE NOTICE 'PASS (3.8): 2.5 y 2.6 pasan SIN haber tocado rpc_create_sale_operation_v2 ni _c29_confirm_order_core — el guard del choke point c30_get_or_create_customer_account cubre todo caller, presente y futuro.';
+  -- Esto era un NOTICE incondicional: decía "PASS" aunque alguien agregara un
+  -- guard propio dentro de la RPC de venta y el choke point dejara de ser
+  -- quien cubre. Ahora es un assert de verdad sobre el cuerpo VIVO: si
+  -- aparece una lectura de `clients` en el camino de venta, 2.5/2.6 podrían
+  -- seguir verdes por el motivo equivocado y nadie se enteraría.
+  v_def := pg_get_functiondef('public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid)'::regprocedure);
+  IF position('FROM public.clients' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-v2): el choke point dejó de ser quien cubre — alguien agregó un guard propio (lectura de public.clients) dentro de rpc_create_sale_operation_v2. Revisar 3.8 y la decisión D1: 2.5 puede estar verde por el motivo equivocado.';
+  END IF;
+  v_def := pg_get_functiondef('public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)'::regprocedure);
+  IF position('FROM public.clients' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-core): el choke point dejó de ser quien cubre — alguien agregó un guard propio (lectura de public.clients) dentro de _c29_confirm_order_core. Revisar 3.8 y la decisión D1: 2.6 puede estar verde por el motivo equivocado.';
+  END IF;
+  RAISE NOTICE 'PASS (3.8): 2.5 y 2.6 pasan SIN una sola lectura de public.clients en rpc_create_sale_operation_v2 ni en _c29_confirm_order_core — el guard del choke point c30_get_or_create_customer_account cubre todo caller, presente y futuro.';
 
   -- ════════════ (3.5) CONTROL POSITIVO — la parte PROPIA sigue andando ══════
   -- (3.5a) venta a crédito con cliente propio FRESCO (sin cuenta corriente
   --        previa): la cuenta se crea en el mismo commit.
+  SELECT COUNT(*) INTO v_n_ev_charged FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'CustomerAccountCharged';
+
   SELECT public.rpc_create_sale_operation_v2(
     p_idempotency_key   => 'gate-ccpg-3-5a',
     p_client_id         => v_client_a2,
@@ -377,6 +536,13 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5a): con cliente PROPIO sin cuenta previa esperaba cuenta creada con balance 1000, obtuve id=% balance=% — el guard estaría rechazando de más.', v_ca_id, v_balance;
   END IF;
 
+  -- El spec pide "y su evento": el camino feliz tiene que EMITIR, no sólo no fallar.
+  SELECT COUNT(*) INTO v_count FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'CustomerAccountCharged';
+  IF v_count <> v_n_ev_charged + 1 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5a-evento): la venta a crédito con cliente propio debe emitir exactamente 1 CustomerAccountCharged; hay % y esperaba %.', v_count, v_n_ev_charged + 1;
+  END IF;
+
   -- (3.5b) cobro parcial sobre esa cuenta recién creada → balance_after 600
   SELECT public.rpc_register_payment_received(
     p_idempotency_key => 'gate-ccpg-3-5b',
@@ -390,26 +556,50 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5b-replay): el cobro con clave nueva no debería devolver replayed = true.';
   END IF;
 
-  -- (3.5c) cargo de proveedor PROPIO FRESCO → cuenta creada, balance_after 700
+  -- (3.5c) cargo de proveedor PROPIO FRESCO — el espejo real de 3.5a del lado
+  --        proveedor. v_supplier_a NO sirve para esto: 2.3 ya le creó la
+  --        cuenta corriente con 5000, así que con él "la cuenta se crea en el
+  --        mismo commit" nunca se ejercita. Se usa v_supplier_a2, virgen.
+  SELECT COUNT(*) INTO v_count FROM public.supplier_accounts
+   WHERE account_id = v_account_a AND supplier_id = v_supplier_a2;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5c-precondición): v_supplier_a2 debía llegar SIN cuenta corriente para que el control positivo pruebe la creación; hay % filas.', v_count;
+  END IF;
+
   SELECT public.rpc_register_supplier_charge(
     p_idempotency_key => 'gate-ccpg-3-5c',
+    p_supplier_id     => v_supplier_a2,
+    p_amount          => 700
+  ) INTO v_result;
+  IF (v_result->>'balance_after')::numeric <> 700 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5c): con proveedor PROPIO sin cuenta previa, balance_after esperado 700, es %.', v_result->>'balance_after';
+  END IF;
+  SELECT COUNT(*), MAX(balance) INTO v_count, v_balance FROM public.supplier_accounts
+   WHERE account_id = v_account_a AND supplier_id = v_supplier_a2;
+  IF v_count <> 1 OR v_balance <> 700 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5c-fila): esperaba 1 supplier_account creada en el mismo commit con balance 700, hay % filas con balance %.', v_count, v_balance;
+  END IF;
+
+  -- (3.5d) cargo sobre el proveedor que YA tenía cuenta (5000 desde 2.3) → 5700
+  SELECT public.rpc_register_supplier_charge(
+    p_idempotency_key => 'gate-ccpg-3-5d',
     p_supplier_id     => v_supplier_a,
     p_amount          => 700
   ) INTO v_result;
   IF (v_result->>'balance_after')::numeric <> 5700 THEN
-    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5c): balance_after esperado 5700 (5000 previos + 700), es %.', v_result->>'balance_after';
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5d): balance_after esperado 5700 (5000 previos + 700), es %.', v_result->>'balance_after';
   END IF;
 
-  -- (3.5d) pago a ese proveedor → balance_after 5400
+  -- (3.5e) pago a ese proveedor → balance_after 5400
   SELECT public.rpc_register_payment_made(
-    p_idempotency_key => 'gate-ccpg-3-5d',
+    p_idempotency_key => 'gate-ccpg-3-5e',
     p_supplier_id     => v_supplier_a,
     p_amount          => 300
   ) INTO v_result;
   IF (v_result->>'balance_after')::numeric <> 5400 THEN
-    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5d): balance_after esperado 5400 tras pagar 300 sobre 5700, es %.', v_result->>'balance_after';
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.5e): balance_after esperado 5400 tras pagar 300 sobre 5700, es %.', v_result->>'balance_after';
   END IF;
-  RAISE NOTICE 'PASS (3.5): control positivo — cliente y proveedor PROPIOS funcionan por los 4 caminos, con la cuenta corriente creada en el mismo commit y los balance_after esperados.';
+  RAISE NOTICE 'PASS (3.5): control positivo — cliente y proveedor PROPIOS funcionan por los 5 caminos; la cuenta corriente se crea en el mismo commit tanto del lado cliente (3.5a) como del lado proveedor (3.5c, con un proveedor virgen), y los balance_after son los esperados.';
 
   -- ═══ (3.6) id INEXISTENTE → mismo P0404 y MISMO texto que el caso ajeno ═══
   v_rejected := false;
@@ -435,6 +625,48 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.6-mensaje): el error de "cliente ajeno" (%) y el de "cliente inexistente" (%) deben ser indistinguibles salvo por el UUID — si no, se filtra qué ids existen en otros tenants.', v_msg_foreign, v_msg_ghost;
   END IF;
   RAISE NOTICE 'PASS (3.6): id ajeno e id inexistente producen el MISMO P0404 con el MISMO texto — el error no filtra información entre tenants.';
+
+  -- (3.6b) espejo del lado PROVEEDOR en rpc_register_payment_made. El spec de
+  -- supplier-account tiene su propio escenario "un proveedor inexistente se
+  -- rechaza igual que uno ajeno" y 3.6 sólo cubría el lado cliente.
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_register_payment_made(
+      p_idempotency_key => 'gate-ccpg-3-6b',
+      p_supplier_id     => v_ghost,
+      p_amount          => 100
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLSTATE = 'P0404' THEN v_rejected := true; v_msg_ghost_sup := SQLERRM; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.6b): un supplier_id inexistente debería fallar con P0404 en rpc_register_payment_made.';
+  END IF;
+  IF replace(v_msg_ghost_sup, v_ghost::text, '<id>') IS DISTINCT FROM replace(v_msg_foreign_sup, v_supplier_b::text, '<id>') THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.6b-mensaje): el error de "proveedor ajeno" (%) y el de "proveedor inexistente" (%) deben ser indistinguibles salvo por el UUID.', v_msg_foreign_sup, v_msg_ghost_sup;
+  END IF;
+
+  -- (3.6c) espejo en rpc_register_supplier_charge — es la otra RPC que el
+  -- spec de supplier-account nombra (cargo manual).
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_register_supplier_charge(
+      p_idempotency_key => 'gate-ccpg-3-6c',
+      p_supplier_id     => v_ghost,
+      p_amount          => 250
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLSTATE = 'P0404' THEN v_rejected := true; v_msg_ghost_chg := SQLERRM; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.6c): un supplier_id inexistente debería fallar con P0404 en rpc_register_supplier_charge.';
+  END IF;
+  IF replace(v_msg_ghost_chg, v_ghost::text, '<id>') IS DISTINCT FROM replace(v_msg_foreign_chg, v_supplier_b::text, '<id>') THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.6c-mensaje): en rpc_register_supplier_charge, "proveedor ajeno" (%) e "inexistente" (%) deben ser indistinguibles salvo por el UUID.', v_msg_foreign_chg, v_msg_ghost_chg;
+  END IF;
+  RAISE NOTICE 'PASS (3.6b + 3.6c): del lado PROVEEDOR el id ajeno y el inexistente también producen el mismo P0404 con el mismo texto, por las dos RPCs (pago y cargo manual).';
 
   -- ═════ (3.7) rpc_create_*_account —que ya validaban— sin regresión ════════
   SELECT public.rpc_create_customer_account(p_client_id => v_client_a) INTO v_result;
@@ -535,6 +767,62 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (4.6 + 4.7): el orden documentado en D2 queda congelado — amount (P0400) → payment_method → bank_account (P0412) → parte (P0404) → idempotencia; y el guard corta antes del ruteo bancario.';
 
+  -- ═══ (4.1-4.3) CANDADO DE CUERPO del guard explícito en las 3 RPCs ════════
+  -- Por qué hace falta: TODOS los asserts de comportamiento de arriba pasan
+  -- igual con las 3 RPCs revertidas a su cuerpo pre-guard, porque el choke
+  -- point (c30_get_or_create_*) levanta el MISMO P0404. Es decir: sin estos
+  -- asserts, la capa 2 de D1 —el guard explícito, que existe para dar el
+  -- mensaje del dominio del llamador y para no consumir la clave de
+  -- idempotencia— podría desaparecer del código y el gate seguiría verde.
+  -- Se verifica sobre el cuerpo VIVO (pg_get_functiondef), no sobre el .sql:
+  --   (a) el literal del guard está presente, y
+  --   (b) su posición cae DESPUÉS de la última validación de payload y
+  --       ANTES del INSERT de idempotencia — que es exactamente D2.
+  v_def := pg_get_functiondef('public.rpc_register_payment_received(text, uuid, numeric, uuid, text, uuid)'::regprocedure);
+  v_pos_guard := position('client_not_found' in v_def);
+  v_pos_prev  := position('bank_account_not_found' in v_def);
+  v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);
+  IF v_pos_guard = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.1-cuerpo): rpc_register_payment_received perdió su guard explícito de cliente (no aparece client_not_found en el cuerpo vivo). El choke point sigue cubriendo el comportamiento, así que ningún otro assert lo detecta — la capa 2 de D1 se borró en silencio.';
+  END IF;
+  IF v_pos_prev = 0 OR v_pos_idem = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.1-anclas): no se encontraron las anclas de orden en rpc_register_payment_received (bank_account_not_found=%, INSERT idempotencia=%) — el candado de posición quedaría vacuo.', v_pos_prev, v_pos_idem;
+  END IF;
+  IF NOT (v_pos_prev < v_pos_guard AND v_pos_guard < v_pos_idem) THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.1-orden): en rpc_register_payment_received el guard de cliente debe ir DESPUÉS de la validación de bank_account y ANTES del INSERT de idempotencia (D2). Posiciones: bank=%, guard=%, idempotencia=%.', v_pos_prev, v_pos_guard, v_pos_idem;
+  END IF;
+
+  v_def := pg_get_functiondef('public.rpc_register_payment_made(text, uuid, numeric, uuid, text, uuid)'::regprocedure);
+  v_pos_guard := position('supplier_not_found' in v_def);
+  v_pos_prev  := position('bank_account_not_found' in v_def);
+  v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);
+  IF v_pos_guard = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.2-cuerpo): rpc_register_payment_made perdió su guard explícito de proveedor (no aparece supplier_not_found en el cuerpo vivo).';
+  END IF;
+  IF v_pos_prev = 0 OR v_pos_idem = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.2-anclas): no se encontraron las anclas de orden en rpc_register_payment_made (bank=%, idempotencia=%).', v_pos_prev, v_pos_idem;
+  END IF;
+  IF NOT (v_pos_prev < v_pos_guard AND v_pos_guard < v_pos_idem) THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.2-orden): en rpc_register_payment_made el guard de proveedor debe ir DESPUÉS de bank_account y ANTES del INSERT de idempotencia (D2). Posiciones: bank=%, guard=%, idempotencia=%.', v_pos_prev, v_pos_guard, v_pos_idem;
+  END IF;
+
+  -- rpc_register_supplier_charge no tiene bloque bancario: su última
+  -- validación de payload previa al guard es la del importe (invalid_amount).
+  v_def := pg_get_functiondef('public.rpc_register_supplier_charge(text, uuid, numeric, uuid)'::regprocedure);
+  v_pos_guard := position('supplier_not_found' in v_def);
+  v_pos_prev  := position('invalid_amount' in v_def);
+  v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);
+  IF v_pos_guard = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.3-cuerpo): rpc_register_supplier_charge perdió su guard explícito de proveedor (no aparece supplier_not_found en el cuerpo vivo).';
+  END IF;
+  IF v_pos_prev = 0 OR v_pos_idem = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.3-anclas): no se encontraron las anclas de orden en rpc_register_supplier_charge (invalid_amount=%, idempotencia=%).', v_pos_prev, v_pos_idem;
+  END IF;
+  IF NOT (v_pos_prev < v_pos_guard AND v_pos_guard < v_pos_idem) THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.3-orden): en rpc_register_supplier_charge el guard de proveedor debe ir DESPUÉS de la validación de importe y ANTES del INSERT de idempotencia (D2). Posiciones: amount=%, guard=%, idempotencia=%.', v_pos_prev, v_pos_guard, v_pos_idem;
+  END IF;
+  RAISE NOTICE 'PASS (4.1-4.3): las 3 RPCs de pago conservan su guard EXPLÍCITO en el cuerpo vivo, ubicado donde manda D2 (después del último guard de payload, antes del INSERT de idempotencia) — la capa 2 de D1 no puede borrarse en silencio.';
+
   -- ═══ (4.5) la clave de idempotencia NO se quema en el rechazo ═════════════
   v_rejected := false;
   BEGIN
@@ -578,6 +866,14 @@ BEGIN
   -- ═════ (5.1) _pay_register_party_charge no es alcanzable por el rol app ═══
   -- Ojo: la primitiva recibe el account_id COMO PARÁMETRO. Sin el revoke, un
   -- authenticated cualquiera escribe en la cuenta corriente REAL del tenant B.
+  -- Libros de la víctima ANTES del intento: el spec de party-account-charge
+  -- dice "los libros del tenant B quedan sin cambios: sin movimiento, sin
+  -- saldo alterado y sin evento de cargo". Se mide.
+  SELECT COUNT(*) INTO v_nb_cust_accounts FROM public.customer_accounts WHERE account_id = v_account_b;
+  SELECT COUNT(*) INTO v_nb_cust_movs     FROM public.customer_account_movements m
+    JOIN public.customer_accounts a ON a.id = m.customer_account_id WHERE a.account_id = v_account_b;
+  SELECT COUNT(*) INTO v_nb_events        FROM public.events WHERE account_id = v_account_b;
+
   EXECUTE 'SET LOCAL ROLE authenticated';
   v_rejected := false;
   v_sqlstate := NULL;
@@ -597,7 +893,21 @@ BEGIN
        'public._pay_register_party_charge(uuid,text,uuid,numeric,uuid,uuid)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.1-acl): authenticated no debe tener EXECUTE sobre _pay_register_party_charge.';
   END IF;
-  RAISE NOTICE 'PASS (5.1): _pay_register_party_charge deja de ser invocable por authenticated — la primitiva de escritura cross-tenant queda cerrada.';
+
+  SELECT COUNT(*) INTO v_count FROM public.customer_accounts WHERE account_id = v_account_b;
+  IF v_count <> v_nb_cust_accounts THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.1-B-cuentas): el intento dejó % customer_accounts en el tenant víctima, esperaba %.', v_count, v_nb_cust_accounts;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.customer_account_movements m
+    JOIN public.customer_accounts a ON a.id = m.customer_account_id WHERE a.account_id = v_account_b;
+  IF v_count <> v_nb_cust_movs THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.1-B-movimientos): el intento dejó % movimientos en los libros de B, esperaba %.', v_count, v_nb_cust_movs;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.events WHERE account_id = v_account_b;
+  IF v_count <> v_nb_events THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.1-B-eventos): el intento dejó % eventos en el tenant víctima, esperaba % — no debe emitirse CustomerAccountCharged en libros ajenos.', v_count, v_nb_events;
+  END IF;
+  RAISE NOTICE 'PASS (5.1): _pay_register_party_charge deja de ser invocable por authenticated y los libros del tenant víctima quedan sin cambios — la primitiva de escritura cross-tenant queda cerrada.';
 
   -- ═════ (5.2) _journal_post_from_event, mismo caso, misma proveniencia ═════
   -- El evento se forja como postgres (RLS de events no aplica al owner) y la
@@ -609,6 +919,8 @@ BEGIN
                        'operation_id', gen_random_uuid(), 'total', 999, 'payment_method', 'cash'), now())
   RETURNING id INTO v_event_id;
   SELECT * INTO v_event_row FROM public.events WHERE id = v_event_id;
+
+  SELECT COUNT(*) INTO v_nb_journal FROM public.journal_entries WHERE account_id = v_account_b;
 
   EXECUTE 'SET LOCAL ROLE authenticated';
   v_rejected := false;
@@ -629,9 +941,23 @@ BEGIN
        'public._journal_post_from_event(public.events)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.2-acl): authenticated no debe tener EXECUTE sobre _journal_post_from_event.';
   END IF;
-  RAISE NOTICE 'PASS (5.2): _journal_post_from_event deja de ser invocable por authenticated — no se puede forjar un evento y postear un asiento en otro tenant.';
+
+  -- El 42501 sin este assert probaría el permiso, no la consecuencia: lo que
+  -- importa es que en los libros de B no aparezca el asiento forjado.
+  SELECT COUNT(*) INTO v_count FROM public.journal_entries WHERE account_id = v_account_b;
+  IF v_count <> v_nb_journal THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.2-B-asientos): el intento dejó % journal_entries en el tenant víctima, esperaba %.', v_count, v_nb_journal;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.journal_entries WHERE source_event_id = v_event_id;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.2-B-forjado): el evento forjado dejó % asientos posteados, esperaba 0.', v_count;
+  END IF;
+  RAISE NOTICE 'PASS (5.2): _journal_post_from_event deja de ser invocable por authenticated y el evento forjado no postea asiento — no se puede forjar un evento y escribir en el libro diario de otro tenant.';
 
   -- ══ (5.5) el revoke es TRANSPARENTE para los callers internos (definer) ═══
+  SELECT COUNT(*) INTO v_n_ev_charged FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'CustomerAccountCharged';
+
   SELECT public.rpc_create_sale_operation_v2(
     p_idempotency_key   => 'gate-ccpg-5-5-form',
     p_client_id         => v_client_a2,
@@ -648,6 +974,13 @@ BEGIN
   IF v_count <> 1 THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.5-formulario): tras el revoke, la venta a crédito del formulario debe seguir posteando su cargo vía _pay_register_party_charge (el PERFORM interno corre como definer). Esperaba 1 movimiento, hay %.', v_count;
   END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'CustomerAccountCharged';
+  IF v_count <> v_n_ev_charged + 1 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.5-formulario-evento): el cargo del formulario debe emitir 1 CustomerAccountCharged tras el revoke; hay % y esperaba %.', v_count, v_n_ev_charged + 1;
+  END IF;
+  v_n_ev_charged := v_count;
 
   SELECT public.rpc_quick_sale(
     p_idempotency_key   => 'gate-ccpg-5-5-pos',
@@ -666,7 +999,13 @@ BEGIN
   IF v_count <> 1 THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.5-pos): tras el revoke, la venta a crédito del POS debe seguir posteando su cargo. Esperaba 1 movimiento con reference_id=sales_order_id, hay %.', v_count;
   END IF;
-  RAISE NOTICE 'PASS (5.5): el revoke es transparente para los callers reales — formulario y POS siguen posteando el cargo a crédito.';
+
+  SELECT COUNT(*) INTO v_count FROM public.events
+   WHERE account_id = v_account_a AND event_type = 'CustomerAccountCharged';
+  IF v_count <> v_n_ev_charged + 1 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.5-pos-evento): el cargo del POS debe emitir 1 CustomerAccountCharged tras el revoke; hay % y esperaba %.', v_count, v_n_ev_charged + 1;
+  END IF;
+  RAISE NOTICE 'PASS (5.5): el revoke es transparente para los callers reales — formulario y POS siguen posteando el cargo a crédito y emitiendo su evento.';
 
   -- ══ (5.6) el dispatcher del outbox sigue posteando asientos balanceados ═══
   INSERT INTO public.events (account_id, event_type, aggregate_type, aggregate_id, payload, occurred_at)
@@ -692,5 +1031,97 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (5.6): rpc_process_outbox_dispatch (SECURITY DEFINER) sigue posteando asientos balanceados tras el revoke — el dispatcher no pasa por el ACL de authenticated.';
 
-  RAISE NOTICE 'GATE CUENTA-CORRIENTE-PARTY-GUARD OK: guard de tenencia en el choke point + 3 RPCs de pago, orden de guards congelado, idempotencia intacta, y las dos primitivas cross-tenant cerradas sin romper ningún caller real.';
+  -- ══ (9) BARRIDO GLOBAL: el invariante que los specs declaran de la TABLA ══
+  -- "no existe ninguna fila cuyo clients.account_id difiera del
+  -- customer_accounts.account_id" (y su espejo proveedor). Todo lo anterior
+  -- prueba caminos; esto prueba el estado, incluida cualquier fila que haya
+  -- dejado otro gate de la corrida de CI.
+  SELECT COUNT(*) INTO v_count
+  FROM public.customer_accounts ca
+  JOIN public.clients c ON c.id = ca.client_id
+  WHERE c.account_id IS DISTINCT FROM ca.account_id;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (9-clientes): hay % customer_accounts cuyo cliente pertenece a otro tenant — el invariante de coherencia (account_id, client_id) está roto en la base entera, no sólo en los caminos que este gate ejercita.', v_count;
+  END IF;
+
+  SELECT COUNT(*) INTO v_count
+  FROM public.supplier_accounts sa
+  JOIN public.suppliers s ON s.id = sa.supplier_id
+  WHERE s.account_id IS DISTINCT FROM sa.account_id;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (9-proveedores): hay % supplier_accounts cuyo proveedor pertenece a otro tenant.', v_count;
+  END IF;
+  RAISE NOTICE 'PASS (9): barrido global — cero cuentas corrientes (cliente y proveedor) con la parte de otro tenant en toda la base.';
+
+  RAISE NOTICE 'GATE CUENTA-CORRIENTE-PARTY-GUARD OK: guard de tenencia en el choke point + 3 RPCs de pago (con candado de cuerpo), orden de guards congelado, idempotencia intacta, libros del tenant víctima sin tocar, y las dos primitivas cross-tenant cerradas sin romper ningún caller real.';
+END $$;
+
+-- ── Fase de cleanup ──────────────────────────────────────────────────────────
+-- Sin esto, la SEGUNDA corrida del gate sobre la misma base aborta con
+-- `users_email_partial_key` (el anchor usa un email fijo y un id nuevo, así
+-- que el ON CONFLICT (id) DO NOTHING no lo cubre) — verificado en local.
+--
+-- Va en un DO block SEPARADO, como en test_cuentas_billetera_tipo.sql (Fase
+-- 9), y resuelve los ids por email en vez de heredar las variables: así
+-- limpia también las corridas que se cortaron por alguno de los caminos
+-- degrade-don't-fail (que hacen RETURN después de haber insertado los
+-- anchors). Si el DO principal ABORTA, psql con ON_ERROR_STOP=1 corta antes
+-- de llegar acá — pero en ese caso la transacción del DO ya revirtió todo,
+-- incluidos los anchors, así que no queda nada que limpiar.
+--
+-- El orden es el inverso al de creación y está verificado empíricamente
+-- contra el stack local (sonda en BEGIN…ROLLBACK): ninguna FK ni guard de
+-- borrado se interpone.
+DO $$
+DECLARE
+  v_users    uuid[];
+  v_accounts uuid[];
+BEGIN
+  SELECT COALESCE(array_agg(id), ARRAY[]::uuid[]) INTO v_users
+  FROM auth.users
+  WHERE email IN ('cuenta-corriente-party-guard-a@test.local',
+                  'cuenta-corriente-party-guard-b@test.local');
+
+  IF array_length(v_users, 1) IS NULL THEN
+    RAISE NOTICE 'GATE PARTY-GUARD: cleanup sin anchors que limpiar.';
+    RETURN;
+  END IF;
+
+  SELECT COALESCE(array_agg(DISTINCT account_id), ARRAY[]::uuid[]) INTO v_accounts
+  FROM public.account_members WHERE user_id = ANY(v_users);
+
+  IF array_length(v_accounts, 1) IS NOT NULL THEN
+    DELETE FROM public.journal_lines jl USING public.journal_entries je
+      WHERE jl.entry_id = je.id AND je.account_id = ANY(v_accounts);
+    DELETE FROM public.journal_entries          WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.bank_movements           WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.payments_received        WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.payments_made            WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.customer_account_movements m USING public.customer_accounts a
+      WHERE m.customer_account_id = a.id AND a.account_id = ANY(v_accounts);
+    DELETE FROM public.supplier_account_movements m USING public.supplier_accounts a
+      WHERE m.supplier_account_id = a.id AND a.account_id = ANY(v_accounts);
+    DELETE FROM public.customer_accounts        WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.supplier_accounts        WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.stock_movements          WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.sale_items               WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.sales                    WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.sales_order_items i USING public.sales_orders o
+      WHERE i.sales_order_id = o.id AND o.account_id = ANY(v_accounts);
+    DELETE FROM public.sales_orders             WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.events                   WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.branch_stock             WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.products                 WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.bank_accounts            WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.clients                  WHERE account_id = ANY(v_accounts);
+    DELETE FROM public.suppliers                WHERE account_id = ANY(v_accounts);
+  END IF;
+
+  DELETE FROM public.operation_idempotency WHERE user_id = ANY(v_users);
+  DELETE FROM public.account_members       WHERE user_id = ANY(v_users);
+  DELETE FROM public.accounts              WHERE owner_user_id = ANY(v_users);
+  DELETE FROM public.profiles              WHERE id = ANY(v_users);
+  DELETE FROM auth.users                   WHERE id = ANY(v_users);
+
+  RAISE NOTICE 'GATE CUENTA-CORRIENTE-PARTY-GUARD: cleanup completo (% anchors) — el gate vuelve a correr en verde sobre la misma base.', array_length(v_users, 1);
 END $$;

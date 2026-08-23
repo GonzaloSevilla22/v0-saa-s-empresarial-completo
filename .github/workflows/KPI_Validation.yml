@@ -258,6 +258,21 @@ jobs:
           # quedara más de una firma por función, así que la reconvergencia no
           # es una promesa sino una aserción.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261009000001_compras_proveedor_cuenta_corriente.sql
+          # revoke-internal-money-helpers (hotfix 2026-08-23): TIENE que ser el
+          # ÚLTIMO eslabón de la cadena. Dos de los reapplies de arriba
+          # reintroducen en silencio el GRANT EXECUTE ... TO authenticated que
+          # este hotfix revoca: 20261001000001 (L137, _pay_register_party_
+          # charge — GRANT explícito desde su creación) y 20261004000001
+          # (L1778, _journal_post_from_event — CREATE OR REPLACE + REVOKE/GRANT
+          # "de plantilla"). Ninguna migración reaplicada DESPUÉS de esas dos
+          # (20261005000001..20261009000001) vuelve a tocar el ACL de ninguno
+          # de los dos helpers — así que sin este reapply al final, `supabase
+          # start` deja el estado correcto una vez, pero el bloque de arriba lo
+          # revierte en silencio antes de que corra el gate. Sin conflicto de
+          # firma/overload (esta migración no crea funciones, solo revoca
+          # EXECUTE de dos ya existentes) — mismo mecanismo "phantom
+          # regression" documentado en las notas anteriores, un eslabón más.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261010000001_revoke_internal_money_helpers.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

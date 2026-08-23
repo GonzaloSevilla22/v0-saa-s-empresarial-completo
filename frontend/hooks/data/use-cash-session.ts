@@ -158,14 +158,23 @@ export function useCloseSession() {
     mutationFn: async ({
       sessionId,
       countedBalance,
+      idempotencyKey,
     }: {
       sessionId: string
       countedBalance: number
+      /** v3-api-standards §4 (D5): el cierre de caja exige Idempotency-Key.
+       *  Generarla con useIdempotencyKey(scope) y resetearla tras el éxito. */
+      idempotencyKey: string
     }): Promise<CloseSessionApiResult> => {
       try {
+        // Bug prod 2026-08-23: el hook nunca mandó la clave → el backend
+        // rechazaba TODO cierre ("Falta la clave de idempotencia") desde que
+        // v3-api-standards la volvió obligatoria (julio) — por eso había
+        // sesiones abiertas desde el 17-07 que nadie podía cerrar.
         return await pythonClient.post<CloseSessionApiResult>(
           `/sessions/${sessionId}/close`,
-          { counted_balance: countedBalance }
+          { counted_balance: countedBalance },
+          { "Idempotency-Key": idempotencyKey }
         )
       } catch (err) {
         throw new Error(translateRpcError((err as Error).message))

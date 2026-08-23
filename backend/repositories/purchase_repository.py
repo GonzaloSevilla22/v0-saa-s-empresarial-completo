@@ -85,7 +85,10 @@ class PurchaseRepository(BaseRepository):
                    pm.kind AS payment_method_kind,
                    -- compras-proveedor-cuenta-corriente (task 9.3): badge del
                    -- listado + prefill del selector de edición, mismo patrón
-                   -- LEFT JOIN que cost_center_name/payment_method_name.
+                   -- (outer join a suppliers) de cost_center_name y
+                   -- payment_method_name. Ojo: el gate check_backend_table_refs
+                   -- escanea el texto SQL, incluidos los comentarios "--", así
+                   -- que no escribir "JOIN <palabra>" suelto acá.
                    p.supplier_id,
                    sup.name AS supplier_name,
                    -- pagos-cableados-restantes (D6, task 9.3): MISMO

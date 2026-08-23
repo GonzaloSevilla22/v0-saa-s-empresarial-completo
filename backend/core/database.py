@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncGenerator
 
 import asyncpg
@@ -8,6 +9,8 @@ from fastapi import Depends, HTTPException
 
 from backend.core.auth import get_current_user
 from backend.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 pool: asyncpg.Pool | None = None
 
@@ -64,6 +67,25 @@ async def get_db_conn(
       transacción externa — si el request falla después de escribir, ese
       trabajo se deshace junto con el request (antes quedaba comiteado de
       inmediato).
+
+      v31-tenancy-pool-rls Paso 2 (D6) — detrás de la palanca INDEPENDIENTE
+      `settings.tenancy_rls_role_enabled` (apagada por defecto, requiere
+      `tenancy_tx_scope_enabled=True`, ver config.py): inmediatamente
+      después de setear claims/timeout — mismo lugar, misma transacción,
+      no pueden divergir (D6, mitigación del "falla abierto") — se ejecuta
+      `SET LOCAL ROLE authenticated`. `authenticated` tiene
+      `rolbypassrls=false` (verificado en prod): a partir de ahí, TODAS las
+      queries que corren sobre `conn` (incluidas las que el caller ejecute
+      después del `yield`) quedan sujetas a RLS de verdad, en vez de
+      ignorarla como `postgres` (`rolbypassrls=true`). `SET LOCAL` —no
+      `SET ROLE` de sesión— es la distinción que hace esto seguro bajo
+      Supavisor en *transaction mode* (design.md, "La nota de C-17,
+      corregida"): el cambio de rol se deshace solo al COMMIT/ROLLBACK, la
+      conexión vuelve al pool como `postgres` sin residuo para el próximo
+      request. `postgres` alcanza a hacer este cambio porque en este
+      proyecto es miembro de `authenticated` con `ADMIN OPTION` (verificado
+      en prod vía `pg_auth_members` — NO es superusuario en este Supabase
+      gestionado, pero la membresía de rol alcanza para `SET ROLE`).
     - **Apagada (default)**: comportamiento previo a este change, byte a
       byte — incluido `app.jwt_claims`, alcance de SESIÓN
       (`set_config(..., false)`), sin transacción explícita. Es la causa
@@ -76,7 +98,9 @@ async def get_db_conn(
 
     `get_service_conn` (webhook de pagos, relay CAE del cron) es un camino
     de servicio explícitamente separado (D5): nunca pasa por acá, no recibe
-    claims ni queda dentro de la transacción del request.
+    claims, no queda dentro de la transacción del request y NUNCA adopta el
+    rol `authenticated` sin importar el estado de ninguna de las dos
+    palancas — son los 3 consumidores que dependen de BYPASSRLS.
     """
     if pool is None:
         raise HTTPException(status_code=503, detail="Database pool not initialized")
@@ -92,6 +116,20 @@ async def get_db_conn(
                     json.dumps({"sub": user["user_id"], "role": "authenticated"}),
                     settings.tenancy_tx_idle_timeout,
                 )
+                if settings.tenancy_rls_role_enabled:
+                    # Paso 2 (D6) — SET LOCAL ROLE, no SET ROLE de sesión
+                    # (design.md, "La nota de C-17, corregida"): se deshace
+                    # solo al COMMIT/ROLLBACK, la conexión vuelve al pool
+                    # como `postgres` sin residuo. "authenticated" es un
+                    # literal fijo (no interpolación de user input): SET
+                    # ROLE no admite parámetros bind de asyncpg — el nombre
+                    # de rol debe ser un identificador SQL, no un valor.
+                    await conn.execute("SET LOCAL ROLE authenticated")
+                    logger.debug(
+                        "v31-tenancy-pool-rls Paso 2: rol adoptado a "
+                        "authenticated para request.jwt.claims.sub=%s",
+                        user["user_id"],
+                    )
                 yield conn
         else:
             # Camino legacy (palanca apagada, D8) — comportamiento idéntico

@@ -100,6 +100,12 @@ async def _open_get_db_conn(fake_conn: FakeTxConnection, *, enabled: bool):
     mock_settings = settings_patch.start()
     mock_settings.tenancy_tx_scope_enabled = enabled
     mock_settings.tenancy_tx_idle_timeout = "30s"
+    # v31-tenancy-pool-rls Paso 2 (grupo 7): explícito en False — este
+    # archivo prueba D3 (atomicidad por request) en aislamiento del cambio
+    # de rol (D6). Sin esto, el MagicMock de settings devolvería un
+    # atributo auto-generado (truthy) para tenancy_rls_role_enabled y
+    # ejercitaría el SET LOCAL ROLE de forma incidental, no deliberada.
+    mock_settings.tenancy_rls_role_enabled = False
 
     gen = db_module.get_db_conn(TEST_USER)
     conn = await gen.__anext__()

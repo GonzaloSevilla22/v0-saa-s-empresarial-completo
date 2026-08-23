@@ -115,3 +115,40 @@ describe("PaymentMethodManager — gating por rol (D9-espejo)", () => {
     expect(screen.queryByText(/Creá la primera/)).not.toBeInTheDocument()
   })
 })
+
+// ── cuentas-billetera-tipo (task 8.1): ícono por tipo de cuenta, no Landmark fijo ─
+
+describe("PaymentMethodManager — cuentas-billetera-tipo (ícono por account_kind)", () => {
+  const METHOD_WITH_WALLET_ACCOUNT: PaymentMethod = {
+    id: "pm-transfer", accountId: "a", name: "Transferencia", kind: "transfer",
+    isActive: true, sortOrder: 2, createdAt: "2026-08-19T00:00:00Z", bankAccountId: "ba-wallet",
+  }
+
+  it("una cuenta-default de tipo billetera muestra el ícono de billetera (lucide-wallet), no el Landmark fijo", () => {
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn({ paymentMethods: [METHOD_WITH_WALLET_ACCOUNT] }))
+    useBankAccountsMock.mockReturnValue({
+      data: [{ id: "ba-wallet", accountId: "a", name: "Mercado Pago", bankName: null, cbu: null, alias: "luzmin.mp", currency: "ARS", accountKind: "wallet", isActive: true }],
+      isLoading: false, isError: false, error: null,
+    })
+    useOrgRoleMock.mockReturnValue({ isWriter: false, role: "member", isLoading: false })
+
+    const { container } = render(<PaymentMethodManager />)
+
+    expect(container.querySelector(".lucide-wallet")).toBeTruthy()
+    expect(container.querySelector(".lucide-landmark")).toBeFalsy()
+  })
+
+  it("una cuenta-default de tipo banco muestra el ícono Landmark", () => {
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn({ paymentMethods: [METHOD_WITH_WALLET_ACCOUNT] }))
+    useBankAccountsMock.mockReturnValue({
+      data: [{ id: "ba-wallet", accountId: "a", name: "Galicia", bankName: "Banco Galicia", cbu: null, alias: null, currency: "ARS", accountKind: "bank", isActive: true }],
+      isLoading: false, isError: false, error: null,
+    })
+    useOrgRoleMock.mockReturnValue({ isWriter: false, role: "member", isLoading: false })
+
+    const { container } = render(<PaymentMethodManager />)
+
+    expect(container.querySelector(".lucide-landmark")).toBeTruthy()
+    expect(container.querySelector(".lucide-wallet")).toBeFalsy()
+  })
+})

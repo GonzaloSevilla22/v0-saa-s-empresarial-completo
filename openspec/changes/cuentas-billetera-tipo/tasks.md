@@ -63,10 +63,10 @@
 
 ## 8. Distinción visual en el resto de las superficies (RED → GREEN)
 
-- [ ] 8.1 Escribir el test vitest que falla en `frontend/__tests__/components/PaymentMethodManager.test.tsx`: una cuenta-default de tipo billetera muestra el ícono de billetera, no el `Landmark` fijo
-- [ ] 8.2 Reemplazar el `Landmark` hardcodeado de `PaymentMethodManager.tsx` (líneas ~185-186) y del selector de cuenta (~282) por la resolución del módulo canónico
-- [ ] 8.3 Aplicar la misma resolución en `PaymentMethodSelect.tsx`, `RegisterPaymentForm.tsx` y `RegisterPaymentMadeForm.tsx`
-- [ ] 8.4 Confirmar GREEN en la suite vitest completa
+- [x] 8.1 Escribir el test vitest que falla en `frontend/__tests__/components/PaymentMethodManager.test.tsx`: una cuenta-default de tipo billetera muestra el ícono de billetera, no el `Landmark` fijo
+- [x] 8.2 Reemplazar el `Landmark` hardcodeado de `PaymentMethodManager.tsx` (líneas ~185-186) y del selector de cuenta (~282) por la resolución del módulo canónico
+- [x] 8.3 Aplicar la misma resolución en `PaymentMethodSelect.tsx` (`BankAccountDestinationSelect`), `RegisterPaymentForm.tsx` y `RegisterPaymentMadeForm.tsx` — RED confirmado en los 3 (icono ausente), luego GREEN. Gotcha real encontrado: `screen.findByText("Transferencia")` fallaba con "multiple elements" por el `<select>` nativo oculto (`aria-hidden`) que Radix Select deja como fallback — se resolvió con `getByRole("option", ...)`, que sí respeta `aria-hidden`
+- [x] 8.4 Confirmar GREEN en la suite vitest completa — **163 archivos / 1270 tests, todos GREEN** (suite completa de `frontend`, sin regresión); gate `token-contrast-aa.test.ts` (35/35) sin regresión — ningún color literal nuevo, solo variantes de `Badge` y tokens ya existentes
 
 ## 9. Verificación
 

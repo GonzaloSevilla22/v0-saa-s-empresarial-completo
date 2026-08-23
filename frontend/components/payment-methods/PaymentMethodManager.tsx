@@ -12,9 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { Plus, Pencil, PowerOff, Loader2, Landmark } from "lucide-react"
+import { Plus, Pencil, PowerOff, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { isBankPaymentKind, type PaymentMethod, type PaymentMethodKind } from "@/lib/types"
+import { getAccountKindIcon } from "@/lib/bank-account-kind"
 
 const KIND_LABELS: Record<PaymentMethodKind, string> = {
   cash: "Efectivo",
@@ -57,6 +58,11 @@ export function PaymentMethodManager() {
   const { data: bankAccounts } = useBankAccounts()
   const bankAccountName = (id: string | null) =>
     id ? (bankAccounts ?? []).find((b) => b.id === id)?.name ?? null : null
+  // cuentas-billetera-tipo (D5): ícono por account_kind de la cuenta-default,
+  // en vez del Landmark fijo — fail-open a 'bank' si la cuenta no se
+  // encuentra (mismo criterio de getAccountKindIcon).
+  const bankAccountKind = (id: string | null) =>
+    id ? (bankAccounts ?? []).find((b) => b.id === id)?.accountKind ?? null : null
 
   const [addOpen, setAddOpen] = useState(false)
   const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null)
@@ -177,15 +183,18 @@ export function PaymentMethodManager() {
                   {/* pos-banco-movimientos (D7): columna "Cuenta bancaria" —
                       sólo para kinds bancarios, rótulo explícito cuando no
                       tiene destino ("no registra movimiento bancario"). */}
-                  {isBankPaymentKind(pm.kind) && (
-                    <Badge
-                      variant="outline"
-                      className="text-xs shrink-0 gap-1 text-muted-foreground"
-                    >
-                      <Landmark className="h-3 w-3" />
-                      {bankAccountName(pm.bankAccountId) ?? "Sin cuenta (no registra movimiento)"}
-                    </Badge>
-                  )}
+                  {isBankPaymentKind(pm.kind) && (() => {
+                    const AccountIcon = getAccountKindIcon(bankAccountKind(pm.bankAccountId))
+                    return (
+                      <Badge
+                        variant="outline"
+                        className="text-xs shrink-0 gap-1 text-muted-foreground"
+                      >
+                        <AccountIcon className="h-3 w-3" />
+                        {bankAccountName(pm.bankAccountId) ?? "Sin cuenta (no registra movimiento)"}
+                      </Badge>
+                    )
+                  })()}
                 </div>
 
                 {isWriter && pm.isActive && (
@@ -281,9 +290,17 @@ export function PaymentMethodManager() {
                     <SelectItem value="__none__">Sin cuenta (no registra movimiento)</SelectItem>
                     {(bankAccounts ?? [])
                       .filter((b) => b.isActive)
-                      .map((b) => (
-                        <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-                      ))}
+                      .map((b) => {
+                        const AccountIcon = getAccountKindIcon(b.accountKind)
+                        return (
+                          <SelectItem key={b.id} value={b.id}>
+                            <span className="flex items-center gap-1.5">
+                              <AccountIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              {b.name}
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">

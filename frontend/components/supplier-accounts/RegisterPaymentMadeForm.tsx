@@ -14,6 +14,7 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useRegisterPaymentMade } from "@/hooks/data/use-supplier-account"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
+import { getAccountKindIcon } from "@/lib/bank-account-kind"
 
 // bank-payment-routing C2: taxonomía { cash, transfer, card, check }.
 const PAYMENT_METHODS = [
@@ -152,11 +153,17 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
               <SelectValue placeholder="Elegí una cuenta bancaria" />
             </SelectTrigger>
             <SelectContent>
-              {(bankAccounts ?? []).map((ba) => (
-                <SelectItem key={ba.id} value={ba.id}>
-                  {ba.name}
-                </SelectItem>
-              ))}
+              {(bankAccounts ?? []).map((ba) => {
+                const AccountIcon = getAccountKindIcon(ba.accountKind)
+                return (
+                  <SelectItem key={ba.id} value={ba.id}>
+                    <span className="flex items-center gap-1.5">
+                      <AccountIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      {ba.name}
+                    </span>
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
           {errors.bankAccountId && (

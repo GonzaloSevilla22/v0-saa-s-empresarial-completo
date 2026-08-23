@@ -6,9 +6,10 @@
  * placeholder "Sin especificar" cuando value=null, y el texto de apoyo D8
  * aparece/desaparece según el kind de la forma de pago seleccionada.
  */
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
-import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import userEvent from "@testing-library/user-event"
+import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
 import type { PaymentMethod } from "@/lib/types"
 
 const METHODS: PaymentMethod[] = [
@@ -28,9 +29,14 @@ vi.mock("@/hooks/data/use-payment-methods", () => ({
 // throw de arranque de python-client.ts (NEXT_PUBLIC_BACKEND_URL no
 // definida en el entorno de CI). Ninguno de estos tests ejercita el
 // selector de cuenta bancaria; sin cuentas por default alcanza.
+const useBankAccountsMock = vi.fn()
 vi.mock("@/hooks/data/use-bank-accounts", () => ({
-  useBankAccounts: () => ({ data: [], isLoading: false, isError: false, error: null }),
+  useBankAccounts: (...args: unknown[]) => useBankAccountsMock(...args),
 }))
+
+beforeEach(() => {
+  useBankAccountsMock.mockReturnValue({ data: [], isLoading: false, isError: false, error: null })
+})
 
 describe("PaymentMethodSelect", () => {
   it("muestra 'Sin especificar' cuando no hay valor seleccionado", () => {
@@ -131,5 +137,27 @@ describe("PaymentMethodSelect", () => {
     render(<PaymentMethodSelect value={null} onChange={vi.fn()} showLabel={false} />)
 
     expect(screen.queryByText("Forma de pago")).not.toBeInTheDocument()
+  })
+})
+
+// ── cuentas-billetera-tipo (task 8.3): ícono por tipo en BankAccountDestinationSelect ─
+
+describe("BankAccountDestinationSelect — ícono por account_kind", () => {
+  it("distingue billetera de banco por ícono en las opciones", async () => {
+    useBankAccountsMock.mockReturnValue({
+      data: [
+        { id: "ba-wallet", accountId: "a", name: "Mercado Pago", bankName: null, cbu: null, alias: "luzmin.mp", currency: "ARS", accountKind: "wallet", isActive: true },
+        { id: "ba-bank", accountId: "a", name: "Cuenta corriente Galicia", bankName: "Banco Galicia", cbu: null, alias: null, currency: "ARS", accountKind: "bank", isActive: true },
+      ],
+      isLoading: false, isError: false, error: null,
+    })
+    const user = userEvent.setup()
+
+    render(<BankAccountDestinationSelect paymentMethodKind="transfer" value={null} onChange={vi.fn()} />)
+
+    await user.click(screen.getByRole("combobox"))
+
+    expect(document.querySelector(".lucide-wallet")).toBeTruthy()
+    expect(document.querySelector(".lucide-landmark")).toBeTruthy()
   })
 })

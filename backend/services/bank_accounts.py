@@ -48,6 +48,7 @@ async def create_bank_account(
             currency=payload.currency,
             opening_balance=payload.opening_balance,
             opening_date=payload.opening_date,
+            account_kind=payload.account_kind,
         )
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc

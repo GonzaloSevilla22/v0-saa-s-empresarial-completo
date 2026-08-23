@@ -30,13 +30,13 @@
 
 ## 4. Backend Python (RED → GREEN)
 
-- [ ] 4.1 Escribir el test pytest que falla: `POST /bank-accounts` con `account_kind = "wallet"` persiste y devuelve el tipo
-- [ ] 4.2 Escribir el test pytest que falla: `account_kind = "crypto"` responde 422 y no inserta
-- [ ] 4.3 Escribir el test pytest que falla: omitir `account_kind` crea la cuenta con `'bank'`
-- [ ] 4.4 Agregar `account_kind` a `BankAccountCreate` (`Literal["bank","wallet"] = "bank"`) y a `BankAccountOut` en `backend/schemas/bank_accounts.py`
-- [ ] 4.5 Actualizar `backend/repositories/bank_account_repository.py`: la llamada pasa de `$1..$7` a `$1..$8`, y los `SELECT` de `list_active` y `get_by_id_for_account` suman `account_kind` — sin tocar el filtro `WHERE account_id = $1` del hotfix #446
-- [ ] 4.6 Propagar `account_kind` en `backend/services/bank_accounts.py` y mapear `P0412` → 422 en `BANK_ACCOUNT_CREATE_ERRCODE_STATUS` (`backend/core/errors.py`)
-- [ ] 4.7 Ejecutar la suite pytest de bank accounts y confirmar GREEN sin romper el baseline (incluye `test_tenancy_bank_accounts_leak.py`)
+- [x] 4.1 Escribir el test pytest que falla: `POST /bank-accounts` con `account_kind = "wallet"` persiste y devuelve el tipo
+- [x] 4.2 Escribir el test pytest que falla: `account_kind = "crypto"` responde 422 y no inserta
+- [x] 4.3 Escribir el test pytest que falla: omitir `account_kind` crea la cuenta con `'bank'`
+- [x] 4.4 Agregar `account_kind` a `BankAccountCreate` (`Literal["bank","wallet"] = "bank"`) y a `BankAccountOut` en `backend/schemas/bank_accounts.py`
+- [x] 4.5 Actualizar `backend/repositories/bank_account_repository.py`: la llamada pasa de `$1..$7` a `$1..$8`, y los `SELECT` de `list_active`, `get_by_id_for_account` y `_get_by_id` suman `account_kind` — sin tocar el filtro `WHERE account_id = $1` del hotfix #446
+- [x] 4.6 Propagar `account_kind` en `backend/services/bank_accounts.py` y mapear `P0414` → 422 en `_BUSINESS_ERRCODE_STATUS` (`backend/core/errors.py`) — **P0412 ya estaba tomado** (censo re-corrido, task 1.3), se usa P0414
+- [x] 4.7 Ejecutar la suite pytest de bank accounts y confirmar GREEN sin romper el baseline (incluye `test_tenancy_bank_accounts_leak.py`) — 38/38 en `test_bank_account_crud.py` (29 baseline + 9 nuevos), 74/74 en los 3 suites de bank-account/reconciliation, **1530 passed, 3 skipped** en la suite completa de `backend/tests`
 
 ## 5. Módulo canónico de presentación (RED → GREEN)
 

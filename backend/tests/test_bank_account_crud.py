@@ -49,6 +49,7 @@ BANK_ACCOUNT_ROW = {
     "cbu": VALID_CBU,
     "alias": "galicia.cuenta",
     "currency": "ARS",
+    "account_kind": "bank",
     "is_active": True,
 }
 
@@ -147,6 +148,31 @@ class TestBankAccountCreateSchema:
         with pytest.raises(ValidationError):
             BankAccountCreate(name="Cuenta X", cbu="123456789012345678901A"[:22])
 
+    # ── cuentas-billetera-tipo (4.1-4.3) ────────────────────────────────────────
+
+    def test_account_kind_defaults_to_bank_when_omitted(self):
+        """4.3: omitir account_kind crea la cuenta con 'bank' (default seguro)."""
+        from backend.schemas.bank_accounts import BankAccountCreate
+
+        payload = BankAccountCreate(name="Cuenta X")
+
+        assert payload.account_kind == "bank"
+
+    def test_account_kind_wallet_is_accepted(self):
+        """4.1: account_kind='wallet' es aceptado y persiste tal cual."""
+        from backend.schemas.bank_accounts import BankAccountCreate
+
+        payload = BankAccountCreate(name="Mercado Pago", account_kind="wallet")
+
+        assert payload.account_kind == "wallet"
+
+    def test_account_kind_outside_domain_rejected(self):
+        """4.2: account_kind fuera de ('bank','wallet') es rechazado por Pydantic (422)."""
+        from backend.schemas.bank_accounts import BankAccountCreate
+
+        with pytest.raises(ValidationError):
+            BankAccountCreate(name="Cuenta X", account_kind="crypto")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. Repository — BankAccountRepository.create (2.1 RED / 2.2 GREEN / 2.3 TRIANGULATE)
@@ -162,8 +188,10 @@ def bank_account_repo():
 
 class TestBankAccountRepositoryCreate:
     @pytest.mark.asyncio
-    async def test_create_invokes_rpc_with_7_params_in_order(self, bank_account_repo):
-        """create() invoca rpc_create_bank_account posicionalmente con los 7 params."""
+    async def test_create_invokes_rpc_with_8_params_in_order(self, bank_account_repo):
+        """create() invoca rpc_create_bank_account posicionalmente con los 8 params
+        (cuentas-billetera-tipo: account_kind agregado como 8º, al final —
+        preserva el orden de los 7 originales)."""
         repo, conn = bank_account_repo
         conn.fetchrow = AsyncMock(
             side_effect=[
@@ -180,6 +208,7 @@ class TestBankAccountRepositoryCreate:
             currency="ARS",
             opening_balance=Decimal("10000"),
             opening_date=None,
+            account_kind="bank",
         )
 
         assert result is not None
@@ -196,7 +225,33 @@ class TestBankAccountRepositoryCreate:
             "ARS",
             Decimal("10000"),
             None,
+            "bank",
         )
+
+    @pytest.mark.asyncio
+    async def test_create_passes_account_kind_wallet(self, bank_account_repo):
+        """4.1 (repo): account_kind='wallet' viaja en la 8ª posición a la RPC."""
+        repo, conn = bank_account_repo
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"result": {"bank_account_id": BANK_ACCOUNT_ID}},
+                {**BANK_ACCOUNT_ROW, "account_kind": "wallet"},
+            ]
+        )
+
+        await repo.create(
+            name="Mercado Pago",
+            bank_name=None,
+            cbu=None,
+            alias="luzmin.mp",
+            currency="ARS",
+            opening_balance=Decimal("0"),
+            opening_date=None,
+            account_kind="wallet",
+        )
+
+        first_call_args = conn.fetchrow.call_args_list[0][0][1:]
+        assert first_call_args[-1] == "wallet"
 
     @pytest.mark.asyncio
     async def test_create_reselects_row_by_id_for_full_shape(self, bank_account_repo):
@@ -385,6 +440,24 @@ class TestCreateBankAccountService:
         assert result is not None
         repo.create.assert_awaited_once()
 
+    # ── cuentas-billetera-tipo (4.6): account_kind viaja del payload al repo ────
+
+    @pytest.mark.asyncio
+    async def test_account_kind_propagates_from_payload_to_repo(self):
+        """El service pasa payload.account_kind al repo tal cual (sin default propio —
+        el default 'bank' ya lo aplica el schema)."""
+        from backend.services.bank_accounts import create_bank_account
+        from backend.schemas.bank_accounts import BankAccountCreate
+
+        repo = _make_repo()
+        auth = _make_auth("user")
+        payload = BankAccountCreate(name="Mercado Pago", account_kind="wallet")
+
+        await create_bank_account(repo, auth, payload)
+
+        repo.create.assert_awaited_once()
+        assert repo.create.call_args.kwargs["account_kind"] == "wallet"
+
     # ── 3.3 TRIANGULATE: mapeo de ERRCODEs (errors.py ya los mapea) ──────────────
 
     def test_errcode_p0401_mapped_to_403(self):
@@ -412,6 +485,13 @@ class TestCreateBankAccountService:
         from backend.core.errors import _BUSINESS_ERRCODE_STATUS
 
         assert _BUSINESS_ERRCODE_STATUS["P0403"] == 403
+
+    def test_errcode_p0414_mapped_to_422(self):
+        """cuentas-billetera-tipo: P0414 (account_kind fuera de dominio) → 422.
+        P0412 estaba tomado (cuenta no encontrada/inactiva); censo re-corrido."""
+        from backend.core.errors import _BUSINESS_ERRCODE_STATUS
+
+        assert _BUSINESS_ERRCODE_STATUS["P0414"] == 422
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -512,6 +592,69 @@ class TestCreateBankAccountEndpoint:
 
         assert resp.status_code in (200, 201)
         assert resp.json()["cbu"] is None
+
+    # ── cuentas-billetera-tipo (4.1-4.3, nivel endpoint) ─────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_post_with_account_kind_wallet_persists_and_returns_it(self, async_client, mock_pool):
+        """4.1: POST con account_kind='wallet' persiste y la respuesta lo incluye."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"result": {"bank_account_id": BANK_ACCOUNT_ID}},
+                {**BANK_ACCOUNT_ROW, "name": "Mercado Pago", "account_kind": "wallet"},
+            ]
+        )
+        user_token = make_token({"app_metadata": {"role": "user"}})
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/bank-accounts",
+                json={"name": "Mercado Pago", "account_kind": "wallet"},
+                headers={"Authorization": f"Bearer {user_token}"},
+            )
+
+        assert resp.status_code in (200, 201)
+        assert resp.json()["account_kind"] == "wallet"
+
+    @pytest.mark.asyncio
+    async def test_post_invalid_account_kind_returns_422(self, async_client, mock_pool):
+        """4.2: account_kind='crypto' (fuera de dominio) → 422, sin insertar fila."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock()
+        user_token = make_token({"app_metadata": {"role": "user"}})
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/bank-accounts",
+                json={"name": "Cuenta X", "account_kind": "crypto"},
+                headers={"Authorization": f"Bearer {user_token}"},
+            )
+
+        assert resp.status_code == 422
+        conn.fetchrow.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_post_without_account_kind_creates_bank(self, async_client, mock_pool):
+        """4.3: POST sin account_kind crea la cuenta con 'bank' (default)."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                {"result": {"bank_account_id": BANK_ACCOUNT_ID}},
+                BANK_ACCOUNT_ROW,
+            ]
+        )
+        user_token = make_token({"app_metadata": {"role": "user"}})
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/bank-accounts",
+                json={"name": "Cuenta corriente Galicia"},
+                headers={"Authorization": f"Bearer {user_token}"},
+            )
+
+        assert resp.status_code in (200, 201)
+        assert resp.json()["account_kind"] == "bank"
 
     @pytest.mark.asyncio
     async def test_post_unauthenticated_returns_401(self, async_client, mock_pool):

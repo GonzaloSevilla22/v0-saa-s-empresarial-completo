@@ -124,6 +124,11 @@ _BUSINESS_ERRCODE_STATUS = {
     # motivo — 422 porque es un error de VALIDACIÓN de payload (falta un
     # campo requerido condicionalmente), no un conflicto de estado.
     "P0413": 422,
+    # cuentas-billetera-tipo: rpc_create_bank_account.p_account_kind fuera del
+    # dominio cerrado ('bank'|'wallet') — 422, validación de payload (mismo
+    # tratamiento que P0411/P0410). P0412 ya estaba tomado por
+    # bank-account-ledger (cuenta no encontrada/inactiva); censo re-corrido.
+    "P0414": 422,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

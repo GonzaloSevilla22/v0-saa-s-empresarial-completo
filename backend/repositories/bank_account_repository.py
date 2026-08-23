@@ -43,7 +43,7 @@ class BankAccountRepository(BaseRepository):
         """
         return await self.fetch(
             """
-            SELECT id, account_id, name, bank_name, cbu, alias, currency, is_active
+            SELECT id, account_id, name, bank_name, cbu, alias, currency, account_kind, is_active
             FROM public.bank_accounts
             WHERE account_id = $1
               AND is_active = true
@@ -63,7 +63,7 @@ class BankAccountRepository(BaseRepository):
         cuenta del caller ANTES de listar sus movimientos (IDOR guard)."""
         record = await self.fetchrow(
             """
-            SELECT id, account_id, name, bank_name, cbu, alias, currency, is_active
+            SELECT id, account_id, name, bank_name, cbu, alias, currency, account_kind, is_active
             FROM public.bank_accounts
             WHERE id = $1 AND account_id = $2
             """,
@@ -82,16 +82,20 @@ class BankAccountRepository(BaseRepository):
         currency: str,
         opening_balance: Decimal,
         opening_date: date | None,
+        account_kind: str = "bank",
     ) -> dict | None:
         """Invoca rpc_create_bank_account (SECURITY DEFINER) y re-SELECT-a la fila creada.
 
         La RPC devuelve un jsonb con bank_account_id/account_id/name/currency/
-        opening_balance/is_active (no incluye bank_name/cbu/alias). Se re-SELECT-a
-        por id para armar el shape completo de BankAccountOut, consistente con lo
-        que quedó persistido.
+        opening_balance/account_kind/is_active (no incluye bank_name/cbu/alias).
+        Se re-SELECT-a por id para armar el shape completo de BankAccountOut,
+        consistente con lo que quedó persistido.
+
+        cuentas-billetera-tipo: account_kind es el 8º parámetro posicional,
+        AL FINAL — preserva el orden de los 7 originales (D4 del design.md).
         """
         rpc_row = await self.fetchrow(
-            "SELECT rpc_create_bank_account($1, $2, $3, $4, $5, $6, $7) AS result",
+            "SELECT rpc_create_bank_account($1, $2, $3, $4, $5, $6, $7, $8) AS result",
             name,
             bank_name,
             cbu,
@@ -99,6 +103,7 @@ class BankAccountRepository(BaseRepository):
             currency,
             opening_balance,
             opening_date,
+            account_kind,
         )
         if rpc_row is None:
             return None
@@ -175,7 +180,7 @@ class BankAccountRepository(BaseRepository):
     async def _get_by_id(self, bank_account_id) -> dict | None:
         record = await self.fetchrow(
             """
-            SELECT id, account_id, name, bank_name, cbu, alias, currency, is_active
+            SELECT id, account_id, name, bank_name, cbu, alias, currency, account_kind, is_active
             FROM public.bank_accounts
             WHERE id = $1
             """,

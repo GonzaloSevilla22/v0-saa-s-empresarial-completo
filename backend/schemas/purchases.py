@@ -30,6 +30,11 @@ class PurchaseOperationIn(BaseModel):
     # pos-banco-movimientos (D2): override explícito de la cuenta bancaria
     # destino del egreso. None = default del método (o no escribir nada).
     bank_account_id: uuid.UUID | None = None
+    # compras-proveedor-cuenta-corriente (D4): atributo DE LA OPERACIÓN (no de
+    # línea) — trailing en la RPC, igual que cost_center_id/payment_method_id/
+    # bank_account_id. Si el payment_method imputado es kind='credit', la RPC
+    # exige este campo (P0400 credit_requires_supplier) y postea el cargo real.
+    supplier_id: uuid.UUID | None = None
 
 
 class PurchaseOperationOut(BaseModel):
@@ -59,9 +64,15 @@ class PurchaseOperationUpdateIn(BaseModel):
     incluirlo con un uuid = reimputar. Ver PaymentMethodSelect (frontend).
 
     edicion-preserva-contexto (F1 §D3): `branch_id` usa el mismo contrato
-    tri-estado — `model_fields_set`, nunca `is None`. `supplier_id`/
-    `cost_center_id` se preservan pero NO son parámetro acá (D2/OQ-1): el
-    form de edición de compra no tiene selector para ninguno de los dos hoy.
+    tri-estado — `model_fields_set`, nunca `is None`.
+
+    compras-proveedor-cuenta-corriente (D7, OQ-5 opción A): `supplier_id` y
+    `cost_center_id` entran al MISMO contrato tri-estado — cierra la OQ-1 de
+    edicion-preserva-contexto, que los dejó "preservados pero no parámetro"
+    porque el form de edición no tenía selector para ninguno de los dos. La
+    edición NUNCA postea/revierte cargos de cuenta corriente (una compra con
+    cargo posteado ya es inmutable, P0423) — reimputar acá es solo cambiar
+    una FK.
     """
     purchase_ids: list[str]
     items: list[PurchaseOperationUpdateItemIn]
@@ -69,6 +80,8 @@ class PurchaseOperationUpdateIn(BaseModel):
     description: str | None = None
     payment_method_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = None
+    supplier_id: uuid.UUID | None = None
+    cost_center_id: uuid.UUID | None = None
 
 
 class PurchaseItemOut(BaseModel):
@@ -94,10 +107,15 @@ class PurchaseItemOut(BaseModel):
     payment_method_name: str | None = None
     payment_method_kind: str | None = None
     # edicion-preserva-contexto (D11): branch_id/unit_id expuestos para
-    # prefillear el form de edición (espejo de SaleItemOut). supplier_id NO
-    # se expone: sin selector en el form hoy (D2/OQ-1).
+    # prefillear el form de edición (espejo de SaleItemOut).
     branch_id: uuid.UUID | None = None
     unit_id: uuid.UUID | None = None
+    # compras-proveedor-cuenta-corriente (task 9.2): supplier_id + nombre
+    # (LEFT JOIN suppliers), para el badge del listado y el prefill del
+    # selector de edición — reemplaza el comentario D11 que decía "supplier_id
+    # NO se expone" (era cierto hasta que este change agregó el selector).
+    supplier_id: uuid.UUID | None = None
+    supplier_name: str | None = None
     # pagos-cableados-restantes (D6): derivado de lectura (mismo predicado
     # que el guard P0423 de rpc_atomic_update_purchase_operation), para que
     # la lista deshabilite "Editar" con motivo visible ANTES de que el

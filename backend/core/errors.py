@@ -129,6 +129,12 @@ _BUSINESS_ERRCODE_STATUS = {
     # tratamiento que P0411/P0410). P0412 ya estaba tomado por
     # bank-account-ledger (cuenta no encontrada/inactiva); censo re-corrido.
     "P0414": 422,
+    # compras-proveedor-cuenta-corriente (task 8.2, D3): límite de
+    # proveedores por plan alcanzado. Lo lanza el trigger
+    # fn_guard_supplier_plan_limit (20260817000001) — la ÚNICA capa que ve
+    # TODOS los inserts de suppliers (el service de proveedores NO precuenta,
+    # a diferencia de create_client). Antes de este mapeo salía 500 genérico.
+    "P0B10": 403,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

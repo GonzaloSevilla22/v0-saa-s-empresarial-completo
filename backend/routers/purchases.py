@@ -96,7 +96,17 @@ async def update_purchase_operation(
     payment_method_provided = "payment_method_id" in payload.model_fields_set
     # edicion-preserva-contexto (F1 §D3): mismo contrato tri-estado para branch_id.
     branch_provided = "branch_id" in payload.model_fields_set
+    # compras-proveedor-cuenta-corriente (D7, task 9.4, OQ-5 opción A): mismo
+    # contrato tri-estado para supplier_id y cost_center_id.
+    supplier_provided = "supplier_id" in payload.model_fields_set
+    cost_center_provided = "cost_center_id" in payload.model_fields_set
     await purchases_service.update_purchase_operation(
-        repo, auth, payload, payment_method_provided, branch_provided
+        repo,
+        auth,
+        payload,
+        payment_method_provided,
+        branch_provided,
+        supplier_provided,
+        cost_center_provided,
     )
     return {"ok": True}

@@ -53,6 +53,8 @@ async def update_purchase_operation(
     payload: PurchaseOperationUpdateIn,
     payment_method_provided: bool = False,
     branch_provided: bool = False,
+    supplier_provided: bool = False,
+    cost_center_provided: bool = False,
 ) -> None:
     require_role(auth, ["user", "admin"])
     items = [item.model_dump() for item in payload.items]
@@ -60,6 +62,12 @@ async def update_purchase_operation(
         str(payload.payment_method_id) if payload.payment_method_id is not None else None
     )
     branch_id = str(payload.branch_id) if payload.branch_id is not None else None
+    # compras-proveedor-cuenta-corriente (D7, task 9.4, OQ-5 opción A):
+    # passthrough tri-estado, mismo patrón que payment_method_id/branch_id.
+    supplier_id = str(payload.supplier_id) if payload.supplier_id is not None else None
+    cost_center_id = (
+        str(payload.cost_center_id) if payload.cost_center_id is not None else None
+    )
     await repo.update_operation(
         payload.purchase_ids,
         payload.date,
@@ -69,6 +77,10 @@ async def update_purchase_operation(
         payment_method_provided=payment_method_provided,
         branch_id=branch_id,
         branch_provided=branch_provided,
+        supplier_id=supplier_id,
+        supplier_provided=supplier_provided,
+        cost_center_id=cost_center_id,
+        cost_center_provided=cost_center_provided,
     )
 
 
@@ -90,6 +102,10 @@ async def create_purchase_operation(
     bank_account_id = (
         str(payload.bank_account_id) if payload.bank_account_id is not None else None
     )
+    # compras-proveedor-cuenta-corriente (D4): passthrough del proveedor —
+    # la RPC resuelve pertenencia (P0404) y exige proveedor si kind='credit'
+    # (P0400 credit_requires_supplier).
+    supplier_id = str(payload.supplier_id) if payload.supplier_id is not None else None
     record = await repo.create_operation(
         auth["user_id"],
         account_id,
@@ -100,6 +116,7 @@ async def create_purchase_operation(
         cost_center_id=cost_center_id,
         payment_method_id=payment_method_id,
         bank_account_id=bank_account_id,
+        supplier_id=supplier_id,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de compra")

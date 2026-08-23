@@ -77,3 +77,94 @@ async def test_soft_delete_suppliers_allowed_and_marks_row(mock_conn):
     assert "UPDATE suppliers" in sql
     assert "deleted_at = now()" in sql
     assert "deleted_at IS NULL" in sql
+
+
+# ── compras-proveedor-cuenta-corriente (task 7.3): create/update/count_by_org ─
+
+
+@pytest.mark.asyncio
+async def test_count_by_org_excludes_soft_deleted(mock_conn):
+    """D3: count_by_org existe como lectura útil, pero el service NUNCA la usa
+    para pre-chequear el límite de plan (eso es exclusivo del trigger)."""
+    mock_conn.fetchrow = AsyncMock(return_value={"total": 3})
+    repo = SupplierRepository(mock_conn)
+
+    total = await repo.count_by_org(ACCOUNT_ID)
+
+    assert total == 3
+    sql = mock_conn.fetchrow.call_args.args[0]
+    assert "FROM suppliers" in sql
+    assert "deleted_at IS NULL" in sql
+
+
+@pytest.mark.asyncio
+async def test_create_resolves_legacy_company_id_via_account_members(mock_conn):
+    """suppliers.company_id sigue NOT NULL legacy (FK a companies) — nunca se
+    dropeó tras v20-tenancy-cleanup. El INSERT lo resuelve con el mismo join
+    company_users -> account_members que usó el backfill histórico de
+    20260613000002, sin crear una companies nueva desde el endpoint."""
+    repo = SupplierRepository(mock_conn)
+
+    await repo.create(
+        ACCOUNT_ID,
+        {"name": "Distribuidora Sur", "tax_id": None, "iva_condition": None,
+         "legal_name": None, "email": None, "phone": None},
+    )
+
+    sql = mock_conn.fetchrow.call_args.args[0]
+    assert "INSERT INTO suppliers" in sql
+    assert "company_users" in sql
+    assert "account_members" in sql
+    args = mock_conn.fetchrow.call_args.args
+    assert ACCOUNT_ID in args
+    assert "Distribuidora Sur" in args
+
+
+@pytest.mark.asyncio
+async def test_create_persists_full_fiscal_identity(mock_conn):
+    repo = SupplierRepository(mock_conn)
+
+    await repo.create(
+        ACCOUNT_ID,
+        {
+            "name": "Insumos del Este S.A.",
+            "tax_id": "30-71234567-1",
+            "iva_condition": "responsable_inscripto",
+            "legal_name": "Insumos del Este Sociedad Anónima",
+            "email": "compras@insumosdeleste.com",
+            "phone": "+54 261 555-1111",
+        },
+    )
+
+    args = mock_conn.fetchrow.call_args.args
+    assert "30-71234567-1" in args
+    assert "responsable_inscripto" in args
+    assert "Insumos del Este Sociedad Anónima" in args
+
+
+@pytest.mark.asyncio
+async def test_update_only_sets_provided_fields(mock_conn):
+    mock_conn.fetchrow = AsyncMock(return_value={"id": SUPPLIER_ID, "name": "Distribuidora Sur"})
+    repo = SupplierRepository(mock_conn)
+
+    await repo.update(SUPPLIER_ID, ACCOUNT_ID, {"phone": "+54 261 555-0000"})
+
+    sql = mock_conn.fetchrow.call_args.args[0]
+    assert "UPDATE suppliers" in sql
+    assert "phone" in sql
+    assert "name" not in sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "deleted_at IS NULL" in sql
+
+
+@pytest.mark.asyncio
+async def test_update_with_no_fields_falls_back_to_get_by_id(mock_conn):
+    """Espejo de ClientRepository.update: un payload vacío no emite ningún
+    UPDATE, solo relee la fila vigente."""
+    mock_conn.fetchrow = AsyncMock(return_value={"id": SUPPLIER_ID})
+    repo = SupplierRepository(mock_conn)
+
+    await repo.update(SUPPLIER_ID, ACCOUNT_ID, {})
+
+    sql = mock_conn.fetchrow.call_args.args[0]
+    assert "SELECT * FROM suppliers" in sql
+    assert "UPDATE" not in sql

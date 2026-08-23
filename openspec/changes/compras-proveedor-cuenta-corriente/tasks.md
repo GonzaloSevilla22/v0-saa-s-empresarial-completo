@@ -63,29 +63,29 @@
 
 ## 7. Backend — ABM de proveedores (3 capas)
 
-- [ ] 7.1 **RED**: `backend/tests/test_suppliers_api.py` con los casos de listado, alta, edición y baja. Falla: no existe el router.
-- [ ] 7.2 `backend/schemas/suppliers.py`: `SupplierCreate`, `SupplierUpdate`, `SupplierOut`, reutilizando el `Literal` de condición IVA (importado del módulo canónico, **no** redeclarado). Sin `Any`.
-- [ ] 7.3 Extender `backend/repositories/supplier_repository.py` con `create`, `update` y `count_by_org` (el repositorio ya existe con `list_by_org` / `get_by_id` — **no** crear uno nuevo).
-- [ ] 7.4 `backend/services/suppliers.py`: `require_role(auth, ["user","admin"])` en create/update/delete; baja vía `repo.soft_delete("suppliers", ...)`; **sin** pre-conteo del límite de plan (D3 — comentario apuntando al trigger como única fuente).
-- [ ] 7.5 `backend/routers/suppliers.py` (prefix `/suppliers`) + registro en `backend/main.py`.
-- [ ] 7.6 **TRIANGULATE**: proveedor de otra cuenta → 404 en get/update/delete; usuario sin rol de escritura → rechazo; borrar dos veces → no-op; listado excluye borrados y ordena por nombre.
-- [ ] 7.7 **TRIANGULATE**: alta con identidad fiscal completa y alta solo con nombre, ambas persistidas correctamente.
+- [x] 7.1 **RED**: `backend/tests/test_suppliers_api.py` con los casos de listado, alta, edición y baja. Falla: no existe el router.
+- [x] 7.2 `backend/schemas/suppliers.py`: `SupplierCreate`, `SupplierUpdate`, `SupplierOut`, reutilizando el `Literal` de condición IVA (importado del módulo canónico, **no** redeclarado). Sin `Any`.
+- [x] 7.3 Extender `backend/repositories/supplier_repository.py` con `create`, `update` y `count_by_org` (el repositorio ya existe con `list_by_org` / `get_by_id` — **no** crear uno nuevo).
+- [x] 7.4 `backend/services/suppliers.py`: `require_role(auth, ["user","admin"])` en create/update/delete; baja vía `repo.soft_delete("suppliers", ...)`; **sin** pre-conteo del límite de plan (D3 — comentario apuntando al trigger como única fuente).
+- [x] 7.5 `backend/routers/suppliers.py` (prefix `/suppliers`) + registro en `backend/main.py`.
+- [x] 7.6 **TRIANGULATE**: proveedor de otra cuenta → 404 en get/update/delete; usuario sin rol de escritura → rechazo; borrar dos veces → no-op; listado excluye borrados y ordena por nombre.
+- [x] 7.7 **TRIANGULATE**: alta con identidad fiscal completa y alta solo con nombre, ambas persistidas correctamente.
 
 ## 8. Backend — el límite de plan llega traducido
 
-- [ ] 8.1 **RED**: test que asserte 403 al crear un proveedor por encima del límite del plan. Falla hoy con 500 (`P0B10` sin mapear).
-- [ ] 8.2 **GREEN**: mapear `"P0B10": 403` en `_BUSINESS_ERRCODE_STATUS` (`backend/core/errors.py`) con comentario que cite el trigger de origen.
-- [ ] 8.3 **TRIANGULATE**: el mensaje del guard (plan + límite + acción que destraba) llega al cliente en el `detail` del RFC 7807, y un proveedor borrado libera cupo.
+- [x] 8.1 **RED**: test que asserte 403 al crear un proveedor por encima del límite del plan. Falla hoy con 500 (`P0B10` sin mapear).
+- [x] 8.2 **GREEN**: mapear `"P0B10": 403` en `_BUSINESS_ERRCODE_STATUS` (`backend/core/errors.py`) con comentario que cite el trigger de origen.
+- [x] 8.3 **TRIANGULATE**: el mensaje del guard (plan + límite + acción que destraba) llega al cliente en el `detail` del RFC 7807, y un proveedor borrado libera cupo.
 
 ## 9. Backend — compras con proveedor
 
-- [ ] 9.1 **RED**: test del endpoint de alta de compra con `supplier_id`, asserteando que llega a la RPC y que el listado devuelve `supplier_id`/`supplier_name`.
-- [ ] 9.2 `backend/schemas/purchases.py`: `supplier_id: uuid.UUID | None` en `PurchaseOperationIn`; `supplier_id` en `PurchaseOperationUpdateIn` (tri-estado, documentado como los otros); `supplier_id` + `supplier_name` en `PurchaseItemOut` (reemplazando el comentario D11 que decía "supplier_id NO se expone").
-- [ ] 9.3 `backend/repositories/purchase_repository.py`: passthrough de `supplier_id` en `create_operation` (y en `create_operation_with_event` si comparte la llamada) y de `supplier_id`/`supplier_provided` en `update_operation`; `LEFT JOIN public.suppliers` en `list_paginated_by_operation` para resolver `supplier_name` en el mismo query (mismo patrón que `cost_center_name` y `payment_method_name`).
-- [ ] 9.4 `backend/services/purchases.py` + `backend/routers/purchases.py`: `supplier_provided = "supplier_id" in payload.model_fields_set` en el router (**nunca** `is None`), passthrough al service y al repo.
-- [ ] 9.5 **TRIANGULATE**: alta con proveedor / sin proveedor; edición sin el campo (preserva) / con uuid (reimputa) / con `null` (desimputa).
-- [ ] 9.6 **TRIANGULATE**: el error `P0400` de `credit_requires_supplier` sale como 400 RFC 7807 con `code` y `detail` legibles, y el `P0404` de proveedor inválido sale como 404.
-- [ ] 9.7 **[OQ-5]** Mismo passthrough tri-estado para `cost_center_id` en la edición.
+- [x] 9.1 **RED**: test del endpoint de alta de compra con `supplier_id`, asserteando que llega a la RPC y que el listado devuelve `supplier_id`/`supplier_name`.
+- [x] 9.2 `backend/schemas/purchases.py`: `supplier_id: uuid.UUID | None` en `PurchaseOperationIn`; `supplier_id` en `PurchaseOperationUpdateIn` (tri-estado, documentado como los otros); `supplier_id` + `supplier_name` en `PurchaseItemOut` (reemplazando el comentario D11 que decía "supplier_id NO se expone").
+- [x] 9.3 `backend/repositories/purchase_repository.py`: passthrough de `supplier_id` en `create_operation` (y en `create_operation_with_event` si comparte la llamada) y de `supplier_id`/`supplier_provided` en `update_operation`; `LEFT JOIN public.suppliers` en `list_paginated_by_operation` para resolver `supplier_name` en el mismo query (mismo patrón que `cost_center_name` y `payment_method_name`).
+- [x] 9.4 `backend/services/purchases.py` + `backend/routers/purchases.py`: `supplier_provided = "supplier_id" in payload.model_fields_set` en el router (**nunca** `is None`), passthrough al service y al repo.
+- [x] 9.5 **TRIANGULATE**: alta con proveedor / sin proveedor; edición sin el campo (preserva) / con uuid (reimputa) / con `null` (desimputa).
+- [x] 9.6 **TRIANGULATE**: el error `P0400` de `credit_requires_supplier` sale como 400 RFC 7807 con `code` y `detail` legibles, y el `P0404` de proveedor inválido sale como 404.
+- [x] 9.7 **[OQ-5]** Mismo passthrough tri-estado para `cost_center_id` en la edición.
 
 ## 10. Frontend — datos, tipos y hooks
 

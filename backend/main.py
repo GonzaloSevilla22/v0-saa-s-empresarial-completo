@@ -38,6 +38,7 @@ from backend.routers import (
     sales_orders,
     stock,
     supplier_accounts,
+    suppliers,
     ws,
 )
 
@@ -161,6 +162,8 @@ app.include_router(outbox.router)
 # C-30 v21-customer-supplier-accounts
 app.include_router(customer_accounts.router)
 app.include_router(supplier_accounts.router)
+# compras-proveedor-cuenta-corriente (task 7.5): ABM de proveedores, 3 capas
+app.include_router(suppliers.router)
 # journal-entry-outbox (V2.5 Finanzas — read-only; writes via relay SECURITY DEFINER)
 app.include_router(journal_entries.router)
 # bank-payment-routing C2 (V2.5 BankReconciliation) — read-only picker de cuenta bancaria

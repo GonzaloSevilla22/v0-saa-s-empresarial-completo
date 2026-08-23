@@ -83,6 +83,11 @@ class PurchaseRepository(BaseRepository):
                    p.payment_method_id,
                    pm.name AS payment_method_name,
                    pm.kind AS payment_method_kind,
+                   -- compras-proveedor-cuenta-corriente (task 9.3): badge del
+                   -- listado + prefill del selector de edición, mismo patrón
+                   -- LEFT JOIN que cost_center_name/payment_method_name.
+                   p.supplier_id,
+                   sup.name AS supplier_name,
                    -- pagos-cableados-restantes (D6, task 9.3): MISMO
                    -- predicado que el guard P0423 de
                    -- rpc_atomic_update_purchase_operation. Sin la doble
@@ -120,6 +125,7 @@ class PurchaseRepository(BaseRepository):
             LEFT JOIN products pr ON COALESCE(pi2.product_id, p.product_id) = pr.id
             LEFT JOIN cost_centers cc ON cc.id = p.cost_center_id
             LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+            LEFT JOIN suppliers sup ON sup.id = p.supplier_id
             WHERE p.account_id = $1::uuid
             ORDER BY p.date DESC, p.id
             """,
@@ -178,12 +184,22 @@ class PurchaseRepository(BaseRepository):
         payment_method_provided: bool = False,
         branch_id: str | None = None,
         branch_provided: bool = False,
+        supplier_id: str | None = None,
+        supplier_provided: bool = False,
+        cost_center_id: str | None = None,
+        cost_center_provided: bool = False,
     ) -> None:
         # rpc_atomic_update_purchase_operation hace REVERSE de los ítems viejos +
         # APPLY de los nuevos en una sola transacción (stock sobre branch_stock,
         # C-21 hotfix). RLS/auth.uid() scope vía JWT-passthrough de la conexión.
         # metodos-pago-operaciones (D5): mismo patrón que SalesRepository.update_operation.
         # edicion-preserva-contexto (F1 §D3): branch_provided, mismo contrato tri-estado.
+        # compras-proveedor-cuenta-corriente (D7, task 9.3, OQ-5 opción A):
+        # supplier_id/supplier_provided + cost_center_id/cost_center_provided
+        # TRAILING, después de branch_id/branch_provided (firma 8 -> 12 args
+        # en supabase/migrations/20261009000001, ver p_supplier_id => $9 /
+        # p_supplier_provided => $10 / p_cost_center_id => $11 /
+        # p_cost_center_provided => $12).
         def _default(obj):
             if isinstance(obj, Decimal):
                 return str(obj)
@@ -194,7 +210,9 @@ class PurchaseRepository(BaseRepository):
             SELECT rpc_atomic_update_purchase_operation(
                 $1::text[]::uuid[], $2::date, $3::text, $4::jsonb,
                 p_payment_method_id => $5, p_payment_method_provided => $6,
-                p_branch_id => $7, p_branch_provided => $8
+                p_branch_id => $7, p_branch_provided => $8,
+                p_supplier_id => $9, p_supplier_provided => $10,
+                p_cost_center_id => $11, p_cost_center_provided => $12
             )
             """,
             purchase_ids,
@@ -205,6 +223,10 @@ class PurchaseRepository(BaseRepository):
             payment_method_provided,
             branch_id,
             branch_provided,
+            supplier_id,
+            supplier_provided,
+            cost_center_id,
+            cost_center_provided,
         )
 
     async def create_operation(
@@ -218,10 +240,14 @@ class PurchaseRepository(BaseRepository):
         cost_center_id: str | None = None,
         payment_method_id: str | None = None,
         bank_account_id: str | None = None,
+        supplier_id: str | None = None,
     ) -> dict | None:
         # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         # metodos-pago-operaciones: payment_method_id propagated the same way
         # pos-banco-movimientos: bank_account_id propagated the same way (D2)
+        # compras-proveedor-cuenta-corriente (D4): supplier_id propagated the
+        # same way — TRAILING (9th arg) in rpc_create_purchase_operation, after
+        # bank_account_id (ver p_supplier_id en 20261009000001).
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
             return dict(existing)
@@ -239,7 +265,7 @@ class PurchaseRepository(BaseRepository):
         row = await self._conn.fetchrow(
             """
             SELECT
-                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid)->>'operation_id')::uuid
+                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid, $8::uuid)->>'operation_id')::uuid
                     AS operation_id,
                 'purchase'::text AS operation_kind
             """,
@@ -250,6 +276,7 @@ class PurchaseRepository(BaseRepository):
             cost_center_id,
             payment_method_id,
             bank_account_id,
+            supplier_id,
         )
         return dict(row) if row else None
 
@@ -265,6 +292,7 @@ class PurchaseRepository(BaseRepository):
         cost_center_id: str | None = None,
         payment_method_id: str | None = None,
         bank_account_id: str | None = None,
+        supplier_id: str | None = None,
     ) -> dict | None:
         """C-25 producer: create purchase + emit PurchaseCreated in the SAME transaction.
 
@@ -290,11 +318,12 @@ class PurchaseRepository(BaseRepository):
         # Run mutation + event INSERT in the same transaction (DEC-20)
         # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         # metodos-pago-operaciones: payment_method_id propagated the same way
+        # compras-proveedor-cuenta-corriente: supplier_id propagated the same way
         async with self._conn.transaction():
             row = await self._conn.fetchrow(
                 """
                 SELECT
-                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid)->>'operation_id')::uuid
+                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid, $8::uuid)->>'operation_id')::uuid
                         AS operation_id,
                     'purchase'::text AS operation_kind
                 """,
@@ -305,6 +334,7 @@ class PurchaseRepository(BaseRepository):
                 cost_center_id,
                 payment_method_id,
                 bank_account_id,
+                supplier_id,
             )
 
             if row is None:

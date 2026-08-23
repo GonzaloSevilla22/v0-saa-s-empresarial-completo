@@ -301,15 +301,17 @@ class TestQuoteRepository:
 
     @pytest.mark.asyncio
     async def test_get_quote_queries_by_id(self, quote_repo):
-        """get_quote trae la fila por id."""
+        """get_quote trae la fila por id, scopeado a account_id."""
         repo, conn = quote_repo
         conn.fetchrow = AsyncMock(return_value=QUOTE_ROW)
 
-        row = await repo.get_quote(QUOTE_ID)
+        row = await repo.get_quote(QUOTE_ID, ACCOUNT_ID)
 
         query = conn.fetchrow.call_args[0][0].lower()
         assert "quotes" in query
+        assert "account_id" in query
         assert QUOTE_ID in conn.fetchrow.call_args[0]
+        assert ACCOUNT_ID in conn.fetchrow.call_args[0]
         assert row == QUOTE_ROW
 
     @pytest.mark.asyncio
@@ -318,22 +320,38 @@ class TestQuoteRepository:
         repo, conn = quote_repo
         conn.fetchrow = AsyncMock(return_value=None)
 
-        row = await repo.get_quote("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        row = await repo.get_quote("ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID)
 
         assert row is None
 
     @pytest.mark.asyncio
+    async def test_get_quote_foreign_account_returns_none(self, quote_repo):
+        """fix/tenancy-bank-accounts-leak: quote_id real pero de OTRO tenant
+        → None (WHERE account_id = $2 no matchea), nunca la fila ajena."""
+        repo, conn = quote_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        row = await repo.get_quote(QUOTE_ID, "ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+        assert row is None
+        params = conn.fetchrow.call_args[0]
+        assert QUOTE_ID in params
+        assert "ffffffff-ffff-ffff-ffff-ffffffffffff" in params
+
+    @pytest.mark.asyncio
     async def test_transition_quote_updates_status(self, quote_repo):
-        """transition_quote hace UPDATE del status."""
+        """transition_quote hace UPDATE del status, scopeado a account_id."""
         repo, conn = quote_repo
         conn.fetchrow = AsyncMock(return_value={**QUOTE_ROW, "status": "sent"})
 
-        row = await repo.transition_quote(QUOTE_ID, "sent")
+        row = await repo.transition_quote(QUOTE_ID, "sent", ACCOUNT_ID)
 
         query = conn.fetchrow.call_args[0][0].lower()
         assert "update" in query
         assert "quotes" in query
         assert "status" in query
+        assert "account_id" in query
+        assert ACCOUNT_ID in conn.fetchrow.call_args[0]
         assert row["status"] == "sent"
 
     @pytest.mark.asyncio
@@ -342,9 +360,22 @@ class TestQuoteRepository:
         repo, conn = quote_repo
         conn.fetchrow = AsyncMock(return_value={**QUOTE_ROW, "status": "expired"})
 
-        row = await repo.transition_quote(QUOTE_ID, "expired")
+        row = await repo.transition_quote(QUOTE_ID, "expired", ACCOUNT_ID)
 
         assert row["status"] == "expired"
+
+    @pytest.mark.asyncio
+    async def test_transition_quote_foreign_account_returns_none(self, quote_repo):
+        """fix/tenancy-bank-accounts-leak: write-IDOR guard — un quote_id de
+        OTRO tenant no matchea el UPDATE (0 filas → None), nunca lo muta."""
+        repo, conn = quote_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        row = await repo.transition_quote(
+            QUOTE_ID, "sent", "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        )
+
+        assert row is None
 
     @pytest.mark.asyncio
     async def test_accept_quote_invokes_rpc(self, quote_repo):
@@ -581,15 +612,17 @@ class TestSalesOrderRepository:
 
     @pytest.mark.asyncio
     async def test_get_order_queries_by_id(self, sales_order_repo):
-        """get_order trae una sola fila por id."""
+        """get_order trae una sola fila por id, scopeada a account_id."""
         repo, conn = sales_order_repo
         conn.fetchrow = AsyncMock(return_value=SALES_ORDER_ROW)
 
-        row = await repo.get_order(SALES_ORDER_ID)
+        row = await repo.get_order(SALES_ORDER_ID, ACCOUNT_ID)
 
         query = conn.fetchrow.call_args[0][0].lower()
         assert "sales_orders" in query
+        assert "account_id" in query
         assert SALES_ORDER_ID in conn.fetchrow.call_args[0]
+        assert ACCOUNT_ID in conn.fetchrow.call_args[0]
         assert row == SALES_ORDER_ROW
 
     @pytest.mark.asyncio
@@ -598,9 +631,24 @@ class TestSalesOrderRepository:
         repo, conn = sales_order_repo
         conn.fetchrow = AsyncMock(return_value=None)
 
-        row = await repo.get_order("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        row = await repo.get_order("ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID)
 
         assert row is None
+
+    @pytest.mark.asyncio
+    async def test_get_order_foreign_account_returns_none(self, sales_order_repo):
+        """fix/tenancy-bank-accounts-leak: GET /sales-orders/{id} era IDOR —
+        un sales_order_id real de OTRO tenant devolvía la orden igual. Ahora
+        el WHERE account_id = $2 hace que no matchee → None."""
+        repo, conn = sales_order_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        row = await repo.get_order(SALES_ORDER_ID, "ffffffff-ffff-ffff-ffff-ffffffffffff")
+
+        assert row is None
+        params = conn.fetchrow.call_args[0]
+        assert SALES_ORDER_ID in params
+        assert "ffffffff-ffff-ffff-ffff-ffffffffffff" in params
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -663,8 +711,85 @@ class TestQuoteService:
 
         assert exc_info.value.status_code == 403
 
+    # ── fix/tenancy-bank-accounts-leak: get_quote/transition_quote scoping ──
+
+    @pytest.mark.asyncio
+    async def test_get_quote_passes_account_id_to_repo(self):
+        """get_quote propaga account_id al repo (defensa en profundidad)."""
+        from backend.services import quotes as quotes_service
+
+        repo = AsyncMock()
+        repo.get_quote = AsyncMock(return_value=dict(QUOTE_ROW))
+
+        await quotes_service.get_quote(repo, QUOTE_ID, ACCOUNT_ID)
+
+        repo.get_quote.assert_awaited_once_with(QUOTE_ID, ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_get_quote_404_when_not_owned(self):
+        """Un quote_id de OTRO tenant → 404 (el repo ya no lo devuelve)."""
+        from fastapi import HTTPException
+        from backend.services import quotes as quotes_service
+
+        repo = AsyncMock()
+        repo.get_quote = AsyncMock(return_value=None)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await quotes_service.get_quote(repo, QUOTE_ID, ACCOUNT_ID)
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_transition_quote_404_when_not_owned(self):
+        """write-IDOR guard a nivel service: quote de OTRO tenant → 404 antes
+        de intentar el UPDATE."""
+        from fastapi import HTTPException
+        from backend.services import quotes as quotes_service
+        from backend.schemas.quotes import QuoteTransitionIn
+
+        repo = AsyncMock()
+        repo.get_quote = AsyncMock(return_value=None)
+        writer_auth = {"role": "user"}
+
+        with pytest.raises(HTTPException) as exc_info:
+            await quotes_service.transition_quote(
+                repo, writer_auth, QUOTE_ID, QuoteTransitionIn(action="send"), ACCOUNT_ID
+            )
+
+        assert exc_info.value.status_code == 404
+        repo.transition_quote.assert_not_awaited()
+
 
 class TestSalesOrderService:
+
+    # ── fix/tenancy-bank-accounts-leak: get_order scoping ───────────────────
+
+    @pytest.mark.asyncio
+    async def test_get_order_passes_account_id_to_repo(self):
+        """get_order propaga account_id al repo (defensa en profundidad)."""
+        from backend.services import sales_orders as so_service
+
+        repo = AsyncMock()
+        repo.get_order = AsyncMock(return_value=dict(SALES_ORDER_ROW))
+
+        await so_service.get_order(repo, SALES_ORDER_ID, ACCOUNT_ID)
+
+        repo.get_order.assert_awaited_once_with(SALES_ORDER_ID, ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_get_order_404_when_not_owned(self):
+        """RED (pre-fix): GET /sales-orders/{id} era IDOR — un id de OTRO
+        tenant devolvía la orden igual. GREEN: 404 (el repo ya no la trae)."""
+        from fastapi import HTTPException
+        from backend.services import sales_orders as so_service
+
+        repo = AsyncMock()
+        repo.get_order = AsyncMock(return_value=None)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await so_service.get_order(repo, SALES_ORDER_ID, ACCOUNT_ID)
+
+        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_quick_sale_returns_sales_order_id(self):

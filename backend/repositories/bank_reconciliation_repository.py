@@ -122,21 +122,31 @@ class BankReconciliationRepository(BaseRepository):
         )
         return _jsonb(row["result"])
 
-    # ── Lecturas (RLS SELECT aplica) ──────────────────────────────────────────
+    # ── Lecturas ────────────────────────────────────────────────────────────
+    #
+    # fix/tenancy-bank-accounts-leak (2026-08-22): `account_id` es OBLIGATORIO
+    # en TODOS los métodos de este bloque — "RLS SELECT aplica" (comentario
+    # original de la clase) no alcanza mientras TENANCY_TX_SCOPE_ENABLED
+    # siga apagada (el pool corre como owner de las tablas). Las cuatro
+    # tablas leídas acá (bank_statement_imports, bank_statement_lines,
+    # reconciliation_sessions, reconciliation_matches) denormalizan
+    # account_id directo (mismo patrón C1/D6 documentado en la migración),
+    # así que el fix es un filtro directo, sin JOIN.
 
-    async def list_imports(self, bank_account_id: str) -> list[dict]:
+    async def list_imports(self, bank_account_id: str, account_id: str) -> list[dict]:
         return await self.fetch(
             """
             SELECT id, bank_account_id, file_name, period_from, period_to,
                    line_count, created_at
             FROM public.bank_statement_imports
-            WHERE bank_account_id = $1::uuid
+            WHERE bank_account_id = $1::uuid AND account_id = $2::uuid
             ORDER BY created_at DESC
             """,
             bank_account_id,
+            account_id,
         )
 
-    async def list_import_lines(self, import_id: str) -> list[dict]:
+    async def list_import_lines(self, import_id: str, account_id: str) -> list[dict]:
         """Líneas del import con estado derivado vía EXISTS sobre matches activos (D5)."""
         return await self.fetch(
             """
@@ -146,39 +156,42 @@ class BankReconciliationRepository(BaseRepository):
                      WHERE m.statement_line_id = l.id AND m.status = 'active'
                    ) AS matched
             FROM public.bank_statement_lines l
-            WHERE l.import_id = $1::uuid
+            WHERE l.import_id = $1::uuid AND l.account_id = $2::uuid
             ORDER BY l.line_no
             """,
             import_id,
+            account_id,
         )
 
-    async def get_session(self, session_id: str) -> asyncpg.Record | None:
+    async def get_session(self, session_id: str, account_id: str) -> asyncpg.Record | None:
         return await self.fetchrow(
             """
             SELECT id, bank_account_id, status, period_from, period_to,
                    statement_closing_balance, ledger_closing_balance, difference,
                    close_reason, opened_at, closed_at
             FROM public.reconciliation_sessions
-            WHERE id = $1::uuid
+            WHERE id = $1::uuid AND account_id = $2::uuid
             """,
             session_id,
+            account_id,
         )
 
-    async def list_sessions(self, bank_account_id: str) -> list[dict]:
+    async def list_sessions(self, bank_account_id: str, account_id: str) -> list[dict]:
         return await self.fetch(
             """
             SELECT id, bank_account_id, status, period_from, period_to,
                    statement_closing_balance, ledger_closing_balance, difference,
                    close_reason, opened_at, closed_at
             FROM public.reconciliation_sessions
-            WHERE bank_account_id = $1::uuid
+            WHERE bank_account_id = $1::uuid AND account_id = $2::uuid
             ORDER BY opened_at DESC
             """,
             bank_account_id,
+            account_id,
         )
 
     async def pending_lines(
-        self, bank_account_id: str, period_from: date, period_to: date
+        self, bank_account_id: str, account_id: str, period_from: date, period_to: date
     ) -> list[dict]:
         """Líneas de extracto del período sin match activo."""
         return await self.fetch(
@@ -187,7 +200,8 @@ class BankReconciliationRepository(BaseRepository):
                    false AS matched
             FROM public.bank_statement_lines l
             WHERE l.bank_account_id = $1::uuid
-              AND l.value_date BETWEEN $2::date AND $3::date
+              AND l.account_id = $2::uuid
+              AND l.value_date BETWEEN $3::date AND $4::date
               AND NOT EXISTS (
                 SELECT 1 FROM public.reconciliation_matches m
                 WHERE m.statement_line_id = l.id AND m.status = 'active'
@@ -195,12 +209,13 @@ class BankReconciliationRepository(BaseRepository):
             ORDER BY l.value_date, l.line_no
             """,
             bank_account_id,
+            account_id,
             period_from,
             period_to,
         )
 
     async def pending_movements(
-        self, bank_account_id: str, period_to: date
+        self, bank_account_id: str, account_id: str, period_to: date
     ) -> list[dict]:
         """Movimientos del ledger sin conciliar hasta el corte (RN-D5: por value_date)."""
         return await self.fetch(
@@ -209,15 +224,17 @@ class BankReconciliationRepository(BaseRepository):
                    bm.balance_after, bm.reconciliation_status
             FROM public.bank_movements bm
             WHERE bm.bank_account_id = $1::uuid
+              AND bm.account_id = $2::uuid
               AND bm.reconciliation_status = 'unreconciled'
-              AND COALESCE(bm.value_date, bm.created_at::date) <= $2::date
+              AND COALESCE(bm.value_date, bm.created_at::date) <= $3::date
             ORDER BY COALESCE(bm.value_date, bm.created_at::date), bm.created_at
             """,
             bank_account_id,
+            account_id,
             period_to,
         )
 
-    async def list_matches(self, session_id: str) -> list[dict]:
+    async def list_matches(self, session_id: str, account_id: str) -> list[dict]:
         """Grupos de match ACTIVOS de la sesión (para la lista de conciliados + undo)."""
         return await self.fetch(
             """
@@ -229,15 +246,17 @@ class BankReconciliationRepository(BaseRepository):
             FROM public.reconciliation_matches m
             LEFT JOIN public.bank_statement_lines l ON l.id = m.statement_line_id
             WHERE m.session_id = $1::uuid
+              AND m.account_id = $2::uuid
               AND m.status = 'active'
             GROUP BY m.match_group
             ORDER BY MIN(m.matched_at) DESC
             """,
             session_id,
+            account_id,
         )
 
     async def suggestions(
-        self, bank_account_id: str, period_from: date, period_to: date
+        self, bank_account_id: str, account_id: str, period_from: date, period_to: date
     ) -> list[dict]:
         """Sugerencias 1:1 (D4): monto exacto + value_date ±N días, ambos sin match activo.
 
@@ -260,7 +279,8 @@ class BankReconciliationRepository(BaseRepository):
              AND ABS(l.value_date - COALESCE(bm.value_date, bm.created_at::date))
                  <= {SUGGESTION_DATE_WINDOW_DAYS}
             WHERE l.bank_account_id = $1::uuid
-              AND l.value_date BETWEEN $2::date AND $3::date
+              AND l.account_id = $2::uuid
+              AND l.value_date BETWEEN $3::date AND $4::date
               AND bm.reconciliation_status = 'unreconciled'
               AND NOT EXISTS (
                 SELECT 1 FROM public.reconciliation_matches m
@@ -269,6 +289,7 @@ class BankReconciliationRepository(BaseRepository):
             ORDER BY l.value_date, l.line_no
             """,
             bank_account_id,
+            account_id,
             period_from,
             period_to,
         )

@@ -63,26 +63,40 @@ class CashSessionRepository(BaseRepository):
         END AS adjustments_total
     """
 
-    async def current_session(self, cashbox_id: str) -> asyncpg.Record | None:
+    async def current_session(self, cashbox_id: str, account_id: str) -> asyncpg.Record | None:
+        """fix/tenancy-bank-accounts-leak (2026-08-22): `account_id`
+        obligatorio — antes solo filtraba por cashbox_id (IDOR: un
+        cashbox_id de OTRO tenant devolvía su sesión abierta). cash_sessions
+        no tiene account_id directo — scope vía cashbox_id → cashboxes.
+        branch_id → branches.account_id (mismo camino que la RLS policy
+        cash_sessions_select)."""
         return await self.fetchrow(
             f"""
             SELECT {self._SESSION_COLUMNS}
             FROM public.cash_sessions cs
-            WHERE cs.cashbox_id = $1 AND cs.status = 'open'
+            JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+            JOIN public.branches b ON b.id = cb.branch_id
+            WHERE cs.cashbox_id = $1 AND b.account_id = $2 AND cs.status = 'open'
             LIMIT 1
             """,
             cashbox_id,
+            account_id,
         )
 
-    async def list_sessions(self, cashbox_id: str) -> list[dict]:
+    async def list_sessions(self, cashbox_id: str, account_id: str) -> list[dict]:
+        """fix/tenancy-bank-accounts-leak: mismo IDOR y mismo camino de
+        tenencia que current_session (ver nota ahí)."""
         return await self.fetch(
             f"""
             SELECT {self._SESSION_COLUMNS}
             FROM public.cash_sessions cs
-            WHERE cs.cashbox_id = $1
+            JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+            JOIN public.branches b ON b.id = cb.branch_id
+            WHERE cs.cashbox_id = $1 AND b.account_id = $2
             ORDER BY cs.opened_at DESC
             """,
             cashbox_id,
+            account_id,
         )
 
     # ── CashMovement ─────────────────────────────────────────────────────────
@@ -113,14 +127,24 @@ class CashSessionRepository(BaseRepository):
         )
         return _jsonb(row["result"])
 
-    async def list_movements(self, session_id: str) -> list[dict]:
+    async def list_movements(self, session_id: str, account_id: str) -> list[dict]:
+        """fix/tenancy-bank-accounts-leak (2026-08-22): `account_id`
+        obligatorio — antes solo filtraba por session_id (IDOR: un session_id
+        de OTRO tenant devolvía sus movimientos). cash_movements no tiene
+        account_id directo — scope vía session_id → cash_sessions.
+        cashbox_id → cashboxes.branch_id → branches.account_id (mismo
+        camino que la RLS policy cash_movements_select)."""
         return await self.fetch(
             """
-            SELECT * FROM public.cash_movements
-            WHERE session_id = $1
-            ORDER BY created_at ASC
+            SELECT cm.* FROM public.cash_movements cm
+            JOIN public.cash_sessions cs ON cs.id = cm.session_id
+            JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+            JOIN public.branches b ON b.id = cb.branch_id
+            WHERE cm.session_id = $1 AND b.account_id = $2
+            ORDER BY cm.created_at ASC
             """,
             session_id,
+            account_id,
         )
 
     # ── Historial por cashbox — D2 (todas las sesiones, no solo la abierta) ────
@@ -129,6 +153,7 @@ class CashSessionRepository(BaseRepository):
         self,
         cashbox_id: str,
         *,
+        account_id: str,
         page: int,
         size: int,
         types: list[str] | None = None,
@@ -139,10 +164,15 @@ class CashSessionRepository(BaseRepository):
         """GET /cashboxes/{id}/movements (D2 del design): cash_movements ⋈
         cash_sessions por cashbox_id, orden created_at DESC, con filtros de
         tipo/texto/fecha en SQL (corrige el atajo del molde de Stock — acá el
-        buscador va al servidor, task 7.3). RLS de cash_movements ya cubre el
-        aislamiento por cuenta vía la cadena de FKs (JWT-passthrough)."""
-        where = ["cs.cashbox_id = $1"]
-        params: list = [cashbox_id]
+        buscador va al servidor, task 7.3).
+
+        fix/tenancy-bank-accounts-leak (2026-08-22): `account_id` OBLIGATORIO
+        — "RLS ya cubre el aislamiento" no era cierto (el pool corre como
+        owner de las tablas mientras TENANCY_TX_SCOPE_ENABLED sigue apagada);
+        sin este JOIN+filtro, un cashbox_id de OTRO tenant devolvía su
+        historial completo (IDOR)."""
+        where = ["cs.cashbox_id = $1", "b.account_id = $2"]
+        params: list = [cashbox_id, account_id]
 
         if types:
             params.append(types)
@@ -169,6 +199,8 @@ class CashSessionRepository(BaseRepository):
               cs.opened_at AS session_opened_at, cs.status AS session_status
             FROM public.cash_movements cm
             JOIN public.cash_sessions cs ON cs.id = cm.session_id
+            JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+            JOIN public.branches b ON b.id = cb.branch_id
             WHERE {where_sql}
             ORDER BY cm.created_at DESC
         """
@@ -176,6 +208,8 @@ class CashSessionRepository(BaseRepository):
             SELECT COUNT(*)
             FROM public.cash_movements cm
             JOIN public.cash_sessions cs ON cs.id = cm.session_id
+            JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+            JOIN public.branches b ON b.id = cb.branch_id
             WHERE {where_sql}
         """
         return await self.paginate(select_sql, count_sql, *params, page=page, size=size)

@@ -46,6 +46,7 @@ class CustomerAccountRepository(BaseRepository):
     async def list_movements(
         self,
         customer_account_id: str,
+        account_id: str,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict]:
@@ -54,17 +55,23 @@ class CustomerAccountRepository(BaseRepository):
         Usado por `get_account` (vista combinada saldo+historial) — mantiene
         su firma limit/offset. Para el endpoint dedicado de listado usar
         `list_movements_page` (v3-api-standards §2.7).
+
+        fix/tenancy-bank-accounts-leak (2026-08-22): `account_id` obligatorio
+        — antes solo filtraba por customer_account_id (IDOR: un id de OTRO
+        tenant devolvía sus movimientos). account_id está desnormalizado en
+        la tabla (RLS), así que el filtro es directo, sin JOIN.
         """
         return await self.fetch(
             """
             SELECT *
             FROM public.customer_account_movements
-            WHERE customer_account_id = $1::uuid
+            WHERE customer_account_id = $1::uuid AND account_id = $2::uuid
             ORDER BY created_at DESC
-            LIMIT $2
-            OFFSET $3
+            LIMIT $3
+            OFFSET $4
             """,
             customer_account_id,
+            account_id,
             limit,
             offset,
         )
@@ -73,25 +80,30 @@ class CustomerAccountRepository(BaseRepository):
         self,
         customer_account_id: str,
         *,
+        account_id: str,
         page: int,
         size: int,
     ) -> dict:
         """v3-api-standards §2.7: envelope estándar {items,total,page,pages}
         para GET /customer-accounts/{id}/movements (reemplaza limit/offset +
-        lista plana)."""
+        lista plana).
+
+        fix/tenancy-bank-accounts-leak: `account_id` obligatorio — mismo IDOR
+        que list_movements (ver nota ahí)."""
         return await self.paginate(
             """
             SELECT *
             FROM public.customer_account_movements
-            WHERE customer_account_id = $1::uuid
+            WHERE customer_account_id = $1::uuid AND account_id = $2::uuid
             ORDER BY created_at DESC
             """,
             """
             SELECT COUNT(*)
             FROM public.customer_account_movements
-            WHERE customer_account_id = $1::uuid
+            WHERE customer_account_id = $1::uuid AND account_id = $2::uuid
             """,
             customer_account_id,
+            account_id,
             page=page,
             size=size,
         )

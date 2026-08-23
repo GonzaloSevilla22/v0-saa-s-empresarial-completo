@@ -80,9 +80,12 @@ async def list_quotes(
 async def get_quote(
     repo: QuoteRepository,
     quote_id: str,
+    account_id: str,
 ) -> dict:
-    """Obtiene un presupuesto por id. 404 si no existe."""
-    record = await repo.get_quote(quote_id)
+    """Obtiene un presupuesto por id, scopeado a la cuenta del caller. 404 si
+    no existe O no le pertenece (mismo 404 en ambos casos — no revela si el
+    id existe en otro tenant, fix/tenancy-bank-accounts-leak)."""
+    record = await repo.get_quote(quote_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
     return dict(record)
@@ -93,11 +96,16 @@ async def transition_quote(
     auth: dict,
     quote_id: str,
     payload: QuoteTransitionIn,
+    account_id: str,
 ) -> dict:
     """
     Transiciona el estado de un presupuesto.
     Acciones: send → sent; reject → rejected; expire → expired.
     Guard: writer.
+
+    fix/tenancy-bank-accounts-leak: account_id ahora obligatorio — sin él,
+    esto era un write-IDOR (cualquier usuario autenticado podía transicionar
+    el estado de un quote de OTRO tenant).
     """
     require_role(auth, ["user", "admin"])
 
@@ -110,7 +118,7 @@ async def transition_quote(
     new_status = action_to_status[payload.action]
 
     # Verificar estado actual
-    current = await repo.get_quote(quote_id)
+    current = await repo.get_quote(quote_id, account_id)
     if current is None:
         raise HTTPException(status_code=404, detail="Presupuesto no encontrado")
 
@@ -123,7 +131,7 @@ async def transition_quote(
         )
 
     try:
-        record = await repo.transition_quote(quote_id, new_status)
+        record = await repo.transition_quote(quote_id, new_status, account_id)
     except asyncpg.PostgresError as exc:
         _map_postgres_error(exc)
 

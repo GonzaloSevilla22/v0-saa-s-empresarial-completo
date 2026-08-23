@@ -20,12 +20,14 @@ service y los invariantes en las RPCs.
 from __future__ import annotations
 
 import json
+import uuid
 
 import asyncpg
 from fastapi import APIRouter, Depends, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
 from backend.repositories.bank_reconciliation_repository import (
     BankReconciliationRepository,
@@ -104,8 +106,9 @@ async def list_statement_imports(
     bank_account_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await repo.list_imports(bank_account_id)
+    return await repo.list_imports(bank_account_id, str(account_id))
 
 
 @router.get("/statement-imports/{import_id}/lines", response_model=list[StatementLineOut])
@@ -113,8 +116,9 @@ async def list_statement_lines(
     import_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await repo.list_import_lines(import_id)
+    return await repo.list_import_lines(import_id, str(account_id))
 
 
 @router.post("/bank-accounts/{bank_account_id}/movements", response_model=ManualMovementOut)
@@ -166,8 +170,9 @@ async def list_sessions(
     bank_account_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await repo.list_sessions(bank_account_id)
+    return await repo.list_sessions(bank_account_id, str(account_id))
 
 
 @router.get("/reconciliation-sessions/{session_id}", response_model=SessionOut)
@@ -175,8 +180,9 @@ async def get_session(
     session_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await recon_service.get_session_or_404(repo, session_id)
+    return await recon_service.get_session_or_404(repo, session_id, str(account_id))
 
 
 @router.get("/reconciliation-sessions/{session_id}/pending")
@@ -184,9 +190,10 @@ async def session_pending(
     session_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Líneas de extracto y movimientos del ledger aún sin conciliar (panel doble de la UI)."""
-    return await recon_service.session_pending(repo, session_id)
+    return await recon_service.session_pending(repo, session_id, str(account_id))
 
 
 @router.get("/reconciliation-sessions/{session_id}/suggestions", response_model=list[SuggestionOut])
@@ -194,9 +201,10 @@ async def session_suggestions(
     session_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Sugerencias 1:1 (monto exacto + fecha ±3 días). Solo propone — confirmar pasa por /matches."""
-    return await recon_service.session_suggestions(repo, session_id)
+    return await recon_service.session_suggestions(repo, session_id, str(account_id))
 
 
 # ── Matching ───────────────────────────────────────────────────────────────────
@@ -206,9 +214,10 @@ async def list_matches(
     session_id: str,
     auth: dict = Depends(get_current_user),
     repo: BankReconciliationRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """Grupos de match activos de la sesión (lista de conciliados; base del undo)."""
-    return await repo.list_matches(session_id)
+    return await repo.list_matches(session_id, str(account_id))
 
 
 @router.post("/reconciliation-sessions/{session_id}/matches", response_model=MatchGroupOut)

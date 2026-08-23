@@ -535,11 +535,15 @@ class TestBankAccountSoftDelete:
     @pytest.mark.asyncio
     async def test_list_active_filters_is_active_and_not_deleted(self, bank_account_repo):
         """list_active mantiene is_active=true (baja logica reversible, D1) y
-        ahora tambien excluye borrados (deleted_at IS NULL, RN-B1)."""
+        ahora tambien excluye borrados (deleted_at IS NULL, RN-B1).
+
+        fix/tenancy-bank-accounts-leak: account_id es obligatorio (regresión
+        cubierta a fondo en test_tenancy_bank_accounts_leak.py) — acá solo se
+        confirma que los otros dos filtros siguen intactos."""
         repo, conn = bank_account_repo
         conn.fetch = AsyncMock(return_value=[])
 
-        await repo.list_active()
+        await repo.list_active(ACCOUNT_ID)
 
         sql = conn.fetch.call_args.args[0]
         assert "is_active = true" in sql

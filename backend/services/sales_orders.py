@@ -27,9 +27,11 @@ async def list_orders(
 async def get_order(
     repo: SalesOrderRepository,
     sales_order_id: str,
+    account_id: str,
 ) -> dict:
-    """Obtiene una orden de venta por id. 404 si no existe."""
-    record = await repo.get_order(sales_order_id)
+    """Obtiene una orden de venta por id, scopeada a la cuenta del caller.
+    404 si no existe O no le pertenece (fix/tenancy-bank-accounts-leak)."""
+    record = await repo.get_order(sales_order_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Orden de venta no encontrada")
     return dict(record)

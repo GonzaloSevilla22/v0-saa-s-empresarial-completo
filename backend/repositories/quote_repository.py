@@ -99,35 +99,50 @@ class QuoteRepository(BaseRepository):
             account_id,
         )
 
-    async def get_quote(self, quote_id: str) -> asyncpg.Record | None:
-        """Obtiene un quote por id."""
+    async def get_quote(self, quote_id: str, account_id: str) -> asyncpg.Record | None:
+        """Obtiene un quote por id, SCOPEADO a la cuenta del caller.
+
+        fix/tenancy-bank-accounts-leak (2026-08-22): antes no filtraba por
+        account_id — un quote_id de OTRO tenant (adivinado o filtrado) era
+        legible igual (IDOR), porque RLS sola no alcanza mientras
+        TENANCY_TX_SCOPE_ENABLED siga apagada."""
         return await self.fetchrow(
-            "SELECT * FROM public.quotes WHERE id = $1::uuid",
+            "SELECT * FROM public.quotes WHERE id = $1::uuid AND account_id = $2::uuid",
             quote_id,
+            account_id,
         )
 
-    async def list_quote_items(self, quote_id: str) -> list[dict]:
-        """Lista los ítems de un quote."""
+    async def list_quote_items(self, quote_id: str, account_id: str) -> list[dict]:
+        """Lista los ítems de un quote, scopeado a la cuenta del caller
+        (account_id está desnormalizado en quote_items — mismo criterio)."""
         return await self.fetch(
             """
             SELECT * FROM public.quote_items
-            WHERE quote_id = $1::uuid
+            WHERE quote_id = $1::uuid AND account_id = $2::uuid
             ORDER BY id
             """,
             quote_id,
+            account_id,
         )
 
-    async def transition_quote(self, quote_id: str, new_status: str) -> asyncpg.Record | None:
-        """UPDATE del status del quote. Devuelve la fila actualizada."""
+    async def transition_quote(
+        self, quote_id: str, new_status: str, account_id: str
+    ) -> asyncpg.Record | None:
+        """UPDATE del status del quote, scopeado a la cuenta del caller.
+
+        fix/tenancy-bank-accounts-leak: antes el UPDATE no filtraba por
+        account_id — cualquier usuario autenticado podía transicionar el
+        estado de un quote de OTRO tenant (write-IDOR, no solo lectura)."""
         return await self.fetchrow(
             """
             UPDATE public.quotes
             SET status = $2::text
-            WHERE id = $1::uuid
+            WHERE id = $1::uuid AND account_id = $3::uuid
             RETURNING *
             """,
             quote_id,
             new_status,
+            account_id,
         )
 
     # ── accept (vía RPC SECURITY DEFINER) ────────────────────────────────────

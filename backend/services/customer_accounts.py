@@ -63,7 +63,7 @@ async def get_account(
     if row is None:
         raise HTTPException(status_code=404, detail="Cuenta corriente no encontrada para este cliente")
     account = dict(row)
-    movements = await repo.list_movements(str(account["id"]))
+    movements = await repo.list_movements(str(account["id"]), account_id)
     account["movements"] = movements
     return account
 
@@ -71,11 +71,19 @@ async def get_account(
 async def list_movements(
     repo: CustomerAccountRepository,
     customer_account_id: str,
+    account_id: str,
     page: int = 0,
     size: int = 50,
 ) -> dict:
-    """v3-api-standards §2.7: envelope estándar {items,total,page,pages}."""
-    return await repo.list_movements_page(customer_account_id, page=page, size=size)
+    """v3-api-standards §2.7: envelope estándar {items,total,page,pages}.
+
+    fix/tenancy-bank-accounts-leak (2026-08-22): `account_id` obligatorio —
+    antes GET /customer-accounts/{id}/movements era un IDOR (cualquier
+    usuario autenticado podía leer los movimientos de la cuenta corriente de
+    OTRO tenant con solo conocer/adivinar el customer_account_id)."""
+    return await repo.list_movements_page(
+        customer_account_id, account_id=account_id, page=page, size=size
+    )
 
 
 async def register_payment_received(

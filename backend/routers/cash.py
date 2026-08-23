@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
 from backend.repositories.cashbox_repository import CashboxRepository
 from backend.repositories.cash_session_repository import CashSessionRepository
@@ -62,8 +63,9 @@ async def list_cashboxes(
     branch_id: str,
     auth: dict = Depends(get_current_user),
     repo: CashboxRepository = Depends(get_cashbox_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await cash_service.list_cashboxes(repo, branch_id)
+    return await cash_service.list_cashboxes(repo, branch_id, str(account_id))
 
 
 @router.post("/cashboxes", response_model=CashboxOut, status_code=201)
@@ -92,8 +94,9 @@ async def current_session(
     cashbox_id: str,
     auth: dict = Depends(get_current_user),
     repo: CashSessionRepository = Depends(get_session_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await cash_service.current_session(repo, cashbox_id)
+    return await cash_service.current_session(repo, cashbox_id, str(account_id))
 
 
 @router.get("/cashboxes/{cashbox_id}/sessions", response_model=list[CashSessionOut])
@@ -101,8 +104,9 @@ async def list_sessions(
     cashbox_id: str,
     auth: dict = Depends(get_current_user),
     repo: CashSessionRepository = Depends(get_session_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await cash_service.list_sessions(repo, cashbox_id)
+    return await cash_service.list_sessions(repo, cashbox_id, str(account_id))
 
 
 @router.post("/sessions/{session_id}/close", response_model=CloseSessionOut)
@@ -136,8 +140,9 @@ async def list_movements(
     session_id: str,
     auth: dict = Depends(get_current_user),
     repo: CashSessionRepository = Depends(get_session_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
-    return await cash_service.list_movements(repo, session_id)
+    return await cash_service.list_movements(repo, session_id, str(account_id))
 
 
 @router.get("/cashboxes/{cashbox_id}/movements", response_model=CashMovementPageOut)
@@ -151,10 +156,12 @@ async def list_cashbox_movements(
     date_to: date | None = Query(None, alias="to"),
     auth: dict = Depends(get_current_user),
     repo: CashSessionRepository = Depends(get_session_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
     """ledger-movement-history (D2): historial de TODAS las sesiones de la
     caja — a diferencia de GET /sessions/{id}/movements (que sigue existiendo
     sin cambios, task 5.8), esta ruta no corta en la sesión abierta."""
     return await cash_service.list_movements_by_cashbox(
-        repo, cashbox_id, page=page, size=size, types=types, q=q, date_from=date_from, date_to=date_to,
+        repo, cashbox_id, str(account_id), page=page, size=size,
+        types=types, q=q, date_from=date_from, date_to=date_to,
     )

@@ -121,39 +121,50 @@ async def register_manual_movement(
     )
 
 
-# ── Lecturas (sin guard de rol: RLS SELECT ya limita al tenant) ────────────────
+# ── Lecturas ────────────────────────────────────────────────────────────────
+#
+# fix/tenancy-bank-accounts-leak (2026-08-22): "RLS SELECT ya limita al
+# tenant" (comentario original) era falso mientras TENANCY_TX_SCOPE_ENABLED
+# siga apagada — cada lectura ahora exige account_id explícito. Una vez que
+# get_session_or_404 valida pertenencia (404 si el session_id no es del
+# caller), session_suggestions/session_pending derivan bank_account_id DEL
+# session_id ya validado — nunca de un path param separado — así que heredan
+# el mismo scope sin una segunda verificación.
 
 async def get_session_or_404(
-    repo: BankReconciliationRepository, session_id: str
+    repo: BankReconciliationRepository, session_id: str, account_id: str
 ) -> dict:
-    record = await repo.get_session(session_id)
+    record = await repo.get_session(session_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Sesión de conciliación no encontrada")
     return dict(record)
 
 
 async def session_suggestions(
-    repo: BankReconciliationRepository, session_id: str
+    repo: BankReconciliationRepository, session_id: str, account_id: str
 ) -> list[dict]:
-    session = await get_session_or_404(repo, session_id)
+    session = await get_session_or_404(repo, session_id, account_id)
     return await repo.suggestions(
         bank_account_id=str(session["bank_account_id"]),
+        account_id=account_id,
         period_from=session["period_from"],
         period_to=session["period_to"],
     )
 
 
 async def session_pending(
-    repo: BankReconciliationRepository, session_id: str
+    repo: BankReconciliationRepository, session_id: str, account_id: str
 ) -> dict:
-    session = await get_session_or_404(repo, session_id)
+    session = await get_session_or_404(repo, session_id, account_id)
     lines = await repo.pending_lines(
         bank_account_id=str(session["bank_account_id"]),
+        account_id=account_id,
         period_from=session["period_from"],
         period_to=session["period_to"],
     )
     movements = await repo.pending_movements(
         bank_account_id=str(session["bank_account_id"]),
+        account_id=account_id,
         period_to=session["period_to"],
     )
     return {"session": session, "pending_lines": lines, "pending_movements": movements}

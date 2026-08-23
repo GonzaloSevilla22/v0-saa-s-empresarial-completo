@@ -42,6 +42,10 @@ interface PurchaseApiRow {
   // expuestos por separado (sin pata de caja — las compras no la tienen).
   has_account_charge?: boolean
   has_bank_movement?: boolean
+  // compras-proveedor-cuenta-corriente (task 9.2/10.4): supplier_id + nombre
+  // resueltos en el mismo query del backend (LEFT JOIN suppliers).
+  supplier_id?: string | null
+  supplier_name?: string | null
 }
 
 interface PurchasesPageResponse {
@@ -81,6 +85,8 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     isPaymentLocked: p.is_payment_locked ?? false,
     hasAccountCharge: p.has_account_charge ?? false,
     hasBankMovement:  p.has_bank_movement  ?? false,
+    supplierId:   p.supplier_id   ?? null,
+    supplierName: p.supplier_name ?? null,
   }
 }
 
@@ -176,6 +182,13 @@ export function usePurchases() {
          * bancaria destino del egreso. null/ausente = default del método.
          */
         bankAccountId?: string | null
+        /**
+         * compras-proveedor-cuenta-corriente (D4): atributo DE LA OPERACIÓN
+         * (no de línea), igual que costCenterId/paymentMethodId — se manda
+         * SIEMPRE (null cuando no hay proveedor elegido), a diferencia del
+         * tri-estado de la edición.
+         */
+        supplierId?: string | null
       }
     }): Promise<PurchaseOperationResult> => {
       const payload = {
@@ -186,6 +199,8 @@ export function usePurchases() {
         // metodos-pago-operaciones: shared by all lines of the operation
         payment_method_id: opMeta.paymentMethodId ?? null,
         bank_account_id:  opMeta.bankAccountId ?? null,
+        // compras-proveedor-cuenta-corriente (D4): shared by all lines of the operation
+        supplier_id:      opMeta.supplierId ?? null,
         items: items.map(item => ({
           product_id:  item.productId,
           amount:      item.unitCost,
@@ -262,6 +277,21 @@ export function usePurchases() {
          * tri-estado por ausencia — ver el comentario espejo en use-sales.ts.
          */
         branchId?: string | null
+        /**
+         * compras-proveedor-cuenta-corriente (D7): supplierId usa el MISMO
+         * contrato tri-estado por AUSENCIA de la clave — ausente preserva el
+         * vigente, `null` desimputa, un uuid reimputa. Nunca por `is None`
+         * en el backend (model_fields_set).
+         */
+        supplierId?: string | null
+        /**
+         * review B (FE-1/OQ-5 A): costCenterId usa el MISMO contrato
+         * tri-estado por AUSENCIA que supplierId/branchId/paymentMethodId —
+         * DB (rpc_atomic_update_purchase_operation, 12 args) y backend
+         * (routers/purchases.py, "cost_center_id" in model_fields_set) ya lo
+         * aceptaban desde OQ-5 opción A; le faltaba el passthrough acá.
+         */
+        costCenterId?: string | null
       }
     }) => {
       const items = newItems.map(item => ({
@@ -287,6 +317,15 @@ export function usePurchases() {
       // edicion-preserva-contexto: mismo patrón de inclusión condicional.
       if ("branchId" in opMeta) {
         payload.branch_id = opMeta.branchId ?? null
+      }
+      // compras-proveedor-cuenta-corriente (D7): mismo patrón — ausente del
+      // objeto meta = ausente del body = preservar el vigente.
+      if ("supplierId" in opMeta) {
+        payload.supplier_id = opMeta.supplierId ?? null
+      }
+      // review B (FE-1/OQ-5 A): mismo patrón de inclusión condicional.
+      if ("costCenterId" in opMeta) {
+        payload.cost_center_id = opMeta.costCenterId ?? null
       }
       return pythonClient.put<void>("/purchases/operation", payload)
     },

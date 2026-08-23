@@ -11,7 +11,7 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote
+  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -24,7 +24,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { getFirstName, capitalizeName } from "@/lib/helpers/user-helpers"
 
-const navGroups = [
+// compras-proveedor-cuenta-corriente (task 11.4): exportado para testear la
+// posición/href/icono de la entrada "Proveedores" sin montar el árbol
+// completo de Sidebar (que requiere SidebarProvider) — ver
+// __tests__/components/app-sidebar-nav-groups.test.ts.
+export const navGroups = [
   {
     label: "Principal",
     items: [
@@ -52,6 +56,9 @@ const navGroups = [
       { title: "Productos", href: "/productos", icon: Package, pro: false, proOnly: false },
       { title: "Stock", href: "/stock", icon: Warehouse, pro: false, proOnly: false },
       { title: "Clientes", href: "/clientes", icon: Users, pro: false, proOnly: false },
+      // compras-proveedor-cuenta-corriente (D9): un proveedor es un maestro,
+      // no una operación — simetría con "Clientes", no cuelga de Operaciones.
+      { title: "Proveedores", href: "/proveedores", icon: Truck, pro: false, proOnly: false },
       { title: "Sucursales", href: "/sucursales", icon: MapPin, pro: false, proOnly: true },
     ],
   },

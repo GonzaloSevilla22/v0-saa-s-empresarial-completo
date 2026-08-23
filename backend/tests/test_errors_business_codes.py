@@ -58,6 +58,12 @@ def _body(resp) -> dict:
         # delete-guard-ledgers: hay que compensar caja y no hay sesión
         # abierta en esa caja.
         ("P0426", 409),
+        # compras-proveedor-cuenta-corriente (task 8.2, D3): límite de
+        # proveedores por plan alcanzado — trg_guard_supplier_plan_limit
+        # (fn_guard_supplier_plan_limit, 20260817000001) es la ÚNICA capa que
+        # ve todos los inserts de suppliers; antes de este mapeo el rechazo
+        # salía 500 genérico.
+        ("P0B10", 403),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

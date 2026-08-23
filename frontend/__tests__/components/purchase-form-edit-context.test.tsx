@@ -23,7 +23,28 @@ vi.mock("@/components/branches/BranchSelect", () => ({
     <div data-testid="branch-select-value">{value ?? "null"}</div>
   ),
 }))
-vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
+// review B (FE-1/OQ-5 A): mock informativo (a diferencia de `() => null`)
+// para poder verificar prefill + el patrón de "tocado" — value/onChange
+// espejo del mock de BranchSelect de arriba.
+vi.mock("@/components/cost-centers/CostCenterSelect", () => ({
+  CostCenterSelect: ({
+    value,
+    onChange,
+  }: {
+    value: string | null
+    onChange: (v: string | null) => void
+  }) => (
+    <div>
+      <div data-testid="cost-center-select-value">{value ?? "null"}</div>
+      <button type="button" data-testid="cost-center-change" onClick={() => onChange("cc-2")}>
+        cambiar
+      </button>
+      <button type="button" data-testid="cost-center-clear" onClick={() => onChange(null)}>
+        limpiar
+      </button>
+    </div>
+  ),
+}))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
   PaymentMethodSelect: () => null,
   // pos-banco-movimientos (D9): mock no-op, no ejercitado por este test
@@ -37,6 +58,15 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
 vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: () => ({ paymentMethods: [], isLoading: false }),
 }))
+// compras-proveedor-cuenta-corriente (D10): mismo motivo — mock explícito, no
+// pythonClient real (que revienta sin NEXT_PUBLIC_BACKEND_URL en tests).
+vi.mock("@/hooks/data/use-suppliers", () => ({
+  useSuppliers: () => ({ suppliers: [], addSupplier: vi.fn() }),
+}))
+vi.mock("@/hooks/data/use-supplier-account", () => ({
+  useSupplierAccount: () => ({ data: null }),
+}))
+vi.mock("@/components/ui/searchable-select", () => ({ SearchableSelect: () => null }))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))
@@ -87,7 +117,10 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     unitId: "unit-kg",
     isPaymentLocked: false,
     hasAccountCharge: false,
+    supplierId: null,
+    supplierName: null,
     hasBankMovement: false,
+    costCenterId: null,
     ...overrides,
   }
 }
@@ -120,5 +153,52 @@ describe("PurchaseForm — edición preserva contexto (branch/unit)", () => {
     await vi.waitFor(() => expect(updatePurchaseOperationMock).toHaveBeenCalledTimes(1))
     const call = updatePurchaseOperationMock.mock.calls[0][0]
     expect(call.newItems[0].unitId).toBe("unit-kg")
+  })
+})
+
+// review B (FE-1/OQ-5 A): costCenterId ya era aceptado tri-estado por
+// DB+backend (OQ-5 opción A) pero el form ni prefilleaba ni reenviaba nada —
+// el CostCenterSelect estaba montado sin ningún efecto real (mismo defecto
+// documentado para branchId/supplierId antes de edicion-preserva-contexto /
+// D7). A diferencia de branchId (que SIEMPRE se reenvía), acá se sigue el
+// patrón "tocado": ausente si el usuario no interactuó con el selector.
+describe("PurchaseForm — edición: costCenterId por 'tocado' (OQ-5)", () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("prefillea costCenterId desde editingOperation en el selector", () => {
+    render(<PurchaseForm onSuccess={() => {}} editingOperation={makeOperation({ costCenterId: "cc-1" })} />)
+    expect(screen.getByTestId("cost-center-select-value").textContent).toBe("cc-1")
+  })
+
+  it("sin tocar el selector, costCenterId NO viaja en el payload (preserva el vigente)", async () => {
+    render(<PurchaseForm onSuccess={() => {}} editingOperation={makeOperation({ costCenterId: "cc-1" })} />)
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+
+    await vi.waitFor(() => expect(updatePurchaseOperationMock).toHaveBeenCalledTimes(1))
+    const call = updatePurchaseOperationMock.mock.calls[0][0]
+    expect("costCenterId" in call.meta).toBe(false)
+  })
+
+  it("cambiando el centro de costo, el nuevo valor viaja en el payload", async () => {
+    render(<PurchaseForm onSuccess={() => {}} editingOperation={makeOperation({ costCenterId: "cc-1" })} />)
+    fireEvent.click(screen.getByTestId("cost-center-change"))
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+
+    await vi.waitFor(() => expect(updatePurchaseOperationMock).toHaveBeenCalledTimes(1))
+    const call = updatePurchaseOperationMock.mock.calls[0][0]
+    expect(call.meta.costCenterId).toBe("cc-2")
+  })
+
+  it("limpiando el centro de costo, viaja null explícito (desimputa)", async () => {
+    render(<PurchaseForm onSuccess={() => {}} editingOperation={makeOperation({ costCenterId: "cc-1" })} />)
+    fireEvent.click(screen.getByTestId("cost-center-clear"))
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+
+    await vi.waitFor(() => expect(updatePurchaseOperationMock).toHaveBeenCalledTimes(1))
+    const call = updatePurchaseOperationMock.mock.calls[0][0]
+    expect("costCenterId" in call.meta).toBe(true)
+    expect(call.meta.costCenterId).toBeNull()
   })
 })

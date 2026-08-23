@@ -30,7 +30,11 @@ export default function ProveedorAccountPage({ params }: PageProps) {
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild className="h-8 w-8 shrink-0">
-          <Link href="/compras">
+          {/* compras-proveedor-cuenta-corriente (D9/task 11.5): antes apuntaba
+              a /compras (nunca hubo ruta de origen real desde ahí — la
+              pantalla era inalcanzable). Ahora vuelve al listado que la
+              enlaza (acción de fila "Cuenta corriente" en /proveedores). */}
+          <Link href="/proveedores">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>

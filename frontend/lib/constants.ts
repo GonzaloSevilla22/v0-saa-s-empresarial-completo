@@ -1,3 +1,5 @@
+import type { IvaCondition } from "@/lib/types"
+
 // ── Legacy plan constants (C-01: @deprecated) ────────────────────────────────
 // These constants reflect the old 2-tier free/pro model.
 // @deprecated Use PLAN_LIMITS instead. Values now live in the `plan_limits` DB
@@ -5,8 +7,22 @@
 // imports until C-02 removes all references.
 export const MAX_PRODUCTS_FREE = 20
 export const MAX_CLIENTS_FREE = 100
+// compras-proveedor-cuenta-corriente: fallback estático del plan gratis
+// (max_suppliers=20 — ver plan_limits), mismo criterio que MAX_CLIENTS_FREE.
+export const MAX_SUPPLIERS_FREE = 20
 export const MAX_HISTORY_MONTHS_FREE = 3
 export const MAX_INSIGHTS_FREE = 5
+
+// ── FiscalIdentity (RN-96) — condición IVA compartida entre Customer y Supplier ─
+// Reutilización antes que repetición (regla PO 2026-08-02): antes vivía SOLO en
+// client-form.tsx; compras-proveedor-cuenta-corriente (D2) la extrae acá para
+// que supplier-form.tsx la comparta sin redeclararla.
+export const IVA_CONDITION_OPTIONS: { value: IvaCondition; label: string }[] = [
+  { value: "responsable_inscripto", label: "Responsable inscripto" },
+  { value: "monotributista",        label: "Monotributista" },
+  { value: "exento",                label: "Exento" },
+  { value: "consumidor_final",      label: "Consumidor final" },
+]
 
 // ── 4-tier plan limits (C-01 billing-schema-migration) ───────────────────────
 // These values mirror the `plan_limits` seed in 20260605000001_billing_schema.sql.

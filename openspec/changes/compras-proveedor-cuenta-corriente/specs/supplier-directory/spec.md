@@ -55,10 +55,10 @@ El sistema SHALL borrar proveedores mediante soft delete (`deleted_at` + `delete
 - **WHEN** el proveedor se borra
 - **THEN** las compras conservan su `supplier_id` y el nombre del proveedor sigue siendo resoluble para su lectura
 
-#### Scenario: Borrar dos veces es un no-op
+#### Scenario: Borrar dos veces responde 404 sin modificar filas
 
 - **WHEN** se borra un proveedor ya borrado
-- **THEN** la operación no modifica ninguna fila adicional y no produce un error de estado
+- **THEN** la operación responde 404 —el proveedor borrado ya no es visible para las lecturas— y no modifica ninguna fila: `deleted_at` y `deleted_by` conservan los valores del primer borrado. Es el mismo comportamiento que el borrado de un cliente
 
 ### Requirement: El límite de proveedores del plan tiene una sola definición
 

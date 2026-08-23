@@ -33,8 +33,15 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // sólo evita que el usuario llegue hasta ese error.
 // pos-banco-movimientos (D8): is_payment_locked ahora también se dispara por
 // un bank_movement posteado (egreso) — mensaje actualizado.
+// compras-proveedor-cuenta-corriente (D9/task 13.3): el texto anterior decía
+// "Emití una nota de crédito y registrá una compra nueva" — copiado del lado
+// venta, donde SÍ existe nota de crédito. Las compras no la tienen (D8 del
+// design): el camino de corrección real es borrar la operación
+// (rpc_delete_purchase_operation compensa cta cte + banco + stock) y
+// recargarla. El motivo ahora también nombra explícitamente que el cargo es
+// del PROVEEDOR (antes era genérico y no distinguía de qué cuenta).
 const PAYMENT_LOCKED_REASON =
-  "No editable: esta operación ya tiene un cargo de cuenta corriente o un movimiento bancario registrado. Emití una nota de crédito y registrá una compra nueva."
+  "No editable: esta operación ya tiene un cargo de cuenta corriente del proveedor o un movimiento bancario registrado. Para corregirla, borrá esta compra (revierte el cargo y repone el stock) y volvé a cargarla."
 
 interface PurchaseOperationsListProps {
   purchases:       Purchase[]
@@ -337,6 +344,11 @@ export function PurchaseOperationsList({
                     <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
                       {op.items[0]?.paymentMethodName ?? "Sin especificar"}
                     </Badge>
+                    {/* compras-proveedor-cuenta-corriente (D9): badge de
+                        proveedor, junto a centro de costo y forma de pago. */}
+                    <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
+                      {op.supplierName ?? "Sin proveedor"}
+                    </Badge>
                   </div>
                 </div>
 
@@ -356,6 +368,11 @@ export function PurchaseOperationsList({
                     )}
                     <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
                       {op.items[0]?.paymentMethodName ?? "Sin especificar"}
+                    </Badge>
+                    {/* compras-proveedor-cuenta-corriente (D9): badge de
+                        proveedor, junto a centro de costo y forma de pago. */}
+                    <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
+                      {op.supplierName ?? "Sin proveedor"}
                     </Badge>
                   </div>
                   <div className="flex justify-center">

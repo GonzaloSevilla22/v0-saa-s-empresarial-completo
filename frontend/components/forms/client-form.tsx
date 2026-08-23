@@ -9,18 +9,12 @@ import { toast } from "sonner"
 import { MessageCircle, CheckCircle2, AlertCircle, Landmark } from "lucide-react"
 import { isValidWhatsAppPhone, normalizeWhatsAppPhone, PHONE_FORMAT_HINT } from "@/lib/phone-utils"
 import { isValidTaxId, CUIT_FORMAT_HINT } from "@/lib/cuit-utils"
+import { IVA_CONDITION_OPTIONS } from "@/lib/constants"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Client, IvaCondition } from "@/lib/types"
 
 const IVA_NONE = "none"
-
-const IVA_OPTIONS: { value: IvaCondition; label: string }[] = [
-  { value: "responsable_inscripto", label: "Responsable inscripto" },
-  { value: "monotributista",        label: "Monotributista" },
-  { value: "exento",                label: "Exento" },
-  { value: "consumidor_final",      label: "Consumidor final" },
-]
 
 interface ClientFormProps {
   onSuccess: () => void
@@ -221,7 +215,7 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">
                 <SelectItem value={IVA_NONE}>Sin especificar</SelectItem>
-                {IVA_OPTIONS.map((opt) => (
+                {IVA_CONDITION_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                 ))}
               </SelectContent>

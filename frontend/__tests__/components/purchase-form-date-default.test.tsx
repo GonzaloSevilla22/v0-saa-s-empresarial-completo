@@ -20,6 +20,17 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
 vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: () => ({ paymentMethods: [], isLoading: false }),
 }))
+// compras-proveedor-cuenta-corriente (D10): PurchaseForm ahora llama a
+// useSuppliers()/useSupplierAccount() directo — mock explícito para no
+// disparar el pythonClient real (que revienta sin NEXT_PUBLIC_BACKEND_URL en
+// este entorno de test).
+vi.mock("@/hooks/data/use-suppliers", () => ({
+  useSuppliers: () => ({ suppliers: [], addSupplier: vi.fn() }),
+}))
+vi.mock("@/hooks/data/use-supplier-account", () => ({
+  useSupplierAccount: () => ({ data: null }),
+}))
+vi.mock("@/components/ui/searchable-select", () => ({ SearchableSelect: () => null }))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))

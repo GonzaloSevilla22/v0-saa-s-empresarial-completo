@@ -56,7 +56,7 @@ export function buildContentSecurityPolicy(): string {
 // /auth/* routes are not in this list, ensuring no idle-check loop is possible).
 export const PROTECTED_PREFIXES = [
   "/dashboard", "/ventas", "/compras", "/productos", "/stock",
-  "/clientes", "/gastos", "/insights", "/simulador", "/comunidad",
+  "/clientes", "/proveedores", "/gastos", "/insights", "/simulador", "/comunidad",
   "/cursos", "/configuracion", "/copiloto-ia", "/ferias", "/seguros", "/admin",
 ]
 

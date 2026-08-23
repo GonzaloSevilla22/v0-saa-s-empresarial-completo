@@ -11,7 +11,7 @@
 | H2 | Doble ledger de inventario | Sistema A (activo): `stock_movements` 492, `branch_stock` 2.249. Sistema B (semi-muerto): `inventory_stock` 19, `inventory_movements` 22, **`warehouses` 6 (no 0)**, `product_variants` 56. | 🔴 |
 | H3 | Venta plana + venta con ítems | 128/129 ventas con `product_id` en header; `sale_items` 23 filas (referencia `variant_id`, no `product_id`). `purchases` 181/184 planas; `purchase_items` 18. | 🔴 |
 | H4 | Dual-ledger por sucursal | Comentario literal en schema de `branch_stock`: "when a sale or purchase has branch_id, this table is updated instead of products.stock". | 🔴 |
-| H5 | Cliente sin identidad fiscal | `clients` sin `tax_id`/CUIT; `suppliers` sí tiene `tax_id` pero sin `account_id`. | 🟠 |
+| H5 | Cliente sin identidad fiscal — **actualizado 2026-08-23** (`compras-proveedor-cuenta-corriente`) | `clients` tiene identidad fiscal completa desde C-22 (`tax_id`/`iva_condition`/`legal_name`, nota bajo `clients` más abajo). La afirmación original de esta fila — *"`suppliers` sí tiene `tax_id`"* — era **correcta**: verificado contra prod, `public.suppliers` ya traía `tax_id`/`email`/`phone` del schema pre-migraciones. Lo que sí era incorrecto era *"sin `account_id`"* — `suppliers` siempre tuvo `account_id` (las 4 políticas RLS de `20260613000004` ya scopean por esa columna). `compras-proveedor-cuenta-corriente` agrega `iva_condition`+`legal_name` (mismo VO `FiscalIdentity` que `clients`, RN-96) y vuelve `company_id` nullable — ver sección `suppliers` más abajo. **No confundir con `invoice_suppliers`**: es el directorio del módulo OCR, keyed por `user_id`, sin relación con `suppliers`. | ✅ resuelto |
 | H6 | Scope creep | 14+ tablas de comunidad/verticals en `public` (mayoría vacías; `courses` 6, `course_enrollments` 4). | 🟠 |
 | H7 | Insights duplicados | `insights` 427 filas (`content`+`actionable`, sin `account_id`) vs `ai_insights` 726 (`message`+`priority`, con `account_id`) — schemas distintos. | 🟡 |
 | H8 | Bien hecho — conservar | `operation_idempotency` (23), `plan_limits` (4), `billing_events` (52), **`events` outbox existe con 0 filas (lista, sin wiring)**, `audit_logs` 0, RLS al 100%. | ✅ |
@@ -138,6 +138,23 @@ unit_id         UUID    FK units_of_measure(id)
 date            DATE
 created_at      TIMESTAMP
 ```
+
+### `suppliers` — Proveedores (columnas documentadas 2026-08-23, `compras-proveedor-cuenta-corriente`)
+```sql
+id              UUID        PK
+account_id      UUID        FK accounts(id)     -- tenancy directo, siempre existió (RLS 20260613000004)
+company_id      UUID        FK companies(id), NULLABLE  -- legacy, DROP NOT NULL por este change (sin backfill, sin FK removida)
+name            TEXT
+email           TEXT                             -- ya existía en prod antes de este change (schema pre-migraciones)
+phone           TEXT                             -- idem
+tax_id          TEXT                             -- idem — CUIT/DNI, RN-96 FiscalIdentity
+iva_condition   TEXT        CHECK (mismo vocabulario que clients.iva_condition: responsable_inscripto | monotributista | exento | consumidor_final) -- nuevo, este change
+legal_name      TEXT                             -- nuevo, este change
+created_at      TIMESTAMPTZ
+deleted_at      TIMESTAMPTZ                      -- soft delete (v3-soft-delete-policy)
+deleted_by      UUID
+```
+> Sin `CREATE TABLE` versionado en `supabase/migrations/` — la forma real viene del schema pre-migraciones (mismo caso que otras tablas de esta era, ver H1). `email`/`phone`/`tax_id`/`account_id`/`company_id` ya estaban en prod; `iva_condition`/`legal_name` y el `company_id` nullable los agrega `compras-proveedor-cuenta-corriente` (2026-08-23). **No confundir con `invoice_suppliers`** (más abajo): esa es el directorio del módulo OCR, keyed por `user_id`, sin relación con `suppliers`.
 
 ### `expenses` — Gastos
 ```sql

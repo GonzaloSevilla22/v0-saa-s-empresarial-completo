@@ -61,10 +61,10 @@ Tres piezas entran en el camino real **sin una línea de código nueva**, y este
 
 ## Impact
 
-**DB** — una migración idempotente, `supabase/migrations/20261007000001_compras_proveedor_cuenta_corriente.sql` (MAX local = `20261006000001`; **el MAX vivo en prod se verifica antes de nombrar el archivo**, como en toda la saga):
-- `public.suppliers`: `+ tax_id text`, `+ iva_condition text` (CHECK contra el mismo vocabulario que `clients`), `+ legal_name text`, `+ email text`, `+ phone text`. Índice de listado sobre `(account_id) WHERE deleted_at IS NULL`.
+**DB** — una migración idempotente, `supabase/migrations/20261009000001_compras_proveedor_cuenta_corriente.sql` (MAX local = `20261007000001` (`cuentas-billetera-tipo`, #447); `20261008000001` reservado por `cuenta-corriente-party-guard` (#450); **el MAX vivo en prod se verifica antes de nombrar el archivo**, como en toda la saga):
+- `public.suppliers`: `+ tax_id text`, `+ iva_condition text` (CHECK contra el mismo vocabulario que `clients`), `+ legal_name text`, `+ email text`, `+ phone text`. Índice de listado sobre `(account_id) WHERE deleted_at IS NULL`. `company_id` pasa a nullable (`DROP NOT NULL`, guardado y drift-tolerant, mismo patrón que `20260702000002`/`20260804000006`) — hallazgo del apply de fase B: seguía siendo `NOT NULL` legacy con FK a `companies(id)` desde antes de `v20-tenancy-cleanup`, y ningún INSERT lo había ejercitado hasta el ABM de proveedores de este change. Sin este fix, `SupplierRepository.create()` fallaba con `23502` en cuentas sin mapeo `company_users`/`account_members`.
 - `rpc_create_purchase_operation`: firma 8 → **9 args** (`+ p_supplier_id`). ⇒ `DROP FUNCTION IF EXISTS` con la firma exacta vieja + `CREATE OR REPLACE` partiendo del **`pg_get_functiondef` de la función VIVA**, + `REVOKE ALL FROM PUBLIC` + `REVOKE EXECUTE FROM anon` + `GRANT EXECUTE TO authenticated` reafirmados en el mismo archivo (gotcha `ALTER DEFAULT PRIVILEGES`, gate `test_function_acl_gate.sql`).
-- `rpc_atomic_update_purchase_operation`: firma 8 → **10 args** (`+ p_supplier_id`, `+ p_supplier_provided`), mismo tratamiento.
+- `rpc_atomic_update_purchase_operation`: firma 8 → **12 args** (`+ p_supplier_id`, `+ p_supplier_provided`, `+ p_cost_center_id`, `+ p_cost_center_provided` — la OQ-5 se implementó por su opción recomendada A), mismo tratamiento.
 - Gates SQL RED→GREEN dentro de la migración (patrón de la saga).
 - `.github/workflows/KPI_Validation.yml`: la migración se agrega como **último eslabón de la cadena de reapply** del paso "Verify G1/G4 migrations are idempotent on reapply" — cambia dos firmas, así que el reapply de `20261002000001` y anteriores crearía overloads fantasma (mecanismo 42725 ya documentado cinco veces en ese paso).
 

@@ -113,6 +113,16 @@ export interface PurchaseOperation {
    * caja — las compras no tienen opt-in de caja). */
   hasAccountCharge: boolean
   hasBankMovement: boolean
+  /** compras-proveedor-cuenta-corriente (D4): proveedor imputado a la
+   * operación (editable, tri-estado — D7). null = sin proveedor. */
+  supplierId: string | null
+  /** compras-proveedor-cuenta-corriente (task 9.2): nombre resuelto por el
+   * listado (LEFT JOIN suppliers), para el badge. */
+  supplierName: string | null
+  /** review B (FE-1/OQ-5 A): centro de costo imputado a la operación
+   * (editable, tri-estado — DB/backend ya lo aceptan desde OQ-5; esto es lo
+   * que le faltaba al form de edición para prefillear el CostCenterSelect). */
+  costCenterId: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -144,6 +154,9 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         isPaymentLocked: !!purchase.isPaymentLocked,
         hasAccountCharge: !!purchase.hasAccountCharge,
         hasBankMovement: !!purchase.hasBankMovement,
+        supplierId: purchase.supplierId ?? null,
+        supplierName: purchase.supplierName ?? null,
+        costCenterId: purchase.costCenterId ?? null,
       })
     }
   }

@@ -31,6 +31,8 @@
 
 `knowledge-base/04_modelo_de_datos.md` (H5) y `modelo-dominio-aliadata-v2.md` (§H5) afirman *"`suppliers` sí tiene `tax_id`"*. **Es falso para `public.suppliers`**: la tabla que tiene `cuit`/`address`/`email`/`phone` es `invoice_suppliers`, el directorio del módulo OCR, keyed por `user_id` y sin relación con `suppliers`. La afirmación de la KB describe la tabla equivocada. Este change cierra el gap real en `public.suppliers` y deja la KB alineada.
 
+> **Corrección (apply, 2026-08-23)**: este párrafo estaba equivocado. La task 2.2 (fase A) verificó contra prod, read-only, que `public.suppliers` **ya tenía** `tax_id`/`email`/`phone` — la afirmación original de la KB era correcta, no describía la tabla equivocada. `invoice_suppliers` existe y es en efecto una tabla distinta (OCR, keyed por `user_id`), pero eso no invalidaba lo que decía la KB sobre `suppliers`. Lo que este change agrega de verdad es `iva_condition`+`legal_name` (D2) y `company_id` nullable (hallazgo de fase B, ver nota al final de D2). La KB (`knowledge-base/04_modelo_de_datos.md` H5 + nueva sección `suppliers`, y `modelo-dominio-aliadata-v2.md` H5) quedó corregida en consecuencia por la task 15.1.
+
 ### Restricciones
 
 - **Governance MEDIUM**: se toca dinero sobre helpers que ya están en producción (`_pay_register_party_charge`) y sobre la RPC de alta de compra, que es el hot path de un módulo con tráfico real (104 compras en 30 días). Implementación por pasos, con checkpoints explícitos (ver §Migration Plan).
@@ -74,6 +76,10 @@ RN-96 lo pide explícitamente (*"`FiscalIdentity` es un Value Object compartido 
 
 *Alternativa descartada*: solo `tax_id` + contacto, sin `iva_condition`/`legal_name`. Ahorra dos columnas nullable y rompe la simetría que la regla de negocio pide por escrito. Ver **OQ-3**.
 
+**Hallazgo del apply (fase B)**: además de las cinco columnas nuevas, `suppliers.company_id` seguía siendo `NOT NULL` legacy (FK a `companies(id)`, de antes de `v20-tenancy-cleanup`) — `clients.company_id` ya es nullable desde `20260613000003`, pero nadie había ejercitado un INSERT real en `suppliers` hasta el ABM de este change, así que el gap nunca se manifestó. Se agregó un `ALTER TABLE ... DROP NOT NULL` guardado (drift-tolerant, mismo patrón que `20260702000002`/`20260804000006`) al STEP 1 de la migración, sin tocar el FK ni backfillear. `SupplierRepository.create()` es ahora un mirror exacto de `ClientRepository.create()` — sin `company_id` en el INSERT.
+
+> **Corrección (apply, 2026-08-23, task 15.1)**: el primer párrafo de esta sección dice *"`suppliers` suma `tax_id`, `iva_condition`, `legal_name`, `email`, `phone`"* como si las cinco fueran nuevas. No lo son: la task 2.2 (fase A) verificó contra prod que `tax_id`/`email`/`phone` **ya existían** en `public.suppliers` antes de este change. Lo que efectivamente agrega este change es `iva_condition` + `legal_name` (el CHECK y el VO compartido siguen siendo correctos, RN-96) y, como documenta el párrafo de arriba, `company_id` nullable. Ver `knowledge-base/04_modelo_de_datos.md` §`suppliers` para las columnas finales documentadas.
+
 ### D3 — El límite por plan se delega en el trigger; el service NO cuenta
 
 `trg_guard_supplier_plan_limit` ya es, en palabras de su propio `COMMENT`, *"la única capa que ve todos los inserts"*. El service de proveedores **no** replica el conteo: deja que el trigger falle y mapea `P0B10` → **403** en `backend/core/errors.py`, donde hoy no está mapeado y saldría 500.
@@ -113,7 +119,7 @@ Igual criterio para la pertenencia: `p_supplier_id` que no exista, no pertenezca
 
 ### D7 — La edición reimputa el proveedor por contrato tri-estado
 
-`rpc_atomic_update_purchase_operation` suma `p_supplier_id uuid DEFAULT NULL` + `p_supplier_provided boolean DEFAULT false` (8 → 10 args), y el router lo resuelve con `"supplier_id" in payload.model_fields_set` — **nunca** con `payload.supplier_id is None`. Es el mismo contrato ya usado para `payment_method_id` (D5 de `metodos-pago-operaciones`) y `branch_id` (D3 de `edicion-preserva-contexto`): no informado = preservar, informado con `null` = desimputar, informado con uuid = reimputar.
+`rpc_atomic_update_purchase_operation` suma `p_supplier_id uuid DEFAULT NULL` + `p_supplier_provided boolean DEFAULT false` (8 → 10 args; **12 en la implementación final**, porque la OQ-5 se resolvió por su opción recomendada y `cost_center_id` entró al mismo contrato — ver OQ-5), y el router lo resuelve con `"supplier_id" in payload.model_fields_set` — **nunca** con `payload.supplier_id is None`. Es el mismo contrato ya usado para `payment_method_id` (D5 de `metodos-pago-operaciones`) y `branch_id` (D3 de `edicion-preserva-contexto`): no informado = preservar, informado con `null` = desimputar, informado con uuid = reimputar.
 
 Esto **cierra la OQ-1 de `edicion-preserva-contexto`**, que dejó `supplier_id` "preservado pero no parámetro" precisamente porque *"el form de edición de compra no tiene selector para ninguno de los dos hoy"*. Ahora lo tiene.
 
@@ -163,9 +169,9 @@ El form de venta ya resuelve el problema idéntico: combobox buscable + "Nuevo c
 
 ### D12 — Migración: dos firmas cambian ⇒ DROP+CREATE, REVOKE en el mismo archivo, y reapply final en CI
 
-- `DROP FUNCTION IF EXISTS public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid);` (firma exacta vieja) antes del `CREATE OR REPLACE` con 9 args. Idem `rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean)` → 10 args.
+- `DROP FUNCTION IF EXISTS public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid);` (firma exacta vieja) antes del `CREATE OR REPLACE` con 9 args. Idem `rpc_atomic_update_purchase_operation(uuid[], date, text, jsonb, uuid, boolean, uuid, boolean)` → **12 args** (`p_supplier_id`/`p_supplier_provided` + `p_cost_center_id`/`p_cost_center_provided`, OQ-5 opción A).
 - Tras el `DROP+CREATE`, los ACLs se pierden ⇒ `REVOKE ALL ... FROM PUBLIC` + `REVOKE EXECUTE ... FROM anon` (explícito: el proyecto tiene `ALTER DEFAULT PRIVILEGES` que otorga EXECUTE a `anon` en toda función nueva) + `GRANT EXECUTE ... TO authenticated`, **en el mismo archivo**. Lo verifica `test_function_acl_gate.sql`.
-- `KPI_Validation.yml`: se agrega `20261007000001` como **último** `psql -f` de la cadena de reapply. Sin eso, el reapply de `20261002000001` recrea las firmas de 8 args como overloads fantasma y toda llamada posicional falla con 42725 ("function is not unique") — mecanismo ya documentado cinco veces en ese paso.
+- `KPI_Validation.yml`: se agrega `20261009000001` como **último** `psql -f` de la cadena de reapply. Sin eso, el reapply de `20261002000001` recrea las firmas de 8 args como overloads fantasma y toda llamada posicional falla con 42725 ("function is not unique") — mecanismo ya documentado cinco veces en ese paso.
 - Todo el DDL de tabla con `IF NOT EXISTS`; el CHECK de `iva_condition` con `NOT VALID` (0 filas hoy, pero el patrón es el de la saga) y `DROP CONSTRAINT IF EXISTS` antes de crearlo.
 
 ## Risks / Trade-offs
@@ -187,7 +193,7 @@ El form de venta ya resuelve el problema idéntico: combobox buscable + "Nuevo c
 Un solo PR de implementación (más el de archive), con checkpoints de governance MEDIUM en el medio.
 
 1. **Safety net**: correr la suite backend completa y los tests de compras del frontend; registrar el baseline (`N/N passing`). Cualquier fallo previo se reporta, no se arregla acá.
-2. **Verificar el MAX de migraciones vivo en prod** antes de nombrar el archivo (`20261007000001` es la expectativa; el MAX local es `20261006000001`).
+2. **Verificar el MAX de migraciones vivo en prod** antes de nombrar el archivo (`20261009000001` es la expectativa: el MAX local es `20261007000001` — `cuentas-billetera-tipo`, #447 — y `20261008000001` está reservado por `cuenta-corriente-party-guard`, #450, todavía sin aplicar).
 3. **Capturar el `pg_get_functiondef` vivo** de `rpc_create_purchase_operation` y `rpc_atomic_update_purchase_operation` y diffearlo contra el último archivo de migración. *(Checkpoint 1: si difieren, se reporta antes de seguir.)*
 4. **DB** — migración con: columnas de `suppliers`, las dos RPCs, ACLs, gates. Aplicar local, correr los gates, verificar idempotencia reaplicando el archivo dos veces.
 5. **Backend** — repos/services/routers/schemas de proveedores; passthrough de `supplier_id` en compras; mapeo de `P0B10`. TDD por task.
@@ -195,7 +201,11 @@ Un solo PR de implementación (más el de archive), con checkpoints de governanc
 7. **Verificación visual** desktop + mobile, claro + oscuro.
 8. *(Checkpoint 2)*: demo al PO — crear un proveedor, cargar una compra a crédito, ver el saldo en `/proveedores/[id]/cuenta`, intentar editarla (bloqueo `P0423`) y borrarla (compensación).
 9. **CI**: `KPI_Validation.yml` con el reapply final; verde en validate-kpis + vitest + pytest + playwright + Vercel.
-10. **Merge** ⇒ build + deploy + migración automáticos. Verificar post-merge que el MAX en prod es `20261007000001`.
+10. **Merge** ⇒ build + deploy + migración automáticos. Verificar post-merge que el MAX en prod es `20261009000001`.
+
+**Coordinación con `cuenta-corriente-party-guard` (activo, 0/64, propuesto 2026-08-23 por otra sesión — #448/#450)**: reservó `20261008000001` y endurece `c30_get_or_create_supplier_account` (guard de pertenencia `P0404`) + revoca `authenticated` en `_pay_register_party_charge`. No hay conflicto de archivos (su design lo confirma) y el revoke no afecta a nuestra RPC (`PERFORM` como definer). Dos reglas: (a) nuestra migración es `20261009000001`, numerada **después** de la suya aunque la suya no esté aplicada — si la nuestra mergea primero, el apply de la suya debe verificar que `db push`/la integración de GitHub no saltee una versión menor que el MAX (usar `--include-all` si hace falta); (b) D6 mantiene el chequeo de pertenencia del proveedor **dentro** de `rpc_create_purchase_operation` (defensa en profundidad, mismo criterio que party-guard §2), así el camino nuevo no depende del orden de merge. Al archivar, el segundo de los dos rebasea sus deltas de `supplier-account` y `party-account-charge` sobre la spec ya sincronizada.
+
+**SPEC-07 (review A) — al archivar hay que reescribir una frase de `party-account-charge`.** El delta de `cuenta-corriente-party-guard` (`openspec/changes/cuenta-corriente-party-guard/specs/party-account-charge/spec.md`, requirement del par `(cuenta, parte)` coherente) justifica poner el guard en la resolución de la cuenta corriente con esta afirmación: *"El helper NO SHALL confiar en que su llamador lo haya verificado —los caminos de alta de venta y de compra reciben el identificador de la parte del payload del cliente y no lo validan—"*. Desde este change esa frase es **falsa para la compra**: `rpc_create_purchase_operation` valida pertenencia y `deleted_at` del proveedor antes de tocar nada (D6, defensa en profundidad, deliberadamente redundante con el party-guard). El que archive **segundo** SHALL reescribirla para que diga que el camino de compra **sí** valida como defensa en profundidad y que la verificación canónica —la que cubre a todos los llamadores, presentes y futuros— es la del party-guard en `c30_get_or_create_*_account`. La conclusión normativa (dónde vive el guard obligatorio) no cambia; lo que cambia es el hecho que la sostiene, y una spec que afirma un hecho falso induce al próximo lector a "arreglar" una validación que ya existe.
 
 **Rollback**: la migración es aditiva en datos (columnas nullable, sin backfill). Revertir el comportamiento = reaplicar los cuerpos previos de las dos RPCs (el `p_supplier_id` queda como parámetro ignorado) sin dropear columnas ni tocar `supplier_account_movements`. Un cargo ya posteado se revierte por su camino normal (borrado de la operación → `_pay_reverse_party_charge`), nunca con DELETE.
 

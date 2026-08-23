@@ -680,20 +680,35 @@ BEGIN
   );
   RAISE NOTICE 'PASS (9d): una venta SIN cargo ni movimiento posteado sigue siendo editable — D6 no sobre-bloquea.';
 
-  -- (9e) compra con cargo de cuenta corriente (vía el helper, simulando el
-  -- futuro camino de compras-proveedor-cuenta-corriente) → edición bloqueada
+  -- (9e) compra con cargo de cuenta corriente → edición bloqueada.
+  --
+  -- compras-proveedor-cuenta-corriente: este gate SIMULABA el cargo llamando a
+  -- mano a _pay_register_party_charge, porque cuando se escribió no existía
+  -- ningún camino que lo posteara ("simulando el futuro camino de
+  -- compras-proveedor-cuenta-corriente"). Ese futuro llegó: la RPC ahora recibe
+  -- p_supplier_id y postea el cargo ella misma cuando el kind es 'credit', así
+  -- que la simulación se reemplaza por el camino REAL — y de paso el gate deja
+  -- de depender de un helper invocado a mano.
+  --
+  -- p_supplier_id es ahora OBLIGATORIO con kind='credit' (guard
+  -- credit_requires_supplier, P0400): sin él esta llamada sería rechazada.
   SELECT public.rpc_create_purchase_operation(
     p_idempotency_key => 'gate-pcr-9e-purchase',
     p_date             => public.reporting_local_today(),
     p_description      => '__gate_pcr_purchase_charged__',
     p_items             => jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'amount', 100, 'quantity', 1)),
     p_branch_id         => v_branch_id,
-    p_payment_method_id => v_pm_credit
+    p_payment_method_id => v_pm_credit,
+    p_supplier_id       => v_supplier_id
   ) INTO v_result;
   v_op_id := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_purchase_id FROM public.purchases WHERE operation_id = v_op_id LIMIT 1;
 
-  PERFORM public._pay_register_party_charge(v_account_id, 'supplier', v_supplier_id, 100, v_op_id, v_op_id);
+  IF NOT EXISTS (
+    SELECT 1 FROM public.supplier_account_movements WHERE reference_id = v_op_id
+  ) THEN
+    RAISE EXCEPTION 'GATE PAGOS-CABLEADOS-RESTANTES FAILED (9e-pre): la compra a crédito con proveedor debería haber posteado el cargo por el camino real (compras-proveedor-cuenta-corriente D8) — sin cargo, el bloqueo P0423 de abajo no probaría nada.';
+  END IF;
 
   v_rejected := false;
   BEGIN

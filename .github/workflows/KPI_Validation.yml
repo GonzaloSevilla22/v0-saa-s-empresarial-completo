@@ -117,7 +117,23 @@ jobs:
           # matchean los overloads fantasma recién creados y los CREATE OR
           # REPLACE que siguen dejan 1 sola definición de cada función (de
           # paso, prueba que esta migración es re-appliable).
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261002000001_pos_banco_movimientos.sql
+          # compras-proveedor-cuenta-corriente: este reapply pasa a TOLERARSE,
+          # mismo tratamiento (y mismo motivo) que 20260928000001 más arriba.
+          # 20261002000001 dropea las firmas de rpc_create_purchase_operation
+          # (7 args) y rpc_atomic_update_purchase_operation (6 args) vigentes
+          # en SU fecha y crea las de 8 args. Como 20261009000001 volvió a
+          # cambiar esas firmas (9 y 12 args), el DROP de este archivo ya no
+          # matchea la firma viva y el CREATE OR REPLACE que sigue nace como
+          # OVERLOAD FANTASMA en vez de reemplazar — con lo cual su propio gate
+          # ANTI-OVERLOAD interno se dispara y detecta correctamente el
+          # overload que la reaplicación misma acaba de crear. Ese gate está al
+          # final del archivo (línea ~2609 de 2660) y no lo sigue ningún DDL,
+          # así que tolerar el fallo no saltea nada: se reconverge al final de
+          # la cadena con 20261009000001, cuyos DROP FUNCTION IF EXISTS con las
+          # firmas EXACTAS de 8 args limpian los dos fantasmas.
+          if ! psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261002000001_pos_banco_movimientos.sql; then
+            echo "20261002000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20261009000001 ya cambió de nuevo las dos firmas) — reconvergiendo al final de la cadena"
+          fi
           # limpiezas-pagos-admin: el reapply de 20261002000001 arriba
           # redefine _c29_confirm_order_core y rpc_create_purchase_operation
           # (entre otras) con SU cuerpo vigente en esa fecha — que todavía
@@ -183,6 +199,30 @@ jobs:
           # verificado también localmente con `docker exec ... psql -f`,
           # doble aplicación sin error y sin cambio de fingerprint).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261006000001_banco_caja_historial_ajustes.sql
+          # compras-proveedor-cuenta-corriente: ÚLTIMO eslabón de la cadena, y
+          # tiene que serlo. Esta migración cambia DOS firmas —
+          # rpc_create_purchase_operation (8 -> 9 args, + p_supplier_id) y
+          # rpc_atomic_update_purchase_operation (8 -> 12 args, + supplier y
+          # cost_center tri-estado). Los reapplies de arriba redefinen esas dos
+          # funciones con SU firma vigente en esa fecha: 20261002000001 con
+          # CREATE OR REPLACE de 8 args (crea un OVERLOAD fantasma en vez de
+          # reemplazar, mecanismo 42725 ya documentado cinco veces en este
+          # paso) y 20261003000001 (G3) reescribiendo el CUERPO de
+          # rpc_create_purchase_operation vía regexp sobre pg_get_functiondef()
+          # para expandir los ERRCODE de 4 chars a 5 — sobre la firma que
+          # encuentre. Reaplicar esta migración al final reconverge: sus
+          # propios DROP FUNCTION IF EXISTS con las firmas EXACTAS viejas
+          # matchean los overloads fantasma recién creados y los CREATE OR
+          # REPLACE que siguen dejan 1 sola definición de cada función, con el
+          # cuerpo final correcto y los ERRCODE de 5 chars ya incorporados (de
+          # paso, prueba que esta migración es re-appliable — verificado
+          # también en local con docker exec ... psql, tres aplicaciones
+          # seguidas sin error y sin cambio de fingerprint).
+          #
+          # Su propio gate ANTI-OVERLOAD interno (STEP 4) falla el paso si
+          # quedara más de una firma por función, así que la reconvergencia no
+          # es una promesa sino una aserción.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261009000001_compras_proveedor_cuenta_corriente.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -536,3 +576,34 @@ jobs:
       # DROP+CREATE OR REPLACE.
       - name: Run cuentas-billetera-tipo gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cuentas_billetera_tipo.sql
+
+      # compras-proveedor-cuenta-corriente: la cuenta corriente de proveedores
+      # existia entera desde C-30 y nunca se uso — 0 proveedores, 0 movimientos,
+      # y el helper compartido _pay_register_party_charge con su pata 'supplier'
+      # escrita y SIN NINGUN LLAMADOR. Este change la conecta con el alta de
+      # compra. Verifica: identidad fiscal de suppliers (RN-96, espejo de
+      # clients) con rechazo REAL del CHECK de iva_condition; supplier_id
+      # persistido en LAS DOS ramas del INSERT (la rama ELSE de linea de
+      # servicio repite la lista de columnas y ya se olvido una vez);
+      # GATE ESTRELLA — el cargo se dispara con v_kind CRUDO y solo con
+      # kind='credit': cash no carga y "sin forma de pago" TAMPOCO, aunque el
+      # evento contable siga propagando 'credit' (usar el COALESCE ahi haria
+      # que el 100% de las compras historicas sin forma de pago endeudara
+      # proveedores en silencio); guards P0400 credit_requires_supplier (sin
+      # efectos y SIN quemar el slot de idempotencia — el reintento con la
+      # misma clave y proveedor tiene exito real) y P0404 para proveedor ajeno
+      # o borrado; tri-estado de supplier_id y de cost_center_id en sus tres
+      # estados (cierra la OQ-1 de edicion-preserva-contexto: el
+      # CostCenterSelect estaba montado en el form de edicion sin efecto
+      # alguno); e INVARIANTE D7 — editar una compra sin cargo no toca la
+      # cuenta corriente.
+      #
+      # Y las TRES piezas que existian desde pagos-cableados-restantes /
+      # delete-guard-ledgers y eran INALCANZABLES porque nada posteaba un cargo
+      # de proveedor, ejercitadas aca por primera vez en su camino real:
+      # P0423 (compra con cargo = inmutable), compensacion por borrado
+      # (debit_note negativo + stock repuesto + asiento revertido) y P0425
+      # (cargo ya cancelado por un PaymentMade => borrado rechazado sin efectos
+      # parciales), mas la no-regresion contable de 2100 Proveedores.
+      - name: Run compras-proveedor-cuenta-corriente gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_compras_proveedor_cuenta_corriente.sql

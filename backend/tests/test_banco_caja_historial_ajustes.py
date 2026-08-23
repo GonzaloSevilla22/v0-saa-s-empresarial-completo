@@ -53,6 +53,7 @@ CASHBOX_ID  = "cccccccc-cccc-cccc-cccc-cccccccccccc"
 SESSION_ID  = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 MOVEMENT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 BANK_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 
 ADJUSTMENT_MOVEMENT_ROW = {
     "id":            MOVEMENT_ID,
@@ -300,7 +301,7 @@ class TestBankAccountMovementsPage:
         conn.fetchval = AsyncMock(return_value=1)
         conn.fetch = AsyncMock(return_value=[BANK_MOVEMENT_ROW])
 
-        result = await repo.list_movements_page(BANK_ACCOUNT_ID, page=0, size=30)
+        result = await repo.list_movements_page(BANK_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=30)
 
         assert result["total"] == 1
         assert result["items"][0]["reconciliation_status"] == "unreconciled"
@@ -311,7 +312,7 @@ class TestBankAccountMovementsPage:
         conn.fetchval = AsyncMock(return_value=0)
         conn.fetch = AsyncMock(return_value=[])
 
-        await repo.list_movements_page(BANK_ACCOUNT_ID, page=0, size=30, status="unreconciled")
+        await repo.list_movements_page(BANK_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=30, status="unreconciled")
 
         select_query = conn.fetch.call_args[0][0].lower()
         assert "reconciliation_status =" in select_query
@@ -323,7 +324,7 @@ class TestBankAccountMovementsPage:
         conn.fetchval = AsyncMock(return_value=0)
         conn.fetch = AsyncMock(return_value=[])
 
-        await repo.list_movements_page(BANK_ACCOUNT_ID, page=0, size=30)
+        await repo.list_movements_page(BANK_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=30)
 
         select_query = conn.fetch.call_args[0][0].lower()
         assert "order by bm.value_date desc, bm.created_at desc" in select_query
@@ -455,6 +456,9 @@ class TestAdjustmentEndpoints:
     async def test_list_bank_account_movements_returns_200_envelope(self, async_client, mock_pool):
         pool, conn = mock_pool
         owner_token = make_token({"role": "user"})
+        # fix/tenancy-bank-accounts-leak: el service verifica pertenencia
+        # (get_by_id_for_account) ANTES de listar — sin esta fila, 404.
+        conn.fetchrow = AsyncMock(return_value={"id": BANK_ACCOUNT_ID})
         conn.fetchval = AsyncMock(return_value=1)
         conn.fetch = AsyncMock(return_value=[BANK_MOVEMENT_ROW])
 

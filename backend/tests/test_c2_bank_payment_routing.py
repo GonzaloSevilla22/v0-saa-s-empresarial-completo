@@ -325,7 +325,7 @@ class TestBankAccountRepository:
         }]
 
         repo = BankAccountRepository(mock_conn)
-        results = await repo.list_active()
+        results = await repo.list_active(ACCOUNT_ID)
 
         call_args = mock_conn.fetch.call_args[0][0]
         assert "bank_accounts" in call_args

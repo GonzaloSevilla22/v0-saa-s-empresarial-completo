@@ -14,6 +14,7 @@ el service, el aislamiento por tenant en la RLS (JWT-passthrough).
 """
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 import asyncpg
@@ -21,6 +22,7 @@ from fastapi import APIRouter, Depends, Query
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
+from backend.core.deps import get_account_id
 from backend.repositories.bank_account_repository import BankAccountRepository
 from backend.schemas.bank_movements import BankMovementPageOut
 from backend.services import bank_movements as bank_movements_service
@@ -44,8 +46,11 @@ async def list_bank_account_movements(
     date_to: date | None = Query(None, alias="to"),
     auth: dict = Depends(get_current_user),
     repo: BankAccountRepository = Depends(get_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
 ):
+    """fix/tenancy-bank-accounts-leak: account_id resuelto del caller y
+    verificado como dueño del bank_account_id (404 si no) antes de listar."""
     return await bank_movements_service.list_movements(
-        repo, bank_account_id, page=page, size=size, types=types, status=status,
-        q=q, date_from=date_from, date_to=date_to,
+        repo, bank_account_id, account_id=str(account_id), page=page, size=size,
+        types=types, status=status, q=q, date_from=date_from, date_to=date_to,
     )

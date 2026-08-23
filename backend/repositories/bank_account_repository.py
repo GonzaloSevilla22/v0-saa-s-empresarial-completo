@@ -28,8 +28,14 @@ def _jsonb(value):
 class BankAccountRepository(BaseRepository):
     """Repository de bank_accounts — JWT-passthrough via base.py."""
 
-    async def list_active(self) -> list[dict]:
-        """Lista las bank_accounts activas visibles por RLS (cuenta del usuario).
+    async def list_active(self, account_id: str) -> list[dict]:
+        """Lista las bank_accounts activas de LA CUENTA DEL CALLER.
+
+        fix/tenancy-bank-accounts-leak (2026-08-22): filtro EXPLÍCITO por
+        account_id — el pool corre la sesión como owner de las tablas
+        mientras TENANCY_TX_SCOPE_ENABLED sigue apagada, así que RLS NO
+        aplica sola; sin este WHERE, la query devolvía TODAS las cuentas
+        bancarias de TODOS los tenants (fuga multi-tenant confirmada en prod).
 
         v3-soft-delete-policy (D1): is_active = baja lógica reversible;
         deleted_at IS NULL excluye además las borradas (RN-B1). El borrado
@@ -39,11 +45,32 @@ class BankAccountRepository(BaseRepository):
             """
             SELECT id, account_id, name, bank_name, cbu, alias, currency, is_active
             FROM public.bank_accounts
-            WHERE is_active = true
+            WHERE account_id = $1
+              AND is_active = true
               AND deleted_at IS NULL
             ORDER BY name
-            """
+            """,
+            account_id,
         )
+
+    async def get_by_id_for_account(
+        self, bank_account_id: str, account_id: str
+    ) -> dict | None:
+        """fix/tenancy-bank-accounts-leak: helper de PERTENENCIA — a
+        diferencia de `_get_by_id` (uso interno inmediatamente después de un
+        INSERT propio), este método se usa para verificar que un
+        bank_account_id que llega por path param realmente pertenece a la
+        cuenta del caller ANTES de listar sus movimientos (IDOR guard)."""
+        record = await self.fetchrow(
+            """
+            SELECT id, account_id, name, bank_name, cbu, alias, currency, is_active
+            FROM public.bank_accounts
+            WHERE id = $1 AND account_id = $2
+            """,
+            bank_account_id,
+            account_id,
+        )
+        return dict(record) if record is not None else None
 
     async def create(
         self,
@@ -85,6 +112,7 @@ class BankAccountRepository(BaseRepository):
         self,
         bank_account_id: str,
         *,
+        account_id: str,
         page: int,
         size: int,
         types: list[str] | None = None,
@@ -95,12 +123,18 @@ class BankAccountRepository(BaseRepository):
     ) -> dict:
         """GET /bank-accounts/{id}/movements (D3): todos los bank_movements de
         la cuenta, orden value_date DESC, created_at DESC para desempatar
-        movimientos del mismo día. RLS de bank_movements (account_id IN
-        current_account_ids(), denormalizado) más el filtro explícito por
-        bank_account_id — mismo criterio de aislamiento por tenant que
-        list_active (JWT-passthrough, sin service_role)."""
-        where = ["bm.bank_account_id = $1"]
-        params: list = [bank_account_id]
+        movimientos del mismo día.
+
+        fix/tenancy-bank-accounts-leak (2026-08-22): `account_id` es
+        OBLIGATORIO — antes solo filtraba por bm.bank_account_id, así que un
+        bank_account_id de OTRO tenant (adivinado o filtrado de otra
+        respuesta) devolvía sus movimientos igual (IDOR). El JOIN contra
+        bank_accounts.account_id es defensa en profundidad DESPUÉS de que el
+        service ya verificó pertenencia con get_by_id_for_account (404 si no
+        es suya) — RLS sola no alcanza mientras TENANCY_TX_SCOPE_ENABLED
+        siga apagada."""
+        where = ["bm.bank_account_id = $1", "ba.account_id = $2"]
+        params: list = [bank_account_id, account_id]
 
         if types:
             params.append(types)
@@ -126,12 +160,14 @@ class BankAccountRepository(BaseRepository):
               bm.movement_type, bm.value_date, bm.description, bm.created_at,
               bm.reconciliation_status
             FROM public.bank_movements bm
+            JOIN public.bank_accounts ba ON ba.id = bm.bank_account_id
             WHERE {where_sql}
             ORDER BY bm.value_date DESC, bm.created_at DESC
         """
         count_sql = f"""
             SELECT COUNT(*)
             FROM public.bank_movements bm
+            JOIN public.bank_accounts ba ON ba.id = bm.bank_account_id
             WHERE {where_sql}
         """
         return await self.paginate(select_sql, count_sql, *params, page=page, size=size)

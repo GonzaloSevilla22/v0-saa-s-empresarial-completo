@@ -642,3 +642,27 @@ jobs:
       # parciales), mas la no-regresion contable de 2100 Proveedores.
       - name: Run compras-proveedor-cuenta-corriente gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_compras_proveedor_cuenta_corriente.sql
+
+      # v31-tenancy-pool-rls Paso 2 (grupo 7, tasks.md 7.3c/7.4): el backend
+      # Python conecta como `postgres` (BYPASSRLS=true) — la RLS de las 68
+      # tablas de public/ nunca se evalúa para el backend hoy. Detrás de la
+      # palanca `tenancy_rls_role_enabled` (apagada por defecto, aislada del
+      # resto de la app), get_db_conn adopta `SET LOCAL ROLE authenticated`
+      # (rolbypassrls=false) dentro de la misma transacción del Paso 1. Los
+      # tests de backend/tests/test_database.py prueban con MOCKS que ese
+      # SQL se emite en el orden correcto — no pueden probar que la RLS
+      # REALMENTE aísla. Este gate reproduce el mecanismo exacto contra
+      # Postgres real (mismo patrón que test_payment_methods_catalog.sql
+      # (6)): dos cuentas sintéticas, SET LOCAL ROLE authenticated + claims,
+      # y confirma que la cuenta A no ve una fila de la cuenta B en
+      # productos, caja o ventas — ni con el filtro de account_id que ya
+      # usan los repositories NI omitiéndolo (0 filas, nunca "permission
+      # denied" crudo). Verificado con un control negativo local (RLS
+      # deshabilitada a propósito en products) que el gate SÍ detecta la
+      # fuga y aborta con exit != 0 — no es un gate que pase en falso.
+      # Degrade-don't-fail si el entorno de CI no replica el GRANT base de
+      # authenticated (mismo límite ya documentado en test_payment_methods_
+      # catalog.sql (6) / test_analytics_events.sql Gate 5) — sólo una fuga
+      # de datos real hace fallar el gate.
+      - name: Run tenancy RLS role gates (v31-tenancy-pool-rls Paso 2)
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_tenancy_rls_role.sql

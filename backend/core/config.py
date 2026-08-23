@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +50,24 @@ class Settings(BaseSettings):
     # tenancy_tx_scope_enabled=True. Literal de intervalo de Postgres.
     tenancy_tx_idle_timeout: str = "30s"
 
+    # ── v31-tenancy-pool-rls Paso 2 (D6) — grupo 7 ───────────────────────
+    # Palanca INDEPENDIENTE del Paso 1, APAGADA por defecto: mergear deja
+    # el código inerte. Encendida: get_db_conn adopta el rol `authenticated`
+    # (rolbypassrls=false, verificado en prod) con alcance TRANSACCIONAL
+    # (`SET LOCAL ROLE`, NUNCA `SET ROLE` de sesión — D6/D1) en la MISMA
+    # transacción del Paso 1, inmediatamente después de inyectar los claims
+    # — mismo punto, no pueden divergir (D6, mitigación del "falla
+    # abierto"). El rol nunca persiste más allá del COMMIT/ROLLBACK: la
+    # conexión vuelve al pool como `postgres` para el siguiente request.
+    # `get_service_conn` (webhook de pagos, relay CAE) NO adopta este rol
+    # bajo ninguna combinación de palancas (D5) — son los 3 consumidores
+    # que dependen de BYPASSRLS y la razón por la que se descartó
+    # `ALTER ROLE postgres NOBYPASSRLS`.
+    # Apagar es la reversión más rápida disponible: reinicio del servicio
+    # (~50s), sin rebuild ni redeploy — vuelve a `postgres` con BYPASSRLS,
+    # el estado actual de hoy, no uno peor (design.md "Rollback paso 2").
+    tenancy_rls_role_enabled: bool = False
+
     # ── mp-real-subscriptions (D2bis/D6) — Camino A ──────────────────────
     # Palanca de activación, APAGADA por defecto: mergear el código de este
     # change lo deja INERTE — el flujo de upgrade sigue creando la
@@ -81,6 +100,33 @@ class Settings(BaseSettings):
     # ninguna variable nueva de config, sandbox o de un dev distinto debería
     # poder tumbar el arranque del backend.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # v31-tenancy-pool-rls Paso 2 (tasks.md 7.5) — combinación inválida por
+    # diseño: `tenancy_rls_role_enabled=True` sin `tenancy_tx_scope_enabled=True`
+    # no tiene NINGÚN efecto de aislamiento (D6 depende de D1: el `SET LOCAL
+    # ROLE` sólo tiene alcance transaccional dentro de la transacción
+    # explícita que abre el Paso 1; sin ella, bajo Supavisor en transaction
+    # mode cada statement es su propia transacción implícita, así que el
+    # cambio de rol se deshace de inmediato y nunca llega a cubrir la query
+    # de negocio siguiente) — encenderla sola sería "creer que hay
+    # aislamiento cuando no lo hay", el peor estado posible para este
+    # change. Falla EXPLÍCITO al construir `Settings()` (arranque del
+    # proceso), no en silencio: de las 4 combinaciones de las dos palancas,
+    # ésta es la única inválida (tasks.md 7.5).
+    @model_validator(mode="after")
+    def _validate_tenancy_rls_role_requires_tx_scope(self) -> "Settings":
+        if self.tenancy_rls_role_enabled and not self.tenancy_tx_scope_enabled:
+            raise ValueError(
+                "tenancy_rls_role_enabled=True requiere tenancy_tx_scope_enabled=True "
+                "(v31-tenancy-pool-rls Paso 2 depende de la transacción explícita del "
+                "Paso 1 — design.md D6). Encender sólo el Paso 2 es un estado inválido: "
+                "sin la transacción del Paso 1, `SET LOCAL ROLE` no tiene alcance "
+                "transaccional que lo sostenga hasta la query de negocio — el cambio de "
+                "rol se pierde de inmediato y el backend sigue bypaseando RLS en "
+                "silencio. Encendé también TENANCY_TX_SCOPE_ENABLED, o apagá "
+                "TENANCY_RLS_ROLE_ENABLED."
+            )
+        return self
 
 
 settings = Settings()

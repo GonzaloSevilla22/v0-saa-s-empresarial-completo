@@ -81,7 +81,7 @@ Se perdió en `20261001000001`, cuya cabecera declara literalmente que reafirma 
 2. Cerrar la primitiva de escritura cross-tenant de `_pay_register_party_charge` y `_journal_post_from_event`.
 3. Dejar una **red permanente** en CI que impida que el "patrón uniforme" de REVOKE+GRANT vuelva a regalar un helper interno al rol de aplicación.
 4. Medir —no suponer— si el hueco ya produjo filas corruptas en producción.
-5. Cero regresión: los seis gates SQL de dinero vigentes y la suite backend siguen verdes.
+5. Cero regresión: los siete gates SQL de dinero vigentes y la suite backend siguen verdes.
 
 **Non-Goals**
 
@@ -141,7 +141,7 @@ Se espera que la primera corrida encuentre offenders más allá de los dos que e
 
 ### D5 — Migración idempotente, sin `DROP`, con reafirmación de ACLs
 
-- Nombre: `20261007000001_cuenta_corriente_party_guard.sql` (siguiente al MAX local `20261006000001`). **La task 1.1 verifica el MAX vivo en prod antes de escribir el archivo** y renumera si prod está adelante.
+- Nombre: `20261008000001_cuenta_corriente_party_guard.sql`. El MAX local era `20261006000001` al abrir el propose, pero `20261007000001_cuentas_billetera_tipo.sql` (PR #447) aterrizó en `main` **mientras este propose estaba en revisión** y se quedó con ese número — de ahí el `20261008`. **La task 1.1 vuelve a verificar el MAX vivo en prod antes de escribir el archivo** y renumera si prod está más adelante todavía.
 - `CREATE OR REPLACE` puro: ninguna de las cinco funciones cambia de firma, así que no hay overload 42725 ni hace falta `DROP`. `CREATE OR REPLACE` preserva ACLs, pero se reafirman igual tras cada `CREATE` —patrón uniforme documentado en la cabecera de `20261001000001`—, **con una corrección importante**: para los helpers internos la reafirmación es `REVOKE ALL ... FROM PUBLIC, anon, authenticated` **sin `GRANT`**. Copiar el bloque REVOKE+GRANT tal cual es precisamente el bug que produjo el hallazgo (D3).
 - Sin BOM UTF-8 (hay gate en CI).
 - Se reaplica dos veces en local y se verifica que el segundo apply es no-op.
@@ -159,7 +159,7 @@ Igual que el backfill de `delete-guard-ledgers`: si la auditoría read-only encu
 | Riesgo | Mitigación |
 |---|---|
 | **Reescribir las 3 RPCs desde el archivo de migración y perder un bloque vivo** (le pasó al bloque `credit` de C-30 en julio) | Checkpoint 🛑 task 1.4: capturar `pg_get_functiondef` de prod, guardarlo en `baseline/`, diffear contra el archivo, **reportar antes de escribir una línea de SQL**. La sesión que redactó este propose **no pudo** capturar los baselines (ver "Estado del baseline" abajo) — el checkpoint es obligatorio, no opcional. |
-| El `P0404` nuevo en el choke point rompe un camino legítimo de venta/POS | Verificado que `P0404 → 404` está mapeado global y localmente (D1). Tests SQL específicos: venta a crédito con cliente propio sigue funcionando (control positivo) y con cliente ajeno falla sin dejar filas. Los seis gates de dinero vigentes se re-corren como safety net. |
+| El `P0404` nuevo en el choke point rompe un camino legítimo de venta/POS | Verificado que `P0404 → 404` está mapeado global y localmente (D1). Tests SQL específicos: venta a crédito con cliente propio sigue funcionando (control positivo) y con cliente ajeno falla sin dejar filas. Los siete gates de dinero vigentes se re-corren como safety net. |
 | El `REVOKE` rompe un consumidor no identificado de PostgREST | `grep` sobre `frontend/`, `backend/` y `supabase/functions/` da cero callers reales. Los `PERFORM` internos corren como definer. Rollback trivial: un `GRANT` de una línea. |
 | **ACLs de prod distintas a las de local** — el revoke se ve aplicado en CI y en prod queda abierto | La task de auditoría corre `has_function_privilege('authenticated', oid, 'EXECUTE')` **contra prod** post-merge, no solo en CI (gotcha #432). El `REVOKE` se escribe con la lista completa `FROM PUBLIC, anon, authenticated`, no solo `FROM PUBLIC`. |
 | El gate (3) nuevo falla el pipeline con offenders preexistentes y bloquea el PR | Se descubre la lista real en la task 6.2 **antes** de escribir el gate, y los preexistentes entran a la allowlist con su comentario (D4). El gate nace verde y sirve de aquí en adelante. |
@@ -186,11 +186,11 @@ Se dejan documentadas acá las **referencias de archivo** contra las que hay que
 
 1. **Pre**: safety net (suite backend 1495/1495, gates SQL verdes), MAX de migraciones en prod, captura de baselines 🛑.
 2. **RED**: `supabase/tests/test_cuenta_corriente_party_guard.sql` escrito y fallando contra el schema actual.
-3. **GREEN**: `20261007000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
+3. **GREEN**: `20261008000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
 4. **CI**: eslabón de reapply + step del test nuevo + chequeo (3) en el gate de ACLs.
 5. **Backend**: tests pytest de propagación `P0404 → 404`.
 6. **Auditoría read-only en prod** de filas corruptas → si hay, checkpoint 🛑.
-7. **Post-merge**: verificar en prod `MAX(version) = 20261007000001` y que `has_function_privilege('authenticated', ...)` es `false` para los dos helpers revocados.
+7. **Post-merge**: verificar en prod `MAX(version) = 20261008000001` y que `has_function_privilege('authenticated', ...)` es `false` para los dos helpers revocados.
 
 **Rollback.** Cada pieza revierte por separado y sin pérdida de datos:
 - Guards: `CREATE OR REPLACE` con el cuerpo del baseline (por eso el baseline es obligatorio).

@@ -147,7 +147,9 @@
 - [x] 6.7 Agregar el step nuevo `Run cuenta-corriente-party-guard gates` con `-v ON_ERROR_STOP=1`, con comentario explicando qué cubre.
   > **Evidencia**: último step del workflow, con el formato del step de `cuentas-billetera-tipo`. YAML validado con `yaml.safe_load` (35 steps, el nuevo es el último).
 - [x] 6.8 Correr los siete gates del baseline 1.3 **después** de la migración y verificar que siguen verdes. Verificar además, con un `supabase db reset` limpio, que la corrida completa en el orden exacto de CI pasa.
-  > **Evidencia**: stack recreado limpio (`MAX = 20261010000001`), **cadena de reapply de CI reproducida completa en local** en el orden exacto del workflow (incluido el fallo esperado y tolerado de `20260928000001` por su gate anti-overload), y después los **8 gates en orden de CI: los 8 VERDES**.
+  > **Evidencia (primera pasada, pre-rebase)**: stack recreado limpio, **cadena de reapply de CI reproducida completa en local** en el orden exacto del workflow (incluido el fallo esperado y tolerado de `20260928000001` por su gate anti-overload), y después los 8 gates de dinero en orden de CI: los 8 verdes.
+  > **Evidencia (verificación final, post-rebase sobre #452/#453 y post-renumeración, 2026-08-23)**: `npx supabase db reset` limpio → **259 migraciones, `MAX = 20261010000001`**. Cadena de reapply reproducida en el orden exacto del workflow, **12 eslabones**, con los DOS fallos tolerados que el YAML documenta y sólo esos (`20260928000001` y `20261002000001`, cada uno reconocido por su marcador literal). Después, **los 30 gates del workflow en orden: los 30 VERDES**, incluidos `test_compras_proveedor_cuenta_corriente.sql` (#452) y `test_tenancy_rls_role.sql` (#453). El gate de este change corre **dos veces seguidas en verde** (19 asserts `PASS` cada vez), que es lo que habilita el cleanup nuevo.
+  > **Control positivo del chequeo (3)**: en una transacción, `GRANT EXECUTE … TO authenticated` sobre `_pay_register_party_charge` → el gate **falla** con `ACL GATE (3) FAILED` listando exactamente esa firma; tras el `ROLLBACK`, `has_function_privilege` vuelve a `false`. El gate no pasa en falso.
   > `ACL GATE OK: sin triggers SECURITY DEFINER expuestos; anon-executable dentro de la allowlist (5 firmas permitidas); helpers internos authenticated-executable dentro de su allowlist (1 firmas permitidas)`.
 
 ## 7. Backend — propagación del error a HTTP (TDD)
@@ -162,6 +164,7 @@
   > **Evidencia**: 3 controles negativos con `P0999` — en `customer_accounts`, en `supplier_accounts` y en el camino global. El del camino global además assertea que el mensaje crudo de la base **no** se filtra al cliente.
 - [x] 7.5 Correr la suite backend completa y comparar contra el baseline de 1.2.
   > **Evidencia**: **1538 passed / 0 failed / 3 skipped** (18 s) contra el baseline **1530/0/3** → +8, que son exactamente los tests nuevos. Cero regresiones.
+  > **Re-medido tras el rebase sobre #452/#453 (2026-08-23)**: **1604 passed / 0 failed / 3 skipped** (30 s). El salto de 1538 a 1604 es de `main` (los tests que trajeron `compras-proveedor-cuenta-corriente` y el Paso 2 de tenancy), no de esta rama.
 
 ## 8. Auditoría del daño histórico en prod (read-only)
 

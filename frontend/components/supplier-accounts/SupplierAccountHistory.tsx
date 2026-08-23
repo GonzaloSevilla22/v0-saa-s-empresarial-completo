@@ -4,17 +4,13 @@ import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal } from "lucide-react"
 import type { SupplierAccountMovement } from "@/hooks/data/use-supplier-account"
 
 const MOVEMENT_LABELS: Record<SupplierAccountMovement["movementType"], string> = {
-  purchase:    "Compra / cargo",
+  purchase:     "Compra / cargo",
   payment_made: "Pago al proveedor",
-  debit_note:  "Nota de débito",
-  adjustment:  "Ajuste",
-}
-
-const MOVEMENT_ICONS: Record<SupplierAccountMovement["movementType"], React.ReactNode> = {
-  purchase:    <ArrowUpRight className="h-4 w-4 text-yellow-400" />,
-  payment_made: <ArrowDownLeft className="h-4 w-4 text-emerald-400" />,
-  debit_note:  <ArrowUpRight className="h-4 w-4 text-red-400" />,
-  adjustment:  <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />,
+  // fix-supplier-account-ui-post-delete (bug 2): un debit_note es la reversa
+  // de un cargo (SupplierAccountChargeReversed) — no un cargo nuevo. La
+  // etiqueta lo deja explícito.
+  debit_note:   "Nota de débito / reversa",
+  adjustment:   "Ajuste",
 }
 
 interface SupplierAccountHistoryProps {
@@ -79,11 +75,26 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
       </div>
 
       {movements.map((m) => {
-        const isDebit = m.movementType === "purchase" || m.movementType === "debit_note"
-        const formattedAmount = m.amount.toLocaleString("es-AR", {
+        // fix-supplier-account-ui-post-delete (bug 2): la dirección visual
+        // (+/−, color, ícono) se deriva del SIGNO del monto, no del TIPO de
+        // movimiento — un debit_note de reversa (monto negativo) REDUCE la
+        // deuda, aunque su tipo sea el mismo que un cargo nuevo. Reporte PO
+        // 2026-08-22: la reversa de un cargo borrado se hubiera pintado como
+        // cargo positivo si se seguía clasificando por tipo.
+        const isPositive = m.amount > 0
+        // El signo visual lo pone el componente ("+"/"−") según el signo del
+        // monto; el importe se formatea en valor absoluto para no
+        // duplicarlo (mismo fix que CustomerAccountHistory, PR #437: "Cobro
+        // −$-58.750,00").
+        const formattedAmount = Math.abs(m.amount).toLocaleString("es-AR", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })
+        const icon = m.movementType === "adjustment"
+          ? <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+          : isPositive
+            ? <ArrowUpRight className="h-4 w-4 text-yellow-400" />
+            : <ArrowDownLeft className="h-4 w-4 text-emerald-400" />
         const formattedBalance = m.balanceAfter.toLocaleString("es-AR", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
@@ -102,7 +113,7 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
             {/* Mobile */}
             <div className="sm:hidden flex items-center gap-3 px-4 py-3">
               <div className="shrink-0 rounded-full bg-accent p-2">
-                {MOVEMENT_ICONS[m.movementType]}
+                {icon}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">
@@ -113,10 +124,10 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
               <div className="text-right shrink-0">
                 <p
                   className={`text-sm font-semibold tabular-nums ${
-                    isDebit ? "text-yellow-400" : "text-emerald-400"
+                    isPositive ? "text-yellow-400" : "text-emerald-400"
                   }`}
                 >
-                  {isDebit ? "+" : "−"}${formattedAmount}
+                  {isPositive ? "+" : "−"}${formattedAmount}
                 </p>
                 <p className="text-xs text-muted-foreground tabular-nums">
                   saldo: ${formattedBalance}
@@ -128,7 +139,7 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
             <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px] gap-3 px-4 py-3 items-center">
               <div className="w-8 flex justify-center">
                 <div className="rounded-full bg-accent p-1.5">
-                  {MOVEMENT_ICONS[m.movementType]}
+                  {icon}
                 </div>
               </div>
               <span className="text-sm text-foreground">
@@ -136,10 +147,10 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
               </span>
               <span
                 className={`text-sm font-semibold tabular-nums text-right ${
-                  isDebit ? "text-yellow-400" : "text-emerald-400"
+                  isPositive ? "text-yellow-400" : "text-emerald-400"
                 }`}
               >
-                {isDebit ? "+" : "−"}${formattedAmount}
+                {isPositive ? "+" : "−"}${formattedAmount}
               </span>
               <span className="text-sm text-muted-foreground tabular-nums text-right">
                 ${formattedBalance}

@@ -521,3 +521,18 @@ jobs:
       # motivo tiene éxito real) y transfer_in sin motivo intacto.
       - name: Run banco-caja-historial-ajustes gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_banco_caja_historial_ajustes.sql
+
+      # cuentas-billetera-tipo: pedido textual del PO 2026-08-22 — distingue
+      # banco real de billetera virtual en bank_accounts (account_kind). Las
+      # 4 cuentas activas de prod son billeteras, ninguna es un banco real.
+      # Verifica: account_kind NOT NULL default 'bank' + CHECK de dominio
+      # cerrado; backfill por heurística de nombre (12 marcas de la lista
+      # cerrada → wallet, control negativo "Banco Comodoro" y una cuenta
+      # ambigua → bank); IDEMPOTENCIA REAL del archivo completo de migración
+      # reaplicado dos veces vía \i (una corrección manual sobrevive el
+      # segundo reapply); rpc_create_bank_account acepta p_account_kind (8º
+      # parámetro, DEFAULT 'bank', ERRCODE P0414 fuera de dominio);
+      # ANTI-OVERLOAD 42725 (una sola firma); ACLs restituidas tras el
+      # DROP+CREATE OR REPLACE.
+      - name: Run cuentas-billetera-tipo gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cuentas_billetera_tipo.sql

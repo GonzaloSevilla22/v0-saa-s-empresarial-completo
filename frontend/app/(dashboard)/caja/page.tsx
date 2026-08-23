@@ -29,6 +29,7 @@ import { OpenSessionForm } from "@/components/cash/OpenSessionForm"
 import { CloseSessionDialog } from "@/components/cash/CloseSessionDialog"
 import { LedgerMovementsPanel } from "@/components/ledger/LedgerMovementsPanel"
 import { LedgerAdjustmentDialog } from "@/components/ledger/LedgerAdjustmentDialog"
+import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { CASH_MOVEMENT_FAMILIES, CASH_MOVEMENT_META } from "@/lib/ledger/cash-movement-meta"
 import type { LedgerBookConfig } from "@/lib/ledger/types"
 import type { CashMovementHistoryRow } from "@/lib/types"
@@ -60,6 +61,11 @@ export default function CajaPage() {
   const { data: activeSessionMovements } = useCashMovements(currentSession?.id ?? null)
   const openSession = useOpenSession(cashboxId ?? "")
   const closeSession = useCloseSession()
+  // Clave de idempotencia del cierre (v3-api-standards D5): una por caja,
+  // persistida en sessionStorage para que un reintento tras respuesta perdida
+  // replique en vez de duplicar; se resetea recién cuando el cierre tuvo éxito.
+  const { idempotencyKey: closeIdempotencyKey, resetIdempotencyKey: resetCloseKey } =
+    useIdempotencyKey(`cash-close:${cashboxId ?? "none"}`)
   const registerMovement = useRegisterMovement(currentSession?.id ?? "")
 
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false)
@@ -120,7 +126,12 @@ export default function CajaPage() {
 
   async function handleCloseSession(countedBalance: number) {
     if (!currentSession) return
-    await closeSession.mutateAsync({ sessionId: currentSession.id, countedBalance })
+    await closeSession.mutateAsync({
+      sessionId: currentSession.id,
+      countedBalance,
+      idempotencyKey: closeIdempotencyKey,
+    })
+    resetCloseKey()
   }
 
   async function handleAdjustment(values: { amount: number; description: string }) {

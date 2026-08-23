@@ -203,22 +203,36 @@
 - [x] 8.5 `journal_entries` originados en los eventos de 8.4 → **0**.
   > **Contexto de los conteos**: el lado proveedor está **vacío** en prod (`suppliers = 0`, `supplier_accounts = 0`, `payments_made = 0`), así que sus ceros son triviales. Los del lado cliente **no** lo son: hay `customer_accounts = 2`, 5 movimientos, 1 `payment_received` y 4 eventos (`CustomerAccountCharged` ×3 + `PaymentReceived` ×1) — todos coherentes.
   > **Nota para el PR**: **no** citar "241 operaciones a crédito" como población afectada; esas operaciones no se reflejan en `customer_accounts` de prod.
-- [ ] 8.6 🛑 **Checkpoint**: reportar los conteos al PO. Esperado: **0** en todos.
-  > **Pendiente sólo del enterado del PO** — la medición ya está hecha: **0 filas en los 9 conteos**. No hay nada que reparar; el checkpoint es informativo.
-- [ ] 8.7 🛑 **[OQ-5, solo si 8.6 > 0]** Script de backfill en `scripts/sql/`.
-  > **No aplica**: 8.6 dio 0 en todos los conteos. OQ-5 queda cerrada por ausencia de datos ("decidirlo con los datos a la vista" → no hay datos que decidir).
+- [x] 8.6 🛑 **Checkpoint**: reportar los conteos al PO. Esperado: **0** en todos.
+  > **Cumplida (2026-08-23)**: la auditoría read-only de prod dio **0 filas en los 9 conteos** (cuentas corrientes, movimientos, pagos/cobros, eventos y asientos con parte de otro tenant). **No hay daño histórico y no hay reparación pendiente**: el checkpoint queda como informativo y lo único que resta del PO es **darse por enterado**, no decidir ni aprobar nada. Salida completa en `baseline/prod_acl_audit_2026-08-23.md`.
+- [x] 8.7 🛑 **[OQ-5, solo si 8.6 > 0]** Script de backfill en `scripts/sql/`. — **NO APLICA**
+  > **No aplica**: 8.6 dio 0 en todos los conteos. OQ-5 queda cerrada por ausencia de datos ("decidirlo con los datos a la vista" → no hay datos que decidir). No se escribió ni se necesita script de backfill.
 
 ## 9. Verificación post-merge
 
-> Todo el grupo queda **pendiente**: son verificaciones contra prod que sólo se pueden hacer **después** del merge (que dispara build + deploy + migración automáticos). Este apply no hizo push ni PR.
+> Grupo **cerrado el 2026-08-23**, después del merge del apply (PR **#457**, squash `21dbe38`, que disparó build + deploy + migración automáticos). Toda la verificación 9.1–9.4 se hizo contra **producción** y **sólo con `SELECT`** (gotcha #432: verificar contra prod, no contra CI).
 
-- [ ] 9.1 Confirmar en prod que `MAX(version)` es `20261011000001`.
-- [ ] 9.2 Confirmar en prod que `has_function_privilege('authenticated', …, 'EXECUTE')` es **`false`** para `c30_get_or_create_customer_account`/`_supplier_account` (los que revoca esta migración) y para `_pay_register_party_charge` y `_journal_post_from_event` (que revocó el hotfix #454, y que esta migración sólo verifica), y **`true`** para las tres `rpc_register_*`. Contra prod, no contra CI (gotcha #432).
+- [x] 9.1 Confirmar en prod que `MAX(version)` es `20261011000001`.
+  > **Verificado en prod (2026-08-23)**: `MAX(version)` en `supabase_migrations.schema_migrations` = **`20261011000001`**, sobre un total de **260 migraciones** aplicadas. La migración del change entró con el segundo renumerado (ver 9.5 / `CHANGES.md`).
+- [x] 9.2 Confirmar en prod que `has_function_privilege('authenticated', …, 'EXECUTE')` es **`false`** para `c30_get_or_create_customer_account`/`_supplier_account` (los que revoca esta migración) y para `_pay_register_party_charge` y `_journal_post_from_event` (que revocó el hotfix #454, y que esta migración sólo verifica), y **`true`** para las tres `rpc_register_*`. Contra prod, no contra CI (gotcha #432).
   > Valores medidos en local post-migración, como referencia de lo que debe verse en prod: `_pay_register_party_charge` `anon=f auth=f`; `_journal_post_from_event` `anon=f auth=f`; `c30_get_or_create_customer_account`/`supplier_account` `anon=f auth=f`; las 3 `rpc_register_*` `anon=f auth=t`. En prod, además, verificar que `service_role` **conserva** su EXECUTE (ningún REVOKE lo nombra).
-- [ ] 9.3 Confirmar en prod que las cinco funciones reescritas tienen **una sola** definición y que su cuerpo vivo contiene el guard.
-- [ ] 9.4 Re-correr la query de 1.6 en prod y confirmar que la lista coincide con la allowlist del gate menos los dos revocados (3 → **1**: sólo `_c29_confirm_order_core`).
-- [ ] 9.5 Registrar en `CHANGES.md` el estado final y actualizar el puntero "Próximo change recomendado" del `CLAUDE.md`. Verificar que todo se mergeó **vía PR**.
-- [ ] 9.6 Guardar en engram (`topic_key: opsx/cuenta-corriente-party-guard/apply`) el resultado.
+  > **Verificado en prod (2026-08-23)** — coincide exactamente con la referencia local:
+  > - `_pay_register_party_charge` → `anon=false`, **`authenticated=false`**, `service_role=true`
+  > - `_journal_post_from_event` → `anon=false`, **`authenticated=false`**, `service_role=true`
+  > - `c30_get_or_create_customer_account` → `anon=false`, **`authenticated=false`**, `service_role=true` (antes del change tenía EXECUTE **directo** para ambos roles)
+  > - `c30_get_or_create_supplier_account` → `anon=false`, **`authenticated=false`**, `service_role=true` (ídem)
+  > - `rpc_register_payment_received` / `rpc_register_payment_made` / `rpc_register_supplier_charge` → `anon=false`, **`authenticated=true`** (API pública, es lo correcto), `service_role=true`
+  >
+  > `service_role` **conserva** su EXECUTE en las 7 funciones, como se esperaba: ningún `REVOKE` lo nombra.
+- [x] 9.3 Confirmar en prod que las cinco funciones reescritas tienen **una sola** definición y que su cuerpo vivo contiene el guard.
+  > **Verificado en prod (2026-08-23)**: `count = 1` por nombre en las **7** funciones consultadas (las 5 reescritas + los 2 helpers revocados por #454) → no quedó ningún *overload* huérfano (gotcha 42725). El cuerpo **vivo** contiene el guard: `client_not_found` en `c30_get_or_create_customer_account` y `rpc_register_payment_received`; `supplier_not_found` en `c30_get_or_create_supplier_account`, `rpc_register_payment_made` y `rpc_register_supplier_charge`.
+- [x] 9.4 Re-correr la query de 1.6 en prod y confirmar que la lista coincide con la allowlist del gate menos los dos revocados (3 → **1**: sólo `_c29_confirm_order_core`).
+  > **Verificado en prod (2026-08-23)**: los helpers internos `SECURITY DEFINER` ejecutables por `authenticated` (patrón `_%`/`c28_%`/`c29_%`/`c30_%`, excluyendo `rpc_*`) son **exactamente uno: `_c29_confirm_order_core`**. Antes del change eran 3. Coincide **exacto** con la allowlist del check (4) de `test_function_acl_gate.sql`, así que el gate está en verde sin entradas sobrantes.
+  > ⚠️ `_c29_confirm_order_core` sigue en la allowlist con justificación, pero es justamente el helper del hallazgo **h1** (caja de otro tenant vía `p_cash_session_id`) — ver los candidatos al pie.
+- [x] 9.5 Registrar en `CHANGES.md` el estado final y actualizar el puntero "Próximo change recomendado" del `CLAUDE.md`. Verificar que todo se mergeó **vía PR**.
+  > **Hecho en el PR de archive (2026-08-23)**: entrada del change en `CHANGES.md` pasada a ✅ completada (PRs #448/#450 propose, **#457** apply, migración real `20261011000001` con el doble renumerado, diseño opción B, OQ-2 resuelta como hotfix **#454**, gate ACL como check (4), auditoría de prod 0/9, backend 1604/0/3) + corregidas las dos líneas de la entrada de `compras-proveedor-cuenta-corriente` que todavía daban `20261008000001` por reservado y este change por "sin apply" + registrados los candidatos **h1..h4**, **OQ-4** y **OQ-6**. `CLAUDE.md`: ítem 10 a ✅ y puntero de "próximo change" movido. **Todo se mergeó vía PR**: #448/#450 (propose), #457 (apply) y este mismo PR de archive; cero commits directos a `main`.
+- [x] 9.6 Guardar en engram (`topic_key: opsx/cuenta-corriente-party-guard/apply`) el resultado.
+  > **Guardado (2026-08-23)** con el cierre del ciclo: diseño opción B, migración `20261011000001`, OQ-2 → hotfix #454, verificación de prod 9.1–9.4 en verde, auditoría 0/9 y los candidatos h1..h4 / OQ-4 / OQ-6 pendientes de decisión del PO.
 
 > ### Candidatos detectados durante el apply (para `CHANGES.md` en el archive)
 >

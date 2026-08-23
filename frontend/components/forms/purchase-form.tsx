@@ -6,10 +6,13 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { SearchableSelect } from "@/components/ui/searchable-select"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useProducts } from "@/hooks/data/use-products"
 import { usePurchases } from "@/hooks/data/use-purchases"
+import { useSuppliers } from "@/hooks/data/use-suppliers"
+import { useSupplierAccount } from "@/hooks/data/use-supplier-account"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
@@ -33,7 +36,7 @@ import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { ProductPicker } from "@/components/shared/product-picker"
-import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler } from "lucide-react"
+import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler, UserPlus, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
@@ -50,6 +53,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const { products, addProduct }                           = useProducts()
   const { addPurchaseOperation, updatePurchaseOperation } = usePurchases()
   const { paymentMethods } = usePaymentMethods()
+  // compras-proveedor-cuenta-corriente (D10): mismo patrón que useClients en
+  // SaleForm — combobox buscable + alta inline.
+  const { suppliers, addSupplier } = useSuppliers()
   const queryClient = useQueryClient()
   const { user }    = useAuth()
   const refreshData = () => queryClient.invalidateQueries()
@@ -100,6 +106,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   const [newProductPrice, setNewProductPrice] = useState(0)
   const [newProductMinStock, setNewProductMinStock] = useState(10)
 
+  // ── Inline new supplier (D10/task 12.3) ─────────────────────────────────────
+  const [showNewSupplier, setShowNewSupplier] = useState(false)
+  const [newSupplierName, setNewSupplierName] = useState("")
+
   // ── Operation date ──────────────────────────────────────────────────────────
   const [date, setDate] = useState(() => editingOperation?.date ?? argentinaToday())
   // edicion-preserva-contexto (F1 §D11): prefillear desde editingOperation —
@@ -116,6 +126,13 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // del egreso — sólo en alta (espejo de SaleForm; la edición no tiene
   // parámetro de banco en la RPC, D8).
   const [bankAccountId, setBankAccountId] = useState<string | null>(null)
+  // compras-proveedor-cuenta-corriente (D4/D7): proveedor imputado a la
+  // operación. Precargado al editar desde editingOperation.supplierId — el
+  // selector siempre está montado, así que reenvía siempre el valor vigente
+  // (mismo criterio que branchId/paymentMethodId, edicion-preserva-contexto F1 §D11).
+  const [supplierId, setSupplierId] = useState<string | null>(
+    () => editingOperation?.supplierId ?? null,
+  )
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -133,6 +150,17 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     [paymentMethods, paymentMethodId],
   )
 
+  // compras-proveedor-cuenta-corriente (D6/OQ-D): kind=credit exige proveedor
+  // y postea el cargo en su cuenta corriente — mismo patrón que SaleForm.
+  const isCreditSelected = resolvedKind === "credit"
+  const { data: supplierAccount } = useSupplierAccount(isCreditSelected ? (supplierId || null) : null)
+  const creditBlockedNoSupplier = isCreditSelected && !supplierId
+
+  const supplierOptions = useMemo(
+    () => suppliers.map((s) => ({ value: s.id, label: s.name })),
+    [suppliers],
+  )
+
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(
     () => resolveUnit(unitId, unitsById),
@@ -148,6 +176,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     () => calcPurchaseSubtotal(unitCost, quantity),
     [unitCost, quantity],
   )
+
+  // compras-proveedor-cuenta-corriente (D6/OQ-D): saldo proyectado tras esta
+  // compra — mismo patrón visual que SaleForm (0 si aún no resolvió la
+  // SupplierAccount).
+  const projectedBalance = (supplierAccount?.balance ?? 0) + cartTotal
 
   // ── Option list ─────────────────────────────────────────────────────────────
 
@@ -368,6 +401,25 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     setNewProductMinStock(10)
   }
 
+  // compras-proveedor-cuenta-corriente (D10/task 12.3): crea el proveedor y
+  // lo preselecciona sin perder los ítems ya cargados en el carrito — el
+  // estado del carrito no se toca acá.
+  async function handleCreateSupplier() {
+    if (!newSupplierName.trim()) {
+      toast.error("El nombre del proveedor es obligatorio")
+      return
+    }
+    try {
+      const created = await addSupplier({ name: newSupplierName.trim(), email: "", phone: "" })
+      setSupplierId(created.id)
+      toast.success(`Proveedor "${newSupplierName}" creado`)
+      setShowNewSupplier(false)
+      setNewSupplierName("")
+    } catch (err: any) {
+      toast.error(err?.message || "Error al crear el proveedor")
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (cartItems.length === 0) {
@@ -395,6 +447,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             // selector siempre está montado, así que branchId viaja siempre
             // con el valor vigente del form.
             branchId,
+            // compras-proveedor-cuenta-corriente (D7): mismo criterio — el
+            // selector de proveedor siempre está montado en edición, así que
+            // supplierId viaja siempre con el valor vigente del form.
+            supplierId,
           },
         })
         toast.success("✅ Compra actualizada correctamente")
@@ -410,6 +466,14 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     }
 
     // ── Create mode ───────────────────────────────────────────────────────────
+    if (creditBlockedNoSupplier) {
+      // Defensa en profundidad (task 12.5): el botón ya está deshabilitado —
+      // esto cubre un submit programático. El servidor sigue siendo quien
+      // decide (P0400 credit_requires_supplier).
+      toast.error("Elegí un proveedor: una compra a cuenta corriente se le carga a alguien.")
+      submittingRef.current = false
+      return
+    }
     setSubmitting(true)
     try {
       // One atomic, idempotent call for the whole cart (see SaleForm rationale).
@@ -427,6 +491,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           // egreso — null cuando el selector no está montado o el usuario
           // dejó "usar el destino configurado".
           bankAccountId,
+          // compras-proveedor-cuenta-corriente (D4): atributo de la
+          // operación, siempre enviado (null cuando no se eligió proveedor).
+          supplierId,
         },
       })
       resetIdempotencyKey()
@@ -496,7 +563,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || cartItems.length === 0}
+              disabled={submitting || cartItems.length === 0 || (!isEdit && creditBlockedNoSupplier)}
             >
               {submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
@@ -573,6 +640,81 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             />
           )}
         </div>
+
+        {/* ── Proveedor (compras-proveedor-cuenta-corriente D10) ────────────
+            Combobox buscable + alta inline, molde del selector de cliente
+            de SaleForm. */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <Label className="text-foreground">Proveedor</Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-primary"
+              onClick={() => setShowNewSupplier(!showNewSupplier)}
+            >
+              <UserPlus className="h-3 w-3 mr-1" />
+              {showNewSupplier ? "Cancelar" : "Nuevo proveedor"}
+            </Button>
+          </div>
+
+          {showNewSupplier ? (
+            <div className="rounded-lg border border-border bg-accent/30 p-3 flex flex-col gap-2">
+              <Input
+                selectOnFocus
+                value={newSupplierName}
+                onChange={(e) => setNewSupplierName(e.target.value)}
+                placeholder="Nombre del proveedor"
+                className="bg-background border-border text-foreground text-sm"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={handleCreateSupplier}
+                className="w-full"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Crear y seleccionar
+              </Button>
+            </div>
+          ) : (
+            <SearchableSelect
+              options={supplierOptions}
+              value={supplierId ?? ""}
+              onValueChange={(v) => setSupplierId(v || null)}
+              placeholder="Seleccionar proveedor"
+              searchPlaceholder="Buscar proveedor..."
+              emptyMessage="No se encontraron proveedores."
+            />
+          )}
+        </div>
+
+        {/* ── Bloque de cuenta corriente (D6/OQ-D) ───────────────────────────
+            Mismo patrón visual que SaleForm: cliente→proveedor obligatorio +
+            saldo actual/proyectado, sólo con 'credit'. Se muestra tanto en
+            alta como en edición para explicar el efecto — aunque la edición
+            nunca postea/revierte cargos (D7). */}
+        {isCreditSelected && (
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
+            {creditBlockedNoSupplier ? (
+              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Elegí un proveedor: una compra a cuenta corriente se le carga a alguien.
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                <span>Saldo actual: {formatMoney(supplierAccount?.balance ?? 0)}</span>
+                <span className="font-medium text-foreground">
+                  Después de esta compra: {formatMoney(projectedBalance)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="border-t border-border" />
 

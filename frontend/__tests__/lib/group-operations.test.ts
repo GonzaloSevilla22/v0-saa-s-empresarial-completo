@@ -129,4 +129,34 @@ describe("groupPurchasesByOperation — contexto edicion-preserva-contexto", () 
     expect(op.isGrouped).toBe(true)
     expect(op.isPaymentLocked).toBe(true)
   })
+
+  // compras-proveedor-cuenta-corriente (D4/D10, task 10.3): supplierId/
+  // supplierName viajan desde la fila (Purchase) hacia la PurchaseOperation
+  // agrupada — sin esto PurchaseForm no tiene con qué prefillear el selector
+  // de proveedor al editar, ni el listado con qué armar el badge.
+  it("expone supplierId/supplierName de la operación agrupada", () => {
+    const [op] = groupPurchasesByOperation([
+      makePurchase({ supplierId: "sup-1", supplierName: "Distribuidora Mendoza" }),
+    ])
+    expect(op.supplierId).toBe("sup-1")
+    expect(op.supplierName).toBe("Distribuidora Mendoza")
+  })
+
+  it("supplierId/supplierName ausentes → null (sin proveedor imputado)", () => {
+    const [op] = groupPurchasesByOperation([
+      makePurchase({ supplierId: undefined, supplierName: undefined }),
+    ])
+    expect(op.supplierId).toBeNull()
+    expect(op.supplierName).toBeNull()
+  })
+
+  it("TRIANGULATE: en una operación multi-línea, todas las líneas comparten el mismo proveedor de la primera", () => {
+    const [op] = groupPurchasesByOperation([
+      makePurchase({ id: "pu1", supplierId: "sup-1", supplierName: "Proveedor A" }),
+      makePurchase({ id: "pu2", supplierId: "sup-1", supplierName: "Proveedor A" }),
+    ])
+    expect(op.isGrouped).toBe(true)
+    expect(op.supplierId).toBe("sup-1")
+    expect(op.supplierName).toBe("Proveedor A")
+  })
 })

@@ -89,35 +89,35 @@
 
 ## 10. Frontend — datos, tipos y hooks
 
-- [ ] 10.1 **RED**: `frontend/__tests__/hooks/use-suppliers.test.ts` con listado + alta + edición + baja mockeando `pythonClient`.
-- [ ] 10.2 `Supplier` en `frontend/lib/types.ts` (sin `any`), `suppliers` en `frontend/lib/query-keys.ts` (`all` / `lists`), y `frontend/hooks/data/use-suppliers.ts` calcado de `use-clients.ts` (mismos mappers snake_case → camelCase, misma invalidación).
-- [ ] 10.3 `frontend/lib/group-operations.ts`: `supplierId` y `supplierName` en `PurchaseOperation` + su agregación en `groupPurchasesByOperation`, con test.
-- [ ] 10.4 `frontend/hooks/data/use-purchases.ts`: `supplierId` en el mapper de `Purchase` y en el payload de alta y de edición (tri-estado: solo se incluye la clave cuando el selector está montado).
+- [x] 10.1 **RED**: `frontend/__tests__/hooks/use-suppliers.test.ts` con listado + alta + edición + baja mockeando `pythonClient`. ✅ RED verificado (import de `@/hooks/data/use-suppliers` inexistente), GREEN en 10.2.
+- [x] 10.2 `Supplier` en `frontend/lib/types.ts` (sin `any`), `suppliers` en `frontend/lib/query-keys.ts` (`all` / `lists`), y `frontend/hooks/data/use-suppliers.ts` calcado de `use-clients.ts` (mismos mappers snake_case → camelCase, misma invalidación). ✅ 5/5 tests (listado x2, alta, edición, baja).
+- [x] 10.3 `frontend/lib/group-operations.ts`: `supplierId` y `supplierName` en `PurchaseOperation` + su agregación en `groupPurchasesByOperation`, con test. ✅ RED→GREEN en `__tests__/lib/group-operations.test.ts` (3 tests nuevos + 13 preexistentes verdes).
+- [x] 10.4 `frontend/hooks/data/use-purchases.ts`: `supplierId` en el mapper de `Purchase` y en el payload de alta y de edición (tri-estado: solo se incluye la clave cuando el selector está montado). ✅ alta SIEMPRE manda `supplier_id` (atributo de operación, como `cost_center_id`); edición usa tri-estado por ausencia de clave (espejo de `branchId`/`paymentMethodId`, D7). `__tests__/hooks/use-purchases-supplier.test.ts` (7 tests).
 
 ## 11. Frontend — pantalla de proveedores y navegación
 
-- [ ] 11.1 **RED**: test de componente de `SupplierForm` (alta y edición, validación de nombre obligatorio y de CUIT).
-- [ ] 11.2 `frontend/components/forms/supplier-form.tsx`, molde de `client-form.tsx`, **reutilizando** `frontend/lib/cuit-utils.ts` para la validación de CUIT (no reimplementarla).
-- [ ] 11.3 `frontend/app/(dashboard)/proveedores/page.tsx`: listado con búsqueda, alta/edición en `Dialog`, baja con confirmación, export CSV vía `exportToCSV`, banner y botón deshabilitado al alcanzar `limits.maxSuppliers` (`usePlanLimits`), y acción de fila "Cuenta corriente" → `/proveedores/[id]/cuenta`.
-- [ ] 11.4 `frontend/components/app-sidebar.tsx`: entrada "Proveedores" (`href: "/proveedores"`, ícono `Truck`, `pro: false`, `proOnly: false`) en el grupo **Catálogo**, inmediatamente debajo de "Clientes".
-- [ ] 11.5 `frontend/app/(dashboard)/proveedores/[id]/cuenta/page.tsx`: el `Link` de "volver" pasa de `/compras` a `/proveedores`. Test que lo asserte.
-- [ ] 11.6 **TRIANGULATE**: listado vacío (empty state con CTA), listado con resultados, búsqueda sin resultados, y estado de límite alcanzado.
+- [x] 11.1 **RED**: test de componente de `SupplierForm` (alta y edición, validación de nombre obligatorio y de CUIT). ✅ `__tests__/components/supplier-form.test.tsx`, RED verificado (import inexistente).
+- [x] 11.2 `frontend/components/forms/supplier-form.tsx`, molde de `client-form.tsx`, **reutilizando** `frontend/lib/cuit-utils.ts` para la validación de CUIT (no reimplementarla). ✅ 6/6 tests. Extracción de reuso: `IVA_CONDITION_OPTIONS` (antes local a `client-form.tsx`) se movió a `frontend/lib/constants.ts` y ambos formularios la importan (regla PO "reutilización antes que repetición") — `client-form.tsx` verificado sin regresiones (10 archivos/56 tests "client" en verde).
+- [x] 11.3 `frontend/app/(dashboard)/proveedores/page.tsx`: listado con búsqueda, alta/edición en `Dialog`, baja con confirmación, export CSV vía `exportToCSV`, banner y botón deshabilitado al alcanzar `limits.maxSuppliers` (`usePlanLimits`), y acción de fila "Cuenta corriente" → `/proveedores/[id]/cuenta`. ✅ `__tests__/ProveedoresPage.test.tsx`, 10/10.
+- [x] 11.4 `frontend/components/app-sidebar.tsx`: entrada "Proveedores" (`href: "/proveedores"`, ícono `Truck`, `pro: false`, `proOnly: false`) en el grupo **Catálogo**, inmediatamente debajo de "Clientes". ✅ `navGroups` exportado para test directo de la estructura (`__tests__/components/app-sidebar-nav-groups.test.ts`, 4/4) sin montar el árbol completo (evita SidebarProvider). Registros adicionales encontrados por grep de `"/clientes"`: `lib/supabase/middleware.ts` (`PROTECTED_PREFIXES` — sin esto la ruta quedaría sin auth-gate, test dedicado `__tests__/lib/protected-prefixes-proveedores.test.ts`) y `components/dashboard/breadcrumb-nav.tsx` (`PAGE_NAMES`). `lib/tutorials.ts` y `ModuleMetricsWrapper`/`ModuleAnalytics` (admin) deliberadamente NO tocados — ninguna spec/task de este change pide tutorial en video ni analíticas admin para proveedores.
+- [x] 11.5 `frontend/app/(dashboard)/proveedores/[id]/cuenta/page.tsx`: el `Link` de "volver" pasa de `/compras` a `/proveedores`. Test que lo asserte. ✅ `__tests__/ProveedorAccountPage.test.tsx` — RED confirmó `href="/compras"` vigente, GREEN tras el fix.
+- [x] 11.6 **TRIANGULATE**: listado vacío (empty state con CTA), listado con resultados, búsqueda sin resultados, y estado de límite alcanzado. ✅ cubierto dentro de `ProveedoresPage.test.tsx` (task 11.3).
 
 ## 12. Frontend — selector de proveedor en el formulario de compra
 
-- [ ] 12.1 **RED**: `frontend/__tests__/components/purchase-form-supplier.test.tsx` — el form envía `supplierId` en el payload de alta.
-- [ ] 12.2 Selector de proveedor buscable en el header de `PurchaseForm` (mismo componente de combobox que usa el selector de cliente en `sale-form.tsx`), precargado en modo edición desde `editingOperation.supplierId`.
-- [ ] 12.3 Alta inline "Nuevo proveedor": crea vía `useSuppliers().addSupplier`, preselecciona el creado y **no** pierde los ítems ya cargados en el carrito.
-- [ ] 12.4 Bloque de cuenta corriente cuando `resolvedKind === "credit"`, molde exacto del bloque de venta a crédito: aviso "elegí un proveedor" si falta, y saldo actual / proyectado (vía `useSupplierAccount`) si está.
-- [ ] 12.5 El botón de confirmar queda deshabilitado con `kind='credit'` y sin proveedor (la UI impide llegar al `P0400`, pero el servidor sigue siendo el que decide).
-- [ ] 12.6 **TRIANGULATE**: `credit` con proveedor (envía y muestra saldo) / `credit` sin proveedor (bloquea) / `cash` (no muestra el bloque) / sin forma de pago (no muestra el bloque ni promete cuenta corriente).
-- [ ] 12.7 **[OQ-5 alternativa]** Si el PO responde **B** a la OQ-5: desmontar `CostCenterSelect` en modo edición de `PurchaseForm` (hoy está montado y no tiene efecto — UI que miente en producción).
+- [x] 12.1 **RED**: `frontend/__tests__/components/purchase-form-supplier.test.tsx` — el form envía `supplierId` en el payload de alta. ✅ RED confirmado (8/11 fallando), incluye además TRIANGULATE sin proveedor → `supplierId: null`.
+- [x] 12.2 Selector de proveedor buscable en el header de `PurchaseForm` (mismo componente de combobox que usa el selector de cliente en `sale-form.tsx`), precargado en modo edición desde `editingOperation.supplierId`.
+- [x] 12.3 Alta inline "Nuevo proveedor": crea vía `useSuppliers().addSupplier`, preselecciona el creado y **no** pierde los ítems ya cargados en el carrito. ✅ `handleCreateSupplier` await + `setSupplierId(created.id)` (el mold de `sale-form.tsx` NO preselecciona al crear cliente — acá se implementó el comportamiento correcto que pide el spec, no la copia literal del mold).
+- [x] 12.4 Bloque de cuenta corriente cuando `resolvedKind === "credit"`, molde exacto del bloque de venta a crédito: aviso "elegí un proveedor" si falta, y saldo actual / proyectado (vía `useSupplierAccount`) si está.
+- [x] 12.5 El botón de confirmar queda deshabilitado con `kind='credit'` y sin proveedor (la UI impide llegar al `P0400`, pero el servidor sigue siendo el que decide). ✅ solo en alta (`!isEdit && creditBlockedNoSupplier`) + defensa en profundidad en `handleSubmit` (toast + return, mismo patrón que el banner de `isInvoiced` en `sale-form.tsx`).
+- [x] 12.6 **TRIANGULATE**: `credit` con proveedor (envía y muestra saldo) / `credit` sin proveedor (bloquea) / `cash` (no muestra el bloque) / sin forma de pago (no muestra el bloque ni promete cuenta corriente). ✅ 11/11 en `purchase-form-supplier.test.tsx`. Safety net: `purchase-form-date-default.test.tsx` y `purchase-form-edit-context.test.tsx` necesitaron mocks nuevos de `use-suppliers`/`use-supplier-account`/`SearchableSelect` (el pythonClient real revienta sin `NEXT_PUBLIC_BACKEND_URL` en tests) — 15/15 verdes tras el fix, `pnpm vitest run purchase` completo: 51/51 (9 archivos).
+- [x] 12.7 **[OQ-5 alternativa]** N/A — OQ-5 resuelta como A (recomendada): el PO no respondió, y la opción A (tri-estado completo, incluye `cost_center_id`) ya está implementada en DB (tasks 4.7/4.8) y backend (task 9.7). No corresponde desmontar `CostCenterSelect`.
 
 ## 13. Frontend — listado de compras
 
-- [ ] 13.1 **RED**: test de `purchase-operations-list` asserteando el badge de proveedor y el texto "Sin proveedor" cuando no hay.
-- [ ] 13.2 Badge de proveedor en la fila de operación (desktop y mobile), junto a los badges de centro de costo y forma de pago ya existentes.
-- [ ] 13.3 Verificar que el motivo del bloqueo de edición (`isPaymentLocked` / `hasAccountCharge`) nombra explícitamente el cargo de cuenta corriente del proveedor y el camino de corrección (borrar y recargar).
+- [x] 13.1 **RED**: test de `purchase-operations-list` asserteando el badge de proveedor y el texto "Sin proveedor" cuando no hay. ✅ `__tests__/components/purchase-operations-list-supplier.test.tsx`, RED confirmado (3/3 fallando).
+- [x] 13.2 Badge de proveedor en la fila de operación (desktop y mobile), junto a los badges de centro de costo y forma de pago ya existentes.
+- [x] 13.3 Verificar que el motivo del bloqueo de edición (`isPaymentLocked` / `hasAccountCharge`) nombra explícitamente el cargo de cuenta corriente del proveedor y el camino de corrección (borrar y recargar). ✅ **Hallazgo real**: el texto vigente decía *"Emití una nota de crédito y registrá una compra nueva"* — copiado literal del lado venta, donde sí existe nota de crédito; las compras no la tienen (D8). Corregido a *"...borrá esta compra (revierte el cargo y repone el stock) y volvé a cargarla"* + nombra "del proveedor" explícitamente. Safety net preservado: el test preexistente `purchase-operations-list-payment-lock.test.tsx` sigue matcheando `/No editable.*cargo de cuenta corriente/i` (2/2 verde). Total grupo: `pnpm vitest run purchase-operations-list` → 5/5 (2 archivos).
 
 ## 14. Verificación integral
 

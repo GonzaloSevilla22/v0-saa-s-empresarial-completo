@@ -25,6 +25,7 @@ const PAGE_NAMES: Record<string, string> = {
   "/productos":        "Productos",
   "/stock":            "Stock",
   "/clientes":         "Clientes",
+  "/proveedores":      "Proveedores",
   "/insights":         "Consejos AI",
   "/simulador":        "Simulador de Precios",
   "/comunidad":        "Comunidad",

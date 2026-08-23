@@ -113,6 +113,12 @@ export interface PurchaseOperation {
    * caja — las compras no tienen opt-in de caja). */
   hasAccountCharge: boolean
   hasBankMovement: boolean
+  /** compras-proveedor-cuenta-corriente (D4): proveedor imputado a la
+   * operación (editable, tri-estado — D7). null = sin proveedor. */
+  supplierId: string | null
+  /** compras-proveedor-cuenta-corriente (task 9.2): nombre resuelto por el
+   * listado (LEFT JOIN suppliers), para el badge. */
+  supplierName: string | null
 }
 
 export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperation[] {
@@ -144,6 +150,8 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         isPaymentLocked: !!purchase.isPaymentLocked,
         hasAccountCharge: !!purchase.hasAccountCharge,
         hasBankMovement: !!purchase.hasBankMovement,
+        supplierId: purchase.supplierId ?? null,
+        supplierName: purchase.supplierName ?? null,
       })
     }
   }

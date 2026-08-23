@@ -41,6 +41,12 @@ export const queryKeys = {
     activity:  () => ["clients", "activity"] as const,
     purchases: (clientId: string) => ["clients", "purchases", clientId] as const,
   },
+  // compras-proveedor-cuenta-corriente (D10): calco de clients.all/lists —
+  // el proveedor como maestro operable.
+  suppliers: {
+    all:   () => ["suppliers"] as const,
+    lists: () => ["suppliers", "list"] as const,
+  },
   insights: {
     all: () => ["insights"] as const,
   },

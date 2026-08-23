@@ -37,6 +37,15 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
 vi.mock("@/hooks/data/use-payment-methods", () => ({
   usePaymentMethods: () => ({ paymentMethods: [], isLoading: false }),
 }))
+// compras-proveedor-cuenta-corriente (D10): mismo motivo — mock explícito, no
+// pythonClient real (que revienta sin NEXT_PUBLIC_BACKEND_URL en tests).
+vi.mock("@/hooks/data/use-suppliers", () => ({
+  useSuppliers: () => ({ suppliers: [], addSupplier: vi.fn() }),
+}))
+vi.mock("@/hooks/data/use-supplier-account", () => ({
+  useSupplierAccount: () => ({ data: null }),
+}))
+vi.mock("@/components/ui/searchable-select", () => ({ SearchableSelect: () => null }))
 vi.mock("@/components/shared/product-picker", () => ({ ProductPicker: () => null }))
 vi.mock("@/components/shared/cart-item-list", () => ({ CartItemList: () => null }))
 vi.mock("@/components/shared/barcode-scanner-input", () => ({ BarcodeScannerInput: () => null }))
@@ -87,6 +96,8 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     unitId: "unit-kg",
     isPaymentLocked: false,
     hasAccountCharge: false,
+    supplierId: null,
+    supplierName: null,
     hasBankMovement: false,
     ...overrides,
   }

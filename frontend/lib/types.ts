@@ -423,6 +423,12 @@ export interface Purchase {
    * (sin caja — las compras no tienen opt-in de caja). */
   hasAccountCharge?: boolean
   hasBankMovement?: boolean
+  /** compras-proveedor-cuenta-corriente (D4): proveedor imputado a la
+   * operación (editable, tri-estado — D7). null = "Sin proveedor". */
+  supplierId?: string | null
+  /** compras-proveedor-cuenta-corriente (task 9.2): nombre resuelto por el
+   * listado (LEFT JOIN suppliers), para el badge. */
+  supplierName?: string | null
 }
 
 export interface UnitOfMeasure {
@@ -563,6 +569,20 @@ export interface Client {
   lastPurchase: string
   totalSpent: number
   category?: string
+  taxId?: string
+  ivaCondition?: IvaCondition
+  legalName?: string
+}
+
+// ── compras-proveedor-cuenta-corriente (D2/D10): el proveedor como maestro
+// operable — espejo exacto de Client en identidad fiscal (RN-96, FiscalIdentity
+// es un VO compartido). Sin lastPurchase/totalSpent/category: no hay read-model
+// de actividad de compras por proveedor todavía (design.md OQ-6).
+export interface Supplier {
+  id: string
+  name: string
+  email?: string
+  phone?: string
   taxId?: string
   ivaCondition?: IvaCondition
   legalName?: string

@@ -63,13 +63,13 @@ Ninguna. El change endurece capabilities existentes; no introduce dominio nuevo.
 
 **CI**
 
-- `.github/workflows/KPI_Validation.yml`: la migración nueva se suma como último eslabón de la cadena de reapply, y un step nuevo corre `supabase/tests/test_cuenta_corriente_party_guard.sql`.
+- `.github/workflows/KPI_Validation.yml`: la migración nueva (`20261010000001`, renumerada desde `20261008000001` porque #452 tomó `20261009000001`) se suma como último eslabón de la cadena de reapply — **obligatoriamente último**: el reapply de `20261001000001` y `20261004000001` re-otorga el GRANT a `authenticated` de los dos helpers que este change revoca, y un step nuevo corre `supabase/tests/test_cuenta_corriente_party_guard.sql`.
 - `supabase/tests/test_function_acl_gate.sql`: chequeo (3) nuevo.
 - Gates que deben seguir verdes sin cambios: `test_function_acl_gate.sql`, `test_errcode_5char_gate.sql`, `test_idempotency.sql`, `test_pagos_cableados_restantes.sql`, `test_delete_guard_ledgers.sql`, `test_asiento_venta_formulario.sql`.
 
 **Backend Python**
 
-- Sin cambios de código. Tests nuevos que asserten la propagación `P0404 → 404` en los tres services de cuenta corriente (mock de `asyncpg`, molde de `backend/tests/test_c30_customer_supplier_accounts.py`). Baseline actual: 1495/1495.
+- Sin cambios de código. Tests nuevos que asserten la propagación `P0404 → 404` en los tres services de cuenta corriente (mock de `asyncpg`, molde de `backend/tests/test_c30_customer_supplier_accounts.py`). Baseline actual: **1530 passed / 0 failed / 3 skipped** (medido al arrancar el apply; el `1495/1495` que decía este proposal venía de un change anterior). Tras los tests de este change: 1538/0/3.
 
 **Frontend**
 

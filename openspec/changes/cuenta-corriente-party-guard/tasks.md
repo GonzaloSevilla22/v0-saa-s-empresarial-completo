@@ -46,7 +46,7 @@
 - [x] 2.6 **RED [OQ-1]**: espejo por el camino POS (`rpc_quick_sale` con `kind='credit'` y cliente ajeno) → `P0404`, orden no confirmada.
   > **RED**: la venta del POS **se confirmó**, dejando 1 `sales_orders` contra el cliente ajeno. **GREEN**: `P0404` + 0 `sales_orders`.
 - [x] 2.7 Verificar que el archivo corre y **falla** contra el schema actual, y anotar cuáles de los 5-6 asserts fallan. Eso es el RED del change entero.
-  > **Evidencia**: el gate (fail-fast, como el molde) aborta en 2.2. Para el inventario completo se corrió un **diagnóstico independiente** (scratchpad `red_probe.sql`, envuelto en `BEGIN…ROLLBACK`) que prueba cada comportamiento por separado. Resultado — **todos los asserts del change en rojo**:
+  > **Evidencia**: el gate (fail-fast, como el molde) aborta en 2.2. Para el inventario completo se corrió un **diagnóstico independiente** que prueba cada comportamiento por separado, versionado en `openspec/changes/cuenta-corriente-party-guard/baseline/red_probe_2026-08-23.sql` (read-only: todo dentro de `BEGIN … ROLLBACK`; el archivo documenta cómo reproducir el RED). Resultado — **todos los asserts del change en rojo**:
   > | assert | comportamiento HOY | esperado |
   > |---|---|---|
   > | choke point cliente | ÉXITO, **1 fila cross-tenant creada** | P0404 / 0 |
@@ -68,7 +68,8 @@
 - [x] 3.4 ACLs de los dos helpers: `REVOKE ALL … FROM PUBLIC, anon, authenticated;` **sin `GRANT`**. `COMMENT ON FUNCTION` actualizado citando el guard.
   > **Evidencia**: ACL final en local `anon=f, authenticated=f` para ambos. Los `COMMENT` los nombran CHOKE POINT y explican que son internos.
 - [x] 3.5 **TRIANGULATE**: control positivo — cliente/proveedor **del mismo tenant** sin cuenta corriente previa: la cuenta se crea en el mismo commit y el movimiento queda con el `balance_after` esperado.
-  > **Evidencia**: 4 sub-casos verdes: venta a crédito con cliente propio fresco → cuenta creada, `balance = 1000`; cobro de 400 → `balance_after = 600`, `replayed = false`; cargo a proveedor propio fresco → `balance_after = 5700`; pago de 300 → `balance_after = 5400`.
+  > **Evidencia**: 5 sub-casos verdes. 3.5a venta a crédito con cliente propio fresco → cuenta creada, `balance = 1000` (+1 evento `CustomerAccountCharged`); 3.5b cobro de 400 → `balance_after = 600`, `replayed = false`; 3.5c cargo de 700 a **`v_supplier_a2`, un proveedor virgen** → cuenta creada en el mismo commit con `balance = 700`; 3.5d cargo de 700 sobre `v_supplier_a` (que ya tenía 5000 desde 2.3) → `balance_after = 5700`; 3.5e pago de 300 → `balance_after = 5400`.
+  > **CORRECCIÓN (2026-08-23)**: la versión original decía "proveedor propio FRESCO" pero usaba `v_supplier_a`, al que **2.3 ya le había creado la cuenta corriente con 5000** — por eso esperaba 5700. Con ese proveedor, "la cuenta se crea en el mismo commit" nunca se ejercitaba del lado proveedor. Se agregó `v_supplier_a2`, virgen, con una precondición explícita de 0 cuentas antes del cargo.
 - [x] 3.6 **TRIANGULATE**: identificador **inexistente** → mismo `P0404`, mismo mensaje.
   > **Evidencia**: el assert compara los dos mensajes con el UUID normalizado a `<id>` y exige que sean idénticos. Antes de la migración **no** lo eran (`23503` vs. `P0409`) — el guard cierra también esa fuga de información.
 - [x] 3.7 **TRIANGULATE**: `rpc_create_customer_account` y `rpc_create_supplier_account` siguen comportándose igual con el guard ahora duplicado.
@@ -88,6 +89,8 @@
   > **Evidencia**: ACL final `anon=f, authenticated=t` en las 3. Los `COMMENT` nombran `P0404` y la ubicación del guard.
 - [x] 4.5 **TRIANGULATE**: la **clave de idempotencia no se quema** en el rechazo.
   > **Evidencia**: cobro rechazado por cliente ajeno con la clave `gate-ccpg-4-5-shared` → 0 filas en `operation_idempotency` para esa clave; reintento con la misma clave y un cliente válido → `replayed = false`, `payment_id` no nulo, `balance_after = 500`.
+> **Dónde vive el candado de D2 (nota 2026-08-23)**: 4.5, 4.6 y 4.7 siguen siendo válidos como asserts de **comportamiento**, pero ninguno de ellos —ni ningún otro assert del gate— detecta que las 3 RPCs vuelvan a su cuerpo pre-guard: el choke point levanta el mismo `P0404` y todo queda verde. Verificado empíricamente (`BEGIN; <baseline/rpc_register_supplier_charge.sql>; ROLLBACK;` → el proveedor ajeno sigue dando `P0404`). El candado real de la capa 2 de D1 y de la ubicación de D2 es el bloque **(4.1-4.3)** que se agregó al gate: `pg_get_functiondef` de cada RPC, presencia del literal del guard y su `position()` **después** del último guard de payload (`bank_account_not_found` / `invalid_amount`) y **antes** del `INSERT INTO public.operation_idempotency`.
+
 - [x] 4.6 **TRIANGULATE**: cliente ajeno **y** `amount = 0` → `P0400`, no `P0404`.
   > **Evidencia**: verde. Ya lo era antes de la migración — es un **candado de orden**, no un fix, y congela la ubicación de D2.
 - [x] 4.7 **TRIANGULATE**: cobro por transferencia con cliente ajeno → `P0404` y **cero** filas en `bank_movements`.
@@ -187,3 +190,32 @@
 - [ ] 9.4 Re-correr la query de 1.6 en prod y confirmar que la lista coincide con la allowlist del gate menos los dos revocados (3 → **1**: sólo `_c29_confirm_order_core`).
 - [ ] 9.5 Registrar en `CHANGES.md` el estado final y actualizar el puntero "Próximo change recomendado" del `CLAUDE.md`. Verificar que todo se mergeó **vía PR**.
 - [ ] 9.6 Guardar en engram (`topic_key: opsx/cuenta-corriente-party-guard/apply`) el resultado.
+
+> ### Candidatos detectados durante el apply (para `CHANGES.md` en el archive)
+>
+> Cuatro hallazgos **pre-existentes** encontrados al auditar el vecindario del
+> change. **Ninguno se corrige acá**: son dominio CRÍTICO (dinero y
+> multi-tenancy) y quedan a decisión del PO —change propio o hotfix, con la
+> disciplina de #446—. Detalle completo, con evidencia y fix sugerido, en
+> `design.md` §"Hallazgos laterales de la revisión de seguridad".
+>
+> - **h1 — Caja de otro tenant escribible desde el POS (alta).**
+>   `_c29_confirm_order_core` / `rpc_quick_sale` / `rpc_confirm_sales_order`
+>   aceptan un `p_cash_session_id` ajeno y lo pasan a
+>   `c28_register_cash_movement`, que no valida tenencia. Ingreso fantasma en el
+>   arqueo de la víctima, reproducido en local. Fix: guard
+>   `cs.id = p_cash_session_id AND cb.branch_id = v_gate_branch AND status='open'`
+>   → `P0422`, o dentro de `c28_register_cash_movement` (choke point).
+> - **h2 — Outbox sin filtro de tenant (alta).** `rpc_process_outbox_batch(int)`
+>   y `rpc_mark_event_processed(uuid)` (`SECURITY DEFINER`, GRANT
+>   `authenticated`, `20260718000001` L172/L203) devuelven y marcan eventos de
+>   TODOS los tenants. Un `authenticated` de A lee el payload de eventos de B y
+>   los marca procesados — el dispatcher real nunca postea ese asiento. Agravado
+>   por `POST /outbox/process-pending` (`backend/routers/outbox.py` L32) sin
+>   `require_admin`. Fix: `REVOKE` de ambas + `require_admin`. Nota: el chequeo
+>   (3) **no** las atrapa (son `rpc_*`, fuera del filtro de nombre por D4).
+> - **h3 — `c30_register_customer/supplier_account_movement` `anon`-executable en
+>   prod.** `SECURITY INVOKER`; hoy los frena la RLS (esas tablas sólo tienen
+>   policies de `SELECT`). Endurecimiento, no incidente.
+> - **h4 — `get_account_ids_for_user(uuid)`** devuelve la membresía de cualquier
+>   `user_id`, sin comparar contra `auth.uid()`. Fuga menor de membresía.

@@ -64,7 +64,7 @@ Se perdió en `20261001000001`, cuya cabecera declara literalmente que reafirma 
 
 **Ninguno de los dos tiene caller del lado app.** `grep` sobre `frontend/`, `backend/` y `supabase/functions/` los encuentra solo en comentarios, en tests de migración y en `frontend/lib/database.types.ts` —que es generado, y su presencia ahí es justamente la confirmación de que PostgREST los expone—. El contraste correcto es `_pay_reverse_party_charge` (`20261005000001` L186), nacido en `delete-guard-ledgers` con `REVOKE ALL ... FROM PUBLIC, anon, authenticated`.
 
-**Por qué el gate existente no lo atrapó.** `test_function_acl_gate.sql` tiene dos chequeos: (1) funciones **trigger** `SECURITY DEFINER` ejecutables por `anon`/`authenticated`, y (2) funciones `SECURITY DEFINER` ejecutables por **`anon`**, con allowlist. Ninguna función no-trigger ejecutable por `authenticated` cae en el radar. Es un punto ciego estructural, no un descuido puntual: hay más candidatos vivos con la misma forma (`c28_register_cash_movement(uuid,numeric,text,uuid,text)` tiene `REVOKE ... FROM PUBLIC, anon, authenticated` en `20261006000001` L266 e inmediatamente `GRANT EXECUTE ... TO authenticated` en L267).
+**Por qué el gate existente no lo atrapó.** `test_function_acl_gate.sql` tiene dos chequeos: (1) funciones **trigger** `SECURITY DEFINER` ejecutables por `anon`/`authenticated`, y (2) funciones `SECURITY DEFINER` ejecutables por **`anon`**, con allowlist. Ninguna función no-trigger ejecutable por `authenticated` cae en el radar. Es un punto ciego estructural, no un descuido puntual: hay más candidatos vivos con la misma forma (`c28_register_cash_movement(uuid,numeric,text,uuid,text)` tiene `REVOKE ... FROM PUBLIC, anon, authenticated` en `20261006000001` L266 e inmediatamente `GRANT EXECUTE ... TO authenticated` en L267). **Corregido en el apply**: `c28_register_cash_movement` **no** es `SECURITY DEFINER`, así que no cae en el chequeo (3) — ver Post-apply (a).
 
 ### Restricciones que condicionan el diseño
 
@@ -103,7 +103,7 @@ Se perdió en `20261001000001`, cuya cabecera declara literalmente que reafirma 
 
 **Alternativas consideradas**
 
-- *Opción A — solo las 3 RPCs de pago (el pedido textual).* **Descartada.** Deja intacto el hueco en `rpc_create_sale_operation_v2`, `rpc_create_sale_operation` y `_c29_confirm_order_core`, que es donde pasa el volumen real (241 operaciones a crédito históricas según `pagos-cableados-restantes`). Arreglar la puerta de servicio y dejar la principal abierta.
+- *Opción A — solo las 3 RPCs de pago (el pedido textual).* **Descartada.** Deja intacto el hueco en `rpc_create_sale_operation_v2`, `rpc_create_sale_operation` y `_c29_confirm_order_core`, que es donde pasa el volumen real (241 operaciones a crédito históricas según `pagos-cableados-restantes`; ojo: ese número **no** se refleja en la cuenta corriente de prod — ver Post-apply (e)). Arreglar la puerta de servicio y dejar la principal abierta.
 - *Opción B pura — solo el choke point.* Descartada por dos motivos concretos, no estéticos: (i) el `RAISE` caería después del `INSERT` de idempotencia en las RPCs de pago (ver D2), y (ii) el mensaje de error vendría de un helper interno, no del dominio del llamador.
 - *Un helper nuevo `_party_assert_owned(account_id, kind, id)`.* **Descartado por la Regla de Tres**: quedarían 5 sitios de uso, pero el predicado es un `SELECT 1 ... WHERE id = ? AND account_id = ?` de tres líneas, y el proyecto ya tiene su forma canónica escrita y probada en `rpc_create_customer_account`. La regla de la casa es "reutilización antes que repetición" —reutilizar el **patrón** canónico, no inventar una abstracción nueva para envolverlo—. Además, un helper nuevo sería otra función más que hay que acordarse de REVOKE-ar, que es precisamente el modo de falla que este change está cerrando.
 
@@ -137,7 +137,7 @@ Es cierto que un `RAISE` revierte la transacción entera y con ella la fila de `
 
 **Por qué por convención de nombre y no por "todas las `SECURITY DEFINER`":** hay decenas de `rpc_*` que legítimamente necesitan `EXECUTE` para `authenticated` (son la API). Gatearlas todas produciría una allowlist de mantenimiento imposible que nadie leería —y una allowlist que nadie lee es un gate apagado—. El prefijo `_` ya es la convención del proyecto para "helper intra-transacción", y `c28_`/`c29_`/`c30_` es la convención de los helpers de fase. La regla de mantenimiento es la misma que ya tiene el gate: **achicar** la allowlist siempre es válido; **agregar** una entrada exige justificar en el PR por qué ese helper necesita ser invocable desde el rol de aplicación.
 
-Se espera que la primera corrida encuentre offenders más allá de los dos que este change revoca —`c28_register_cash_movement` y `_c29_confirm_order_core` son candidatos conocidos—. **Se entran a la allowlist con su comentario, no se revocan en este change** (ver OQ-3): revocar `c28_register_cash_movement` o `_c29_confirm_order_core` sin auditar sus llamadores es exactamente el tipo de cambio que rompe el POS en producción un sábado. El gate los deja anotados y visibles, que es su función.
+Se espera que la primera corrida encuentre offenders más allá de los dos que este change revoca —`c28_register_cash_movement` y `_c29_confirm_order_core` son candidatos conocidos—. **Medido en el apply**: el único offender preexistente es `_c29_confirm_order_core`; `c28_register_cash_movement` no es `SECURITY DEFINER` (Post-apply (a)). **Se entran a la allowlist con su comentario, no se revocan en este change** (ver OQ-3): revocar `c28_register_cash_movement` o `_c29_confirm_order_core` sin auditar sus llamadores es exactamente el tipo de cambio que rompe el POS en producción un sábado. El gate los deja anotados y visibles, que es su función.
 
 ### D5 — Migración idempotente, sin `DROP`, con reafirmación de ACLs
 
@@ -163,10 +163,12 @@ Igual que el backfill de `delete-guard-ledgers`: si la auditoría read-only encu
 | El `REVOKE` rompe un consumidor no identificado de PostgREST | `grep` sobre `frontend/`, `backend/` y `supabase/functions/` da cero callers reales. Los `PERFORM` internos corren como definer. Rollback trivial: un `GRANT` de una línea. |
 | **ACLs de prod distintas a las de local** — el revoke se ve aplicado en CI y en prod queda abierto | La task de auditoría corre `has_function_privilege('authenticated', oid, 'EXECUTE')` **contra prod** post-merge, no solo en CI (gotcha #432). El `REVOKE` se escribe con la lista completa `FROM PUBLIC, anon, authenticated`, no solo `FROM PUBLIC`. |
 | El gate (3) nuevo falla el pipeline con offenders preexistentes y bloquea el PR | Se descubre la lista real en la task 6.2 **antes** de escribir el gate, y los preexistentes entran a la allowlist con su comentario (D4). El gate nace verde y sirve de aquí en adelante. |
-| La cadena de reapply de CI se desincroniza | La migración se suma como **último** eslabón, con comentario propio. No cambia ninguna firma, así que no puede generar overloads fantasma — es el caso más simple de la cadena. |
+| La cadena de reapply de CI se desincroniza | La migración se suma como **último** eslabón, con comentario propio. No cambia ninguna firma, así que no puede generar overloads fantasma — es el caso más simple de la cadena. **El apply descubrió que el eslabón es load-bearing, no cosmético**: el reapply de `20261001000001` y `20261004000001` re-otorga el GRANT a `authenticated` de los dos helpers revocados, o sea que sin este eslabón al final el chequeo (3) falla en CI (Post-apply (d)). |
 | Solapamiento con `compras-proveedor-cuenta-corriente` | No hay conflicto de archivos: aquel toca `suppliers`, el formulario de compra y `rpc_create_purchase_operation`; este toca los helpers `c30_get_or_create_*`, las 3 RPCs de pago y dos ACLs. Si `compras-*` se aplica primero, queda cubierto sin cambios (el guard está en el choke point). Recomendado: **este change primero**. |
 
 ### Estado del baseline de prod
+
+> **Superado por el apply** (2026-08-23): los baselines **sí** se capturaron, con `md5` verificado contra prod. Ver Post-apply (c). Lo de abajo se deja como registro de por qué el checkpoint 🛑 de la task 1.4 era obligatorio.
 
 **No se pudieron capturar los baselines en este propose.** El worktree tiene el proyecto linkeado (`supabase/.temp/project-ref` = `gxdhpxvdjjkmxhdkkwyb`) y hay un stack local en Docker con `psql` disponible dentro del contenedor, pero `supabase/.temp/pooler-url` **no contiene contraseña** (`fe_sendauth: no password supplied` al intentar la conexión) y la lectura de `backend/.env` está denegada para el agente. No hay `psql` en el PATH del host ni cliente Postgres en `node_modules`.
 
@@ -184,7 +186,7 @@ Se dejan documentadas acá las **referencias de archivo** contra las que hay que
 
 ## Migration Plan
 
-1. **Pre**: safety net (suite backend 1495/1495, gates SQL verdes), MAX de migraciones en prod, captura de baselines 🛑.
+1. **Pre**: safety net (suite backend 1495/1495 — el baseline real medido fue **1530/1530**, ver Post-apply (b) —, gates SQL verdes), MAX de migraciones en prod, captura de baselines 🛑.
 2. **RED**: `supabase/tests/test_cuenta_corriente_party_guard.sql` escrito y fallando contra el schema actual.
 3. **GREEN**: `20261010000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
 4. **CI**: eslabón de reapply + step del test nuevo + chequeo (3) en el gate de ACLs.
@@ -197,6 +199,134 @@ Se dejan documentadas acá las **referencias de archivo** contra las que hay que
 - ACLs: un `GRANT EXECUTE ... TO authenticated` de una línea.
 - Gate (3): borrar el bloque del test.
 Nada de esto muta datos, así que no hay rollback de datos que planificar. La única operación que sí muta datos —la reparación histórica— es un script aparte, post-merge y firmado.
+
+## Post-apply (2026-08-23)
+
+> Lo que el apply verificó y que **corrige o completa** lo escrito arriba. La
+> historia del propose se deja intacta a propósito: acá está la diferencia
+> entre lo que se supuso y lo que se midió.
+
+**(a) `c28_register_cash_movement` NO es `SECURITY DEFINER` — no es offender del chequeo (3).**
+Medido en prod y en local: `prosecdef = false`. El Context (§"Por qué el gate
+existente no lo atrapó"), D4 y OQ-3 lo daban por candidato conocido de la
+allowlist; no lo es, porque el chequeo (3) filtra por `secdef AND
+authenticated`. La allowlist inicial del gate queda con **una sola** entrada:
+`_c29_confirm_order_core`. Anotado también dentro del propio gate, para que
+nadie lo agregue "por las dudas".
+
+**(b) El baseline real de la suite backend es 1530, no 1495.**
+`python -m pytest backend/tests -q -p no:cacheprovider` al empezar el apply:
+**1530 passed / 0 failed / 3 skipped**. El número del propose (`proposal.md`
+§Impact y el paso 1 del Migration Plan) venía de un change anterior. Tras los
+tests de este change: **1538 / 0 / 3** (+8, exactamente los nuevos).
+
+**(c) Los baselines de prod SÍ se capturaron.**
+La sección "Estado del baseline de prod" describe la situación del propose, que
+no pudo conectarse. El apply sí pudo: los 7 archivos (las 5 funciones
+reescritas + los 2 helpers revocados) están en `baseline/`, capturados vía
+`pg_get_functiondef` **en vivo contra prod** el 2026-08-23, con `md5` y
+`length` verificados en la cabecera de cada uno, más
+`baseline/prod_acl_audit_2026-08-23.md` con la auditoría de ACLs y los 9
+conteos de daño histórico. Commit `e0099e0`. **Resultado del diff (task 1.5):
+las 5 son byte-idénticas a sus referencias locales** — incluida
+`rpc_register_supplier_charge`, que nunca fue redefinida desde C-30.
+
+**(d) El eslabón de reapply en CI es load-bearing, no cosmético.**
+La fila de Risks decía "la migración se suma como último eslabón… es el caso
+más simple de la cadena". Es más que eso: reproducir la cadena en local mostró
+que el reapply de `20261001000001` (L137) y de `20261004000001` (~L1778) vuelve
+a ejecutar el bloque REVOKE+GRANT del "patrón uniforme" y **le devuelve el
+GRANT a `authenticated`** a `_pay_register_party_charge` y a
+`_journal_post_from_event` — o sea, reabre el agujero de la Familia 2. Sin el
+eslabón al final, el chequeo (3) fallaría en CI reportando los dos helpers que
+la migración ya había revocado. El orden no es preferencia: es corrección.
+
+**(e) "241 operaciones a crédito" no se refleja en la cuenta corriente de prod.**
+D1 cita ese número (de `pagos-cableados-restantes`) como el volumen del camino
+de venta a crédito. Los conteos read-only de prod (grupo 8) muestran
+`customer_accounts = 2`, 5 movimientos, 1 `payment_received` y 4 eventos. No
+contradice el argumento de D1 —el hueco está en el camino, exista o no
+volumen histórico en esa tabla— pero **no citar 241 como población afectada**
+en el PR ni en `CHANGES.md`.
+
+**(f) La migración se renumeró: `20261008000001` → `20261010000001`.**
+`compras-proveedor-cuenta-corriente` (PR #452) se mergeó mientras esta rama
+estaba en revisión y tomó `20261009000001`, que pasó a ser el MAX vivo de prod.
+Un archivo con número menor al MAX remoto no lo aplica nunca el push
+automático de Supabase. La rama se rebaseó sobre `origin/main` (#452 + #453);
+el único conflicto fue `KPI_Validation.yml`, resuelto conservando ambos lados
+con nuestro eslabón y nuestro step al final.
+
+**(g) OQ-2 y OQ-5 cerradas.**
+OQ-2 (🛑, ¿el REVOKE entra en este change o sale como hotfix?): el PO no
+respondió → se implementó la recomendación, **entra en este change**. OQ-5 (¿qué
+hacer con las filas corruptas?): **cerrada por ausencia de datos** — los 9
+conteos de la auditoría dieron **0** en todos, así que no hay nada que decidir.
+Las demás quedan como estaban: OQ-1 = B, OQ-3 = allowlist, OQ-4 = change propio
+(`operacion-party-guard`), OQ-6 = no.
+
+**(h) La enumeración de roles en el REVOKE se verifica por revisión, no por CI.**
+El `REVOKE ALL … FROM PUBLIC, anon, authenticated` nombra los roles
+explícitamente por el gotcha #432 (prod concede EXECUTE directo, no vía
+`PUBLIC`). El stack local **no replica** esas concesiones directas, así que
+ningún gate de CI puede probar que la enumeración es la correcta: se verifica
+por revisión del archivo y por la task 9.2 contra prod post-merge. Se acepta
+así, con la limitación escrita en vez de simulada.
+
+### Hallazgos laterales de la revisión de seguridad
+
+> **Pre-existentes, NO corregidos en este change.** Ninguno está causado por
+> esta rama y ninguno entra en su alcance: son huecos vivos de dominio
+> **CRÍTICO** (dinero y multi-tenancy) detectados al auditar el vecindario. Se
+> dejan escritos acá y en `tasks.md` (nota al final del grupo 9) para que el PO
+> decida si van a change propio o a hotfix, con la misma disciplina que se usó
+> con #446.
+
+**(h1) Caja de otro tenant escribible desde el POS — severidad alta.**
+`_c29_confirm_order_core`, y con él `rpc_quick_sale` y `rpc_confirm_sales_order`,
+aceptan un `p_cash_session_id` de **otro tenant** y lo pasan tal cual a
+`c28_register_cash_movement`, que sólo valida `status = 'open'` y que la
+sucursal esté activa — **no valida tenencia**. Reproducido en local: ingreso
+fantasma en el arqueo de la víctima. Verificado por lectura del cuerpo vivo:
+la única validación relacionada en la RPC es
+`IF v_kind = 'cash' AND p_cash_session_id IS NULL`.
+*Fix sugerido*: guard que exija
+`cs.id = p_cash_session_id AND cb.branch_id = v_gate_branch AND cs.status = 'open'`
+→ `P0422`, espejo del `cash_optin_requires_open_session` que el formulario de
+venta ya tiene; o dentro de `c28_register_cash_movement`, que es el choke point
+equivalente del lado caja (misma lógica de diseño que D1 de este change).
+
+**(h2) Outbox sin filtro de tenant, y su endpoint sin `require_admin` — severidad alta.**
+`rpc_process_outbox_batch(integer)` y `rpc_mark_event_processed(uuid)` son
+`SECURITY DEFINER` con `GRANT EXECUTE TO authenticated` (`20260718000001`
+L172/L203) y **devuelven y marcan eventos de TODOS los tenants sin filtro**.
+Reproducido en local: un `authenticated` del tenant A lee el payload completo
+de eventos del tenant B y los marca procesados — con lo cual el dispatcher real
+nunca postea ese asiento (es fuga de datos **y** denegación de servicio
+contable). Agravado por `POST /outbox/process-pending`
+(`backend/routers/outbox.py` L32), que sólo exige `get_current_user`, sin
+`require_admin`.
+*Fix sugerido*: `REVOKE` de ambas `FROM PUBLIC, anon, authenticated` (el backend
+corre como owner, así que no se rompe nada) + `require_admin` en el endpoint.
+Nota: estas dos **sí** caerían en el chequeo (3) si el filtro de nombre cubriera
+el prefijo `rpc_`, lo que no hace por diseño (D4) — o sea que el gate nuevo no
+las va a atrapar.
+
+**(h3) `c30_register_*_account_movement` ejecutables por `anon` en prod.**
+`c30_register_customer_account_movement` y
+`c30_register_supplier_account_movement` son `SECURITY INVOKER` con EXECUTE para
+`anon` **y** `authenticated` en producción (concesión directa, gotcha #432; en
+local no la tienen). Hoy los frena la RLS —esas tablas sólo tienen policies de
+`SELECT`, así que el INSERT no pasa— pero es una defensa de segundo orden
+apoyada en la ausencia de una policy. Candidato de endurecimiento, no incidente.
+
+**(h4) `get_account_ids_for_user(uuid)` devuelve la membresía de cualquiera.**
+`SECURITY DEFINER`, EXECUTE para `anon` y `authenticated`, cuerpo:
+`SELECT account_id FROM public.account_members WHERE user_id = p_user_id` — sin
+comparar contra `auth.uid()`. Fuga menor (hay que conocer el `user_id`), pero
+permite mapear a qué cuentas pertenece un usuario ajeno. Está en la allowlist
+del chequeo (2) del gate como "helper de RLS — NUNCA revocar", que es correcto
+para su rol interno; lo que corresponde revisar es el parámetro, no el permiso.
 
 ## Open Questions
 
@@ -211,7 +341,7 @@ Nada de esto muta datos, así que no hay rollback de datos que planificar. La ú
 **Resuelto 2026-08-23 — hotfix, no apply.** El PO ordenó "arreglalo" el mismo día que se detectó: el `REVOKE` salió como hotfix directo a `main` (PR #454, rama `fix/revoke-internal-money-helpers`, `supabase/migrations/20261010000001_revoke_internal_money_helpers.sql`), patrón #446. El **grupo 5** de `tasks.md` queda SUPERSEDED por ese PR — no repetir el `REVOKE` en el apply de este change. El gate que agregó ese hotfix a `test_function_acl_gate.sql` es un **check (3) angosto** (lista cerrada `v_internal_only_fns`: los 2 helpers + `_pay_reverse_party_charge`), distinto del **gate (3) amplio** que describe este design (patrón de nombre `_%`/`c28_%`/`c29_%`/`c30_%` + allowlist, tasks 6.1-6.8) — el apply de este change debe agregar el suyo como **check (4)**, no (3), y actualizar la numeración de las tasks del grupo 6 en consecuencia.
 
 **OQ-3 — Los offenders preexistentes del gate (3): ¿allowlist o revoke?**
-*Recomendación: **allowlist con comentario, revoke en un change propio**.* Se conocen al menos dos candidatos (`c28_register_cash_movement` con su `GRANT` inmediatamente después del `REVOKE` en `20261006000001` L266-267, y `_c29_confirm_order_core`, que sí valida `is_account_writer` sobre el `account_id` que lee de la orden — o sea que está expuesto pero **no** es una primitiva cross-tenant). Revocarlos sin auditar sus llamadores arriesga el POS. El gate los deja anotados y visibles, que es el 90% del valor.
+*Recomendación: **allowlist con comentario, revoke en un change propio**.* Se conocen al menos dos candidatos (`c28_register_cash_movement` con su `GRANT` inmediatamente después del `REVOKE` en `20261006000001` L266-267 — **que resultó no ser `SECURITY DEFINER`**, Post-apply (a) —, y `_c29_confirm_order_core`, que sí valida `is_account_writer` sobre el `account_id` que lee de la orden — o sea que está expuesto pero **no** es una primitiva cross-tenant). Revocarlos sin auditar sus llamadores arriesga el POS. El gate los deja anotados y visibles, que es el 90% del valor.
 
 **OQ-4 — La venta/compra **no** crédito con `client_id`/`supplier_id` ajeno queda sin guard. ¿Change propio?**
 *Recomendación: **sí, change propio (`operacion-party-guard`), fuera de este alcance**.* Este change cubre todo lo que toca libros de terceros. Una venta al contado con `client_id` ajeno no crea saldo ni asiento contra un tercero, pero sí deja una fila mala en `sales` que ninguna pantalla va a mostrar. El guard natural es validar `p_client_id` en `rpc_create_sale_operation(_v2)`, `_c29_confirm_order_core` y `rpc_create_purchase_operation` — cuatro RPCs grandes, cada una con su baseline y su reescritura completa. Meterlo acá triplicaría el riesgo del change por un problema estrictamente menor.

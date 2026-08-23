@@ -106,6 +106,6 @@ El costo de esta decisión es que `cbu` queda con un nombre de columna que no de
 
 - Editar el tipo de una cuenta existente (OQ-1).
 - Renombrar la columna `cbu` a algo neutro respecto de CBU/CVU (D3).
-- Limpiar la fila con `currency = 'pesos'` en lugar de `'ARS'` — dato sucio preexistente, ajeno a este change (**OQ-2**).
+- Limpiar la fila con `currency = 'pesos'` en lugar de `'ARS'` — dato sucio preexistente, ajeno a este change (**OQ-2**). **Verificado** (task de apply, 2026-08-22): es la fila `71acea23-07ed-4f24-bce9-e7061c82d005` (`name = "Mercado Pago"`), y su `deleted_at = 2026-08-20 17:50:12.118495+00` coincide EXACTAMENTE con el `deleted_at` de las otras 3 filas "Mercado Pago" soft-deleted — es decir, es una más del mismo lote de borrado en batch del 2026-08-20 (no un caso aislado). El backfill de este change la clasifica `wallet` igual que sus hermanas (D2: el backfill incluye filas `deleted_at` no nulo), así que su `currency` sucio queda sin tocar pero correctamente tipada.
 - Deduplicar los 4 "Mercado Pago" soft-deleted.
 - Cualquier cambio de tratamiento contable: `account_kind` es descriptivo.

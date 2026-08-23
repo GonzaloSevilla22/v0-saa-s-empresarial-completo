@@ -52,6 +52,8 @@
 ## 5. Migración — cierre de la primitiva de escritura cross-tenant [OQ-2 🛑]
 
 > 🛑 **Checkpoint OQ-2 antes de empezar el grupo**: confirmar con el PO si este tramo entra en el change o se separa como hotfix inmediato al estilo #446. La recomendación es que entre acá. Lo que **no** es aceptable es dejarlo abierto esperando el apply.
+>
+> **Resuelto 2026-08-23 — se separó como hotfix** (orden del PO): PR #454, ver `supabase/migrations/20261010000001_revoke_internal_money_helpers.sql` (rama `fix/revoke-internal-money-helpers`). Este grupo entero queda SUPERSEDED — el `REVOKE` de 5.3/5.4 ya está aplicado en `main`; no repetirlo acá. Ver nota en `design.md` OQ-2.
 
 - [ ] 5.1 **RED**: assert en el test SQL — con `SET LOCAL ROLE authenticated`, invocar directamente `public._pay_register_party_charge(<account_id de B>, 'customer', <client_id de B>, 1000, …)` y esperar `insufficient_privilege` (42501). Debe **fallar hoy**: hoy la llamada tiene éxito y escribe en los libros del tenant B.
 - [ ] 5.2 **RED**: espejo con `public._journal_post_from_event(<fila events forjada con account_id de B>)` → `insufficient_privilege`. Debe fallar hoy.
@@ -62,6 +64,8 @@
 - [ ] 5.7 `COMMENT ON FUNCTION` de ambos helpers: dejar escrito **por qué** no llevan `GRANT`, para que la próxima reescritura no vuelva a aplicar el patrón REVOKE+GRANT en piloto automático.
 
 ## 6. CI — gates y cadena de reapply
+
+> **Nota 2026-08-23**: el hotfix de OQ-2 ya agregó un `check (3)` angosto a `supabase/tests/test_function_acl_gate.sql` (lista cerrada de 3 helpers). El gate **amplio** de este grupo (patrón de nombre + allowlist, 6.3-6.6) entra como **check (4)** — renumerar antes de escribirlo.
 
 - [ ] 6.1 Agregar `psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261008000001_cuenta_corriente_party_guard.sql` como **último eslabón** de la cadena del step "Verify G1/G4 migrations are idempotent on reapply" en `.github/workflows/KPI_Validation.yml`, con su comentario: esta migración no cambia ninguna firma (solo `CREATE OR REPLACE` + `REVOKE`), así que no puede generar overloads fantasma — es el eslabón más simple de la cadena, y el reapply prueba su idempotencia.
 - [ ] 6.2 Descubrir la lista **real** de offenders del chequeo nuevo corriendo la query de 1.6 contra la DB de CI (post-migraciones) **y** contra prod. Comparar las dos listas y anotar las diferencias en el PR — la divergencia local/prod es el gotcha #432 y es información valiosa por sí sola.

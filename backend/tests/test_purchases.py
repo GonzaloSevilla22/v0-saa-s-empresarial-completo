@@ -495,6 +495,63 @@ async def test_update_purchase_operation_with_cost_center_id_reimputes(async_cli
     assert captured["args"][-1] is True
 
 
+# ── review B (B5): mensajes del RAISE de la edición llegan al cliente ──────
+# Batch A agregó en la RPC de edición dos rechazos P0400 nuevos:
+# credit_requires_supplier (mismo texto que el alta) y
+# credit_transition_not_allowed (camino de corrección: borrar y recargar
+# como compra a crédito). Ninguno de los dos tiene un mapeo explícito en
+# purchases.py -- el handler global asyncpg_error_handler ya traduce
+# CUALQUIER P0400 a 400 RFC 7807 preservando code+detail (mismo mecanismo
+# que test_create_purchase_credit_requires_supplier_returns_400). Estos
+# tests verifican que ese mecanismo genérico también cubre el camino PUT
+# /purchases/operation (que usa conn.execute, no conn.fetchrow).
+
+
+async def test_update_purchase_credit_requires_supplier_returns_400(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    err = asyncpg.exceptions.RaiseError("credit_requires_supplier: ...")
+    err.sqlstate = "P0400"
+    conn.execute = AsyncMock(side_effect=err)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json={**UPDATE_PAYLOAD, "payment_method_id": PM_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == "P0400"
+    assert "credit_requires_supplier" in body["detail"]
+
+
+async def test_update_purchase_credit_transition_not_allowed_returns_400(async_client, mock_pool):
+    """El mensaje nombra el camino de corrección (borrar + recargar) —
+    api-standards exige preservar el detail del RAISE tal cual, texto seguro
+    porque lo escribe nuestro propio SQL."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    msg = (
+        "credit_transition_not_allowed: la edición no postea cargos en "
+        "cuenta corriente — borrá esta compra y volvé a cargarla como "
+        "compra a crédito"
+    )
+    err = asyncpg.exceptions.RaiseError(msg)
+    err.sqlstate = "P0400"
+    conn.execute = AsyncMock(side_effect=err)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/purchases/operation",
+            json={**UPDATE_PAYLOAD, "payment_method_id": PM_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["code"] == "P0400"
+    assert "credit_transition_not_allowed" in body["detail"]
+    assert "borrá esta compra" in body["detail"]
+
+
 async def test_update_purchase_operation_member_forbidden(async_client, mock_pool):
     pool, conn = mock_pool
     member_token = make_token({"role": "member"})

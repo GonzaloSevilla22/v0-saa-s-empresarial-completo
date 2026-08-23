@@ -170,3 +170,46 @@ async def test_update_with_no_fields_falls_back_to_get_by_id(mock_conn):
     sql = mock_conn.fetchrow.call_args.args[0]
     assert "SELECT * FROM suppliers" in sql
     assert "UPDATE" not in sql
+
+
+# ── review B (BE-1/SPEC-03): tri-estado real en el UPDATE ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_sets_null_for_explicitly_provided_field(mock_conn):
+    """El bug real (BE-1): antes `update()` filtraba `v is not None`, así
+    que un `{"tax_id": None}` -- ya resuelto por el service a partir de
+    `model_fields_set`, es decir el cliente SÍ mandó el campo -- se
+    descartaba en silencio y la columna nunca se limpiaba. Ahora `data` es
+    la fuente de verdad tal cual: si la clave está, se aplica, sea cual sea
+    el valor."""
+    mock_conn.fetchrow = AsyncMock(return_value={"id": SUPPLIER_ID, "tax_id": None})
+    repo = SupplierRepository(mock_conn)
+
+    await repo.update(SUPPLIER_ID, ACCOUNT_ID, {"tax_id": None})
+
+    sql = mock_conn.fetchrow.call_args.args[0]
+    assert "tax_id = $3" in sql
+    args = mock_conn.fetchrow.call_args.args
+    assert args[1:] == (SUPPLIER_ID, ACCOUNT_ID, None)
+
+
+@pytest.mark.asyncio
+async def test_update_mixes_null_and_value_fields(mock_conn):
+    """Triangulación: un payload con una clave a NULL (desimputar) y otra
+    con valor (reimputar) en la MISMA llamada -- ambas deben aparecer en el
+    SET, cada una con su propio valor, no solo la no-nula."""
+    mock_conn.fetchrow = AsyncMock(return_value={"id": SUPPLIER_ID})
+    repo = SupplierRepository(mock_conn)
+
+    await repo.update(
+        SUPPLIER_ID, ACCOUNT_ID, {"tax_id": None, "phone": "+54 261 555-0000"}
+    )
+
+    sql = mock_conn.fetchrow.call_args.args[0]
+    set_clause = sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "tax_id" in set_clause
+    assert "phone" in set_clause
+    args = mock_conn.fetchrow.call_args.args
+    assert None in args[3:]
+    assert "+54 261 555-0000" in args[3:]

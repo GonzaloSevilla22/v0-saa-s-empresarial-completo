@@ -35,6 +35,7 @@ import { useIdempotencyKey } from "@/hooks/use-idempotency-key"
 import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
+import { getErrorMessage } from "@/lib/errors"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler, UserPlus, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -115,8 +116,22 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // edicion-preserva-contexto (F1 §D11): prefillear desde editingOperation —
   // espejo de SaleForm (antes arrancaba en null ignorándolo).
   const [branchId, setBranchId] = useState<string | null>(() => editingOperation?.branchId ?? null)
-  // cost-center-dimension: optional analytic dimension for the whole operation
-  const [costCenterId, setCostCenterId] = useState<string | null>(null)
+  // cost-center-dimension: optional analytic dimension for the whole operation.
+  // review B (FE-1/OQ-5 A): prefillear desde editingOperation — antes
+  // arrancaba siempre en null, ignorando el centro de costo vigente de la
+  // operación (mismo defecto que branchId tenía antes de edicion-preserva-contexto).
+  const [costCenterId, setCostCenterId] = useState<string | null>(
+    () => editingOperation?.costCenterId ?? null,
+  )
+  // review B (FE-1): a diferencia de branchId/paymentMethodId (que SIEMPRE
+  // se reenvían en la edición), costCenterId sigue el patrón "tocado" — solo
+  // viaja en el payload si el usuario interactuó con el selector. Ausente =
+  // preservar el vigente (contrato tri-estado por AUSENCIA, D7/OQ-5).
+  const [costCenterTouched, setCostCenterTouched] = useState(false)
+  const handleCostCenterChange = useCallback((v: string | null) => {
+    setCostCenterId(v)
+    setCostCenterTouched(true)
+  }, [])
   // metodos-pago-operaciones: forma de pago de la operación, opcional.
   // Precargada al editar (D5) — el resto de las líneas la siguen (D3).
   const [paymentMethodId, setPaymentMethodId] = useState<string | null>(
@@ -127,12 +142,20 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // parámetro de banco en la RPC, D8).
   const [bankAccountId, setBankAccountId] = useState<string | null>(null)
   // compras-proveedor-cuenta-corriente (D4/D7): proveedor imputado a la
-  // operación. Precargado al editar desde editingOperation.supplierId — el
-  // selector siempre está montado, así que reenvía siempre el valor vigente
-  // (mismo criterio que branchId/paymentMethodId, edicion-preserva-contexto F1 §D11).
+  // operación. Precargado al editar desde editingOperation.supplierId.
   const [supplierId, setSupplierId] = useState<string | null>(
     () => editingOperation?.supplierId ?? null,
   )
+  // review B (FE-2): a diferencia de branchId/paymentMethodId, supplierId
+  // sigue el patrón "tocado" en la edición — antes se reenviaba SIEMPRE el
+  // valor vigente del form, lo que rompía en silencio cuando el selector no
+  // podía resolver el supplierId prefillado en `suppliers` (proveedor dado
+  // de baja: no aparece en la lista, value quedaba "" y el submit mandaba
+  // supplierId=null, desimputando un proveedor que el usuario nunca tocó —
+  // o, peor, un 404 si el backend llegara a validar pertenencia contra un id
+  // que sí resuelve pero a otra cuenta). `supplierTouched` se marca desde el
+  // onValueChange del selector Y desde el alta inline (handleCreateSupplier).
+  const [supplierTouched, setSupplierTouched] = useState(false)
 
   // ── Submission state ────────────────────────────────────────────────────────
   const [submitting, setSubmitting] = useState(false)
@@ -154,12 +177,35 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // y postea el cargo en su cuenta corriente — mismo patrón que SaleForm.
   const isCreditSelected = resolvedKind === "credit"
   const { data: supplierAccount } = useSupplierAccount(isCreditSelected ? (supplierId || null) : null)
+  // review B (F3): el guard "elegí un proveedor" aplica en AMBOS modos — el
+  // servidor rechaza kind=credit sin proveedor tanto en el alta como en la
+  // edición (mismo P0400 credit_requires_supplier, batch A). Antes el botón
+  // solo se deshabilitaba en alta (`!isEdit && creditBlockedNoSupplier`).
   const creditBlockedNoSupplier = isCreditSelected && !supplierId
 
   const supplierOptions = useMemo(
     () => suppliers.map((s) => ({ value: s.id, label: s.name })),
     [suppliers],
   )
+
+  // review B (F2): el selector no puede resolver el supplierId prefillado —
+  // típicamente un proveedor dado de baja (soft delete, RN-B1: sale de
+  // `suppliers`, la lista del selector). Solo importa mostrarlo cuando el
+  // usuario todavía no tocó el campo — en cuanto elige algo, supplierId pasa
+  // a apuntar a una opción real de la lista.
+  const supplierUnresolved =
+    isEdit && !supplierTouched && !!supplierId && !suppliers.some((s) => s.id === supplierId)
+
+  // review B (F3): kind ORIGINAL de la operación (antes de cualquier cambio
+  // en este form) — distingue "ya era crédito" (D7: editable sin postear
+  // nada) de "está TRANSICIONANDO a crédito" (server: credit_transition_not_
+  // allowed, batch A). Comparación por KIND, no por payment_method_id: dos
+  // formas de pago distintas con el mismo kind='credit' no son una transición.
+  const originalKind = useMemo(
+    () => paymentMethods.find((pm) => pm.id === editingOperation?.paymentMethodId)?.kind ?? null,
+    [paymentMethods, editingOperation],
+  )
+  const isTransitioningToCredit = isEdit && isCreditSelected && originalKind !== "credit"
 
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(
@@ -412,11 +458,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     try {
       const created = await addSupplier({ name: newSupplierName.trim(), email: "", phone: "" })
       setSupplierId(created.id)
+      // review B (F2): el alta inline CUENTA como "tocar" el selector — sin
+      // esto, crear un proveedor nuevo durante la edición no lo enviaría en
+      // el payload (mismo bug que dejar el selector intacto).
+      setSupplierTouched(true)
       toast.success(`Proveedor "${newSupplierName}" creado`)
       setShowNewSupplier(false)
       setNewSupplierName("")
-    } catch (err: any) {
-      toast.error(err?.message || "Error al crear el proveedor")
+    } catch (err: unknown) {
+      toast.error(getErrorMessage(err, "Error al crear el proveedor"))
     }
   }
 
@@ -447,10 +497,18 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             // selector siempre está montado, así que branchId viaja siempre
             // con el valor vigente del form.
             branchId,
-            // compras-proveedor-cuenta-corriente (D7): mismo criterio — el
-            // selector de proveedor siempre está montado en edición, así que
-            // supplierId viaja siempre con el valor vigente del form.
-            supplierId,
+            // review B (F2): supplierId SOLO viaja si el usuario tocó el
+            // selector (o creó un proveedor inline) — a diferencia de
+            // branchId/paymentMethodId de arriba. Antes se reenviaba SIEMPRE
+            // el valor vigente del form, lo que rompía en silencio cuando el
+            // selector no podía resolver un proveedor dado de baja
+            // (supplierId prefillado pero fuera de la lista → el usuario
+            // nunca lo tocó y el submit igual lo desimputaba).
+            ...(supplierTouched ? { supplierId } : {}),
+            // review B (FE-1/OQ-5 A): mismo patrón "tocado" para
+            // costCenterId — el CostCenterSelect estaba montado sin ningún
+            // efecto real en la edición.
+            ...(costCenterTouched ? { costCenterId } : {}),
           },
         })
         toast.success("✅ Compra actualizada correctamente")
@@ -563,7 +621,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || (!isEdit && creditBlockedNoSupplier)}
+              disabled={submitting || cartItems.length === 0 || creditBlockedNoSupplier}
             >
               {submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
@@ -615,7 +673,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           {/* ── Centro de costo (opcional, V2.5) ──────────────────────── */}
           <CostCenterSelect
             value={costCenterId}
-            onChange={setCostCenterId}
+            onChange={handleCostCenterChange}
             className="bg-background border-border text-foreground text-sm"
           />
 
@@ -646,7 +704,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             de SaleForm. */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <Label className="text-foreground">Proveedor</Label>
+            {/* review B (F7): id explícito + aria-labelledby en el selector
+                de abajo, en vez de aria-label a secas — el nombre accesible
+                combina "Proveedor" con el valor visible (placeholder o
+                proveedor elegido) en lugar de reemplazarlo. */}
+            <Label id="purchase-supplier-label" className="text-foreground">Proveedor</Label>
             <Button
               type="button"
               variant="ghost"
@@ -680,31 +742,65 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
               </Button>
             </div>
           ) : (
-            <SearchableSelect
-              options={supplierOptions}
-              value={supplierId ?? ""}
-              onValueChange={(v) => setSupplierId(v || null)}
-              placeholder="Seleccionar proveedor"
-              searchPlaceholder="Buscar proveedor..."
-              emptyMessage="No se encontraron proveedores."
-              aria-label="Proveedor"
-            />
+            <>
+              <SearchableSelect
+                options={supplierOptions}
+                value={supplierId ?? ""}
+                onValueChange={(v) => {
+                  setSupplierId(v || null)
+                  // review B (F2): tocar el selector — de ahora en más
+                  // supplierId viaja siempre en el payload de edición,
+                  // reimputado o desimputado según lo que el usuario eligió.
+                  setSupplierTouched(true)
+                }}
+                placeholder="Seleccionar proveedor"
+                searchPlaceholder="Buscar proveedor..."
+                emptyMessage="No se encontraron proveedores."
+                aria-labelledby="purchase-supplier-label"
+              />
+              {/* review B (F2): el selector cae al placeholder en silencio
+                  cuando supplierId no resuelve en la lista (proveedor dado
+                  de baja) — este hint explica por qué, en vez de dejarlo
+                  parecer "sin elegir". */}
+              {supplierUnresolved && (
+                <p className="text-xs text-muted-foreground">
+                  Proveedor actual no disponible (dado de baja)
+                </p>
+              )}
+            </>
           )}
         </div>
 
         {/* ── Bloque de cuenta corriente (D6/OQ-D) ───────────────────────────
             Mismo patrón visual que SaleForm: cliente→proveedor obligatorio +
             saldo actual/proyectado, sólo con 'credit'. Se muestra tanto en
-            alta como en edición para explicar el efecto — aunque la edición
-            nunca postea/revierte cargos (D7). */}
+            alta como en edición para explicar el efecto.
+            review B (F3): la edición NUNCA postea ni revierte cargos (D7) —
+            a diferencia del alta, no tiene sentido mostrar "Después de esta
+            compra" ahí (prometería un efecto que no ocurre). Si además el
+            usuario está TRANSICIONANDO a crédito desde otro kind (batch A:
+            el servidor rechaza con credit_transition_not_allowed), se avisa
+            aparte — sin bloquear el submit client-side, igual que el resto
+            de esta saga deja la decisión final al servidor. */}
         {isCreditSelected && (
           <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
             {creditBlockedNoSupplier ? (
-              <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <div className="flex items-center gap-2 text-warning">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                 <span>
                   Elegí un proveedor: una compra a cuenta corriente se le carga a alguien.
                 </span>
+              </div>
+            ) : isEdit && isTransitioningToCredit ? (
+              <div className="flex items-center gap-2 text-warning">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  La edición no postea cargos: para pasar esta compra a crédito, borrala y volvé a cargarla.
+                </span>
+              </div>
+            ) : isEdit ? (
+              <div className="text-muted-foreground">
+                Saldo actual: {formatMoney(supplierAccount?.balance ?? 0)}
               </div>
             ) : (
               <div className="flex items-center justify-between gap-2 text-muted-foreground">

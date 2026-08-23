@@ -159,4 +159,27 @@ describe("groupPurchasesByOperation — contexto edicion-preserva-contexto", () 
     expect(op.supplierId).toBe("sup-1")
     expect(op.supplierName).toBe("Proveedor A")
   })
+
+  // review B (FE-1/OQ-5 A): costCenterId ya viaja en la fila (Purchase, desde
+  // cost-center-dimension) pero group-operations.ts nunca lo exponía en la
+  // PurchaseOperation agrupada — sin esto el form de edición no tiene con qué
+  // prefillear el CostCenterSelect, aunque backend+DB ya aceptan el tri-estado.
+  it("expone costCenterId de la operación agrupada", () => {
+    const [op] = groupPurchasesByOperation([makePurchase({ costCenterId: "cc-1" })])
+    expect(op.costCenterId).toBe("cc-1")
+  })
+
+  it("costCenterId ausente → null (sin centro de costo imputado)", () => {
+    const [op] = groupPurchasesByOperation([makePurchase({ costCenterId: undefined })])
+    expect(op.costCenterId).toBeNull()
+  })
+
+  it("TRIANGULATE: en una operación multi-línea, todas las líneas comparten el mismo centro de costo de la primera", () => {
+    const [op] = groupPurchasesByOperation([
+      makePurchase({ id: "pu1", costCenterId: "cc-1" }),
+      makePurchase({ id: "pu2", costCenterId: "cc-1" }),
+    ])
+    expect(op.isGrouped).toBe(true)
+    expect(op.costCenterId).toBe("cc-1")
+  })
 })

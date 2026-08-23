@@ -50,8 +50,28 @@ interface SearchableSelectProps {
    * de texto — el placeholder mientras no hay selección, pero el `label` de
    * la opción elegida en cuanto la hay — y pierde la identidad del campo
    * ("Proveedor", "Cliente") apenas el usuario elige algo.
+   *
+   * review B (F7): esto resuelve el problema anterior REEMPLAZANDO el valor
+   * visible por un nombre fijo — un lector de pantalla nunca se entera de
+   * qué quedó seleccionado. Preferí `aria-labelledby` (abajo) cuando el
+   * caller tiene un `<Label>` visible: combina identidad de campo + valor
+   * seleccionado. `aria-label` queda como fallback para callers sin label
+   * visible (p. ej. los tests unitarios de este mismo componente).
    */
   "aria-label"?: string
+  /**
+   * review B (F7): id de un `<Label>` visible en la página. Cuando se pasa,
+   * el nombre accesible del trigger es la CONCATENACIÓN de ese label con el
+   * contenido visible del botón (placeholder o la opción elegida): se
+   * referencian dos ids, el del label externo y el de un `<span>` interno
+   * (autogenerado acá) que envuelve el contenido visible — NUNCA el id del
+   * propio botón: un elemento que se referencia a SÍ MISMO por
+   * aria-labelledby corta la recursión y aporta texto vacío a esa parte
+   * (verificado empíricamente contra dom-accessibility-api/jsdom), así que
+   * el id tiene que apuntar a un descendiente con id propio, no al trigger.
+   * Tiene prioridad sobre `aria-label` cuando ambos se pasan.
+   */
+  "aria-labelledby"?: string
 }
 
 export function SearchableSelect({
@@ -66,8 +86,12 @@ export function SearchableSelect({
   renderOption,
   renderTrigger,
   "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false)
+  // review B (F7): id del <span> de contenido visible, solo generado/usado
+  // cuando el caller pasa aria-labelledby (ver el comentario del prop).
+  const contentId = React.useId()
 
   const selectedOption = options.find((opt) => opt.value === value)
   const selectedLabel  = selectedOption?.label
@@ -86,7 +110,8 @@ export function SearchableSelect({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy ? `${ariaLabelledBy} ${contentId}` : undefined}
+          aria-label={ariaLabelledBy ? undefined : ariaLabel}
           disabled={disabled}
           className={cn(
             "w-full justify-between font-normal bg-background border-border text-foreground",
@@ -96,8 +121,8 @@ export function SearchableSelect({
           )}
         >
           {renderTrigger && selectedOption
-            ? renderTrigger(selectedOption)
-            : <span className="truncate">{selectedLabel ?? placeholder}</span>
+            ? <span id={ariaLabelledBy ? contentId : undefined}>{renderTrigger(selectedOption)}</span>
+            : <span id={ariaLabelledBy ? contentId : undefined} className="truncate">{selectedLabel ?? placeholder}</span>
           }
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>

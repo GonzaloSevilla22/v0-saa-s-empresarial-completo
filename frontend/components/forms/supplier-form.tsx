@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,6 +10,8 @@ import { toast } from "sonner"
 import { CheckCircle2, AlertCircle, Landmark } from "lucide-react"
 import { isValidTaxId, CUIT_FORMAT_HINT } from "@/lib/cuit-utils"
 import { IVA_CONDITION_OPTIONS } from "@/lib/constants"
+import { getErrorMessage } from "@/lib/errors"
+import { queryKeys } from "@/lib/query-keys"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Supplier, IvaCondition } from "@/lib/types"
@@ -29,6 +32,7 @@ interface SupplierFormProps {
 
 export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
   const { addSupplier, updateSupplier } = useSuppliers()
+  const queryClient = useQueryClient()
   const [name,  setName]  = useState(initialData?.name  || "")
   const [email, setEmail] = useState(initialData?.email || "")
   const [phone, setPhone] = useState(initialData?.phone || "")
@@ -72,9 +76,20 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
         toast.success("Proveedor creado")
       }
       onSuccess()
-    } catch (error) {
-      console.error(error)
-      toast.error("Error al guardar proveedor")
+    } catch (err: unknown) {
+      console.error(err)
+      // review B (F4): antes tragaba el detail del backend (403 límite de
+      // plan, 422 CUIT duplicado, etc.) detrás de un mensaje genérico —
+      // ahora lo muestra tal cual cuando existe (pythonClient lanza Error
+      // con .message = el `detail` RFC 7807).
+      toast.error(getErrorMessage(err, "Error al guardar proveedor"))
+      // review B (F4): re-consulta /suppliers tras CUALQUIER error de guardado
+      // — el caso que importa es el 403 por límite de plan (el conteo local
+      // puede estar desactualizado respecto del servidor, que es quien
+      // realmente enforcea el límite), pero invalidar en cualquier falla es
+      // inofensivo y evita tener que distinguir el status HTTP acá (el
+      // Error de pythonClient no lo expone hoy).
+      queryClient.invalidateQueries({ queryKey: queryKeys.suppliers.all() })
     }
   }
 
@@ -138,19 +153,22 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
                 placeholder="20-12345678-6 o DNI"
                 className={[
                   "bg-background border-border text-foreground pr-9",
-                  taxIdValid   ? "border-emerald-500/60 focus-visible:ring-emerald-500/30" : "",
-                  taxIdInvalid ? "border-amber-500/60 focus-visible:ring-amber-500/30" : "",
+                  // review B (F9): tokens semánticos success/warning en vez
+                  // de emerald-*/amber-* crudos (regla de diseño del
+                  // proyecto — ver el banner de límite de proveedores.tsx).
+                  taxIdValid   ? "border-success/60 focus-visible:ring-success/30" : "",
+                  taxIdInvalid ? "border-warning/60 focus-visible:ring-warning/30" : "",
                 ].join(" ")}
               />
               {taxIdValid && (
-                <CheckCircle2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-500 pointer-events-none" />
+                <CheckCircle2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-success pointer-events-none" />
               )}
               {taxIdInvalid && (
-                <AlertCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-amber-500 pointer-events-none" />
+                <AlertCircle className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-warning pointer-events-none" />
               )}
             </div>
             {taxIdInvalid && (
-              <p className="text-xs text-amber-500 flex items-center gap-1">
+              <p className="text-xs text-warning flex items-center gap-1">
                 <AlertCircle className="h-3 w-3" />
                 {CUIT_FORMAT_HINT}
               </p>

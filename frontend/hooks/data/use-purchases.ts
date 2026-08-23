@@ -284,6 +284,14 @@ export function usePurchases() {
          * en el backend (model_fields_set).
          */
         supplierId?: string | null
+        /**
+         * review B (FE-1/OQ-5 A): costCenterId usa el MISMO contrato
+         * tri-estado por AUSENCIA que supplierId/branchId/paymentMethodId —
+         * DB (rpc_atomic_update_purchase_operation, 12 args) y backend
+         * (routers/purchases.py, "cost_center_id" in model_fields_set) ya lo
+         * aceptaban desde OQ-5 opción A; le faltaba el passthrough acá.
+         */
+        costCenterId?: string | null
       }
     }) => {
       const items = newItems.map(item => ({
@@ -314,6 +322,10 @@ export function usePurchases() {
       // objeto meta = ausente del body = preservar el vigente.
       if ("supplierId" in opMeta) {
         payload.supplier_id = opMeta.supplierId ?? null
+      }
+      // review B (FE-1/OQ-5 A): mismo patrón de inclusión condicional.
+      if ("costCenterId" in opMeta) {
+        payload.cost_center_id = opMeta.costCenterId ?? null
       }
       return pythonClient.put<void>("/purchases/operation", payload)
     },

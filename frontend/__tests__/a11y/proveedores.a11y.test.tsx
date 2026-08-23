@@ -187,19 +187,31 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     key: "op-1", operationId: "op-1", date: "2026-08-20", items: [makePurchase()], total: 150,
     description: "", isGrouped: false, paymentMethodId: null, branchId: null, unitId: null,
     isPaymentLocked: false, hasAccountCharge: false, hasBankMovement: false,
-    supplierId: null, supplierName: null,
+    supplierId: null, supplierName: null, costCenterId: null,
     ...overrides,
   }
 }
 
+// review B (F7): purchase-form.tsx pasó de aria-label="Proveedor" (nombre
+// FIJO, reemplaza el valor visible) a aria-labelledby apuntando al <Label
+// id="purchase-supplier-label"> + el propio trigger (patrón "external label
+// + self") — el nombre accesible ahora es la CONCATENACIÓN de "Proveedor"
+// con el contenido visible del botón (placeholder o la opción elegida), así
+// que dejó de ser un match exacto ('^proveedor$') para pasar a "contiene
+// ambos" — exactamente lo que este describe verifica.
 describe("Accesibilidad — selector de proveedor real dentro de PurchaseForm (D10)", () => {
-  it("el combobox de Proveedor tiene nombre accesible 'Proveedor' sin selección", () => {
+  it("sin selección: el nombre accesible empieza con 'Proveedor' (label) seguido del placeholder", () => {
     suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
     render(<PurchaseForm onSuccess={vi.fn()} />)
-    expect(screen.getByRole("combobox", { name: /^proveedor$/i })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: /^proveedor\b/i })).toBeInTheDocument()
   })
 
-  it("en edición, con un proveedor precargado, el combobox conserva el nombre accesible 'Proveedor'", () => {
+  it("en edición, con un proveedor precargado, el nombre accesible incluye TANTO 'Proveedor' COMO el proveedor seleccionado", () => {
+    // RED antes del fix: con aria-label a secas, elegir un proveedor no
+    // cambiaba el nombre accesible (seguía siendo "Proveedor" a secas) — el
+    // usuario de lector de pantalla no se enteraba de qué quedó
+    // seleccionado. Con aria-labelledby (label + self), el nombre accesible
+    // pasa a ser "Proveedor Distribuidora Mendoza".
     suppliersMock = [{ id: "sup-1", name: "Distribuidora Mendoza" }]
     render(
       <PurchaseForm
@@ -207,7 +219,9 @@ describe("Accesibilidad — selector de proveedor real dentro de PurchaseForm (D
         editingOperation={makeOperation({ supplierId: "sup-1", supplierName: "Distribuidora Mendoza" })}
       />,
     )
-    expect(screen.getByRole("combobox", { name: /^proveedor$/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole("combobox", { name: /proveedor.*distribuidora mendoza/i }),
+    ).toBeInTheDocument()
   })
 })
 
@@ -254,5 +268,24 @@ describe("Accesibilidad — listado /proveedores, acción 'Cuenta corriente' (ta
     const [btn] = screen.getAllByRole("button", { name: /cuenta corriente/i })
     expect(btn.className).toMatch(/focus-visible:ring-2/)
     expect(btn.className).toMatch(/focus-visible:ring-ring/)
+  })
+
+  // review B (F6): los botones de fila Editar/Eliminar eran icon-only sin
+  // aria-label — su único "nombre accesible" era el ícono SVG (aria-hidden),
+  // así que un lector de pantalla los anunciaba sin ningún nombre.
+  it("cada fila expone Editar y Eliminar como botones con nombre accesible que nombra al proveedor", async () => {
+    suppliersMock = [
+      { id: "sup-1", name: "Distribuidora Mendoza" },
+      { id: "sup-2", name: "Envases del Oeste" },
+    ]
+    await renderProveedoresPage()
+
+    const editButtons = screen.getAllByRole("button", { name: /editar.*distribuidora mendoza/i })
+    const deleteButtons = screen.getAllByRole("button", { name: /eliminar.*distribuidora mendoza/i })
+    expect(editButtons.length).toBeGreaterThanOrEqual(1)
+    expect(deleteButtons.length).toBeGreaterThanOrEqual(1)
+    expect(
+      screen.getAllByRole("button", { name: /editar.*envases del oeste/i }).length,
+    ).toBeGreaterThanOrEqual(1)
   })
 })

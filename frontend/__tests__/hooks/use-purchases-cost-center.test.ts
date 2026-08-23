@@ -125,3 +125,62 @@ describe("usePurchases — filtro por centro de costo", () => {
     expect(result.current.costCenterId).toBeNull()
   })
 })
+
+// ── review B (FE-1/OQ-5 A): passthrough tri-estado de cost_center_id en la
+// edición de una OPERACIÓN de compra — espejo exacto del bloque análogo de
+// use-purchases-supplier.test.ts para supplier_id. DB + backend ya aceptan
+// el contrato (OQ-5 opción A, batch A de este mismo change); lo que faltaba
+// era que updatePurchaseOperationMutation siquiera conociera la clave.
+describe("usePurchases — passthrough tri-estado de cost_center_id en la edición (OQ-5)", () => {
+  it("costCenterId AUSENTE del meta no incluye la clave en el body (preserva el vigente)", async () => {
+    ;(pythonClient.put as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(pythonClient.get).toHaveBeenCalled())
+
+    await act(async () => {
+      await result.current.updatePurchaseOperation({
+        purchaseIds: ["1"],
+        newItems: [{ id: "1", productId: "p1", productName: "X", unitCost: 10, quantity: 1, subtotal: 10 }],
+        meta: { date: "2026-08-19", description: "", orgId: "acc-1" },
+      })
+    })
+
+    const [, body] = (pythonClient.put as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect("cost_center_id" in body).toBe(false)
+  })
+
+  it("costCenterId=null EXPLÍCITO desimputa", async () => {
+    ;(pythonClient.put as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(pythonClient.get).toHaveBeenCalled())
+
+    await act(async () => {
+      await result.current.updatePurchaseOperation({
+        purchaseIds: ["1"],
+        newItems: [{ id: "1", productId: "p1", productName: "X", unitCost: 10, quantity: 1, subtotal: 10 }],
+        meta: { date: "2026-08-19", description: "", orgId: "acc-1", costCenterId: null },
+      })
+    })
+
+    const [, body] = (pythonClient.put as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect("cost_center_id" in body).toBe(true)
+    expect(body.cost_center_id).toBeNull()
+  })
+
+  it("costCenterId=uuid reimputa", async () => {
+    ;(pythonClient.put as ReturnType<typeof vi.fn>).mockResolvedValue(undefined)
+    const { result } = renderHook(() => usePurchases(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(pythonClient.get).toHaveBeenCalled())
+
+    await act(async () => {
+      await result.current.updatePurchaseOperation({
+        purchaseIds: ["1"],
+        newItems: [{ id: "1", productId: "p1", productName: "X", unitCost: 10, quantity: 1, subtotal: 10 }],
+        meta: { date: "2026-08-19", description: "", orgId: "acc-1", costCenterId: COST_CENTER_ID },
+      })
+    })
+
+    const [, body] = (pythonClient.put as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(body.cost_center_id).toBe(COST_CENTER_ID)
+  })
+})

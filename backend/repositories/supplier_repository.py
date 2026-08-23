@@ -75,11 +75,18 @@ class SupplierRepository(BaseRepository):
         )
 
     async def update(self, supplier_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
-        fields = {k: v for k, v in data.items() if v is not None}
-        if not fields:
+        """review B (BE-1/SPEC-03): tri-estado real. `data` ya viene resuelto
+        por el service a partir de `payload.model_fields_set` -- SOLO trae
+        las claves que el cliente informó explícitamente en el JSON, con su
+        valor tal cual (incluido `None` para desimputar). Este método NO
+        vuelve a filtrar por `v is not None`: hacerlo era el bug (un
+        `tax_id: null` explícito se descartaba en silencio en vez de
+        limpiar la columna). Ausencia real de una clave = preservar (la
+        clave ni siquiera llega acá); presencia con `None` = SET NULL."""
+        if not data:
             return await self.get_by_id(supplier_id, account_id)
-        set_clauses = ", ".join(f"{k} = ${i + 3}" for i, k in enumerate(fields))
-        values = list(fields.values())
+        set_clauses = ", ".join(f"{k} = ${i + 3}" for i, k in enumerate(data))
+        values = list(data.values())
         return await self.fetchrow(
             f"UPDATE suppliers SET {set_clauses} WHERE id = $1 AND account_id = $2"
             + self.not_deleted_clause()

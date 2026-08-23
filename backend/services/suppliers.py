@@ -36,8 +36,15 @@ async def create_supplier(
 async def update_supplier(
     repo: SupplierRepository, auth: dict, account_id: str, supplier_id: str, payload: SupplierUpdate
 ) -> dict:
+    """review B (BE-1/SPEC-03): contrato tri-estado real, mismo criterio que
+    payment_method_id/branch_id/supplier_id en la edición de operaciones
+    (D7). `payload.model_fields_set` -- NUNCA `is None` -- distingue
+    "campo ausente" (preservar) de "campo presente con null" (desimputar).
+    `model_dump(exclude_none=True)` descartaba el segundo caso en silencio:
+    ese era el bug (BE-1)."""
     require_role(auth, ["user", "admin"])
-    record = await repo.update(supplier_id, account_id, payload.model_dump(exclude_none=True))
+    patch = {field: getattr(payload, field) for field in payload.model_fields_set}
+    record = await repo.update(supplier_id, account_id, patch)
     if record is None:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
     return dict(record)

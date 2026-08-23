@@ -188,6 +188,74 @@ async def test_create_supplier_invalid_iva_condition_returns_422(async_client, m
     conn.fetchrow.assert_not_awaited()
 
 
+# ── review B (BE-4): name en blanco es rechazado, alta y edición ───────────
+
+
+async def test_create_supplier_blank_name_returns_422(async_client, mock_pool):
+    """BE-4: " " (solo whitespace) no es un nombre válido — mismo criterio
+    que rechazar el campo ausente, para no crear proveedores fantasma."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value=SUPPLIER_ROW)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/suppliers",
+            json={"name": "   "},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["field"] == "name"
+    conn.fetchrow.assert_not_awaited()
+
+
+async def test_update_supplier_blank_name_returns_422(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"name": "   "},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["field"] == "name"
+    conn.fetchrow.assert_not_awaited()
+
+
+async def test_update_supplier_null_name_returns_422(async_client, mock_pool):
+    """BE-1/SPEC-03: name informado como null explícito (a diferencia de
+    ausente) también se rechaza -- el nombre no es un campo desimputable."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"name": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["field"] == "name"
+    conn.fetchrow.assert_not_awaited()
+
+
+async def test_update_supplier_omitted_name_preserves(async_client, mock_pool):
+    """Contraparte: name AUSENTE del payload no dispara ninguna validación —
+    solo el envío explícito (blank o null) lo hace."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    updated_row = {**SUPPLIER_ROW, "phone": "+54 261 555-0000"}
+    conn.fetchrow = AsyncMock(return_value=updated_row)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"phone": "+54 261 555-0000"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    assert "name" not in sql.split("SET", 1)[1].split("WHERE", 1)[0]
+
+
 # ── edición ───────────────────────────────────────────────────────────────
 
 
@@ -229,6 +297,103 @@ async def test_update_supplier_cross_org_returns_404(async_client, mock_pool):
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 404
+
+
+# ── review B (BE-1/SPEC-03): PUT /suppliers/{id} tri-estado real ───────────
+# Antes, el service armaba el patch con payload.model_dump(exclude_none=True)
+# y el repository filtraba "v is not None" -- un `tax_id: null` del form se
+# ignoraba en silencio (ni preservaba con intención ni desimputaba: el
+# usuario pedía borrar el campo y el campo seguía ahí). El contrato correcto
+# es tri-estado por PRESENCIA (payload.model_fields_set), igual que
+# payment_method_id/branch_id/supplier_id en la edición de operaciones.
+
+
+async def test_update_supplier_clears_tax_id_with_explicit_null(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={**SUPPLIER_ROW, "tax_id": None})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"tax_id": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    set_clause = sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "tax_id" in set_clause
+    assert None in conn.fetchrow.call_args.args
+
+
+async def test_update_supplier_clears_email_with_explicit_null(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={**SUPPLIER_ROW, "email": None})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"email": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    set_clause = sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "email" in set_clause
+    assert None in conn.fetchrow.call_args.args
+
+
+async def test_update_supplier_clears_phone_with_explicit_null(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={**SUPPLIER_ROW, "phone": None})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"phone": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    set_clause = sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "phone" in set_clause
+    assert None in conn.fetchrow.call_args.args
+
+
+async def test_update_supplier_clears_iva_condition_with_explicit_null(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={**SUPPLIER_ROW, "iva_condition": None})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"iva_condition": None},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    set_clause = sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    assert "iva_condition" in set_clause
+    assert None in conn.fetchrow.call_args.args
+
+
+async def test_update_supplier_omitted_fields_are_never_sent_to_repo(async_client, mock_pool):
+    """Sin tax_id/email/phone/legal_name/iva_condition en el JSON, el UPDATE
+    solo toca el campo realmente enviado (phone) -- el resto ni siquiera
+    aparece en el SET, así que se preserva sin ambigüedad."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    conn.fetchrow = AsyncMock(return_value={**SUPPLIER_ROW, "phone": "+54 261 555-0000"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            f"/suppliers/{SUPPLIER_ID}",
+            json={"phone": "+54 261 555-0000"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 200
+    sql = conn.fetchrow.call_args.args[0]
+    set_clause = sql.split("SET", 1)[1].split("WHERE", 1)[0]
+    for field in ("tax_id", "email", "legal_name", "iva_condition"):
+        assert field not in set_clause
 
 
 # ── baja (soft delete) ───────────────────────────────────────────────────────
@@ -331,6 +496,54 @@ async def test_get_supplier_ok(async_client, valid_token, mock_pool):
     assert resp.json()["id"] == SUPPLIER_ID
 
 
+# ── review B (SEC-3): un id malformado en el path es 422, no 500 ───────────
+# Antes supplier_id: str dejaba pasar "abc" hasta el repository, que lo
+# mandaba tal cual como parámetro $1::uuid a asyncpg -- DataError sin
+# sqlstate mapeado en _BUSINESS_ERRCODE_STATUS -> caía al catch-all 500.
+# uuid.UUID en la firma del router (mismo patrón que supplier_accounts.py,
+# la superficie hermana de ESTA misma entidad) hace que FastAPI lo rechace
+# en el borde con un 422 RFC 7807 estándar, antes de tocar la DB.
+
+
+async def test_get_supplier_malformed_id_returns_422(async_client, valid_token, mock_pool):
+    pool, conn = mock_pool
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/suppliers/abc",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["field"] == "supplier_id"
+    conn.fetchrow.assert_not_awaited()
+
+
+async def test_update_supplier_malformed_id_returns_422(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.put(
+            "/suppliers/abc",
+            json={"phone": "+54 261 555-0000"},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["field"] == "supplier_id"
+    conn.fetchrow.assert_not_awaited()
+
+
+async def test_delete_supplier_malformed_id_returns_422(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.delete(
+            "/suppliers/abc",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 422
+    assert resp.json()["field"] == "supplier_id"
+    conn.fetchrow.assert_not_awaited()
+
+
 # ── 8.1/8.3 — el límite de plan (P0B10) llega traducido al cliente ─────────
 
 
@@ -384,20 +597,12 @@ async def test_create_supplier_over_plan_limit_detail_names_plan_limit_and_actio
     assert resp.json()["code"] == "P0B10"
 
 
-async def test_deleted_supplier_frees_quota_for_the_count(async_client, valid_token, mock_pool):
-    """8.3 TRIANGULATE: un proveedor borrado libera cupo — count_by_org
-    (RN-B1/billing-pro-trial D5/D7, mismo criterio que products/clients)
-    excluye deleted_at IS NULL de la cuenta, así que el trigger que cuenta
-    contra ese mismo predicado tampoco lo contaría. Se verifica el contrato
-    del repositorio (no hay pre-conteo en el service, D3) — el trigger vive
-    en SQL y ya está cubierto por sus propios gates."""
-    pool, conn = mock_pool
-    conn.fetchrow = AsyncMock(return_value={"total": 19})
-    from backend.repositories.supplier_repository import SupplierRepository
-
-    repo = SupplierRepository(conn)
-    total = await repo.count_by_org("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-
-    assert total == 19
-    sql = conn.fetchrow.call_args.args[0]
-    assert "deleted_at IS NULL" in sql
+# review B (BE-3): test_deleted_supplier_frees_quota_for_the_count era
+# tautologico -- mockeaba count_by_org para devolver {"total": 19} y solo
+# reafirmaba ese mismo valor mockeado, sin ejercitar ninguna regla real.
+# La cobertura real de count_by_org (SQL exacto: tabla suppliers,
+# account_id = $1, deleted_at IS NULL) ya vive en
+# test_supplier_repository.py::test_count_by_org_excludes_soft_deleted --
+# se borra en vez de duplicarla. El comportamiento del TRIGGER
+# (fn_guard_supplier_plan_limit contando solo vivos) se cubre en SQL, no
+# en este archivo -- ver el gate 9 del baseline SQL de este change.

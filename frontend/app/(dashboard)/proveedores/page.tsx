@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { exportToCSV } from "@/lib/excel"
 import { MAX_SUPPLIERS_FREE } from "@/lib/constants"
+import { getErrorMessage } from "@/lib/errors"
 import { Plus, Trash2, Pencil, Search, PackageOpen, Download, Landmark } from "lucide-react"
 import { toast } from "sonner"
 import type { Supplier } from "@/lib/types"
@@ -40,12 +41,15 @@ function DeleteSupplierDialog({ supplier, onConfirm, isDeleting }: DeleteSupplie
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
+        {/* review B (F6): icon-only sin aria-label — el único "nombre" era
+            el ícono SVG (aria-hidden), invisible para un lector de pantalla. */}
         <Button
           variant="ghost"
           size="icon"
           className="h-7 w-7 text-muted-foreground hover:text-destructive"
           data-testid={`supplier-delete-${supplier.id}`}
           disabled={isDeleting}
+          aria-label={`Eliminar ${supplier.name}`}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
@@ -107,8 +111,8 @@ export default function ProveedoresPage() {
       try {
         await deleteSupplier(id)
         toast.success("Proveedor eliminado")
-      } catch (err: any) {
-        toast.error(err?.message || "Error al eliminar")
+      } catch (err: unknown) {
+        toast.error(getErrorMessage(err, "Error al eliminar"))
       } finally {
         setDeletingId(null)
       }
@@ -259,6 +263,7 @@ export default function ProveedoresPage() {
                   </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
                     data-testid={`supplier-edit-${row.id}`}
+                    aria-label={`Editar ${row.name}`}
                     onClick={() => handleEdit(row)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>

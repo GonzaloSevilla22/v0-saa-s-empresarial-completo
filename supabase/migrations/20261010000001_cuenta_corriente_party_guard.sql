@@ -54,7 +54,20 @@
 -- test_errcode_5char_gate.sql sigue verde por construcción.
 --
 -- MAX(version) prod verificado 2026-08-23: 20261007000001 (cuentas-billetera-
--- tipo, PR #447) → este archivo usa 20261008000001. Baseline de las 5
+-- tipo, PR #447) al capturar el baseline → el archivo nació como
+-- 20261008000001. RENUMERADA a 20261010000001 el 2026-08-23: mientras esta
+-- rama estaba en revisión, compras-proveedor-cuenta-corriente (PR #452) tomó
+-- 20261009000001 y elevó el MAX vivo de prod a ese número, así que
+-- 20261008000001 habría quedado POR DEBAJO del MAX remoto y el push
+-- automático de Supabase no la habría aplicado nunca.
+--
+-- ORDEN EN CI (no negociable): en .github/workflows/KPI_Validation.yml esta
+-- migración va DESPUÉS de 20261001000001 (L137) y de 20261004000001 (~L1778)
+-- en la cadena de reapply del step "Verify G1/G4 migrations are idempotent on
+-- reapply": ambas re-otorgan el GRANT EXECUTE a `authenticated` de los dos
+-- helpers que este archivo revoca, o sea que reabren el agujero de la
+-- Familia 2. 20261009000001, en cambio, no re-otorga nada de esto
+-- (verificado), así que el orden contra ella es libre. Baseline de las 5
 -- funciones reescritas + las 2 revocadas capturado en
 -- openspec/changes/cuenta-corriente-party-guard/baseline/*.sql vía
 -- pg_get_functiondef EN VIVO contra prod, con md5 verificado (gate de

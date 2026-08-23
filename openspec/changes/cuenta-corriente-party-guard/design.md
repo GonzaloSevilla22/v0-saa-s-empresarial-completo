@@ -141,7 +141,7 @@ Se espera que la primera corrida encuentre offenders más allá de los dos que e
 
 ### D5 — Migración idempotente, sin `DROP`, con reafirmación de ACLs
 
-- Nombre: `20261008000001_cuenta_corriente_party_guard.sql`. El MAX local era `20261006000001` al abrir el propose, pero `20261007000001_cuentas_billetera_tipo.sql` (PR #447) aterrizó en `main` **mientras este propose estaba en revisión** y se quedó con ese número — de ahí el `20261008`. **La task 1.1 vuelve a verificar el MAX vivo en prod antes de escribir el archivo** y renumera si prod está más adelante todavía.
+- Nombre: `20261010000001_cuenta_corriente_party_guard.sql` (renumerado desde `20261008000001` — ver "Post-apply (2026-08-23)", punto (f)). El MAX local era `20261006000001` al abrir el propose, pero `20261007000001_cuentas_billetera_tipo.sql` (PR #447) aterrizó en `main` **mientras este propose estaba en revisión** y se quedó con ese número — de ahí el `20261008`. **La task 1.1 vuelve a verificar el MAX vivo en prod antes de escribir el archivo** y renumera si prod está más adelante todavía.
 - `CREATE OR REPLACE` puro: ninguna de las cinco funciones cambia de firma, así que no hay overload 42725 ni hace falta `DROP`. `CREATE OR REPLACE` preserva ACLs, pero se reafirman igual tras cada `CREATE` —patrón uniforme documentado en la cabecera de `20261001000001`—, **con una corrección importante**: para los helpers internos la reafirmación es `REVOKE ALL ... FROM PUBLIC, anon, authenticated` **sin `GRANT`**. Copiar el bloque REVOKE+GRANT tal cual es precisamente el bug que produjo el hallazgo (D3).
 - Sin BOM UTF-8 (hay gate en CI).
 - Se reaplica dos veces en local y se verifica que el segundo apply es no-op.
@@ -186,11 +186,11 @@ Se dejan documentadas acá las **referencias de archivo** contra las que hay que
 
 1. **Pre**: safety net (suite backend 1495/1495, gates SQL verdes), MAX de migraciones en prod, captura de baselines 🛑.
 2. **RED**: `supabase/tests/test_cuenta_corriente_party_guard.sql` escrito y fallando contra el schema actual.
-3. **GREEN**: `20261008000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
+3. **GREEN**: `20261010000001_cuenta_corriente_party_guard.sql` — guards + ACLs. Doble apply en local sin diferencia.
 4. **CI**: eslabón de reapply + step del test nuevo + chequeo (3) en el gate de ACLs.
 5. **Backend**: tests pytest de propagación `P0404 → 404`.
 6. **Auditoría read-only en prod** de filas corruptas → si hay, checkpoint 🛑.
-7. **Post-merge**: verificar en prod `MAX(version) = 20261008000001` y que `has_function_privilege('authenticated', ...)` es `false` para los dos helpers revocados.
+7. **Post-merge**: verificar en prod `MAX(version) = 20261010000001` y que `has_function_privilege('authenticated', ...)` es `false` para los dos helpers revocados.
 
 **Rollback.** Cada pieza revierte por separado y sin pérdida de datos:
 - Guards: `CREATE OR REPLACE` con el cuerpo del baseline (por eso el baseline es obligatorio).

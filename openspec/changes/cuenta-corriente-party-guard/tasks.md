@@ -13,7 +13,8 @@
 ## 1. Reconocimiento y safety net
 
 - [x] 1.1 Verificar el **MAX de `supabase_migrations.schema_migrations` vivo en prod** (`npx supabase migration list`, o `SELECT max(version) …`). Confirmar que el archivo nuevo se llama `20261008000001_cuenta_corriente_party_guard.sql` — `20261007000001` lo tomó `cuentas_billetera_tipo` (PR #447, mergeada mientras este propose estaba en revisión). Si prod está adelante de `20261007000001`, renumerar y anotarlo en el PR.
-  > **Evidencia**: `MAX(version)` en prod = `20261007000001` (medido 2026-08-23). Prod **no** está más adelante → **sin renumerar**, el archivo es `supabase/migrations/20261008000001_cuenta_corriente_party_guard.sql`.
+  > **Evidencia**: `MAX(version)` en prod = `20261007000001` (medido 2026-08-23) → el archivo nació como `20261008000001_cuenta_corriente_party_guard.sql`.
+  > **RENUMERADO 2026-08-23 (post-rebase)**: `compras-proveedor-cuenta-corriente` (PR #452) se merguó mientras esta rama estaba en revisión y tomó `20261009000001`, que es el **MAX vivo de prod** ahora (258 migraciones). Un archivo con número menor al MAX remoto no lo aplica el push automático → el archivo pasa a `supabase/migrations/20261010000001_cuenta_corriente_party_guard.sql`.
 - [x] 1.2 Correr la suite backend completa (`pytest`) y registrar el baseline `N/N passing` (esperado 1495/1495). Cualquier fallo preexistente se **reporta**, no se arregla en este change.
   > **Evidencia**: `python -m pytest backend/tests -q -p no:cacheprovider` → **1530 passed / 0 failed / 3 skipped** (31 s). El baseline real es 1530, no 1495 (el proposal citaba un número viejo). Cero fallos preexistentes.
 - [x] 1.3 Levantar el stack local (`supabase db reset`) y correr los siete gates de dinero vigentes en el orden de CI, registrando el baseline: `test_function_acl_gate.sql`, `test_errcode_5char_gate.sql`, `test_idempotency.sql`, `test_pagos_cableados_restantes.sql`, `test_delete_guard_ledgers.sql`, `test_asiento_venta_formulario.sql` y `test_cuentas_billetera_tipo.sql` (PR #447).
@@ -59,7 +60,7 @@
 
 ## 3. Migración — guard en el choke point (opción B) [OQ-1]
 
-- [x] 3.1 Crear `supabase/migrations/20261008000001_cuenta_corriente_party_guard.sql` con la cabecera del proyecto […]. **Sin BOM UTF-8**.
+- [x] 3.1 Crear `supabase/migrations/20261010000001_cuenta_corriente_party_guard.sql` (renumerada desde `20261008000001`, ver 1.1) con la cabecera del proyecto […]. **Sin BOM UTF-8**.
   > **Evidencia**: cabecera con las dos familias del hallazgo, D1/D2/D3/D5/D6, MAX de prod, procedencia del baseline, gotcha #432, nota de `service_role`, "ninguna firma cambia" y la declaración BREAKING. Sin BOM (verificado). Commit `c84d636`.
 - [x] 3.2 **GREEN**: `c30_get_or_create_customer_account(uuid, uuid)` partiendo del cuerpo capturado en 1.4, con el guard canónico de `rpc_create_customer_account` (`20260720000001` L537-542) **antes** del `INSERT ... ON CONFLICT`. Sin helper nuevo.
   > **Evidencia**: guard + `v_client uuid;` en el DECLARE; el resto byte-idéntico al baseline. Sigue **SECURITY INVOKER** (no se convierte en DEFINER — D3 "sin rediseño").
@@ -143,7 +144,7 @@
 - [x] 6.7 Agregar el step nuevo `Run cuenta-corriente-party-guard gates` con `-v ON_ERROR_STOP=1`, con comentario explicando qué cubre.
   > **Evidencia**: último step del workflow, con el formato del step de `cuentas-billetera-tipo`. YAML validado con `yaml.safe_load` (35 steps, el nuevo es el último).
 - [x] 6.8 Correr los siete gates del baseline 1.3 **después** de la migración y verificar que siguen verdes. Verificar además, con un `supabase db reset` limpio, que la corrida completa en el orden exacto de CI pasa.
-  > **Evidencia**: stack recreado limpio (258 migraciones, `MAX = 20261008000001`), **cadena de reapply de CI reproducida completa en local** en el orden exacto del workflow (incluido el fallo esperado y tolerado de `20260928000001` por su gate anti-overload), y después los **8 gates en orden de CI: los 8 VERDES**.
+  > **Evidencia**: stack recreado limpio (`MAX = 20261010000001`), **cadena de reapply de CI reproducida completa en local** en el orden exacto del workflow (incluido el fallo esperado y tolerado de `20260928000001` por su gate anti-overload), y después los **8 gates en orden de CI: los 8 VERDES**.
   > `ACL GATE OK: sin triggers SECURITY DEFINER expuestos; anon-executable dentro de la allowlist (5 firmas permitidas); helpers internos authenticated-executable dentro de su allowlist (1 firmas permitidas)`.
 
 ## 7. Backend — propagación del error a HTTP (TDD)
@@ -179,7 +180,7 @@
 
 > Todo el grupo queda **pendiente**: son verificaciones contra prod que sólo se pueden hacer **después** del merge (que dispara build + deploy + migración automáticos). Este apply no hizo push ni PR.
 
-- [ ] 9.1 Confirmar en prod que `MAX(version)` es `20261008000001`.
+- [ ] 9.1 Confirmar en prod que `MAX(version)` es `20261010000001`.
 - [ ] 9.2 Confirmar en prod que `has_function_privilege('authenticated', …, 'EXECUTE')` es **`false`** para `_pay_register_party_charge` y `_journal_post_from_event`, y **`true`** para las tres `rpc_register_*`. Contra prod, no contra CI (gotcha #432).
   > Valores medidos en local post-migración, como referencia de lo que debe verse en prod: `_pay_register_party_charge` `anon=f auth=f`; `_journal_post_from_event` `anon=f auth=f`; `c30_get_or_create_customer_account`/`supplier_account` `anon=f auth=f`; las 3 `rpc_register_*` `anon=f auth=t`. En prod, además, verificar que `service_role` **conserva** su EXECUTE (ningún REVOKE lo nombra).
 - [ ] 9.3 Confirmar en prod que las cinco funciones reescritas tienen **una sola** definición y que su cuerpo vivo contiene el guard.

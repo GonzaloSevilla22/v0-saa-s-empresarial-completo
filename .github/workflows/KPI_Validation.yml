@@ -306,7 +306,7 @@ jobs:
           # De paso, prueba que el archivo es re-appliable (verificado también
           # en local: doble aplicación sin error y sin cambio de fingerprint de
           # cuerpos, ACLs y comments de las 7 funciones tocadas).
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261008000001_cuenta_corriente_party_guard.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261010000001_cuenta_corriente_party_guard.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

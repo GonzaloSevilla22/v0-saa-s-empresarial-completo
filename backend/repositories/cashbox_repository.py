@@ -8,13 +8,24 @@ from backend.repositories.base import BaseRepository
 class CashboxRepository(BaseRepository):
     """Repository for cashboxes — read/write via RLS-guarded queries and RPCs."""
 
-    async def list_cashboxes(self, branch_id: str) -> list[dict]:
-        # v3-soft-delete-policy (RN-B1): excluye cashboxes borradas.
+    async def list_cashboxes(self, branch_id: str, account_id: str) -> list[dict]:
+        """fix/tenancy-bank-accounts-leak (2026-08-22): `account_id`
+        obligatorio — antes solo filtraba por branch_id (IDOR: un
+        branch_id de OTRO tenant devolvía sus cajas). cashboxes no tiene
+        account_id directo (scope indirecto vía branch_id → branches.
+        account_id, mismo criterio que soft_delete_cashbox), así que el
+        filtro requiere JOIN contra branches en vez de un WHERE directo.
+
+        v3-soft-delete-policy (RN-B1): excluye cashboxes borradas.
+        """
         return await self.fetch(
-            "SELECT * FROM public.cashboxes WHERE branch_id = $1"
-            + self.not_deleted_clause()
-            + " ORDER BY created_at ASC",
+            "SELECT cb.* FROM public.cashboxes cb "
+            "JOIN public.branches b ON b.id = cb.branch_id "
+            "WHERE cb.branch_id = $1 AND b.account_id = $2"
+            + self.not_deleted_clause("cb")
+            + " ORDER BY cb.created_at ASC",
             branch_id,
+            account_id,
         )
 
     async def soft_delete_cashbox(

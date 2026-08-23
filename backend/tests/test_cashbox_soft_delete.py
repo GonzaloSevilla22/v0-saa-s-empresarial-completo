@@ -40,7 +40,7 @@ def mock_conn():
 async def test_list_cashboxes_excludes_soft_deleted(mock_conn):
     repo = CashboxRepository(mock_conn)
 
-    await repo.list_cashboxes(BRANCH_ID)
+    await repo.list_cashboxes(BRANCH_ID, ACCOUNT_ID)
 
     sql = mock_conn.fetch.call_args.args[0]
     assert "deleted_at IS NULL" in sql

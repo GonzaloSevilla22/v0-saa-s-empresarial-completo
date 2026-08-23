@@ -143,12 +143,14 @@ class TestCashboxRepository:
         repo, conn = cashbox_repo
         conn.fetch = AsyncMock(return_value=[CASHBOX_ROW])
 
-        rows = await repo.list_cashboxes(BRANCH_ID)
+        rows = await repo.list_cashboxes(BRANCH_ID, ACCOUNT_ID)
 
         query = conn.fetch.call_args[0][0].lower()
         assert "cashboxes" in query
         assert "branch_id" in query
+        assert "account_id" in query
         assert BRANCH_ID in conn.fetch.call_args[0]
+        assert ACCOUNT_ID in conn.fetch.call_args[0]
         assert rows == [CASHBOX_ROW]
 
     @pytest.mark.asyncio
@@ -157,9 +159,24 @@ class TestCashboxRepository:
         repo, conn = cashbox_repo
         conn.fetch = AsyncMock(return_value=[])
 
-        rows = await repo.list_cashboxes("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        rows = await repo.list_cashboxes("ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID)
 
         assert rows == []
+
+    @pytest.mark.asyncio
+    async def test_list_cashboxes_scopes_by_account_id(self, cashbox_repo):
+        """fix/tenancy-bank-accounts-leak (2026-08-22): RED (pre-fix) —
+        list_cashboxes(branch_id) no filtraba por account_id: un branch_id
+        de OTRO tenant devolvía sus cajas igual (IDOR vía JOIN a branches
+        faltante). GREEN: JOIN contra branches.account_id."""
+        repo, conn = cashbox_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_cashboxes(BRANCH_ID, ACCOUNT_ID)
+
+        query = conn.fetch.call_args[0][0].lower()
+        assert "branches" in query
+        assert "b.account_id" in query
 
     @pytest.mark.asyncio
     async def test_create_cashbox_calls_insert(self, cashbox_repo):
@@ -262,12 +279,14 @@ class TestCashSessionRepository:
         repo, conn = session_repo
         conn.fetchrow = AsyncMock(return_value=SESSION_ROW)
 
-        row = await repo.current_session(CASHBOX_ID)
+        row = await repo.current_session(CASHBOX_ID, ACCOUNT_ID)
 
         query = conn.fetchrow.call_args[0][0].lower()
         assert "cash_sessions" in query
         assert "status" in query
+        assert "account_id" in query
         assert CASHBOX_ID in conn.fetchrow.call_args[0]
+        assert ACCOUNT_ID in conn.fetchrow.call_args[0]
 
     @pytest.mark.asyncio
     async def test_current_session_returns_none_when_no_open(self, session_repo):
@@ -275,21 +294,55 @@ class TestCashSessionRepository:
         repo, conn = session_repo
         conn.fetchrow = AsyncMock(return_value=None)
 
-        row = await repo.current_session("ffffffff-ffff-ffff-ffff-ffffffffffff")
+        row = await repo.current_session("ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID)
 
         assert row is None
+
+    @pytest.mark.asyncio
+    async def test_current_session_scopes_by_account_via_branches_join(self, session_repo):
+        """fix/tenancy-bank-accounts-leak: RED (pre-fix) — cashbox_id de OTRO
+        tenant devolvía su sesión abierta igual (IDOR). GREEN: JOIN
+        cashboxes+branches para filtrar por account_id."""
+        repo, conn = session_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        await repo.current_session(CASHBOX_ID, ACCOUNT_ID)
+
+        query = conn.fetchrow.call_args[0][0].lower()
+        assert "cashboxes" in query
+        assert "branches" in query
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_scopes_by_account_via_branches_join(self, session_repo):
+        """fix/tenancy-bank-accounts-leak: list_sessions(cashbox_id) tenía el
+        mismo IDOR que current_session — sin caso de test previo. GREEN: JOIN
+        cashboxes+branches, account_id obligatorio."""
+        repo, conn = session_repo
+        conn.fetch = AsyncMock(return_value=[SESSION_ROW])
+
+        rows = await repo.list_sessions(CASHBOX_ID, ACCOUNT_ID)
+
+        query = conn.fetch.call_args[0][0].lower()
+        assert "cash_sessions" in query
+        assert "cashboxes" in query
+        assert "branches" in query
+        assert CASHBOX_ID in conn.fetch.call_args[0]
+        assert ACCOUNT_ID in conn.fetch.call_args[0]
+        assert rows == [SESSION_ROW]
 
     @pytest.mark.asyncio
     async def test_list_movements_queries_session(self, session_repo):
         repo, conn = session_repo
         conn.fetch = AsyncMock(return_value=[MOVEMENT_ROW])
 
-        rows = await repo.list_movements(SESSION_ID)
+        rows = await repo.list_movements(SESSION_ID, ACCOUNT_ID)
 
         query = conn.fetch.call_args[0][0].lower()
         assert "cash_movements" in query
         assert "session_id" in query
+        assert "account_id" in query
         assert SESSION_ID in conn.fetch.call_args[0]
+        assert ACCOUNT_ID in conn.fetch.call_args[0]
         assert len(rows) == 1
 
     @pytest.mark.asyncio
@@ -298,7 +351,7 @@ class TestCashSessionRepository:
         repo, conn = session_repo
         conn.fetch = AsyncMock(return_value=[])
 
-        rows = await repo.list_movements(SESSION_ID)
+        rows = await repo.list_movements(SESSION_ID, ACCOUNT_ID)
 
         assert rows == []
 

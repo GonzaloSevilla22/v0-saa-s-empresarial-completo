@@ -227,7 +227,7 @@ class TestCashMovementsByCashboxPage:
         conn.fetchval = AsyncMock(return_value=1)
         conn.fetch = AsyncMock(return_value=[CASHBOX_MOVEMENTS_PAGE_ROW])
 
-        result = await repo.list_movements_by_cashbox_page(CASHBOX_ID, page=0, size=30)
+        result = await repo.list_movements_by_cashbox_page(CASHBOX_ID, account_id=ACCOUNT_ID, page=0, size=30)
 
         assert result["total"] == 1
         assert result["page"] == 0
@@ -239,13 +239,31 @@ class TestCashMovementsByCashboxPage:
         assert "cashbox_id" in count_query
 
     @pytest.mark.asyncio
+    async def test_scopes_by_account_via_branches_join(self, session_repo):
+        """fix/tenancy-bank-accounts-leak: RED (pre-fix) — cashbox_id de OTRO
+        tenant devolvía su historial completo (IDOR). GREEN: JOIN
+        cashboxes+branches, account_id obligatorio en select+count."""
+        repo, conn = session_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_movements_by_cashbox_page(CASHBOX_ID, account_id=ACCOUNT_ID, page=0, size=30)
+
+        select_query = conn.fetch.call_args[0][0].lower()
+        count_query = conn.fetchval.call_args[0][0].lower()
+        assert "branches" in select_query and "b.account_id" in select_query
+        assert "branches" in count_query and "b.account_id" in count_query
+        assert ACCOUNT_ID in conn.fetch.call_args[0]
+        assert ACCOUNT_ID in conn.fetchval.call_args[0]
+
+    @pytest.mark.asyncio
     async def test_type_filter_pushed_to_server(self, session_repo):
         """Item 10 del molde de Stock, replicado acá: el filtro de tipo va a SQL."""
         repo, conn = session_repo
         conn.fetchval = AsyncMock(return_value=0)
         conn.fetch = AsyncMock(return_value=[])
 
-        await repo.list_movements_by_cashbox_page(CASHBOX_ID, page=0, size=30, types=["adjustment"])
+        await repo.list_movements_by_cashbox_page(CASHBOX_ID, account_id=ACCOUNT_ID, page=0, size=30, types=["adjustment"])
 
         select_query = conn.fetch.call_args[0][0].lower()
         assert "movement_type = any(" in select_query
@@ -259,7 +277,7 @@ class TestCashMovementsByCashboxPage:
         conn.fetchval = AsyncMock(return_value=0)
         conn.fetch = AsyncMock(return_value=[])
 
-        await repo.list_movements_by_cashbox_page(CASHBOX_ID, page=0, size=30, q="sobrante")
+        await repo.list_movements_by_cashbox_page(CASHBOX_ID, account_id=ACCOUNT_ID, page=0, size=30, q="sobrante")
 
         select_query = conn.fetch.call_args[0][0].lower()
         assert "description ilike" in select_query
@@ -272,7 +290,7 @@ class TestCashMovementsByCashboxPage:
         conn.fetchval = AsyncMock(return_value=1)
         conn.fetch = AsyncMock(return_value=[])
 
-        result = await repo.list_movements_by_cashbox_page(CASHBOX_ID, page=99, size=30)
+        result = await repo.list_movements_by_cashbox_page(CASHBOX_ID, account_id=ACCOUNT_ID, page=99, size=30)
 
         assert result["items"] == []
         assert result["total"] == 1
@@ -285,7 +303,7 @@ class TestCashMovementsByCashboxPage:
         conn.fetch = AsyncMock(return_value=[])
 
         await repo.list_movements_by_cashbox_page(
-            CASHBOX_ID, page=0, size=30,
+            CASHBOX_ID, account_id=ACCOUNT_ID, page=0, size=30,
             date_from="2026-08-01", date_to="2026-08-31",
         )
 

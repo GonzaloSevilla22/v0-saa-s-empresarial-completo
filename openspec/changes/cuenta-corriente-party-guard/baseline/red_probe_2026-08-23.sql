@@ -22,7 +22,7 @@
 -- este archivo; o, más barato, correr el gate y verlo abortar en 2.2.
 --
 -- Uso:
---   docker exec -i supabase_db_v0-saa-s-empresarial-completo --     psql -U postgres -d postgres -v ON_ERROR_STOP=1 --     < openspec/changes/cuenta-corriente-party-guard/baseline/red_probe_2026-08-23.sql
+--   docker exec -i supabase_db_v0-saa-s-empresarial-completo psql -U postgres -d postgres -v ON_ERROR_STOP=1 < openspec/changes/cuenta-corriente-party-guard/baseline/red_probe_2026-08-23.sql
 -- =============================================================================
 
 BEGIN;

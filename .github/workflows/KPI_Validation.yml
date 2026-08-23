@@ -726,7 +726,7 @@ jobs:
       # parte ajena; GATE ESTRELLA — venta a crédito por FORMULARIO y por POS
       # con cliente ajeno rechazada por el choke point, sin tocar
       # rpc_create_sale_operation_v2 ni _c29_confirm_order_core, y con cero
-      # filas nuevas en los 6 libros; control positivo por los 4 caminos con
+      # filas nuevas en los 6 libros; control positivo por los 5 caminos con
       # parte propia (cuenta creada en el mismo commit, balance_after
       # esperado); id ajeno e id inexistente indistinguibles (no filtrar
       # información entre tenants); orden de guards congelado (amount P0400 →

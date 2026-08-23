@@ -26,6 +26,21 @@ El rechazo SHALL usar el código de error de negocio `P0404`, el mismo del camin
 - **WHEN** se registra un cargo manual de 8000
 - **THEN** la cuenta corriente se crea en el mismo commit, el movimiento queda con `balance_after = 8000` y el evento de cargo se emite, exactamente como antes del guard
 
+#### Scenario: Las validaciones de payload preceden al guard de parte
+
+- **GIVEN** un pago o un cargo manual cuyo proveedor pertenece a otro tenant
+- **WHEN** la misma operación además informa un importe inválido
+- **THEN** el error que llega al usuario es el de la validación de payload, no el de parte no encontrada
+- **AND** en el caso del **pago**, que es el único que recibe cuenta bancaria, lo mismo vale si informa una cuenta bancaria que no existe
+
+> Espejo exacto del lado cliente: el guard de parte va después del resto de
+> las validaciones de payload y antes de consumir la clave de idempotencia.
+> El orden es observable, así que se especifica.
+>
+> La cuenta bancaria sólo aplica al pago: el cargo manual no la recibe entre
+> sus parámetros, así que de ese camino sólo se puede especificar —y
+> verificar— el orden contra el importe.
+
 #### Scenario: Un proveedor inexistente se rechaza igual que uno ajeno
 
 - **WHEN** se registra un pago informando un identificador de proveedor que no existe en ninguna cuenta

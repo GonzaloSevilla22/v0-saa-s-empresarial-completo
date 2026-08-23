@@ -26,8 +26,27 @@ El motivo no es la fuga de datos —la cuenta corriente del otro tenant queda in
 #### Scenario: El cliente propio sigue funcionando igual
 
 - **GIVEN** un cliente del mismo tenant, sin cuenta corriente previa
-- **WHEN** se registra un cobro de 5000
-- **THEN** la cuenta corriente se crea en el mismo commit y el cobro se registra con su movimiento, su fila de cobro y su evento, exactamente como antes del guard
+- **WHEN** se registra una venta a cuenta corriente de 1000 para ese cliente
+- **AND** después se registra un cobro de 400
+- **THEN** la cuenta corriente se crea en el mismo commit del cargo, con su movimiento y su evento
+- **AND** el cobro se registra con su movimiento, su fila de cobro y su evento, dejando el saldo en 600, exactamente como antes del guard
+
+> El cobro no puede ser el primer movimiento de la cuenta: el invariante de
+> saldo no negativo lo rechaza con `P0409` antes de llegar a nada de esto. El
+> control positivo del camino propio es, necesariamente, cargo y después cobro.
+
+#### Scenario: Las validaciones de payload preceden al guard de parte
+
+- **GIVEN** un cobro cuyo cliente pertenece a otro tenant
+- **WHEN** el mismo cobro además informa un importe inválido, o una cuenta bancaria que no existe
+- **THEN** el error que llega al usuario es el de la validación de payload —importe inválido o cuenta bancaria no encontrada—, no el de parte no encontrada
+
+> El guard de parte se ubica junto a las demás validaciones de payload y
+> **después** de ellas, y **antes** de consumir la clave de idempotencia. El
+> orden es observable —determina qué error ve el usuario cuando hay más de un
+> problema— así que se especifica en vez de quedar sólo congelado por los
+> tests. La regla general: primero se rechaza lo que está mal escrito en el
+> pedido, después lo que no pertenece al tenant.
 
 #### Scenario: Un cliente inexistente se rechaza igual que uno ajeno
 

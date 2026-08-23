@@ -74,3 +74,6 @@ frontend/test-results/
 frontend/playwright-report/
 frontend/e2e/.auth/
 frontend/test-results/
+
+# pytest/pycache de los scripts de CI (basura local, nunca versionada)
+scripts/**/__pycache__/

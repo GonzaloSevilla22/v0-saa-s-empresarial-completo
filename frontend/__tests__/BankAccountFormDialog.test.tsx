@@ -86,7 +86,7 @@ describe("BankAccountFormDialog — form behaviour", () => {
 
   it("does not call the mutation when submitting with empty name", async () => {
     const user = userEvent.setup()
-    render(<BankAccountFormDialog open onOpenChange={() => {}} />)
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="bank" />)
 
     const submitButton = screen.getByRole("button", { name: /crear/i })
     await user.click(submitButton)
@@ -99,7 +99,7 @@ describe("BankAccountFormDialog — form behaviour", () => {
   it("calls the mutation once when submitting with a valid name", async () => {
     mockCreateBankAccount.mockResolvedValueOnce({ id: "new-id" })
     const user = userEvent.setup()
-    render(<BankAccountFormDialog open onOpenChange={() => {}} />)
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="bank" />)
 
     const nameInput = screen.getByLabelText(/nombre/i)
     await user.type(nameInput, "Cuenta corriente Galicia")
@@ -113,5 +113,72 @@ describe("BankAccountFormDialog — form behaviour", () => {
     expect(mockCreateBankAccount).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Cuenta corriente Galicia" })
     )
+  })
+})
+
+// ── cuentas-billetera-tipo (tasks 6.1-6.3): kind parametrizado ────────────────
+
+describe("BankAccountFormDialog — kind parametrizado", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("kind='bank': título y etiquetas de banco/CBU", () => {
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="bank" />)
+
+    expect(screen.getByText("Nueva cuenta bancaria")).toBeInTheDocument()
+    expect(screen.getByText(/^Banco/)).toBeInTheDocument()
+    expect(screen.getByText(/^CBU/)).toBeInTheDocument()
+  })
+
+  it("kind='wallet': título y etiquetas de billetera/CVU", () => {
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="wallet" />)
+
+    expect(screen.getByText("Nueva billetera virtual")).toBeInTheDocument()
+    expect(screen.getByText(/^Billetera/)).toBeInTheDocument()
+    expect(screen.getByText(/^CVU/)).toBeInTheDocument()
+  })
+
+  it("kind='bank': el submit envía account_kind='bank'", async () => {
+    mockCreateBankAccount.mockResolvedValueOnce({ id: "new-id" })
+    const user = userEvent.setup()
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="bank" />)
+
+    await user.type(screen.getByLabelText(/nombre/i), "Cuenta corriente Galicia")
+    await user.click(screen.getByRole("button", { name: /crear/i }))
+
+    await waitFor(() => {
+      expect(mockCreateBankAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ account_kind: "bank" })
+      )
+    })
+  })
+
+  it("kind='wallet': el submit envía account_kind='wallet'", async () => {
+    mockCreateBankAccount.mockResolvedValueOnce({ id: "new-id" })
+    const user = userEvent.setup()
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="wallet" />)
+
+    await user.type(screen.getByLabelText(/nombre/i), "Mercado Pago")
+    await user.click(screen.getByRole("button", { name: /crear/i }))
+
+    await waitFor(() => {
+      expect(mockCreateBankAccount).toHaveBeenCalledWith(
+        expect.objectContaining({ account_kind: "wallet" })
+      )
+    })
+  })
+
+  it("la validación de 22 dígitos aplica igual para kind='wallet' (CVU)", async () => {
+    const user = userEvent.setup()
+    render(<BankAccountFormDialog open onOpenChange={() => {}} kind="wallet" />)
+
+    await user.type(screen.getByLabelText(/nombre/i), "Mercado Pago")
+    await user.type(screen.getByLabelText(/cvu/i), "12345")
+    await user.click(screen.getByRole("button", { name: /crear/i }))
+
+    await waitFor(() => {
+      expect(mockCreateBankAccount).not.toHaveBeenCalled()
+    })
   })
 })

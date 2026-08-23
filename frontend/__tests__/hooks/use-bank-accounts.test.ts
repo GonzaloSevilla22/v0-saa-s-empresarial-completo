@@ -28,14 +28,15 @@ import { pythonClient } from "@/lib/api/python-client"
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const mockBankAccountRow = {
-  id:         "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-  account_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-  name:       "Cuenta corriente Galicia",
-  bank_name:  "Banco Galicia",
-  cbu:        "0".repeat(22),
-  alias:      "galicia.cuenta",
-  currency:   "ARS",
-  is_active:  true,
+  id:           "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  account_id:   "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  name:         "Cuenta corriente Galicia",
+  bank_name:    "Banco Galicia",
+  cbu:          "0".repeat(22),
+  alias:        "galicia.cuenta",
+  currency:     "ARS",
+  account_kind: "bank" as const,
+  is_active:    true,
 }
 
 function makeWrapper() {
@@ -114,5 +115,39 @@ describe("useBankAccounts().createBankAccount", () => {
         bankName: "Banco Galicia",
       })
     )
+  })
+
+  // ── cuentas-billetera-tipo (task 6.5) ──────────────────────────────────────
+
+  it("maps account_kind from the API row (wallet)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ ...mockBankAccountRow, account_kind: "wallet" })
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useBankAccounts(), { wrapper: Wrapper })
+
+    let created
+    await act(async () => {
+      created = await result.current.createBankAccount({ name: "Mercado Pago", account_kind: "wallet" })
+    })
+
+    expect(created).toEqual(expect.objectContaining({ accountKind: "wallet" }))
+  })
+
+  it("passes account_kind through in the create payload", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ ...mockBankAccountRow, account_kind: "wallet" })
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useBankAccounts(), { wrapper: Wrapper })
+
+    await act(async () => {
+      await result.current.createBankAccount({ name: "Mercado Pago", account_kind: "wallet" })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith("/bank-accounts", {
+      name: "Mercado Pago",
+      account_kind: "wallet",
+    })
   })
 })

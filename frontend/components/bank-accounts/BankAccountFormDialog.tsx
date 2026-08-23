@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { getAccountKindFormLabels, type AccountKind } from "@/lib/bank-account-kind"
 
 /**
  * Zod schema for the bank account creation form (bank-account-crud, D5/D4).
@@ -37,15 +38,21 @@ export type BankAccountFormValues = z.infer<typeof bankAccountFormSchema>
 interface BankAccountFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** cuentas-billetera-tipo: parametriza título, etiquetas y account_kind del alta. */
+  kind: AccountKind
 }
 
 /**
- * Dialog para el alta de cuentas bancarias (bank-account-crud).
- * Disparado desde el empty state y el header de la card en /finanzas/conciliacion (D5).
+ * Dialog para el alta de cuentas bancarias (bank-account-crud), parametrizado
+ * por `kind` (cuentas-billetera-tipo, D3/D5): mismos campos para banco y
+ * billetera — solo cambian título, rótulos ("Banco"/"Billetera",
+ * "CBU"/"CVU", vía `lib/bank-account-kind.ts`) y el `account_kind` enviado.
+ * Disparado desde las dos entradas de alta de `/banco` (D5).
  * Único Client Component del flujo — RHF + Zod, invalida queryKeys.bankAccounts en éxito.
  */
-export function BankAccountFormDialog({ open, onOpenChange }: BankAccountFormDialogProps) {
+export function BankAccountFormDialog({ open, onOpenChange, kind }: BankAccountFormDialogProps) {
   const { createBankAccount, createBankAccountMutation } = useBankAccounts()
+  const labels = getAccountKindFormLabels(kind)
 
   const {
     register,
@@ -69,6 +76,7 @@ export function BankAccountFormDialog({ open, onOpenChange }: BankAccountFormDia
         currency: values.currency || "ARS",
         opening_balance: values.opening_balance ?? 0,
         opening_date: values.opening_date || undefined,
+        account_kind: kind,
       })
       toast.success(`Cuenta "${values.name}" creada`)
       reset()
@@ -82,7 +90,7 @@ export function BankAccountFormDialog({ open, onOpenChange }: BankAccountFormDia
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Nueva cuenta bancaria</DialogTitle>
+          <DialogTitle>{labels.dialogTitle}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 pt-2">
           <div className="space-y-1">
@@ -92,12 +100,12 @@ export function BankAccountFormDialog({ open, onOpenChange }: BankAccountFormDia
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="ba-bank-name">Banco (opcional)</Label>
-            <Input id="ba-bank-name" placeholder="Ej: Banco Galicia" {...register("bank_name")} />
+            <Label htmlFor="ba-bank-name">{labels.issuerLabel}</Label>
+            <Input id="ba-bank-name" placeholder={labels.issuerPlaceholder} {...register("bank_name")} />
           </div>
 
           <div className="space-y-1">
-            <Label htmlFor="ba-cbu">CBU (opcional)</Label>
+            <Label htmlFor="ba-cbu">{labels.cbuLabel}</Label>
             <Input id="ba-cbu" placeholder="22 dígitos" maxLength={22} {...register("cbu")} />
             {errors.cbu && <p className="text-xs text-destructive">{errors.cbu.message}</p>}
           </div>

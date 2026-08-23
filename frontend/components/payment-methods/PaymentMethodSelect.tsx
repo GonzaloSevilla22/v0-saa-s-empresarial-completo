@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { isBankPaymentKind, type PaymentMethodKind } from "@/lib/types"
+import { getAccountKindIcon } from "@/lib/bank-account-kind"
 
 interface PaymentMethodSelectProps {
   value: string | null
@@ -200,9 +201,17 @@ export function BankAccountDestinationSelect({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__default__">Usar el destino configurado</SelectItem>
-          {activeAccounts.map((b) => (
-            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-          ))}
+          {activeAccounts.map((b) => {
+            const AccountIcon = getAccountKindIcon(b.accountKind)
+            return (
+              <SelectItem key={b.id} value={b.id}>
+                <span className="flex items-center gap-1.5">
+                  <AccountIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  {b.name}
+                </span>
+              </SelectItem>
+            )
+          })}
         </SelectContent>
       </Select>
       <p className="text-xs text-muted-foreground">

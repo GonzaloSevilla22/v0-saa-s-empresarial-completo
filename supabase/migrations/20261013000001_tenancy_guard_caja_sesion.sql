@@ -869,6 +869,27 @@ BEGIN
     RAISE EXCEPTION 'tenancy-guard-caja-outbox GUARD: el cuerpo vivo de c28_register_cash_movement no resuelve la cuenta por current_account_ids() (capa 2).';
   END IF;
 
+  -- (b bis) Y los dos wrappers públicos del POS NO tienen el guard escrito: lo
+  --     HEREDAN del core. Si alguien lo duplicara ahí tendríamos dos
+  --     definiciones del mismo invariante, que es cómo divergen. El cuerpo se
+  --     lee SIN COMENTARIOS (se le quitan los `--` de línea): una mención del
+  --     literal dentro de un comentario no es una validación — mismo falso
+  --     positivo que la revisión adversarial le corrigió al chequeo (5a) del
+  --     gate de ACLs. Esta mitad estaba enunciada en el chequeo (d) de más
+  --     abajo pero NO implementada (sólo verificaba el privilegio EXECUTE);
+  --     vive acá, junto a los demás chequeos de cuerpo, para que corra también
+  --     en entornos sin los roles de Supabase, donde (d) ni se evalúa.
+  FOR v_def IN
+    SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g')
+    FROM pg_proc p
+    WHERE p.pronamespace = 'public'::regnamespace
+      AND p.proname IN ('rpc_quick_sale', 'rpc_confirm_sales_order')
+  LOOP
+    IF position('cash_optin_requires_open_session' in v_def) <> 0 THEN
+      RAISE EXCEPTION 'tenancy-guard-caja-outbox GUARD: un wrapper público del POS (rpc_quick_sale / rpc_confirm_sales_order) tiene el guard cash_optin_requires_open_session ESCRITO en su cuerpo. Lo hereda del core: duplicarlo crea dos definiciones del mismo invariante.';
+    END IF;
+  END LOOP;
+
   -- Entorno sin roles de Supabase (p.ej. postgres pelado): no hay ACL que verificar.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
     RAISE NOTICE 'tenancy-guard-caja-outbox: roles de Supabase ausentes — se omite la verificación de ACLs.';
@@ -896,9 +917,11 @@ BEGIN
     RAISE EXCEPTION 'tenancy-guard-caja-outbox ACL: las dos funciones reescritas deben conservar EXECUTE para authenticated y NO tenerlo para anon, están mal: %', v_bad;
   END IF;
 
-  -- (d) Los wrappers públicos del POS siguen expuestos y SIN el guard escrito:
-  --     lo heredan del core. Si alguien lo duplicara acá tendríamos dos
-  --     definiciones del mismo invariante, que es cómo divergen.
+  -- (d) Los wrappers públicos del POS siguen EXPUESTOS (EXECUTE para
+  --     `authenticated`): el guard cierra el hueco sin sacar el POS de
+  --     servicio. Esto y sólo esto verifica este chequeo. Que además NO tengan
+  --     el guard duplicado en su cuerpo lo verifica el chequeo (b bis) de más
+  --     arriba, que es el que lee `pg_get_functiondef`.
   SELECT string_agg(sig, ', ') INTO v_bad
   FROM (
     SELECT unnest(ARRAY[
@@ -936,5 +959,5 @@ BEGIN
     RAISE EXCEPTION 'tenancy-guard-caja-outbox ACL: funciones cerradas por los hotfixes #454 y #460 volvieron a ser ejecutables por anon/authenticated: %', v_bad;
   END IF;
 
-  RAISE NOTICE 'tenancy-guard-caja-outbox (h1) OK: 2 funciones con una sola definición y su guard escrito, ACLs intactas (authenticated sí, anon no), wrappers del POS expuestos y sin duplicar el guard, y los cierres de #454/#460 en pie.';
+  RAISE NOTICE 'tenancy-guard-caja-outbox (h1) OK: 2 funciones con una sola definición y su guard escrito, los 2 wrappers del POS sin el guard duplicado en su cuerpo, ACLs intactas (authenticated sí, anon no), wrappers expuestos, y los cierres de #454/#460 en pie.';
 END $$;

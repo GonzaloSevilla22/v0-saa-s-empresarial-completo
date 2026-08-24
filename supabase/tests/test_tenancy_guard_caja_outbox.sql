@@ -180,7 +180,13 @@ BEGIN
   SELECT id INTO v_branch_b   FROM public.branches   WHERE account_id = v_account_b ORDER BY created_at LIMIT 1;
   SELECT id INTO v_cashbox_b  FROM public.cashboxes  WHERE branch_id  = v_branch_b  ORDER BY created_at LIMIT 1;
 
-  IF v_branch_a1 IS NULL OR v_cashbox_a1 IS NULL OR v_pm_cash_a IS NULL OR v_pm_transfer_a IS NULL
+  -- Condición de degradación GLOBAL: sólo los fixtures sin los cuales NINGÚN
+  -- assert tiene sentido. `v_pm_transfer_a` NO entra acá aunque se resuelva
+  -- arriba: lo usa un solo assert (2.6) y meterlo en esta condición convertiría
+  -- una regresión del catálogo en un salto silencioso de TODO el gate —el único
+  -- candado permanente de un change de governance CRÍTICO— con CI en verde y
+  -- cero cobertura de tenencia. Se chequea dentro del propio 2.6.
+  IF v_branch_a1 IS NULL OR v_cashbox_a1 IS NULL OR v_pm_cash_a IS NULL
      OR v_branch_b IS NULL OR v_cashbox_b IS NULL THEN
     RAISE NOTICE 'GATE TENANCY-CAJA: sucursal/caja/catálogo no sembrado para los anchors — degradando sin abortar.';
     RETURN;
@@ -372,49 +378,60 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (2.5): el helper intra-transacción rechaza con P0401 la sesión de otro tenant, sin insertar nada (backstop de la capa 2).';
 
-  -- ══ (2.6) el invariante de TENENCIA no depende del kind ═══════════════════
-  -- El guard de la capa 1 se evalua sobre p_cash_session_id, NO sobre v_kind:
-  -- una sesion ajena tiene que rebotar tambien cuando la forma de pago no es
-  -- efectivo. Sin este assert, alguien podria "arreglar" el guard metiendolo
-  -- dentro del `IF v_kind = 'cash'` y reabrir el hueco para todo pago no-cash
-  -- que igual mande el id de sesion, sin que ningun test se entere.
-  -- (Lo que este gate deliberadamente NO exige es la paridad completa con el
-  --  formulario: rpc_create_sale_operation_v2 tiene ademas
-  --  cash_optin_requires_cash_kind y cash_optin_requires_today sobre el mismo
-  --  parametro, y este change NO los replica — decision escrita en la cabecera
-  --  de 20261013000001 y en design.md D2. Son guards de higiene de input, no
-  --  de tenencia, y replicarlos agrandaria el BREAKING de un change CRITICO
-  --  sobre payloads que ninguna superficie del producto genera.)
-  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_nb_movs, v_nb_sum
-  FROM public.cash_movements WHERE session_id = v_session_b;
+  -- ══ (2.6) el invariante de TENENCIA no depende del kind ═════════════════
+  -- El fixture de este assert (una forma de pago con kind='transfer') se
+  -- chequea ACÁ y no en la condición de degradación global de más arriba: lo
+  -- usa UN solo assert, el más periférico del archivo, y meterlo en la
+  -- condición global hacía que una regresión del catálogo apagara EN SILENCIO
+  -- los asserts 2.2–2.5 y 2.7–2.8 — los que cubren el invariante que este
+  -- change existe para cerrar— dejando CI en verde con cero cobertura de
+  -- tenencia. Acá el peor caso es un SKIP visible de este assert solo.
+  IF v_pm_transfer_a IS NULL THEN
+    RAISE NOTICE 'SKIP (2.6): no hay forma de pago kind=transfer sembrada para el tenant A — el resto del gate sigue corriendo.';
+  ELSE
+    -- El guard de la capa 1 se evalua sobre p_cash_session_id, NO sobre v_kind:
+    -- una sesion ajena tiene que rebotar tambien cuando la forma de pago no es
+    -- efectivo. Sin este assert, alguien podria "arreglar" el guard metiendolo
+    -- dentro del `IF v_kind = 'cash'` y reabrir el hueco para todo pago no-cash
+    -- que igual mande el id de sesion, sin que ningun test se entere.
+    -- (Lo que este gate deliberadamente NO exige es la paridad completa con el
+    --  formulario: rpc_create_sale_operation_v2 tiene ademas
+    --  cash_optin_requires_cash_kind y cash_optin_requires_today sobre el mismo
+    --  parametro, y este change NO los replica — decision escrita en la cabecera
+    --  de 20261013000001 y en design.md D2. Son guards de higiene de input, no
+    --  de tenencia, y replicarlos agrandaria el BREAKING de un change CRITICO
+    --  sobre payloads que ninguna superficie del producto genera.)
+    SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_nb_movs, v_nb_sum
+    FROM public.cash_movements WHERE session_id = v_session_b;
 
-  v_rejected := false;
-  BEGIN
-    PERFORM public.rpc_quick_sale(
-      p_idempotency_key   => 'gate-tgc-2-6',
-      p_items             => jsonb_build_array(jsonb_build_object(
-                               'product_id', v_product_a, 'quantity', 1,
-                               'price', 1000, 'subtotal', 1000)),
-      p_payment_method    => 'transfer',
-      p_cash_session_id   => v_session_b,
-      p_branch_id         => v_branch_a1,
-      p_payment_method_id => v_pm_transfer_a
-    );
-  EXCEPTION
-    WHEN OTHERS THEN
-      IF SQLSTATE = 'P0422' THEN v_rejected := true; ELSE RAISE; END IF;
-  END;
+    v_rejected := false;
+    BEGIN
+      PERFORM public.rpc_quick_sale(
+        p_idempotency_key   => 'gate-tgc-2-6',
+        p_items             => jsonb_build_array(jsonb_build_object(
+                                 'product_id', v_product_a, 'quantity', 1,
+                                 'price', 1000, 'subtotal', 1000)),
+        p_payment_method    => 'transfer',
+        p_cash_session_id   => v_session_b,
+        p_branch_id         => v_branch_a1,
+        p_payment_method_id => v_pm_transfer_a
+      );
+    EXCEPTION
+      WHEN OTHERS THEN
+        IF SQLSTATE = 'P0422' THEN v_rejected := true; ELSE RAISE; END IF;
+    END;
 
-  IF NOT v_rejected THEN
-    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6): rpc_quick_sale con una forma de pago NO efectivo y la sesion de caja del tenant B deberia fallar igual con P0422 — el guard mira el parametro, no el kind. Si esto pasa, el guard quedo condicionado a v_kind = cash.';
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6): rpc_quick_sale con una forma de pago NO efectivo y la sesion de caja del tenant B deberia fallar igual con P0422 — el guard mira el parametro, no el kind. Si esto pasa, el guard quedo condicionado a v_kind = cash.';
+    END IF;
+
+    SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+    FROM public.cash_movements WHERE session_id = v_session_b;
+    IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
+      RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6-efectos): el rechazo dejo la caja de la victima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
+    END IF;
+    RAISE NOTICE 'PASS (2.6): el guard rechaza la sesion ajena tambien con kind no-cash — el invariante de tenencia es agnostico del kind.';
   END IF;
-
-  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
-  FROM public.cash_movements WHERE session_id = v_session_b;
-  IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
-    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6-efectos): el rechazo dejo la caja de la victima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
-  END IF;
-  RAISE NOTICE 'PASS (2.6): el guard rechaza la sesion ajena tambien con kind no-cash — el invariante de tenencia es agnostico del kind.';
 
   -- ═══ (2.7) EL GUARD ES AUTOSUFICIENTE: la sucursal la elige el atacante ═══
   -- Los asserts 2.2/2.4/2.6 comparan la caja contra la sucursal de la ORDEN, y

@@ -51,8 +51,21 @@
 --   capa que puede expresarlo, porque `v_gate_branch` —la sucursal efectiva de
 --   la venta— sólo existe dentro del core. Cierra el POS por sus dos wrappers
 --   de una sola vez: ni rpc_quick_sale ni rpc_confirm_sales_order se tocan
---   (heredan el guard; el gate de este change lo verifica leyendo sus cuerpos
---   vivos).
+--   (heredan el guard; el chequeo (b bis) de esta misma migración y el assert
+--   3.8 del gate lo verifican leyendo sus cuerpos vivos).
+--   AUTOSUFICIENTE (revisión adversarial, 2026-08-24). El predicado del
+--   formulario se copia, pero con UNA diferencia deliberada: el SELECT del
+--   guard JOINea `branches` y exige `b.account_id = v_account_id`. En el
+--   formulario la `v_gate_branch` ya viene validada como del tenant antes del
+--   bloque; en el core NO —la sucursal de la orden la elige el payload de
+--   rpc_quick_sale (`COALESCE(p_branch_id, c26_default_branch(...))` va al
+--   INSERT en sales_orders sin chequeo de cuenta)— y el `AND account_id =
+--   v_account_id` del branch_not_found corre MÁS ABAJO. Sin esa cláusula,
+--   mandar la sucursal de la víctima junto con su sesión de caja satisface el
+--   guard y lo único que frena la escritura es un chequeo ajeno a este change
+--   que ningún test congela (medido: rebotaba con P0404, no con P0422). Con
+--   ella el guard establece por sí solo los dos invariantes. Candados:
+--   asserts (2.7) y (2.8) del gate.
 --
 --   CAPA 2, en c28_register_cash_movement: invariante de TENANT. Es la ÚNICA
 --   que cubre callers futuros: cualquier función nueva que registre caja
@@ -80,7 +93,11 @@
 --   líneas más abajo y es LITERALMENTE ese valor. El guard compara entonces
 --   contra `v_order.branch_id`, que es el mismo dato. Se prefirió eso a mover
 --   una línea del baseline: la única diferencia admisible contra el cuerpo
---   vivo de prod es el bloque de guard y sus variables.
+--   vivo de prod es el bloque de guard y sus variables. Y el guard NO queda
+--   por eso dependiendo de la validación de sucursal de más abajo: se cierra
+--   solo, con el `b.account_id = v_account_id` de su propio SELECT (ver CAPA 1
+--   arriba). Por eso tampoco hizo falta moverlo debajo del branch_not_found,
+--   que habría reanclado el candado de posición (3.2) del gate.
 --
 -- SIN ERRCODEs NUEVOS (D8), y uno de los dos NO es negociable:
 --   · Capa 1 → P0422 con el mensaje canónico `cash_optin_requires_open_session`,

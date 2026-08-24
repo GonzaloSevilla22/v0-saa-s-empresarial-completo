@@ -846,9 +846,13 @@ jobs:
       # con los claims de A contra la caja de B → P0401; barrido global sobre
       # TODA cash_movements; y la triangulación que impide que el guard rompa
       # el POS — venta legítima con su propia caja, compensación al borrar,
-      # saldo firmado 1000→1500→1300→1600 (la aserción que el gate embebido de
-      # 20260804000003 §(b) deja de ejercitar al degradarse con P0401) y los
-      # candados de posición de los dos guards sobre el cuerpo vivo.
+      # saldo firmado 1000→1500→1300→1600 (segunda ejercitación de la
+      # aserción del gate embebido de 20260804000003 §(b), que en una DB
+      # fresca sigue corriendo por su cuenta: se aplica por timestamp antes
+      # de que exista el guard y no está en esta cadena de reapply), el
+      # invariante de tenencia con kind no-cash, la semántica declarada del
+      # replay idempotente y los candados de posición de los dos guards sobre
+      # el cuerpo vivo.
       # -v ON_ERROR_STOP=1 obligatorio: sin la flag psql imprime los RAISE
       # EXCEPTION y sale 0, o sea que los asserts fallidos se verían verdes.
       # Cleanup por email verificado: corre dos veces seguidas en verde sobre

@@ -97,11 +97,24 @@
 --     `raise_exception` matchea ÚNICAMENTE P0001. Con P0401 cae en WHEN OTHERS
 --     y degrada a NOTICE; con P0001 re-lanzaría y ABORTARÍA `supabase db
 --     reset`. Verificado empíricamente (task 3.6), no razonado.
---     Ese gate (b) queda entonces auto-degradado en toda DB fresca. La
---     cobertura NO se pierde: su aserción de saldo firmado (opening 1000, luego
---     +500 / −200 / +300 → 1500 / 1300 / 1600; con el bug viejo de
---     MAX(balance_after) el tercero daría 1800) se REPLICA sobre un tenant bien
---     provisionado en supabase/tests/test_tenancy_guard_caja_outbox.sql (3.7).
+--     ⚠ CORRECCIÓN MEDIDA (revisión adversarial, 2026-08-24). El propose
+--     suponía que la capa 2 dejaba ese gate (b) "auto-degradado en toda DB
+--     fresca". NO es así, y se midió: en un `supabase db reset` las
+--     migraciones corren por timestamp, así que 20260804000003 se ejercita
+--     mucho ANTES de que exista este archivo, con el helper todavía SIN el
+--     backstop — su gate (b) corre completo y PASA (probado aislando el
+--     bloque literal contra los dos cuerpos: con el baseline pre-guard
+--     asertó 1500 / 1300 / 1600; con el guard puesto degradó a NOTICE por
+--     P0401). Y 20260804000003 NO está en la cadena de reapply del workflow,
+--     así que nunca se vuelve a aplicar después del guard. La degradación a
+--     NOTICE sólo aparece si ALGUIEN RE-APLICA esa migración a mano con el
+--     guard ya puesto — y para ese caso el ERRCODE sigue siendo la diferencia
+--     entre degradar y abortar, por eso `P0401` no es negociable igual.
+--     Consecuencia práctica: no hay cobertura que perder, y la réplica de la
+--     aserción de saldo firmado (opening 1000, luego +500 / −200 / +300 →
+--     1500 / 1300 / 1600; con el bug viejo de MAX(balance_after) el tercero
+--     daría 1800) en supabase/tests/test_tenancy_guard_caja_outbox.sql (3.7)
+--     es cobertura ADICIONAL, no un reemplazo.
 --     NO se edita 20260804000003: es una migración ya aplicada en prod, y
 --     editarla es el anti-patrón que produjo la regresión de julio.
 --
@@ -113,6 +126,35 @@
 -- Sin superficie frontend (excepción declarada en el proposal): el único
 -- efecto observable por un usuario legítimo es un P0422 en lugar de un éxito
 -- silencioso, y ese camino de error ya está construido.
+--
+-- Los otros DOS casos que el guard cambia, declarados acá para que ninguno
+-- quede como omisión (revisión adversarial, 2026-08-24 — los tres se
+-- reprodujeron en local contra los dos cuerpos, pre y post guard):
+--
+--   (i) Una sesión de la PROPIA sucursal pero YA CERRADA, mandada junto con
+--       una forma de pago que NO es efectivo, hoy se ignora en silencio y
+--       pasa a fallar con P0422. Con `kind = 'cash'` ese caso ya fallaba
+--       (c28_register_cash_movement exige status='open'); lo que cambia es
+--       el kind no-cash, donde el id era un no-op tolerado. Cero escrituras
+--       en juego: el bloque que consume la sesión está dentro de
+--       `IF v_kind = 'cash'`. La UI no lo produce — el POS manda
+--       `cash_session_id` sólo cuando el kind resuelto es cash
+--       (frontend/app/(dashboard)/ventas/pos/page.tsx) — pero el payload es
+--       construible por API, así que se declara.
+--
+--  (ii) Un REINTENTO con la misma Idempotency-Key deja de devolver el replay
+--       si la sesión se cerró en el medio, y devuelve P0422. Esto NO es una
+--       propiedad nueva: el guard entra en el bloque de validación de payload
+--       que el cuerpo VIVO de prod ya corría ANTES del short-circuit de
+--       idempotencia, junto con is_account_writer, payment_method_inactive
+--       (P0400), cash_requires_session (P0400) y branch_closed (P0422). Ese
+--       último se midió contra el baseline pre-guard: el replay con la
+--       sucursal cerrada entremedio YA rebotaba con P0422 antes de este
+--       change. O sea que el guard hereda la propiedad, no la inaugura.
+--       Restaurar el contrato de Idempotency-Key para el POS —mover el bloque
+--       ENTERO después del replay, como lo tiene el formulario— arregla las
+--       cuatro precondiciones de una vez y es un change propio, no un parche
+--       de éste. Candado: assert (3.12) del gate.
 --
 -- MAX(version) vivo en prod verificado el 2026-08-24, JUSTO antes de escribir
 -- este archivo: 20261012000001 (261 migraciones, con el hotfix de h2 ya
@@ -315,6 +357,19 @@ BEGIN
   -- ya lo cumplía): sesión abierta Y de la sucursal efectiva de la venta.
   -- Mismo ERRCODE y MISMO mensaje literal: que dos caminos den errores
   -- distintos para la misma condición es deuda, no feature.
+  -- PARIDAD PARCIAL, A PROPÓSITO. Sobre el MISMO parámetro el formulario
+  -- aplica tres guards, y acá se replica UNO — el de tenencia. Los otros dos
+  -- NO se replican: `cash_optin_requires_cash_kind` (rechaza el id de sesión
+  -- si el kind no es cash) y `cash_optin_requires_today`. Son higiene de
+  -- input, no tenencia: con kind no-cash el id se descarta sin tocar caja
+  -- (el consumo vive dentro de `IF v_kind = 'cash'`), y la fecha de la venta
+  -- del POS la fija reporting_local_today() en el propio INSERT, así que la
+  -- condición se cumple por construcción. Replicarlos agrandaría el BREAKING
+  -- de un change CRÍTICO sobre payloads que ninguna superficie del producto
+  -- genera, a cambio de cero seguridad. Queda anotado como candidato en
+  -- design.md D2. Lo que sí está cubierto y es lo que importa: el guard de
+  -- tenencia es AGNÓSTICO DEL KIND — una sesión ajena rebota igual con
+  -- `transfer` (assert 2.6 del gate).
   -- Ubicación (D2): junto a las demás validaciones de payload, inmediatamente
   -- después de cash_requires_session y ANTES de la primera escritura (el
   -- INSERT en operation_idempotency, más abajo). Se compara contra
@@ -603,10 +658,12 @@ COMMENT ON FUNCTION public._c29_confirm_order_core(text, uuid, text, uuid, text,
   'C-29 (sales-order): core transaccional de la confirmación de una '
   'SalesOrder — lo comparten los dos wrappers públicos del POS, rpc_quick_sale '
   'y rpc_confirm_sales_order. '
-  'tenancy-guard-caja-outbox (h1, capa 1): valida el p_cash_session_id con el '
-  'MISMO predicado que el formulario de venta (rpc_create_sale_operation_v2) — '
-  'la sesión debe estar abierta Y pertenecer a la sucursal efectiva de la '
-  'venta — y falla con P0422 cash_optin_requires_open_session. Antes sólo '
+  'tenancy-guard-caja-outbox (h1, capa 1): valida la TENENCIA del '
+  'p_cash_session_id con el mismo predicado de sesión abierta + sucursal '
+  'efectiva que el formulario de venta (rpc_create_sale_operation_v2) — no '
+  'con sus otros dos guards sobre ese parámetro (cash_optin_requires_cash_kind '
+  'y cash_optin_requires_today), que son higiene de input y no se replican a '
+  'propósito — y falla con P0422 cash_optin_requires_open_session. Antes sólo '
   'chequeaba IS NULL y pasaba el id crudo a c28_register_cash_movement, así '
   'que una sesión de caja de OTRO TENANT (o de otra sucursal del mismo tenant) '
   'se confirmaba y dejaba un ingreso fantasma en el arqueo de la víctima. '

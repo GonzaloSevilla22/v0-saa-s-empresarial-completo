@@ -376,11 +376,31 @@ BEGIN
   -- v_order.branch_id porque `v_gate_branch := v_order.branch_id` se asigna
   -- unas líneas más abajo: es el mismo valor, y mover esa asignación habría
   -- introducido una diferencia contra el baseline vivo que no es el guard.
+  -- EL GUARD ES AUTOSUFICIENTE — única diferencia deliberada contra el
+  -- predicado copiado del formulario, y está acá por una revisión adversarial
+  -- (2026-08-24). En el formulario `v_gate_branch` ya viene validada como
+  -- perteneciente al tenant antes del bloque; en el core NO: la sucursal de la
+  -- orden la elige el atacante en el camino de rpc_quick_sale
+  -- (`COALESCE(p_branch_id, c26_default_branch(...))` va al INSERT en
+  -- sales_orders sin chequeo de cuenta) y la validación de tenencia de la
+  -- sucursal —el `AND account_id = v_account_id` del `branch_not_found`—
+  -- ocurre unas líneas MÁS ABAJO. Con sólo `cb.branch_id = v_order.branch_id`,
+  -- mandar la sucursal de la víctima junto con su sesión de caja SATISFACE el
+  -- guard, y lo único que frena la escritura pasa a ser un chequeo ajeno a
+  -- este change que ningún test congela (medido: ese payload rebotaba con
+  -- P0404, no con P0422). Por eso el SELECT JOINea `branches` y exige
+  -- `b.account_id = v_account_id`: el guard establece por sí solo los DOS
+  -- invariantes —caja de la sucursal de la venta Y del tenant que llama— sin
+  -- depender de nada de más abajo. Si la sesión no cumple, el SELECT no
+  -- devuelve fila, las dos variables quedan NULL y el IS DISTINCT FROM de
+  -- abajo dispara el P0422. Candados: asserts (2.7) y (2.8) del gate.
   IF p_cash_session_id IS NOT NULL THEN
     SELECT cs.status, cb.branch_id INTO v_cash_session_status, v_cash_session_branch
     FROM public.cash_sessions cs
     JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
-    WHERE cs.id = p_cash_session_id;
+    JOIN public.branches   b  ON b.id  = cb.branch_id
+    WHERE cs.id = p_cash_session_id
+      AND b.account_id = v_account_id;
 
     IF v_cash_session_status IS DISTINCT FROM 'open' OR v_cash_session_branch IS DISTINCT FROM v_order.branch_id THEN
       RAISE EXCEPTION 'cash_optin_requires_open_session: la sesión de caja debe estar abierta y pertenecer a la sucursal efectiva de la venta'

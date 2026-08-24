@@ -123,6 +123,7 @@ DECLARE
   v_rejected       boolean;
   v_result         jsonb;
   v_so_id          uuid;
+  v_mov_id         uuid;
   v_op_id          uuid;
   v_count          integer;
   v_status         text;
@@ -417,23 +418,20 @@ BEGIN
   -- tercero daría 1800. El gate (b) embebido en la migración de 2026-08-04
   -- deja de ejercitar esto porque su anchor no es miembro de su propia cuenta
   -- (D1) — la aserción se replica acá sobre un tenant bien provisionado.
-  PERFORM public.c28_register_cash_movement(v_session_a3,  500, 'sale', NULL);
-  SELECT balance_after INTO v_balance FROM public.cash_movements
-   WHERE session_id = v_session_a3 ORDER BY created_at DESC, id DESC LIMIT 1;
+  SELECT public.c28_register_cash_movement(v_session_a3, 500, 'sale', NULL) INTO v_mov_id;
+  SELECT balance_after INTO v_balance FROM public.cash_movements WHERE id = v_mov_id;
   IF v_balance <> 1500 THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.7-a): tras +500 sobre opening 1000 el balance_after debería ser 1500, es %.', v_balance;
   END IF;
 
-  PERFORM public.c28_register_cash_movement(v_session_a3, -200, 'withdrawal', NULL);
-  SELECT balance_after INTO v_balance FROM public.cash_movements
-   WHERE session_id = v_session_a3 ORDER BY created_at DESC, id DESC LIMIT 1;
+  SELECT public.c28_register_cash_movement(v_session_a3, -200, 'withdrawal', NULL) INTO v_mov_id;
+  SELECT balance_after INTO v_balance FROM public.cash_movements WHERE id = v_mov_id;
   IF v_balance <> 1300 THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.7-b): tras −200 el balance_after debería ser 1300, es %.', v_balance;
   END IF;
 
-  PERFORM public.c28_register_cash_movement(v_session_a3,  300, 'sale', NULL);
-  SELECT balance_after INTO v_balance FROM public.cash_movements
-   WHERE session_id = v_session_a3 ORDER BY created_at DESC, id DESC LIMIT 1;
+  SELECT public.c28_register_cash_movement(v_session_a3, 300, 'sale', NULL) INTO v_mov_id;
+  SELECT balance_after INTO v_balance FROM public.cash_movements WHERE id = v_mov_id;
   IF v_balance <> 1600 THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.7-c): tras +300 el balance_after debería ser 1600 (opening + SUM), es % — con el bug de MAX(balance_after) daría 1800.', v_balance;
   END IF;
@@ -464,7 +462,12 @@ BEGIN
   RAISE NOTICE 'PASS (2.9): barrido global — cero movimientos de caja imputados a la caja de otro tenant en toda la base.';
 
   -- ══ (3.2) CANDADO DE POSICIÓN del guard en el core (D2) ═══════════════════
-  SELECT pg_get_functiondef(p.oid) INTO v_def
+  -- Los cuerpos se leen SIN COMENTARIOS (se les quitan los `--` de línea antes
+  -- de buscar): una MENCIÓN del identificador dentro de un comentario no es
+  -- una llamada, y los comentarios de estos guards nombran justamente los
+  -- literales que se buscan. Es el mismo falso positivo que la revisión
+  -- adversarial le corrigió al chequeo (5a) del gate de ACLs.
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = '_c29_confirm_order_core';
 
@@ -480,14 +483,14 @@ BEGIN
   END IF;
 
   -- (3.8) los wrappers públicos heredan el guard: no lo tienen escrito.
-  SELECT pg_get_functiondef(p.oid) INTO v_def
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'rpc_quick_sale';
   IF position('cash_optin_requires_open_session' in v_def) <> 0 THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.8-quick_sale): rpc_quick_sale no debería tener el guard escrito — lo HEREDA del core. Si aparece acá, alguien duplicó la validación en vez de reusarla.';
   END IF;
 
-  SELECT pg_get_functiondef(p.oid) INTO v_def
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'rpc_confirm_sales_order';
   IF position('cash_optin_requires_open_session' in v_def) <> 0 THEN
@@ -496,7 +499,7 @@ BEGIN
   RAISE NOTICE 'PASS (3.2/3.8): el guard vive en el core, entre cash_requires_session y la primera escritura, y los dos wrappers públicos lo heredan sin tenerlo escrito.';
 
   -- ══ (3.3) CANDADO DE POSICIÓN del backstop en el helper ═══════════════════
-  SELECT pg_get_functiondef(p.oid) INTO v_def
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'c28_register_cash_movement';
 
@@ -515,7 +518,7 @@ BEGIN
 
   -- (3.9b) rpc_register_cash_movement sigue exigiendo permiso de ESCRITURA:
   -- el guard duplicado de la capa 2 no relaja su autorización.
-  SELECT pg_get_functiondef(p.oid) INTO v_def
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'rpc_register_cash_movement';
   IF position('is_account_writer' in v_def) = 0 THEN

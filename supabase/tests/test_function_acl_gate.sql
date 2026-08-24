@@ -171,21 +171,31 @@ DECLARE
     -- sales_order (no lo recibe por parámetro) y aplica is_account_writer
     -- sobre ÉL, así que un authenticated de otro tenant no puede confirmar una
     -- orden ajena.
-    -- CORRECCIÓN (2026-08-23): una versión previa de este comentario decía que
-    -- "NO es una primitiva cross-tenant". SÍ LO ES, por otra puerta: acepta un
-    -- p_cash_session_id de OTRO tenant y lo pasa tal cual a
-    -- c28_register_cash_movement, que sólo valida status='open' y sucursal
-    -- activa — no valida tenencia. Resultado: ingreso fantasma en el arqueo de
-    -- la víctima (reproducido en local).
-    -- Aun así la entrada en la allowlist SIGUE SIENDO LA DECISIÓN CORRECTA, por
-    -- un motivo distinto del que decía antes: el hueco es alcanzable igual
-    -- desde sus wrappers PÚBLICOS rpc_quick_sale y rpc_confirm_sales_order, que
-    -- son rpc_* y por lo tanto quedan fuera del filtro de nombre de este
-    -- chequeo. Revocar el helper no arregla nada y sí arriesga el POS. El fix
-    -- real es el guard de tenencia sobre p_cash_session_id, registrado como
-    -- candidato en cuenta-corriente-party-guard (design.md, Post-apply h1) para
-    -- que el PO decida change propio o hotfix.
-    -- (cuenta-corriente-party-guard OQ-3 — revoke en un change propio.)
+    -- HISTORIA DE ESTA JUSTIFICACIÓN, en tres versiones — vale la pena, porque
+    -- muestra que "está en la allowlist" puede ser la decisión correcta por el
+    -- motivo equivocado:
+    --   v1: "NO es una primitiva cross-tenant". FALSO.
+    --   v2 (2026-08-23): SÍ lo era, por otra puerta — aceptaba un
+    --       p_cash_session_id de OTRO tenant y lo pasaba tal cual a
+    --       c28_register_cash_movement, que sólo validaba status='open' y
+    --       sucursal activa, no tenencia: ingreso fantasma en el arqueo de la
+    --       víctima (reproducido en local). La entrada se conservó igual
+    --       porque el hueco era alcanzable de todos modos desde sus wrappers
+    --       PÚBLICOS rpc_quick_sale y rpc_confirm_sales_order, que son rpc_* y
+    --       quedan fuera del filtro de nombre de este chequeo: revocar el
+    --       helper no arreglaba nada y sí arriesgaba el POS.
+    --   v3 (2026-08-24, tenancy-guard-caja-outbox tramo h1): EL HUECO ESTÁ
+    --       CERRADO. 20261013000001_tenancy_guard_caja_sesion.sql le puso el
+    --       guard de tenencia de la sesión de caja —el mismo predicado que el
+    --       formulario, cs.status='open' AND cb.branch_id = la sucursal de la
+    --       venta → P0422— más un backstop de tenant en
+    --       c28_register_cash_movement (P0401). Así que hoy la entrada vuelve a
+    --       apoyarse en su motivo ORIGINAL, y ahora sí es cierto: lee el
+    --       account_id de la propia sales_order, aplica is_account_writer sobre
+    --       ÉL, y ya no acepta ningún identificador ajeno por parámetro.
+    --       Sigue en la allowlist porque es el helper que ejecutan los dos
+    --       wrappers del POS: revocarlo rompería el hot path de ventas.
+    --       Candado del guard: supabase/tests/test_tenancy_guard_caja_outbox.sql.
     'public._c29_confirm_order_core(p_idempotency_key text, p_sales_order_id uuid, p_payment_method text, p_cash_session_id uuid, p_comprobante_type text, p_point_of_sale_id uuid, p_canal text, p_payment_method_id uuid, p_bank_account_id uuid)'
     -- NO agregar acá _pay_register_party_charge ni _journal_post_from_event:
     -- los revoca 20261010000001_revoke_internal_money_helpers.sql (hotfix

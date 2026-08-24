@@ -337,6 +337,34 @@ jobs:
           # (verificado en local: tres aplicaciones seguidas sin error y sin
           # cambio de fingerprint de cuerpos, ACLs y comments).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261012000001_revoke_outbox_cross_tenant.sql
+          # tenancy-guard-caja-outbox h1 (2026-08-24): ÚLTIMO eslabón de la
+          # cadena, y acá el orden NO es una convención — es una precondición
+          # dura, más fuerte que en los dos eslabones anteriores.
+          #   1. Esta migración reescribe _c29_confirm_order_core y
+          #      c28_register_cash_movement para meterles el guard de tenencia
+          #      de la sesión de caja, y CUATRO eslabones de más arriba de esta
+          #      misma cadena redefinen una u otra: 20261002000001 y
+          #      20261003000001 (el core, vía los lotes del POS),
+          #      20261004000001 (asiento-venta-formulario) y 20261006000001
+          #      (el helper, banco-caja-historial-ajustes). Puesta antes, la
+          #      cadena le BORRARÍA los dos guards en silencio y el gate del
+          #      change fallaría por orden, no por regresión. Es el mismo
+          #      mecanismo "phantom regression" de los GRANTs, pero sobre
+          #      cuerpos de función en vez de sobre ACLs.
+          #   2. Su gate final AUDITA además el estado acumulado que dejan los
+          #      eslabones previos: verifica que los dos helpers de dinero
+          #      cerrados por 20261010000001 (#454) y las dos RPCs del outbox
+          #      cerradas por 20261012000001 (#460) sigan sin EXECUTE para
+          #      anon/authenticated. Esa verificación sólo tiene sentido
+          #      corriendo DESPUÉS de las dos; puesta antes daría verde en
+          #      falso sobre un estado intermedio.
+          # Sin conflicto de firma/overload: ninguna de las dos funciones
+          # cambia de firma (CREATE OR REPLACE puro, con gate anti-overload
+          # propio). Re-appliable por construcción — CREATE OR REPLACE, REVOKE,
+          # GRANT y COMMENT son absolutos, no incrementales (verificado en
+          # local: tres aplicaciones seguidas sin error y sin cambio del
+          # fingerprint de cuerpos, ACLs y comments).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261013000001_tenancy_guard_caja_sesion.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -803,3 +831,31 @@ jobs:
       # propio.
       - name: Run outbox single-dispatcher gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_outbox_single_dispatcher.sql
+
+      # tenancy-guard-caja-outbox h1 (2026-08-24): guard de tenencia de la
+      # SESIÓN DE CAJA en el camino del POS. _c29_confirm_order_core aceptaba
+      # un p_cash_session_id de cualquier tenant (sólo chequeaba IS NULL) y se
+      # lo pasaba crudo a c28_register_cash_movement, que no mira account_id:
+      # una venta del tenant A con la sesión abierta del tenant B se confirmaba
+      # y le dejaba a B un ingreso fantasma en el arqueo. El gate ejercita las
+      # dos capas con dos tenants sintéticos y sesiones de caja reales: POS y
+      # rpc_confirm_sales_order con la sesión ajena → P0422 sin efectos
+      # parciales (los movimientos de la víctima se cuentan y se suman antes y
+      # después); sesión de OTRA SUCURSAL del mismo tenant → P0422, que es el
+      # caso que sólo la capa 1 puede ver; c28_register_cash_movement directo
+      # con los claims de A contra la caja de B → P0401; barrido global sobre
+      # TODA cash_movements; y la triangulación que impide que el guard rompa
+      # el POS — venta legítima con su propia caja, compensación al borrar,
+      # saldo firmado 1000→1500→1300→1600 (segunda ejercitación de la
+      # aserción del gate embebido de 20260804000003 §(b), que en una DB
+      # fresca sigue corriendo por su cuenta: se aplica por timestamp antes
+      # de que exista el guard y no está en esta cadena de reapply), el
+      # invariante de tenencia con kind no-cash, la semántica declarada del
+      # replay idempotente y los candados de posición de los dos guards sobre
+      # el cuerpo vivo.
+      # -v ON_ERROR_STOP=1 obligatorio: sin la flag psql imprime los RAISE
+      # EXCEPTION y sale 0, o sea que los asserts fallidos se verían verdes.
+      # Cleanup por email verificado: corre dos veces seguidas en verde sobre
+      # la misma base y no deja residuos.
+      - name: Run tenancy-guard-caja-outbox gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_tenancy_guard_caja_outbox.sql

@@ -8,7 +8,9 @@ El invariante ya rige en el camino del formulario de venta y SHALL regir de form
 
 La verificación SHALL ocurrir junto al resto de las validaciones de datos de entrada, **antes** de la primera escritura de la confirmación, y SHALL ceder ante las validaciones de datos de entrada que ya existen: un pedido que es inválido por dos motivos a la vez SHALL reportar el motivo que se evalúa primero, para que el orden de las comprobaciones quede congelado y sea verificable.
 
-Los comandos públicos que envuelven la confirmación —la confirmación de una orden existente y la venta rápida del mostrador— SHALL heredar la verificación sin modificarse, porque delegan en el mismo núcleo.
+La verificación SHALL ser autosuficiente: SHALL comprobar por sí misma tanto que la sesión corresponda a la sucursal efectiva de la venta como que esa sucursal pertenezca a la cuenta que confirma, sin delegar ninguna de las dos mitades en comprobaciones posteriores. La sucursal efectiva de una venta del mostrador la determina el pedido, así que una verificación que sólo comparase la caja contra la sucursal declarada quedaría satisfecha cuando el pedido declara la sucursal ajena junto con la caja ajena.
+
+Los comandos públicos que envuelven la confirmación —la confirmación de una orden existente y la venta rápida del mostrador— SHALL heredar la verificación sin modificarse, porque delegan en el mismo núcleo, y SHALL no repetirla en su propio cuerpo: una segunda redacción del mismo invariante es la forma en que los dos caminos divergen.
 
 #### Scenario: Confirmar contra la caja de otra cuenta es rechazado
 
@@ -21,6 +23,13 @@ Los comandos públicos que envuelven la confirmación —la confirmación de una
 - **GIVEN** una cuenta con dos sucursales operativas, cada una con su caja y una sesión abierta
 - **WHEN** se confirma una venta cuya sucursal efectiva es la primera informando la sesión de caja de la segunda
 - **THEN** la confirmación es rechazada con el mismo error que produce el camino del formulario ante el mismo input
+
+#### Scenario: Declarar también la sucursal ajena no evade la verificación
+
+- **GIVEN** dos cuentas A y B, y una sesión de caja abierta en la sucursal de la cuenta B
+- **WHEN** un usuario de la cuenta A confirma una venta en efectivo declarando **a la vez** la sucursal de B y la sesión de caja de B
+- **THEN** la confirmación es rechazada por la verificación de la caja —no por una comprobación posterior— y no se registra ningún movimiento en la caja de B
+- **AND** el resultado es el mismo cuando la sucursal ajena ya venía guardada en la orden y no viaja en el pedido
 
 #### Scenario: Confirmar contra una sesión cerrada de la propia sucursal es rechazado
 

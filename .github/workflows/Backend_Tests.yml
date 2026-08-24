@@ -21,6 +21,16 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/Backend_Tests.yml'
+      # supabase/migrations/** entra por el candado anti-envejecimiento de
+      # backend/tests/migrations/test_events_reconcile.py: sus aserciones
+      # estructurales apuntan a DISPATCHER_MIGRATION_FILE (la redefinicion mas
+      # nueva de rpc_process_outbox_dispatch) y TestDispatcherMigrationPointer
+      # falla si aparece una mas nueva y nadie mueve el puntero. Sin este path,
+      # un PR que SOLO agrega una migracion con CREATE OR REPLACE de esa
+      # funcion no disparaba el job, asi que el candado no cerraba justo en los
+      # PRs que lo rompen (hotfix del outbox, 2026-08-24). El job es hermetico
+      # (asyncpg mockeado, sin servicios) y corre en ~30s: no encarece nada.
+      - 'supabase/migrations/**'
 
 concurrency:
   group: backend-tests-${{ github.ref }}

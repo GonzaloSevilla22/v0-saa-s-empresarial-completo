@@ -307,6 +307,36 @@ jobs:
           # en local: doble aplicación sin error y sin cambio de fingerprint de
           # cuerpos, ACLs y comments de las 7 funciones tocadas).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261011000001_cuenta_corriente_party_guard.sql
+          # revoke-outbox-cross-tenant (hotfix 2026-08-24, tramo h2 de
+          # tenancy-guard-caja-outbox): ÚLTIMO eslabón de la cadena, y hereda
+          # el puesto del anterior por las mismas dos razones, una más fuerte
+          # que la otra.
+          #   1. Es la migración de ACL más nueva, y toda esta cadena existe
+          #      porque reaplicar migraciones viejas re-otorga GRANTs en
+          #      silencio (20261001000001 L137/L1914 y 20261004000001 L1778,
+          #      con su bloque REVOKE+GRANT "de plantilla"). Ninguno de los
+          #      eslabones de arriba toca HOY el ACL de
+          #      rpc_process_outbox_batch / rpc_mark_event_processed —el único
+          #      archivo que se los otorga es 20260718000001, que no está en
+          #      esta cadena—, así que el REVOKE no depende del orden para ser
+          #      correcto. Va último igual, porque el invariante "la más nueva
+          #      cierra" es lo que protege contra el eslabón futuro que vuelva
+          #      a arrastrar el patrón uniforme, que es exactamente cómo se
+          #      rompió _journal_post_from_event.
+          #   2. Su gate final AUDITA el estado acumulado que dejan los
+          #      eslabones previos: verifica que rpc_process_outbox_dispatch
+          #      siga sin exponer, y —heredado del hotfix #454— que
+          #      _pay_register_party_charge y _journal_post_from_event sigan
+          #      cerrados. Esa verificación sólo tiene sentido corriendo
+          #      DESPUÉS de 20261010000001 y 20261011000001; puesta antes,
+          #      auditaría un estado intermedio y daría verde en falso.
+          # Sin conflicto de firma/overload: este archivo no crea ni reemplaza
+          # ninguna función (sólo REVOKE + COMMENT + un DO de verificación), así
+          # que no puede generar overloads fantasma. Re-appliable por
+          # construcción — REVOKE y COMMENT son absolutos, no incrementales
+          # (verificado en local: tres aplicaciones seguidas sin error y sin
+          # cambio de fingerprint de cuerpos, ACLs y comments).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261012000001_revoke_outbox_cross_tenant.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -736,3 +766,40 @@ jobs:
       # POS y dispatcher del outbox siguen posteando).
       - name: Run cuenta-corriente-party-guard gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cuenta_corriente_party_guard.sql
+
+      # tenancy-guard-caja-outbox h2/h2 bis (hotfix 2026-08-24): un solo
+      # despachador del outbox. Este gate es el NUEVO DOMICILIO de los
+      # invariantes de comportamiento que cubrían los 5 archivos de tests del
+      # relay Python retirado (backend/tests/outbox/test_audit_consumer.py,
+      # test_email_consumer.py, test_idempotency.py, test_relay_select.py,
+      # test_e2e_outbox.py) — se retiraron con `OutboxRelayService`, que corría
+      # 2 de los 4 consumers y marcaba processed_at igual, suprimiendo el
+      # asiento contable y la notificación de todo evento que le ganaba al
+      # pg_cron. Los mocks se cambian por el despachador REAL en Postgres real:
+      # efecto verificado de los Consumers 1 y 2, scoping del email, evento con
+      # consumer fallido que queda pendiente SIN efectos parciales y sin
+      # abortar el lote, reproceso sin duplicados, retry preservado, y el
+      # outbox fuera del alcance del rol de aplicación — las tres RPCs Y la
+      # TABLA public.events (privilegios + ausencia de policy de escritura
+      # alcanzable por authenticated). Cuenta sintética con UUID reservado y
+      # cleanup verificado (corre dos veces seguidas en verde sin residuos).
+      #
+      # AISLAMIENTO: el archivo entero corre dentro de un BEGIN … ROLLBACK
+      # propio, y eso es parte del contrato, no una precaución. El despachador
+      # elige su lote por `processed_at IS NULL` SIN filtro de cuenta —es un
+      # relay—, así que una corrida sin rollback cierra TODO el outbox
+      # pendiente de la base, no sólo el de la cuenta sintética. En CI eso da
+      # igual (la base nace de un `db reset`), pero en el stack local
+      # compartido le drenaba el outbox a otra sesión, y el chequeo de "cero
+      # residuos" no lo veía porque sólo mira la cuenta sintética. Verificado
+      # el 2026-08-24: con el ROLLBACK, el conjunto de eventos pendientes
+      # ajenos queda idéntico (mismo count y mismo md5 de ids) antes y después
+      # de correr el gate. Puede hacer COMMIT de nada porque la RPC es una
+      # FUNCTION plpgsql y no puede commitear por su cuenta.
+      # Se mantiene igual como ÚLTIMO step: es el gate más caro y el único que
+      # ejerce el despachador completo en runtime.
+      # El chequeo (5) del inventario de ACLs vive dentro de
+      # test_function_acl_gate.sql, que ya corre más arriba: no necesita step
+      # propio.
+      - name: Run outbox single-dispatcher gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_outbox_single_dispatcher.sql

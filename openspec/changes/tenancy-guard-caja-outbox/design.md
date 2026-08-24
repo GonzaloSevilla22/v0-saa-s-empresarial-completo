@@ -308,6 +308,30 @@ Governance CRÍTICO: el propose está autorizado, el apply no. *Recomendación: 
 **OQ-1 🛑 — ¿Sale algún tramo como hotfix inmediato, al estilo #446/#454?**
 *Recomendación: **el tramo h2 sí, el tramo h1 no**.* h2 es la fuga más barata de cerrar y la más grave de las dos en términos de datos ajenos legibles: el `REVOKE` de las dos RPCs más el `require_platform_admin` del endpoint son un PR chico con rollback de dos líneas — el molde exacto de #454. h1, en cambio, exige reescribir una RPC de 15 110 caracteres desde el baseline vivo: es precisamente el trabajo que **no** conviene hacer con urgencia de hotfix. Marcada 🛑 porque cambia el orden de trabajo y porque el change anterior perdió tiempo cuando el PO respondió lo contrario de la recomendación **después** de escrito el apply.
 
+> **RESUELTA — el PO firmó la recomendación (2026-08-24): "h2 sale como hotfix ahora, h1 después".**
+> Ejecutado en la rama `fix/outbox-cross-tenant-hotfix` con la migración
+> **`20261012000001_revoke_outbox_cross_tenant.sql`**: los grupos 4 y 5
+> completos, más la parte de h2 del grupo 6 (chequeo (5) del gate de ACLs, gate
+> de comportamiento `supabase/tests/test_outbox_single_dispatcher.sql` con step
+> propio, y la migración como último eslabón de la cadena de reapply). Mismo
+> patrón de registro que la OQ-2 del change anterior, resuelta como el hotfix
+> #454.
+>
+> Tres consecuencias para lo que queda de este change:
+> 1. **h1 renumera.** El número `20261012000001` está tomado; la migración de
+>    h1 deja de llamarse `20261012000001_tenancy_guard_caja_outbox.sql` y toma
+>    el siguiente libre, re-verificando el `MAX` vivo (task 1.1).
+> 2. **OQ-3 quedó resuelta con ella**, por su recomendación: el retiro de
+>    `OutboxRelayService` entró en el hotfix, no salió aparte (D4).
+> 3. **OQ-6 quedó resuelta con ella**, por su recomendación: el contrato de
+>    `get_service_conn` ya tiene su test (task 5.6), así que D3 dejó de
+>    apoyarse en un docstring. Le sirve también a `v31-tenancy-pool-rls`.
+>
+> Lo que **no** cambió: h1 sigue entero y sin tocar en este change —
+> `_c29_confirm_order_core`, `c28_register_cash_movement`, `rpc_quick_sale` y
+> `rpc_confirm_sales_order` no aparecen en el hotfix. La OQ-0 (sign-off del
+> apply de h1) sigue abierta.
+
 **OQ-2 — h1: ¿las dos capas, o sólo la de sucursal?**
 *Recomendación: **las dos** (D1).* La capa 2 cuesta un `SELECT` de cuatro líneas en una función de 2 288 caracteres, no cambia la firma, y es lo único que cubre callers futuros. Su único costo verificado —el gate embebido de `20260804000003` degradado a `NOTICE`— tiene mitigación escrita (task 3.7).
 

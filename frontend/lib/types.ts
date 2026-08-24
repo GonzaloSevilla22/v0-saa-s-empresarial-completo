@@ -510,6 +510,24 @@ export function isBankPaymentKind(kind: PaymentMethodKind | null | undefined): b
 }
 
 /**
+ * Cuenta bancaria que debe viajar en el payload de una operación.
+ *
+ * Bug prod 2026-08-24: `BankAccountDestinationSelect` deja de renderizarse
+ * cuando el kind no es bancario, pero el `useState` del formulario CONSERVA la
+ * cuenta elegida antes del cambio. Al pasar de "Transferencia" a "Cuenta
+ * corriente" el alta viajaba con `bank_account_id` + `kind='credit'` y el
+ * servidor la rechazaba con `bank_account_requires_bank_kind`. El payload
+ * deriva de acá en vez del estado crudo (el POS ya lo resolvía limpiando el
+ * override en `selectPaymentMethod`; los formularios no).
+ */
+export function bankAccountForKind(
+  kind: PaymentMethodKind | null | undefined,
+  bankAccountId: string | null | undefined,
+): string | null {
+  return isBankPaymentKind(kind) ? (bankAccountId ?? null) : null
+}
+
+/**
  * A payment method catalog entry (account-scoped, flat catalog, no
  * hierarchies). Source of truth: payment_methods table
  * (metodos-pago-operaciones). Espejo de CostCenter + kind + sort_order.

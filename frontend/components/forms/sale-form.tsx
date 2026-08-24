@@ -42,6 +42,7 @@ import { BranchSelect } from "@/components/branches/BranchSelect"
 import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
 import { Checkbox } from "@/components/ui/checkbox"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { bankAccountForKind } from "@/lib/types"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
 import { useCashboxes } from "@/hooks/data/use-cashboxes"
@@ -529,7 +530,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           // pos-banco-movimientos (D2): override opcional del destino —
           // null cuando el selector no está montado (kind no bancario) o
           // el usuario dejó "usar el destino configurado".
-          bankAccountId:  bankAccountId,
+          bankAccountId:  bankAccountForKind(resolvedKind, bankAccountId),
         },
       })
       // Success → retire this key so the NEXT sale starts a fresh operation.

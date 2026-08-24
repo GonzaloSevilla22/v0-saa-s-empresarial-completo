@@ -24,7 +24,11 @@
 --       usuario, nunca directo vía PostgREST), o
 --   (4) una función SECURITY DEFINER **no-trigger de nombre interno** (prefijo
 --       `_`, o prefijo de fase `c28_`/`c29_`/`c30_`) queda ejecutable por
---       `authenticated` fuera de su propia allowlist.
+--       `authenticated` fuera de su propia allowlist, o
+--   (5) una función SECURITY DEFINER que **lee o actualiza el outbox**
+--       (`FROM public.events` / `UPDATE public.events`) no está enumerada en
+--       la lista curada `v_cross_tenant_event_fns`, o está enumerada como NO
+--       expuesta y sin embargo es ejecutable por `anon` o `authenticated`.
 --
 -- (3) y (4) atacan el mismo punto ciego por dos caminos complementarios y
 -- deliberadamente redundantes: (3) es una **lista cerrada y nominal** de los
@@ -81,6 +85,50 @@
 -- `FROM PUBLIC, anon, authenticated`. Caso real medido el 2026-08-23:
 -- c30_get_or_create_customer_account/supplier_account eran anon-executable EN
 -- PROD y no lo eran en local.
+--
+-- Por qué ADEMÁS el chequeo (5) (tenancy-guard-caja-outbox h2, hotfix
+-- 2026-08-24): los chequeos (3) y (4) sostienen helpers de nombre INTERNO. El
+-- chequeo (4) excluye `rpc_*` **a propósito** (hay ~76 `rpc_*` SECURITY
+-- DEFINER que legítimamente necesitan EXECUTE para authenticated: son la
+-- API), y el hueco h2 vivía justamente en dos `rpc_*` — o sea que **el gate
+-- vigente no lo habría atrapado**. rpc_process_outbox_batch(integer) y
+-- rpc_mark_event_processed(uuid) son SECURITY DEFINER, recorren
+-- `public.events` de TODOS los tenants sin filtro (es la razón de ser de un
+-- relay) y tenían GRANT a authenticated desde
+-- 20260718000001_c25_events_outbox_reconcile.sql (L172/L203): cualquier
+-- usuario logueado leía por PostgREST el payload completo de los eventos
+-- ajenos y podía marcarlos processed_at, con lo cual el despachador real
+-- nunca posteaba su asiento contable. Las cerró
+-- 20261012000001_revoke_outbox_cross_tenant.sql.
+--
+-- Por qué la lista es de LEER/ACTUALIZAR y no de INSERTAR: los productores que
+-- sólo hacen `INSERT INTO public.events` son decenas
+-- (rpc_create_sale_operation_v2, rpc_close_cash_session, …) y insertar un
+-- evento propio no permite leer ni cerrar los de nadie más. Incluirlos
+-- convertiría una lista de 4 entradas en una de decenas, que es la allowlist
+-- inmantenible que este gate evita.
+--
+-- Por qué NO se intentó el chequeo tentador —"toda RPC SECURITY DEFINER que
+-- lea una tabla con `account_id` sin filtrar por tenant"—: no es implementable
+-- con honestidad por análisis de texto. Distinguir "menciona account_id" de
+-- "FILTRA por account_id" exige analizar el árbol de la consulta, no el cuerpo
+-- como string; un gate que busca la subcadena daría verde a una función que la
+-- nombra en un INSERT y nunca la usa en un WHERE. Falsa cobertura es peor que
+-- ninguna. El outbox sí es gateable así porque es la única tabla que un relay
+-- tiene que recorrer entera cross-account por diseño, y eso hace que el
+-- conjunto sea chico, estable y auditable a mano (hoy: exactamente 4, mismas 4
+-- en prod y en local, medido el 2026-08-24).
+--
+-- Lo que el (5) NO puede hacer, dicho en voz alta: detecta que alguien expuso
+-- una función que recorre el outbox; no detecta una consulta cross-tenant
+-- nueva contra otra tabla. Para eso la red es la revisión y el requirement de
+-- `account-tenancy`.
+--
+-- Mantenimiento de v_cross_tenant_event_fns: la lista SÓLO CRECE. Toda función
+-- que lea o actualice `public.events` tiene que estar enumerada con su
+-- veredicto; agregar una entrada exige justificar en el PR por qué. Una
+-- entrada marcada como expuesta va además en v_cross_tenant_event_exposed_ok,
+-- con la justificación al lado.
 --
 -- Mantenimiento de las allowlists: ACHICARLAS (por revokes de lotes futuros) es
 -- siempre válido — la entrada sobrante no falla. AGREGAR una entrada requiere
@@ -150,6 +198,42 @@ DECLARE
     -- estén bien.
     -- c28_register_cash_movement NO entra: no es SECURITY DEFINER (verificado
     -- en prod y en local el 2026-08-23; el design.md lo daba por offender).
+  ];
+  -- ── Chequeo (5) — funciones que RECORREN el outbox ──────────────────────
+  -- Enumeración COMPLETA de las funciones SECURITY DEFINER que leen
+  -- (`FROM public.events`) o actualizan (`UPDATE public.events`) el outbox.
+  -- Cada entrada lleva su veredicto. Lista cerrada que sólo crece: una función
+  -- nueva que recorra el outbox y no esté acá FALLA el pipeline.
+  v_cross_tenant_event_fns CONSTANT text[] := ARRAY[
+    -- expuesta: NO — modelo correcto. Es el ÚNICO despachador: corre los 4
+    -- consumers (AuditLog, EmailNotification, JournalEntry, Notification) y
+    -- recién entonces marca processed_at. Lo invoca el pg_cron job
+    -- `relay-process-outbox` como `postgres` (owner) y el disparador manual
+    -- POST /outbox/process-pending por el camino de servicio con
+    -- require_platform_admin. Nunca necesitó GRANT a authenticated.
+    'public.rpc_process_outbox_dispatch(p_batch_limit integer)',
+    -- expuesta: NO — la cerró 20261012000001_revoke_outbox_cross_tenant.sql.
+    -- Devolvía el batch de eventos pendientes de TODOS los tenants con el
+    -- payload completo, sin filtro y sin necesidad de conocer ningún UUID.
+    'public.rpc_process_outbox_batch(p_batch_limit integer)',
+    -- expuesta: NO — ídem. UPDATE events SET processed_at WHERE id = $1, sin
+    -- filtro: cerrar un evento ajeno hace que su asiento no se postee nunca.
+    'public.rpc_mark_event_processed(p_event_id uuid)',
+    -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
+    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)'
+  ];
+  -- Subconjunto del anterior que SÍ puede estar expuesto a `authenticated`.
+  -- Una entrada acá es una excepción con nombre y apellido, no una categoría.
+  v_cross_tenant_event_exposed_ok CONSTANT text[] := ARRAY[
+    -- rpc_atomic_update_sale_operation: es la RPC de EDICIÓN de una venta, o
+    -- sea API pública real. Toca `public.events` para hacer el reemplazo
+    -- IN-PLACE del evento pendiente de esa misma operación (lo introdujo
+    -- asiento-venta-formulario: editar antes de que el relay procese colapsa
+    -- en el mismo evento en vez de emitir uno nuevo). Su acceso al outbox está
+    -- acotado a los eventos de la operación que la propia RPC ya validó por
+    -- tenant antes de tocar nada — no recorre el outbox completo ni acepta un
+    -- event_id por parámetro, que es la diferencia con las dos de arriba.
+    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)'
   ];
 BEGIN
   -- Entorno sin roles de Supabase (p.ej. postgres pelado): no hay nada que gatear
@@ -232,5 +316,53 @@ BEGIN
     RAISE EXCEPTION E'ACL GATE (4) FAILED: helpers internos SECURITY DEFINER ejecutables por authenticated fuera de la allowlist. Un helper que recibe el account_id POR PARÁMETRO y no valida is_account_writer es, expuesto así, una primitiva de escritura cross-tenant vía PostgREST. Si el GRANT vino del bloque REVOKE+GRANT del "patrón uniforme", sacalo: los helpers internos llevan `REVOKE ALL ... FROM PUBLIC, anon, authenticated` SIN GRANT. Si es intencional, justificar en el PR y agregar a v_internal_allowlist en supabase/tests/test_function_acl_gate.sql:\n  %', v_offenders;
   END IF;
 
-  RAISE NOTICE 'ACL GATE OK: sin triggers SECURITY DEFINER expuestos; anon-executable dentro de la allowlist (% firmas permitidas); % helpers solo-DEFINER intactos; helpers internos authenticated-executable dentro de su allowlist (% firmas permitidas)', array_length(v_allowlist, 1), array_length(v_internal_only_fns, 1), array_length(v_internal_allowlist, 1);
+  -- ── (5a) Funciones que recorren el outbox y NO están enumeradas ───────────
+  -- El criterio es LEER o ACTUALIZAR, nunca INSERTAR (ver cabecera). El `\M`
+  -- del patrón es "fin de palabra": impide que `events_archive` o
+  -- `events_backup` matcheen por prefijo.
+  SELECT string_agg(sig, E'\n  ')
+  INTO v_offenders
+  FROM (
+    SELECT format('public.%s(%s)', p.proname,
+                  pg_get_function_identity_arguments(p.oid)) AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+      AND (   p.prosrc ~* '(FROM|JOIN)\s+(public\.)?events\M'
+           OR p.prosrc ~* 'UPDATE\s+(public\.)?events\M')
+  ) s
+  WHERE s.sig <> ALL (v_cross_tenant_event_fns);
+
+  IF v_offenders IS NOT NULL THEN
+    RAISE EXCEPTION E'ACL GATE (5a) FAILED: función(es) SECURITY DEFINER que leen o actualizan public.events sin estar enumeradas en v_cross_tenant_event_fns. El outbox es la única tabla que se recorre cross-account por diseño, así que toda función con ese privilegio se enumera A MANO con su veredicto (expuesta sí/no + justificación) en supabase/tests/test_function_acl_gate.sql. Si la función es un relay interno: REVOKE ALL ... FROM PUBLIC, anon, authenticated y agregala como "expuesta: NO". Si es API pública que toca el outbox de una operación ya validada por tenant, agregala TAMBIÉN a v_cross_tenant_event_exposed_ok con la justificación:\n  %', v_offenders;
+  END IF;
+
+  -- ── (5b) Enumeradas como NO expuestas pero ejecutables por anon/auth ──────
+  -- Se resuelve el OID por pg_proc, NO por to_regprocedure: las firmas de esta
+  -- lista llevan NOMBRES de parámetro (mismo formato que el chequeo (4), para
+  -- que la lista se lea igual que el output del error) y to_regprocedure sólo
+  -- acepta tipos. Buscar en pg_proc es además drift-tolerante por
+  -- construcción: una función ausente en este entorno simplemente no aparece.
+  SELECT string_agg(s.sig, E'\n  ')
+  INTO v_offenders
+  FROM (
+    SELECT format('public.%s(%s)', p.proname,
+                  pg_get_function_identity_arguments(p.oid)) AS sig,
+           p.oid
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.prosecdef
+  ) s
+  WHERE s.sig =  ANY (v_cross_tenant_event_fns)
+    AND s.sig <> ALL (v_cross_tenant_event_exposed_ok)
+    AND (   has_function_privilege('anon',          s.oid, 'EXECUTE')
+         OR has_function_privilege('authenticated', s.oid, 'EXECUTE'));
+
+  IF v_offenders IS NOT NULL THEN
+    RAISE EXCEPTION E'ACL GATE (5b) FAILED: función(es) que recorren el outbox de TODOS los tenants y quedaron ejecutables vía PostgREST. Con EXECUTE para authenticated, cualquier usuario logueado lee el payload de los eventos ajenos y puede marcarlos processed_at — el despachador real nunca postea su asiento contable. Aplicar REVOKE ALL ... FROM PUBLIC, anon, authenticated (gotcha #432: nombrar los tres roles) en la migración que las recrea; ver 20261012000001_revoke_outbox_cross_tenant.sql:\n  %', v_offenders;
+  END IF;
+
+  RAISE NOTICE 'ACL GATE OK: sin triggers SECURITY DEFINER expuestos; anon-executable dentro de la allowlist (% firmas permitidas); % helpers solo-DEFINER intactos; helpers internos authenticated-executable dentro de su allowlist (% firmas permitidas); % funciones que recorren el outbox enumeradas, de las cuales % con exposición justificada', array_length(v_allowlist, 1), array_length(v_internal_only_fns, 1), array_length(v_internal_allowlist, 1), array_length(v_cross_tenant_event_fns, 1), array_length(v_cross_tenant_event_exposed_ok, 1);
 END $$;

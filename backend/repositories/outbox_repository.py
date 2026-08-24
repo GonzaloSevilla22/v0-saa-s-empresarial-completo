@@ -1,14 +1,25 @@
-"""
-C-25 v20-outbox-activation — OutboxRepository
+"""C-25 v20-outbox-activation — OutboxRepository
 
-Encapsulates all DB access for the transactional outbox:
-  - fetch_pending_batch: calls rpc_process_outbox_batch (SECURITY DEFINER)
-  - mark_processed: calls rpc_mark_event_processed (SECURITY DEFINER)
-  - insert_audit_log: INSERT into audit_logs (append-only)
-  - insert_email_log: INSERT into email_logs (DEC-09 path)
-  - claim_idempotency: INSERT ... ON CONFLICT DO NOTHING on operation_idempotency
+Acceso a datos del outbox transaccional. Dos responsabilidades, y sólo dos:
 
-Design refs: Decision 4 (SECURITY DEFINER, no service_role), Decision 3 (email_logs path)
+  - `emit_event`  — PRODUCTOR. Inserta un evento de dominio en la misma
+    transacción que la mutación (DEC-20). Lo usan `purchase_repository` y
+    `stock_repository`.
+  - `run_dispatch` — DISPARADOR. Invoca `rpc_process_outbox_dispatch`, el
+    único despachador del outbox.
+
+Qué se retiró y por qué (tenancy-guard-caja-outbox D4, hotfix 2026-08-24):
+`fetch_pending_batch`, `mark_processed`, `insert_audit_log`,
+`insert_email_log` y `claim_idempotency` implementaban en Python una segunda
+versión —incompleta— de los consumers del relay. Corrían 2 de los 4
+consumers (AuditLog y EmailNotification) y marcaban `processed_at` igual,
+compitiendo con `rpc_process_outbox_dispatch` por el mismo flag: todo evento
+que ganaba el relay Python perdía para siempre su asiento contable
+(JournalEntry) y su notificación. Además insertaban directo en `audit_logs`,
+`email_logs` y `operation_idempotency`, tablas sin policy de INSERT para
+`authenticated` — ese camino se rompe entero el día que se encienda el Paso 2
+de `v31-tenancy-pool-rls`. **No reintroducir consumers acá**: los cuatro
+viven en la RPC, en un solo lugar y en un solo orden.
 """
 from __future__ import annotations
 
@@ -16,149 +27,25 @@ from backend.repositories.base import BaseRepository
 
 
 class OutboxRepository(BaseRepository):
-    """Data access for the transactional outbox relay and consumers.
+    """Productor de eventos + disparador del despachador SQL."""
 
-    Connection is JWT-passthrough (no service_role). The two SECURITY DEFINER
-    RPCs (rpc_process_outbox_batch, rpc_mark_event_processed) handle the
-    cross-account relay access without weakening user RLS.
-    """
+    async def run_dispatch(self, batch_limit: int = 100) -> int:
+        """Corre una tanda del despachador y devuelve cuántos eventos cerró.
 
-    async def fetch_pending_batch(self, batch_limit: int = 100) -> list[dict]:
-        """Select pending events via rpc_process_outbox_batch (SKIP LOCKED).
+        `rpc_process_outbox_dispatch` (SECURITY DEFINER) selecciona hasta
+        `batch_limit` eventos pendientes con `FOR UPDATE SKIP LOCKED`,
+        ejecuta los cuatro consumers por evento con aislamiento propio
+        (`BEGIN/EXCEPTION/END`) y marca `processed_at` sólo si todos los
+        consumers activos de ese evento tuvieron éxito.
 
-        Returns rows with processed_at IS NULL, ordered by occurred_at,
-        up to batch_limit. The RPC uses FOR UPDATE SKIP LOCKED so concurrent
-        relay runs do not double-claim the same event.
+        El default 100 es el mismo tamaño de lote que usa el pg_cron job
+        `relay-process-outbox`.
         """
-        rows = await self._conn.fetch(
-            "SELECT * FROM public.rpc_process_outbox_batch($1::int)",
+        procesados = await self._conn.fetchval(
+            "SELECT public.rpc_process_outbox_dispatch($1::int)",
             batch_limit,
         )
-        return [dict(r) for r in rows]
-
-    async def mark_processed(self, event_id: str) -> None:
-        """Mark a single event as processed (processed_at = now()).
-
-        Called ONLY after ALL consumers for that event have committed their
-        side-effects. If any consumer fails, do NOT call this — the event stays
-        pending for the next relay run.
-        """
-        await self._conn.execute(
-            "SELECT public.rpc_mark_event_processed($1::uuid)",
-            event_id,
-        )
-
-    async def insert_audit_log(
-        self,
-        event_id: str,
-        account_id: str,
-        action: str,
-    ) -> None:
-        """Append-only INSERT into audit_logs.
-
-        The relay only ever INSERTs here — never UPDATE/DELETE (audit domain,
-        tamper-evident). The SECURITY DEFINER scope of rpc_process_outbox_batch
-        allows this INSERT because audit_logs has no INSERT policy for
-        authenticated users; the relay invokes it within the definer context.
-
-        Note: The relay Python code runs after rpc_process_outbox_batch returns
-        the rows. The actual INSERT into audit_logs happens on the same connection
-        (JWT-passthrough). This works because rpc_process_outbox_batch was
-        SECURITY DEFINER — but the INSERT into audit_logs is a direct statement
-        from the Python backend, not inside the RPC. The backend must have
-        permission to INSERT into audit_logs.
-
-        The migration grants INSERT to the relay via the SECURITY DEFINER RPC
-        context; in practice the backend connection uses the authenticated role
-        which has no INSERT policy on audit_logs. To resolve this cleanly, the
-        relay uses rpc_insert_audit_log_for_event pattern (or the Python backend
-        calls rpc_mark_event_processed which handles audit INSERT too). Per the
-        design this INSERT is done directly from Python using the same SECURITY
-        DEFINER scope.
-
-        Implementation note: since the Python backend runs with JWT-passthrough
-        and audit_logs has no INSERT policy for authenticated, this repository
-        method is called within the relay flow where the connection is the
-        same one that called rpc_process_outbox_batch. For CI tests this is
-        mocked; for PROD the relay endpoint is called by pg_cron (which invokes
-        the backend HTTP endpoint via net.http_post or similar — the backend
-        uses a service-level connection for the relay path, consistent with how
-        C-27 handles the CAE relay processor).
-        """
-        await self._conn.execute(
-            """
-            INSERT INTO public.audit_logs (account_id, action, created_at)
-            VALUES ($1::uuid, $2::text, now())
-            """,
-            account_id,
-            action,
-        )
-
-    async def insert_email_log(
-        self,
-        account_id: str,
-        event_type: str,
-        recipient: str,
-        subject: str,
-        metadata: dict | None = None,
-    ) -> None:
-        """INSERT into email_logs (DEC-09 path: webhook → Edge Function → Resend).
-
-        Does NOT call Resend directly. The existing DB webhook pipeline
-        (email_logs → Edge Function trigger → Resend) delivers the email.
-        """
-        import json
-        meta = metadata or {}
-        await self._conn.execute(
-            """
-            INSERT INTO public.email_logs
-              (event_type, recipient, subject, status, metadata)
-            VALUES ($1::text, $2::text, $3::text, 'pending', $4::jsonb)
-            ON CONFLICT DO NOTHING
-            """,
-            event_type,
-            recipient,
-            subject,
-            json.dumps(meta),
-        )
-
-    async def claim_idempotency(
-        self,
-        event_id: str,
-        consumer_type: str,
-    ) -> bool:
-        """Claim the (event_id, consumer_type) idempotency slot.
-
-        Uses INSERT ... ON CONFLICT DO NOTHING on operation_idempotency.
-        Returns True if the slot was claimed (first processing), False if
-        it was already claimed (duplicate → skip side-effect).
-
-        This is the guard that prevents a re-processed event from producing
-        a duplicate audit_logs or email_logs row (Decision 5).
-        """
-        result = await self._conn.fetchval(
-            """
-            WITH ins AS (
-              INSERT INTO public.operation_idempotency
-                (user_id, idempotency_key, operation_kind, event_id, consumer_type)
-              VALUES (
-                '00000000-0000-0000-0000-000000000000'::uuid,
-                $1::text || ':' || $2::text,
-                'event_consumer',
-                $1::uuid,
-                $2::text
-              )
-              ON CONFLICT (event_id, consumer_type)
-              WHERE event_id IS NOT NULL
-              DO NOTHING
-              RETURNING id
-            )
-            SELECT COUNT(*) FROM ins
-            """,
-            event_id,
-            consumer_type,
-        )
-        return (result or 0) > 0
+        return procesados or 0
 
     async def emit_event(
         self,

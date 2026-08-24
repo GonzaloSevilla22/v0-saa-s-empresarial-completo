@@ -110,13 +110,13 @@ DECLARE
   v_cashbox_a1     uuid;
   v_cashbox_a2     uuid;
   v_cashbox_a3     uuid;   -- caja limpia para el saldo firmado (3.7)
-  v_cashbox_a4     uuid;   -- caja limpia para la semantica del replay (3.12)
+  v_cashbox_a4     uuid;   -- caja limpia para la semantica del replay (3.5b)
   v_session_a1     uuid;
   v_session_a2     uuid;
   v_session_a3     uuid;
   v_session_a4     uuid;
   v_pm_cash_a      uuid;
-  v_pm_transfer_a  uuid;   -- forma de pago NO efectivo (2.6)
+  v_pm_transfer_a  uuid;   -- forma de pago NO efectivo (2.2b)
   v_product_a      uuid;
 
   -- ── Tenant B (la víctima: su sesión de caja se usa desde la sesión de A) ──
@@ -182,7 +182,7 @@ BEGIN
 
   -- Condición de degradación GLOBAL: sólo los fixtures sin los cuales NINGÚN
   -- assert tiene sentido. `v_pm_transfer_a` NO entra acá aunque se resuelva
-  -- arriba: lo usa un solo assert (2.6) y meterlo en esta condición convertiría
+  -- arriba: lo usa un solo assert (2.2b) y meterlo en esta condición convertiría
   -- una regresión del catálogo en un salto silencioso de TODO el gate —el único
   -- candado permanente de un change de governance CRÍTICO— con CI en verde y
   -- cero cobertura de tenencia. Se chequea dentro del propio 2.6.
@@ -208,7 +208,7 @@ BEGIN
   VALUES (v_branch_a1, '__gate_tgc_cashbox_a3__')
   RETURNING id INTO v_cashbox_a3;
 
-  -- Caja limpia para la semantica del replay idempotente (3.12): su sesion
+  -- Caja limpia para la semantica del replay idempotente (3.5b): su sesion
   -- se CIERRA en medio del assert, asi que no puede compartirse con nadie.
   INSERT INTO public.cashboxes (branch_id, name)
   VALUES (v_branch_a1, '__gate_tgc_cashbox_a4__')
@@ -378,7 +378,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (2.5): el helper intra-transacción rechaza con P0401 la sesión de otro tenant, sin insertar nada (backstop de la capa 2).';
 
-  -- ══ (2.6) el invariante de TENENCIA no depende del kind ═════════════════
+  -- ══ (2.2b) el invariante de TENENCIA no depende del kind ═════════════════
   -- El fixture de este assert (una forma de pago con kind='transfer') se
   -- chequea ACÁ y no en la condición de degradación global de más arriba: lo
   -- usa UN solo assert, el más periférico del archivo, y meterlo en la
@@ -387,7 +387,7 @@ BEGIN
   -- change existe para cerrar— dejando CI en verde con cero cobertura de
   -- tenencia. Acá el peor caso es un SKIP visible de este assert solo.
   IF v_pm_transfer_a IS NULL THEN
-    RAISE NOTICE 'SKIP (2.6): no hay forma de pago kind=transfer sembrada para el tenant A — el resto del gate sigue corriendo.';
+    RAISE NOTICE 'SKIP (2.2b): no hay forma de pago kind=transfer sembrada para el tenant A — el resto del gate sigue corriendo.';
   ELSE
     -- El guard de la capa 1 se evalua sobre p_cash_session_id, NO sobre v_kind:
     -- una sesion ajena tiene que rebotar tambien cuando la forma de pago no es
@@ -422,7 +422,7 @@ BEGIN
     END;
 
     IF NOT v_rejected THEN
-      RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6): rpc_quick_sale con una forma de pago NO efectivo y la sesion de caja del tenant B deberia fallar igual con P0422 — el guard mira el parametro, no el kind. Si esto pasa, el guard quedo condicionado a v_kind = cash.';
+      RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.2b): rpc_quick_sale con una forma de pago NO efectivo y la sesion de caja del tenant B deberia fallar igual con P0422 — el guard mira el parametro, no el kind. Si esto pasa, el guard quedo condicionado a v_kind = cash.';
     END IF;
 
     SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
@@ -430,10 +430,10 @@ BEGIN
     IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
       RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6-efectos): el rechazo dejo la caja de la victima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
     END IF;
-    RAISE NOTICE 'PASS (2.6): el guard rechaza la sesion ajena tambien con kind no-cash — el invariante de tenencia es agnostico del kind.';
+    RAISE NOTICE 'PASS (2.2b): el guard rechaza la sesion ajena tambien con kind no-cash — el invariante de tenencia es agnostico del kind.';
   END IF;
 
-  -- ═══ (2.7) EL GUARD ES AUTOSUFICIENTE: la sucursal la elige el atacante ═══
+  -- ═══ (2.2c) EL GUARD ES AUTOSUFICIENTE: la sucursal la elige el atacante ═══
   -- Los asserts 2.2/2.4/2.6 comparan la caja contra la sucursal de la ORDEN, y
   -- en el camino de rpc_quick_sale esa sucursal viene del PAYLOAD
   -- (p_branch_id → COALESCE(p_branch_id, c26_default_branch(...)) → INSERT en
@@ -467,7 +467,7 @@ BEGIN
   END;
 
   IF v_sqlstate IS DISTINCT FROM 'P0422' THEN
-    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.7): rpc_quick_sale con p_branch_id = sucursal DE LA VÍCTIMA y su sesión de caja abierta debe rebotar con P0422 (el guard es autosuficiente); rebotó con %. Si es P0404 (branch_not_found), el guard volvió a apoyarse en la validación de sucursal de más abajo en vez de exigir b.account_id = v_account_id en su propio SELECT.', COALESCE(v_sqlstate, 'NINGÚN error');
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.2c): rpc_quick_sale con p_branch_id = sucursal DE LA VÍCTIMA y su sesión de caja abierta debe rebotar con P0422 (el guard es autosuficiente); rebotó con %. Si es P0404 (branch_not_found), el guard volvió a apoyarse en la validación de sucursal de más abajo en vez de exigir b.account_id = v_account_id en su propio SELECT.', COALESCE(v_sqlstate, 'NINGÚN error');
   END IF;
 
   SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
@@ -475,9 +475,9 @@ BEGIN
   IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.7-efectos): el rechazo dejó la caja de la víctima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
   END IF;
-  RAISE NOTICE 'PASS (2.7): el guard rechaza con P0422 la sesión ajena aunque el atacante mande también la sucursal ajena — no depende del branch_not_found de más abajo.';
+  RAISE NOTICE 'PASS (2.2c): el guard rechaza con P0422 la sesión ajena aunque el atacante mande también la sucursal ajena — no depende del branch_not_found de más abajo.';
 
-  -- ═══ (2.8) espejo del 2.7 por rpc_confirm_sales_order ═════════════════════
+  -- ═══ (2.3b) espejo del 2.7 por rpc_confirm_sales_order ═════════════════════
   -- Segunda entrada con inputs distintos: acá la sucursal ajena no viaja por
   -- el payload de la RPC sino que ya está PERSISTIDA en la orden (el INSERT
   -- directo no falla: `sales_orders` no tiene CHECK ni FK que ligue
@@ -508,7 +508,7 @@ BEGIN
   END;
 
   IF v_sqlstate IS DISTINCT FROM 'P0422' THEN
-    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.8): rpc_confirm_sales_order sobre una orden propia cuya branch_id quedó apuntando a la sucursal de la víctima, con la sesión de caja de la víctima, debe rebotar con P0422; rebotó con %.', COALESCE(v_sqlstate, 'NINGÚN error');
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.3b): rpc_confirm_sales_order sobre una orden propia cuya branch_id quedó apuntando a la sucursal de la víctima, con la sesión de caja de la víctima, debe rebotar con P0422; rebotó con %.', COALESCE(v_sqlstate, 'NINGÚN error');
   END IF;
 
   SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
@@ -516,7 +516,7 @@ BEGIN
   IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.8-efectos): el rechazo dejó la caja de la víctima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
   END IF;
-  RAISE NOTICE 'PASS (2.8): el espejo por rpc_confirm_sales_order con la sucursal ajena ya persistida en la orden también rebota con P0422.';
+  RAISE NOTICE 'PASS (2.3b): el espejo por rpc_confirm_sales_order con la sucursal ajena ya persistida en la orden también rebota con P0422.';
 
   -- ═════ (3.5) CONTROL POSITIVO — el guard NO rompe el POS legítimo ═════════
   SELECT public.rpc_quick_sale(
@@ -605,7 +605,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (3.7): saldo firmado 1000 → 1500 → 1300 → 1600 sobre un tenant bien provisionado (cobertura ADICIONAL: el gate (b) de 20260804000003 sigue ejercitándose por su cuenta en toda DB fresca).';
 
-  -- ══ (3.12) SEMANTICA DECLARADA DEL REPLAY IDEMPOTENTE (D2) ════════════════
+  -- ══ (3.5b) SEMANTICA DECLARADA DEL REPLAY IDEMPOTENTE (D2) ════════════════
   -- El guard vive en el bloque de validacion de payload del core, que corre
   -- ANTES del short-circuit de idempotencia. Eso NO es una propiedad nueva que
   -- introduzca este change: el cuerpo VIVO de prod ya revalidaba ahi mismo
@@ -683,7 +683,7 @@ BEGIN
   IF v_count <> 1 THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.12-b-efectos): el rechazo del reintento no debe tocar la caja, hay % movimientos.', v_count;
   END IF;
-  RAISE NOTICE 'PASS (3.12): el replay idempotente devuelve la operacion original mientras el payload sigue siendo valido, y revalida el payload como ya lo hacia branch_closed.';
+  RAISE NOTICE 'PASS (3.5b): el replay idempotente devuelve la operacion original mientras el payload sigue siendo valido, y revalida el payload como ya lo hacia branch_closed.';
 
   -- ═══════ (2.9) BARRIDO GLOBAL sobre TODA la tabla cash_movements ══════════
   SELECT COUNT(*) INTO v_count

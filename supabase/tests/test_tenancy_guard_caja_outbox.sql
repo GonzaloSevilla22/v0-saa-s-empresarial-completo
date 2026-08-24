@@ -141,6 +141,7 @@ DECLARE
   v_pos_guard      integer;
   v_pos_prev       integer;
   v_pos_write      integer;
+  v_sqlstate       text;    -- SQLSTATE exacto del rechazo (2.7 y 2.8)
 
   -- Libros de la VÍCTIMA, medidos antes y después de cada intento
   v_nb_movs        integer;
@@ -414,6 +415,91 @@ BEGIN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6-efectos): el rechazo dejo la caja de la victima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
   END IF;
   RAISE NOTICE 'PASS (2.6): el guard rechaza la sesion ajena tambien con kind no-cash — el invariante de tenencia es agnostico del kind.';
+
+  -- ═══ (2.7) EL GUARD ES AUTOSUFICIENTE: la sucursal la elige el atacante ═══
+  -- Los asserts 2.2/2.4/2.6 comparan la caja contra la sucursal de la ORDEN, y
+  -- en el camino de rpc_quick_sale esa sucursal viene del PAYLOAD
+  -- (p_branch_id → COALESCE(p_branch_id, c26_default_branch(...)) → INSERT en
+  -- sales_orders tal cual). Si el guard sólo exigiera
+  -- `cb.branch_id = v_order.branch_id`, mandar la sucursal DE LA VÍCTIMA junto
+  -- con su sesión de caja lo satisface: el predicado se cumple y lo único que
+  -- frenaría la escritura sería el `branch_not_found` (P0404) que este change
+  -- no toca y que NINGÚN assert congela. Medido: antes de hacer el guard
+  -- autosuficiente este payload rebotaba con P0404, no con P0422.
+  -- Por eso el guard resuelve la sucursal de la caja JOINeando `branches` y
+  -- exigiendo `b.account_id = v_account_id` en su propio SELECT: establece los
+  -- dos invariantes —sucursal correcta Y del tenant que llama— sin apoyarse en
+  -- nada de más abajo. Este assert es el candado de esa propiedad.
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_nb_movs, v_nb_sum
+  FROM public.cash_movements WHERE session_id = v_session_b;
+
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public.rpc_quick_sale(
+      p_idempotency_key   => 'gate-tgc-2-7',
+      p_items             => jsonb_build_array(jsonb_build_object(
+                               'product_id', v_product_a, 'quantity', 1,
+                               'price', 1000, 'subtotal', 1000)),
+      p_payment_method    => 'cash',
+      p_cash_session_id   => v_session_b,
+      p_branch_id         => v_branch_b,
+      p_payment_method_id => v_pm_cash_a
+    );
+  EXCEPTION
+    WHEN OTHERS THEN v_sqlstate := SQLSTATE;
+  END;
+
+  IF v_sqlstate IS DISTINCT FROM 'P0422' THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.7): rpc_quick_sale con p_branch_id = sucursal DE LA VÍCTIMA y su sesión de caja abierta debe rebotar con P0422 (el guard es autosuficiente); rebotó con %. Si es P0404 (branch_not_found), el guard volvió a apoyarse en la validación de sucursal de más abajo en vez de exigir b.account_id = v_account_id en su propio SELECT.', COALESCE(v_sqlstate, 'NINGÚN error');
+  END IF;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+  FROM public.cash_movements WHERE session_id = v_session_b;
+  IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.7-efectos): el rechazo dejó la caja de la víctima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
+  END IF;
+  RAISE NOTICE 'PASS (2.7): el guard rechaza con P0422 la sesión ajena aunque el atacante mande también la sucursal ajena — no depende del branch_not_found de más abajo.';
+
+  -- ═══ (2.8) espejo del 2.7 por rpc_confirm_sales_order ═════════════════════
+  -- Segunda entrada con inputs distintos: acá la sucursal ajena no viaja por
+  -- el payload de la RPC sino que ya está PERSISTIDA en la orden (el INSERT
+  -- directo no falla: `sales_orders` no tiene CHECK ni FK que ligue
+  -- `branch_id` con `account_id` — verificado en pg_constraint). Es el caso
+  -- que el atacante consigue por IDOR de escritura sobre la orden, y el guard
+  -- tiene que cerrarlo igual.
+  INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, created_by)
+  VALUES (v_account_a, v_branch_b, NULL, 'draft', 1000, v_user_a)
+  RETURNING id INTO v_so_id;
+
+  INSERT INTO public.sales_order_items (sales_order_id, account_id, product_id, quantity, price, subtotal)
+  VALUES (v_so_id, v_account_a, v_product_a, 1, 1000, 1000);
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_nb_movs, v_nb_sum
+  FROM public.cash_movements WHERE session_id = v_session_b;
+
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public.rpc_confirm_sales_order(
+      p_idempotency_key   => 'gate-tgc-2-8',
+      p_sales_order_id    => v_so_id,
+      p_payment_method    => 'cash',
+      p_cash_session_id   => v_session_b,
+      p_payment_method_id => v_pm_cash_a
+    );
+  EXCEPTION
+    WHEN OTHERS THEN v_sqlstate := SQLSTATE;
+  END;
+
+  IF v_sqlstate IS DISTINCT FROM 'P0422' THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.8): rpc_confirm_sales_order sobre una orden propia cuya branch_id quedó apuntando a la sucursal de la víctima, con la sesión de caja de la víctima, debe rebotar con P0422; rebotó con %.', COALESCE(v_sqlstate, 'NINGÚN error');
+  END IF;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+  FROM public.cash_movements WHERE session_id = v_session_b;
+  IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.8-efectos): el rechazo dejó la caja de la víctima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
+  END IF;
+  RAISE NOTICE 'PASS (2.8): el espejo por rpc_confirm_sales_order con la sucursal ajena ya persistida en la orden también rebota con P0422.';
 
   -- ═════ (3.5) CONTROL POSITIVO — el guard NO rompe el POS legítimo ═════════
   SELECT public.rpc_quick_sale(

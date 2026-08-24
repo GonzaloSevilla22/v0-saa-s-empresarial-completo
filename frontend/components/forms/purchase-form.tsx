@@ -18,7 +18,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney } from "@/lib/format"
 import type { PurchaseOperation } from "@/lib/group-operations"
-import type { PaymentMethodKind } from "@/lib/types"
+import { bankAccountForKind, type PaymentMethodKind } from "@/lib/types"
 import {
   unitInputStep,
   unitInputMin,
@@ -603,7 +603,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           // pos-banco-movimientos (D2): override opcional del destino del
           // egreso — null cuando el selector no está montado o el usuario
           // dejó "usar el destino configurado".
-          bankAccountId,
+          bankAccountId: bankAccountForKind(resolvedKind, bankAccountId),
           // compras-proveedor-cuenta-corriente (D4): atributo de la
           // operación, siempre enviado (null cuando no se eligió proveedor).
           supplierId,

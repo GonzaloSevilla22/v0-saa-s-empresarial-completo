@@ -355,18 +355,29 @@ BEGIN
   --      y el `%I.events` de un format() — en todos, el identificador aparece
   --      rodeado de caracteres que no son de palabra.
   --
+  -- De los comentarios se quitan SOLO los de LINEA COMPLETA y los bloques que
+  -- no cruzan un literal. La version anterior borraba `--` y `/*` en cualquier
+  -- posicion del fuente crudo, sin saber que es un literal: un `--` DENTRO de
+  -- una comilla simple se llevaba puesto el resto de la linea --la referencia
+  -- al outbox incluida-- y reabria justamente la evasion que este chequeo
+  -- existe para cerrar. Reproducido el 2026-08-24 con una sonda que escondia
+  -- su `FROM public.events` detras de un literal con dos guiones.
+  --
   -- Lo que a propósito NO se le quita al cuerpo son los LITERALES de texto: el
   -- `EXECUTE format('UPDATE %I.events ...')` es justamente uno de los vectores
   -- a atrapar y vive dentro de un literal. El costo es que una función que diga
   -- la palabra `events` en un RAISE entra en la lista; eso es una entrada de
   -- mantenimiento, no un agujero.
   --
-  -- Por qué NO se resuelven las dependencias REALES con pg_depend/pg_rewrite
-  -- sobre 'public.events'::regclass, que sería lo canónico y a prueba de
-  -- sintaxis: plpgsql es OPACO para el planner y no registra dependencias de
-  -- las tablas que consulta el cuerpo. Medido en local el 2026-08-24: esa query
-  -- devuelve CERO filas habiendo cuatro funciones que recorren el outbox. El
-  -- análisis de texto no es acá la opción cómoda, es la única disponible.
+  -- Por qué el análisis de texto NO se REEMPLAZA por las dependencias reales
+  -- (pg_depend sobre 'public.events'::regclass), que sería lo canónico y a
+  -- prueba de sintaxis: plpgsql es OPACO para el planner y no registra las
+  -- tablas que consulta el cuerpo. Medido en local el 2026-08-24: esa query
+  -- devuelve CERO filas habiendo cuatro funciones plpgsql que recorren el
+  -- outbox. PERO la ceguera es MUTUA y cae en lugares distintos: un cuerpo SQL
+  -- estándar (`BEGIN ATOMIC`, PG14+) no guarda texto en prosrc y es invisible
+  -- para el regex, mientras pg_depend sí lo ve. Por eso el chequeo usa los DOS
+  -- en OR (ramas (3) y (4)): ninguno de los dos alcanza solo.
   SELECT string_agg(sig, E'\n  ')
   INTO v_offenders
   FROM (
@@ -375,16 +386,31 @@ BEGIN
            -- (1) comentarios fuera → (2) productores fuera
            regexp_replace(
              regexp_replace(
-               regexp_replace(p.prosrc, '/\*.*?\*/', ' ', 'g'),
-               '--[^\n]*', ' ', 'g'),
+               regexp_replace(p.prosrc, '/\*[^'']*?\*/', ' ', 'g'),
+               '^[ \t]*--[^\n]*', ' ', 'gn'),
              '\mINSERT\s+INTO\s+(ONLY\s+)?("?public"?\s*\.\s*)?"?events"?\M', ' ', 'gi'
-           ) AS body
+           ) AS body,
+           p.oid AS oid
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef
   ) s
-  WHERE s.body ~* '\mevents\M'          -- (3) el identificador, como palabra
+  WHERE (
+          s.body ~* '\mevents\M'        -- (3) el identificador, como palabra
+          -- (4) red complementaria para los cuerpos que NO son texto: una
+          -- funcion `LANGUAGE sql ... BEGIN ATOMIC ... END` (PG14+) guarda
+          -- su arbol en prosqlbody y deja prosrc VACIO, asi que el regex de
+          -- (3) es ciego. Justo ahi pg_depend SI registra la dependencia.
+          OR EXISTS (
+               SELECT 1
+               FROM   pg_depend d
+               WHERE  d.classid    = 'pg_proc'::regclass
+                 AND  d.objid      = s.oid
+                 AND  d.refclassid = 'pg_class'::regclass
+                 AND  d.refobjid   = 'public.events'::regclass
+             )
+        )
     AND s.sig  <> ALL (v_cross_tenant_event_fns);
 
   IF v_offenders IS NOT NULL THEN

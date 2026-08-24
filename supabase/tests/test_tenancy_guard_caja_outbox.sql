@@ -56,16 +56,21 @@
 --           cash_movements de tipo 'sale', con reference_id = sales_order_id y
 --           el importe total. Sin este assert el guard podría estar
 --           rechazando todo.
---     (3.7) SALDO FIRMADO — recupera la cobertura que la capa 2 degrada. El
---           gate (b) embebido en 20260804000003_fix_c28_cash_movement_balance
---           invoca el helper sobre un anchor cuyo usuario NO está en
---           account_members de la cuenta del anchor, así que con la capa 2
---           puesta ese gate se auto-degrada a NOTICE (no aborta, porque el
---           ERRCODE elegido es P0401 y su handler `WHEN raise_exception`
---           matchea SÓLO P0001 — ver D8 y la task 3.6). La aserción se
---           replica acá sobre un tenant BIEN PROVISIONADO: opening = 1000,
---           luego +500 / −200 / +300 → balance_after 1500 / 1300 / 1600 (con
---           el bug viejo de MAX(balance_after) el tercero daría 1800).
+--     (3.7) SALDO FIRMADO — cobertura ADICIONAL (no recuperada: ver abajo).
+--           opening = 1000, luego +500 / −200 / +300 → balance_after
+--           1500 / 1300 / 1600 (con el bug viejo de MAX(balance_after) el
+--           tercero daría 1800), sobre un tenant BIEN PROVISIONADO.
+--           Corrección medida (revisión adversarial 2026-08-24): el gate (b)
+--           embebido en 20260804000003_fix_c28_cash_movement_balance NO se
+--           auto-degrada en una DB fresca. Corre por timestamp mucho ANTES de
+--           que exista 20261013000001, o sea con el helper todavía sin el
+--           backstop, y pasa; y ese archivo no está en la cadena de reapply
+--           del workflow. La degradación a NOTICE sólo ocurre si alguien
+--           re-aplica esa migración a mano con el guard ya puesto — y ahí el
+--           ERRCODE sigue decidiendo entre degradar y ABORTAR el reset, por
+--           eso es P0401 y no P0001 (su handler `WHEN raise_exception`
+--           matchea sólo P0001 — ver D8 y la task 3.6). Esta réplica suma una
+--           segunda ejercitación de la aserción, no reemplaza ninguna.
 --           NO se edita 20260804000003: es una migración ya aplicada en prod.
 --     (3.8) Los wrappers HEREDAN el guard: ni rpc_quick_sale ni
 --           rpc_confirm_sales_order contienen el literal del guard en su
@@ -105,10 +110,13 @@ DECLARE
   v_cashbox_a1     uuid;
   v_cashbox_a2     uuid;
   v_cashbox_a3     uuid;   -- caja limpia para el saldo firmado (3.7)
+  v_cashbox_a4     uuid;   -- caja limpia para la semantica del replay (3.12)
   v_session_a1     uuid;
   v_session_a2     uuid;
   v_session_a3     uuid;
+  v_session_a4     uuid;
   v_pm_cash_a      uuid;
+  v_pm_transfer_a  uuid;   -- forma de pago NO efectivo (2.6)
   v_product_a      uuid;
 
   -- ── Tenant B (la víctima: su sesión de caja se usa desde la sesión de A) ──
@@ -167,10 +175,11 @@ BEGIN
   SELECT id INTO v_branch_a1  FROM public.branches   WHERE account_id = v_account_a ORDER BY created_at LIMIT 1;
   SELECT id INTO v_cashbox_a1 FROM public.cashboxes  WHERE branch_id  = v_branch_a1 ORDER BY created_at LIMIT 1;
   SELECT id INTO v_pm_cash_a  FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' LIMIT 1;
+  SELECT id INTO v_pm_transfer_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'transfer' LIMIT 1;
   SELECT id INTO v_branch_b   FROM public.branches   WHERE account_id = v_account_b ORDER BY created_at LIMIT 1;
   SELECT id INTO v_cashbox_b  FROM public.cashboxes  WHERE branch_id  = v_branch_b  ORDER BY created_at LIMIT 1;
 
-  IF v_branch_a1 IS NULL OR v_cashbox_a1 IS NULL OR v_pm_cash_a IS NULL
+  IF v_branch_a1 IS NULL OR v_cashbox_a1 IS NULL OR v_pm_cash_a IS NULL OR v_pm_transfer_a IS NULL
      OR v_branch_b IS NULL OR v_cashbox_b IS NULL THEN
     RAISE NOTICE 'GATE TENANCY-CAJA: sucursal/caja/catálogo no sembrado para los anchors — degradando sin abortar.';
     RETURN;
@@ -192,6 +201,12 @@ BEGIN
   VALUES (v_branch_a1, '__gate_tgc_cashbox_a3__')
   RETURNING id INTO v_cashbox_a3;
 
+  -- Caja limpia para la semantica del replay idempotente (3.12): su sesion
+  -- se CIERRA en medio del assert, asi que no puede compartirse con nadie.
+  INSERT INTO public.cashboxes (branch_id, name)
+  VALUES (v_branch_a1, '__gate_tgc_cashbox_a4__')
+  RETURNING id INTO v_cashbox_a4;
+
   -- Sesiones abiertas. Se insertan directo (el gate corre como postgres) para
   -- no depender del orden de los guards de rpc_open_cash_session: lo que este
   -- gate prueba es el consumo de la sesión, no su apertura.
@@ -203,6 +218,9 @@ BEGIN
 
   INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
   VALUES (v_cashbox_a3, 'open', 1000, v_user_a) RETURNING id INTO v_session_a3;
+
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a4, 'open', 0, v_user_a) RETURNING id INTO v_session_a4;
 
   INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
   VALUES (v_cashbox_b, 'open', 0, v_user_b) RETURNING id INTO v_session_b;
@@ -353,6 +371,50 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (2.5): el helper intra-transacción rechaza con P0401 la sesión de otro tenant, sin insertar nada (backstop de la capa 2).';
 
+  -- ══ (2.6) el invariante de TENENCIA no depende del kind ═══════════════════
+  -- El guard de la capa 1 se evalua sobre p_cash_session_id, NO sobre v_kind:
+  -- una sesion ajena tiene que rebotar tambien cuando la forma de pago no es
+  -- efectivo. Sin este assert, alguien podria "arreglar" el guard metiendolo
+  -- dentro del `IF v_kind = 'cash'` y reabrir el hueco para todo pago no-cash
+  -- que igual mande el id de sesion, sin que ningun test se entere.
+  -- (Lo que este gate deliberadamente NO exige es la paridad completa con el
+  --  formulario: rpc_create_sale_operation_v2 tiene ademas
+  --  cash_optin_requires_cash_kind y cash_optin_requires_today sobre el mismo
+  --  parametro, y este change NO los replica — decision escrita en la cabecera
+  --  de 20261013000001 y en design.md D2. Son guards de higiene de input, no
+  --  de tenencia, y replicarlos agrandaria el BREAKING de un change CRITICO
+  --  sobre payloads que ninguna superficie del producto genera.)
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_nb_movs, v_nb_sum
+  FROM public.cash_movements WHERE session_id = v_session_b;
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_quick_sale(
+      p_idempotency_key   => 'gate-tgc-2-6',
+      p_items             => jsonb_build_array(jsonb_build_object(
+                               'product_id', v_product_a, 'quantity', 1,
+                               'price', 1000, 'subtotal', 1000)),
+      p_payment_method    => 'transfer',
+      p_cash_session_id   => v_session_b,
+      p_branch_id         => v_branch_a1,
+      p_payment_method_id => v_pm_transfer_a
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLSTATE = 'P0422' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6): rpc_quick_sale con una forma de pago NO efectivo y la sesion de caja del tenant B deberia fallar igual con P0422 — el guard mira el parametro, no el kind. Si esto pasa, el guard quedo condicionado a v_kind = cash.';
+  END IF;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+  FROM public.cash_movements WHERE session_id = v_session_b;
+  IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6-efectos): el rechazo dejo la caja de la victima en % movimientos / % de saldo, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
+  END IF;
+  RAISE NOTICE 'PASS (2.6): el guard rechaza la sesion ajena tambien con kind no-cash — el invariante de tenencia es agnostico del kind.';
+
   -- ═════ (3.5) CONTROL POSITIVO — el guard NO rompe el POS legítimo ═════════
   SELECT public.rpc_quick_sale(
     p_idempotency_key   => 'gate-tgc-3-5',
@@ -412,12 +474,15 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (3.9a): rpc_delete_sale_operation sigue compensando la caja de una venta propia bajo la capa 2.';
 
-  -- ═════ (3.7) SALDO FIRMADO — cobertura que la capa 2 degrada en 20260804000003 ═
+  -- ══ (3.7) SALDO FIRMADO — segunda ejercitación de la aserción de 20260804000003
   -- opening = 1000; +500 → 1500; −200 → 1300; +300 → 1600.
   -- Con el bug viejo (MAX(balance_after) en vez de opening + SUM(amount)) el
   -- tercero daría 1800. El gate (b) embebido en la migración de 2026-08-04
-  -- deja de ejercitar esto porque su anchor no es miembro de su propia cuenta
-  -- (D1) — la aserción se replica acá sobre un tenant bien provisionado.
+  -- sigue ejercitando esto por su cuenta en toda DB fresca (corre por
+  -- timestamp antes de que exista el guard, y no está en la cadena de
+  -- reapply); acá se replica sobre un tenant bien provisionado como cobertura
+  -- ADICIONAL, y como red para el caso de que alguien re-aplique esa
+  -- migración con el guard puesto, donde su gate sí degrada a NOTICE.
   SELECT public.c28_register_cash_movement(v_session_a3, 500, 'sale', NULL) INTO v_mov_id;
   SELECT balance_after INTO v_balance FROM public.cash_movements WHERE id = v_mov_id;
   IF v_balance <> 1500 THEN
@@ -435,7 +500,87 @@ BEGIN
   IF v_balance <> 1600 THEN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.7-c): tras +300 el balance_after debería ser 1600 (opening + SUM), es % — con el bug de MAX(balance_after) daría 1800.', v_balance;
   END IF;
-  RAISE NOTICE 'PASS (3.7): saldo firmado 1000 → 1500 → 1300 → 1600 sobre un tenant bien provisionado (cobertura recuperada del gate (b) de 20260804000003).';
+  RAISE NOTICE 'PASS (3.7): saldo firmado 1000 → 1500 → 1300 → 1600 sobre un tenant bien provisionado (cobertura ADICIONAL: el gate (b) de 20260804000003 sigue ejercitándose por su cuenta en toda DB fresca).';
+
+  -- ══ (3.12) SEMANTICA DECLARADA DEL REPLAY IDEMPOTENTE (D2) ════════════════
+  -- El guard vive en el bloque de validacion de payload del core, que corre
+  -- ANTES del short-circuit de idempotencia. Eso NO es una propiedad nueva que
+  -- introduzca este change: el cuerpo VIVO de prod ya revalidaba ahi mismo
+  -- is_account_writer, payment_method_inactive (P0400), cash_requires_session
+  -- (P0400) y branch_closed (P0422) — o sea que un reintento con la misma
+  -- clave ya fallaba, desde antes, si la sucursal se habia cerrado en el medio.
+  -- El guard se suma a ese bloque; no lo inaugura. Se deja como invariante
+  -- testeable para que la decision quede escrita y cualquier futuro reordenado
+  -- (mover el bloque entero DESPUES del replay, que es el fix correcto del
+  -- contrato de Idempotency-Key y es un change propio) tenga que tocar el gate
+  -- a proposito en vez de cambiar la semantica sin que nadie se entere.
+  --   (a) replay con la sesion TODAVIA abierta → replayed = true (el guard no
+  --       rompe la idempotencia en el camino normal, que es el unico que el POS
+  --       produce: el submit reconstruye el payload con la sesion abierta viva).
+  --   (b) replay con esa MISMA sesion ya cerrada → P0422, igual que branch_closed.
+  SELECT public.rpc_quick_sale(
+    p_idempotency_key   => 'gate-tgc-3-12',
+    p_items             => jsonb_build_array(jsonb_build_object(
+                             'product_id', v_product_a, 'quantity', 1,
+                             'price', 1000, 'subtotal', 1000)),
+    p_payment_method    => 'cash',
+    p_cash_session_id   => v_session_a4,
+    p_branch_id         => v_branch_a1,
+    p_payment_method_id => v_pm_cash_a
+  ) INTO v_result;
+
+  IF COALESCE((v_result->>'replayed')::boolean, true) THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.12-original): la primera venta con la clave gate-tgc-3-12 no deberia venir marcada como replay.';
+  END IF;
+
+  SELECT public.rpc_quick_sale(
+    p_idempotency_key   => 'gate-tgc-3-12',
+    p_items             => jsonb_build_array(jsonb_build_object(
+                             'product_id', v_product_a, 'quantity', 1,
+                             'price', 1000, 'subtotal', 1000)),
+    p_payment_method    => 'cash',
+    p_cash_session_id   => v_session_a4,
+    p_branch_id         => v_branch_a1,
+    p_payment_method_id => v_pm_cash_a
+  ) INTO v_result;
+
+  IF NOT COALESCE((v_result->>'replayed')::boolean, false) THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.12-a): con la sesion todavia abierta el reintento con la misma clave debe devolver el replay, devolvio %.', v_result;
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE session_id = v_session_a4;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.12-a-efectos): el replay no debe duplicar el movimiento de caja, hay % en la sesion.', v_count;
+  END IF;
+
+  UPDATE public.cash_sessions SET status = 'closed' WHERE id = v_session_a4;
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_quick_sale(
+      p_idempotency_key   => 'gate-tgc-3-12',
+      p_items             => jsonb_build_array(jsonb_build_object(
+                               'product_id', v_product_a, 'quantity', 1,
+                               'price', 1000, 'subtotal', 1000)),
+      p_payment_method    => 'cash',
+      p_cash_session_id   => v_session_a4,
+      p_branch_id         => v_branch_a1,
+      p_payment_method_id => v_pm_cash_a
+    );
+  EXCEPTION
+    WHEN OTHERS THEN
+      IF SQLSTATE = 'P0422' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.12-b): el bloque de validacion de payload del core corre ANTES del replay, asi que un reintento con la sesion ya cerrada debe dar P0422 — igual que branch_closed, que ya se comportaba asi antes de este change. Si esto deja de valer, el bloque se movio: actualizar tambien el candado 3.2 y la decision escrita en design.md D2.';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE session_id = v_session_a4;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (3.12-b-efectos): el rechazo del reintento no debe tocar la caja, hay % movimientos.', v_count;
+  END IF;
+  RAISE NOTICE 'PASS (3.12): el replay idempotente devuelve la operacion original mientras el payload sigue siendo valido, y revalida el payload como ya lo hacia branch_closed.';
 
   -- ═══════ (2.9) BARRIDO GLOBAL sobre TODA la tabla cash_movements ══════════
   SELECT COUNT(*) INTO v_count

@@ -34,7 +34,63 @@ import pytest
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-MIGRATION_FILE = Path(__file__).parents[3] / "supabase" / "migrations" / "20260718000001_c25_events_outbox_reconcile.sql"
+MIGRATIONS_DIR = Path(__file__).parents[3] / "supabase" / "migrations"
+
+# Migración de ORIGEN del outbox: acá nacen el esquema canónico de `events`,
+# `operation_idempotency`, el job de pg_cron y las tres RPCs. Todo lo que se
+# afirma sobre la FORMA de la migración (idempotencia, no-DROP COLUMN, cron)
+# se afirma sobre este archivo, que es donde vive.
+MIGRATION_FILE = MIGRATIONS_DIR / "20260718000001_c25_events_outbox_reconcile.sql"
+
+# Migración VIGENTE del despachador — otra cosa. `rpc_process_outbox_dispatch`
+# se redefinió por CREATE OR REPLACE cuatro veces después de nacer
+# (20260803000001 journal, 20260808000001 notifications, 20261004000001
+# asiento-venta, 20261005000001 delete-guard), así que el cuerpo de
+# 20260718000001 hace rato que NO es el que corre: afirmar sobre él el orden de
+# los consumers, el SKIP LOCKED o el "nunca UPDATE/DELETE sobre audit_logs" era
+# verificar una fotografía vieja. Las aserciones de COMPORTAMIENTO apuntan por
+# eso a la redefinición más nueva.
+#
+# Lo ideal sería leer `pg_get_functiondef` vivo —la regla dura del proyecto—,
+# pero este job de pytest corre SIN DB: la suite es hermética por diseño
+# (asyncpg mockeado, ver backend/tests/conftest.py y
+# .github/workflows/Backend_Tests.yml, que no levanta ningún servicio). La
+# migración más nueva es lo más cerca del cuerpo vivo que se puede estar sin
+# conexión, y la equivalencia se verificó a mano: el 2026-08-24, el cuerpo de
+# este archivo y el `prosrc` de la función en la DB local dieron el mismo md5
+# (b01bdc1bd52829281e96e6b191885cce, 5730 bytes). El chequeo en runtime contra
+# el despachador REAL vive en supabase/tests/test_outbox_single_dispatcher.sql,
+# que sí corre con Postgres.
+#
+# Que este puntero no vuelva a envejecer lo sostiene
+# TestDispatcherMigrationPointer, abajo: si alguien agrega una migración más
+# nueva que redefine la función y no mueve esta constante, falla.
+DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261005000001_delete_guard_ledgers.sql"
+
+_DISPATCH_DEF_RE = re.compile(
+    r"CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.rpc_process_outbox_dispatch",
+    re.IGNORECASE,
+)
+
+
+def _migrations_defining_dispatcher() -> list[Path]:
+    """Todas las migraciones que (re)definen rpc_process_outbox_dispatch, en
+    orden cronológico — el nombre de archivo empieza con el timestamp."""
+    return [
+        p
+        for p in sorted(MIGRATIONS_DIR.glob("*.sql"))
+        if _DISPATCH_DEF_RE.search(p.read_text(encoding="utf-8"))
+    ]
+
+
+def _dispatcher_body(sql: str) -> str:
+    """Cuerpo (entre los dos $function$) de rpc_process_outbox_dispatch."""
+    match = _DISPATCH_DEF_RE.search(sql)
+    assert match, "CREATE OR REPLACE FUNCTION public.rpc_process_outbox_dispatch no encontrada"
+    start = sql.find("$function$", match.start())
+    end = sql.find("$function$", start + 1)
+    assert start != -1 and end != -1, "No se pudo delimitar el cuerpo del despachador"
+    return sql[start:end]
 
 # Canonical V2 columns that MUST exist post-migration
 CANONICAL_EVENTS_COLUMNS = {
@@ -402,30 +458,27 @@ class TestDispatchRpcPresence:
             "REVOKE EXECUTE FROM anon not found for rpc_process_outbox_dispatch"
         )
 
-    def test_dispatch_rpc_uses_for_update_skip_locked(self, sql):
-        """RED→GREEN: Function must use FOR UPDATE SKIP LOCKED (concurrent-safe relay)."""
-        idx = sql.find("rpc_process_outbox_dispatch")
-        assert idx != -1
-        # Find the $function$ body
-        func_start = sql.find("$function$", idx)
-        func_end = sql.find("$function$", func_start + 1)
-        assert func_start != -1 and func_end != -1, "Could not locate function body"
-        body = sql[func_start:func_end]
+    def test_dispatch_rpc_uses_for_update_skip_locked(self):
+        """RED→GREEN: Function must use FOR UPDATE SKIP LOCKED (concurrent-safe relay).
+
+        Se afirma contra el cuerpo VIGENTE (DISPATCHER_MIGRATION_FILE): el
+        SKIP LOCKED es lo que impide que dos ticks del pg_cron se pisen, y
+        verificarlo en la migración de origen no dice nada sobre el cuerpo que
+        quedó después de cuatro CREATE OR REPLACE.
+        """
+        body = _dispatcher_body(DISPATCHER_MIGRATION_FILE.read_text(encoding="utf-8"))
         assert "FOR UPDATE SKIP LOCKED" in body.upper(), (
             "Function body must use FOR UPDATE SKIP LOCKED for concurrent-safe relay"
         )
 
-    def test_dispatch_rpc_has_per_event_exception_isolation(self, sql):
+    def test_dispatch_rpc_has_per_event_exception_isolation(self):
         """RED→GREEN: Function must have per-event EXCEPTION block.
 
         This ensures one bad event does not abort the entire batch.
         The EXCEPTION block must appear inside the main loop body.
+        Contra el cuerpo vigente, por el mismo motivo que el test de arriba.
         """
-        idx = sql.find("rpc_process_outbox_dispatch")
-        assert idx != -1
-        func_start = sql.find("$function$", idx)
-        func_end = sql.find("$function$", func_start + 1)
-        body = sql[func_start:func_end]
+        body = _dispatcher_body(DISPATCHER_MIGRATION_FILE.read_text(encoding="utf-8"))
         assert "EXCEPTION" in body.upper(), (
             "Function body must contain an EXCEPTION block for per-event isolation"
         )
@@ -457,23 +510,88 @@ class TestDispatchRpcPresence:
         ), "Must use CREATE OR REPLACE FUNCTION for rpc_process_outbox_dispatch"
 
 
+class TestDispatcherMigrationPointer:
+    """El puntero DISPATCHER_MIGRATION_FILE tiene que seguir apuntando a la
+    redefinición MÁS NUEVA del despachador.
+
+    Sin este test, las aserciones de comportamiento de abajo envejecen en
+    silencio: alguien hace CREATE OR REPLACE en una migración nueva, el cuerpo
+    que corre cambia, y los tests siguen dando verde contra el cuerpo viejo.
+    Es exactamente lo que había pasado con 20260718000001.
+    """
+
+    def test_dispatcher_migration_file_exists(self):
+        assert DISPATCHER_MIGRATION_FILE.exists(), (
+            f"No existe {DISPATCHER_MIGRATION_FILE.name}"
+        )
+
+    def test_pointer_targets_the_newest_redefinition(self):
+        definers = _migrations_defining_dispatcher()
+        assert definers, "Ninguna migración define rpc_process_outbox_dispatch"
+        newest = definers[-1]
+        assert newest == DISPATCHER_MIGRATION_FILE, (
+            "DISPATCHER_MIGRATION_FILE quedó desactualizado: la redefinición más "
+            f"nueva de rpc_process_outbox_dispatch está en {newest.name}, no en "
+            f"{DISPATCHER_MIGRATION_FILE.name}. Mové la constante y verificá que "
+            "las aserciones de comportamiento sigan valiendo contra el cuerpo nuevo "
+            "(el chequeo en runtime está en "
+            "supabase/tests/test_outbox_single_dispatcher.sql)."
+        )
+
+    def test_origin_migration_is_not_the_newest_definer(self):
+        """Triangulación: si algún día 20260718000001 volviera a ser la última
+        redefinición, el puntero de arriba sería trivialmente correcto y este
+        test lo delataría en vez de dejar pasar una falsa cobertura."""
+        definers = _migrations_defining_dispatcher()
+        assert len(definers) >= 2, (
+            "Se esperaba que el despachador estuviera redefinido al menos una vez "
+            f"después de nacer; encontradas: {[p.name for p in definers]}"
+        )
+
+
 class TestDispatchRpcBehaviorInSQL:
     """Assert the SQL body of rpc_process_outbox_dispatch encodes the
     correct consumer semantics (audit-first, email-scoping, idempotency).
 
-    These are static text assertions against the migration SQL — the only
-    viable approach when no live PG DB is available in CI.
+    Aserciones de texto estático contra la migración que HOY define el cuerpo
+    (DISPATCHER_MIGRATION_FILE, ver su comentario): sin DB en este job, es lo
+    más cerca del `pg_get_functiondef` vivo que se puede estar.
     """
 
     @pytest.fixture
     def func_body(self) -> str:
-        sql = MIGRATION_FILE.read_text(encoding="utf-8")
-        idx = sql.find("rpc_process_outbox_dispatch")
-        assert idx != -1, "rpc_process_outbox_dispatch not found in migration"
-        func_start = sql.find("$function$", idx)
-        func_end = sql.find("$function$", func_start + 1)
-        assert func_start != -1 and func_end != -1
-        return sql[func_start:func_end]
+        return _dispatcher_body(DISPATCHER_MIGRATION_FILE.read_text(encoding="utf-8"))
+
+    def test_consumer_order_is_audit_email_journal_notification(self, func_body):
+        """El orden de los 4 consumers es un invariante de dominio: AuditLog va
+        PRIMERO (si falla, el evento no deja rastro de haberse intentado) y el
+        marcado de processed_at va último. Se afirma contra el cuerpo vigente,
+        no contra la foto de 20260718000001, que sólo tenía 2 consumers."""
+        # Se buscan los ENCABEZADOS de sección (`-- ── Consumer N: ...`), no la
+        # subcadena "Consumer N" a secas: el comentario de cabecera de la
+        # función menciona al Consumer 3 antes de que empiece el código.
+        positions = []
+        for n, nombre in enumerate(
+            ("AuditLog", "EmailNotification", "JournalEntry", "Notification"), start=1
+        ):
+            match = re.search(rf"──\s*Consumer\s+{n}\s*:", func_body)
+            assert match, (
+                f"No se encontró la sección del Consumer {n} ({nombre}) en el cuerpo "
+                f"vigente del despachador ({DISPATCHER_MIGRATION_FILE.name}) — "
+                "¿se retiró un consumer?"
+            )
+            positions.append(match.start())
+        assert positions == sorted(positions), (
+            f"Los 4 consumers deben aparecer en orden 1-2-3-4; posiciones: {positions}"
+        )
+        # El marcado (`SET processed_at = now()`), no cualquier mención: el
+        # `WHERE processed_at IS NULL` del SELECT del lote aparece mucho antes.
+        marcado = re.search(r"SET\s+processed_at\s*=", func_body, re.IGNORECASE)
+        assert marcado, "El despachador tiene que marcar processed_at en algún lado"
+        assert marcado.start() > positions[-1], (
+            "processed_at se escribe DESPUÉS de los cuatro consumers: marcarlo antes "
+            "cierra el evento aunque un consumer falle y pierde su asiento para siempre"
+        )
 
     def test_function_body_references_audit_logs_insert(self, func_body):
         """RED→GREEN: Body must INSERT into audit_logs (AuditLog consumer)."""
@@ -684,15 +802,10 @@ class TestDispatchRpcTriangulate:
         return MIGRATION_FILE.read_text(encoding="utf-8")
 
     @pytest.fixture
-    def func_body(self, sql) -> str:
-        match = re.search(
-            r"CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.rpc_process_outbox_dispatch",
-            sql, re.IGNORECASE,
-        )
-        assert match
-        func_start = sql.find("$function$", match.start())
-        func_end = sql.find("$function$", func_start + 1)
-        return sql[func_start:func_end]
+    def func_body(self) -> str:
+        # Cuerpo VIGENTE, no el de la migración de origen (ver
+        # DISPATCHER_MIGRATION_FILE).
+        return _dispatcher_body(DISPATCHER_MIGRATION_FILE.read_text(encoding="utf-8"))
 
     # ── Triangulate 1: email gate completeness ────────────────────────────────
 
@@ -734,26 +847,45 @@ class TestDispatchRpcTriangulate:
         assert func_body.count("AuditLog") >= 1
         assert func_body.count("EmailNotification") >= 1
 
-    # ── Triangulate 2: audit append-only — no UPDATE/DELETE anywhere in migration ──
+    # ── Triangulate 2: audit append-only — ni UPDATE ni DELETE, en el cuerpo
+    #    que HOY corre y en la migración de origen ──────────────────────────
 
-    def test_no_update_audit_logs_anywhere_in_migration(self, sql):
-        """TRIANGULATE: No UPDATE public.audit_logs anywhere in the entire migration.
+    def test_no_update_audit_logs_in_live_dispatcher_body(self, func_body):
+        """TRIANGULATE: el despachador VIGENTE nunca hace UPDATE public.audit_logs.
 
-        The audit domain is append-only. Even outside the dispatch function,
-        no migration statement should UPDATE audit_logs.
+        El dominio de auditoría es append-only. Antes esto se afirmaba sólo
+        sobre 20260718000001, cuyo cuerpo dejó de ser el que corre hace cuatro
+        redefiniciones; ahora se afirma sobre DISPATCHER_MIGRATION_FILE.
         """
-        sql_no_comments = re.sub(r"--[^\n]*", "", sql)
-        bad = re.findall(r"\bUPDATE\s+public\.audit_logs\b", sql_no_comments, re.IGNORECASE)
+        body_no_comments = re.sub(r"--[^\n]*", "", func_body)
+        bad = re.findall(r"\bUPDATE\s+public\.audit_logs\b", body_no_comments, re.IGNORECASE)
         assert not bad, (
-            f"Found UPDATE public.audit_logs in migration (append-only violation): {bad}"
+            f"UPDATE public.audit_logs en el despachador vigente "
+            f"({DISPATCHER_MIGRATION_FILE.name}) — violación de append-only: {bad}"
         )
 
-    def test_no_delete_audit_logs_anywhere_in_migration(self, sql):
-        """TRIANGULATE: No DELETE FROM public.audit_logs anywhere in the entire migration."""
-        sql_no_comments = re.sub(r"--[^\n]*", "", sql)
-        bad = re.findall(r"\bDELETE\s+FROM\s+public\.audit_logs\b", sql_no_comments, re.IGNORECASE)
+    def test_no_delete_audit_logs_in_live_dispatcher_body(self, func_body):
+        """TRIANGULATE: el despachador VIGENTE nunca hace DELETE FROM public.audit_logs."""
+        body_no_comments = re.sub(r"--[^\n]*", "", func_body)
+        bad = re.findall(r"\bDELETE\s+FROM\s+public\.audit_logs\b", body_no_comments, re.IGNORECASE)
         assert not bad, (
-            f"Found DELETE FROM public.audit_logs in migration (append-only violation): {bad}"
+            f"DELETE FROM public.audit_logs en el despachador vigente "
+            f"({DISPATCHER_MIGRATION_FILE.name}) — violación de append-only: {bad}"
+        )
+
+    def test_no_update_or_delete_audit_logs_anywhere_in_origin_migration(self, sql):
+        """TRIANGULATE (segundo caso): tampoco en la migración de ORIGEN, ni
+        siquiera fuera de la función. Se conserva porque cubre el resto del
+        archivo (triggers, backfills), que el cuerpo del despachador no."""
+        sql_no_comments = re.sub(r"--[^\n]*", "", sql)
+        bad = re.findall(
+            r"\b(?:UPDATE\s+public\.audit_logs|DELETE\s+FROM\s+public\.audit_logs)\b",
+            sql_no_comments,
+            re.IGNORECASE,
+        )
+        assert not bad, (
+            f"UPDATE/DELETE sobre public.audit_logs en {MIGRATION_FILE.name} "
+            f"(append-only violation): {bad}"
         )
 
     # ── Triangulate 3: idempotency sentinel is the correct sentinel UUID ──────
@@ -794,11 +926,24 @@ class TestDispatchRpcTriangulate:
     # ── Triangulate 5: new RPC does not shadow the existing batch/mark RPCs ──
 
     def test_dispatch_rpc_is_different_from_batch_rpc(self, sql):
-        """TRIANGULATE: rpc_process_outbox_dispatch and rpc_process_outbox_batch are
-        separate functions (dispatch does not replace batch — Python relay still works).
+        """TRIANGULATE: rpc_process_outbox_dispatch y rpc_process_outbox_batch son
+        funciones DISTINTAS — dispatch no reemplazó a batch en este archivo.
+
+        Ojo con el motivo: una versión previa de este test decía "Python relay
+        still works". Ya no existe ningún relay Python — `OutboxRelayService` y
+        sus cinco archivos de tests se retiraron en el hotfix 2026-08-24
+        (20261012000001_revoke_outbox_cross_tenant.sql), porque era una segunda
+        implementación incompleta que corría 2 de los 4 consumers y marcaba
+        processed_at igual. Las dos firmas siguen presentes acá simplemente
+        porque esta migración es HISTÓRICA y no se reescribe; hoy están
+        revocadas de PUBLIC/anon/authenticated y sin ningún caller de
+        aplicación. El inventario vivo de quién puede recorrer el outbox está
+        en el chequeo (5) de supabase/tests/test_function_acl_gate.sql.
         """
         assert "rpc_process_outbox_batch" in sql, (
-            "rpc_process_outbox_batch must still exist in the migration (Python relay kept)"
+            "rpc_process_outbox_batch debe seguir en la migración histórica: los "
+            "archivos de migración no se reescriben. Su ACL la cierra "
+            "20261012000001_revoke_outbox_cross_tenant.sql"
         )
         assert "rpc_process_outbox_dispatch" in sql, (
             "rpc_process_outbox_dispatch must exist (pure-SQL relay)"
@@ -807,9 +952,13 @@ class TestDispatchRpcTriangulate:
         assert "rpc_process_outbox_batch" != "rpc_process_outbox_dispatch"
 
     def test_mark_event_processed_rpc_still_present(self, sql):
-        """TRIANGULATE: rpc_mark_event_processed is still present (Python relay endpoint kept)."""
+        """TRIANGULATE: rpc_mark_event_processed sigue presente en la migración
+        histórica (mismo motivo que el test de arriba: las migraciones no se
+        reescriben). NO porque exista un relay Python que la use — no existe."""
         assert "rpc_mark_event_processed" in sql, (
-            "rpc_mark_event_processed must remain in the migration — Python relay not deleted"
+            "rpc_mark_event_processed debe seguir en la migración histórica. Está "
+            "revocada y sin caller de aplicación desde "
+            "20261012000001_revoke_outbox_cross_tenant.sql"
         )
 
     # ── Triangulate 6: function uses RETURNS int (not SETOF, not void) ────────

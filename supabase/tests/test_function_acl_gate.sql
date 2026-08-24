@@ -122,7 +122,13 @@
 -- Lo que el (5) NO puede hacer, dicho en voz alta: detecta que alguien expuso
 -- una función que recorre el outbox; no detecta una consulta cross-tenant
 -- nueva contra otra tabla. Para eso la red es la revisión y el requirement de
--- `account-tenancy`.
+-- `account-tenancy`. Su detector es un análisis de TEXTO sobre `prosrc`
+-- —obligado, porque plpgsql no registra dependencias resolubles por
+-- pg_depend—, y su robustez está documentada paso a paso en el comentario del
+-- propio chequeo (5a): comentarios fuera, productores restados, identificador
+-- buscado como palabra completa sin anclar a la cláusula. Los cuatro vectores
+-- de evasión que la primera versión dejaba pasar y el falso positivo que
+-- producía están enumerados ahí, cada uno reproducido.
 --
 -- Mantenimiento de v_cross_tenant_event_fns: la lista SÓLO CRECE. Toda función
 -- que lea o actualice `public.events` tiene que estar enumerada con su
@@ -317,22 +323,69 @@ BEGIN
   END IF;
 
   -- ── (5a) Funciones que recorren el outbox y NO están enumeradas ───────────
-  -- El criterio es LEER o ACTUALIZAR, nunca INSERTAR (ver cabecera). El `\M`
-  -- del patrón es "fin de palabra": impide que `events_archive` o
-  -- `events_backup` matcheen por prefijo.
+  -- El criterio es LEER o ACTUALIZAR, nunca INSERTAR (ver cabecera).
+  --
+  -- El detector NO ancla la referencia a una cláusula (`FROM`/`JOIN`/`UPDATE`).
+  -- La primera versión de este chequeo sí lo hacía —
+  -- `(FROM|JOIN)\s+(public\.)?events\M` / `UPDATE\s+(public\.)?events\M`— y era
+  -- evadible: `FROM public.sales s, public.events e` (comma-join),
+  -- `FROM public."events"` (identificador citado), `UPDATE ONLY public.events`
+  -- y `EXECUTE format('UPDATE %I.events ...')` pasaban los CUATRO en verde
+  -- siendo SECURITY DEFINER, con GRANT a authenticated y sin estar enumeradas
+  -- (reproducido en local el 2026-08-24). Ahora, en tres pasos:
+  --
+  --   1. Se le quitan al cuerpo los COMENTARIOS (`--` de línea y bloques
+  --      `/* */`). `prosrc` es el fuente CRUDO: una función que sólo nombra el
+  --      outbox en un comentario hacía fallar el gate — falso positivo también
+  --      reproducido, y el mismo gotcha que ya mordió al gate de table_refs.
+  --   2. Se le quitan los `INSERT INTO [ONLY] [public.]events`: los productores
+  --      son decenas y emitir un evento propio no permite leer ni cerrar los de
+  --      nadie (ver cabecera). La resta es por OCURRENCIA, no por función, así
+  --      que un `INSERT INTO events (...) SELECT ... FROM public.events` sigue
+  --      cayendo en la red por su `FROM`. Un INSERT por SQL dinámico
+  --      (`format('INSERT INTO %I.events ...')`) NO se resta y por lo tanto se
+  --      reporta: es la dirección correcta del error — revisarlo a mano y
+  --      enumerarlo cuesta una línea; no verlo cuesta el outbox.
+  --   3. Sobre lo que queda se busca el identificador como PALABRA COMPLETA,
+  --      sin exigir de qué cláusula cuelga. `\m`/`\M` (inicio/fin de palabra)
+  --      son lo único que sobrevive del patrón viejo y siguen haciendo la misma
+  --      falta: sin ellos `analytics_events` o `events_archive` matchearían por
+  --      prefijo/sufijo. Con ellos matchean los seis: `events`,
+  --      `public.events`, `"events"`, `"public"."events"`, `ONLY public.events`
+  --      y el `%I.events` de un format() — en todos, el identificador aparece
+  --      rodeado de caracteres que no son de palabra.
+  --
+  -- Lo que a propósito NO se le quita al cuerpo son los LITERALES de texto: el
+  -- `EXECUTE format('UPDATE %I.events ...')` es justamente uno de los vectores
+  -- a atrapar y vive dentro de un literal. El costo es que una función que diga
+  -- la palabra `events` en un RAISE entra en la lista; eso es una entrada de
+  -- mantenimiento, no un agujero.
+  --
+  -- Por qué NO se resuelven las dependencias REALES con pg_depend/pg_rewrite
+  -- sobre 'public.events'::regclass, que sería lo canónico y a prueba de
+  -- sintaxis: plpgsql es OPACO para el planner y no registra dependencias de
+  -- las tablas que consulta el cuerpo. Medido en local el 2026-08-24: esa query
+  -- devuelve CERO filas habiendo cuatro funciones que recorren el outbox. El
+  -- análisis de texto no es acá la opción cómoda, es la única disponible.
   SELECT string_agg(sig, E'\n  ')
   INTO v_offenders
   FROM (
     SELECT format('public.%s(%s)', p.proname,
-                  pg_get_function_identity_arguments(p.oid)) AS sig
+                  pg_get_function_identity_arguments(p.oid)) AS sig,
+           -- (1) comentarios fuera → (2) productores fuera
+           regexp_replace(
+             regexp_replace(
+               regexp_replace(p.prosrc, '/\*.*?\*/', ' ', 'g'),
+               '--[^\n]*', ' ', 'g'),
+             '\mINSERT\s+INTO\s+(ONLY\s+)?("?public"?\s*\.\s*)?"?events"?\M', ' ', 'gi'
+           ) AS body
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef
-      AND (   p.prosrc ~* '(FROM|JOIN)\s+(public\.)?events\M'
-           OR p.prosrc ~* 'UPDATE\s+(public\.)?events\M')
   ) s
-  WHERE s.sig <> ALL (v_cross_tenant_event_fns);
+  WHERE s.body ~* '\mevents\M'          -- (3) el identificador, como palabra
+    AND s.sig  <> ALL (v_cross_tenant_event_fns);
 
   IF v_offenders IS NOT NULL THEN
     RAISE EXCEPTION E'ACL GATE (5a) FAILED: función(es) SECURITY DEFINER que leen o actualizan public.events sin estar enumeradas en v_cross_tenant_event_fns. El outbox es la única tabla que se recorre cross-account por diseño, así que toda función con ese privilegio se enumera A MANO con su veredicto (expuesta sí/no + justificación) en supabase/tests/test_function_acl_gate.sql. Si la función es un relay interno: REVOKE ALL ... FROM PUBLIC, anon, authenticated y agregala como "expuesta: NO". Si es API pública que toca el outbox de una operación ya validada por tenant, agregala TAMBIÉN a v_cross_tenant_event_exposed_ok con la justificación:\n  %', v_offenders;

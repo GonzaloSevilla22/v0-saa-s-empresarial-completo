@@ -778,10 +778,26 @@ jobs:
       # pg_cron. Los mocks se cambian por el despachador REAL en Postgres real:
       # efecto verificado de los Consumers 1 y 2, scoping del email, evento con
       # consumer fallido que queda pendiente SIN efectos parciales y sin
-      # abortar el lote, reproceso sin duplicados, retry preservado, y las dos
-      # RPCs del outbox fuera del alcance del rol de aplicación. Cuenta
-      # sintética con UUID reservado y cleanup verificado (corre dos veces
-      # seguidas en verde sin residuos).
+      # abortar el lote, reproceso sin duplicados, retry preservado, y el
+      # outbox fuera del alcance del rol de aplicación — las tres RPCs Y la
+      # TABLA public.events (privilegios + ausencia de policy de escritura
+      # alcanzable por authenticated). Cuenta sintética con UUID reservado y
+      # cleanup verificado (corre dos veces seguidas en verde sin residuos).
+      #
+      # AISLAMIENTO: el archivo entero corre dentro de un BEGIN … ROLLBACK
+      # propio, y eso es parte del contrato, no una precaución. El despachador
+      # elige su lote por `processed_at IS NULL` SIN filtro de cuenta —es un
+      # relay—, así que una corrida sin rollback cierra TODO el outbox
+      # pendiente de la base, no sólo el de la cuenta sintética. En CI eso da
+      # igual (la base nace de un `db reset`), pero en el stack local
+      # compartido le drenaba el outbox a otra sesión, y el chequeo de "cero
+      # residuos" no lo veía porque sólo mira la cuenta sintética. Verificado
+      # el 2026-08-24: con el ROLLBACK, el conjunto de eventos pendientes
+      # ajenos queda idéntico (mismo count y mismo md5 de ids) antes y después
+      # de correr el gate. Puede hacer COMMIT de nada porque la RPC es una
+      # FUNCTION plpgsql y no puede commitear por su cuenta.
+      # Se mantiene igual como ÚLTIMO step: es el gate más caro y el único que
+      # ejerce el despachador completo en runtime.
       # El chequeo (5) del inventario de ACLs vive dentro de
       # test_function_acl_gate.sql, que ya corre más arriba: no necesita step
       # propio.

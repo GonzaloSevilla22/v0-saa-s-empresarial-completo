@@ -43,6 +43,7 @@ import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/
 import { Checkbox } from "@/components/ui/checkbox"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { bankAccountForKind } from "@/lib/types"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
 import { useCashboxes } from "@/hooks/data/use-cashboxes"
@@ -180,6 +181,18 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const isCashSelected = resolvedKind === "cash"
   const { branches } = useBranches()
   const effectiveBranchId = branchId || branches[0]?.id || null
+  // Contexto para traducir errores de la RPC (bug prod 2026-08-24: el error de
+  // stock llegaba con el UUID crudo y culpaba al inventario cuando el problema
+  // real era la sucursal). El nombre sale del carrito primero (lo que el
+  // usuario ve) y del catálogo como respaldo.
+  const lookupProductName = useCallback(
+    (id: string) =>
+      cartItems.find((i) => i.productId === id)?.productName ??
+      products.find((p) => p.id === id)?.name,
+    [cartItems, products],
+  )
+  const effectiveBranchName =
+    branches.find((b) => b.id === effectiveBranchId)?.name ?? null
   const { data: cashboxes } = useCashboxes(isCashSelected ? effectiveBranchId : null)
   const firstCashbox = cashboxes?.[0] ?? null
   const { data: currentSession } = useCurrentSession(isCashSelected ? (firstCashbox?.id ?? null) : null)
@@ -490,7 +503,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         await refreshData()
         onSuccess()
       } catch (err: any) {
-        toast.error(`Error al actualizar: ${err.message || "Error desconocido"}`)
+        toast.error(`Error al actualizar: ${humanizeOperationError(err.message, lookupProductName, effectiveBranchName)}`)
       } finally {
         setSubmitting(false)
         submittingRef.current = false
@@ -543,7 +556,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       await refreshData()
       onSuccess()
     } catch (err: any) {
-      toast.error(`Error al registrar la venta: ${err.message || "Error desconocido"}`)
+      toast.error(`Error al registrar la venta: ${humanizeOperationError(err.message, lookupProductName, effectiveBranchName)}`)
     } finally {
       setSubmitting(false)
       submittingRef.current = false

@@ -17,6 +17,9 @@ function mapRow(r: {
   status: string | null
   opened_at: string | null
   closed_at: string | null
+  created_by: string | null
+  deactivated_at: string | null
+  deactivated_by: string | null
 }): Branch {
   return {
     id:        r.id,
@@ -28,13 +31,35 @@ function mapRow(r: {
     status:    (r.status as Branch["status"]) ?? "active",
     openedAt:  r.opened_at,
     closedAt:  r.closed_at,
+    createdBy:      r.created_by ?? null,
+    deactivatedAt:  r.deactivated_at ?? null,
+    deactivatedBy:  r.deactivated_by ?? null,
   }
 }
 
-function translateRpcError(message: string): string {
+/**
+ * Traduce el mensaje crudo de una RPC de sucursales a texto para el usuario.
+ * Exportada (no sólo usada internamente) para que
+ * sucursal-guard-vaciado-auditoria pueda testearla directo, sin duplicar su
+ * lógica en el test (como venía haciendo __tests__/branches.test.ts, que
+ * quedó desactualizado frente a esta versión real).
+ */
+export function translateRpcError(message: string): string {
   if (message.includes("branch_limit_exceeded")) return "Límite de sucursales alcanzado para tu plan."
   if (message.includes("branch_name_duplicate")) return "Ya existe una sucursal con ese nombre."
-  if (message.includes("branch_has_stock"))      return "La sucursal tiene stock asignado. Transferilo a otra sucursal antes de cerrarla."
+  // sucursal-guard-vaciado-auditoria (G1, D3): P0428, un solo código con 3
+  // motivos discriminados por token de texto — el orden de los `includes`
+  // importa: branch_has_stock es el token MÁS específico y también aparece
+  // como substring de ningún otro, así que no hay colisión, pero se lo deja
+  // primero por ser el caso histórico (ya lo traducía el cierre con P0409).
+  if (message.includes("branch_has_stock"))
+    return "La sucursal tiene stock asignado. Transferilo a otra sucursal antes de darla de baja."
+  if (message.includes("branch_has_open_cash_session"))
+    return "La sucursal tiene una sesión de caja abierta. Cerrala antes de darla de baja."
+  if (message.includes("branch_has_pending_transfers"))
+    return "La sucursal tiene transferencias de stock sin completar. Esperá a que terminen antes de darla de baja."
+  if (message.includes("branch_delete_forbidden"))
+    return "No se puede borrar una sucursal — desactivala en su lugar."
   if (message.includes("last_active_branch"))    return "No podés cerrar la única sucursal operativa de tu cuenta."
   if (message.includes("branch_closed"))         return "La sucursal está cerrada."
   if (message.includes("unauthorized"))          return "No tenés permisos para realizar esta acción."
@@ -61,7 +86,7 @@ export function useBranches() {
       if (!accountId) return []
       const { data, error } = await supabase
         .from("branches")
-        .select("id, account_id, name, address, is_active, created_at, status, opened_at, closed_at")
+        .select("id, account_id, name, address, is_active, created_at, status, opened_at, closed_at, created_by, deactivated_at, deactivated_by")
         .eq("account_id", accountId)
         .eq("is_active", true)
         .order("created_at", { ascending: true })
@@ -71,6 +96,44 @@ export function useBranches() {
     },
     enabled: !!accountId,
     staleTime: 5 * 60 * 1000, // 5 min — branches rarely change
+  })
+
+  return {
+    branches:  query.data ?? [],
+    isLoading: query.isLoading,
+    isError:   query.isError,
+  }
+}
+
+/**
+ * sucursal-guard-vaciado-auditoria (G2, OQ-4): sucursales INACTIVAS de la
+ * cuenta, con su autoría de baja — para la línea secundaria de BranchList.tsx
+ * ("desactivada por X el <fecha>"). Hook separado de useBranches() a
+ * propósito: ese hook alimenta selectores de formularios (TransferStockModal,
+ * sale-form, etc.) que sólo deben ofrecer sucursales ACTIVAS — ensanchar su
+ * filtro habría filtrado sucursales inactivas en esos selectores.
+ */
+export function useInactiveBranches() {
+  const { user } = useAuth()
+  const supabase  = useMemo(() => createClient(), [])
+  const accountId = user?.accountId ?? null
+
+  const query = useQuery({
+    queryKey: queryKeys.branches.inactive(),
+    queryFn: async (): Promise<Branch[]> => {
+      if (!accountId) return []
+      const { data, error } = await supabase
+        .from("branches")
+        .select("id, account_id, name, address, is_active, created_at, status, opened_at, closed_at, created_by, deactivated_at, deactivated_by")
+        .eq("account_id", accountId)
+        .eq("is_active", false)
+        .order("deactivated_at", { ascending: false })
+
+      if (error) throw error
+      return (data ?? []).map(mapRow)
+    },
+    enabled: !!accountId,
+    staleTime: 5 * 60 * 1000,
   })
 
   return {

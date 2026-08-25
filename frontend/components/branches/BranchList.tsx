@@ -1,12 +1,17 @@
 "use client"
 
 import Link from "next/link"
-import { useBranches, useCloseBranch, useDeactivateBranch, useOpenBranch } from "@/hooks/data/use-branches"
+import {
+  useBranches, useInactiveBranches, useCloseBranch, useDeactivateBranch, useOpenBranch,
+} from "@/hooks/data/use-branches"
+import { useTeamMembers, resolveMemberName } from "@/hooks/data/use-team-members"
+import { useAuth } from "@/contexts/auth-context"
 import { useOrgRole } from "@/hooks/useOrgRole"
+import { DeactivateBranchDialog } from "@/components/branches/DeactivateBranchDialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Trash2, Loader2, Package, DoorOpen, DoorClosed } from "lucide-react"
+import { MapPin, Loader2, Package, DoorOpen, DoorClosed } from "lucide-react"
 import { toast } from "sonner"
 import type { PlanLimits } from "@/lib/types"
 
@@ -15,7 +20,10 @@ interface BranchListProps {
 }
 
 export function BranchList({ limits }: BranchListProps) {
+  const { user } = useAuth()
   const { branches, isLoading } = useBranches()
+  const { branches: inactiveBranches, isLoading: inactiveLoading } = useInactiveBranches()
+  const { data: members = [] } = useTeamMembers(user?.accountId)
   const { role } = useOrgRole()
   const { mutateAsync: deactivate, isPending } = useDeactivateBranch()
   const { mutateAsync: openBranch,  isPending: isOpening } = useOpenBranch()
@@ -27,7 +35,6 @@ export function BranchList({ limits }: BranchListProps) {
   const lifecyclePending = isOpening || isClosing
 
   async function handleDeactivate(id: string, name: string) {
-    if (!confirm(`¿Desactivar la sucursal "${name}"? Los registros históricos se conservan.`)) return
     try {
       await deactivate(id)
       toast.success(`Sucursal "${name}" desactivada`)
@@ -74,71 +81,102 @@ export function BranchList({ limits }: BranchListProps) {
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        {used} de {max} sucursal{max !== 1 ? "es" : ""} utilizadas
-      </p>
-      {branches.map((branch) => (
-        <Card key={branch.id} className="border border-border">
-          <CardContent className="flex items-start justify-between gap-3 p-4">
-            <div className="flex items-start gap-3">
-              <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-              <div>
-                <p className="text-sm font-medium">{branch.name}</p>
-                {branch.address && (
-                  <p className="text-xs text-muted-foreground mt-0.5">{branch.address}</p>
-                )}
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          {used} de {max} sucursal{max !== 1 ? "es" : ""} utilizadas
+        </p>
+        {branches.map((branch) => (
+          <Card key={branch.id} className="border border-border">
+            <CardContent className="flex items-start justify-between gap-3 p-4">
+              <div className="flex items-start gap-3">
+                <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">{branch.name}</p>
+                  {branch.address && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{branch.address}</p>
+                  )}
+                  {/* sucursal-guard-vaciado-auditoria (G2, OQ-4): autoría de
+                      alta visible para TODOS los miembros de la cuenta. */}
+                  <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                    Creada por {resolveMemberName(members, branch.createdBy)}
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {branch.status === "closed" ? (
-                <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">Cerrada</Badge>
-              ) : (
-                <Badge variant="outline" className="text-[10px]">Activa</Badge>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                asChild
-              >
-                <Link href={`/sucursales/${branch.id}/stock`} aria-label={`Ver stock de ${branch.name}`}>
-                  <Package className="h-3.5 w-3.5 mr-1" />
-                  Ver stock
-                </Link>
-              </Button>
-              {canWrite && (
+              <div className="flex items-center gap-2 shrink-0">
+                {branch.status === "closed" ? (
+                  <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">Cerrada</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">Activa</Badge>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-                  disabled={lifecyclePending}
-                  onClick={() => handleLifecycle(branch.id, branch.name, branch.status)}
-                  aria-label={branch.status === "active" ? `Cerrar ${branch.name}` : `Reabrir ${branch.name}`}
+                  asChild
                 >
-                  {branch.status === "active" ? (
-                    <><DoorClosed className="h-3.5 w-3.5 mr-1" />Cerrar</>
-                  ) : (
-                    <><DoorOpen className="h-3.5 w-3.5 mr-1" />Reabrir</>
-                  )}
+                  <Link href={`/sucursales/${branch.id}/stock`} aria-label={`Ver stock de ${branch.name}`}>
+                    <Package className="h-3.5 w-3.5 mr-1" />
+                    Ver stock
+                  </Link>
                 </Button>
-              )}
-              {canWrite && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  disabled={isPending}
-                  onClick={() => handleDeactivate(branch.id, branch.name)}
-                  aria-label="Desactivar sucursal"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+                {canWrite && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                    disabled={lifecyclePending}
+                    onClick={() => handleLifecycle(branch.id, branch.name, branch.status)}
+                    aria-label={branch.status === "active" ? `Cerrar ${branch.name}` : `Reabrir ${branch.name}`}
+                  >
+                    {branch.status === "active" ? (
+                      <><DoorClosed className="h-3.5 w-3.5 mr-1" />Cerrar</>
+                    ) : (
+                      <><DoorOpen className="h-3.5 w-3.5 mr-1" />Reabrir</>
+                    )}
+                  </Button>
+                )}
+                {canWrite && (
+                  <DeactivateBranchDialog
+                    branchId={branch.id}
+                    branchName={branch.name}
+                    isDeactivating={isPending}
+                    onConfirm={() => handleDeactivate(branch.id, branch.name)}
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* sucursal-guard-vaciado-auditoria (G2, D7): sucursales inactivas —
+          quién y cuándo las desactivó. Sólo se renderiza si hay alguna, para
+          no agregar ruido a la cuenta que nunca desactivó nada. */}
+      {!inactiveLoading && inactiveBranches.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">Sucursales inactivas</p>
+          {inactiveBranches.map((branch) => (
+            <Card key={branch.id} className="border border-border/60 opacity-75">
+              <CardContent className="flex items-start justify-between gap-3 p-4">
+                <div className="flex items-start gap-3">
+                  <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">{branch.name}</p>
+                    <p className="text-[11px] text-muted-foreground/80 mt-0.5">
+                      Desactivada por {resolveMemberName(members, branch.deactivatedBy)}
+                      {branch.deactivatedAt && (
+                        <> el {new Date(branch.deactivatedAt).toLocaleDateString("es-AR")}</>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-[10px]">Inactiva</Badge>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

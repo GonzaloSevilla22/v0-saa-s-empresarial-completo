@@ -54,6 +54,58 @@ export function translateBranchStockError(message: string): string {
   return message || "Ocurrió un error inesperado."
 }
 
+// ── Desglose por sucursal de UN producto (G3) ─────────────────────────────────
+
+export interface ProductBranchBreakdownRow {
+  branchId:   string
+  branchName: string
+  quantity:   number
+}
+
+/**
+ * sucursal-guard-vaciado-auditoria (G3, task 7.3): desglose por sucursal de
+ * las existencias de UN producto — la vista inversa de useBranchStock (que
+ * lista TODOS los productos de UNA sucursal). Leído del mismo ledger canónico
+ * (branch_stock), sin recalcular nada. Alimenta la acción "Transferir stock"
+ * de /stock: el usuario elige el origen viendo cuánto hay en cada sucursal.
+ */
+export function useProductBranchBreakdown(productId: string | null) {
+  const { user } = useAuth()
+  const supabase  = useMemo(() => createClient(), [])
+  const accountId = user?.accountId ?? null
+
+  const query = useQuery({
+    queryKey: queryKeys.branchStock.byProduct(productId ?? ""),
+    queryFn: async (): Promise<ProductBranchBreakdownRow[]> => {
+      if (!accountId || !productId) return []
+
+      const { data, error } = await supabase
+        .from("branch_stock")
+        .select("branch_id, quantity, branches(name)")
+        .eq("account_id", accountId)
+        .eq("product_id", productId)
+        .order("quantity", { ascending: false })
+
+      if (error) throw error
+      return (data ?? []).map((r) => {
+        const row = r as unknown as { branch_id: string; quantity: number; branches: { name: string } | null }
+        return {
+          branchId:   row.branch_id,
+          branchName: row.branches?.name ?? "Sucursal",
+          quantity:   row.quantity,
+        }
+      })
+    },
+    enabled:   !!accountId && !!productId,
+    staleTime: 30 * 1000,
+  })
+
+  return {
+    breakdown: query.data ?? [],
+    isLoading: query.isLoading,
+  }
+}
+
 /**
  * Fetches all branch_stock rows for a given branch, joined with product data.
  * Returns only rows where quantity > 0 or min_stock > 0 (i.e., relevant rows).

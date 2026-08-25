@@ -19,10 +19,10 @@ describe("humanizeOperationError — stock por sucursal", () => {
       "Showroom",
     )
 
-    expect(out).toContain("Top Pupera Liso Talle 1 Violeta")
-    expect(out).toContain("Showroom")
-    expect(out).toContain("otra sucursal")
-    expect(out).not.toContain(PRODUCT_ID) // el UUID no le sirve a nadie
+    expect(out.message).toContain("Top Pupera Liso Talle 1 Violeta")
+    expect(out.message).toContain("Showroom")
+    expect(out.message).toContain("otra sucursal")
+    expect(out.message).not.toContain(PRODUCT_ID) // el UUID no le sirve a nadie
   })
 
   it("traduce también la variante con sucursal explícita", () => {
@@ -32,29 +32,44 @@ describe("humanizeOperationError — stock por sucursal", () => {
       "Principal",
     )
 
-    expect(out).toContain("Top Pupera Liso Talle 1 Violeta")
-    expect(out).toContain("Principal")
+    expect(out.message).toContain("Top Pupera Liso Talle 1 Violeta")
+    expect(out.message).toContain("Principal")
   })
 
   it("sin nombre resoluble, no inventa: habla de 'uno de los productos'", () => {
     const out = humanizeOperationError(`Insufficient stock for product ${PRODUCT_ID}`, () => undefined)
 
-    expect(out).toContain("uno de los productos")
-    expect(out).toContain("sucursal")
+    expect(out.message).toContain("uno de los productos")
+    expect(out.message).toContain("sucursal")
   })
 
   it("sin sucursal conocida usa una redacción neutra", () => {
     const out = humanizeOperationError(`Insufficient stock for product ${PRODUCT_ID}`, lookup, null)
 
-    expect(out).toContain("la sucursal de esta operación")
+    expect(out.message).toContain("la sucursal de esta operación")
   })
 
-  it("un error que no reconoce se devuelve intacto (nunca oculta información)", () => {
+  it("un error que no reconoce se devuelve intacto y SIN acción (nunca oculta información)", () => {
     const original = "credit_requires_client: la venta a cuenta corriente exige un cliente"
-    expect(humanizeOperationError(original, lookup)).toBe(original)
+    const out = humanizeOperationError(original, lookup)
+    expect(out.message).toBe(original)
+    expect(out.action).toBeUndefined()
   })
 
-  it("mensaje vacío degrada a texto genérico", () => {
-    expect(humanizeOperationError("", lookup)).toBe("Error desconocido")
+  it("mensaje vacío degrada a texto genérico, sin acción", () => {
+    const out = humanizeOperationError("", lookup)
+    expect(out.message).toBe("Error desconocido")
+    expect(out.action).toBeUndefined()
+  })
+
+  // sucursal-guard-vaciado-auditoria (G3, task 7.4): el error de stock ofrece
+  // un camino directo a transferir el producto involucrado.
+  it("el error de stock por sucursal trae una acción hacia /stock con el producto preseleccionado", () => {
+    const out = humanizeOperationError(`Insufficient stock for product ${PRODUCT_ID}`, lookup, "Showroom")
+
+    expect(out.action).toEqual({
+      label: "Transferir stock",
+      href: `/stock?product=${PRODUCT_ID}`,
+    })
   })
 })

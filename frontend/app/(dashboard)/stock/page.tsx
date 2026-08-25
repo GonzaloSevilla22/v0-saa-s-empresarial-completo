@@ -1,8 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import { useProducts } from "@/hooks/data/use-products"
 import { useAuth } from "@/contexts/auth-context"
+import { useBranches } from "@/hooks/data/use-branches"
+import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { StockSemaphore } from "@/components/stock/stock-semaphore"
 import { LowStockAlert } from "@/components/stock/low-stock-alert"
 import { StockAdjustmentModal } from "@/components/stock/stock-adjustment-modal"
@@ -16,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { SlidersHorizontal, Upload } from "lucide-react"
 import { ExportButton } from "@/components/export/ExportButton"
 import { holdsOwnStock, getStockStatus, isBelowThreshold, type StockStatus } from "@/lib/product-stock"
+import { TransferStockAction } from "@/components/branches/TransferStockAction"
 import type { Product } from "@/lib/types"
 
 /** Sort order for the "Estado" column — most urgent first, "sin mínimo" last. */
@@ -26,7 +30,16 @@ const STATUS_SORT_RANK: Record<StockStatus, number> = {
   "sin-umbral": 3,
 }
 
-const columns: Column<Product>[] = [
+/**
+ * sucursal-guard-vaciado-auditoria (G3, task 7.2): `columns` pasa de
+ * constante estática a función de las sucursales activas — la acción
+ * "Transferir stock" sólo tiene sentido con el módulo de sucursales
+ * habilitado por el plan Y más de una sucursal activa (con una sola no hay
+ * a dónde transferir, D7). `buildColumns` se memoiza en el componente con
+ * `showTransfer` como dependencia.
+ */
+function buildColumns(showTransfer: boolean): Column<Product>[] {
+  return [
   {
     key: "name",
     header: "Producto",
@@ -71,9 +84,17 @@ const columns: Column<Product>[] = [
   {
     key: "adjust",
     header: "",
-    cell: (row) => <AdjustButton product={row} />,
+    cell: (row) => (
+      <div className="flex items-center justify-end gap-1">
+        {showTransfer && holdsOwnStock(row) && (
+          <TransferStockAction productId={row.id} productName={row.name} />
+        )}
+        <AdjustButton product={row} />
+      </div>
+    ),
   },
-]
+  ]
+}
 
 /** Inline adjust button rendered per row — declared outside so columns is stable */
 function AdjustButton({ product }: { product: Product }) {
@@ -110,6 +131,21 @@ export default function StockPage() {
   const inventory = products.filter(holdsOwnStock)
   const lowStock = inventory.filter(p => isBelowThreshold(p.stock, p.minStock))
   const { isAdmin } = useAuth()
+
+  // sucursal-guard-vaciado-auditoria (G3, D7): "Transferir stock" sólo tiene
+  // sentido con el módulo de sucursales habilitado y más de una activa —
+  // con una sola no hay a dónde transferir y el control sería ruido.
+  const { branches } = useBranches()
+  const { limits } = usePlanLimits()
+  const showTransfer = !!limits?.hasBranchesModule && branches.length > 1
+  const columns = useMemo(() => buildColumns(showTransfer), [showTransfer])
+
+  // sucursal-guard-vaciado-auditoria (G3, task 7.5): camino directo desde el
+  // aviso de error de venta — humanizeOperationError navega a
+  // /stock?product=<id>. Se abre el mismo panel de existencias/transferencia
+  // que la fila del producto ofrece, sin duplicar el diálogo.
+  const searchParams = useSearchParams()
+  const preselectedProductId = searchParams.get("product")
 
   // Quick-edit dialog triggered from the alert panel
   const [editingProduct,   setEditingProduct]   = useState<Product | undefined>()
@@ -149,6 +185,20 @@ export default function StockPage() {
           </Button>
         </div>
       </div>
+
+      {/* sucursal-guard-vaciado-auditoria (G3, task 7.5): camino directo
+          desde el aviso de error de venta — se auto-abre sin trigger propio. */}
+      {showTransfer && preselectedProductId && (() => {
+        const preselected = inventory.find((p) => p.id === preselectedProductId)
+        return preselected ? (
+          <TransferStockAction
+            productId={preselected.id}
+            productName={preselected.name}
+            defaultOpen
+            hideTrigger
+          />
+        ) : null
+      })()}
 
       {/* ── Admin analytics ───────────────────────────────────────────────── */}
       {isAdmin && (

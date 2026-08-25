@@ -14,6 +14,12 @@ import type { Sale } from "@/lib/types"
 
 const updateSaleOperationMock = vi.fn().mockResolvedValue(undefined)
 
+// sucursal-guard-vaciado-auditoria (G3, task 7.5): SaleForm ahora usa
+// useRouter() de next/navigation para el botón "Transferir stock" del toast
+// de error — sin este mock, render() explota con "invariant expected app
+// router to be mounted".
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-clients", () => ({ useClients: () => ({ clients: [], addClient: vi.fn() }) }))
 vi.mock("@/hooks/data/use-sales", () => ({

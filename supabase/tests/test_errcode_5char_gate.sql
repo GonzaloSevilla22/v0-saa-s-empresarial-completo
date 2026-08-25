@@ -95,7 +95,10 @@ BEGIN
 
   PERFORM set_config('request.jwt.claims', '', true);
   DELETE FROM public.email_logs WHERE user_id = v_user_id;
+  -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.accounts   WHERE owner_user_id = v_user_id;
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.profiles   WHERE id = v_user_id;
   DELETE FROM auth.users        WHERE id = v_user_id;
 
@@ -108,7 +111,10 @@ EXCEPTION
     BEGIN
       PERFORM set_config('request.jwt.claims', '', true);
       DELETE FROM public.email_logs WHERE user_id = v_user_id;
+      -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.accounts   WHERE owner_user_id = v_user_id;
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.profiles   WHERE id = v_user_id;
       DELETE FROM auth.users        WHERE id = v_user_id;
     EXCEPTION WHEN OTHERS THEN NULL;

@@ -824,7 +824,10 @@ BEGIN
   DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
   DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
   DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct));
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
   DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
   DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
@@ -862,7 +865,10 @@ EXCEPTION
       DELETE FROM public.purchases WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
       DELETE FROM public.expenses  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
       DELETE FROM public.cashboxes WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct));
+      -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
       DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
       DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);

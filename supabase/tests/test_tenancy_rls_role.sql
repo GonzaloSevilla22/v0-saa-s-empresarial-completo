@@ -200,7 +200,10 @@ BEGIN
   DELETE FROM public.branch_stock    WHERE branch_id IN (v_branch_a, v_branch_b);
   DELETE FROM public.products        WHERE account_id IN (v_account_a, v_account_b);
   DELETE FROM public.cashboxes       WHERE branch_id IN (v_branch_a, v_branch_b);
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.branches        WHERE account_id IN (v_account_a, v_account_b);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.account_members WHERE user_id IN (v_user_a, v_user_b);
   DELETE FROM public.accounts        WHERE owner_user_id IN (v_user_a, v_user_b);
   DELETE FROM public.profiles        WHERE id IN (v_user_a, v_user_b);
@@ -216,7 +219,10 @@ EXCEPTION
       DELETE FROM public.branch_stock    WHERE branch_id IN (v_branch_a, v_branch_b);
       DELETE FROM public.products        WHERE account_id IN (v_account_a, v_account_b);
       DELETE FROM public.cashboxes       WHERE branch_id IN (v_branch_a, v_branch_b);
+      -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.branches        WHERE account_id IN (v_account_a, v_account_b);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.account_members WHERE user_id IN (v_user_a, v_user_b);
       DELETE FROM public.accounts        WHERE owner_user_id IN (v_user_a, v_user_b);
       DELETE FROM public.profiles        WHERE id IN (v_user_a, v_user_b);

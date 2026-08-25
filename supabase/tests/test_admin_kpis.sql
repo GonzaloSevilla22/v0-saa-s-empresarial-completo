@@ -451,7 +451,10 @@ BEGIN
   DELETE FROM public.cashboxes WHERE branch_id IN (
     SELECT id FROM public.branches WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts)
   );
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.branches  WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.account_members WHERE user_id IN (
     v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
   );
@@ -494,7 +497,10 @@ EXCEPTION
       DELETE FROM public.cashboxes WHERE branch_id IN (
         SELECT id FROM public.branches WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts)
       );
+      -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.branches  WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.account_members WHERE user_id IN (
         v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
       );
@@ -940,9 +946,12 @@ BEGIN
        OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
        OR account_id = ANY(v2_ret_accounts)
   );
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.branches WHERE account_id = v2_admin_account
      OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
      OR account_id = ANY(v2_ret_accounts);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.account_members WHERE user_id IN (
     v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
     v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id
@@ -989,9 +998,12 @@ EXCEPTION
            OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
            OR account_id = ANY(v2_ret_accounts)
       );
+      -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.branches WHERE account_id = v2_admin_account
          OR account_id = ANY(ARRAY[v2_account_paying, v2_account_sub, v2_account_trial, v2_account_exempt, v2_account_free])
          OR account_id = ANY(v2_ret_accounts);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.account_members WHERE user_id IN (
         v2_admin_id, v2_owner_paying_id, v2_owner_sub_id, v2_owner_trial_id, v2_owner_exempt_id, v2_owner_free_id,
         v2_ret_r_id, v2_ret_nr_id, v2_ret_imm_id

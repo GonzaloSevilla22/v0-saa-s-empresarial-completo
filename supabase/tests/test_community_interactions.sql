@@ -371,7 +371,10 @@ BEGIN
   DELETE FROM public.cashboxes WHERE branch_id IN (
     SELECT id FROM public.branches WHERE account_id = v_user_account
   );
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.branches        WHERE account_id = v_user_account;
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.account_members WHERE user_id = v_user_id;
   DELETE FROM public.accounts        WHERE id = v_user_account;
   DELETE FROM public.profiles        WHERE id = v_user_id;
@@ -400,7 +403,10 @@ EXCEPTION
       DELETE FROM public.cashboxes WHERE branch_id IN (
         SELECT id FROM public.branches WHERE account_id = v_user_account
       );
+      -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.branches        WHERE account_id = v_user_account;
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.account_members WHERE user_id = v_user_id;
       DELETE FROM public.accounts        WHERE id = v_user_account;
       DELETE FROM public.profiles        WHERE id = v_user_id;

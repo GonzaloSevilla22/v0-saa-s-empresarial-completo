@@ -365,6 +365,18 @@ jobs:
           # local: tres aplicaciones seguidas sin error y sin cambio del
           # fingerprint de cuerpos, ACLs y comments).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261013000001_tenancy_guard_caja_sesion.sql
+          # sucursal-guard-vaciado-auditoria (2026-08-25): ÚLTIMO eslabón —
+          # verifica la propia idempotencia del archivo en CI (task 4.14),
+          # mismo motivo que los eslabones anteriores. No comparte NINGUNA
+          # función con los eslabones previos de esta cadena (`branches` no
+          # había sido tocada por ningún change anterior de la cadena), así
+          # que el orden relativo a ellos no genera phantom regression — se
+          # agrega al final por convención de la casa, no por precondición
+          # dura. Contiene su propio gate anti-overload + ACL (sección 10 del
+          # archivo). Verificado en local: `supabase db reset` + dos
+          # reaplicaciones directas seguidas, sin error y sin cambio de
+          # fingerprint de cuerpos/ACLs/triggers/comments.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261014000001_sucursal_guard_vaciado_auditoria.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -859,3 +871,17 @@ jobs:
       # la misma base y no deja residuos.
       - name: Run tenancy-guard-caja-outbox gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_tenancy_guard_caja_outbox.sql
+
+      # sucursal-guard-vaciado-auditoria (G1/G2, 2026-08-25): los 4 caminos de
+      # baja (comando de desactivación, comando de cierre, UPDATE directo,
+      # DELETE directo) rechazan con P0428 sucursales con existencias/sesión
+      # de caja abierta; el borrado físico está SIEMPRE prohibido (D4,
+      # incondicional); la matriz de evasión (renombrar/dirección/reactivar
+      # con stock) no se ve afectada; el recorrido completo transferir→
+      # desactivar del incidente real queda en verde; la autoría de alta/baja
+      # se escribe (G2) y el ciclo de vida completo queda en audit_logs sin
+      # generar notificaciones. Verificado en local (`supabase db reset` +
+      # doble reaplicación de la migración): corre dos veces seguidas en
+      # verde sobre la misma base.
+      - name: Run sucursal-guard-vaciado-auditoria gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_sucursal_guard_vaciado.sql

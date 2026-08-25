@@ -83,15 +83,15 @@
 
 ## 9. PR, merge y verificación post-merge
 
-- [ ] 9.1 Abrir PR desde rama propia.
-- [ ] 9.2 Esperar gates y mergear si verdes.
-- [ ] 9.3 Verificación post-merge en prod (sólo SELECTs).
-- [ ] 9.4 Re-medir los 4 conteos de daño histórico.
-- [ ] 9.5 Prueba de humo real en prod.
-- [ ] 9.6 Actualizar `CHANGES.md` y el puntero del `CLAUDE.md`.
+- [x] 9.1 Abrir PR desde rama propia. — PR #465.
+- [x] 9.2 Esperar gates y mergear si verdes. — Verdes; squash merge `043017a`. Deploy "Build and Deploy" exitoso (frontend + Deploy Supabase en verde).
+- [x] 9.3 Verificación post-merge en prod (sólo SELECTs). — `MAX(version) = 20261014000001`; 2 triggers vivos en `public.branches` (`trg_guard_branch_decommission`, `trg_audit_branch_lifecycle`); 3 columnas de auditoría presentes (`created_by`, `deactivated_at`, `deactivated_by`).
+- [x] 9.4 Re-medir los 4 conteos de daño histórico. — **0** sucursales inactivas con stock atrapado sobre 40 sucursales de prod; 13 activas con stock (operación normal). Sin reparación pendiente.
+- [x] 9.5 Prueba de humo real en prod. — `UPDATE branches SET is_active=false` sobre Showroom (`2ec1120d-4c97-45cf-a43d-4aceb403d2dc`, 531 productos) dentro de un DO block seguro → el guard lanzó `P0428` y el UPDATE quedó bloqueado; Showroom sigue `is_active=true`. Verificado.
+- [x] 9.6 Actualizar `CHANGES.md` y el puntero del `CLAUDE.md`.
 
 ## 10. Cierre
 
 - [x] 10.1 Las 7 OQs resueltas por su recomendación (instrucción explícita del PO para este apply) — ver PR body / CHANGES.md.
-- [ ] 10.2 Registrar candidatos en `CHANGES.md` (OQ-5, OQ-6, OQ-7 ya resuelta acá, más el hallazgo del "mostrador"/POS sin wirear).
-- [ ] 10.3 `mem_save` y `/opsx:archive`.
+- [x] 10.2 Registrar candidatos en `CHANGES.md` (OQ-5, OQ-6, OQ-7 ya resuelta acá, más el hallazgo del "mostrador"/POS sin wirear, más `BranchOut` que declaraba `user_id` inexistente — ya corregido en el apply, tasks 5.4).
+- [x] 10.3 `mem_save` y `/opsx:archive`.

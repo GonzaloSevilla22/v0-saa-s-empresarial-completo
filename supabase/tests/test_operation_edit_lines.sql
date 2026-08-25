@@ -821,7 +821,10 @@ BEGIN
   SET session_replication_role = DEFAULT;
   DELETE FROM public.account_feature_flags WHERE account_id IN (v_account_a, v_account_b, v_account_c);
   DELETE FROM public.account_members       WHERE user_id IN (v_user_a, v_user_b, v_user_c);
+  -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.accounts              WHERE id IN (v_account_a, v_account_b, v_account_c);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.profiles              WHERE id IN (v_user_a, v_user_b, v_user_c);
   DELETE FROM public.email_logs            WHERE user_id IN (v_user_a, v_user_b, v_user_c);
   DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_a, v_user_b, v_user_c);
@@ -849,7 +852,10 @@ EXCEPTION
       SET session_replication_role = DEFAULT;
       DELETE FROM public.account_feature_flags WHERE account_id IN (v_account_a, v_account_b, v_account_c);
       DELETE FROM public.account_members       WHERE user_id IN (v_user_a, v_user_b, v_user_c);
+      -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.accounts              WHERE id IN (v_account_a, v_account_b, v_account_c);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.profiles              WHERE id IN (v_user_a, v_user_b, v_user_c);
       DELETE FROM public.email_logs            WHERE user_id IN (v_user_a, v_user_b, v_user_c);
       DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_a, v_user_b, v_user_c);

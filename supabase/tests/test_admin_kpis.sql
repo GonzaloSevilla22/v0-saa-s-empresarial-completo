@@ -458,7 +458,10 @@ BEGIN
   DELETE FROM public.account_members WHERE user_id IN (
     v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
   );
+  -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.accounts WHERE id = v_admin_account OR id = ANY(v_secondary_accounts);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.profiles WHERE id IN (
     v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
   );
@@ -504,7 +507,10 @@ EXCEPTION
       DELETE FROM public.account_members WHERE user_id IN (
         v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
       );
+      -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.accounts WHERE id = v_admin_account OR id = ANY(v_secondary_accounts);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.profiles WHERE id IN (
         v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
       );

@@ -829,7 +829,10 @@ BEGIN
   DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
   SET session_replication_role = DEFAULT;
   DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+  -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
   DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
   DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
@@ -870,7 +873,10 @@ EXCEPTION
       DELETE FROM public.branches  WHERE account_id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
       SET session_replication_role = DEFAULT;
       DELETE FROM public.account_members       WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
+      -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.accounts              WHERE id IN (v_account_id, v_granularity_acct, v_backfill_acct, v_g4_acct);
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.profiles              WHERE id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
       DELETE FROM public.email_logs            WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);
       DELETE FROM public.operation_idempotency WHERE user_id IN (v_user_id, v_granularity_user, v_backfill_user, v_g4_user);

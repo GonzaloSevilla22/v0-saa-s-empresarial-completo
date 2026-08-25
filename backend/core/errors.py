@@ -135,6 +135,15 @@ _BUSINESS_ERRCODE_STATUS = {
     # TODOS los inserts de suppliers (el service de proveedores NO precuenta,
     # a diferencia de create_client). Antes de este mapeo salía 500 genérico.
     "P0B10": 403,
+    # sucursal-guard-vaciado-auditoria (G1): sucursal con contenido operativo
+    # bloqueante (existencias / sesión de caja abierta / transferencias sin
+    # completar) o intento de borrado físico — 409, misma familia que
+    # P0423/P0425/P0426 (conflicto de ESTADO, no de payload). Lo lanza el
+    # disparador trg_guard_branch_decommission (fn_guard_branch_decommission,
+    # 20261014000001) y, como defensa en profundidad, rpc_deactivate_branch /
+    # rpc_close_branch. El mensaje del RAISE ya nombra la acción que destraba
+    # (transferir el stock a otra sucursal / desactivar en vez de borrar).
+    "P0428": 409,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

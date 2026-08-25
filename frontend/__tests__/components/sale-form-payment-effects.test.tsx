@@ -15,6 +15,12 @@ let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive
 let customerAccountMock: { balance: number } | null = null
 let currentSessionMock: { id: string } | null = null
 
+// sucursal-guard-vaciado-auditoria (G3, task 7.5): SaleForm ahora usa
+// useRouter() de next/navigation para el botón "Transferir stock" del toast
+// de error — sin este mock, render() explota con "invariant expected app
+// router to be mounted".
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-clients", () => ({ useClients: () => ({ clients: [{ id: "client-1", name: "Cliente Test" }], addClient: vi.fn() }) }))
 vi.mock("@/hooks/data/use-sales", () => ({

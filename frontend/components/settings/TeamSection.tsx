@@ -19,10 +19,11 @@
 
 import React, { useState } from "react"
 import Link from "next/link"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { useTeamMembers, type TeamMemberRow } from "@/hooks/data/use-team-members"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,40 +33,11 @@ import { Crown, Shield, UserPlus, Users, Loader2, AlertCircle, CheckCircle2, Loc
 import { planHasAccess } from "@/lib/plan-utils"
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface MemberRow {
-  id: string
-  user_id: string
-  role: "owner" | "admin" | "member"
-  created_at: string
-  profiles: {
-    name: string | null
-    email: string | null
-  } | null
-}
-
-// ── Data fetching ─────────────────────────────────────────────────────────────
-
-function useTeamMembers(accountId: string) {
-  const supabase = createClient()
-  return useQuery({
-    queryKey: ["teamMembers", accountId] as const,
-    queryFn: async (): Promise<MemberRow[]> => {
-      const { data, error } = await supabase
-        .from("account_members")
-        .select("id, user_id, role, created_at, profiles(name, email)")
-        .eq("account_id", accountId)
-        .order("created_at", { ascending: true })
-
-      if (error) throw error
-      // Supabase infers the profiles join as an array type; cast via unknown
-      // to obtain the single-row object shape (1:1 join on user_id).
-      return (data ?? []) as unknown as MemberRow[]
-    },
-    enabled: !!accountId,
-    staleTime: 60_000, // 1 minute
-  })
-}
+// MemberRow / useTeamMembers viven en hooks/data/use-team-members.ts
+// (sucursal-guard-vaciado-auditoria: BranchList.tsx pasó a necesitar el
+// mismo dato para resolver autoría — regla del proyecto, reutilización
+// antes que repetición).
+type MemberRow = TeamMemberRow
 
 // ── Main component ────────────────────────────────────────────────────────────
 

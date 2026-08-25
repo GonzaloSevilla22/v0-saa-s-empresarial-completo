@@ -716,10 +716,16 @@ BEGIN
   DELETE FROM public.clients         WHERE account_id = v_account_a;
   DELETE FROM public.events          WHERE account_id = v_account_a;
   DELETE FROM public.cashboxes       WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_a);
+  -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.branches        WHERE account_id = v_account_a;
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.account_feature_flags WHERE account_id = v_account_a;
   DELETE FROM public.account_members       WHERE user_id = v_user_a;
+  -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+  SET session_replication_role = replica;
   DELETE FROM public.accounts              WHERE id = v_account_a;
+  SET session_replication_role = DEFAULT;
   DELETE FROM public.profiles              WHERE id = v_user_a;
   DELETE FROM public.email_logs            WHERE user_id = v_user_a;
   DELETE FROM public.operation_idempotency WHERE user_id = v_user_a;
@@ -741,10 +747,16 @@ EXCEPTION
       DELETE FROM public.clients         WHERE account_id = v_account_a;
       DELETE FROM public.events          WHERE account_id = v_account_a;
       DELETE FROM public.cashboxes       WHERE branch_id IN (SELECT id FROM public.branches WHERE account_id = v_account_a);
+      -- sucursal-guard-vaciado-auditoria: branches ahora prohibe el borrado fisico SIEMPRE (trigger trg_guard_branch_decommission, P0428). Bypass explicito para el cleanup del fixture sintetico -- session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.branches        WHERE account_id = v_account_a;
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.account_feature_flags WHERE account_id = v_account_a;
       DELETE FROM public.account_members       WHERE user_id = v_user_a;
+      -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
+      SET session_replication_role = replica;
       DELETE FROM public.accounts              WHERE id = v_account_a;
+      SET session_replication_role = DEFAULT;
       DELETE FROM public.profiles              WHERE id = v_user_a;
       DELETE FROM public.email_logs            WHERE user_id = v_user_a;
       DELETE FROM public.operation_idempotency WHERE user_id = v_user_a;

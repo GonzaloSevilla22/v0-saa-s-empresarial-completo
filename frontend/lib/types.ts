@@ -65,6 +65,14 @@ export interface Branch {
   status: "active" | "closed"
   openedAt: string | null
   closedAt: string | null
+  /**
+   * sucursal-guard-vaciado-auditoria (G2, D6): autoría de alta y de baja.
+   * NULL en sucursales preexistentes (sin backfill) y en las altas de camino
+   * de sistema — se muestra como "no registrado" en la interfaz.
+   */
+  createdBy: string | null
+  deactivatedAt: string | null
+  deactivatedBy: string | null
 }
 
 /**

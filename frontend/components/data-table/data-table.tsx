@@ -406,7 +406,7 @@ export function DataTable<T>({
                 </TableRow>
               ) : (
                 paginated.map((row) => (
-                  <TableRow key={getId(row)} className="border-border hover:bg-accent/50">
+                  <TableRow key={getId(row)} className="group border-border hover:bg-accent/50">
                     {columns.map((col) => (
                       <TableCell key={col.key} className="text-sm text-card-foreground">
                         {col.cell(row)}

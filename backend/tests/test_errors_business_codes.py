@@ -64,6 +64,13 @@ def _body(resp) -> dict:
         # ve todos los inserts de suppliers; antes de este mapeo el rechazo
         # salía 500 genérico.
         ("P0B10", 403),
+        # sucursal-guard-vaciado-auditoria (G1): sucursal con contenido
+        # operativo bloqueante (existencias / sesión de caja abierta /
+        # transferencias sin completar) o intento de borrado físico — 409,
+        # misma familia que P0423/P0425/P0426 (conflicto de ESTADO, no de
+        # payload). El mensaje del RAISE ya nombra la acción que destraba
+        # (transferir el stock / desactivar en lugar de borrar).
+        ("P0428", 409),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

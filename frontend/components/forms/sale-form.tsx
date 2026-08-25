@@ -44,6 +44,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { bankAccountForKind } from "@/lib/types"
 import { humanizeOperationError } from "@/lib/operation-errors"
+import { useRouter } from "next/navigation"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
 import { useCashboxes } from "@/hooks/data/use-cashboxes"
@@ -65,6 +66,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const { units, unitsById } = useUnitsOfMeasure()
   const { idempotencyKey, resetIdempotencyKey } = useIdempotencyKey("sale-create")
   const isEdit = !!editingOperation
+  const router = useRouter()
 
   // ── pagos-cableados-restantes (OQ-C/OQ-D): catálogo + kind resuelto ────────
   // Mismo patrón que /ventas/pos (pos-catalogo-pagos D7/D8) — reutilización
@@ -193,6 +195,21 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   )
   const effectiveBranchName =
     branches.find((b) => b.id === effectiveBranchId)?.name ?? null
+
+  // sucursal-guard-vaciado-auditoria (G3, task 7.5): muestra el error de
+  // operación humanizado y, si trae acción (transferir stock del producto
+  // involucrado), la cablea como botón del toast — sonner soporta `action`
+  // nativamente, sin diálogo nuevo.
+  const showOperationError = useCallback(
+    (prefix: string, rawMessage: string) => {
+      const { message, action } = humanizeOperationError(rawMessage, lookupProductName, effectiveBranchName)
+      toast.error(`${prefix}${message}`, action ? {
+        action: { label: action.label, onClick: () => router.push(action.href) },
+      } : undefined)
+    },
+    [router, lookupProductName, effectiveBranchName],
+  )
+
   const { data: cashboxes } = useCashboxes(isCashSelected ? effectiveBranchId : null)
   const firstCashbox = cashboxes?.[0] ?? null
   const { data: currentSession } = useCurrentSession(isCashSelected ? (firstCashbox?.id ?? null) : null)
@@ -503,7 +520,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         await refreshData()
         onSuccess()
       } catch (err: any) {
-        toast.error(`Error al actualizar: ${humanizeOperationError(err.message, lookupProductName, effectiveBranchName)}`)
+        showOperationError("Error al actualizar: ", err.message)
       } finally {
         setSubmitting(false)
         submittingRef.current = false
@@ -556,7 +573,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       await refreshData()
       onSuccess()
     } catch (err: any) {
-      toast.error(`Error al registrar la venta: ${humanizeOperationError(err.message, lookupProductName, effectiveBranchName)}`)
+      showOperationError("Error al registrar la venta: ", err.message)
     } finally {
       setSubmitting(false)
       submittingRef.current = false

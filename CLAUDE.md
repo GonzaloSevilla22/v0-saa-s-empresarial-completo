@@ -2,6 +2,8 @@
 
 > SaaS para microemprendedores de Mendoza: gestión financiera (ventas/compras/gastos/stock) + IA accionable.  
 > MVP en producción con usuarios reales — Junio 2026.
+>
+> ⚠️ **Este archivo se mantiene idéntico en `CLAUDE.md` y `AGENTS.md`.** `CLAUDE.md` es la fuente de verdad (Claude Code lo inyecta solo en su contexto); `AGENTS.md` es la copia que leen los demás agentes. Editá `CLAUDE.md` y corré `python scripts/ci/check_docs_sync.py --fix` **en el mismo PR** — el gate `Docs Sync` lo verifica en cada PR. (Se agregó porque `AGENTS.md` estuvo dos meses congelado anunciando `C-21` como próximo change.)
 
 ---
 

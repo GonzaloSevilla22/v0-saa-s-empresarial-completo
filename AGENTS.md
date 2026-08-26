@@ -7,34 +7,71 @@
 
 ## Stack Tecnológico
 
+> Verificado contra los manifiestos el **2026-08-26** (`frontend/package.json`, `backend/requirements.txt`, `backend/pyproject.toml`, `.github/workflows/`, `vercel.json`).
+> Si tu change sube o baja una versión, actualizá esta tabla en el mismo PR — se desactualizó una vez y nadie lo notó por meses.
+
+### Frontend — `frontend/package.json`
+
 | Capa | Tecnología | Versión |
 |------|------------|---------|
-| **Framework** | Next.js (App Router) | 16.1.6 |
-| **UI** | React + TypeScript | 19.2.3 / 5.7.3 |
-| **Estilos** | Tailwind CSS + shadcn/ui + Radix UI | 3.4.x |
-| **Estado global** | Zustand | 5.x |
-| **Server state / cache** | TanStack React Query | 5.x |
-| **Formularios** | React Hook Form + Zod | — |
-| **Gráficos** | Recharts + D3.js | — |
-| **BaaS** | Supabase (Auth, DB, Edge Functions, Storage) | — |
-| **DB** | PostgreSQL (via Supabase) con RLS | — |
-| **Edge Functions** | Deno (Supabase) | — |
-| **IA** | OpenAI API (`gpt-4o-mini`) | — |
-| **Email** | Resend (via Edge Function + DB Webhook) | — |
-| **Deploy** | Vercel (frontend) | — |
-| **Package manager** | pnpm | 10.33.4 |
+| **Framework** | Next.js (App Router; Turbopack en `dev`) | 16.1.6 |
+| **UI** | React + React DOM | 19.2.3 |
+| **Lenguaje** | TypeScript | 5.7.3 |
+| **Estilos** | Tailwind CSS + PostCSS + `tailwindcss-animate` | 3.4.17 |
+| **Componentes** | shadcn/ui sobre Radix UI (28 primitivas) + `class-variance-authority` + `clsx` + `tailwind-merge` | — |
+| **Iconos** | `lucide-react` | 0.544 |
+| **Estado global** | Zustand | 5.0.13 |
+| **Server state / cache** | TanStack React Query (+ devtools) | 5.100.14 |
+| **Formularios** | React Hook Form + Zod + `@hookform/resolvers` | 7.54 / 3.24 |
+| **Gráficos** | Recharts + D3.js | 2.15 / 7.9 |
+| **3D** | `three` + `@react-three/fiber` + `@react-three/drei` (v4 visual, con `capabilityGate`) | 0.185 / 9.6 / 10.7 |
+| **Animación** | `framer-motion` | 12.43 |
+| **Temas** | `next-themes` (claro/oscuro — ambos obligatorios en toda UI nueva) | 0.4.6 |
+| **Cliente Supabase** | `@supabase/supabase-js` + `@supabase/ssr` | 2.98 / 0.8 |
+| **Pagos (cliente)** | `mercadopago` | 2.4 |
+| **Anti-bot** | Cloudflare Turnstile (`@marsidev/react-turnstile`) — usar siempre `submitWithFreshCaptcha` | 1.5 |
+| **Otros** | `date-fns` 4.1, `sonner`, `cmdk`, `vaul`, `embla-carousel-react`, `react-day-picker`, `input-otp`, `react-resizable-panels` | — |
+| **Unit tests** | Vitest + Testing Library (react/dom/jest-dom/user-event) + jsdom | 4.1 / 29 |
+| **E2E** | Playwright | 1.61 |
+| **Package manager** | pnpm (monorepo, `pnpm-workspace.yaml`) | 10.33.4 |
 
-### Backend Python (NUEVO — planificado, CHANGES.md C-15+)
+### Backend Python — `backend/` (EN PRODUCCIÓN — Fase 5 ✅, ya no es "planificado")
 
-> Backend que convive con el frontend Next.js en un **modelo híbrido**: el frontend consume FastAPI para datos (mutaciones + lecturas) y sigue hablando directo con Supabase para Realtime, Auth y Storage. Ver `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI".
+> **Modelo híbrido**: el frontend consume FastAPI para datos (mutaciones + lecturas) y sigue hablando directo con Supabase para Auth y Storage. Realtime: Supabase (DEC-16) **+** WebSocket propio del backend (`routers/ws.py` + `core/ws_manager.py`). Ver `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI".
+>
+> **Superficie real**: 26 routers / 26 services / 30 repositories + `core/` (`auth`, `client_activity`, `config`, `database`, `deps`, `errors`, `guards`, `idempotency`, `redis_client`, `ws_manager`).
 
 | Capa | Tecnología | Notas |
 |------|------------|-------|
-| **Framework API** | FastAPI + Pydantic v2 | Arquitectura 3 capas: routers → services → repositories |
-| **DB driver** | asyncpg | Pool con JWT-passthrough (RLS org-based activa) |
-| **Cache / rate-limit** | Redis (Upstash free) | — |
-| **Testing** | pytest + pytest-asyncio | Coverage mínimo en CI |
-| **Deploy backend** | Render (free tier) | Cold start ~50s; mitigable con ping a `/health` |
+| **Runtime** | Python 3.12 (CI) | `pyproject` declara `requires-python >=3.11` |
+| **Framework API** | FastAPI ≥0.111 + Uvicorn[standard] ≥0.29 | Arquitectura 3 capas: routers → services → repositories |
+| **Validación** | Pydantic v2 + `pydantic-settings` ≥2.2 | Nada de payloads sin schema |
+| **DB driver** | asyncpg ≥0.29 | Pool con JWT-passthrough (RLS org-based activa como red, NO como guard único) |
+| **Auth** | `PyJWT[crypto]` ≥2.8 (`PyJWKClient`) | Los tests usan `python-jose` — ver nota ⚠️ abajo |
+| **Cache / rate-limit / idempotencia** | Redis ≥5.0 (Upstash free) | Instancia por env var; no declarada en el repo |
+| **Reintentos** | `tenacity` ≥8.2 | — |
+| **HTTP client** | `httpx` ≥0.27 | — |
+| **PDFs** | `fpdf2` ≥2.7 | Comprobantes y recibos |
+| **SOAP AFIP/ARCA** | `zeep` ≥4.2,<5 | Facturación electrónica (C-27) |
+| **SDK Supabase** | `supabase-py` ≥2.0 | — |
+| **Testing** | pytest ≥8 + pytest-asyncio (`asyncio_mode=auto`) + httpx + asyncpg-stubs | Coverage ≥87% en CI; `omit` de `tests/` y `.venv/` |
+| **Deploy backend** | Render (free tier) | Cold start ~50s; el workflow `keep-backend-warm` pingea `/health` cada 10 min para que el webhook de MP no dé 502 |
+
+> ⚠️ **Divergencia conocida de manifiestos**: `pyproject.toml` declara `python-jose` y NO `PyJWT`; `requirements.txt` declara `PyJWT[crypto]` y NO `python-jose`. El código de app importa **PyJWT** (`core/auth.py`), los tests importan **jose** (`tests/conftest.py`). Hoy funciona porque CI instala ambos caminos; si tocás dependencias, no "limpies" uno de los dos sin verificar quién lo importa.
+
+### Datos e infraestructura
+
+| Capa | Tecnología | Notas |
+|------|------------|-------|
+| **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 263 migraciones; última `20261014000001_sucursal_guard_vaciado_auditoria` |
+| **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
+| **Edge Functions** | Deno (Supabase) — 11 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
+| **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
+| **Email** | Resend (via Edge Function + DB Webhook) | — |
+| **Pagos** | MercadoPago | Webhook en el backend Python: `POST /payments/webhook` (governance CRÍTICO) |
+| **Deploy frontend** | Vercel | `vercel.json`: build `cd frontend && pnpm run build`, output `frontend/.next` |
+| **CI/CD** | GitHub Actions × 6 | `deploy.yml` (build Next + `supabase db push --include-all` + `functions deploy`), `Backend_Tests`, `Frontend_Tests`, `E2E_Tests`, `KPI_Validation`, `keep-backend-warm`. Node 20 / Python 3.12 |
 
 ---
 

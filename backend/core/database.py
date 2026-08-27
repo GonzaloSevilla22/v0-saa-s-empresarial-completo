@@ -125,9 +125,38 @@ async def get_db_conn(
                     # ROLE no admite parámetros bind de asyncpg — el nombre
                     # de rol debe ser un identificador SQL, no un valor.
                     await conn.execute("SET LOCAL ROLE authenticated")
+                    # D6 bis — verificación del cambio de rol (cierra el
+                    # "falla abierto" que design.md D6 nombra como riesgo):
+                    # hasta acá el SET LOCAL ROLE se emitía sin comprobar
+                    # que tomara. Si no toma (un pooler que rutea el
+                    # statement a otra conexión física, una revocación de
+                    # la membresía de rol de `postgres`, un statement
+                    # tragado), el request correría como `postgres`
+                    # (BYPASSRLS) creyendo estar bajo RLS — sin ninguna
+                    # señal. Igualdad estricta, no "distinto de postgres":
+                    # cualquier otra respuesta (None incluido) también
+                    # falla CERRADO, antes de exponer la conexión al
+                    # código de negocio. Cuesta un round-trip extra por
+                    # request, sólo con el Paso 2 encendido.
+                    effective_role = await conn.fetchval("SELECT current_user")
+                    if effective_role != "authenticated":
+                        logger.critical(
+                            "v31-tenancy-pool-rls Paso 2: SET LOCAL ROLE "
+                            "NO tomó — current_user=%r (esperaba "
+                            "'authenticated') para request.jwt.claims.sub"
+                            "=%s. Se rechaza el request (503) para no "
+                            "correr con BYPASSRLS creyendo estar bajo RLS.",
+                            effective_role,
+                            user["user_id"],
+                        )
+                        raise HTTPException(
+                            status_code=503,
+                            detail="Database session isolation could not be verified",
+                        )
                     logger.debug(
-                        "v31-tenancy-pool-rls Paso 2: rol adoptado a "
-                        "authenticated para request.jwt.claims.sub=%s",
+                        "v31-tenancy-pool-rls Paso 2: rol adoptado y "
+                        "verificado como authenticated para "
+                        "request.jwt.claims.sub=%s",
                         user["user_id"],
                     )
                 yield conn

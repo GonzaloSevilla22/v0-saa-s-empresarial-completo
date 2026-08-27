@@ -21,9 +21,9 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import jwt
 import pytest
 from fastapi import HTTPException
-from jose import jwt
 
 from backend.repositories.journal_entry_repository import JournalEntryRepository
 from backend.services import journal_entries as je_service
@@ -34,7 +34,7 @@ from backend.services import journal_entries as je_service
 ACCOUNT_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 OTHER_ACCOUNT_ID = uuid.UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 USER_ID = "11111111-1111-1111-1111-111111111111"
-TEST_SECRET = "test-secret-key"
+TEST_SECRET = "test-secret-key-de-32-bytes-o-mas!!"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -1,0 +1,25 @@
+name: Docs Sync
+
+# SIN filtro de `paths`, a propósito. Un gate filtrado por paths no cierra:
+# alcanza con que un PR toque solo uno de los dos archivos para que el job no
+# dispare y la divergencia pase igual. Es la misma lección que dejó el candado
+# del outbox (2026-08-24), donde el filtro apagaba el chequeo justo en los PRs
+# que lo rompían. El job no instala nada y corre en segundos: no encarece nada.
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: docs-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agents-md-sync:
+    name: AGENTS.md == CLAUDE.md
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AGENTS.md debe ser copia exacta de CLAUDE.md
+        run: python3 scripts/ci/check_docs_sync.py

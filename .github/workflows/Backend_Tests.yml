@@ -56,7 +56,7 @@ jobs:
       # del pyproject pero no en requirements.txt, que es el contrato de
       # deploy de Render.
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov "python-jose[cryptography]"
+        run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov
 
       - name: Run pytest with coverage floor
         run: >

@@ -3,11 +3,11 @@ from fastapi import HTTPException
 from unittest.mock import patch
 from backend.core.auth import get_current_user, get_claims_status, AuthContext
 
-TEST_SECRET = "test-secret-key"
+TEST_SECRET = "test-secret-key-de-32-bytes-o-mas!!"
 
 
 def make_token(payload: dict, secret: str = TEST_SECRET) -> str:
-    from jose import jwt
+    import jwt
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -25,7 +25,7 @@ async def test_valid_token_returns_user():
 
 @pytest.mark.asyncio
 async def test_invalid_signature_raises_401():
-    token = make_token({"sub": "user-123"}, secret="wrong-secret")
+    token = make_token({"sub": "user-123"}, secret="wrong-secret-de-32-bytes-o-mas!!!")
     with patch("backend.core.auth.settings") as mock_settings:
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET

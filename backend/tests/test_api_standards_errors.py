@@ -215,7 +215,7 @@ async def test_unhandled_exception_returns_generic_500_problem_json(mock_pool):
         patch("backend.core.database.pool", pool),
     ):
         mock_settings.supabase_url = ""
-        mock_settings.supabase_jwt_secret = "test-secret-key"
+        mock_settings.supabase_jwt_secret = "test-secret-key-de-32-bytes-o-mas!!"
         app.dependency_overrides[get_account_id] = _mock_account_id
         try:
             async with AsyncClient(

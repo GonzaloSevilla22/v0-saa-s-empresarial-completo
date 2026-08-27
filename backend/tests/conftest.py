@@ -2,11 +2,11 @@ import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import jwt
 import pytest
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
 
-TEST_SECRET = "test-secret-key"
+TEST_SECRET = "test-secret-key-de-32-bytes-o-mas!!"
 TEST_USER_ID = "11111111-1111-1111-1111-111111111111"
 TEST_ACCOUNT_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 

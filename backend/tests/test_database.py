@@ -312,6 +312,8 @@ async def test_get_db_conn_step2_on_adopts_authenticated_role(mock_pool):
     llamada a `execute` (la de claims/timeout del grupo 2): no existe
     ningún cambio de rol."""
     pool_mock, conn_mock = mock_pool
+    # D6 bis: Postgres "sano" — la verificacion post-SET responde bien.
+    conn_mock.fetchval = AsyncMock(return_value="authenticated")
 
     import backend.core.database as db_module
 
@@ -398,6 +400,8 @@ async def test_get_db_conn_step2_role_statement_uses_set_local_not_session_scope
     como texto literal, no sólo como intención, para que una regresión
     futura (alguien "simplifica" a `SET ROLE`) la rompa en el test."""
     pool_mock, conn_mock = mock_pool
+    # D6 bis: Postgres "sano" — la verificacion post-SET responde bien.
+    conn_mock.fetchval = AsyncMock(return_value="authenticated")
 
     import backend.core.database as db_module
 
@@ -432,6 +436,8 @@ async def test_get_db_conn_step2_role_switch_happens_after_claims_before_yield(m
     setear — y el rol cambia recién antes de exponer la conexión al
     código de negocio, que es lo que efectivamente queda sujeto a RLS)."""
     pool_mock, conn_mock = mock_pool
+    # D6 bis: Postgres "sano" — la verificacion post-SET responde bien.
+    conn_mock.fetchval = AsyncMock(return_value="authenticated")
 
     import backend.core.database as db_module
 
@@ -486,6 +492,8 @@ async def test_get_db_conn_step2_on_two_requests_do_not_carry_over_role_state(mo
     corregida"); este test triangula el lado observable: get_db_conn no
     cachea ni condiciona el segundo request a lo que pasó en el primero."""
     pool_mock, conn_mock = mock_pool
+    # D6 bis: Postgres "sano" — la verificacion post-SET responde bien.
+    conn_mock.fetchval = AsyncMock(return_value="authenticated")
 
     import backend.core.database as db_module
 
@@ -612,4 +620,156 @@ async def test_init_pool_creates_pool_with_correct_params():
             statement_cache_size=0,
         )
 
+        db_module.pool = None
+
+
+# ── v31-tenancy-pool-rls Paso 2 — verificación del cambio de rol (D6 bis) ──
+#
+# El "falla abierto" que design.md D6 nombra como riesgo: get_db_conn emite
+# `SET LOCAL ROLE authenticated` pero hasta acá NADA verificaba que el rol
+# efectivamente tomara. Si por lo que fuera no aplica (un pooler que rutea el
+# statement a otra conexión física, una revocación de la membresía de rol de
+# `postgres`, un statement tragado), la conexión se yieldaba igual — y el
+# request corría como `postgres` (BYPASSRLS) creyendo estar bajo RLS, sin
+# ninguna señal. Estos tests fijan el contrato inverso: después del SET LOCAL
+# ROLE, get_db_conn SHALL leer `current_user` y, si no es `authenticated`,
+# SHALL fallar CERRADO (503, sin yieldar la conexión) y loguear CRITICAL.
+# Sólo aplica con AMBAS palancas encendidas; los caminos legacy y Paso-1-solo
+# no pagan el round-trip extra ni cambian de forma.
+
+
+@pytest.mark.asyncio
+async def test_get_db_conn_step2_verifies_role_took_effect_before_yield(mock_pool):
+    """RED→GREEN: con ambas palancas encendidas y el rol tomando bien
+    (current_user = 'authenticated'), get_db_conn SHALL emitir la
+    verificación DESPUÉS del SET LOCAL ROLE y ANTES de yieldar, y yieldar
+    normalmente. Contra código sin la verificación este test falla porque
+    fetchval nunca se llama."""
+    pool_mock, conn_mock = mock_pool
+    conn_mock.fetchval = AsyncMock(return_value="authenticated")
+
+    import backend.core.database as db_module
+
+    db_module.pool = pool_mock
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = True
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = True
+
+            from backend.core.database import get_db_conn
+
+            gen = get_db_conn(TEST_USER)
+            conn = await gen.__anext__()
+
+            conn_mock.fetchval.assert_awaited_once()
+            verify_query = conn_mock.fetchval.await_args.args[0]
+            assert "current_user" in verify_query.lower(), (
+                "la verificación SHALL leer current_user (el rol efectivo "
+                f"post-SET), dio {verify_query!r}"
+            )
+            assert conn is conn_mock
+    finally:
+        db_module.pool = None
+
+
+@pytest.mark.asyncio
+async def test_get_db_conn_step2_fails_closed_when_role_did_not_take(mock_pool):
+    """RED→GREEN (el caso que motiva todo): el SET LOCAL ROLE no tomó —
+    current_user sigue siendo `postgres` (BYPASSRLS). get_db_conn SHALL
+    levantar HTTPException 503 SIN yieldar la conexión: ningún código de
+    negocio corre jamás sobre una conexión que dice estar bajo RLS y no lo
+    está. Contra código sin la verificación este test falla porque la
+    conexión se yielda igual."""
+    pool_mock, conn_mock = mock_pool
+    conn_mock.fetchval = AsyncMock(return_value="postgres")
+
+    import backend.core.database as db_module
+    from fastapi import HTTPException
+
+    db_module.pool = pool_mock
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = True
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = True
+
+            from backend.core.database import get_db_conn
+
+            gen = get_db_conn(TEST_USER)
+            with pytest.raises(HTTPException) as exc_info:
+                await gen.__anext__()
+
+            assert exc_info.value.status_code == 503
+            # Falla cerrado de verdad: el detalle no filtra el rol efectivo
+            # ni ningún interno de la sesión.
+            assert "postgres" not in str(exc_info.value.detail).lower()
+    finally:
+        db_module.pool = None
+
+
+@pytest.mark.asyncio
+async def test_get_db_conn_step2_fails_closed_when_role_check_returns_none(mock_pool):
+    """TRIANGULATE: una respuesta imposible (None) tampoco pasa — el
+    contrato es igualdad estricta con 'authenticated', no 'distinto de
+    postgres'. Cubre el caso de un pooler/proxy que devuelva vacío."""
+    pool_mock, conn_mock = mock_pool
+    conn_mock.fetchval = AsyncMock(return_value=None)
+
+    import backend.core.database as db_module
+    from fastapi import HTTPException
+
+    db_module.pool = pool_mock
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = True
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = True
+
+            from backend.core.database import get_db_conn
+
+            gen = get_db_conn(TEST_USER)
+            with pytest.raises(HTTPException) as exc_info:
+                await gen.__anext__()
+
+            assert exc_info.value.status_code == 503
+    finally:
+        db_module.pool = None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tx_scope", "rls_role"),
+    [
+        (False, False),  # legacy
+        (True, False),  # Paso 1 solo
+    ],
+)
+async def test_get_db_conn_role_check_absent_when_step2_off(mock_pool, tx_scope, rls_role):
+    """TRIANGULATE: con el Paso 2 apagado NO hay verificación — el
+    round-trip extra sólo existe donde existe el SET LOCAL ROLE que
+    verifica. Los caminos legacy y Paso-1-solo quedan byte a byte como
+    estaban."""
+    pool_mock, conn_mock = mock_pool
+
+    import backend.core.database as db_module
+
+    db_module.pool = pool_mock
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = tx_scope
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = rls_role
+
+            from backend.core.database import get_db_conn
+
+            gen = get_db_conn(TEST_USER)
+            await gen.__anext__()
+
+            conn_mock.fetchval.assert_not_awaited()
+    finally:
         db_module.pool = None

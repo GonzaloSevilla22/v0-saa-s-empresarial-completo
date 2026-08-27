@@ -257,15 +257,31 @@ repositories/   → acceso a datos (asyncpg / SQL puro; llama a los RPCs existen
 core/           → config, auth JWT, pool DB, rate limiting, errores
 ```
 
-### Decisión #0 — JWT-passthrough (NO service_role)
-El backend recibe el JWT del usuario e inyecta los claims en la conexión `asyncpg`, de modo que **la RLS org-based sigue activa como red de seguridad**. Nunca se usa `service_role` en el backend (salvo jobs administrativos aislados). Esto preserva el hardening de seguridad existente en vez de tirarlo.
+### Decisión #0 — JWT-passthrough transaccional + adopción de rol (NO service_role)
+
+> **Estado real, verificado en prod** (`gxdhpxvdjjkmxhdkkwyb`) desde el cierre de `v31-tenancy-pool-rls` (2026-08-26). Hasta esa fecha esta sección describía un contrato **aspiracional**: el código conectaba como `postgres` (`rolbypassrls = true`) e inyectaba los claims con alcance de **sesión** (`set_config(..., false)`, sin transacción explícita) — con un pooler Supavisor en *transaction mode*, eso podía dejar los claims en una conexión física distinta de la que ejecutaba la query de negocio. Es la causa raíz confirmada del bug K5 (500 intermitente de compras, `audit/codigo-backend.md`). Lo que sigue es el mecanismo real, no el original.
+
+Cada request autenticado que pasa por `get_db_conn` (`backend/core/database.py`) queda envuelto en **dos palancas independientes, ambas ON en prod**:
+
+1. **`TENANCY_TX_SCOPE_ENABLED`** (Paso 1) — la conexión abre una **transacción explícita** y los claims del JWT se inyectan con `set_config('request.jwt.claims', ..., true)`: alcance **transaccional** (equivalente a `SET LOCAL`), no de sesión. El GUC `app.jwt_claims` que el código anterior también escribía se eliminó — barrido completo del repositorio confirmó **cero lectores** (ninguna policy, función, Edge Function ni código de aplicación lo leía).
+2. **`TENANCY_RLS_ROLE_ENABLED`** (Paso 2) — dentro de la MISMA transacción, inmediatamente después de inyectar los claims, `get_db_conn` ejecuta `SET LOCAL ROLE authenticated` (literal — nunca `SET ROLE` de sesión). El rol efectivo del request deja de ser `postgres` (`rolbypassrls = true`, RLS inerte) y pasa a ser `authenticated` (`rolbypassrls = false`): **la RLS org-based se evalúa de verdad para el backend**, no sólo para el camino navegador→PostgREST.
+
+Ambas palancas se apagan de forma independiente (variable de entorno en Render, reinicio ~50s, sin rebuild ni migración) — es el mecanismo de rollback. Nunca se usa `service_role` en el backend salvo el camino de servicio explícito (ver abajo).
+
+**La nota heredada de C-17, corregida** (para que no se re-litigue): "`SET ROLE` no funciona con pgBouncer/Supavisor en transaction mode" es cierta únicamente para `SET ROLE` **de sesión** — sobrevive al fin de la transacción y puede filtrarse al siguiente cliente que reutilice la conexión física devuelta al pool; es un bug de seguridad, no una limitación real del pooler. `SET LOCAL ROLE` (y `set_config(..., true)`) es otra cosa: su efecto se deshace automáticamente en `COMMIT`/`ROLLBACK`, así que la conexión siempre vuelve al pool limpia. Es el mismo patrón que PostgREST usa contra Supavisor en transaction mode desde siempre. Verificado en prod: `postgres` no es superusuario (`rolsuper = false`) — el `SET LOCAL ROLE authenticated` funciona porque `postgres` es **miembro** de `authenticated` (`pg_auth_members`, `admin_option=true`), no por privilegio de superusuario.
+
+**Camino de servicio, separado por diseño**: `get_service_conn` (webhook de pagos MercadoPago, relay CAE del cron, tarea en segundo plano de emisión de CAE, y el dispatcher del outbox tras `tenancy-guard-caja-outbox`) sigue conectando como `postgres` con `rolbypassrls = true` — **no inyecta claims y no abre la transacción de request**. Es el único camino que retiene BYPASSRLS a propósito: son operaciones de máquina, cross-account por diseño, sin JWT de usuario. Ningún endpoint de usuario final puede usar este camino para eludir el aislamiento por cuenta (ver capability `python-backend`).
 
 ### Tres capas de autorización
 ```
-1. FastAPI dependency  → resuelve org + rol + plan desde organization_members (cacheable en Redis)
+1. FastAPI dependency  → resuelve cuenta + rol + plan desde account_members (cacheable en Redis)
 2. Service layer       → guards require_role / require_plan + plan_limits + grace period
-3. PostgreSQL RLS      → última línea de defensa (org-scoped), aunque la app falle
+3. PostgreSQL RLS      → efectiva para el backend desde v31-tenancy-pool-rls (ambas palancas ON) —
+                          deja de ser sólo "red de seguridad teórica" y pasa a evaluarse en cada
+                          request, igual que en el camino navegador→PostgREST
 ```
+
+**Paso 3 futuro (no implementado)**: un rol de login dedicado sin BYPASSRLS (en vez del cambio de rol por transacción) fallaría *cerrado* si algún camino de código olvidara adoptar el rol — hoy el diseño falla *abierto* (mitigado porque claims y cambio de rol se setean juntos, en el mismo punto). Se planifica sobre un Paso 2 ya estable; ver `CHANGES.md`, ficha `v31-tenancy-pool-rls`, para el criterio de arranque.
 
 ### Lo que NO se migra (queda en Supabase)
 | Componente | Razón |

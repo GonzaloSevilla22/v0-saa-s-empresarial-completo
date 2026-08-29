@@ -568,3 +568,194 @@ COMMENT ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, u
   (p_<campo>, p_<campo>_provided) a forma de pago, sucursal y centro de costo
   (D12). NO postea movimientos: imputar una forma de pago por edición es sólo
   una etiqueta (D13).';
+
+
+-- =============================================================================
+-- 4. rpc_delete_expense — borrado con compensación de las dos patas
+-- =============================================================================
+--
+-- D8. Copia el patrón de rpc_delete_sale_operation (baseline): resolver los
+-- movimientos, compensar, y recién después borrar. Para el gasto los libros
+-- compensables son EXACTAMENTE DOS —caja y banco— y ninguno más: un gasto no
+-- tiene contraparte con cuenta corriente (D3), no mueve stock y no emite
+-- eventos al outbox (D10).
+--
+-- Sin este borrado compensado, un alta que postea dinero conviviendo con el
+-- DELETE crudo de expense_repository.py L52 es EXACTAMENTE el estado que
+-- produjo un cargo fantasma real en producción y motivó delete-guard-ledgers
+-- (204 operaciones backfilleadas).
+CREATE OR REPLACE FUNCTION public.rpc_delete_expense(
+    p_expense_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid              uuid;
+  v_account_id       uuid;
+  v_expense          RECORD;
+  v_cashbox_id       uuid;
+  v_cash_amount      numeric(12,2);
+  v_open_session_id  uuid;
+  v_cash_reversal_id uuid;
+  v_bank_row         RECORD;
+  v_reversed_type    text;
+  v_bank_reversals   integer := 0;
+BEGIN
+  v_uid := (SELECT auth.uid());
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id FROM public.current_account_ids() AS cai LIMIT 1;
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa — no se puede borrar el gasto'
+      USING ERRCODE = 'P0403';
+  END IF;
+
+  IF NOT public.is_account_writer(v_account_id) THEN
+    RAISE EXCEPTION 'unauthorized'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  SELECT * INTO v_expense
+  FROM public.expenses
+  WHERE id = p_expense_id AND account_id = v_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'expense_not_found: el gasto no existe o no pertenece a esta cuenta'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- ── Caja: contra-movimiento en la sesión abierta actual (P0426 si no hay) ─
+  -- Copiado del baseline de rpc_delete_sale_operation (20261005000001:1205-1234)
+  -- CON UNA INVERSIÓN OBLIGATORIA Y EXPLÍCITA DEL GUARD DE SIGNO.
+  --
+  -- ⚠️⚠️ El original es `IF v_cashbox_id IS NOT NULL AND v_cash_amount > 0`,
+  -- porque los movimientos agrupados de una VENTA son de tipo 'sale' con
+  -- importe POSITIVO. Los del GASTO son de tipo 'expense' con importe
+  -- NEGATIVO (lo fija este mismo change: expense negativo, expense_reversal
+  -- positivo). Copiado verbatim, `v_cash_amount > 0` es FALSO PARA TODO GASTO:
+  -- se saltearía el bloque entero, no se registraría el expense_reversal,
+  -- NUNCA se lanzaría P0426 y el DELETE procedería igual — se reintroduciría
+  -- exactamente el borrado inseguro que motivó delete-guard-ledgers, desde el
+  -- change que dice cerrarlo. Y sin levantar un solo error.
+  --
+  -- Por eso el guard correcto es `v_cash_amount < 0`, y por eso el gate tiene
+  -- un CONTROL NEGATIVO obligatorio (5.4b): un test que sólo assertara "no
+  -- hubo error" quedaría verde por omisión.
+  --
+  -- La sesión ORIGINAL nunca se toca: el ledger de caja es append-only. El
+  -- contra-movimiento va SIEMPRE a la sesión abierta actual de la MISMA caja,
+  -- con el mismo criterio que ya rige para el borrado de una venta en efectivo.
+  SELECT cs.cashbox_id, v_sum.total
+  INTO v_cashbox_id, v_cash_amount
+  FROM (
+    SELECT session_id, SUM(amount) AS total
+    FROM public.cash_movements
+    WHERE reference_id = p_expense_id AND movement_type = 'expense'
+    GROUP BY session_id
+  ) v_sum
+  JOIN public.cash_sessions cs ON cs.id = v_sum.session_id;
+
+  IF v_cashbox_id IS NOT NULL AND v_cash_amount < 0 THEN
+    SELECT id INTO v_open_session_id
+    FROM public.cash_sessions
+    WHERE cashbox_id = v_cashbox_id AND status = 'open'
+    ORDER BY opened_at DESC
+    LIMIT 1;
+
+    IF v_open_session_id IS NULL THEN
+      RAISE EXCEPTION 'no_open_session_for_reversal: abrí la caja para poder borrar este gasto'
+        USING ERRCODE = 'P0426';
+    END IF;
+
+    -- v_cash_amount es NEGATIVO, así que -v_cash_amount da el INGRESO positivo
+    -- que repone la plata en el cajón.
+    v_cash_reversal_id := public.c28_register_cash_movement(
+      v_open_session_id, -v_cash_amount, 'expense_reversal', p_expense_id
+    );
+  END IF;
+
+  -- ── Banco: espejo con dirección invertida, siempre unreconciled ───────────
+  -- Loop calcado del de rpc_delete_sale_operation. Se usa _register_bank_movement
+  -- (el escritor crudo) y NO _pay_register_operation_bank_movement: la reversa
+  -- no tiene que volver a resolver la cuenta ni volver a evaluar el guard de
+  -- período conciliado — va contra la MISMA cuenta del movimiento original.
+  -- Es el único uso autorizado del escritor crudo en este change (D2).
+  FOR v_bank_row IN
+    SELECT id, bank_account_id, amount, movement_type, branch_id
+    FROM public.bank_movements
+    WHERE source_doc_type = 'expense' AND source_doc_ref = p_expense_id
+  LOOP
+    v_reversed_type := CASE v_bank_row.movement_type
+      WHEN 'transfer_in'  THEN 'transfer_out'
+      WHEN 'transfer_out' THEN 'transfer_in'
+      ELSE v_bank_row.movement_type
+    END;
+
+    PERFORM public._register_bank_movement(
+      v_bank_row.bank_account_id, -v_bank_row.amount, v_reversed_type,
+      'expense', p_expense_id, CURRENT_DATE, v_bank_row.branch_id,
+      'Reversión por borrado de gasto'
+    );
+    v_bank_reversals := v_bank_reversals + 1;
+  END LOOP;
+
+  -- ── El borrado, DESPUÉS de las dos compensaciones ────────────────────────
+  DELETE FROM public.expenses WHERE id = p_expense_id AND account_id = v_account_id;
+
+  RETURN jsonb_build_object(
+    'expense_id',        p_expense_id,
+    'deleted',           true,
+    'cash_reversal_id',  v_cash_reversal_id,
+    'bank_reversals',    v_bank_reversals
+  );
+END;
+$function$;
+
+REVOKE ALL     ON FUNCTION public.rpc_delete_expense(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.rpc_delete_expense(uuid) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_delete_expense(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.rpc_delete_expense(uuid) IS
+  'gastos-forma-pago: borrado atómico del gasto con compensación de las DOS
+  patas —caja (expense_reversal positivo en la sesión abierta actual de la
+  misma caja, P0426 si no hay ninguna) y banco (espejo invertido)— antes del
+  DELETE. ⚠️ El guard de signo está INVERTIDO respecto del de
+  rpc_delete_sale_operation (v_cash_amount < 0): los movimientos de gasto son
+  negativos y el guard positivo del original sería falso para todo gasto (D8).';
+
+
+-- =============================================================================
+-- 5. Gate ANTI-OVERLOAD de las tres RPCs nuevas
+-- =============================================================================
+-- Molde de 20260928000001 §9. Las tres se crean con CREATE OR REPLACE (no
+-- cambian ninguna firma previa: no existían), así que un overload sólo puede
+-- aparecer si alguien agrega o quita un parámetro sin el DROP correspondiente.
+-- La próxima llamada posicional del backend reventaría con 42725.
+DO $$
+DECLARE
+  v_proname text;
+  v_count   integer;
+BEGIN
+  FOREACH v_proname IN ARRAY ARRAY[
+    'rpc_create_expense',
+    'rpc_update_expense',
+    'rpc_delete_expense'
+  ] LOOP
+    SELECT COUNT(*) INTO v_count
+    FROM   pg_proc p
+    JOIN   pg_namespace n ON n.oid = p.pronamespace
+    WHERE  n.nspname = 'public' AND p.proname = v_proname;
+
+    IF v_count <> 1 THEN
+      RAISE EXCEPTION 'GATE ANTI-OVERLOAD FAILED: % tiene % definiciones en public (esperaba exactamente 1) — quedó un overload fantasma y la próxima llamada posicional revienta con 42725.',
+        v_proname, v_count;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE 'GATE ANTI-OVERLOAD PASSED: las 3 RPCs de gasto tienen exactamente 1 definición cada una.';
+END $$;

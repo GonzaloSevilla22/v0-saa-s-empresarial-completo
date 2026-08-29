@@ -314,6 +314,7 @@ DECLARE
   v_cashbox_a2    uuid;
   v_cashbox_a3    uuid;
   v_cashbox_a4    uuid;
+  v_cashbox_a5    uuid;
   v_cashbox_b     uuid;
   v_ba_a          uuid;
   v_ba_b          uuid;
@@ -389,6 +390,10 @@ BEGIN
   -- cerrada no puede convivir con los asserts que necesitan la suya abierta).
   INSERT INTO public.cashboxes (branch_id, name) VALUES (v_branch_a1, '__gate_gfp_cashbox_a4__')
   RETURNING id INTO v_cashbox_a4;
+  -- Caja del CONTROL NEGATIVO de 5.4b: su única sesión se cierra en medio del
+  -- assert para dejarla SIN ninguna sesión abierta. No puede compartirse.
+  INSERT INTO public.cashboxes (branch_id, name) VALUES (v_branch_a1, '__gate_gfp_cashbox_a5__')
+  RETURNING id INTO v_cashbox_a5;
   SELECT id INTO v_cashbox_b FROM public.cashboxes WHERE branch_id = v_branch_b ORDER BY created_at LIMIT 1;
   IF v_cashbox_b IS NULL THEN
     INSERT INTO public.cashboxes (branch_id, name) VALUES (v_branch_b, '__gate_gfp_cashbox_b__')
@@ -1476,6 +1481,329 @@ BEGIN
     RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): la imputación por edición no quedó registrada — es una etiqueta, pero es una etiqueta REAL.';
   END IF;
   RAISE NOTICE 'PASS (4.6): la edición imputa la etiqueta y NO postea movimientos en ningún libro.';
+END $$;
+
+-- ═════════════════ (5) BORRADO — rpc_delete_expense ═════════════════════════
+-- D8: compensa las DOS patas en la misma transacción, copiando el patrón de
+-- rpc_delete_sale_operation.
+--
+-- ⚠️⚠️ ESTE ES EL TRAMO MÁS FÁCIL DE ROMPER DEL CHANGE. El guard de signo del
+-- original (`IF v_cashbox_id IS NOT NULL AND v_cash_amount > 0 THEN`,
+-- 20261005000001:1221) es POSITIVO porque los movimientos de VENTA son
+-- positivos. Los del GASTO son NEGATIVOS. Copiado verbatim, ese guard es FALSO
+-- PARA TODO GASTO: se saltea el bloque entero, no registra el expense_reversal,
+-- NUNCA lanza P0426 y el DELETE procede igual — se reintroduce exactamente el
+-- borrado inseguro que motivó delete-guard-ledgers (204 operaciones
+-- backfilleadas), desde el change que dice cerrarlo.
+--
+-- Y produce un "no hubo error". Por eso TODO assert de acá mide el EFECTO: la
+-- fila del contra-movimiento, el P0426, el saldo. El control negativo (5.4b) es
+-- obligatorio: sin él, los dos casos quedarían VERDES POR OMISIÓN.
+DO $$
+DECLARE
+  v_user_a      uuid;  v_user_b uuid;
+  v_account_a   uuid;  v_account_b uuid;
+  v_branch_a1   uuid;
+  v_cashbox_a3  uuid;  v_cashbox_a5 uuid;
+  v_session_a1  uuid;  v_s_old uuid;  v_s_new uuid;  v_s_lonely uuid;
+  v_ba_a        uuid;
+  v_pm_cash_a   uuid;  v_pm_other_a uuid;  v_pm_transfer_default uuid;
+  v_exp         uuid;  v_exp_b uuid;
+  v_mov         RECORD;  v_bm RECORD;
+  v_count       integer;  v_count_before integer;
+  v_amount      numeric;  v_amount_before numeric;
+  v_sum_old     numeric;  v_n_old integer;
+  v_bank_before numeric;
+  v_rejected    boolean;
+  v_today       date;
+  v_def         text;  v_code text;
+  v_pos_cash    integer;  v_pos_bank integer;  v_pos_delete integer;
+BEGIN
+  SELECT id INTO v_user_a FROM auth.users WHERE email = 'gastos-forma-pago-a@test.local';
+  SELECT id INTO v_user_b FROM auth.users WHERE email = 'gastos-forma-pago-b@test.local';
+  IF v_user_a IS NULL OR v_user_b IS NULL THEN RAISE NOTICE 'GATE GASTOS (5): sin anchors — degradando.'; RETURN; END IF;
+
+  SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  SELECT account_id INTO v_account_b FROM public.account_members WHERE user_id = v_user_b ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a1 FROM public.branches WHERE account_id = v_account_a AND name NOT LIKE '__gate_gfp_branch%' ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_cashbox_a3 FROM public.cashboxes WHERE name = '__gate_gfp_cashbox_a3__';
+  SELECT id INTO v_cashbox_a5 FROM public.cashboxes WHERE name = '__gate_gfp_cashbox_a5__';
+  SELECT cs.id INTO v_session_a1 FROM public.cash_sessions cs JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+    WHERE cb.name = '__gate_gfp_cashbox_a1__' AND cs.status = 'open';
+  SELECT id INTO v_ba_a FROM public.bank_accounts WHERE name = '__gate_gfp_bank_a__';
+  SELECT id INTO v_pm_cash_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active AND deleted_at IS NULL LIMIT 1;
+  SELECT id INTO v_pm_other_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'other' AND is_active AND deleted_at IS NULL AND name NOT LIKE '__gate_gfp%' LIMIT 1;
+  SELECT id INTO v_pm_transfer_default FROM public.payment_methods WHERE name = '__gate_gfp_pm_transfer_default__';
+
+  IF v_cashbox_a3 IS NULL OR v_cashbox_a5 IS NULL OR v_session_a1 IS NULL
+     OR v_ba_a IS NULL OR v_pm_cash_a IS NULL OR v_pm_transfer_default IS NULL THEN
+    RAISE NOTICE 'GATE GASTOS (5): fixtures incompletos — degradando.'; RETURN;
+  END IF;
+
+  v_today := public.reporting_local_today();
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_user_a THEN
+    RAISE NOTICE 'GATE GASTOS (5): auth.uid() no resuelve — degradando.'; RETURN;
+  END IF;
+
+  -- ═══ (5.1) gasto SIN libros: se borra sin exigir caja abierta ════════════
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 5100, p_date => v_today,
+    p_payment_method_id => v_pm_other_a)->>'expense_id')::uuid;
+
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+  IF EXISTS (SELECT 1 FROM public.expenses WHERE id = v_exp) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.1): el gasto sin libros no se borró.';
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE reference_id = v_exp;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.1): borrar un gasto sin libros registró % contra-movimientos de caja.', v_count;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.bank_movements WHERE source_doc_ref = v_exp;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.1): borrar un gasto sin libros registró % movimientos bancarios espejo.', v_count;
+  END IF;
+  RAISE NOTICE 'PASS (5.1): el gasto sin impacto en libros se borra sin compensación y sin exigir ninguna precondición.';
+
+  -- ═══ (5.3) COMPENSACIÓN DE CAJA, mismo día, sesión todavía abierta ═══════
+  SELECT COALESCE(SUM(amount), 0) INTO v_amount_before FROM public.cash_movements WHERE session_id = v_session_a1;
+
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 5300, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_session_a1)->>'expense_id')::uuid;
+
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+
+  IF EXISTS (SELECT 1 FROM public.expenses WHERE id = v_exp) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.3): el gasto no se borró.';
+  END IF;
+
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense_reversal';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.3): el borrado registró % contra-movimientos ''expense_reversal'' y esperaba exactamente 1. ⚠️ Éste es el síntoma EXACTO del guard de signo copiado verbatim (v_cash_amount > 0, falso para todo gasto): se saltea el bloque, no compensa y el DELETE procede igual.', v_count;
+  END IF;
+
+  SELECT * INTO v_mov FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense_reversal';
+  IF v_mov.amount <> 5300 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.3): el expense_reversal quedó con amount=% y esperaba +5300 — revertir un egreso REPONE plata, así que el signo es POSITIVO (con v_cash_amount negativo, -v_cash_amount da el ingreso).', v_mov.amount;
+  END IF;
+
+  -- El movimiento ORIGINAL sigue existiendo: el ledger de caja es append-only.
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.3): el movimiento ORIGINAL fue modificado o eliminado (% filas) — el ledger de caja es append-only.', v_count;
+  END IF;
+
+  SELECT COALESCE(SUM(amount), 0) INTO v_amount FROM public.cash_movements WHERE session_id = v_session_a1;
+  IF v_amount <> v_amount_before THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.3-saldo): tras el alta y el borrado el saldo de la sesión quedó en % y esperaba volver a % — la compensación tiene que dejarlo neutro.', v_amount, v_amount_before;
+  END IF;
+  RAISE NOTICE 'PASS (5.3): el borrado registra 1 expense_reversal POSITIVO, deja el original intacto y devuelve el saldo de la sesión a su valor previo.';
+
+  -- ═══ (5.4) la sesión ORIGINAL ya CERRÓ y hay otra abierta hoy ════════════
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a3, 'open', 0, v_user_a) RETURNING id INTO v_s_old;
+
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 5400, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_s_old)->>'expense_id')::uuid;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_n_old, v_sum_old
+  FROM public.cash_movements WHERE session_id = v_s_old;
+
+  UPDATE public.cash_sessions SET status = 'closed', closed_at = now() WHERE id = v_s_old;
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a3, 'open', 0, v_user_a) RETURNING id INTO v_s_new;
+
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+
+  SELECT * INTO v_mov FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense_reversal';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4): no se registró el contra-movimiento con la sesión original cerrada.';
+  END IF;
+  IF v_mov.session_id <> v_s_new THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4): el contra-movimiento fue a la sesión % y tenía que ir a la ABIERTA ACTUAL de la misma caja (%). Nunca a la original.', v_mov.session_id, v_s_new;
+  END IF;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+  FROM public.cash_movements WHERE session_id = v_s_old;
+  IF v_count <> v_n_old OR v_amount <> v_sum_old THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4): el ARQUEO de la sesión cerrada se alteró (% movimientos / % de saldo, esperaba % / %) — la sesión original NUNCA se toca.', v_count, v_amount, v_n_old, v_sum_old;
+  END IF;
+  RAISE NOTICE 'PASS (5.4): con la sesión original cerrada el contra-movimiento va a la abierta de hoy y el arqueo de la cerrada queda intacto.';
+
+  -- ═══ (5.4b) CONTROL NEGATIVO OBLIGATORIO — sin ninguna sesión abierta ════
+  -- Si el guard de signo estuviera mal copiado, este caso pasaría EN SILENCIO:
+  -- el bloque se saltearía, no habría P0426 y el gasto se borraría dejando el
+  -- movimiento de caja apuntando a un gasto inexistente. Un test que sólo
+  -- assertara "no hubo error" quedaría verde por omisión.
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a5, 'open', 0, v_user_a) RETURNING id INTO v_s_lonely;
+
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 5450, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_s_lonely)->>'expense_id')::uuid;
+
+  UPDATE public.cash_sessions SET status = 'closed', closed_at = now() WHERE id = v_s_lonely;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_n_old, v_sum_old
+  FROM public.cash_movements WHERE session_id = v_s_lonely;
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0426' AND position('caja' in SQLERRM) > 0 THEN v_rejected := true;
+    ELSIF SQLSTATE = 'P0426' THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b-mensaje): el P0426 no explica que hay que abrir la caja: "%"', SQLERRM;
+    ELSE RAISE; END IF;
+  END;
+
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b): el borrado de un gasto en efectivo SIN ninguna sesión abierta en esa caja NO fue rechazado con P0426. ⚠️ Es el síntoma exacto del guard de signo sin invertir: el bloque entero se saltea, nunca se lanza P0426 y el DELETE procede — se reintroduce el borrado inseguro que motivó delete-guard-ledgers.';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.expenses WHERE id = v_exp) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b-efectos): el gasto se borró pese al P0426.';
+  END IF;
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+  FROM public.cash_movements WHERE session_id = v_s_lonely;
+  IF v_count <> v_n_old OR v_amount <> v_sum_old THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b-efectos): la caja quedó tocada tras el rechazo (% / %, esperaba % / %).', v_count, v_amount, v_n_old, v_sum_old;
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense_reversal';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b/5.7-atomicidad): el rechazo dejó % contra-movimientos escritos.', v_count;
+  END IF;
+
+  -- Y el caso COMPLEMENTARIO: abriendo la caja, el mismo borrado procede y
+  -- deja exactamente UN expense_reversal positivo.
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a5, 'open', 0, v_user_a);
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense_reversal' AND amount = 5450;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b-complementario): con la caja abierta el borrado dejó % expense_reversal de +5450, esperaba exactamente 1.', v_count;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.expenses WHERE id = v_exp) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.4b-complementario): con la caja abierta el gasto no se borró.';
+  END IF;
+  RAISE NOTICE 'PASS (5.4b): sin sesión abierta el borrado se rechaza con P0426 y el gasto SIGUE EXISTIENDO; con la caja abierta deja exactamente 1 expense_reversal positivo.';
+
+  -- ═══ (5.5/5.6) COMPENSACIÓN BANCARIA — espejo invertido ══════════════════
+  SELECT COALESCE(SUM(amount), 0) INTO v_bank_before FROM public.bank_movements WHERE bank_account_id = v_ba_a;
+
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 5500, p_date => v_today,
+    p_payment_method_id => v_pm_transfer_default)->>'expense_id')::uuid;
+
+  SELECT COUNT(*) INTO v_count FROM public.bank_movements
+  WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.5-precondición): el alta por transferencia dejó % movimientos bancarios, esperaba 1.', v_count;
+  END IF;
+
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+
+  SELECT COUNT(*) INTO v_count FROM public.bank_movements
+  WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp;
+  IF v_count <> 2 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.5): tras el borrado hay % movimientos bancarios del gasto y esperaba 2 (el original + el espejo) — el original NO se modifica ni se elimina.', v_count;
+  END IF;
+
+  SELECT * INTO v_bm FROM public.bank_movements
+  WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp AND amount > 0;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.5): no se registró el movimiento espejo de INGRESO.';
+  END IF;
+  IF v_bm.movement_type <> 'transfer_in' THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.5): el espejo quedó con movement_type=% y esperaba transfer_in (transfer_out invertido).', v_bm.movement_type;
+  END IF;
+  IF v_bm.amount <> 5500 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.5): el espejo quedó con amount=% y esperaba +5500.', v_bm.amount;
+  END IF;
+  IF v_bm.reconciliation_status <> 'unreconciled' THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.6): el movimiento espejo nació con reconciliation_status=% y tiene que nacer no conciliado.', v_bm.reconciliation_status;
+  END IF;
+  IF position('Reversión por borrado de gasto' in COALESCE(v_bm.description, '')) = 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.5): el espejo no lleva una descripción que identifique la reversión (description=%).', v_bm.description;
+  END IF;
+
+  SELECT COALESCE(SUM(amount), 0) INTO v_amount FROM public.bank_movements WHERE bank_account_id = v_ba_a;
+  IF v_amount <> v_bank_before THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.6-saldo): el saldo de la cuenta bancaria quedó en % y esperaba volver a % — la compensación tiene que ser neutra.', v_amount, v_bank_before;
+  END IF;
+  RAISE NOTICE 'PASS (5.5/5.6): el borrado registra el espejo transfer_in por +5500, no conciliado, deja el original intacto y devuelve el saldo de la cuenta.';
+
+  -- ═══ (5.2/5.5b) borrar un gasto de OTRA CUENTA → P0404, sin tocarlo ══════
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_b::text, 'role', 'authenticated')::text, true);
+  v_exp_b := (public.rpc_create_expense(
+    p_category => 'Ajeno', p_amount => 5600, p_date => v_today)->>'expense_id')::uuid;
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_delete_expense(p_expense_id => v_exp_b);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0404' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.2): se borró un gasto de otra cuenta.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.expenses WHERE id = v_exp_b) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.2-efectos): el gasto ajeno desapareció.';
+  END IF;
+  RAISE NOTICE 'PASS (5.2): borrar un gasto de otra cuenta da P0404 y el gasto ajeno sigue existiendo.';
+
+  -- ═══ (5.7) CANDADO DE POSICIÓN — las compensaciones ANTES del DELETE ═════
+  -- Los asserts de comportamiento no distinguen en qué orden se escribió: el
+  -- contrato transversal de operation-delete-compensation exige que los guards
+  -- se evalúen y las compensaciones se apliquen ANTES de la eliminación, para
+  -- que ninguna combinación de fallos deje libros compensados sin operación
+  -- borrada ni operación borrada sin libros compensados. Se congela leyendo el
+  -- cuerpo VIVO.
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_delete_expense';
+
+  -- ⚠️ Se BORRAN los comentarios `--` antes de buscar. El cuerpo documenta a
+  -- propósito el guard equivocado del original para que nadie lo re-copie, y
+  -- un detector que leyera el comentario se dispararía sobre su propia
+  -- documentación. Es el mismo gotcha que ya mordió al gate table_refs, que
+  -- leía referencias a tablas dentro de comentarios SQL.
+  v_code := regexp_replace(v_def, '--[^' || chr(10) || ']*', '', 'g');
+
+  v_pos_cash   := position('expense_reversal' in v_code);
+  v_pos_bank   := position('Reversión por borrado de gasto' in v_code);
+  v_pos_delete := position('DELETE FROM public.expenses' in v_code);
+
+  IF v_pos_cash = 0 OR v_pos_bank = 0 OR v_pos_delete = 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7): no se encontraron las tres marcas en el cuerpo vivo de rpc_delete_expense (caja=%, banco=%, delete=%).', v_pos_cash, v_pos_bank, v_pos_delete;
+  END IF;
+  IF NOT (v_pos_cash < v_pos_delete AND v_pos_bank < v_pos_delete) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7): el DELETE del gasto está ANTES de alguna compensación (caja=%, banco=%, delete=%) — los guards y las compensaciones van primero.', v_pos_cash, v_pos_bank, v_pos_delete;
+  END IF;
+
+  -- Y el CÓDIGO (sin comentarios) tiene que llevar el guard INVERTIDO y no el
+  -- del original. Los dos asserts van juntos: exigir sólo la ausencia del
+  -- equivocado pasaría también si el bloque se hubiera borrado entero.
+  IF position('v_cash_amount < 0' in v_code) = 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense no contiene el guard invertido `v_cash_amount < 0`. Los movimientos de gasto son NEGATIVOS (D8).';
+  END IF;
+  IF position('v_cash_amount > 0' in v_code) > 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense contiene el guard `v_cash_amount > 0` copiado verbatim de rpc_delete_sale_operation. Los movimientos de gasto son NEGATIVOS: ese guard es falso para todo gasto y desactiva la compensación entera —sin levantar un solo error—. El guard correcto es `v_cash_amount < 0` (D8).';
+  END IF;
+  RAISE NOTICE 'PASS (5.7): las dos compensaciones preceden al DELETE y el guard de signo está invertido, como exige D8.';
 END $$;
 
 -- @@CLEANUP@@

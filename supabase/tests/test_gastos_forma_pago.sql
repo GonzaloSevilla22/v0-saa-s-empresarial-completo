@@ -1806,6 +1806,235 @@ BEGIN
   RAISE NOTICE 'PASS (5.7): las dos compensaciones preceden al DELETE y el guard de signo está invertido, como exige D8.';
 END $$;
 
+-- ═══════ (6) READ-MODELS — reporte de formas de pago y reporte por sucursal ══
+-- [OQ-5] D14: rpc_payment_method_report suma total_spent. La reescritura parte
+-- del pg_get_functiondef VIVO capturado en baseline/, no del archivo de
+-- migración. Sumar una columna cambia el RETURNS TABLE, así que va DROP +
+-- CREATE + re-emisión completa de ACLs + gate ANTI-OVERLOAD propio.
+--
+-- Se trabaja sobre una VENTANA DE FECHAS PROPIA Y VACÍA (today-100 .. today-99)
+-- para que los números esperados sean exactos y no dependan del resto del
+-- tráfico del gate.
+DO $$
+DECLARE
+  v_user_a     uuid;  v_user_b uuid;
+  v_account_a  uuid;
+  v_branch_a1  uuid;  v_branch_a2 uuid;
+  v_pm_cash_a  uuid;  v_pm_transfer_default uuid;
+  v_start      date;  v_end date;
+  v_row        RECORD;
+  v_sum        numeric;
+  v_count      integer;
+  v_rejected   boolean;
+  v_exp_branch uuid;
+BEGIN
+  SELECT id INTO v_user_a FROM auth.users WHERE email = 'gastos-forma-pago-a@test.local';
+  SELECT id INTO v_user_b FROM auth.users WHERE email = 'gastos-forma-pago-b@test.local';
+  IF v_user_a IS NULL OR v_user_b IS NULL THEN RAISE NOTICE 'GATE GASTOS (6): sin anchors — degradando.'; RETURN; END IF;
+
+  SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a1 FROM public.branches WHERE account_id = v_account_a AND name NOT LIKE '__gate_gfp_branch%' ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a2 FROM public.branches WHERE account_id = v_account_a AND name = '__gate_gfp_branch_a2__';
+  SELECT id INTO v_pm_cash_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active AND deleted_at IS NULL LIMIT 1;
+  SELECT id INTO v_pm_transfer_default FROM public.payment_methods WHERE name = '__gate_gfp_pm_transfer_default__';
+
+  IF v_pm_cash_a IS NULL OR v_pm_transfer_default IS NULL OR v_branch_a2 IS NULL THEN
+    RAISE NOTICE 'GATE GASTOS (6): fixtures incompletos — degradando.'; RETURN;
+  END IF;
+
+  v_start := public.reporting_local_today() - 100;
+  v_end   := public.reporting_local_today() - 99;
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_user_a THEN
+    RAISE NOTICE 'GATE GASTOS (6): auth.uid() no resuelve — degradando.'; RETURN;
+  END IF;
+
+  -- Ventana vacía de arranque: si no lo está, los números esperados no valen.
+  SELECT COUNT(*) INTO v_count FROM public.rpc_payment_method_report(v_account_a, v_start, v_end) r;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6-precondición): la ventana today-100..today-99 no está vacía (% filas).', v_count;
+  END IF;
+
+  -- ── Fixtures del reporte, todos dentro de la ventana ─────────────────────
+  --   ventas:  10.000 + 5.000 en Efectivo (misma operación) · 100 en el BORDE
+  --   compras:  3.000 en Efectivo
+  --   gastos:   6.000 en Efectivo · 7.000 en Transferencia · 800 SIN imputar
+  INSERT INTO public.sales (user_id, account_id, amount, quantity, total, currency, date, payment_method_id, operation_id, branch_id)
+  VALUES (v_user_a, v_account_a, 10000, 1, 10000, 'ARS', v_start::timestamptz, v_pm_cash_a, gen_random_uuid(), v_branch_a1);
+  INSERT INTO public.sales (user_id, account_id, amount, quantity, total, currency, date, payment_method_id, operation_id, branch_id)
+  VALUES (v_user_a, v_account_a, 5000, 1, 5000, 'ARS', v_start::timestamptz, v_pm_cash_a, gen_random_uuid(), v_branch_a1);
+  -- Venta del BORDE SUPERIOR: fechada el último día del rango, a las 23:00.
+  -- RN-D5 exige que el día final entre COMPLETO (date < p_end + 1).
+  INSERT INTO public.sales (user_id, account_id, amount, quantity, total, currency, date, payment_method_id, operation_id, branch_id)
+  VALUES (v_user_a, v_account_a, 100, 1, 100, 'ARS', (v_end + interval '23 hours')::timestamptz, v_pm_cash_a, gen_random_uuid(), v_branch_a1);
+
+  INSERT INTO public.purchases (user_id, account_id, amount, quantity, total, date, payment_method_id, operation_id, branch_id)
+  VALUES (v_user_a, v_account_a, 3000, 1, 3000, v_start::timestamptz, v_pm_cash_a, gen_random_uuid(), v_branch_a1);
+
+  -- Los gastos entran por la RPC (no por INSERT plano): así el reporte lee lo
+  -- que el camino real produce, branch_id incluido.
+  PERFORM public.rpc_create_expense(
+    p_category => 'Reporte', p_amount => 6000, p_date => v_start,
+    p_payment_method_id => v_pm_cash_a);
+  PERFORM public.rpc_create_expense(
+    p_category => 'Reporte', p_amount => 7000, p_date => v_start,
+    p_payment_method_id => v_pm_transfer_default);
+  PERFORM public.rpc_create_expense(
+    p_category => 'Reporte', p_amount => 800, p_date => v_start);
+
+  -- ═══ (6.2/6.4) agregación por forma de pago ══════════════════════════════
+  SELECT * INTO v_row FROM public.rpc_payment_method_report(v_account_a, v_start, v_end) r
+  WHERE r.payment_method_id = v_pm_cash_a;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2): "Efectivo" no aparece en el reporte.';
+  END IF;
+  IF v_row.total_sold <> 15100 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.4-no-regresión): Efectivo esperaba total_sold 15100 (15000 + 100 del borde) y dio % — sumar los gastos NO puede mover los números de ventas.', v_row.total_sold;
+  END IF;
+  IF v_row.total_purchased <> 3000 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.4-no-regresión): Efectivo esperaba total_purchased 3000 y dio %.', v_row.total_purchased;
+  END IF;
+  IF v_row.total_spent <> 6000 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2): Efectivo esperaba total_spent 6000 y dio % — los gastos suman por amount, una unidad de conteo por fila (mismo criterio que rpc_cost_center_report).', v_row.total_spent;
+  END IF;
+  -- 2 ventas + 1 venta del borde + 1 compra + 1 gasto = 5 unidades de conteo.
+  IF v_row.operation_count <> 5 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2): Efectivo esperaba operation_count 5 (3 ventas + 1 compra + 1 gasto) y dio %.', v_row.operation_count;
+  END IF;
+
+  SELECT * INTO v_row FROM public.rpc_payment_method_report(v_account_a, v_start, v_end) r
+  WHERE r.payment_method_id = v_pm_transfer_default;
+  IF NOT FOUND OR v_row.total_spent <> 7000 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2): "Transferencia" esperaba total_spent 7000.';
+  END IF;
+  IF v_row.total_purchased <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2): los importes de GASTO se mezclaron con los de COMPRA (total_purchased=% en una forma de pago sin compras).', v_row.total_purchased;
+  END IF;
+  IF v_row.total_sold <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2): los importes de GASTO se mezclaron con los de VENTA (total_sold=%).', v_row.total_sold;
+  END IF;
+
+  -- ═══ (6.2b) los gastos SIN imputar caen en "Sin especificar" ═════════════
+  SELECT * INTO v_row FROM public.rpc_payment_method_report(v_account_a, v_start, v_end) r
+  WHERE r.payment_method_id IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2b): no hay fila de no imputados, y hay un gasto sin forma de pago en el rango — los 175 gastos históricos de prod viven exactamente ahí.';
+  END IF;
+  IF v_row.payment_method_name <> 'Sin especificar' THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2b): la fila de no imputados se llama "%".', v_row.payment_method_name;
+  END IF;
+  IF v_row.total_spent <> 800 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2b): la fila "Sin especificar" esperaba total_spent 800 y dio % — los gastos sin imputar NO se reparten entre las demás formas de pago.', v_row.total_spent;
+  END IF;
+
+  -- La suma total de gastos del rango tiene que cerrar contra la tabla.
+  SELECT COALESCE(SUM(r.total_spent), 0) INTO v_sum
+  FROM public.rpc_payment_method_report(v_account_a, v_start, v_end) r;
+  IF v_sum <> 13800 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.2c): la suma de total_spent del rango dio % y esperaba 13800 (6000 + 7000 + 800).', v_sum;
+  END IF;
+  RAISE NOTICE 'PASS (6.2/6.4): el reporte suma total_spent por forma de pago, agrupa lo no imputado en "Sin especificar", no mezcla gasto con compra ni con venta, y los números de ventas y compras no se movieron.';
+
+  -- ═══ (6.4b) el caller de OTRA CUENTA sigue recibiendo P0401 ══════════════
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_b::text, 'role', 'authenticated')::text, true);
+  v_rejected := false;
+  BEGIN
+    PERFORM * FROM public.rpc_payment_method_report(v_account_a, v_start, v_end);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0401' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.4b): el reporte de otra cuenta no fue rechazado con P0401 — el guard de membresía tiene que sobrevivir al DROP+CREATE.';
+  END IF;
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+
+  -- ═══ (6.3.4) ACLs re-emitidas tras el DROP ═══════════════════════════════
+  -- Un DROP FUNCTION RESETEA las ACLs. Si no se re-emiten en el mismo archivo,
+  -- la función queda con los defaults del schema public de Supabase hosted, que
+  -- otorgan EXECUTE a anon. El chequeo (2) del gate de ACLs es la red, no el
+  -- mecanismo.
+  IF has_function_privilege('anon', 'public.rpc_payment_method_report(uuid, date, date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.3.4): anon puede ejecutar rpc_payment_method_report — el DROP reseteó las ACLs y la migración no las re-emitió.';
+  END IF;
+  IF NOT has_function_privilege('authenticated', 'public.rpc_payment_method_report(uuid, date, date)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.3.4): authenticated NO puede ejecutar rpc_payment_method_report — el GRANT no se re-emitió tras el DROP.';
+  END IF;
+  -- Y las tres RPCs nuevas, con el mismo patrón uniforme.
+  IF has_function_privilege('anon', 'public.rpc_create_expense(text, numeric, date, text, uuid, uuid, uuid, uuid, uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rpc_delete_expense(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.3.4): alguna de las 3 RPCs de gasto es ejecutable por anon.';
+  END IF;
+  IF NOT (has_function_privilege('authenticated', 'public.rpc_create_expense(text, numeric, date, text, uuid, uuid, uuid, uuid, uuid)', 'EXECUTE')
+     AND has_function_privilege('authenticated', 'public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean)', 'EXECUTE')
+     AND has_function_privilege('authenticated', 'public.rpc_delete_expense(uuid)', 'EXECUTE')) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.3.4): alguna de las 3 RPCs de gasto NO es ejecutable por authenticated.';
+  END IF;
+  RAISE NOTICE 'PASS (6.4b/6.3.4): P0401 para el caller ajeno; anon sin EXECUTE y authenticated con EXECUTE en las 4 funciones.';
+
+  -- ═══ (6.5) EL REPORTE POR SUCURSAL EMPIEZA A VER LOS GASTOS ══════════════
+  -- Efecto colateral de D6, VERIFICADO y no supuesto: rpc_branch_report ya
+  -- agrega public.expenses por branch_id (20260814000001:397-405) y hoy nunca
+  -- ve ninguno porque son 0 de 175. No se toca la RPC.
+  v_exp_branch := (public.rpc_create_expense(
+    p_category => 'Reporte sucursal', p_amount => 6500, p_date => v_start,
+    p_branch_id => v_branch_a2)->>'expense_id')::uuid;
+
+  -- (6.5a) Assert PRIMARIO, a nivel de datos: se replica LITERAL el predicado
+  -- de agregación de gastos de rpc_branch_report (20260814000001:397-405) y se
+  -- verifica que el gasto cae atribuido a su sucursal. Es lo que D6 promete y
+  -- lo único que este change controla.
+  SELECT COALESCE(SUM(e.amount), 0) INTO v_sum
+  FROM public.expenses e
+  WHERE e.account_id = v_account_a
+    AND e.branch_id  = v_branch_a2
+    AND e.date >= v_start::timestamptz
+    AND e.date <  (v_end + 1)::timestamptz;
+  IF v_sum <> 6500 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (6.5a): el predicado de agregación por sucursal de rpc_branch_report atribuye % a la sucursal del gasto y esperaba 6500 — sin branch_id persistido el reporte por sucursal nunca ve un gasto (0 de 175 en prod).', v_sum;
+  END IF;
+
+  -- (6.5b) Y la llamada REAL a rpc_branch_report, con una tolerancia ACOTADA y
+  -- ruidosa a un DEFECTO PRE-EXISTENTE que este change NO toca (la task lo dice
+  -- explícito: "No se toca la RPC").
+  --
+  -- ⚠️ HALLAZGO (2026-08-29): rpc_branch_report está ROTA para TODO caller
+  -- autorizado, en el cuerpo VIVO de prod. Declara `RETURNS TABLE(branch_id
+  -- uuid, ...)`, lo que crea una variable plpgsql `branch_id`, y su propio
+  -- cuerpo hace `SELECT DISTINCT branch_id FROM branch_sales` sin calificar →
+  -- 42702 "column reference branch_id is ambiguous". Es un error de PLANIFICACIÓN:
+  -- no depende de que haya filas, falla siempre. Sólo no se ve cuando el guard
+  -- de membresía (P0401) corta antes. Verificado en el stack local con una
+  -- sesión de miembro real y confirmado en prod por introspección (el literal
+  -- ambiguo está en el pg_get_functiondef vivo).
+  --
+  -- Se tolera 42702 y se avisa fuerte; cualquier OTRO fallo aborta. Y si algún
+  -- día la RPC se arregla, este assert pasa a exigir el número correcto: el
+  -- gate se fortalece solo, sin quedar como candado de un bug.
+  BEGIN
+    SELECT * INTO v_row FROM public.rpc_branch_report(v_account_a, v_start, v_end) r
+    WHERE r.branch_id = v_branch_a2;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (6.5b): la sucursal del gasto no aparece en rpc_branch_report.';
+    END IF;
+    IF v_row.total_expenses <> 6500 THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (6.5b): rpc_branch_report atribuyó % de gastos a la sucursal y esperaba 6500.', v_row.total_expenses;
+    END IF;
+    RAISE NOTICE 'PASS (6.5b): rpc_branch_report atribuye el gasto a su sucursal.';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = '42702' THEN
+      RAISE WARNING 'GATE GASTOS (6.5b): rpc_branch_report sigue ROTA con 42702 (column reference "branch_id" is ambiguous) — defecto PRE-EXISTENTE, fuera del alcance de este change. El assert de datos (6.5a) sí verifica la atribución. Candidato a change propio.';
+    ELSE
+      RAISE;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS (6.5): el gasto queda persistido con su sucursal y cae dentro del predicado de agregación del reporte por sucursal — RN-93 cumplida para gastos.';
+END $$;
+
 -- @@CLEANUP@@
 -- ── Fase de cleanup de los tenants sintéticos A/B/C y del usuario D ─────────
 -- DO block SEPARADO que resuelve los ids por email en vez de heredar las

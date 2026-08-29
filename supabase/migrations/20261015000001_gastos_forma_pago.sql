@@ -759,3 +759,185 @@ BEGIN
 
   RAISE NOTICE 'GATE ANTI-OVERLOAD PASSED: las 3 RPCs de gasto tienen exactamente 1 definición cada una.';
 END $$;
+
+
+-- =============================================================================
+-- 6. rpc_payment_method_report — los gastos entran al reporte [OQ-5, D14]
+-- =============================================================================
+--
+-- El reporte se llama "formas de pago" y hoy cubre ventas y compras. Si los
+-- gastos imputan forma de pago y no aparecen, el reporte MIENTE POR OMISIÓN
+-- sobre un tercio del dinero.
+--
+-- ⚠️ MECÁNICA OBLIGATORIA — no alcanza CREATE OR REPLACE pelado.
+-- La función vigente se creó con CREATE OR REPLACE SIN DROP previo
+-- (20260928000001:1851) y su RETURNS TABLE tiene 7 columnas. Sumar total_spent
+-- CAMBIA EL TIPO DE RETORNO y Postgres rechaza el CREATE OR REPLACE con 42P13
+-- ("cannot change return type of existing function"). Entonces:
+--   1. DROP FUNCTION IF EXISTS con la firma EXACTA.
+--   2. CREATE con las 8 columnas.
+--   3. RE-EMITIR LAS TRES ACLs en este mismo archivo: el DROP las RESETEA, y
+--      sin eso la función queda con los defaults del schema public de Supabase
+--      hosted, que otorgan EXECUTE a anon. El chequeo (2) del gate de ACLs es
+--      la RED que atraparía el olvido; la migración no debe depender de la red.
+--   4. Gate ANTI-OVERLOAD propio: si el DROP no matcheara la firma vieja, el
+--      CREATE dejaría dos overloads y la próxima llamada posicional del
+--      frontend reventaría con 42725.
+--
+-- ⚠️ EL CUERPO PARTE DEL pg_get_functiondef VIVO DE PROD, capturado en
+-- openspec/changes/gastos-forma-pago/baseline/rpc_payment_method_report.sql
+-- (md5 e452c30331368d3bdbc0c24bc305dda2, length 3370, verificado contra prod y
+-- contra el stack local). NUNCA del archivo de migración: el antecedente es el
+-- G3 de 20261003000001, reescrito in-place, cuya definición viva había
+-- divergido de su archivo. Todo lo que sigue es el baseline TEXTUAL más la CTE
+-- pm_expenses, la columna total_spent, el UNION y el LEFT JOIN.
+--
+-- Sobre la CADENA DE REAPPLY de KPI_Validation.yml: el paso re-aplica
+-- 20260928000001 completo, y ese reapply YA FALLA HOY y está TOLERADO. Aborta
+-- en su gate ANTI-OVERLOAD de la SECCIÓN 9 (línea 1838 medida), que corre ANTES
+-- del CREATE de rpc_payment_method_report de la sección 10 (línea 1850), así
+-- que con ON_ERROR_STOP=1 el archivo NUNCA llega al CREATE con la firma vieja
+-- de 7 columnas y no se introduce ningún 42P13. Es una dependencia frágil y por
+-- eso se VERIFICA reproduciendo la cadena en local DESPUÉS de aplicar esta
+-- migración (task 1.5, segunda mitad), en vez de suponerla.
+
+DROP FUNCTION IF EXISTS public.rpc_payment_method_report(uuid, date, date);
+
+CREATE OR REPLACE FUNCTION public.rpc_payment_method_report(p_account_id uuid, p_start date, p_end date)
+ RETURNS TABLE(payment_method_id uuid, payment_method_name text, payment_method_kind text, is_active boolean, total_sold numeric, total_purchased numeric, total_spent numeric, operation_count bigint)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- Verify caller belongs to this account (espejo de rpc_cost_center_report).
+  IF NOT EXISTS (
+    SELECT 1 FROM public.account_members
+    WHERE account_id = p_account_id
+      AND user_id    = auth.uid()
+  ) THEN
+    RAISE EXCEPTION 'unauthorized'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  RETURN QUERY
+  WITH
+    pm_sales AS (
+      SELECT
+        s.payment_method_id                                       AS pm_id,
+        -- RN-D: importe de línea COALESCE(total, amount).
+        COALESCE(SUM(COALESCE(s.total, s.amount)), 0)             AS sold_total,
+        -- RN-D: conteo de operaciones COUNT(DISTINCT COALESCE(operation_id, id)).
+        COUNT(DISTINCT COALESCE(s.operation_id, s.id))::BIGINT    AS sold_ops
+      FROM public.sales s
+      WHERE s.account_id = p_account_id
+        -- RN-D5: borde superior inclusivo hasta fin de día local.
+        AND s.date >= p_start::timestamptz
+        AND s.date <  (p_end + 1)::timestamptz
+      GROUP BY s.payment_method_id
+    ),
+    pm_purchases AS (
+      SELECT
+        p.payment_method_id                                       AS pm_id,
+        COALESCE(SUM(COALESCE(p.total, p.amount)), 0)             AS purchased_total,
+        COUNT(DISTINCT COALESCE(p.operation_id, p.id))::BIGINT    AS purchased_ops
+      FROM public.purchases p
+      WHERE p.account_id = p_account_id
+        AND p.date >= p_start::timestamptz
+        AND p.date <  (p_end + 1)::timestamptz
+      GROUP BY p.payment_method_id
+    ),
+    pm_expenses AS (
+      -- gastos-forma-pago (D14): los gastos entran al reporte. Se suman por
+      -- `amount` y se cuenta UNA UNIDAD POR FILA, con el mismo criterio con que
+      -- rpc_cost_center_report ya los agrega: expenses no tiene operation_id ni
+      -- columna total, así que el COALESCE(total, amount) y el
+      -- COUNT(DISTINCT COALESCE(operation_id, id)) de arriba no aplican acá.
+      SELECT
+        e.payment_method_id                                       AS pm_id,
+        COALESCE(SUM(e.amount), 0)                                AS spent_total,
+        COUNT(*)::BIGINT                                          AS spent_rows
+      FROM public.expenses e
+      WHERE e.account_id = p_account_id
+        AND e.date >= p_start::timestamptz
+        AND e.date <  (p_end + 1)::timestamptz
+      GROUP BY e.payment_method_id
+    ),
+    all_pm_ids AS (
+      -- UNION (no UNION ALL) dedupe incluyendo la clave NULL: lo no imputado
+      -- colapsa en una sola fila "Sin especificar". Los 175 gastos históricos
+      -- de prod viven exactamente ahí (D7: sin backfill).
+      SELECT pm_id FROM pm_sales
+      UNION
+      SELECT pm_id FROM pm_purchases
+      UNION
+      SELECT pm_id FROM pm_expenses
+    )
+  SELECT
+    api.pm_id                                                            AS payment_method_id,
+    COALESCE(pm.name, 'Sin especificar')                                 AS payment_method_name,
+    pm.kind                                                              AS payment_method_kind,
+    -- Las formas de pago desactivadas siguen apareciendo con su nombre
+    -- histórico; la bandera deja que la UI las distinga sin consulta extra.
+    COALESCE(pm.is_active, true)                                         AS is_active,
+    COALESCE(ps.sold_total, 0)                                           AS total_sold,
+    COALESCE(pp.purchased_total, 0)                                      AS total_purchased,
+    COALESCE(pe.spent_total, 0)                                          AS total_spent,
+    (COALESCE(ps.sold_ops, 0) + COALESCE(pp.purchased_ops, 0)
+                              + COALESCE(pe.spent_rows, 0))::BIGINT      AS operation_count
+  FROM all_pm_ids api
+  LEFT JOIN public.payment_methods pm ON pm.id     = api.pm_id
+  LEFT JOIN pm_sales               ps ON ps.pm_id  IS NOT DISTINCT FROM api.pm_id
+  LEFT JOIN pm_purchases           pp ON pp.pm_id  IS NOT DISTINCT FROM api.pm_id
+  LEFT JOIN pm_expenses            pe ON pe.pm_id  IS NOT DISTINCT FROM api.pm_id
+  -- ORDER BY por expresión y no por el nombre de la columna OUT: evita la
+  -- ambigüedad columna-vs-variable de plpgsql en RETURN QUERY.
+  ORDER BY (COALESCE(ps.sold_total, 0) + COALESCE(pp.purchased_total, 0)
+                                       + COALESCE(pe.spent_total, 0)) DESC;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.rpc_payment_method_report(uuid, date, date) IS
+  'Distribución por forma de pago en un rango: total vendido, comprado y GASTADO.
+  RN-D1: no resta notas de crédito (no tienen forma de pago atribuible).
+  gastos-forma-pago (D14): suma total_spent — los gastos se agregan por amount y
+  cuentan una unidad por fila, mismo criterio que rpc_cost_center_report.';
+
+-- ── ACLs re-emitidas COMPLETAS: el DROP de arriba las reseteó ────────────────
+-- Molde literal de 20260928000001:1945-1947.
+REVOKE ALL     ON FUNCTION public.rpc_payment_method_report(uuid, date, date) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.rpc_payment_method_report(uuid, date, date) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_payment_method_report(uuid, date, date) TO authenticated;
+
+-- ── Gate ANTI-OVERLOAD propio del reporte (molde de 20260928000001:1813) ────
+DO $$
+DECLARE
+  v_count integer;
+  v_def   text;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM   pg_proc p
+  JOIN   pg_namespace n ON n.oid = p.pronamespace
+  WHERE  n.nspname = 'public' AND p.proname = 'rpc_payment_method_report';
+
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE ANTI-OVERLOAD FAILED: rpc_payment_method_report tiene % definiciones en public (esperaba exactamente 1) — el DROP FUNCTION IF EXISTS no matcheó la firma vieja y quedó un overload fantasma (42725).', v_count;
+  END IF;
+
+  -- Y el cuerpo conserva los cuatro predicados que el gate de introspección de
+  -- 20260928000001 §12 exige, para que ese gate siga verde sobre la definición
+  -- nueva: la reescritura suma una CTE, no reemplaza los invariantes RN-D.
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE  n.nspname = 'public' AND p.proname = 'rpc_payment_method_report';
+
+  IF position('COALESCE(s.total, s.amount)' in v_def) = 0
+     OR position('COALESCE(p.total, p.amount)' in v_def) = 0
+     OR position('(p_end + 1)::timestamptz' in v_def) = 0
+     OR position('Sin especificar' in v_def) = 0
+     OR position('journal_lines' in v_def) > 0 THEN
+    RAISE EXCEPTION 'GATE REPORTE FAILED: la reescritura de rpc_payment_method_report perdió alguno de los invariantes RN-D que verifica 20260928000001 §12.';
+  END IF;
+
+  RAISE NOTICE 'GATE ANTI-OVERLOAD PASSED: rpc_payment_method_report tiene 1 definición, con las 8 columnas y los invariantes RN-D intactos.';
+END $$;

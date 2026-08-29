@@ -587,6 +587,8 @@ export interface PaymentMethodReportRow {
   isActive: boolean
   totalSold: number
   totalPurchased: number
+  /** gastos-forma-pago (D14): gastos del período imputados a esta forma de pago. */
+  totalSpent: number
   operationCount: number
 }
 

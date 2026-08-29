@@ -21,6 +21,15 @@ export interface DeletableOperationFlags {
   hasAccountCharge?: boolean
   hasCashMovement?: boolean
   hasBankMovement?: boolean
+  /**
+   * gastos-forma-pago (D8): el gasto tiene movimiento de caja y NO hay sesión
+   * abierta en esa caja. La compensación se postea contra la sesión abierta de
+   * hoy y jamás toca la original (el ledger es append-only por sesión), así que
+   * sin caja abierta `rpc_delete_expense` responde `P0426`. Es el MISMO EXISTS
+   * que evalúa el servidor, derivado en el backend — no una regla de cliente.
+   * Ausente/false en ventas y compras: su borrado no tiene este bloqueo.
+   */
+  isDeleteBlocked?: boolean
 }
 
 export interface DeleteCompensationInfo {
@@ -37,12 +46,22 @@ export interface DeleteCompensationInfo {
 const FISCAL_BLOCKED_REASON =
   "No se puede borrar: la operación tiene un comprobante fiscal emitido. El camino correcto es emitir una Nota de Crédito."
 
+/** Documento sobre el que se deriva — sólo cambia la redacción, no la lógica. */
+export type DeletableDocument = "operacion" | "gasto"
+
+const NO_OPEN_SESSION_BLOCKED_REASON =
+  "No se puede borrar: el gasto descontó de una caja que ya está cerrada. Abrí la caja para poder borrarlo."
+
 export function getDeleteCompensation(
   flags: DeletableOperationFlags,
   party: "cliente" | "proveedor" = "cliente",
+  document: DeletableDocument = "operacion",
 ): DeleteCompensationInfo {
   if (flags.isInvoiced) {
     return { deletable: false, blockedReason: FISCAL_BLOCKED_REASON, compensations: [] }
+  }
+  if (flags.isDeleteBlocked) {
+    return { deletable: false, blockedReason: NO_OPEN_SESSION_BLOCKED_REASON, compensations: [] }
   }
 
   const compensations: string[] = []
@@ -54,7 +73,14 @@ export function getDeleteCompensation(
     )
   }
   if (flags.hasCashMovement) {
-    compensations.push("Se registrará la salida correspondiente en la caja abierta actual.")
+    // El signo es opuesto según el documento: borrar una venta SACA plata de
+    // la caja; borrar un gasto la REPONE (expense es negativo, su reversa
+    // positiva). Decir "salida" en un gasto sería mentir sobre el arqueo.
+    compensations.push(
+      document === "gasto"
+        ? "Se registrará el ingreso correspondiente en la caja abierta actual."
+        : "Se registrará la salida correspondiente en la caja abierta actual.",
+    )
   }
   if (flags.hasBankMovement) {
     compensations.push("Se registrará el movimiento bancario inverso, pendiente de conciliar.")

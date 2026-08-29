@@ -3,9 +3,13 @@
 import { useState, useCallback, useMemo } from "react"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
+import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
+import { PaymentMethodBadge } from "@/components/payment-methods/PaymentMethodBadge"
 import { useCostCenters } from "@/hooks/data/use-cost-centers"
-import { useDeleteExpense } from "@/hooks/data/use-expenses-query"
+import { useExpenses } from "@/hooks/data/use-expenses-query"
 import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
+import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
+import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,7 +17,6 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
-import { usePaginatedQuery } from "@/hooks/use-paginated-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { NoWriteAccessBanner } from "@/components/shared/NoWriteAccessBanner"
@@ -21,13 +24,20 @@ import { ModuleMetricsWrapper } from "@/components/admin/ModuleMetricsWrapper"
 import { formatMoney, formatDate } from "@/lib/format"
 import { exportToCSV } from "@/lib/excel"
 import {
-  Plus, Trash2, Pencil, Search, PackageOpen,
+  Plus, Pencil, Search, PackageOpen, Lock,
   Download, Upload, CalendarDays, X, Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { ExportButton } from "@/components/export/ExportButton"
 import type { Expense } from "@/lib/types"
 
+/**
+ * ⚠️ Deuda ajena declarada (D17): estos son literales de Tailwind, el patrón
+ * que `tokens-contraste-aa` (#406-#408) desterró. `gastos-forma-pago` NO los
+ * refactoriza — tocarlos ampliaría la superficie sin relación con el pedido —
+ * pero tampoco los copia: el badge de forma de pago que agrega este change usa
+ * tonos semánticos (`PaymentMethodBadge`). Queda anotado como candidato.
+ */
 const categoryColors: Record<string, string> = {
   Alquiler:  "bg-blue-500/20 text-blue-400 border-blue-500/30",
   Servicios: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
@@ -38,29 +48,46 @@ const categoryColors: Record<string, string> = {
   Otros:     "bg-muted text-muted-foreground border-border",
 }
 
-function mapRow(r: any): Expense {
-  return {
-    id:          r.id,
-    date:        r.date?.split("T")[0] ?? r.date,
-    category:    r.category || "Otros",
-    description: r.description || "",
-    amount:      Number(r.amount),
-    // cost-center-surface: la fila ya traía la columna (select "*"), solo que
-    // el mapeo la descartaba y el badge no tenía de dónde salir.
-    costCenterId: r.cost_center_id ?? null,
+/** Razón visible del lock de edición (D11) — anticipa el `P0423` del servidor. */
+function editBlockedReason(row: Expense): string | null {
+  if (!row.isPaymentLocked) return null
+  if (row.hasCashMovement && row.hasBankMovement) {
+    return "No se puede editar: el gasto ya movió plata en la caja y en el banco. Para corregirlo, borralo y cargalo de nuevo."
   }
+  if (row.hasCashMovement) {
+    return "No se puede editar: el gasto ya descontó de la caja. Para corregirlo, borralo y cargalo de nuevo."
+  }
+  if (row.hasBankMovement) {
+    return "No se puede editar: el gasto ya registró un movimiento bancario. Para corregirlo, borralo y cargalo de nuevo."
+  }
+  return "No se puede editar: el gasto ya movió plata."
 }
 
 export default function GastosPage() {
-  const deleteExpenseMutation = useDeleteExpense()
   const { isAdmin } = useAuth()
   const { isWriter } = useOrgRole()
   const [importOpen,     setImportOpen]     = useState(false)
   const [addOpen,        setAddOpen]        = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [deletingId,     setDeletingId]     = useState<string | null>(null)
-  // cost-center-surface: filtro por centro de costo (server-side, vía extraFilters)
-  const [costCenterId,   setCostCenterId]   = useState<string | null>(null)
+
+  // ── D18: origen de datos = GET /expenses paginado del backend ─────────────
+  // Antes: usePaginatedQuery({ table: "expenses" }) por PostgREST directo, con
+  // su `mapRow` local. Por ese camino no hay forma de que llegue el lock
+  // (`is_payment_locked` es un derivado de cash_movements/bank_movements, NO
+  // una columna de `expenses`) ni el nombre de la forma de pago. Es la misma
+  // plomería que /ventas ya usa con useSales(), no lógica nueva.
+  const {
+    expenses, meta, isLoading, error,
+    search, setSearch,
+    dateFrom, setDateFrom,
+    dateTo, setDateTo,
+    costCenterId, setCostCenterId,
+    paymentMethodId, setPaymentMethodId,
+    clearFilters,
+    setPage, setPageSize, refetch,
+    deleteExpense,
+  } = useExpenses()
 
   // Nombres del catálogo para el badge de cada fila; incluye inactivos porque
   // los gastos históricos pueden apuntar a un centro dado de baja.
@@ -70,47 +97,37 @@ export default function GastosPage() {
     [costCenters],
   )
 
-  // ── Paginated query — search + date + centro de costo, server-side ────────
-  const pq = usePaginatedQuery<any>({
-    table: "expenses",
-    extraFilters: { cost_center_id: costCenterId },
-    applyFilters: (base, { search, dateFrom, dateTo, extraFilters }) => {
-      let q = base
-      if (search)   q = q.ilike("description", `%${search}%`)
-      if (dateFrom) q = q.gte("date", dateFrom)
-      if (dateTo)   q = q.lte("date", dateTo)
-      if (extraFilters?.cost_center_id) q = q.eq("cost_center_id", extraFilters.cost_center_id)
-      return q
-    },
-    defaultSortKey:  "date",
-    defaultSortDir:  "desc",
-    defaultPageSize: 25,
-  })
-
-  const expenses = pq.data.map(mapRow)
-  const isDateFilterActive = !!(pq.dateFrom || pq.dateTo)
-  const isAnyFilterActive  = isDateFilterActive || !!costCenterId || !!pq.search
+  const isDateFilterActive = !!(dateFrom || dateTo)
+  const isAnyFilterActive  = isDateFilterActive || !!costCenterId || !!paymentMethodId || !!search
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (id: string) => {
     setDeletingId(id)
     try {
-      await deleteExpenseMutation.mutateAsync(id)
+      await deleteExpense(id)
       toast.success("Gasto eliminado")
-      pq.refetch()
-    } catch (err: any) {
-      toast.error(err?.message || "Error al eliminar")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error al eliminar")
     } finally {
       setDeletingId(null)
     }
-  }, [deleteExpenseMutation, pq])
+  }, [deleteExpense])
 
   function handleExport() {
-    exportToCSV(expenses as any[], [
-      { key: "date",        header: "Fecha"       },
-      { key: "category",    header: "Categoría"   },
-      { key: "description", header: "Descripción" },
-      { key: "amount",      header: "Monto"       },
+    exportToCSV(expenses.map((e) => ({
+      date: e.date,
+      category: e.category,
+      description: e.description,
+      // gastos-forma-pago (11.5): misma columna que el export por Edge
+      // Function — tocar uno solo los deja divergentes.
+      paymentMethodName: e.paymentMethodName ?? "Sin especificar",
+      amount: e.amount,
+    })), [
+      { key: "date",              header: "Fecha"         },
+      { key: "category",          header: "Categoría"     },
+      { key: "description",       header: "Descripción"   },
+      { key: "paymentMethodName", header: "Forma de pago" },
+      { key: "amount",            header: "Monto"         },
     ], "gastos")
     toast.success(`Exportados ${expenses.length} gastos`)
   }
@@ -134,8 +151,8 @@ export default function GastosPage() {
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
-              value={pq.search}
-              onChange={(e) => pq.setSearch(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar descripción..."
               className="pl-9 bg-background border-border text-foreground"
             />
@@ -158,17 +175,17 @@ export default function GastosPage() {
               <div className="flex flex-col gap-3">
                 <p className="text-sm font-medium text-foreground">Rango de fechas</p>
                 <div className="flex flex-col gap-2">
-                  <Label className="text-xs text-muted-foreground">Desde</Label>
-                  <Input type="date" value={pq.dateFrom} onChange={(e) => pq.setDateFrom(e.target.value)}
+                  <Label htmlFor="expense-date-from" className="text-xs text-muted-foreground">Desde</Label>
+                  <Input id="expense-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
                     className="bg-background border-border text-foreground" />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label className="text-xs text-muted-foreground">Hasta</Label>
-                  <Input type="date" value={pq.dateTo} onChange={(e) => pq.setDateTo(e.target.value)}
+                  <Label htmlFor="expense-date-to" className="text-xs text-muted-foreground">Hasta</Label>
+                  <Input id="expense-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
                     className="bg-background border-border text-foreground" />
                 </div>
                 {isDateFilterActive && (
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={pq.clearFilters}>
+                  <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={clearFilters}>
                     <X className="h-3 w-3 mr-1" />Limpiar filtro
                   </Button>
                 )}
@@ -187,18 +204,42 @@ export default function GastosPage() {
               className={`bg-background border-border text-foreground ${costCenterId ? "border-primary text-primary" : ""}`}
             />
           </div>
+
+          {/* gastos-forma-pago (11.2): filtro por forma de pago, server-side.
+              `includeInactive` sostiene el escenario "desactivar una forma de
+              pago usada por gastos": la forma dada de baja deja de ofrecerse
+              para gastos NUEVOS, pero sigue siendo filtrable y nombrable. */}
+          <div className="w-full sm:w-56">
+            <PaymentMethodSelect
+              value={paymentMethodId}
+              onChange={setPaymentMethodId}
+              placeholder="Todas las formas"
+              showLabel={false}
+              showSupportText={false}
+              includeInactive
+              context="expense"
+              className={`bg-background border-border text-foreground ${paymentMethodId ? "border-primary text-primary" : ""}`}
+            />
+          </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
-            {pq.loading
+            {isLoading
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Cargando...</span>
-              : `${pq.meta.totalCount} gasto${pq.meta.totalCount !== 1 ? "s" : ""}`
+              : `${meta.totalCount} gasto${meta.totalCount !== 1 ? "s" : ""}`
             }
           </span>
           <Button variant="outline" size="sm" className="border-border text-foreground"
             onClick={() => setImportOpen(true)}>
             <Upload className="h-4 w-4 mr-1" />Importar CSV
+          </Button>
+          {/* gastos-forma-pago (11.5): este botón NO existía — `handleExport`
+              estaba escrito y sin montar en ninguna parte, mientras /clientes,
+              /proveedores y /ventas sí lo exponen con este mismo markup. Se
+              monta acá para que la columna nueva tenga por dónde salir. */}
+          <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-1" />Exportar
           </Button>
           <ExportButton exportType="expenses_csv" />
           {isWriter && (
@@ -209,9 +250,9 @@ export default function GastosPage() {
         </div>
       </div>
 
-      {pq.error && (
+      {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {pq.error}
+          {error instanceof Error ? error.message : "Error al cargar los gastos"}
         </div>
       )}
 
@@ -224,7 +265,7 @@ export default function GastosPage() {
         </div>
 
         {/* Skeleton */}
-        {pq.loading && expenses.length === 0 && (
+        {isLoading && expenses.length === 0 && (
           <div className="flex flex-col">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
@@ -240,7 +281,7 @@ export default function GastosPage() {
           </div>
         )}
 
-        {!pq.loading && expenses.length === 0 && (
+        {!isLoading && expenses.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
             <PackageOpen className="h-10 w-10 opacity-30" />
             <p className="text-sm">
@@ -254,7 +295,20 @@ export default function GastosPage() {
           </div>
         )}
 
-        {expenses.map((row) => (
+        {expenses.map((row) => {
+          // D11/D8: los dos bloqueos vienen de los MISMOS predicados que evalúa
+          // el servidor (derivados en el backend), no de una regla de cliente.
+          const lockReason = editBlockedReason(row)
+          const deleteInfo = getDeleteCompensation(
+            {
+              hasCashMovement: row.hasCashMovement,
+              hasBankMovement: row.hasBankMovement,
+              isDeleteBlocked: row.isDeleteBlocked,
+            },
+            "cliente",
+            "gasto",
+          )
+          return (
           <div key={row.id} className="border-t border-border/50 first:border-t-0 hover:bg-accent/20 transition-colors">
             {/* Mobile */}
             <div className="sm:hidden flex flex-col gap-2 px-4 py-3">
@@ -262,25 +316,36 @@ export default function GastosPage() {
                 <Badge variant="outline" className={`text-xs shrink-0 ${categoryColors[row.category] || categoryColors.Otros}`}>
                   {row.category}
                 </Badge>
-                <span className="font-semibold text-sm text-red-400">{formatMoney(row.amount)}</span>
+                <span className="font-semibold text-sm text-destructive">{formatMoney(row.amount)}</span>
               </div>
               <p className="font-medium text-sm text-foreground">{row.description}</p>
-              {row.costCenterId && costCenterNameById.get(row.costCenterId) && (
-                <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
-                  {costCenterNameById.get(row.costCenterId)}
-                </Badge>
-              )}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {row.costCenterId && costCenterNameById.get(row.costCenterId) && (
+                  <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
+                    {costCenterNameById.get(row.costCenterId)}
+                  </Badge>
+                )}
+                <PaymentMethodBadge name={row.paymentMethodName} kind={row.paymentMethodKind} />
+              </div>
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">{formatDate(row.date)}</p>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
-                    onClick={() => setEditingExpense(row)}>
-                    <Pencil className="h-3.5 w-3.5" />
+                  <Button
+                    variant="ghost" size="icon" data-testid="expense-edit"
+                    disabled={!!lockReason}
+                    title={lockReason ?? undefined}
+                    aria-label={lockReason ?? "Editar gasto"}
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={() => setEditingExpense(row)}
+                  >
+                    {lockReason ? <Lock className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    disabled={deletingId === row.id} onClick={() => handleDelete(row.id)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  <DeleteOperationDialog
+                    label="este gasto"
+                    info={deleteInfo}
+                    isDeleting={deletingId === row.id}
+                    onConfirm={() => handleDelete(row.id)}
+                  />
                 </div>
               </div>
             </div>
@@ -298,28 +363,38 @@ export default function GastosPage() {
                     {costCenterNameById.get(row.costCenterId)}
                   </Badge>
                 )}
+                <PaymentMethodBadge name={row.paymentMethodName} kind={row.paymentMethodKind} layout="inline" />
               </div>
-              <span className="text-right text-sm font-semibold text-red-400 tabular-nums">{formatMoney(row.amount)}</span>
+              <span className="text-right text-sm font-semibold text-destructive tabular-nums">{formatMoney(row.amount)}</span>
               <div className="flex items-center gap-1 justify-end">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
-                  onClick={() => setEditingExpense(row)}>
-                  <Pencil className="h-3.5 w-3.5" />
+                <Button
+                  variant="ghost" size="icon" data-testid="expense-edit"
+                  disabled={!!lockReason}
+                  title={lockReason ?? undefined}
+                  aria-label={lockReason ?? "Editar gasto"}
+                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                  onClick={() => setEditingExpense(row)}
+                >
+                  {lockReason ? <Lock className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
                 </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  disabled={deletingId === row.id} onClick={() => handleDelete(row.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                <DeleteOperationDialog
+                  label="este gasto"
+                  info={deleteInfo}
+                  isDeleting={deletingId === row.id}
+                  onConfirm={() => handleDelete(row.id)}
+                />
               </div>
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
 
       <PaginationBar
-        meta={pq.meta}
-        onPageChange={pq.setPage}
-        onSizeChange={pq.setPageSize}
-        loading={pq.loading}
+        meta={meta}
+        onPageChange={setPage}
+        onSizeChange={setPageSize}
+        loading={isLoading}
         label="gastos"
       />
 
@@ -329,7 +404,7 @@ export default function GastosPage() {
           <DialogHeader>
             <DialogTitle className="text-card-foreground">Nuevo gasto</DialogTitle>
           </DialogHeader>
-          <ExpenseForm onSuccess={() => { setAddOpen(false); pq.refetch() }} />
+          <ExpenseForm onSuccess={() => { setAddOpen(false) }} />
         </DialogContent>
       </Dialog>
 
@@ -342,7 +417,7 @@ export default function GastosPage() {
           <ExpenseForm
             key={editingExpense?.id ?? "edit-expense"}
             initialData={editingExpense ?? undefined}
-            onSuccess={() => { setEditingExpense(null); pq.refetch() }}
+            onSuccess={() => { setEditingExpense(null) }}
           />
         </DialogContent>
       </Dialog>
@@ -350,7 +425,7 @@ export default function GastosPage() {
       <ExpenseImportDialog
         open={importOpen}
         onOpenChange={setImportOpen}
-        onSuccess={() => pq.refetch()}
+        onSuccess={() => refetch()}
       />
     </div>
   )

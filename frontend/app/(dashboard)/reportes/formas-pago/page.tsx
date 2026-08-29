@@ -66,6 +66,7 @@ export default function FormasPagoReportPage() {
     name:      r.name.length > 14 ? `${r.name.slice(0, 12)}…` : r.name,
     Vendido:   Math.round(r.totalSold),
     Comprado:  Math.round(r.totalPurchased),
+    Gastado:   Math.round(r.totalSpent),
   }))
 
   return (
@@ -76,11 +77,11 @@ export default function FormasPagoReportPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
-            Ventas y compras por forma de pago
+            Ventas, compras y gastos por forma de pago
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Cuánto se cobró y se pagó con cada forma de pago en el período. No
-            descuenta notas de crédito: no tienen una forma de pago atribuible.
+            Cuánto se cobró, se pagó y se gastó con cada forma de pago en el período.
+            No descuenta notas de crédito: no tienen una forma de pago atribuible.
           </p>
         </div>
 
@@ -106,7 +107,7 @@ export default function FormasPagoReportPage() {
       {/* ── Gráfico ── */}
       <Card className="min-w-0">
         <CardHeader>
-          <CardTitle className="text-sm font-medium">Vendido vs Comprado por forma de pago</CardTitle>
+          <CardTitle className="text-sm font-medium">Vendido, comprado y gastado por forma de pago</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -127,6 +128,9 @@ export default function FormasPagoReportPage() {
                   ))}
                 </Bar>
                 <Bar dataKey="Comprado" fill="#60a5fa" fillOpacity={0.7} radius={[0, 4, 4, 0]} />
+                {/* gastos-forma-pago (D14): tercera serie — sin ella el reporte
+                    miente por omisión sobre un tercio del dinero. */}
+                <Bar dataKey="Gastado" fill="hsl(var(--destructive))" fillOpacity={0.7} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -155,6 +159,7 @@ export default function FormasPagoReportPage() {
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">Forma de pago</th>
                     <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vendido</th>
                     <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Comprado</th>
+                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Gastado</th>
                     <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Operaciones</th>
                   </tr>
                 </thead>
@@ -173,6 +178,7 @@ export default function FormasPagoReportPage() {
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums font-medium">{formatMoney(row.totalSold)}</td>
                       <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(row.totalPurchased)}</td>
+                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(row.totalSpent)}</td>
                       <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{row.operationCount}</td>
                     </tr>
                   ))}
@@ -182,6 +188,7 @@ export default function FormasPagoReportPage() {
                     <td className="px-4 py-3">Total del período</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalSold)}</td>
                     <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalPurchased)}</td>
+                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalSpent)}</td>
                     <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{totals.operationCount}</td>
                   </tr>
                 </tfoot>
@@ -192,7 +199,9 @@ export default function FormasPagoReportPage() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Las operaciones sin imputar aparecen como "Sin especificar", así el total de
+        Los gastos anteriores a agosto de 2026 no tienen forma de pago y caen en
+        "Sin especificar": no se backfillearon porque no hay dato honesto del que
+        derivarlos. Las operaciones sin imputar aparecen como "Sin especificar", así el total de
         la tabla coincide con el período. Las ventas nacidas en el POS muestran la
         forma de pago declarada en la orden. Las formas de pago se crean y se dan
         de baja en Configuración → Formas de pago.

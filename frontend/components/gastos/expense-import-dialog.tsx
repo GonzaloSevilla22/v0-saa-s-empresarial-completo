@@ -461,6 +461,23 @@ export function ExpenseImportDialog({
                   Si omitís la categoría o no coincide, se asignará "Otros" por defecto.
                 </p>
               </div>
+
+              {/* gastos-forma-pago (D13, task 11.7): el texto tiene que decir la
+                  verdad COMPLETA. La edición no postea movimientos
+                  (rpc_update_expense ni siquiera recibe p_cash_session_id /
+                  p_bank_account_id), así que prometer que imputar después hace
+                  impactar los libros sería un no-op silencioso anunciado. */}
+              <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 flex flex-col gap-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Forma de pago
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Los gastos importados quedan sin forma de pago y sin impacto en caja ni en
+                  banco. Podés imputarles la forma de pago después desde el listado, pero eso
+                  es sólo una etiqueta: para que el gasto impacte caja o banco hay que
+                  cargarlo desde el formulario.
+                </p>
+              </div>
             </div>
           )}
 

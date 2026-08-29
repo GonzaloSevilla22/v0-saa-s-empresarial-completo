@@ -3,6 +3,25 @@
  *
  * Cycle: RED → GREEN → TRIANGULATE
  * Mock: @/lib/api/python-client
+ *
+ * ── Safety net de `gastos-forma-pago` (D15, task 1.2b) ────────────────────
+ * Este archivo es el safety net del hook que ese change reescribe. Cambiaron
+ * DOS aserciones, las dos justificadas acá por escrito; el resto queda
+ * intacto y la asercion de FONDO de cada una se conserva:
+ *
+ *  1. `returns mapped expenses when API responds` — el fixture pasa de lista
+ *     plana al envelope `{items,total,page,pages}`. Es el BREAKING de API
+ *     interna sancionado por D18/OQ-10: sin el envelope no hay forma de que
+ *     `is_payment_locked` (derivado de cash_movements/bank_movements, NO una
+ *     columna de `expenses`) llegue a cada fila del listado. Lo que el test
+ *     verifica —que el hook mapea id/categoría/monto— no cambió.
+ *  2. `addExpense calls POST /expenses …` — el payload suma los cuatro campos
+ *     de imputación (`branch_id`, `payment_method_id`, `cash_session_id`,
+ *     `bank_account_id`). `branch_id` en particular ES el bug pre-existente
+ *     que el change cierra: el formulario lo mandaba y el hook lo descartaba
+ *     (0 de 175 gastos de prod tienen sucursal). Se conserva la asercion de
+ *     fondo: la URL, los campos originales y `cost_center_id: null` cuando no
+ *     se informa.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
@@ -70,7 +89,10 @@ describe("useExpenses", () => {
 
   // ── RED → GREEN: hook returns data correctly ─────────────────────────────
   it("returns mapped expenses when API responds", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValueOnce(mockExpenseRows)
+    // gastos-forma-pago D18: envelope {items,total,page,pages} (ver cabecera).
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({
+      items: mockExpenseRows, total: mockExpenseRows.length, page: 0, pages: 1,
+    })
 
     const { result } = renderHook(() => useExpenses(), { wrapper: makeWrapper() })
 
@@ -86,7 +108,7 @@ describe("useExpenses", () => {
       category: "Alquiler",
       amount:   5000,
     })
-    expect(pythonClient.get).toHaveBeenCalledWith("/expenses")
+    expect(pythonClient.get).toHaveBeenCalledWith("/expenses?page=0&page_size=25")
   })
 
   // ── TRIANGULATE: empty list ─────────────────────────────────────────────
@@ -106,7 +128,9 @@ describe("useExpenses", () => {
   // ── RED → GREEN: addExpense invalidates cache ────────────────────────────
   it("addExpense calls POST /expenses and invalidates cache", async () => {
     // Initial list fetch
-    vi.mocked(pythonClient.get).mockResolvedValue(mockExpenseRows)
+    vi.mocked(pythonClient.get).mockResolvedValue({
+      items: mockExpenseRows, total: mockExpenseRows.length, page: 0, pages: 1,
+    })
     vi.mocked(pythonClient.post).mockResolvedValueOnce({
       id: "exp-3",
       user_id: "user-1",
@@ -137,6 +161,12 @@ describe("useExpenses", () => {
       date:            "2026-02-01",
       // cost-center-dimension: null when not provided
       cost_center_id:  null,
+      // gastos-forma-pago: los cuatro campos de imputación viajan siempre —
+      // `branch_id` es el bug pre-existente que el change cierra.
+      branch_id:         null,
+      payment_method_id: null,
+      cash_session_id:   null,
+      bank_account_id:   null,
     })
     // get should be called again after invalidation
     expect(pythonClient.get).toHaveBeenCalledTimes(2)
@@ -158,7 +188,9 @@ describe("useExpenses", () => {
 
   // ── deleteExpense invalidates cache ─────────────────────────────────────
   it("deleteExpense calls DELETE /expenses/:id and re-fetches", async () => {
-    vi.mocked(pythonClient.get).mockResolvedValue(mockExpenseRows)
+    vi.mocked(pythonClient.get).mockResolvedValue({
+      items: mockExpenseRows, total: mockExpenseRows.length, page: 0, pages: 1,
+    })
     vi.mocked(pythonClient.delete).mockResolvedValueOnce(undefined)
 
     const { result } = renderHook(() => useExpenses(), { wrapper: makeWrapper() })

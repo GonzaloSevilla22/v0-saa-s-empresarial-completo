@@ -866,7 +866,10 @@ export type Database = {
           action: string | null
           company_id: string | null
           created_at: string | null
+          entity_id: string | null
+          entity_type: string | null
           id: string
+          metadata: Json | null
           user_id: string | null
         }
         Insert: {
@@ -874,7 +877,10 @@ export type Database = {
           action?: string | null
           company_id?: string | null
           created_at?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
           id?: string
+          metadata?: Json | null
           user_id?: string | null
         }
         Update: {
@@ -882,7 +888,10 @@ export type Database = {
           action?: string | null
           company_id?: string | null
           created_at?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
           id?: string
+          metadata?: Json | null
           user_id?: string | null
         }
         Relationships: []
@@ -890,6 +899,7 @@ export type Database = {
       bank_accounts: {
         Row: {
           account_id: string
+          account_kind: string
           alias: string | null
           bank_name: string | null
           cbu: string | null
@@ -905,6 +915,7 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          account_kind?: string
           alias?: string | null
           bank_name?: string | null
           cbu?: string | null
@@ -920,6 +931,7 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          account_kind?: string
           alias?: string | null
           bank_name?: string | null
           cbu?: string | null
@@ -1238,6 +1250,9 @@ export type Database = {
           address: string | null
           closed_at: string | null
           created_at: string
+          created_by: string | null
+          deactivated_at: string | null
+          deactivated_by: string | null
           id: string
           is_active: boolean
           name: string
@@ -1249,6 +1264,9 @@ export type Database = {
           address?: string | null
           closed_at?: string | null
           created_at?: string
+          created_by?: string | null
+          deactivated_at?: string | null
+          deactivated_by?: string | null
           id?: string
           is_active?: boolean
           name: string
@@ -1260,6 +1278,9 @@ export type Database = {
           address?: string | null
           closed_at?: string | null
           created_at?: string
+          created_by?: string | null
+          deactivated_at?: string | null
+          deactivated_by?: string | null
           id?: string
           is_active?: boolean
           name?: string
@@ -1282,6 +1303,7 @@ export type Database = {
           balance_after: number
           created_at: string
           created_by: string
+          description: string | null
           id: string
           movement_type: string
           reference_id: string | null
@@ -1292,6 +1314,7 @@ export type Database = {
           balance_after: number
           created_at?: string
           created_by: string
+          description?: string | null
           id?: string
           movement_type: string
           reference_id?: string | null
@@ -1302,6 +1325,7 @@ export type Database = {
           balance_after?: number
           created_at?: string
           created_by?: string
+          description?: string | null
           id?: string
           movement_type?: string
           reference_id?: string | null
@@ -1319,6 +1343,7 @@ export type Database = {
       }
       cash_sessions: {
         Row: {
+          adjustments_total: number
           cashbox_id: string
           closed_at: string | null
           closed_by: string | null
@@ -1333,6 +1358,7 @@ export type Database = {
           status: string
         }
         Insert: {
+          adjustments_total?: number
           cashbox_id: string
           closed_at?: string | null
           closed_by?: string | null
@@ -1347,6 +1373,7 @@ export type Database = {
           status?: string
         }
         Update: {
+          adjustments_total?: number
           cashbox_id?: string
           closed_at?: string | null
           closed_by?: string | null
@@ -1914,6 +1941,7 @@ export type Database = {
           date: string
           description: string | null
           id: string
+          payment_method_id: string | null
           user_id: string
         }
         Insert: {
@@ -1927,6 +1955,7 @@ export type Database = {
           date?: string
           description?: string | null
           id?: string
+          payment_method_id?: string | null
           user_id?: string
         }
         Update: {
@@ -1940,6 +1969,7 @@ export type Database = {
           date?: string
           description?: string | null
           id?: string
+          payment_method_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -1962,6 +1992,13 @@ export type Database = {
             columns: ["cost_center_id"]
             isOneToOne: false
             referencedRelation: "cost_centers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expenses_payment_method_id_fkey"
+            columns: ["payment_method_id"]
+            isOneToOne: false
+            referencedRelation: "payment_methods"
             referencedColumns: ["id"]
           },
         ]
@@ -4525,8 +4562,13 @@ export type Database = {
           created_at: string | null
           deleted_at: string | null
           deleted_by: string | null
+          email: string | null
           id: string
+          iva_condition: string | null
+          legal_name: string | null
           name: string
+          phone: string | null
+          tax_id: string | null
         }
         Insert: {
           account_id?: string | null
@@ -4534,8 +4576,13 @@ export type Database = {
           created_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          email?: string | null
           id?: string
+          iva_condition?: string | null
+          legal_name?: string | null
           name: string
+          phone?: string | null
+          tax_id?: string | null
         }
         Update: {
           account_id?: string | null
@@ -4543,8 +4590,13 @@ export type Database = {
           created_at?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          email?: string | null
           id?: string
+          iva_condition?: string | null
+          legal_name?: string | null
           name?: string
+          phone?: string | null
+          tax_id?: string | null
         }
         Relationships: [
           {
@@ -4799,6 +4851,20 @@ export type Database = {
       }
     }
     Functions: {
+      _branch_assert_empty: {
+        Args: { p_branch_id: string }
+        Returns: undefined
+      }
+      _branch_blocking_content: {
+        Args: { p_branch_id: string }
+        Returns: {
+          cash_session_open: boolean
+          other_active_branches: number
+          pending_transfers: number
+          product_count: number
+          total_qty: number
+        }[]
+      }
       _c29_confirm_order_core: {
         Args: {
           p_bank_account_id?: string
@@ -4818,6 +4884,7 @@ export type Database = {
         Args: { p_event: Database["public"]["Tables"]["events"]["Row"] }
         Returns: undefined
       }
+      _journal_sale_debit_account: { Args: { p_kind: string }; Returns: string }
       _notification_audience: {
         Args: { p_account_id: string; p_branch_id: string; p_target: string }
         Returns: string[]
@@ -4862,6 +4929,17 @@ export type Database = {
         }
         Returns: string
       }
+      _pay_reverse_party_charge: {
+        Args: {
+          p_account_id: string
+          p_amount: number
+          p_operation_id: string
+          p_party_account_id: string
+          p_party_kind: string
+          p_reference_id: string
+        }
+        Returns: string
+      }
       _produce_plan_expiring_soon: { Args: never; Returns: number }
       _register_bank_movement: {
         Args: {
@@ -4890,6 +4968,7 @@ export type Database = {
       c28_register_cash_movement: {
         Args: {
           p_amount: number
+          p_description?: string
           p_reference_id?: string
           p_session_id: string
           p_type: string
@@ -5115,12 +5194,16 @@ export type Database = {
         Args: {
           p_branch_id?: string
           p_branch_provided?: boolean
+          p_cost_center_id?: string
+          p_cost_center_provided?: boolean
           p_date: string
           p_description: string
           p_items: Json
           p_payment_method_id?: string
           p_payment_method_provided?: boolean
           p_purchase_ids: string[]
+          p_supplier_id?: string
+          p_supplier_provided?: boolean
         }
         Returns: Json
       }
@@ -5205,6 +5288,7 @@ export type Database = {
       }
       rpc_create_bank_account: {
         Args: {
+          p_account_kind?: string
           p_alias?: string
           p_bank_name?: string
           p_cbu?: string
@@ -5222,6 +5306,9 @@ export type Database = {
           address: string | null
           closed_at: string | null
           created_at: string
+          created_by: string | null
+          deactivated_at: string | null
+          deactivated_by: string | null
           id: string
           is_active: boolean
           name: string
@@ -5239,6 +5326,20 @@ export type Database = {
         Args: { p_client_id: string }
         Returns: Json
       }
+      rpc_create_expense: {
+        Args: {
+          p_amount: number
+          p_bank_account_id?: string
+          p_branch_id?: string
+          p_cash_session_id?: string
+          p_category: string
+          p_cost_center_id?: string
+          p_date: string
+          p_description?: string
+          p_payment_method_id?: string
+        }
+        Returns: Json
+      }
       rpc_create_purchase_operation: {
         Args: {
           p_bank_account_id?: string
@@ -5249,6 +5350,7 @@ export type Database = {
           p_idempotency_key: string
           p_items: Json
           p_payment_method_id?: string
+          p_supplier_id?: string
         }
         Returns: Json
       }
@@ -5348,6 +5450,19 @@ export type Database = {
       rpc_deactivate_branch: {
         Args: { p_branch_id: string }
         Returns: undefined
+      }
+      rpc_delete_expense: { Args: { p_expense_id: string }; Returns: Json }
+      rpc_delete_purchase_operation: {
+        Args: {
+          p_operation_id?: string
+          p_purchase_id?: string
+          p_reason?: string
+        }
+        Returns: boolean
+      }
+      rpc_delete_sale_operation: {
+        Args: { p_operation_id?: string; p_reason?: string; p_sale_id?: string }
+        Returns: boolean
       }
       rpc_emit_pending_cae: {
         Args: {
@@ -5486,6 +5601,7 @@ export type Database = {
           payment_method_name: string
           total_purchased: number
           total_sold: number
+          total_spent: number
         }[]
       }
       rpc_period_comparison: {
@@ -5592,6 +5708,7 @@ export type Database = {
       rpc_register_cash_movement: {
         Args: {
           p_amount: number
+          p_description?: string
           p_reference_id?: string
           p_session_id: string
           p_type: string
@@ -5717,6 +5834,22 @@ export type Database = {
           p_bank_name?: string
           p_is_active?: boolean
           p_name?: string
+        }
+        Returns: Json
+      }
+      rpc_update_expense: {
+        Args: {
+          p_amount?: number
+          p_branch_id?: string
+          p_branch_provided?: boolean
+          p_category?: string
+          p_cost_center_id?: string
+          p_cost_center_provided?: boolean
+          p_date?: string
+          p_description?: string
+          p_expense_id: string
+          p_payment_method_id?: string
+          p_payment_method_provided?: boolean
         }
         Returns: Json
       }

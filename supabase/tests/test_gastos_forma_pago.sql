@@ -319,6 +319,7 @@ DECLARE
   v_ba_a          uuid;
   v_ba_b          uuid;
   v_product_a     uuid;
+  v_n             integer;
 BEGIN
   -- Anchors
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
@@ -366,17 +367,53 @@ BEGIN
     RETURN;
   END IF;
 
+  -- 🛑 created_at EXPLÍCITO y estrictamente POSTERIOR en las dos sucursales
+  -- sintéticas de A. Sin esto el gate es FLAKY, y se reprodujo: el DEFAULT de
+  -- branches.created_at es now(), que en PL/pgSQL es el timestamp de la
+  -- TRANSACCIÓN — o sea que la sucursal auto-provisionada por handle_new_user
+  -- (creada en este mismo bloque, al insertar el usuario) y estas dos nacen
+  -- con el MISMO created_at al microsegundo. c26_default_branch() resuelve la
+  -- default con `ORDER BY created_at ASC LIMIT 1` y NO tiene desempate, así
+  -- que con el empate devuelve una cualquiera según el plan: cuando devolvía
+  -- a2 o a3, la sucursal efectiva del gasto dejaba de ser la de
+  -- __gate_gfp_cashbox_a1__ y el camino feliz 3.6 moría con P0422
+  -- (`cash_optin_requires_open_session`). El assert 3.5a no lo atrapaba
+  -- porque compara contra c26_default_branch() —la misma función ambigua—,
+  -- no contra la sucursal auto-provisionada.
+  -- No se toca c26_default_branch: es baseline de referencia y en producción
+  -- las sucursales nacen en transacciones distintas. El determinismo se
+  -- arregla acá, en el fixture, y se ASSERTA abajo.
+  --
   -- Segunda sucursal de A: sostiene el assert de "sesión de caja de OTRA
   -- sucursal del mismo tenant" (el que sólo la capa 1 del opt-in puede cubrir).
-  INSERT INTO public.branches (account_id, name) VALUES (v_account_a, '__gate_gfp_branch_a2__')
+  INSERT INTO public.branches (account_id, name, created_at)
+  VALUES (v_account_a, '__gate_gfp_branch_a2__', now() + interval '1 minute')
   RETURNING id INTO v_branch_a2;
 
   -- Tercera sucursal de A, SIN caja: es la que se cierra en el assert 3.5d.
   -- No puede ser la a2 — trg_guard_branch_decommission (P0428, del change
   -- sucursal-guard-vaciado-auditoria) prohíbe cerrar una sucursal con una
   -- sesión de caja abierta, y la a2 tiene la suya para el assert del opt-in.
-  INSERT INTO public.branches (account_id, name) VALUES (v_account_a, '__gate_gfp_branch_a3__')
+  INSERT INTO public.branches (account_id, name, created_at)
+  VALUES (v_account_a, '__gate_gfp_branch_a3__', now() + interval '2 minutes')
   RETURNING id INTO v_branch_a3;
+
+  -- Candado del determinismo de arriba. NO se escribe como
+  -- `c26_default_branch(A) = v_branch_a1`: con el empate, esa comparación
+  -- resuelve la ambigüedad según el plan de ESA llamada y puede dar verde
+  -- mientras una llamada posterior desde adentro de la RPC devuelve otra fila
+  -- (medido: con el empate reintroducido a propósito, este chequeo pasaba y el
+  -- camino feliz 3.6 moría igual con P0422). Se assertea la AMBIGÜEDAD MISMA,
+  -- que sí es determinística: la sucursal auto-provisionada tiene que ser
+  -- ESTRICTAMENTE la más vieja de A.
+  SELECT COUNT(*) INTO v_n
+  FROM public.branches b
+  WHERE b.account_id = v_account_a
+    AND b.id <> v_branch_a1
+    AND b.created_at <= (SELECT created_at FROM public.branches WHERE id = v_branch_a1);
+  IF v_n > 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS-FORMA-PAGO (setup): % sucursal(es) de A empatan o preceden a la auto-provisionada en created_at. c26_default_branch() ordena por created_at SIN desempate, así que la sucursal efectiva del gasto sale a suerte y el camino feliz del opt-in de caja (3.6) muere con P0422 en 1 de cada N corridas. Las sucursales sintéticas del fixture tienen que nacer estrictamente DESPUÉS.', v_n;
+  END IF;
 
   INSERT INTO public.cashboxes (branch_id, name) VALUES (v_branch_a1, '__gate_gfp_cashbox_a1__')
   RETURNING id INTO v_cashbox_a1;

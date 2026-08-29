@@ -55,6 +55,8 @@ Cuando la organización NO tenga ninguna cuenta bancaria activa, el gasto SHALL 
 
 El guard SHALL vivir en el camino de gasto y SHALL NOT alterar el comportamiento del helper compartido, que para venta y compra conserva el criterio vigente de continuar sin movimiento cuando la cuenta no resuelve.
 
+Ese rechazo SHALL llegar a la superficie como un **error de validación de payload**, señalando el campo de la cuenta bancaria como campo ofensor, y SHALL NOT presentarse como un "no encontrado". Como el código de error se reutiliza de un caso preexistente cuyo significado es otro —cuenta bancaria inexistente o inactiva—, la traducción a estado HTTP SHALL resolverse con un ajuste acotado al camino de gasto, conservando intacta la traducción vigente del mismo código para los demás llamadores.
+
 El motivo SHALL ser que, con los destinos por defecto de las formas de pago sin configurar, la degradación silenciosa deja al gasto por transferencia fuera de la conciliación sin ningún aviso — lo contrario de lo que la funcionalidad promete.
 
 #### Scenario: Organización con cuentas bancarias y gasto sin destino resuelto
@@ -63,6 +65,12 @@ El motivo SHALL ser que, con los destinos por defecto de las formas de pago sin 
 - **WHEN** se intenta registrar un gasto por ese medio sin informar cuenta destino
 - **THEN** la operación es rechazada con `P0412`
 - **AND** el mensaje indica que hay que elegir la cuenta bancaria de la que sale el dinero
+- **AND** la respuesta es un error de validación de payload que nombra la cuenta bancaria como campo ofensor
+
+#### Scenario: El mismo código conserva su significado fuera del gasto
+
+- **WHEN** otro camino de la aplicación rechaza una cuenta bancaria inexistente o inactiva con `P0412`
+- **THEN** su traducción a estado HTTP no cambia por el ajuste del camino de gasto
 
 #### Scenario: Organización sin ninguna cuenta bancaria
 

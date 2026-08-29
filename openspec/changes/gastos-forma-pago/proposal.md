@@ -48,16 +48,16 @@ Esto **no es un pedido nuevo**: es la deuda `gastos-forma-pago` que dejó anotad
 
 ### 5. `expense_reversal` completa el vocabulario de caja
 
-El `CHECK` de `cash_movements.movement_type` acepta `expense` pero **no tiene el tipo de su contra-partida**. Se agrega `expense_reversal`, espejo exacto de `sale_reversal`, y entra en los tipos de ingreso (la reversión de un egreso es un ingreso). Conjuntos finales del validador de signo: ingresos `{sale, advance, expense_reversal}` · egresos `{purchase_payment, expense, withdrawal, sale_reversal}` · signo libre `{adjustment}`.
+El `CHECK` de `cash_movements.movement_type` acepta `expense` pero **no tiene el tipo de su contra-partida**. Se agrega `expense_reversal`, con el mismo patrón de contra-movimiento automático con tipo propio que `sale_reversal`. **Dos clasificaciones distintas, que no hay que mezclar** (D9): por **signo** entra en los tipos de **ingreso** (`backend/schemas/cash.py`), porque revertir un egreso repone plata — al revés que `sale_reversal`, que es egreso; por **familia** del filtro del historial de caja entra en **"Reversas"** junto a `sale_reversal` (`frontend/lib/ledger/cash-movement-meta.ts`), **no** en "Ingresos". Conjuntos finales del validador de signo: ingresos `{sale, advance, expense_reversal}` · egresos `{purchase_payment, expense, withdrawal, sale_reversal}` · signo libre `{adjustment}`.
 
 ### 6. Superficie frontend (regla PO 2026-08-02) — toda sobre `/gastos`, que ya existe
 
 La ruta y la entrada de sidebar ya existen (`app-sidebar.tsx:44`, `breadcrumb-nav.tsx:24`): no hace falta ruta ni menú nuevos.
 
 - **Formulario** (`expense-form-v2.tsx`): `PaymentMethodSelect` con contexto de gasto (reuso; el componente suma el contexto y su texto de apoyo, no se crea uno nuevo) + `BankAccountDestinationSelect` condicional + bloque de **opt-in de caja** con las tres condiciones verificadas en servidor y el motivo visible cuando no aplica — **nunca se oculta en silencio**.
-- **Listado** (`gastos/page.tsx`): badge de forma de pago (con tonos **semánticos**, no los `categoryColors` literales que el gate `token-contrast-aa` proscribió) y filtro por forma de pago vía `extraFilters`. El nombre se resuelve en cliente con un `Map` desde `usePaymentMethods(true)` — el listado es query Supabase directa sin joins, así que **no puede** venir serializado del backend.
-- **Lock visible**: `ExpenseOut.is_payment_locked` derivado con el mismo predicado del guard, para deshabilitar "Editar"/"Eliminar" con motivo **antes** de llegar al 409. Mismo espejo de lectura que `SaleItemOut`.
-- **Invalidaciones**: las tres mutaciones de `useExpenses` pasan a invalidar además caja, banco y conciliación, y a bumpear el `refreshToken` de `LedgerMovementsPanel` (que **no** usa TanStack Query, por diseño).
+- **Listado** (`gastos/page.tsx`): **migra su lectura a `GET /expenses` paginado del backend**, espejo exacto de lo que ya hace `/ventas` con `useSales()` (D18). Hoy lee por PostgREST directo (`usePaginatedQuery({ table: "expenses" })`), y por ese camino **no hay forma** de que llegue el lock, que es un derivado de `cash_movements`/`bank_movements` y no una columna de `expenses`. Sobre esa base: badge de forma de pago con tonos **semánticos** (no los `categoryColors` literales que el gate `token-contrast-aa` proscribió) con el nombre resuelto por el backend (`payment_method_name`, como en `SaleOut`), y filtro por forma de pago como query param server-side. `usePaymentMethods(true)` queda sólo para poblar el selector del filtro, con `includeInactive` para que una forma dada de baja siga ofreciéndose y nombrándose.
+- **Lock visible**: `ExpenseOut` suma `is_payment_locked`, `has_cash_movement`, `has_bank_movement` (espejo literal de `SaleOut`) y `is_delete_blocked` (hay movimiento de caja del gasto y **no** hay sesión abierta en ese `cashbox` — el mismo `EXISTS` que precede al `P0426`), para deshabilitar "Editar"/"Eliminar" con motivo **antes** de llegar al 409 y para que el diálogo de borrado enumere qué libro compensa.
+- **Invalidaciones**: las tres mutaciones pasan a invalidar además caja, banco, conciliación y el reporte de formas de pago, con las query keys que **ya existen** en `lib/query-keys.ts`. **No** se bumpea el `refreshToken` de `LedgerMovementsPanel`: es `useState` local de `/banco` y `/caja`, esos paneles no están montados mientras el usuario está en `/gastos`, y refrescan solos al montar (el repo ya fijó esa división en `use-cash-movements.ts:121-125`).
 - **Canonización pendiente de la Regla de Tres**: el badge de forma de pago está hoy duplicado literal en 4 lugares (ventas ×2, compras ×2); con gastos serían 6 → se canoniza un `PaymentMethodBadge` y se sube `KIND_LABELS` desde el interior de `PaymentMethodManager` a la capa canónica.
 - Verificación obligatoria en **desktop y mobile** y en **tema claro y oscuro**.
 
@@ -72,7 +72,7 @@ La ruta y la entrada de sidebar ya existen (`app-sidebar.tsx:44`, `breadcrumb-na
 - **`kind = 'credit'` en gastos.** Un gasto no tiene contraparte (`expenses` no tiene `supplier_id`): no hay cuenta corriente que cargar. El camino correcto para "lo pago después" es la compra a proveedor, que ya existe.
 - **Backfill de los 175 gastos históricos.** Ver D7.
 - **Sembrar `bank_account_id` por defecto en el catálogo.** Es configuración del PO, no de este change (OQ-2).
-- **Importador CSV con forma de pago.** Ver D9.
+- **Importador CSV con forma de pago.** Ver D13.
 - **Soft delete de gastos.** `expenses` no tiene `deleted_at` (`v3-soft-delete-policy` no la cubrió). Fuera de alcance: el borrado sigue siendo físico, ahora con compensación.
 
 ## Capabilities
@@ -83,7 +83,7 @@ La ruta y la entrada de sidebar ya existen (`app-sidebar.tsx:44`, `breadcrumb-na
 
 ### Modified Capabilities
 
-- `payment-method`: la imputación opcional de la forma de pago se extiende a **gastos** (hoy la spec sólo la define para ventas y compras); `kind = 'credit'` no es aplicable a un gasto y se rechaza en las dos puntas; el selector suma el contexto de gasto con su texto de apoyo propio; el read-model de distribución por forma de pago suma los gastos.
+- `payment-method`: la imputación opcional de la forma de pago se extiende a **gastos** (hoy la spec sólo la define para ventas y compras); `kind = 'credit'` no es aplicable a un gasto y se rechaza en las dos puntas; el selector suma el contexto de gasto con su texto de apoyo propio; el read-model de distribución por forma de pago suma los gastos; y el requirement **"Superficies de la forma de pago"**, que hoy enumera de forma cerrada ventas y compras en sus puntos (b) y (c), suma gastos — sin eso, tras el archive la spec principal describiría un sistema que ya no es el real.
 - `cash-movement`: el gasto pasa a ser **productor real** de `movement_type = 'expense'` (tipo aceptado desde C-28 y jamás emitido) y el vocabulario suma `expense_reversal` para su contra-partida, espejo de `sale_reversal`.
 - `bank-movement`: los gastos por método bancario registran un `bank_movement` automático con `source_doc_type = 'expense'`, y en el camino de gasto la cuenta bancaria **deja de degradar en silencio** cuando la organización tiene cuentas activas.
 - `operation-delete-compensation`: el borrado de un gasto compensa caja y banco dentro de la misma RPC atómica, con los mismos guards y el mismo criterio de destino del contra-movimiento que el borrado de una venta.
@@ -98,7 +98,7 @@ La ruta y la entrada de sidebar ya existen (`app-sidebar.tsx:44`, `breadcrumb-na
 - `public.expenses`: `ADD COLUMN payment_method_id uuid NULL REFERENCES payment_methods(id) ON DELETE SET NULL`; índice `(account_id, payment_method_id)`. `branch_id` ya existe (se empieza a escribir, no se agrega).
 - `public.cash_movements`: `CHECK` de `movement_type` ampliado con `expense_reversal` (drop + add idempotente).
 - Funciones nuevas: `rpc_create_expense`, `rpc_update_expense`, `rpc_delete_expense` (`SECURITY DEFINER`, `REVOKE` de `anon` + `GRANT` a `authenticated`, patrón uniforme del proyecto). **Sin helpers internos nuevos** → no dispara el chequeo (4) del gate de ACLs.
-- `rpc_payment_method_report`: reescritura completa desde el `pg_get_functiondef` **vivo** para sumar los gastos (checkpoint 🛑 de gate de integridad de función).
+- `rpc_payment_method_report`: reescritura completa desde el `pg_get_functiondef` **vivo** para sumar los gastos (checkpoint 🛑 de gate de integridad de función). Sumar `total_spent` cambia el `RETURNS TABLE`, así que **no** se puede con `CREATE OR REPLACE` pelado (42P13): va `DROP FUNCTION IF EXISTS public.rpc_payment_method_report(uuid, date, date)` + `CREATE` + **re-emisión completa de sus ACLs** (el `DROP` las resetea) + gate ANTI-OVERLOAD propio. Ver D14.
 - Funciones **reutilizadas sin tocar**: `c28_register_cash_movement`, `_pay_register_operation_bank_movement`, `_pay_resolve_bank_account`, `_register_bank_movement`, `c26_default_branch`, `reporting_local_today`, `is_account_writer`, `current_account_ids`.
 - **Ningún ERRCODE nuevo.** `P0400`/`P0401`/`P0404`/`P0409`/`P0412`/`P0422`/`P0423`/`P0424`/`P0426` ya existen y ya están mapeados en `backend/core/errors.py`. `P0001` queda prohibido (un gate viejo de `20260804000003` lo re-lanza y abortaría `supabase db reset`).
 
@@ -106,29 +106,32 @@ La ruta y la entrada de sidebar ya existen (`app-sidebar.tsx:44`, `breadcrumb-na
 
 - `supabase/tests/test_gastos_forma_pago.sql`: gate propio del change (despacho por `kind`, opt-in de caja, inmutabilidad, compensación al borrar, aislamiento por cuenta, cleanup sin residuos).
 - Gates que deben seguir verdes sin cambios: `test_function_acl_gate.sql`, `test_errcode_5char_gate.sql`, `test_delete_guard_ledgers.sql`, `test_payment_method_operations.sql`, `test_payment_method_report.sql`, `test_banco_caja_historial_ajustes.sql`, `test_pos_banco_movimientos.sql`, `test_tenancy_guard_caja_outbox.sql`, `token-contrast-aa.test.ts`.
-- `.github/workflows/KPI_Validation.yml`: la migración nueva se suma como último eslabón de la cadena de reapply idempotente, más un step propio para el gate SQL nuevo.
+- `.github/workflows/KPI_Validation.yml`: la migración nueva se suma como último eslabón de la cadena de reapply idempotente, más un step propio para el gate SQL nuevo. Se **verifica** (no se supone) que el reapply tolerado de `20260928000001` sigue abortando en su gate ANTI-OVERLOAD de la sección 9, **antes** del `CREATE` de `rpc_payment_method_report` de la sección 10 — que es lo que evita que la firma vieja de 7 columnas choque con la nueva de 8 (42P13). Ver D14 y task 1.5.
 
 **Backend Python**
 
 - `backend/schemas/expenses.py` — `ExpenseCreate`/`ExpenseUpdate` suman `payment_method_id`, `branch_id`, `cash_session_id`, `bank_account_id` (`uuid | None`, **passthrough opt-in**: el service no los interpreta); `ExpenseOut` suma `payment_method_id`, `branch_id` y el derivado `is_payment_locked`. `ExpenseUpdate` adopta el contrato **tri-estado** (`model_fields_set`).
-- `backend/repositories/expense_repository.py` — `create`/`update`/`delete` pasan de SQL crudo a **una** llamada a su RPC; `get_by_id`/`list_by_org` suman el derivado de lock.
+- `backend/repositories/expense_repository.py` — `create`/`update`/`delete` pasan de SQL crudo a **una** llamada a su RPC; `get_by_id`/`list_by_org` suman los derivados de lock y `list_by_org` adopta paginación y filtros server-side (D18), con la plomería que ya tiene `/sales`.
+- `backend/routers/expenses.py` — `GET /expenses` adopta el contrato paginado estándar `{items,total,page,pages}` (`v3-api-standards`) con `page`, `page_size`, `date_from`, `date_to`, `search`, `cost_center_id` y `payment_method_id`. **BREAKING de API interna**: el endpoint deja de devolver una lista plana; el único consumidor es el frontend propio.
 - `backend/schemas/cash.py` — `MovementType` suma `expense_reversal`, que entra en los tipos de ingreso.
 - `backend/services/expenses.py`, `backend/routers/expenses.py` — sin lógica de negocio nueva (DEC-24): validación Pydantic + delegación.
-- `backend/tests/` — suite nueva para gastos (hoy inexistente). Baseline a medir en la task 1.2.
+- `backend/core/errors.py` — `EXPENSE_ERRCODE_STATUS` (override por endpoint, molde de `BANK_ACCOUNT_CREATE_ERRCODE_STATUS`): `P0412` → **422** con `field = "bank_account_id"` **sólo** en el camino de gasto; su 404 global queda intacto (D19).
+- `backend/tests/test_expenses.py` — **ya existe** (7 `def test_`): safety net previo obligatorio (task 1.2b) y después ampliación con los caminos nuevos.
 
 **Frontend**
 
 - `frontend/components/forms/expense-form-v2.tsx` — selectores + opt-in de caja.
 - `frontend/components/payment-methods/PaymentMethodSelect.tsx` — el contexto suma `"expense"`; el texto de apoyo suma su rama; `credit` no se ofrece en contexto de gasto (extensión aditiva).
-- `frontend/hooks/data/use-expenses-query.ts` — payload completo, contrato tri-estado, invalidaciones de caja/banco/conciliación; **corrige los dos bugs pre-existentes**.
-- `frontend/app/(dashboard)/gastos/page.tsx` — badge + filtro + lock visible + columna nueva en el export local.
+- `frontend/hooks/data/use-expenses-query.ts` — pasa a ser el hook del listado con paginación y filtros (calcado de `useSales()`), payload completo, contrato tri-estado, invalidaciones de caja/banco/conciliación; **corrige los dos bugs pre-existentes**. Tiene 5 casos vivos en `__tests__/hooks/use-expenses.test.ts` que fijan los payloads actuales: safety net previo obligatorio.
+- `frontend/app/(dashboard)/gastos/page.tsx` — origen de datos (D18), badge + filtro + lock visible + columna nueva en el export local.
+- `supabase/functions/generate-export/index.ts` — **Edge Function Deno, no frontend**: el `ExportButton` con `exportType="expenses_csv"` se resuelve acá (`fetchExpensesRows` + los headers `['fecha','categoria','descripcion','monto','moneda','sucursal']`, líneas 91-103 y 255-257), y la hoja "Gastos" del XLSX consolidado usa el mismo `fetchExpensesRows`. Sumar la columna requiere resolver el nombre del método (join a `payment_methods`) y **tiene deploy propio**: no viaja con la migración del merge.
 - `frontend/lib/types.ts` — `Expense` suma `paymentMethodId`, `paymentMethodName`, `branchId`, `isPaymentLocked`.
 - `frontend/lib/ledger/cash-movement-meta.ts` — entrada `expense_reversal`.
 - `frontend/components/payment-methods/PaymentMethodBadge.tsx` (nuevo, canonización) + `frontend/lib/payment-method-meta.ts` con `KIND_LABELS` subido desde `PaymentMethodManager`.
 - `frontend/lib/payment-method-report.ts` + `/reportes/formas-pago` — columna de gastos.
 - `frontend/components/gastos/expense-import-dialog.tsx` — sólo el texto de ayuda del paso 1 (el template **no** cambia).
 - `frontend/lib/database.types.ts` — regenerado.
-- `frontend/__tests__/` — cobertura nueva (form, hook, listado, a11y): el módulo Gastos **no tiene hoy ni un solo test**.
+- `frontend/__tests__/` — el módulo **sí tiene tests hoy** (`hooks/use-expenses.test.ts`, `components/expense-form-date-default.test.tsx`, `components/expense-import-dialog-parse-and-validate.test.ts`, más `components/RecentActivity.test.tsx` que mockea `useExpenses`): safety net previo (D15) y después cobertura nueva de listado, lock y a11y.
 
 **Documentación**
 

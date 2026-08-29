@@ -14,8 +14,8 @@ Ver `proposal.md` para la motivación. Este documento resuelve **cómo**.
 | `payment_methods` con `bank_account_id` | **0 / 37 cuentas** | Bloqueante de producto (D5). |
 | Cuentas con alguna `bank_accounts` activa | **4 / 37** (9 cuentas cargan gastos) | La exigencia bancaria tiene que ser condicional (D5). |
 | `MAX(version)` de migraciones | `20261014000001` (263) | Próximo libre `20261015000001`, re-verificable en el apply. |
-| Tests del módulo Gastos | **0** (ni componente, ni hook, ni a11y) | El TDD arranca del andamio (D14). |
-| `expenses.date` | `timestamp with time zone` (default `now()`) | Hay que castear antes de comparar con el día local (D1). |
+| Tests del módulo Gastos | **12+ aserciones vivas** en 4 archivos: `backend/tests/test_expenses.py` (7 `def test_`), `frontend/__tests__/hooks/use-expenses.test.ts` (5 casos sobre el hook que este change reescribe), `frontend/__tests__/components/expense-form-date-default.test.tsx`, `frontend/__tests__/components/expense-import-dialog-parse-and-validate.test.ts` | **No se arranca del andamio**: hay safety net previo obligatorio sobre esos 4 archivos (D15). |
+| `expenses.date` | `timestamp with time zone` (default `now()`), pero el payload que llega es **date pura** (`ExpenseCreate.date: datetime.date`, `backend/schemas/expenses.py:14`) | El parámetro de la RPC se declara `date`, no `timestamptz`: comparar con el día local sin depender de la zona de la sesión (D1). |
 | Soft delete en `expenses` | No existe (`deleted_at` ausente) | El borrado sigue físico + compensado. |
 
 ### Restricciones duras
@@ -45,7 +45,7 @@ Ver `proposal.md` para la motivación. Este documento resuelve **cómo**.
 4. Backfill de los 175 gastos históricos (D7).
 5. Soft delete de gastos.
 6. Sembrar `bank_account_id` por defecto en los catálogos de las 37 cuentas (OQ-2).
-7. Imputación de forma de pago desde el importador CSV (D9).
+7. Imputación de forma de pago desde el importador CSV (D13).
 
 ## Decisions
 
@@ -67,7 +67,13 @@ En la UI el checkbox aparece **pre-marcado** cuando las tres condiciones se cump
 
 **Por qué se conserva la condición "sólo hoy".** Es tentador relajarla porque los gastos se cargan retroactivamente más que las ventas. No se relaja: si la plata salió ayer y la sesión de ayer ya cerró con su arqueo, postear el egreso en la sesión de hoy **inventa una diferencia** en el arqueo de hoy. El invariante de `cash_movements` como ledger append-only por sesión no admite el retroactivo. Se reusa el predicado tal cual.
 
-**Detalle de implementación obligatorio.** `expenses.date` es `timestamptz`, no `date` como `sales.date`. La comparación se hace **casteando** (`p_date::date <> reporting_local_today()`); sin el cast, un gasto legítimo de hoy cargado a las 15:00 es rechazado.
+**Detalle de implementación obligatorio: el parámetro de fecha se declara `date`, y la comparación no puede depender de la zona horaria de la sesión.**
+
+`expenses.date` es `timestamptz` (no `date` como `sales.date`), pero **lo que viaja por el payload ya es una fecha pura**: `ExpenseCreate.date: datetime.date` (`backend/schemas/expenses.py:14`) y el formulario manda `YYYY-MM-DD`. Por eso las tres RPCs declaran **`p_date date`** y comparan **directo**: `p_date <> reporting_local_today()`. El `INSERT` sigue escribiendo en la columna `timestamptz` con la misma coerción que ya hace hoy el `INSERT` plano del repositorio — cero cambio de comportamiento en el dato persistido.
+
+**Por qué NO se declara `p_date timestamptz` con `p_date::date`** (que era la formulación previa de este design y es un bug real): `timestamptz::date` se resuelve en el **TimeZone de la sesión**, que en este servidor es **UTC** — el mismo desfase que el comentario de `reporting_local_today()` documenta explícitamente para `CURRENT_DATE` (`20260814000001_v3_reporting_invariants.sql:119`: *"corre un día antes entre las 21:00 y las 00:00 hora AR"*). Mientras tanto `reporting_local_today()` es `(now() AT TIME ZONE 'America/Argentina/Mendoza')::date`. Con el cast, un gasto legítimo de hoy cargado a las **21:30 ART** (= 00:30 UTC del día siguiente) daría `p_date::date` = mañana contra `reporting_local_today()` = hoy → `P0422 cash_optin_requires_today` sobre un gasto perfectamente válido, justo en la franja horaria en la que el microemprendedor cierra el día. Si por alguna razón hubiera que conservar `timestamptz`, la única comparación correcta sería `(p_date AT TIME ZONE 'America/Argentina/Mendoza')::date` — nunca `::date` pelado.
+
+**Consecuencia sobre el caso de triangulación.** El caso "gasto de hoy a las 15:00" **no puede detectar este defecto**: a las 18:00 UTC cae en el mismo día calendario y pasa igual con el cast defectuoso. El caso obligatorio es el de la **franja de las 21:00-23:59 ART**, y la forma determinística de ejercitarlo en el gate SQL es correr el mismo alta dos veces, con `SET LOCAL TimeZone = 'UTC'` y con `SET LOCAL TimeZone = 'America/Argentina/Mendoza'`, exigiendo **idéntica aceptación** en ambas. Con `p_date date` el resultado es invariante por construcción; con `timestamptz::date` diverge.
 
 **Alternativas descartadas.**
 - *Obligatorio (el gasto en efectivo exige sesión abierta o se rechaza)*: bloquea el registro por una razón ajena al gasto; rompe carga retroactiva e importador.
@@ -77,11 +83,11 @@ En la UI el checkbox aparece **pre-marcado** cuando las tres condiciones se cump
 
 ### D2 — La pata bancaria se despacha con **una llamada incondicional** al helper existente
 
-**Decisión.** La RPC de gasto invoca `_pay_register_operation_bank_movement(cuenta, kind, payment_method_id, bank_account_id, importe, 'out', 'expense', id_del_gasto, fecha::date, sucursal, NULL)` **sin ningún `IF` previo**, exactamente como lo hacen `rpc_create_sale_operation_v2` (con `'in'`, `'sale'`) y `rpc_create_purchase_operation` (con `'out'`, `'purchase'`). El helper decide.
+**Decisión.** La RPC de gasto invoca `_pay_register_operation_bank_movement(cuenta, kind, payment_method_id, bank_account_id, importe, 'out', 'expense', id_del_gasto, p_date, sucursal, NULL)` **sin ningún `IF` previo**, exactamente como lo hacen `rpc_create_sale_operation_v2` (con `'in'`, `'sale'`) y `rpc_create_purchase_operation` (con `'out'`, `'purchase'`). El helper decide.
 
 **Qué aporta gratis, y por eso no se reimplementa nada:** el predicado `kind IN ('transfer','card','check','wallet')`; la resolución override → default → `NULL`; la validación de la cuenta bancaria (ajena, inactiva o borrada → `P0412`); el rechazo de cuenta bancaria informada sobre un `kind` no bancario → `P0400`; el mapa `kind`→`movement_type` (`card`→`card_settlement`, resto `out`→`transfer_out`); el signo; y el **guard de período conciliado** `P0424`, que revierte la operación entera si la fecha cae dentro de una `reconciliation_sessions` cerrada.
 
-**La fecha valor va sí o sí.** Se pasa la fecha del gasto casteada a `date`. Si fuera `NULL`, el movimiento cae en `created_at` y la sugerencia automática de conciliación (monto exacto, ventana ±3 días) se desalinea del extracto — el objetivo del PO se cumpliría a medias.
+**La fecha valor va sí o sí.** Se pasa `p_date`, que ya es `date` por D1 — sin ningún cast dependiente de la zona de la sesión. Si fuera `NULL`, el movimiento cae en `created_at` y la sugerencia automática de conciliación (monto exacto, ventana ±3 días) se desalinea del extracto — el objetivo del PO se cumpliría a medias.
 
 **Alternativas descartadas.**
 - *`_register_bank_movement` directo*: es el escritor crudo, sin validación de cuenta ni guard de período conciliado. Se reserva **exclusivamente** para la reversa por borrado (D8), imitando el loop de `rpc_delete_sale_operation`.
@@ -171,11 +177,15 @@ Si la organización **no tiene ninguna** cuenta bancaria activa (33 de 37 hoy), 
 
 **Decisión.** `rpc_delete_expense` ejecuta, en la misma transacción y antes del `DELETE`:
 
-1. **Caja**: agrupa `cash_movements` con `reference_id = <id del gasto> AND movement_type = 'expense'`; resuelve la **sesión abierta actual** del mismo `cashbox` (`ORDER BY opened_at DESC LIMIT 1`); si no hay ninguna → `P0426 no_open_session_for_reversal` con el mensaje "abrí la caja para poder borrar este gasto"; si hay → `c28_register_cash_movement(sesión_abierta, +importe, 'expense_reversal', <id del gasto>)`. **Nunca toca la sesión original** (append-only).
+1. **Caja**: agrupa `cash_movements` con `reference_id = <id del gasto> AND movement_type = 'expense'`; resuelve la **sesión abierta actual** del mismo `cashbox` (`ORDER BY opened_at DESC LIMIT 1`); si no hay ninguna → `P0426 no_open_session_for_reversal` con el mensaje "abrí la caja para poder borrar este gasto"; si hay → `c28_register_cash_movement(sesión_abierta, -v_cash_amount, 'expense_reversal', <id del gasto>)`, que con `v_cash_amount` negativo da el ingreso positivo. **Nunca toca la sesión original** (append-only).
 2. **Banco**: loop sobre `bank_movements` con `source_doc_type = 'expense' AND source_doc_ref = <id del gasto>`, espejo invertido (`transfer_out`→`transfer_in`, `card_settlement` con signo opuesto) vía `_register_bank_movement(..., -amount, ..., CURRENT_DATE, sucursal, 'Reversión por borrado de gasto')`.
 3. `DELETE FROM expenses`.
 
 No hay pata de cuenta corriente (no hay tercero, D3) ni de stock (un gasto no mueve stock) ni de evento (D10).
+
+**⚠️ El guard de signo se INVIERTE respecto del original: copiarlo verbatim deja el gasto sin compensar y sin `P0426`.** El bloque de `rpc_delete_sale_operation` que se copia (`20261005000001_delete_guard_ledgers.sql:1221`) tiene el guard `IF v_cashbox_id IS NOT NULL AND v_cash_amount > 0 THEN` sobre `SUM(amount)` de los movimientos agrupados. En la **venta** esos movimientos son `sale` con importe **positivo**; en el **gasto** son `expense` con importe **negativo** (lo fija este mismo design: `expense` negativo, `expense_reversal` positivo). Copiado tal cual, `v_cash_amount > 0` es **falso para todo gasto**: se saltea el bloque entero, no se registra el `expense_reversal`, **nunca se lanza `P0426`** y el `DELETE` procede igual — o sea, se reintroduce exactamente el estado de borrado inseguro que motivó `delete-guard-ledgers` (204 operaciones backfilleadas), esta vez desde el change que dice cerrarlo.
+
+El guard correcto para el gasto es **`AND v_cash_amount < 0`** (equivalente: `ABS(v_cash_amount) > 0` con el signo aplicado en la llamada). Y la verificación no puede ser sólo del camino feliz: hace falta el **control negativo** de un gasto en efectivo con la caja cerrada que **debe** ser rechazado con `P0426` — con el guard mal copiado ese caso pasa en silencio, y un test que sólo assertara "no hubo error" quedaría verde por omisión.
 
 **El `P0426` es una restricción nueva y visible que el PO tiene que aceptar**: no se puede borrar un gasto en efectivo con la caja cerrada. Es el comportamiento correcto —la plata volvió al cajón, y el cajón está cerrado— y es **idéntico** al que ya rige para borrar una venta en efectivo. Uniformidad, no invención.
 
@@ -185,9 +195,18 @@ No hay pata de cuenta corriente (no hay tercero, D3) ni de stock (un gasto no mu
 
 ### D9 — `expense_reversal` entra al vocabulario de caja; no se recicla `adjustment` ni se invierte el signo de `expense`
 
-**Decisión.** Se amplía el `CHECK` de `cash_movements.movement_type` con `expense_reversal`, se suma al enum `MovementType` de `backend/schemas/cash.py` y a los **tipos de ingreso** (la reversión de un egreso entra plata), y se agrega su entrada en `CASH_MOVEMENT_META` del frontend (familia "Ingresos").
+**Decisión.** Se amplía el `CHECK` de `cash_movements.movement_type` con `expense_reversal`, se suma al enum `MovementType` de `backend/schemas/cash.py` y se agrega su entrada en `CASH_MOVEMENT_META` del frontend.
 
-**Por qué un tipo propio.** `sale_reversal` ya existe con exactamente esta semántica y este nombre: **es el patrón a copiar, no una invención**. El vocabulario de caja distingue el contra-movimiento automático del ajuste manual, y esa distinción es lo que hace legibles los reportes de caja.
+**Las dos clasificaciones son distintas y no hay que mezclarlas.** El proyecto tiene dos taxonomías separadas sobre el mismo tipo, y `sale_reversal` cae en cubos opuestos en cada una:
+
+| Clasificación | Dónde vive | `sale_reversal` | `expense_reversal` (nuevo) |
+|---|---|---|---|
+| **Signo** (validador de la API) | `backend/schemas/cash.py:31-42` (`_INCOME_TYPES` / `_EXPENSE_TYPES`) | **egreso** (negativo): revertir una venta devuelve plata | **ingreso** (positivo): revertir un egreso repone plata |
+| **Familia** (filtro del historial de caja) | `frontend/lib/ledger/cash-movement-meta.ts:23,31` | familia **`reversal`** ("Reversas"), tono `warning` | familia **`reversal`**, junto a `sale_reversal` |
+
+O sea: `expense_reversal` va a `_INCOME_TYPES` en Python (signo positivo) y a la familia **`reversal`** en el frontend — **no** a la familia `income`. Decir "familia Ingresos, espejo de `sale_reversal`" es autocontradictorio (`sale_reversal` no está en `income`: `CASH_MOVEMENT_FAMILIES.income.types = ["sale", "advance"]`), y de implementarse así el filtro "Reversas" del historial de caja mostraría las reversas de venta y **no** las de gasto. El espejo real de `sale_reversal` es la **familia**, no el signo — el signo es opuesto por definición.
+
+**Por qué un tipo propio.** `sale_reversal` ya existe como contra-movimiento automático con tipo propio: **es el patrón a copiar, no una invención**. El vocabulario de caja distingue el contra-movimiento automático del ajuste manual, y esa distinción es lo que hace legibles los reportes de caja.
 
 **Alternativas descartadas.**
 - *Usar `adjustment`*: el `CHECK cash_movements_adjustment_needs_reason` exige `description` no vacío, así que habría que fabricar un motivo; y mezclaría compensaciones automáticas con correcciones manuales en el mismo cubo de reporting.
@@ -242,7 +261,13 @@ Además `mapExpense()` no mapea `branch_id`, así que el selector de sucursal ar
 
 ### D13 — El importador CSV **no** imputa forma de pago
 
-**Decisión.** El template sigue teniendo 4 columnas (`Descripción;Categoría;Monto;Fecha`). Las filas importadas entran con `payment_method_id = NULL` → sin efecto en libros. El texto de ayuda del paso 1 lo dice explícitamente ("los gastos importados quedan sin forma de pago; imputalos después desde el listado si querés que impacten caja o banco").
+**Decisión.** El template sigue teniendo 4 columnas (`Descripción;Categoría;Monto;Fecha`). Las filas importadas entran con `payment_method_id = NULL` → sin efecto en libros.
+
+**El texto de ayuda del paso 1 tiene que decir la verdad, y la verdad es más restrictiva de lo que decía la primera redacción de este design.** La formulación previa —*"imputalos después desde el listado si querés que impacten caja o banco"*— es **falsa** bajo D11 y D12: la edición **no postea movimientos** (`rpc_update_expense` ni siquiera recibe `p_cash_session_id` ni `p_bank_account_id`), así que imputarle "Efectivo" o "Transferencia" a un gasto importado le pone la **etiqueta** y no mueve un peso en ningún libro. Prometerlo por escrito es exactamente el no-op silencioso que D3 y D5 argumentan evitar, agravado por anunciarlo.
+
+El texto correcto: **"Los gastos importados quedan sin forma de pago y sin impacto en caja ni en banco. Podés imputarles la forma de pago después desde el listado, pero eso es sólo una etiqueta: para que el gasto impacte caja o banco hay que cargarlo desde el formulario."**
+
+*Alternativa considerada y descartada:* darle a `rpc_update_expense` una pata de posteo para la primera imputación de un gasto sin movimientos. Es alcance nuevo, choca de frente con D11 (la edición no produce efectos en libros) y reabre "¿a qué sesión de caja va el movimiento si el gasto es de otro día?" en el camino de edición. Si el PO lo quiere, es un change propio.
 
 **Por qué.** El importador llama `addExpense` **una vez por fila**, sin ninguna transacción que abarque el loop. Con impacto en libros, importar 200 filas generaría 200 movimientos y, ante un fallo a mitad de camino, dejaría N gastos con movimiento y M sin — un descuadre imposible de reconstruir. Es el mismo criterio con que el importador hoy no imputa centro de costo.
 
@@ -252,7 +277,16 @@ Además `mapExpense()` no mapea `branch_id`, así que el selector de sucursal ar
 
 ### D14 — Los gastos entran al reporte `/reportes/formas-pago`
 
-**Decisión.** `rpc_payment_method_report` suma una columna de gastos (junto a las de ventas y compras) y la pantalla suma su columna. La reescritura de la RPC parte del `pg_get_functiondef` **vivo**, hasheado antes de escribir SQL.
+**Decisión.** `rpc_payment_method_report` suma una columna de gastos (`total_spent`, junto a `total_sold` y `total_purchased`) y la pantalla suma su columna. La reescritura de la RPC parte del `pg_get_functiondef` **vivo**, hasheado antes de escribir SQL.
+
+**Mecánica obligatoria: `DROP FUNCTION` + re-`GRANT`, no `CREATE OR REPLACE` pelado.** La función vigente está declarada con `RETURNS TABLE(payment_method_id, payment_method_name, payment_method_kind, is_active, total_sold, total_purchased, operation_count)` y se crea con `CREATE OR REPLACE` **sin `DROP` previo** (`20260928000001_payment_methods_operaciones.sql:1851-1862`; los cinco `DROP FUNCTION` de ese archivo —líneas 364, 632, 907, 1247, 1544— son de otras funciones). Sumarle `total_spent` **cambia el tipo de retorno**: Postgres rechaza el `CREATE OR REPLACE` con **42P13** (`cannot change return type of existing function`). Entonces la migración nueva:
+
+1. `DROP FUNCTION IF EXISTS public.rpc_payment_method_report(uuid, date, date);`
+2. `CREATE OR REPLACE FUNCTION ...` con las 8 columnas.
+3. **Re-emitir las ACLs completas en el mismo archivo** — `REVOKE ALL FROM PUBLIC` + `REVOKE EXECUTE FROM anon` + `GRANT EXECUTE TO authenticated` (las mismas de `20260928000001:1945-1947`): un `DROP` **resetea las ACLs**, y sin re-emitirlas la función queda con los defaults. El chequeo (2) del gate de ACLs es la red que atraparía el olvido, pero la migración no debe depender de la red.
+4. Un **gate ANTI-OVERLOAD** propio (conteo de definiciones de `rpc_payment_method_report` = 1), con el molde del de `20260928000001:1813-1837`: si el `DROP` no matchea la firma exacta, el `CREATE` deja dos overloads y la próxima llamada posicional revienta con 42725.
+
+**Sobre la cadena de reapply de CI** (`.github/workflows/KPI_Validation.yml`): el paso re-aplica `20260928000001` completo. Ese reapply **hoy ya falla y está tolerado**, y falla en la **sección 9** (gate ANTI-OVERLOAD, línea 1813) que corre **antes** de la sección 10 donde vive el `CREATE` de `rpc_payment_method_report` — el propio comentario del YAML lo dice: *"el reapply tolerado los saltea"*. Con `ON_ERROR_STOP=1`, el archivo aborta ahí y **nunca llega** al `CREATE` con la firma vieja, así que **no se introduce ningún 42P13 en la cadena**. Es una dependencia frágil (si algún día ese gate dejara de dispararse, el reapply llegaría al `CREATE` de 7 columnas contra la función de 8 y sí fallaría con 42P13), por eso la task 1.5 reproduce la cadena en local **después** de aplicar la migración nueva y verifica exactamente esto, en vez de suponerlo.
 
 **Por qué está en alcance y no es scope creep.** El reporte se llama "formas de pago" y hoy cubre ventas y compras; si los gastos imputan forma de pago y no aparecen, el reporte **miente por omisión** sobre un tercio del dinero. Dejarlo sin decidir reproduciría exactamente la clase de superficie a medias que originó la regla PO de superficie frontend obligatoria (el `CostCenterManager` construido y nunca montado). Es una columna en un read-model, un campo en el tipo y una columna en una tabla.
 
@@ -260,11 +294,21 @@ Si aparece presión de alcance, **ésta es la pieza recortable** del change (OQ-
 
 ---
 
-### D15 — Cobertura de tests: el módulo arranca del andamio
+### D15 — Cobertura de tests: hay safety net previo, y después se amplía
 
-**Decisión.** El módulo Gastos **no tiene hoy ni un test** (ni componente, ni hook, ni a11y; lo único cubierto es `parseAndValidate` del importador, y desde un test de timezone). No hay "dónde agregar un caso": hay que construir la base.
+**Corrección de un hecho que este design afirmaba mal.** La primera redacción decía que el módulo Gastos *"no tiene hoy ni un test"*. **Es falso.** Existen, y cubren justamente los archivos que este change reescribe:
 
-Los moldes existen y se copian, no se inventan: `__tests__/components/PaymentMethodSelect.test.tsx`, `__tests__/components/sale-form-payment-effects.test.tsx`, `__tests__/hooks/use-sales-cash-session.test.ts`, `__tests__/hooks/use-sales-payment-method.test.ts`, `__tests__/c2-bank-payment-routing.test.ts`, y `__tests__/a11y/proveedores.a11y.test.tsx`.
+| Archivo | Qué cubre | Lo toca este change |
+|---|---|---|
+| `backend/tests/test_expenses.py` | 7 `def test_` sobre el CRUD de gastos | Sí — el repositorio pasa de SQL crudo a RPC (grupo 7) |
+| `frontend/__tests__/hooks/use-expenses.test.ts` | 5 casos sobre `use-expenses-query.ts`, con mocks de `pythonClient.post/put/delete` que **assertan los payloads actuales** | Sí — el hook se reescribe entero (grupo 9) |
+| `frontend/__tests__/components/expense-form-date-default.test.tsx` | default de fecha de `expense-form-v2.tsx` | Sí — el formulario suma selectores (grupo 10) |
+| `frontend/__tests__/components/expense-import-dialog-parse-and-validate.test.ts` | `parseAndValidate` del importador | Sólo el texto de ayuda (task 11.7) |
+| `frontend/__tests__/components/RecentActivity.test.tsx` | mockea `useExpenses` | Indirecto — el contrato del hook |
+
+**Consecuencia para el Strict TDD.** El safety net **no es opcional ni agregado**: esos archivos se corren **antes** de tocar `expense_repository.py`, `use-expenses-query.ts` y `expense-form-v2.tsx`, con su conteo registrado. Sin eso, romper esas 12+ aserciones se leería como "baseline distinto" (tasks 1.2/1.3, que miden el total agregado) en vez de como la regresión dirigida que sería. Toda aserción de esos archivos que cambie **tiene que quedar justificada por escrito** en el apply — en particular las de `use-expenses.test.ts`, que fijan los payloads que este change amplía a propósito.
+
+Lo que sí falta y se construye: cobertura de **listado**, **a11y** y de los caminos nuevos (opt-in de caja, pata bancaria, lock visible). Los moldes existen y se copian, no se inventan: `__tests__/components/PaymentMethodSelect.test.tsx`, `__tests__/components/sale-form-payment-effects.test.tsx`, `__tests__/hooks/use-sales-cash-session.test.ts`, `__tests__/hooks/use-sales-payment-method.test.ts`, `__tests__/c2-bank-payment-routing.test.ts`, y `__tests__/a11y/proveedores.a11y.test.tsx`.
 
 ---
 
@@ -291,6 +335,38 @@ Verificación obligatoria antes del merge: **desktop y mobile** × **tema claro 
 
 ---
 
+### D18 — El listado de `/gastos` pasa a leer del backend paginado, espejo exacto de `/ventas`
+
+**El problema que fuerza la decisión.** El requisito de "lock visible antes de intentar la acción" (D11) exige que **cada fila del listado** sepa si el gasto tiene dinero posteado. Ese dato es un **derivado** de `cash_movements`/`bank_movements`: **no es una columna de `expenses`**. Y `/gastos` hoy no lo puede ver: `frontend/app/(dashboard)/gastos/page.tsx:74-88` arma la lista con `usePaginatedQuery({ table: "expenses" })` — PostgREST directo, `select` plano sobre la tabla, mapeado por el `mapRow` local de `page.tsx:41-53`. El `mapExpense()` de `use-expenses-query.ts` (donde la primera redacción de este design ponía el mapeo del flag) **no participa del listado**: su único consumidor de lectura es `frontend/components/dashboard/recent-activity.tsx:11`. Sin decidir esto, el requisito de lock queda escrito y sin camino de datos.
+
+**Decisión.** `/gastos` migra su lectura a **`GET /expenses` paginado del backend FastAPI**, exactamente como ya hizo `/ventas`: `frontend/app/(dashboard)/ventas/page.tsx` consume `useSales()`, que hace `pythonClient.get('/sales?page=…&page_size=…&date_from=…&payment_method_id=…')` y recibe `{items, total, page, pages}` (contrato de `v3-api-standards`), con `is_payment_locked`, `has_cash_movement` y `has_bank_movement` **derivados en el backend** con los mismos `EXISTS` del guard del servidor (`backend/schemas/sales.py:120`, `frontend/hooks/data/use-sales.ts:45-51`).
+
+Qué cambia en concreto:
+
+- `GET /expenses` adopta paginación y filtros server-side (`page`, `page_size`, `date_from`, `date_to`, `search`, `cost_center_id`, `payment_method_id`), con la forma `{items,total,page,pages}` del estándar. Es la **misma** plomería que ya tiene `/sales`, no una nueva.
+- `ExpenseOut` suma los tres derivados: `is_payment_locked` (bloquea editar), `has_cash_movement` y `has_bank_movement` (para que el diálogo de borrado enumere qué libro compensa), más `is_delete_blocked` — el único bloqueo propio del borrado: hay `cash_movements` del gasto y **no** existe sesión abierta en ese `cashbox` (el mismo `EXISTS` que evalúa `rpc_delete_expense` antes de lanzar `P0426`). Los tres primeros son espejo literal de `SaleOut`.
+- `use-expenses-query.ts` pasa a ser el hook del listado (`mapExpense` mapea los derivados y **sí** se consume en `/gastos`), con `page/pageSize/filtros` en estado local, calcado de `useSales()`. `recent-activity.tsx` sigue funcionando contra `items`.
+- El nombre de la forma de pago lo resuelve el **backend** (`payment_method_name`, como en `SaleOut`), no un `Map` en cliente. Se conserva `usePaymentMethods(true)` sólo para **poblar el selector del filtro**, con `includeInactive` para que una forma dada de baja siga ofreciéndose y siga nombrándose.
+
+**Por qué no las alternativas.**
+- *Una vista `security_invoker` con los flags, consultable por PostgREST*: es viable (el proyecto ya usa `WITH (security_invoker = true)`, p. ej. `v_sales_flat` en `20260930000001`), pero deja **dos** caminos de lectura de gastos —vista para el listado, endpoint para el resto— con dos definiciones del mismo predicado de lock que pueden divergir. Es justo lo que la spec prohíbe ("los dos estados se derivan de los mismos predicados que evalúa el servidor").
+- *Recortar el requisito al 409 con motivo legible*: es lo más barato, pero contradice el objetivo 5 y el precedente de ventas y compras, que ya deshabilitan el control con la razón visible.
+- *Derivar el lock en cliente consultando `cash_movements`/`bank_movements`*: N+1 por página y un tercer lugar donde vive el predicado.
+
+**Costo declarado.** Es la pieza de alcance que este hallazgo agrega: paginación y filtros en `GET /expenses` (grupo 7) y reescritura del origen de datos de `gastos/page.tsx` (grupo 11). No es lógica nueva — es la plomería de `/ventas` aplicada a gastos.
+
+---
+
+### D19 — `P0412` en el camino de gasto se mapea a 422 con `field`, sin cambiarle la semántica global
+
+**El problema.** D5 reusa `P0412` para "falta elegir la cuenta bancaria de origen". Pero `P0412` ya está mapeado como **404** en `backend/core/errors.py:98` (`# cuenta bancaria no encontrada / inactiva`) y `_FIELD_BY_ERRCODE` (errors.py:154-156) sólo tiene `P0413`. Tal cual, el usuario que manda un gasto por transferencia sin destino recibiría un **404 sin campo ofensor** para lo que es un error de **validación de payload** sobre `bank_account_id`. La task que tocaba el tema decía "`P0412` a su HTTP" sin decidir cuál.
+
+**Decisión.** Un **override por endpoint**, con el patrón que el proyecto ya tiene para el alta de cuentas bancarias (`BANK_ACCOUNT_CREATE_ERRCODE_STATUS`, errors.py:163-167, que sube `P0400` a 422 sólo para ese router): se define `EXPENSE_ERRCODE_STATUS = {**_BUSINESS_ERRCODE_STATUS, "P0412": 422}` y se resuelve en el service/router de gastos, más una entrada de `field` para que el 7807 lleve `"field": "bank_account_id"` en ese camino. `P0412` **conserva su 404 global** para el resto de los callers: la semántica "cuenta no encontrada/inactiva" sigue intacta.
+
+**Por qué no las alternativas.** *Elegir otro ERRCODE ya mapeado a 422* (p. ej. `P0410`/`P0411`) le daría al gasto un código cuyo significado documentado es otro; *cambiar `P0412` a 422 globalmente* alteraría el contrato de los endpoints de banco que hoy dependen del 404; *dejarlo en 404* es el estado que este hallazgo corrige. El change sigue sin introducir **ningún ERRCODE nuevo**.
+
+---
+
 ## Risks / Trade-offs
 
 | Riesgo | Mitigación |
@@ -299,19 +375,19 @@ Verificación obligatoria antes del merge: **desktop y mobile** × **tema claro 
 | **La renumeración de la migración muerde otra vez** (ya pasó tres veces: `cuenta-corriente-party-guard` se renumeró 3×; el número previsto por `tenancy-guard-caja-outbox` se lo llevó un hotfix). | Task explícita de re-verificar `MAX(version)` vivo **inmediatamente antes** de escribir el archivo, no al principio del apply. |
 | **Reescribir `rpc_payment_method_report` sobre una definición desactualizada del repo.** El `pg_get_functiondef` vivo ya divergió una vez de su archivo de migración (G3 de `20261003000001`, reescrito in-place). | Checkpoint 🛑 de gate de integridad: hashear el cuerpo vivo y guardarlo en `baseline/` antes de escribir una línea de SQL. |
 | **Extraer `useCashOptin` rompe el formulario de venta**, que está en producción y mueve caja. | RED sobre el comportamiento vigente del form de venta **antes** de mover código; checkpoint 🛑; la extracción es la última task del grupo de frontend, no la primera. |
-| **`expenses.date` es `timestamptz`**: la comparación con el día local sin castear rechaza gastos legítimos de hoy cargados a cualquier hora ≠ 00:00. | Cast explícito en la RPC + test dedicado con un gasto de hoy a las 15:00 (RED que falla sin el cast). |
+| **La comparación con el día local depende de la zona de la sesión**: `expenses.date` es `timestamptz` y `timestamptz::date` se resuelve en el TimeZone de la sesión (UTC en este servidor), así que un `p_date timestamptz` con `::date` rechazaría con `P0422` un gasto legítimo cargado entre las 21:00 y las 23:59 ART. | D1: el parámetro se declara **`p_date date`** (es lo que ya viaja: `ExpenseCreate.date: datetime.date`) y se compara directo contra `reporting_local_today()`. Test que corre el mismo alta bajo `SET LOCAL TimeZone = 'UTC'` y bajo `'America/Argentina/Mendoza'` exigiendo idéntica aceptación — el caso "gasto de hoy a las 15:00" **no** detecta este defecto y por eso no alcanza. |
 | **El `P0426` al borrar un gasto en efectivo con la caja cerrada** es una restricción nueva y visible. | Es idéntica a la que ya rige para borrar una venta en efectivo (uniformidad). El diálogo de borrado la anticipa: el control aparece deshabilitado con el motivo antes de intentarlo. OQ-8 para el sign-off del PO. |
 | **Los 175 gastos históricos quedan fuera del reporte y de la conciliación para siempre.** | Es la única salida sin inventar datos (D7). Hay que decírselo al PO **antes** de empezar. El listado y el reporte los muestran explícitamente como "Sin imputar", no los esconden. |
-| **La UI queda stale**: el listado de gastos es query Supabase directa (no invalida por query key) y los paneles de /caja y /banco no usan TanStack Query por diseño. | Las mutaciones invalidan `expenses`, `cashSessions`, `cashMovements`, `bankAccounts`, `bankReconciliation` y el reporte, llaman `pq.refetch()` en /gastos y **bumpean el `refreshToken`** de `LedgerMovementsPanel`. Test dedicado del hook que asserta el set completo de invalidaciones (el precedente de `customerAccounts` en ventas ya se pagó una vez). |
+| **La UI queda stale** tras una mutación de gasto que movió otro libro. | Con D18 el listado pasa a TanStack Query, así que las tres mutaciones invalidan `expenses`, `cashSessions`, `cashMovements`, `bankAccounts`, `bankReconciliation` y el reporte de formas de pago — keys que **ya existen** en `frontend/lib/query-keys.ts:85-154`. Test dedicado del hook que asserta el set completo (el precedente de `customerAccounts` en ventas ya se pagó una vez). **Los paneles de historial (`LedgerMovementsPanel`) quedan fuera de ese mecanismo a propósito**: su `refreshToken` es `useState` local de `/banco` (`banco/page.tsx:183`) y `/caja` (`caja/page.tsx:243`), no hay contexto ni store que una mutación de `/gastos` pueda tocar, y esos paneles ni siquiera están montados mientras el usuario está en `/gastos` — al navegar a /caja o /banco montan y hacen fetch (`LedgerMovementsPanel.tsx:207`). El propio repo ya fijó esa división (`use-cash-movements.ts:121-125`: refrescar el panel *"es responsabilidad del componente que monta el panel, no de esta mutation"*). Refresco cross-página sería mover el token a un store: alcance nuevo, fuera de este change. |
 | **El importador masivo genera cientos de movimientos** o falla a mitad sin transacción envolvente. | D13: el importador no imputa forma de pago. |
-| **La columna nueva no llega al listado**: `/gastos` lee por PostgREST directo, sin joins ni backend. | `payment_method_id` debe estar en la tabla y visible por la policy de `SELECT` (lo está: la policy es por `account_id`); el **nombre** se resuelve en cliente con un `Map` desde `usePaymentMethods(true)` — `includeInactive` para que un método dado de baja siga mostrando su nombre histórico. |
+| **El listado no puede mostrar ni la forma de pago ni el lock**: `/gastos` leía por PostgREST directo, sin joins ni backend, y `is_payment_locked` es un derivado del backend que no viaja en la fila de `expenses`. | D18: `/gastos` migra a `GET /expenses` paginado, espejo de `/ventas`. El backend resuelve `payment_method_name` y deriva `is_payment_locked`/`has_cash_movement`/`has_bank_movement`/`is_delete_blocked` con los mismos `EXISTS` del guard. El selector del filtro sigue usando `usePaymentMethods(true)` — `includeInactive` para que una forma dada de baja siga ofreciéndose y nombrándose. |
 | **Regresión de contraste en CI** si el badge copia `categoryColors`. | D17 + el gate `token-contrast-aa.test.ts` ya en CI. |
 | **Dominio: dinero en dos libros.** | Governance MEDIUM con checkpoints 🛑 en los tramos de caja y banco; gate SQL propio; auditoría de que ningún gasto histórico quedó con movimientos huérfanos. |
 
 ## Migration Plan
 
 1. **Baseline y gates** — medir suite backend y frontend; hashear el `pg_get_functiondef` vivo de `rpc_payment_method_report`, `c28_register_cash_movement` y `_pay_register_operation_bank_movement` a `baseline/`; re-verificar `MAX(version)`.
-2. **Migración `20261015000001_gastos_forma_pago.sql`** — idempotente, sin BOM, ERRCODEs de 5 chars, sin `P0001`. Orden: columna + índice → `CHECK` de `cash_movements` → las tres RPCs + ACLs → `rpc_payment_method_report`.
+2. **Migración `20261015000001_gastos_forma_pago.sql`** — idempotente, sin BOM, ERRCODEs de 5 chars, sin `P0001`. Orden: columna + índice → `CHECK` de `cash_movements` → las tres RPCs + ACLs → `DROP FUNCTION IF EXISTS public.rpc_payment_method_report(uuid, date, date)` + `CREATE` con las 8 columnas + **re-emisión completa de sus ACLs** (`REVOKE ALL FROM PUBLIC` / `REVOKE EXECUTE FROM anon` / `GRANT EXECUTE TO authenticated`) + gate ANTI-OVERLOAD propio (D14).
 3. **Backend** — schemas, repositorio, service, tests.
 4. **Frontend** — canonización, hook, formulario, listado, reporte, importador, tests, a11y, responsive y temas.
 5. **Gate SQL propio** + wiring en `KPI_Validation.yml`.
@@ -350,3 +426,9 @@ Recomendación: **sí**, por uniformidad con el borrado de una venta en efectivo
 
 **OQ-9 — ¿Alguna categoría de gasto debería sugerir una forma de pago por defecto** (por ejemplo, "Alquiler" → Transferencia)?
 Recomendación: **no en este change**. Es una comodidad de UI que sólo tiene sentido con datos de uso, y hoy hay cero. Candidato posterior.
+
+**OQ-10 — El listado de `/gastos` tiene que migrar a la lectura paginada del backend (D18): ¿se acepta ese alcance, o se recorta el lock visible?**
+Recomendación: **migrar** (D18). Es la única forma de que el estado de bloqueo llegue a cada fila —`is_payment_locked` es un derivado de los libros, no una columna de `expenses`— y es exactamente la plomería que `/ventas` ya usa, no lógica nueva. La alternativa es recortar el requisito a "el usuario descubre el bloqueo al recibir el error 409", que contradice el objetivo 5 y rompe la simetría con ventas y compras. Efecto lateral a declarar: `GET /expenses` deja de devolver una lista plana (BREAKING de API interna, consumidor único y propio).
+
+**OQ-11 — La columna "Forma de pago" del export por `ExportButton` vive en una Edge Function con deploy propio: ¿entra en este change o se difiere?**
+Recomendación: **entra** (task 11.5b). Si sólo se toca el `exportToCSV` local, los dos exports de gastos quedan divergentes y el usuario ve una columna en uno y no en el otro. El costo es un deploy adicional de `supabase/functions/generate-export`, que **no** viaja con la migración del merge y hay que hacer explícito en el PR.

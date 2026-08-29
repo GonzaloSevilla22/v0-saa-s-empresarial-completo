@@ -158,7 +158,7 @@ Cuando se informe, el servidor SHALL verificar las tres condiciones —y SHALL N
 
 Cumplidas las tres, el sistema SHALL registrar un movimiento de caja de tipo `expense` con **importe negativo** y referencia al gasto, dentro de la misma transacción, delegando en el helper intra-transaccional de caja que ya existe.
 
-La fecha del gasto SHALL compararse convirtiéndola a fecha antes de contrastarla con el día local, porque se almacena con hora: sin esa conversión un gasto legítimo de hoy cargado a cualquier hora distinta de la medianoche sería rechazado.
+La comparación de la fecha del gasto contra el día local SHALL ser independiente de la zona horaria de la sesión de base de datos. La fecha del gasto se almacena con hora y la sesión del servidor corre en UTC, mientras que el día local se calcula en la zona del tenant: convertir el valor almacenado a fecha con la zona de la sesión rechazaría con error un gasto legítimo de hoy cargado en las últimas horas de la tarde-noche local. La fecha SHALL viajar y compararse como fecha calendario, que es lo que la superficie ya envía.
 
 #### Scenario: Gasto en efectivo de hoy con caja abierta
 
@@ -168,12 +168,18 @@ La fecha del gasto SHALL compararse convirtiéndola a fecha antes de contrastarl
 - **AND** la sesión registra un movimiento de tipo `expense` con importe negativo igual al del gasto
 - **AND** el saldo posterior de la sesión disminuye en ese importe
 
-#### Scenario: Gasto de hoy cargado a media tarde
+#### Scenario: Gasto de hoy cargado al cierre del día local
 
 - **GIVEN** una sesión de caja abierta y una forma de pago de tipo efectivo
-- **WHEN** se crea un gasto fechado hoy a las quince horas informando esa sesión
+- **WHEN** se crea un gasto del día local de hoy en el tramo horario en el que la fecha en la zona del servidor ya es la del día siguiente
 - **THEN** el gasto se acepta y registra su movimiento de caja
 - **AND** no es rechazado por la verificación de día
+
+#### Scenario: El resultado no depende de la zona horaria de la sesión
+
+- **GIVEN** el mismo alta de gasto en efectivo del día local de hoy
+- **WHEN** se ejecuta con la sesión de base de datos en la zona del servidor y con la sesión en la zona local del tenant
+- **THEN** las dos ejecuciones dan el mismo resultado de aceptación
 
 #### Scenario: Gasto en efectivo sin informar sesión
 
@@ -315,6 +321,11 @@ El valor reimputado SHALL pertenecer a la misma cuenta y estar activo, con el mi
 - **THEN** la operación es rechazada
 - **AND** el gasto conserva sus valores anteriores
 
+#### Scenario: El formulario de edición muestra el contexto vigente
+
+- **WHEN** un usuario abre la edición de un gasto con sucursal, centro de costo y forma de pago imputados
+- **THEN** los tres selectores aparecen con el valor vigente preseleccionado
+
 ### Requirement: Superficie de gastos con forma de pago
 
 La interfaz SHALL exponer la imputación de forma de pago y su efecto en libros dentro de la pantalla de Gastos, que ya existe y ya está enlazada desde el menú lateral: SHALL NOT crearse una ruta ni una entrada de menú nuevas.
@@ -367,9 +378,13 @@ Toda la superficie SHALL verificarse en escritorio y en móvil, y en tema claro 
 
 ### Requirement: El estado de bloqueo del gasto es visible antes de intentar la acción
 
-La interfaz SHALL exponer, para cada gasto del listado, si está bloqueado para edición por tener dinero posteado, derivando ese estado con el **mismo predicado** que evalúa el guard del servidor, y SHALL deshabilitar el control de edición mostrando la razón, en lugar de dejar que el usuario descubra el bloqueo recién al recibir el error.
+La interfaz SHALL exponer, para cada gasto del listado, si está bloqueado para edición por tener dinero posteado y si su borrado está bloqueado por no haber sesión de caja abierta donde compensar, derivando los dos estados de los **mismos predicados** que evalúan los guards del servidor, y SHALL deshabilitar cada control mostrando la razón, en lugar de dejar que el usuario descubra el bloqueo recién al recibir el error.
 
-El diálogo de borrado SHALL enumerar qué se va a compensar en cada libro antes de pedir confirmación.
+Los dos estados, más la distinción de qué libro produjo el bloqueo, SHALL viajar como **campos derivados de la lectura del gasto**, calculados en el servidor con los mismos predicados de existencia de movimientos que usan los guards, con el mismo mecanismo con el que ya viajan los estados de bloqueo de una venta. El predicado SHALL NOT reimplementarse en el cliente ni derivarse de consultas sueltas por fila.
+
+Para que esos derivados lleguen a la pantalla, el listado de gastos SHALL leerse por el camino de lectura del servidor de la aplicación, paginado y con sus filtros resueltos en el servidor, con el mismo contrato de paginación que ya usa el listado de ventas. El estado de bloqueo SHALL NOT depender de una lectura directa de la tabla de gastos, que sólo expone sus propias columnas y por lo tanto no puede exponer un derivado de los libros.
+
+El diálogo de borrado SHALL enumerar qué se va a compensar en cada libro antes de pedir confirmación, usando esos mismos derivados.
 
 #### Scenario: Gasto con movimiento de caja en el listado
 
@@ -382,6 +397,18 @@ El diálogo de borrado SHALL enumerar qué se va a compensar en cada libro antes
 - **WHEN** un usuario ve en el listado un gasto sin forma de pago imputada
 - **THEN** el control de edición está habilitado
 
+#### Scenario: El listado recibe el estado de bloqueo del servidor
+
+- **WHEN** se lista una página de gastos
+- **THEN** cada fila llega con su estado de bloqueo de edición, su estado de bloqueo de borrado y la indicación de qué libros tiene afectados
+- **AND** esos valores provienen de los mismos predicados que evalúan los guards de la edición y del borrado
+
+#### Scenario: Borrado deshabilitado con la caja cerrada
+
+- **WHEN** un usuario ve en el listado un gasto que descontó de la caja mientras no hay ninguna sesión abierta en esa caja
+- **THEN** el control de borrado aparece deshabilitado
+- **AND** la razón del bloqueo es visible antes de intentar la acción
+
 #### Scenario: Diálogo de borrado de un gasto con dinero posteado
 
 - **WHEN** un usuario abre el diálogo de borrado de un gasto que descontó de caja y registró un egreso bancario
@@ -389,7 +416,9 @@ El diálogo de borrado SHALL enumerar qué se va a compensar en cada libro antes
 
 ### Requirement: Las mutaciones de gasto refrescan todas las superficies que el gasto altera
 
-La interfaz SHALL invalidar, en las tres mutaciones de gasto, no sólo el listado de gastos sino también las superficies de caja, banco y conciliación bancaria que un gasto puede alterar, y SHALL forzar el refresco de los paneles de historial de caja y de banco, que administran su propio estado y no se refrescan por invalidación de caché.
+La interfaz SHALL invalidar, en las tres mutaciones de gasto, no sólo el listado de gastos sino también las superficies de caja, banco, conciliación bancaria y reporte de formas de pago que un gasto puede alterar, reutilizando las claves de caché que ya existen para cada una.
+
+Los paneles de historial de caja y de banco administran su propio estado imperativo, no participan de esa caché y no están montados mientras el usuario opera sobre gastos: SHALL refrescarse al montarse, con el criterio ya vigente de que refrescarlos es responsabilidad de la pantalla que los monta y no de la mutación. Las mutaciones de gasto SHALL NOT intentar forzarlos.
 
 #### Scenario: Alta de un gasto en efectivo
 
@@ -410,7 +439,7 @@ La interfaz SHALL invalidar, en las tres mutaciones de gasto, no sólo el listad
 
 El sistema SHALL NOT aceptar forma de pago en el importador de gastos por archivo: la plantilla SHALL conservar sus columnas actuales y las filas importadas SHALL quedar sin forma de pago imputada y sin efecto en libros.
 
-La ayuda del importador SHALL declararlo explícitamente, indicando que la imputación se hace después desde el listado si se quiere que el gasto impacte caja o banco.
+La ayuda del importador SHALL declararlo explícitamente, y SHALL decirlo sin prometer un efecto que el sistema no produce: imputar la forma de pago después desde el listado es **sólo una etiqueta**, porque la edición de un gasto no postea movimientos; para que el gasto impacte caja o banco hay que cargarlo desde el formulario.
 
 El motivo SHALL ser que el importador emite una llamada por fila sin transacción que abarque el lote: con impacto en libros, un fallo a mitad del proceso dejaría parte de los gastos con movimiento y parte sin él, sin forma de reconstruir el estado.
 
@@ -424,3 +453,11 @@ El motivo SHALL ser que el importador emite una llamada por fila sin transacció
 
 - **WHEN** un usuario abre el diálogo de importación
 - **THEN** la ayuda indica que los gastos importados quedan sin forma de pago y sin impacto en libros
+- **AND** aclara que imputarles la forma de pago después es sólo una etiqueta y que para impactar los libros hay que cargar el gasto desde el formulario
+
+#### Scenario: Imputar la forma de pago a un gasto importado no mueve ningún libro
+
+- **GIVEN** un gasto creado por importación, sin forma de pago
+- **WHEN** se lo edita imputándole una forma de pago de tipo efectivo o de tipo transferencia
+- **THEN** el gasto queda con esa forma de pago imputada
+- **AND** no se registra ningún movimiento de caja ni bancario

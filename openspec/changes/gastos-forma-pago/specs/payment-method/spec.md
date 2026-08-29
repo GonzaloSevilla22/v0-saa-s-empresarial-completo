@@ -41,6 +41,62 @@ El sistema SHALL exponer `rpc_payment_method_report(p_account_id, p_start, p_end
 - **THEN** la tabla incluye una columna de gastos junto a las de ventas y compras
 - **AND** los totales de la pantalla coinciden con los del read-model
 
+### Requirement: Superficies de la forma de pago
+
+El sistema SHALL exponer la forma de pago en: (a) el gestor del catálogo dentro de `/configuracion`, junto al de centros de costo, visible sólo para `owner`/`admin`, **incluyendo la asignación del destino bancario por defecto de cada forma de pago, con el estado sin destino rotulado como "no registra movimiento bancario"**; (b) un selector "Forma de pago" en el alta y edición de ventas, de compras y de **gastos**, que ofrece sólo las formas activas —y que en el contexto de gasto NO SHALL ofrecer las de `kind` `credit`, con un texto de apoyo propio que nombre los efectos del gasto y no los de la venta—, **acompañado de un selector de cuenta bancaria que aparece únicamente cuando el `kind` elegido es bancario y la organización tiene cuentas bancarias cargadas**; (c) un badge con la forma de pago y un filtro por forma de pago en los listados de ventas, de compras y de **gastos**, resueltos por un componente de badge único y compartido por los tres; (d) la pantalla `/reportes/formas-pago`, alcanzable desde una entrada propia del sidebar y sin gate de plan —mismo criterio que el reporte de centros de costo, porque gatearlo dejaría al plan free imputando datos que no puede leer; y (e) la grilla de formas de pago del POS (`/ventas/pos`), con sus estados propios: indicador de sesión de caja cuando el `kind` es `cash`, bloque de cliente y saldo cuando es `credit`, **y un indicador de cuenta bancaria destino cuando el `kind` es bancario, que muestra el destino resuelto y permite cambiarlo en una sola pulsación sin bloquear el cobro**. La superficie del POS NO SHALL exigir elegir cuenta bancaria para cobrar, y NO SHALL mostrar el indicador cuando la organización no tiene cuentas bancarias cargadas, de modo que el mostrador conserve su fricción actual para quien no lleva el banco en el sistema. Toda superficie nueva SHALL usar los tokens semánticos y los componentes base del design system, y SHALL verificarse en desktop y mobile y en tema claro y oscuro.
+
+#### Scenario: Alta de venta con el selector
+
+- **WHEN** un usuario abre el form de venta
+- **THEN** ve el selector "Forma de pago" con las formas activas de su cuenta y la opción de dejarlo sin especificar
+
+#### Scenario: Filtrar el listado por forma de pago
+
+- **GIVEN** operaciones imputadas a distintas formas de pago
+- **WHEN** el usuario filtra el listado por "Efectivo"
+- **THEN** sólo ve las operaciones imputadas a "Efectivo"
+
+#### Scenario: El member no ve el gestor del catálogo
+
+- **GIVEN** un usuario con rol `member`
+- **WHEN** abre `/configuracion`
+- **THEN** no se le ofrece la gestión del catálogo de formas de pago, aunque sí puede elegir formas de pago al operar
+
+#### Scenario: El POS muestra el estado de caja sólo para efectivo
+
+- **GIVEN** un usuario en el POS
+- **WHEN** elige una forma de pago de `kind` distinto de `cash`
+- **THEN** el indicador de sesión de caja no se muestra y el cobro no queda condicionado a una sesión abierta
+
+#### Scenario: El POS muestra el destino bancario resuelto sin pedir una pulsación
+
+- **GIVEN** una organización con cuentas bancarias y la forma de pago "Transferencia bancaria" con destino "Galicia CC"
+- **WHEN** el usuario elige esa forma de pago en el POS
+- **THEN** ve el destino "Galicia CC" indicado junto a la grilla, con la opción de cambiarlo, y puede cobrar sin ninguna pulsación adicional
+
+#### Scenario: El POS no muestra nada bancario si la organización no tiene cuentas
+
+- **GIVEN** una organización sin ninguna cuenta bancaria cargada
+- **WHEN** el usuario elige una forma de pago de `kind = 'transfer'` en el POS
+- **THEN** no se muestra indicador ni selector de cuenta bancaria y el cobro procede igual que antes de este change
+
+#### Scenario: El gestor del catálogo permite configurar el destino
+
+- **GIVEN** un `owner` en `/configuracion`
+- **WHEN** abre el gestor de formas de pago
+- **THEN** ve para cada forma su destino bancario (o el rótulo de que no registra movimiento bancario) y puede asignarlo o quitarlo desde ahí
+
+#### Scenario: Alta de gasto con el selector
+
+- **WHEN** un usuario abre el formulario de gasto
+- **THEN** ve el selector "Forma de pago" con las formas activas de su cuenta, sin las de cuenta corriente, y la opción de dejarlo sin especificar
+
+#### Scenario: Filtrar el listado de gastos por forma de pago
+
+- **GIVEN** gastos imputados a distintas formas de pago
+- **WHEN** el usuario filtra el listado de gastos por "Efectivo"
+- **THEN** sólo ve los gastos imputados a "Efectivo"
+
 ## ADDED Requirements
 
 ### Requirement: Imputación opcional de la forma de pago en gastos

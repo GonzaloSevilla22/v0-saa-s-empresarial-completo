@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Tipos de movimiento enumerados
-El sistema SHALL aceptar únicamente `movement_type` dentro del conjunto `{'sale', 'purchase_payment', 'expense', 'advance', 'withdrawal', 'sale_reversal', 'expense_reversal', 'adjustment'}`, validado por CHECK en la columna. `sale`, `advance` y `expense_reversal` son ingresos (signo positivo esperado); `purchase_payment`, `expense`, `withdrawal` y `sale_reversal` son egresos (signo negativo esperado); `adjustment` admite ambos signos (positivo = sobrante, negativo = faltante). El signo SHALL viajar en `amount` (el llamador lo provee), y el CHECK del enum SHALL validar solo la pertenencia al conjunto. Adicionalmente, un CHECK SHALL exigir que todo movimiento de tipo `adjustment` lleve `description` no vacía, sin imponer esa exigencia a los demás tipos. La clasificación de signo SHALL tener una sola definición compartida entre la validación de la API y la escritura por RPC, para que las dos puertas no puedan divergir.
+El sistema SHALL aceptar únicamente `movement_type` dentro del conjunto `{'sale', 'purchase_payment', 'expense', 'advance', 'withdrawal', 'sale_reversal', 'expense_reversal', 'adjustment'}`, validado por CHECK en la columna. `sale`, `advance` y `expense_reversal` son ingresos (signo positivo esperado); `purchase_payment`, `expense`, `withdrawal` y `sale_reversal` son egresos (signo negativo esperado); `adjustment` admite ambos signos (positivo = sobrante, negativo = faltante). El signo SHALL viajar en `amount` (el llamador lo provee), y el CHECK del enum SHALL validar solo la pertenencia al conjunto. Adicionalmente, un CHECK SHALL exigir que todo movimiento de tipo `adjustment` lleve `description` no vacía, sin imponer esa exigencia a los demás tipos.
 
 #### Scenario: Tipo inválido es rechazado
 - **GIVEN** una sesión `open`
@@ -35,6 +35,8 @@ El sistema SHALL aceptar únicamente `movement_type` dentro del conjunto `{'sale
 ### Requirement: Vocabulario de tipos de movimiento de caja
 El catálogo de tipos de movimiento de caja SHALL admitir `sale_reversal` y `expense_reversal` como tipos propios, distinguibles de los retiros, de los egresos operativos y de los ajustes manuales en los reportes de caja. Cada contra-movimiento automático SHALL tener su tipo propio en lugar de reutilizar `adjustment`, que está reservado para la corrección manual y exige motivo.
 
+La clasificación por **signo** y la clasificación por **familia de la superficie** SHALL tratarse como dos taxonomías distintas: los dos contra-movimientos automáticos comparten la familia de reversiones y tienen signos opuestos entre sí, porque revertir una venta saca dinero de la caja y revertir un gasto lo repone.
+
 #### Scenario: Reporte de caja con una reversión
 - **WHEN** se lista el detalle de una sesión que contiene un `sale_reversal`
 - **THEN** el movimiento aparece identificado como reversión de venta
@@ -43,11 +45,12 @@ El catálogo de tipos de movimiento de caja SHALL admitir `sale_reversal` y `exp
 #### Scenario: Reporte de caja con una reversión de gasto
 - **WHEN** se lista el detalle de una sesión que contiene un `expense_reversal`
 - **THEN** el movimiento aparece identificado como reversión de gasto
-- **AND** se clasifica como ingreso, no como ajuste ni como venta
+- **AND** su signo es el de un ingreso, no el de un ajuste ni el de una venta
 
 #### Scenario: La superficie de caja nombra el tipo nuevo
 - **WHEN** se muestra el historial de una caja que contiene una reversión de gasto
-- **THEN** el movimiento tiene etiqueta e ícono propios y cae dentro del filtro de ingresos
+- **THEN** el movimiento tiene etiqueta e ícono propios y cae dentro del filtro de reversas, junto a la reversión de venta
+- **AND** no cae dentro del filtro de ingresos, que agrupa las entradas operativas de dinero
 - **AND** usa los tonos semánticos del design system
 
 ## ADDED Requirements

@@ -378,3 +378,193 @@ COMMENT ON FUNCTION public.rpc_create_expense(text, numeric, date, text, uuid, u
   con el COALESCE de la venta (D6) y despacha los efectos en libros por kind:
   caja bajo opt-in con las 3 condiciones del servidor (D1) y banco por llamada
   incondicional al helper compartido (D2).';
+
+
+-- =============================================================================
+-- 3. rpc_update_expense — edición con inmutabilidad y contrato tri-estado
+-- =============================================================================
+--
+-- D11: el gasto con dinero posteado es INMUTABLE (P0423), no se compensa. El
+-- patrón de contra-asiento de asiento-venta-formulario aplica al JOURNAL, que
+-- es un libro derivado, asíncrono y de nuestra propiedad exclusiva. Caja y
+-- banco son distintos: la caja es un conteo FÍSICO con arqueo firmado, y el
+-- banco puede estar ya conciliado contra un extracto real (y su reversa
+-- toparía con el P0424 de período cerrado). El camino de corrección es borrar
+-- y recargar, que rpc_delete_expense (sección 4) vuelve seguro.
+--
+-- D12: contrato TRI-ESTADO con el par (p_<campo>, p_<campo>_provided), calcado
+-- de rpc_atomic_update_purchase_operation:
+--     provided = false            → PRESERVAR el valor vigente
+--     provided = true, valor uuid → reimputar
+--     provided = true, valor NULL → desimputar
+-- El router lo resuelve con `"<campo>" in payload.model_fields_set`, NUNCA con
+-- `payload.<campo> is None`. Cierra dos pérdidas silenciosas pre-existentes:
+-- el alta descartaba branch_id (0 de 175 gastos con sucursal) y la edición
+-- borraba cost_center_id en cada pasada (0 de 175 con centro de costo).
+--
+-- category/amount/date/description conservan la semántica COALESCE del UPDATE
+-- que este RPC reemplaza (NULL = no cambia): son columnas NOT NULL salvo
+-- description, y no hay un caso de uso de "vaciarlas". No se les inventa un
+-- tri-estado que nadie pidió.
+--
+-- ⚠️ La edición NO POSTEA MOVIMIENTOS, y por eso la firma NO recibe
+-- p_cash_session_id ni p_bank_account_id: imputarle una forma de pago a un
+-- gasto ya creado le pone la ETIQUETA y no mueve un peso en ningún libro
+-- (D13). El texto de ayuda del importador tiene que decir exactamente eso.
+CREATE OR REPLACE FUNCTION public.rpc_update_expense(
+    p_expense_id              uuid,
+    p_category                text    DEFAULT NULL,
+    p_amount                  numeric DEFAULT NULL,
+    p_date                    date    DEFAULT NULL,
+    p_description             text    DEFAULT NULL,
+    p_payment_method_id       uuid    DEFAULT NULL,
+    p_payment_method_provided boolean DEFAULT false,
+    p_branch_id               uuid    DEFAULT NULL,
+    p_branch_provided         boolean DEFAULT false,
+    p_cost_center_id          uuid    DEFAULT NULL,
+    p_cost_center_provided    boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid                 uuid;
+  v_account_id          uuid;
+  v_old                 RECORD;
+  v_branch              RECORD;
+  v_final_payment_method_id uuid;
+  v_final_branch_id     uuid;
+  v_final_cost_center_id    uuid;
+BEGIN
+  v_uid := (SELECT auth.uid());
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id FROM public.current_account_ids() AS cai LIMIT 1;
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa — no se puede editar el gasto'
+      USING ERRCODE = 'P0403';
+  END IF;
+
+  IF NOT public.is_account_writer(v_account_id) THEN
+    RAISE EXCEPTION 'unauthorized'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  -- Localización POR TENANT: si el gasto no aparece, P0404 — sin distinguir
+  -- "no existe" de "es de otra cuenta" (D4).
+  SELECT * INTO v_old
+  FROM public.expenses
+  WHERE id = p_expense_id AND account_id = v_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'expense_not_found: el gasto no existe o no pertenece a esta cuenta'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- ── D11: los dos guards de inmutabilidad, ANTES DE CUALQUIER ESCRITURA ────
+  -- Mismos predicados y mismo ERRCODE que rpc_atomic_update_sale_operation
+  -- (baseline). Los mensajes son distinguibles a propósito: el usuario tiene
+  -- que saber cuál de los dos libros produjo el bloqueo.
+  IF EXISTS (
+    SELECT 1 FROM public.cash_movements cm
+    WHERE cm.reference_id = p_expense_id
+  ) THEN
+    RAISE EXCEPTION 'expense_has_cash_movement_immutable: el gasto tiene un movimiento de caja posteado y no puede editarse — borralo y volvé a cargarlo (el borrado compensa la caja)'
+      USING ERRCODE = 'P0423';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.bank_movements bm
+    WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = p_expense_id
+  ) THEN
+    RAISE EXCEPTION 'expense_has_bank_movement_immutable: el gasto tiene un movimiento bancario posteado y no puede editarse — borralo y volvé a cargarlo (el borrado registra el movimiento espejo)'
+      USING ERRCODE = 'P0423';
+  END IF;
+
+  -- ── D12: tri-estado, campo por campo, con validación ANTES del UPDATE ─────
+  IF p_payment_method_provided THEN
+    IF p_payment_method_id IS NOT NULL THEN
+      -- Mismo predicado que el alta: cuenta + activa + no borrada.
+      IF NOT EXISTS (
+        SELECT 1 FROM public.payment_methods
+        WHERE id = p_payment_method_id AND account_id = v_account_id
+          AND is_active = TRUE AND deleted_at IS NULL
+      ) THEN
+        RAISE EXCEPTION 'payment_method_not_found or not active for this account'
+          USING ERRCODE = 'P0404';
+      END IF;
+      -- D3 también en la edición: la API no puede ser un bypass del selector.
+      IF (SELECT kind FROM public.payment_methods WHERE id = p_payment_method_id) = 'credit' THEN
+        RAISE EXCEPTION 'credit_not_supported_for_expense: un gasto no tiene contraparte con cuenta corriente — para un egreso que vas a pagar después, cargalo como compra a proveedor'
+          USING ERRCODE = 'P0400';
+      END IF;
+    END IF;
+    v_final_payment_method_id := p_payment_method_id;
+  ELSE
+    v_final_payment_method_id := v_old.payment_method_id;
+  END IF;
+
+  IF p_branch_provided THEN
+    IF p_branch_id IS NOT NULL THEN
+      SELECT id, status INTO v_branch
+      FROM public.branches
+      WHERE id = p_branch_id AND account_id = v_account_id AND is_active = TRUE;
+      IF NOT FOUND OR v_branch.status = 'closed' THEN
+        RAISE EXCEPTION 'branch_invalid: la sucursal no pertenece a la cuenta o no está operativa'
+          USING ERRCODE = 'P0422';
+      END IF;
+    END IF;
+    v_final_branch_id := p_branch_id;
+  ELSE
+    v_final_branch_id := v_old.branch_id;
+  END IF;
+
+  IF p_cost_center_provided THEN
+    IF p_cost_center_id IS NOT NULL THEN
+      IF NOT EXISTS (
+        SELECT 1 FROM public.cost_centers
+        WHERE id = p_cost_center_id AND account_id = v_account_id AND is_active = TRUE
+      ) THEN
+        RAISE EXCEPTION 'cost_center_not_found or not active for this account'
+          USING ERRCODE = 'P0404';
+      END IF;
+    END IF;
+    v_final_cost_center_id := p_cost_center_id;
+  ELSE
+    v_final_cost_center_id := v_old.cost_center_id;
+  END IF;
+
+  UPDATE public.expenses
+  SET category          = COALESCE(p_category, v_old.category),
+      amount            = COALESCE(p_amount, v_old.amount),
+      date              = COALESCE(p_date::timestamptz, v_old.date),
+      description       = COALESCE(p_description, v_old.description),
+      payment_method_id = v_final_payment_method_id,
+      branch_id         = v_final_branch_id,
+      cost_center_id    = v_final_cost_center_id
+  WHERE id = p_expense_id AND account_id = v_account_id;
+
+  RETURN jsonb_build_object(
+    'expense_id',        p_expense_id,
+    'payment_method_id', v_final_payment_method_id,
+    'branch_id',         v_final_branch_id,
+    'cost_center_id',    v_final_cost_center_id
+  );
+END;
+$function$;
+
+REVOKE ALL     ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean) FROM anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean) TO authenticated;
+
+COMMENT ON FUNCTION public.rpc_update_expense(uuid, text, numeric, date, text, uuid, boolean, uuid, boolean, uuid, boolean) IS
+  'gastos-forma-pago: edición atómica del gasto. Bloquea con P0423 el gasto con
+  movimiento de caja o bancario posteado, con mensajes distinguibles y ANTES de
+  cualquier escritura (D11), y aplica el contrato tri-estado
+  (p_<campo>, p_<campo>_provided) a forma de pago, sucursal y centro de costo
+  (D12). NO postea movimientos: imputar una forma de pago por edición es sólo
+  una etiqueta (D13).';

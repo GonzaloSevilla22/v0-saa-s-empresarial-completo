@@ -1202,6 +1202,282 @@ BEGIN
   END IF;
 END $$;
 
+-- ═════════════════ (4) EDICIÓN — rpc_update_expense ═════════════════════════
+-- D11: el gasto con dinero posteado es INMUTABLE (P0423), no se compensa.
+-- D12: la edición PRESERVA el contexto con contrato tri-estado.
+DO $$
+DECLARE
+  v_user_a     uuid;  v_user_b uuid;
+  v_account_a  uuid;  v_account_b uuid;
+  v_branch_a1  uuid;  v_branch_a2 uuid;  v_branch_b uuid;
+  v_session_a1 uuid;
+  v_ba_a       uuid;
+  v_pm_cash_a  uuid;  v_pm_other_a uuid;  v_pm_transfer_default uuid;
+  v_pm_other_b uuid;  v_pm_inactive uuid;
+  v_cc_a       uuid;  v_cc_b uuid;
+  v_cc_a2      uuid;
+  v_exp_cash   uuid;  v_exp_bank uuid;  v_exp_plain uuid;  v_exp_hist uuid;
+  v_exp_b      uuid;
+  v_result     jsonb;
+  v_row        RECORD;
+  v_count      integer;
+  v_rejected   boolean; v_sqlstate text;
+  v_today      date;
+  v_caso       text;   v_n integer;
+BEGIN
+  SELECT id INTO v_user_a FROM auth.users WHERE email = 'gastos-forma-pago-a@test.local';
+  SELECT id INTO v_user_b FROM auth.users WHERE email = 'gastos-forma-pago-b@test.local';
+  IF v_user_a IS NULL OR v_user_b IS NULL THEN RAISE NOTICE 'GATE GASTOS (4): sin anchors — degradando.'; RETURN; END IF;
+
+  SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  SELECT account_id INTO v_account_b FROM public.account_members WHERE user_id = v_user_b ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a1 FROM public.branches WHERE account_id = v_account_a AND name NOT LIKE '__gate_gfp_branch%' ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a2 FROM public.branches WHERE account_id = v_account_a AND name = '__gate_gfp_branch_a2__';
+  SELECT id INTO v_branch_b  FROM public.branches WHERE account_id = v_account_b ORDER BY created_at LIMIT 1;
+  SELECT cs.id INTO v_session_a1 FROM public.cash_sessions cs JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+    WHERE cb.name = '__gate_gfp_cashbox_a1__' AND cs.status = 'open';
+  SELECT id INTO v_ba_a FROM public.bank_accounts WHERE name = '__gate_gfp_bank_a__';
+  SELECT id INTO v_pm_cash_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active AND deleted_at IS NULL LIMIT 1;
+  SELECT id INTO v_pm_other_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'other' AND is_active AND deleted_at IS NULL AND name NOT LIKE '__gate_gfp%' LIMIT 1;
+  SELECT id INTO v_pm_transfer_default FROM public.payment_methods WHERE name = '__gate_gfp_pm_transfer_default__';
+  SELECT id INTO v_pm_other_b FROM public.payment_methods WHERE account_id = v_account_b AND kind = 'other' AND is_active AND deleted_at IS NULL LIMIT 1;
+  SELECT id INTO v_pm_inactive FROM public.payment_methods WHERE name = '__gate_gfp_pm_inactive__';
+  SELECT id INTO v_cc_a FROM public.cost_centers WHERE account_id = v_account_a AND name = '__gate_gfp_cc_a__';
+  SELECT id INTO v_cc_b FROM public.cost_centers WHERE account_id = v_account_b AND name = '__gate_gfp_cc_b__';
+
+  IF v_session_a1 IS NULL OR v_ba_a IS NULL OR v_pm_cash_a IS NULL OR v_pm_other_a IS NULL
+     OR v_pm_transfer_default IS NULL OR v_cc_a IS NULL OR v_cc_b IS NULL THEN
+    RAISE NOTICE 'GATE GASTOS (4): fixtures incompletos — degradando.'; RETURN;
+  END IF;
+
+  v_today := public.reporting_local_today();
+
+  INSERT INTO public.cost_centers (account_id, name, code, is_active)
+  VALUES (v_account_a, '__gate_gfp_cc_a2__', 'GFP-A2', TRUE) RETURNING id INTO v_cc_a2;
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_user_a THEN
+    RAISE NOTICE 'GATE GASTOS (4): auth.uid() no resuelve — degradando.'; RETURN;
+  END IF;
+
+  -- Fixtures de gastos: uno con caja, uno con banco, uno sin dinero y uno
+  -- "histórico" (sin forma de pago ni sucursal — el molde de los 175 de prod).
+  v_exp_cash := (public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 4100, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_session_a1)->>'expense_id')::uuid;
+  v_exp_bank := (public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 4200, p_date => v_today,
+    p_payment_method_id => v_pm_transfer_default)->>'expense_id')::uuid;
+  v_exp_plain := (public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 4300, p_date => v_today,
+    p_payment_method_id => v_pm_other_a, p_cost_center_id => v_cc_a,
+    p_branch_id => v_branch_a2)->>'expense_id')::uuid;
+
+  -- El "histórico" se inserta a mano: reproduce una fila anterior a este
+  -- change (sin payment_method_id, sin branch_id, sin cost_center_id), que es
+  -- el estado exacto de los 175 gastos de prod.
+  INSERT INTO public.expenses (user_id, account_id, category, amount, date)
+  VALUES (v_user_a, v_account_a, 'Historico', 4400, v_today - 40)
+  RETURNING id INTO v_exp_hist;
+
+  -- ═══ (4.1) INMUTABILIDAD: gasto con MOVIMIENTO DE CAJA → P0423 ═══════════
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_update_expense(p_expense_id => v_exp_cash, p_amount => 9999);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0423' AND position('caja' in SQLERRM) > 0 THEN v_rejected := true;
+    ELSIF SQLSTATE = 'P0423' THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-mensaje): el bloqueo por caja no dice de qué libro viene: "%"', SQLERRM;
+    ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a): se editó un gasto que ya descontó de la caja — la caja es un conteo físico con arqueo firmado (D11).';
+  END IF;
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_cash) <> 4100 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-efectos): el gasto cambió pese al P0423.';
+  END IF;
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE reference_id = v_exp_cash;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1a-efectos): el movimiento de caja cambió (% movimientos).', v_count;
+  END IF;
+
+  -- ═══ (4.1b) gasto con MOVIMIENTO BANCARIO → P0423 con otro mensaje ═══════
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_update_expense(p_expense_id => v_exp_bank, p_amount => 9999);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0423' AND position('bancario' in SQLERRM) > 0 THEN v_rejected := true;
+    ELSIF SQLSTATE = 'P0423' THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b-mensaje): el bloqueo por banco no es distinguible del de caja: "%"', SQLERRM;
+    ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b): se editó un gasto con movimiento bancario posteado — puede estar ya conciliado contra un extracto real (D11).';
+  END IF;
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_bank) <> 4200 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.1b-efectos): el gasto cambió pese al P0423.';
+  END IF;
+  RAISE NOTICE 'PASS (4.1): gasto con caja y gasto con banco son inmutables (P0423), con mensajes distinguibles y sin efectos.';
+
+  -- ═══ (4.3) TRI-ESTADO — ausente conserva · nulo desimputa · uuid reimputa ═
+  -- (4.3a) AUSENTE conserva los tres: se edita SÓLO el importe.
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_plain, p_amount => 4350);
+  SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_plain;
+  IF v_row.amount <> 4350 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3a): el importe no se editó (quedó %).', v_row.amount;
+  END IF;
+  IF v_row.payment_method_id IS DISTINCT FROM v_pm_other_a THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3a): editar el importe PERDIÓ la forma de pago (quedó %). Es el bug pre-existente que este change cierra: el mutationFn del PUT no incluía el campo y lo borraba en silencio.', v_row.payment_method_id;
+  END IF;
+  IF v_row.cost_center_id IS DISTINCT FROM v_cc_a THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3a): editar el importe PERDIÓ el centro de costo (quedó %) — el bug pre-existente que explica los 0 de 175 gastos con cost_center_id en prod.', v_row.cost_center_id;
+  END IF;
+  IF v_row.branch_id IS DISTINCT FROM v_branch_a2 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3a): editar el importe PERDIÓ la sucursal (quedó %).', v_row.branch_id;
+  END IF;
+
+  -- (4.3b) NULO EXPLÍCITO desimputa cada uno de los tres
+  PERFORM public.rpc_update_expense(
+    p_expense_id => v_exp_plain,
+    p_payment_method_id => NULL, p_payment_method_provided => TRUE);
+  SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_plain;
+  IF v_row.payment_method_id IS NOT NULL THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): el nulo EXPLÍCITO no desimputó la forma de pago.';
+  END IF;
+  IF v_row.cost_center_id IS DISTINCT FROM v_cc_a THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): desimputar la forma de pago se llevó puesto el centro de costo — cada campo tiene su propio par (valor, provided).';
+  END IF;
+
+  PERFORM public.rpc_update_expense(
+    p_expense_id => v_exp_plain,
+    p_cost_center_id => NULL, p_cost_center_provided => TRUE);
+  IF (SELECT cost_center_id FROM public.expenses WHERE id = v_exp_plain) IS NOT NULL THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): el nulo explícito no desimputó el centro de costo.';
+  END IF;
+
+  PERFORM public.rpc_update_expense(
+    p_expense_id => v_exp_plain,
+    p_branch_id => NULL, p_branch_provided => TRUE);
+  IF (SELECT branch_id FROM public.expenses WHERE id = v_exp_plain) IS NOT NULL THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3b): el nulo explícito no desimputó la sucursal.';
+  END IF;
+
+  -- (4.3c) UUID reimputa los tres
+  PERFORM public.rpc_update_expense(
+    p_expense_id => v_exp_plain,
+    p_payment_method_id => v_pm_other_a, p_payment_method_provided => TRUE,
+    p_cost_center_id => v_cc_a2, p_cost_center_provided => TRUE,
+    p_branch_id => v_branch_a1, p_branch_provided => TRUE);
+  SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_plain;
+  IF v_row.payment_method_id IS DISTINCT FROM v_pm_other_a
+     OR v_row.cost_center_id IS DISTINCT FROM v_cc_a2
+     OR v_row.branch_id IS DISTINCT FROM v_branch_a1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.3c): la reimputación no quedó (pm=%, cc=%, branch=%).', v_row.payment_method_id, v_row.cost_center_id, v_row.branch_id;
+  END IF;
+  RAISE NOTICE 'PASS (4.3): tri-estado completo — ausente conserva, nulo desimputa, uuid reimputa, campo por campo.';
+
+  -- ═══ (4.4) reimputar a un valor AJENO/INACTIVO es rechazado sin tocar nada ═
+  FOR v_caso, v_n IN
+    SELECT * FROM (VALUES ('forma de pago ajena', 1), ('forma de pago inactiva', 2),
+                          ('centro de costo ajeno', 3), ('sucursal ajena', 4)) t(c, n)
+  LOOP
+    v_rejected := false;
+    BEGIN
+      IF v_n = 1 THEN
+        PERFORM public.rpc_update_expense(p_expense_id => v_exp_plain,
+          p_payment_method_id => v_pm_other_b, p_payment_method_provided => TRUE);
+      ELSIF v_n = 2 THEN
+        PERFORM public.rpc_update_expense(p_expense_id => v_exp_plain,
+          p_payment_method_id => v_pm_inactive, p_payment_method_provided => TRUE);
+      ELSIF v_n = 3 THEN
+        PERFORM public.rpc_update_expense(p_expense_id => v_exp_plain,
+          p_cost_center_id => v_cc_b, p_cost_center_provided => TRUE);
+      ELSE
+        PERFORM public.rpc_update_expense(p_expense_id => v_exp_plain,
+          p_branch_id => v_branch_b, p_branch_provided => TRUE);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_sqlstate := SQLSTATE;
+      IF SQLSTATE IN ('P0404', 'P0422') THEN v_rejected := true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (4.4 %): la reimputación fue aceptada — el valor reimputado tiene que pertenecer a la misma cuenta y estar activo, con el MISMO criterio de rechazo que el alta.', v_caso;
+    END IF;
+    SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_plain;
+    IF v_row.payment_method_id IS DISTINCT FROM v_pm_other_a
+       OR v_row.cost_center_id IS DISTINCT FROM v_cc_a2
+       OR v_row.branch_id IS DISTINCT FROM v_branch_a1 THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (4.4 %-efectos): el gasto NO conservó sus valores anteriores (pm=%, cc=%, branch=%).', v_caso, v_row.payment_method_id, v_row.cost_center_id, v_row.branch_id;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS (4.4): reimputar a un valor ajeno o inactivo se rechaza y el gasto conserva sus valores anteriores.';
+
+  -- ═══ (4.4b) el gasto HISTÓRICO (sin nada imputado) se edita normalmente ══
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_hist,
+    p_category => 'Historico editado', p_amount => 4450);
+  SELECT * INTO v_row FROM public.expenses WHERE id = v_exp_hist;
+  IF v_row.category <> 'Historico editado' OR v_row.amount <> 4450 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.4b): un gasto anterior a este change, sin forma de pago ni movimientos, no se pudo editar — el bloqueo alcanza SOLAMENTE a los gastos que movieron plata.';
+  END IF;
+  IF v_row.payment_method_id IS NOT NULL OR v_row.branch_id IS NOT NULL THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.4b): editar un gasto histórico le inventó imputaciones (pm=%, branch=%).', v_row.payment_method_id, v_row.branch_id;
+  END IF;
+
+  -- ═══ (4.5) editar un gasto de OTRA CUENTA → P0404, sin distinguir ════════
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_b::text, 'role', 'authenticated')::text, true);
+  v_exp_b := (public.rpc_create_expense(
+    p_category => 'Ajeno', p_amount => 4500, p_date => v_today)->>'expense_id')::uuid;
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_update_expense(p_expense_id => v_exp_b, p_amount => 1);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0404' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.5): se editó un gasto de otra cuenta.';
+  END IF;
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_b) <> 4500 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.5-efectos): el gasto ajeno quedó modificado.';
+  END IF;
+  RAISE NOTICE 'PASS (4.4b/4.5): el histórico se edita normalmente; el gasto ajeno da P0404 y queda intacto.';
+
+  -- ═══ (4.6) LA EDICIÓN NO POSTEA MOVIMIENTOS (D13: sólo etiqueta) ═════════
+  -- Escenario "Imputar la forma de pago a un gasto importado no mueve ningún
+  -- libro": un gasto sin forma de pago (el estado de toda fila importada) al
+  -- que se le imputa efectivo o transferencia queda con la ETIQUETA y no mueve
+  -- un peso. Es lo que el texto de ayuda del importador tiene que decir, y por
+  -- eso la redacción "imputalos después si querés que impacten caja o banco"
+  -- está prohibida: sería falsa.
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE reference_id = v_exp_hist;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6-precondición): el gasto histórico ya tenía movimientos.';
+  END IF;
+
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_hist,
+    p_payment_method_id => v_pm_cash_a, p_payment_method_provided => TRUE);
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements WHERE reference_id = v_exp_hist;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): imputarle EFECTIVO a un gasto por edición posteó % movimientos de caja — la edición no postea (D11/D13), y rpc_update_expense ni siquiera recibe p_cash_session_id.', v_count;
+  END IF;
+
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_hist,
+    p_payment_method_id => v_pm_transfer_default, p_payment_method_provided => TRUE);
+  SELECT COUNT(*) INTO v_count FROM public.bank_movements
+  WHERE source_doc_type = 'expense' AND source_doc_ref = v_exp_hist;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): imputarle TRANSFERENCIA a un gasto por edición posteó % movimientos bancarios.', v_count;
+  END IF;
+  IF (SELECT payment_method_id FROM public.expenses WHERE id = v_exp_hist) IS DISTINCT FROM v_pm_transfer_default THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (4.6): la imputación por edición no quedó registrada — es una etiqueta, pero es una etiqueta REAL.';
+  END IF;
+  RAISE NOTICE 'PASS (4.6): la edición imputa la etiqueta y NO postea movimientos en ningún libro.';
+END $$;
+
 -- @@CLEANUP@@
 -- ── Fase de cleanup de los tenants sintéticos A/B/C y del usuario D ─────────
 -- DO block SEPARADO que resuelve los ids por email en vez de heredar las

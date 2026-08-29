@@ -2035,6 +2035,300 @@ BEGIN
   RAISE NOTICE 'PASS (6.5): el gasto queda persistido con su sucursal y cae dentro del predicado de agregación del reporte por sucursal — RN-93 cumplida para gastos.';
 END $$;
 
+-- ═══ (7) DERIVADOS DE LECTURA DEL BACKEND ≡ GUARDS DEL SERVIDOR ═════════════
+-- Task 7.5 del grupo 7. Los cuatro derivados que `ExpenseRepository` manda en
+-- cada fila del listado (is_payment_locked / has_cash_movement /
+-- has_bank_movement / is_delete_blocked) NO son columnas de `expenses`: son
+-- EXISTS calculados en el servidor para que la pantalla deshabilite el control
+-- con el motivo visible ANTES de que el usuario llegue al 409.
+--
+-- Este bloque los evalúa con los MISMOS predicados que el repositorio y los
+-- compara contra el COMPORTAMIENTO REAL del guard sobre EL MISMO GASTO. La
+-- pregunta que responde es la única que importa: ¿el listado dice la verdad?
+-- Si el derivado dijera "editable" y rpc_update_expense rechazara (o al revés),
+-- la pantalla estaría mintiendo.
+--
+-- ⚠️ Los predicados de abajo son copia literal de `_EXPENSE_PROJECTION`
+-- (backend/repositories/expense_repository.py) — SQL no puede importar Python.
+-- Lo que impide que las copias diverjan es
+-- `backend/tests/test_gastos_forma_pago.py::TestDerivedFlagsMatchServerGuards`,
+-- que extrae los fragmentos de la MIGRACIÓN, del REPOSITORIO y de ESTE archivo
+-- y exige que los tres traigan el mismo, normalizado.
+DO $$
+DECLARE
+  v_user_a      uuid;
+  v_account_a   uuid;
+  v_branch_a1   uuid;
+  v_cashbox_a7  uuid;  v_session_a7 uuid;
+  v_pm_cash_a   uuid;  v_pm_other_a uuid;  v_pm_transfer_default uuid;
+  v_exp_plain   uuid;  v_exp_cash uuid;  v_exp_bank uuid;
+  v_d           RECORD;
+  v_rejected    boolean;
+  v_today       date;
+BEGIN
+  SELECT id INTO v_user_a FROM auth.users WHERE email = 'gastos-forma-pago-a@test.local';
+  IF v_user_a IS NULL THEN RAISE NOTICE 'GATE GASTOS (7): sin anchors — degradando.'; RETURN; END IF;
+
+  SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a1 FROM public.branches WHERE account_id = v_account_a AND name NOT LIKE '__gate_gfp_branch%' ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_pm_cash_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active AND deleted_at IS NULL LIMIT 1;
+  SELECT id INTO v_pm_other_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'other' AND is_active AND deleted_at IS NULL AND name NOT LIKE '__gate_gfp%' LIMIT 1;
+  SELECT id INTO v_pm_transfer_default FROM public.payment_methods WHERE name = '__gate_gfp_pm_transfer_default__';
+
+  IF v_branch_a1 IS NULL OR v_pm_cash_a IS NULL OR v_pm_other_a IS NULL OR v_pm_transfer_default IS NULL THEN
+    RAISE NOTICE 'GATE GASTOS (7): fixtures incompletos — degradando.'; RETURN;
+  END IF;
+
+  -- Caja propia: el assert de is_delete_blocked CIERRA la sesión en el medio,
+  -- así que no puede compartir caja con ningún otro bloque.
+  INSERT INTO public.cashboxes (branch_id, name) VALUES (v_branch_a1, '__gate_gfp_cashbox_a7__')
+  RETURNING id INTO v_cashbox_a7;
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a7, 'open', 0, v_user_a) RETURNING id INTO v_session_a7;
+
+  v_today := public.reporting_local_today();
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_user_a THEN
+    RAISE NOTICE 'GATE GASTOS (7): auth.uid() no resuelve — degradando.'; RETURN;
+  END IF;
+
+  v_exp_plain := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 7100, p_date => v_today,
+    p_payment_method_id => v_pm_other_a)->>'expense_id')::uuid;
+  v_exp_cash := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 7200, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_session_a7)->>'expense_id')::uuid;
+  v_exp_bank := (public.rpc_create_expense(
+    p_category => 'Varios', p_amount => 7300, p_date => v_today,
+    p_payment_method_id => v_pm_transfer_default)->>'expense_id')::uuid;
+
+  -- ── (7.1) gasto SIN dinero posteado: los cuatro derivados en false, y el
+  --          guard REALMENTE deja editar ────────────────────────────────────
+  SELECT * INTO v_d FROM (
+    SELECT
+      EXISTS (
+        SELECT 1 FROM public.cash_movements cm
+        WHERE cm.reference_id = e.id
+      ) AS has_cash_movement,
+      EXISTS (
+        SELECT 1 FROM public.bank_movements bm
+        WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
+      ) AS has_bank_movement,
+      (
+        EXISTS (
+          SELECT 1 FROM public.cash_movements cm
+          WHERE cm.reference_id = e.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.bank_movements bm
+          WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
+        )
+      ) AS is_payment_locked,
+      EXISTS (
+        SELECT 1
+        FROM public.cash_movements cm
+        JOIN public.cash_sessions cs ON cs.id = cm.session_id
+        WHERE cm.reference_id = e.id AND cm.movement_type = 'expense'
+          AND NOT EXISTS (
+            SELECT 1 FROM public.cash_sessions os
+            WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
+          )
+      ) AS is_delete_blocked
+    FROM public.expenses e
+    LEFT JOIN public.payment_methods pm ON pm.id = e.payment_method_id
+    WHERE e.id = v_exp_plain
+  ) d;
+
+  IF v_d.has_cash_movement OR v_d.has_bank_movement OR v_d.is_payment_locked OR v_d.is_delete_blocked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.1): un gasto sin dinero posteado se derivó como bloqueado (caja=%, banco=%, lock=%, delete=%) — el listado deshabilitaría "Editar" sin motivo real.',
+      v_d.has_cash_movement, v_d.has_bank_movement, v_d.is_payment_locked, v_d.is_delete_blocked;
+  END IF;
+  -- Contraparte de COMPORTAMIENTO: el guard tiene que dejarlo pasar de verdad.
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_plain, p_amount => 7150);
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_plain) <> 7150 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.1-guard): el derivado decía editable y la edición no surtió efecto.';
+  END IF;
+  RAISE NOTICE 'PASS (7.1): gasto sin libros → los 4 derivados en false y la edición procede.';
+
+  -- ── (7.2) gasto con MOVIMIENTO DE CAJA: locked por caja, y el guard P0423
+  --          rechaza sobre EL MISMO gasto ─────────────────────────────────────
+  SELECT * INTO v_d FROM (
+    SELECT
+      EXISTS (
+        SELECT 1 FROM public.cash_movements cm
+        WHERE cm.reference_id = e.id
+      ) AS has_cash_movement,
+      EXISTS (
+        SELECT 1 FROM public.bank_movements bm
+        WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
+      ) AS has_bank_movement,
+      (
+        EXISTS (
+          SELECT 1 FROM public.cash_movements cm
+          WHERE cm.reference_id = e.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.bank_movements bm
+          WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
+        )
+      ) AS is_payment_locked,
+      EXISTS (
+        SELECT 1
+        FROM public.cash_movements cm
+        JOIN public.cash_sessions cs ON cs.id = cm.session_id
+        WHERE cm.reference_id = e.id AND cm.movement_type = 'expense'
+          AND NOT EXISTS (
+            SELECT 1 FROM public.cash_sessions os
+            WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
+          )
+      ) AS is_delete_blocked
+    FROM public.expenses e
+    LEFT JOIN public.payment_methods pm ON pm.id = e.payment_method_id
+    WHERE e.id = v_exp_cash
+  ) d;
+
+  IF NOT v_d.has_cash_movement OR v_d.has_bank_movement OR NOT v_d.is_payment_locked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2): el gasto en efectivo se derivó como caja=%, banco=%, lock=% — esperaba caja=true, banco=false, lock=true. El diálogo de borrado enumera los libros con estos dos flags POR SEPARADO.',
+      v_d.has_cash_movement, v_d.has_bank_movement, v_d.is_payment_locked;
+  END IF;
+  IF v_d.is_delete_blocked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2): con la sesión ABIERTA el borrado se derivó como bloqueado — el usuario vería el botón deshabilitado pudiendo borrar.';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_update_expense(p_expense_id => v_exp_cash, p_amount => 9999);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF v_rejected <> v_d.is_payment_locked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.2-equivalencia): el derivado is_payment_locked dice % y el guard P0423 %. El listado y el servidor tienen que decir LO MISMO sobre el mismo gasto.',
+      v_d.is_payment_locked, v_rejected;
+  END IF;
+  RAISE NOTICE 'PASS (7.2): gasto con caja → has_cash_movement/is_payment_locked coinciden con el rechazo P0423 real.';
+
+  -- ── (7.3) gasto con MOVIMIENTO BANCARIO: el otro libro, por separado ──────
+  SELECT * INTO v_d FROM (
+    SELECT
+      EXISTS (
+        SELECT 1 FROM public.cash_movements cm
+        WHERE cm.reference_id = e.id
+      ) AS has_cash_movement,
+      EXISTS (
+        SELECT 1 FROM public.bank_movements bm
+        WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
+      ) AS has_bank_movement,
+      (
+        EXISTS (
+          SELECT 1 FROM public.cash_movements cm
+          WHERE cm.reference_id = e.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM public.bank_movements bm
+          WHERE bm.source_doc_type = 'expense' AND bm.source_doc_ref = e.id
+        )
+      ) AS is_payment_locked,
+      EXISTS (
+        SELECT 1
+        FROM public.cash_movements cm
+        JOIN public.cash_sessions cs ON cs.id = cm.session_id
+        WHERE cm.reference_id = e.id AND cm.movement_type = 'expense'
+          AND NOT EXISTS (
+            SELECT 1 FROM public.cash_sessions os
+            WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
+          )
+      ) AS is_delete_blocked
+    FROM public.expenses e
+    LEFT JOIN public.payment_methods pm ON pm.id = e.payment_method_id
+    WHERE e.id = v_exp_bank
+  ) d;
+
+  IF v_d.has_cash_movement OR NOT v_d.has_bank_movement OR NOT v_d.is_payment_locked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3): el gasto bancario se derivó como caja=%, banco=%, lock=% — esperaba caja=false, banco=true, lock=true.',
+      v_d.has_cash_movement, v_d.has_bank_movement, v_d.is_payment_locked;
+  END IF;
+  IF v_d.is_delete_blocked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3): un gasto SIN movimiento de caja no puede tener el borrado bloqueado — el P0426 es exclusivo de la pata de caja.';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_update_expense(p_expense_id => v_exp_bank, p_amount => 9999);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0423' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF v_rejected <> v_d.is_payment_locked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.3-equivalencia): derivado=% vs guard=% sobre el gasto bancario.',
+      v_d.is_payment_locked, v_rejected;
+  END IF;
+  RAISE NOTICE 'PASS (7.3): gasto con banco → has_bank_movement aislado del de caja y coincidente con el P0423 real.';
+
+  -- ── (7.4) CONTROL NEGATIVO de is_delete_blocked: se cierra la única sesión
+  --          de la caja y el derivado tiene que DAR VUELTA junto con el guard ─
+  -- Sin este caso, un derivado cableado en `false` pasaría los tres asserts
+  -- anteriores: los tres esperan is_delete_blocked = false.
+  UPDATE public.cash_sessions SET status = 'closed', closed_at = now() WHERE id = v_session_a7;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.cash_movements cm
+    JOIN public.cash_sessions cs ON cs.id = cm.session_id
+    WHERE cm.reference_id = e.id AND cm.movement_type = 'expense'
+      AND NOT EXISTS (
+        SELECT 1 FROM public.cash_sessions os
+        WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
+      )
+  ) AS is_delete_blocked
+  INTO v_d
+  FROM public.expenses e WHERE e.id = v_exp_cash;
+
+  IF NOT v_d.is_delete_blocked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.4): cerrada la única sesión de la caja, is_delete_blocked siguió en false — el usuario vería "Borrar" habilitado y comería un P0426.';
+  END IF;
+
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_delete_expense(p_expense_id => v_exp_cash);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0426' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF v_rejected <> v_d.is_delete_blocked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.4-equivalencia): is_delete_blocked dice % y el borrado real %. Son el mismo predicado o el listado miente.',
+      v_d.is_delete_blocked, v_rejected;
+  END IF;
+
+  -- Y de vuelta: reabierta la caja, el derivado vuelve a false y el borrado
+  -- procede. El par cerrado/abierto es lo que prueba que el derivado MIDE algo.
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a7, 'open', 0, v_user_a);
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.cash_movements cm
+    JOIN public.cash_sessions cs ON cs.id = cm.session_id
+    WHERE cm.reference_id = e.id AND cm.movement_type = 'expense'
+      AND NOT EXISTS (
+        SELECT 1 FROM public.cash_sessions os
+        WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
+      )
+  ) AS is_delete_blocked
+  INTO v_d
+  FROM public.expenses e WHERE e.id = v_exp_cash;
+
+  IF v_d.is_delete_blocked THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.4-vuelta): reabierta la caja, is_delete_blocked siguió en true — el derivado está cableado, no calculado.';
+  END IF;
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp_cash);
+  IF EXISTS (SELECT 1 FROM public.expenses WHERE id = v_exp_cash) THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (7.4-vuelta): el derivado decía borrable y el borrado no procedió.';
+  END IF;
+  RAISE NOTICE 'PASS (7.4): is_delete_blocked da vuelta con la caja (cerrada→true+P0426, abierta→false+borrado) — mide, no está cableado.';
+
+  RAISE NOTICE 'PASS (7): los 4 derivados de lectura del backend coinciden con el comportamiento real de los guards sobre los mismos gastos.';
+END $$;
+
 -- @@CLEANUP@@
 -- ── Fase de cleanup de los tenants sintéticos A/B/C y del usuario D ─────────
 -- DO block SEPARADO que resuelve los ids por email en vez de heredar las

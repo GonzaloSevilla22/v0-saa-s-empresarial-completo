@@ -25,10 +25,21 @@ class MovementType(str, Enum):
     # sobrante (+) o faltante (-), a diferencia de los tipos de abajo que
     # tienen un signo esperado fijo.
     adjustment       = "adjustment"
+    # gastos-forma-pago (D9): contra-movimiento AUTOMÁTICO del borrado de un
+    # gasto en efectivo, emitido por rpc_delete_expense. Tipo propio, no
+    # `adjustment`: el vocabulario de caja distingue la compensación
+    # automática de la corrección manual, y `adjustment` además exige motivo.
+    expense_reversal = "expense_reversal"
 
 
-# Movement types that are expected to be income (positive amount)
-_INCOME_TYPES = {MovementType.sale, MovementType.advance}
+# Movement types that are expected to be income (positive amount).
+# gastos-forma-pago (D9): expense_reversal entra ACÁ — revertir un egreso
+# REPONE plata en el cajón, así que su signo esperado es POSITIVO. Ojo con el
+# "espejo de sale_reversal": el espejo es de FAMILIA de UI (ambos van a la
+# familia `reversal` del historial de caja), NO de signo — sale_reversal está
+# en _EXPENSE_TYPES, o sea el signo opuesto. Las dos taxonomías son distintas
+# y mezclarlas rompe el filtro "Reversas" o el validador de signo.
+_INCOME_TYPES = {MovementType.sale, MovementType.advance, MovementType.expense_reversal}
 # Movement types that are expected to be expenses (negative amount).
 # sale_reversal entra acá por pedido del PO (2026-08-22, sucesor de PR #442): la spec
 # cash-movement lo define como egreso con signo negativo esperado y la RPC de

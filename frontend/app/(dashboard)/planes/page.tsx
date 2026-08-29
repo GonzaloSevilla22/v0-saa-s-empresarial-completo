@@ -13,6 +13,8 @@ import { EnterprisePlanCard } from "@/components/shared/EnterprisePlanCard"
 import { PLAN_DISPLAY_NAMES } from "@/lib/plan-utils"
 import { getEffectivePlan } from "@/lib/plan-utils"
 import { aliadataWhatsAppUrl, ALIADATA_WHATSAPP_MESSAGE_EMPRESA } from "@/lib/aliadata-contact"
+import { getLiveSubscription } from "@/lib/billing/live-subscription"
+import { resolvePlanAccessContextLine } from "@/lib/billing/plan-access-context"
 import type { Plan, PlanLimits } from "@/lib/types"
 
 export const metadata = {
@@ -29,9 +31,14 @@ export default async function PlanesPage() {
   }
 
   // ── Current account billing state ─────────────────────────────────────────
+  // planes-suscribirse-plan-vigente (task 5.1): suma `plan_expires_at` —
+  // ya estaba en el select de /facturacion, faltaba acá. Necesario para la
+  // línea de contexto D5 ("plan pago con vencimiento").
   const { data: memberRow } = await supabase
     .from("account_members")
-    .select("account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, billing_exempt)")
+    .select(
+      "account_id, accounts(billing_plan, billing_status, trial_plan, trial_expires_at, plan_expires_at, billing_exempt)",
+    )
     .eq("user_id", user.id)
     .maybeSingle()
 
@@ -40,12 +47,14 @@ export default async function PlanesPage() {
     billing_status: string
     trial_plan: Plan | null
     trial_expires_at: string | null
+    plan_expires_at: string | null
     billing_exempt: boolean | null
   } | null
 
   const billingPlan: Plan = accountData?.billing_plan ?? "gratis"
   const trialPlan = accountData?.trial_plan ?? null
   const trialExpiresAt = accountData?.trial_expires_at ?? null
+  const planExpiresAt = accountData?.plan_expires_at ?? null
   const billingExempt = accountData?.billing_exempt ?? false
 
   // billing-pro-trial (D1/D6): getEffectivePlan NO lee billing_status.
@@ -55,6 +64,30 @@ export default async function PlanesPage() {
     trialExpiresAt,
     billingExempt,
   })
+
+  // planes-suscribirse-plan-vigente (D1/D2, task 5.1): suscripción viva —
+  // mismo helper canónico que /facturacion, extraído para no duplicar la
+  // consulta. Nunca lanza: sin fila / error de Postgrest / accountId
+  // ausente degradan a "sin suscripción viva" y el comparativo se
+  // renderiza igual (task 5.3).
+  const accountId = memberRow?.account_id as string | undefined
+  const liveSubscription = await getLiveSubscription(supabase, accountId)
+  const liveSubscriptionPlan: Plan | null = (liveSubscription?.plan as Plan | undefined) ?? null
+
+  // D5: motivo del acceso al plan efectivo, derivado de campos CRUDOS —
+  // NUNCA de `effectivePlan`/`getEffectivePlan` (D6, la divergencia con
+  // `plan_expires_at` se mide en la task 8, no se hereda acá).
+  const currentPlanContextLine = resolvePlanAccessContextLine({
+    billingExempt,
+    trialPlan,
+    trialExpiresAt,
+    billingPlan,
+    planExpiresAt,
+  })
+
+  // OQ-2: mismo canal de contacto que ya monta /planes (aliadataWhatsAppUrl),
+  // con el mensaje general por defecto — no se inventa un canal nuevo.
+  const exemptionContactUrl = aliadataWhatsAppUrl(process.env.ALIADATA_WHATSAPP_PHONE)
 
   // ── plan_limits ───────────────────────────────────────────────────────────
   const { data: rawPlans, error: plansError } = await supabase
@@ -113,7 +146,14 @@ export default async function PlanesPage() {
       </div>
 
       {/* Comparison grid */}
-      <PlanComparison plans={plans} currentPlan={effectivePlan} />
+      <PlanComparison
+        plans={plans}
+        currentPlan={effectivePlan}
+        billingExempt={billingExempt}
+        liveSubscriptionPlan={liveSubscriptionPlan}
+        currentPlanContextLine={currentPlanContextLine}
+        contactUrl={exemptionContactUrl}
+      />
 
       {/* Tier Empresa (plan-empresa-contacto, D3): HERMANO del comparativo,
           nunca dentro — PlanComparison no se toca. Sin enterpriseWhatsAppUrl

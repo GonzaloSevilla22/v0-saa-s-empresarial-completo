@@ -61,6 +61,22 @@ async function parseErrorDetail(response: Response): Promise<string> {
   }
 }
 
+/**
+ * planes-suscribirse-plan-vigente (D8): lanzado por `createSubscription`
+ * cuando el backend rechaza con 409 por ya existir una suscripción viva
+ * para la cuenta (carrera: otra pestaña completó un checkout mientras esta
+ * pantalla seguía abierta). Permite al caller (`PlanComparison.handleSelect`)
+ * distinguir este caso puntual del resto de errores sin parsear el
+ * `detail` crudo del backend — sigue siendo un `Error` (mismo `message`),
+ * así que cualquier manejo genérico existente no se ve afectado.
+ */
+export class SubscriptionConflictError extends Error {
+  constructor(detail: string) {
+    super(detail)
+    this.name = "SubscriptionConflictError"
+  }
+}
+
 export async function createSubscription(
   plan: SubscriptionPlan,
 ): Promise<SubscriptionsFeatureResult<SubscriptionCreateResult>> {
@@ -78,7 +94,11 @@ export async function createSubscription(
     return { enabled: false }
   }
   if (!response.ok) {
-    throw new Error(await parseErrorDetail(response))
+    const detail = await parseErrorDetail(response)
+    if (response.status === 409) {
+      throw new SubscriptionConflictError(detail)
+    }
+    throw new Error(detail)
   }
   const data = (await response.json()) as SubscriptionCreateResult
   return { enabled: true, data }

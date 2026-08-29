@@ -1,9 +1,10 @@
 "use client"
 
+import Link from "next/link"
 import { Crown, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { PLAN_DISPLAY_NAMES, PLAN_HIERARCHY, planHasAccess } from "@/lib/plan-utils"
+import { PLAN_DISPLAY_NAMES, PLAN_HIERARCHY } from "@/lib/plan-utils"
 import type { Plan, PlanLimits } from "@/lib/types"
 
 interface PlanCardProps {
@@ -12,6 +13,28 @@ interface PlanCardProps {
   limits: PlanLimits
   onSelect: (plan: Plan) => void
   loading?: boolean
+  /**
+   * planes-suscribirse-plan-vigente (D3): disponibilidad de contratación a
+   * NIVEL CUENTA (`!billingExempt && !haySuscripcionViva`) — NO depende de
+   * `plan === currentPlan`. PlanCard la combina con `plan === 'gratis'`
+   * (siempre no-contratable) para la disponibilidad final de ESTE tier.
+   * Es la segunda entrada independiente que el requirement de
+   * `specs/billing-ui/spec.md` ("Componente PlanCard reutilizable") exige:
+   * el destacado (badge, de `currentPlan`) y la disponibilidad de
+   * contratación NUNCA colapsan en una sola condición.
+   */
+  canContract: boolean
+  /**
+   * D4/OQ-5: tier de la suscripción viva de la cuenta, o `null`/`undefined`
+   * si no hay ninguna. Gobierna, cuando `canContract` es `false` por causa
+   * de una suscripción viva: el aviso "ya tenés una suscripción activa" en
+   * la tarjeta que coincide, y el enlace a `/facturacion` (en vez de un
+   * botón de compra) en las demás — restaura el requirement original de
+   * `billing-ui` ("deshabilitado o linkea a /facturacion").
+   */
+  liveSubscriptionPlan?: Plan | null
+  /** D5: línea de contexto (motivo del acceso); solo se renderiza cuando `plan === currentPlan`. */
+  contextLine?: string | null
 }
 
 const PLAN_FEATURES: Record<Plan, string[]> = {
@@ -61,13 +84,77 @@ const PLAN_COLORS: Record<Plan, { bg: string; border: string; badge: string; but
   pro:      { bg: "bg-card", border: "border-emerald-500/50", badge: "bg-emerald-100 text-emerald-700", button: "bg-emerald-600 text-white hover:bg-emerald-700" },
 }
 
-export function PlanCard({ plan, currentPlan, limits, onSelect, loading = false }: PlanCardProps) {
+/**
+ * planes-suscribirse-plan-vigente (D3/D4, task 3.6): derivación PURA del
+ * estado del CTA, extraída de PlanCard para poder testearla sin renderizar
+ * (y para que la precedencia de reglas —gratis > contratable > suscripción
+ * viva propia > suscripción viva ajena > nada— viva en un solo lugar).
+ *
+ * "Suscribirme a X" cubre tanto el caso nuevo (tier === plan efectivo, sin
+ * suscripción viva — OQ-1) como el downgrade contratable (D4: la acción es
+ * literalmente contratar ese tier, "Cancelar y bajar" mentía). "Pasarme a
+ * X" se conserva SOLO para el upgrade genuino — comportamiento correcto ya
+ * cubierto por tests existentes que este change no edita (task 4.1).
+ */
+export type PlanCardCtaState =
+  | { kind: "button"; label: string; disabled: boolean }
+  | { kind: "link"; label: string; href: string }
+  | { kind: "note"; label: string }
+  | { kind: "none" }
+
+export function resolvePlanCardCta(input: {
+  plan: Plan
+  displayName: string
+  isCurrent: boolean
+  isFree: boolean
+  isUpgrade: boolean
+  canContract: boolean
+  liveSubscriptionPlan: Plan | null
+}): PlanCardCtaState {
+  const { plan, displayName, isCurrent, isFree, isUpgrade, canContract, liveSubscriptionPlan } = input
+
+  if (isFree) {
+    return {
+      kind: "button",
+      label: isCurrent ? "Plan actual" : `Cancelar y bajar a ${displayName}`,
+      disabled: true,
+    }
+  }
+
+  if (canContract) {
+    return {
+      kind: "button",
+      label: isCurrent || !isUpgrade ? `Suscribirme a ${displayName}` : `Pasarme a ${displayName}`,
+      disabled: false,
+    }
+  }
+
+  if (liveSubscriptionPlan === plan) {
+    return { kind: "note", label: "Ya tenés una suscripción activa de este plan." }
+  }
+
+  if (liveSubscriptionPlan !== null) {
+    return { kind: "link", label: "Gestionar en Facturación", href: "/facturacion" }
+  }
+
+  return { kind: "none" }
+}
+
+export function PlanCard({
+  plan,
+  currentPlan,
+  limits,
+  onSelect,
+  loading = false,
+  canContract,
+  liveSubscriptionPlan = null,
+  contextLine = null,
+}: PlanCardProps) {
   const displayName = PLAN_DISPLAY_NAMES[plan]
   const colors = PLAN_COLORS[plan]
   const features = PLAN_FEATURES[plan]
 
   const isCurrent = plan === currentPlan
-  const isDowngrade = PLAN_HIERARCHY.indexOf(plan) < PLAN_HIERARCHY.indexOf(currentPlan)
   const isUpgrade = PLAN_HIERARCHY.indexOf(plan) > PLAN_HIERARCHY.indexOf(currentPlan)
   const isFree = plan === "gratis"
 
@@ -75,17 +162,19 @@ export function PlanCard({ plan, currentPlan, limits, onSelect, loading = false 
     ? "Gratis"
     : `$${Number(limits.priceMonthly).toLocaleString("es-AR")}/mes`
 
-  const ctaLabel = isCurrent
-    ? "Plan actual"
-    : isUpgrade
-      ? `Pasarme a ${displayName}`
-      : isDowngrade
-        ? `Cancelar y bajar a ${displayName}`
-        : "Seleccionar"
+  const ctaState = resolvePlanCardCta({
+    plan,
+    displayName,
+    isCurrent,
+    isFree,
+    isUpgrade,
+    canContract,
+    liveSubscriptionPlan: liveSubscriptionPlan ?? null,
+  })
 
   return (
     <div
-      className={`relative flex flex-col rounded-xl border-2 p-6 gap-4 ${colors.bg} ${colors.border} ${
+      className={`relative flex h-full flex-col rounded-xl border-2 p-6 gap-4 ${colors.bg} ${colors.border} ${
         isCurrent ? "ring-2 ring-primary ring-offset-2" : ""
       }`}
     >
@@ -106,6 +195,14 @@ export function PlanCard({ plan, currentPlan, limits, onSelect, loading = false 
         )}
       </div>
 
+      {/* Línea de contexto (D5): solo en la tarjeta del plan efectivo, y
+          solo cuando hay un motivo que comunicar (cortesía / trial vigente
+          / plan pago con vencimiento). Derivada de campos crudos por el
+          caller — NO de getEffectivePlan (D6). */}
+      {isCurrent && contextLine && (
+        <p className="text-xs text-muted-foreground -mt-2">{contextLine}</p>
+      )}
+
       {/* Features */}
       <ul className="flex flex-col gap-2 flex-1">
         {features.map((feat) => (
@@ -116,17 +213,29 @@ export function PlanCard({ plan, currentPlan, limits, onSelect, loading = false 
         ))}
       </ul>
 
-      {/* CTA */}
-      <Button
-        onClick={() => onSelect(plan)}
-        disabled={isCurrent || loading || isFree}
-        className={`w-full mt-2 ${isCurrent || isFree ? "opacity-60 cursor-not-allowed" : ""} ${
-          isCurrent || isFree ? colors.button : colors.button
-        }`}
-        variant="ghost"
-      >
-        {ctaLabel}
-      </Button>
+      {/* CTA — estado derivado por resolvePlanCardCta (D3/D4) */}
+      {ctaState.kind === "button" && (
+        <Button
+          onClick={() => onSelect(plan)}
+          disabled={ctaState.disabled || loading}
+          className={`w-full mt-2 ${ctaState.disabled ? "opacity-60 cursor-not-allowed" : ""} ${colors.button}`}
+          variant="ghost"
+        >
+          {ctaState.label}
+        </Button>
+      )}
+
+      {ctaState.kind === "link" && (
+        <Button asChild variant="outline" className="w-full mt-2">
+          <Link href={ctaState.href}>{ctaState.label}</Link>
+        </Button>
+      )}
+
+      {ctaState.kind === "note" && (
+        <p className="w-full mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-center text-sm text-muted-foreground">
+          {ctaState.label}
+        </p>
+      )}
     </div>
   )
 }

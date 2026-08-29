@@ -16,6 +16,7 @@ import { CancelSubscriptionModal } from "@/components/billing/CancelSubscription
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { PLAN_DISPLAY_NAMES, getEffectivePlan } from "@/lib/plan-utils"
+import { getLiveSubscription, type LiveSubscriptionRow } from "@/lib/billing/live-subscription"
 import type { Plan } from "@/lib/types"
 
 export const metadata = {
@@ -56,15 +57,6 @@ const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   paused:     "Pausada",
   cancelled:  "Cancelada",
   ambiguous:  "En verificación",
-}
-
-interface SubscriptionRow {
-  plan: Plan
-  status: string
-  next_payment_date: string | null
-  retry_state: string
-  amount: number | null
-  currency: string
 }
 
 export default async function FacturacionPage() {
@@ -127,24 +119,16 @@ export default async function FacturacionPage() {
     created_at: e.created_at as string,
   }))
 
-  // mp-real-subscriptions (D2bis, task 8.5): suscripción real viva, si
-  // existe — se lee directo de `public.subscriptions` (RLS SELECT por
-  // membresía de cuenta, PR2) en vez de llamar al backend, así esta
-  // Server Component no necesita reenviar un JWT aparte. Con la palanca
-  // `billing_subscriptions_enabled` apagada (default hoy en producción)
-  // nunca hay filas todavía, así que esto degrada limpio a "no mostrar
-  // nada" sin ninguna lógica de flag adicional acá.
+  // mp-real-subscriptions (D2bis, task 8.5) + planes-suscribirse-plan-vigente
+  // (task 7.2): suscripción real viva, si existe — vía el helper canónico
+  // `getLiveSubscription` (RLS SELECT por membresía de cuenta, mismo patrón
+  // que antes, ahora compartido con `/planes`) en vez de llamar al backend,
+  // así esta Server Component no necesita reenviar un JWT aparte. Nunca
+  // lanza: sin fila, error de Postgrest o palanca `billing_subscriptions_enabled`
+  // apagada (default hoy en producción, cero filas todavía) degradan limpio
+  // a "no mostrar nada" sin ninguna lógica de flag adicional acá.
   const accountId = memberRow?.account_id as string | undefined
-  const { data: subscriptionRow } = accountId
-    ? await supabase
-        .from("subscriptions")
-        .select("plan, status, next_payment_date, retry_state, amount, currency")
-        .eq("account_id", accountId)
-        .in("status", ["pending", "authorized"])
-        .maybeSingle()
-    : { data: null }
-
-  const subscription = subscriptionRow as SubscriptionRow | null
+  const subscription: LiveSubscriptionRow | null = await getLiveSubscription(supabase, accountId)
   const subscriptionInRetry = subscription?.retry_state === "retrying"
 
   const isPaid = billingPlan !== "gratis"

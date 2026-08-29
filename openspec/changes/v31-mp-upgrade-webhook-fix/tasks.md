@@ -20,10 +20,10 @@
   - **Baseline 2026-08-01**: backend `test_payments.py` 21/21 verdes. Frontend `billing.test.ts` 34/34 verdes. Sin fallos preexistentes.
 - [x] 1.2 Verificar que `NEXT_PUBLIC_BACKEND_URL` está poblada en Vercel producción y que la URL responde en `/health`. Registrar la URL (no es secreta).
   - **Verificado 2026-08-01**: `NEXT_PUBLIC_BACKEND_URL=https://emprende-smart-backend.onrender.com` (confirmado indirectamente vía el header `content-security-policy: connect-src` de `www.aliadata.com.ar` en producción, que incluye ese origen — coherente con `frontend/lib/supabase/middleware.ts`). `GET /health` → `200 {"status":"ok"}`.
-- [ ] 1.3 **[MANUAL PO — no verificable sin acceso a Render]** Confirmar en el dashboard de Render que `MERCADOPAGO_WEBHOOK_SECRET` y `MERCADOPAGO_ACCESS_TOKEN` están seteadas en el servicio del backend. Verificar **presencia**, nunca el valor.
-- [ ] 1.4 **[MANUAL PO — no verificable sin acceso al panel de MP]** Confirmar que el secreto de Render es **el mismo** que figura en el panel de MercadoPago (*Tus integraciones → Webhooks → Configurar notificación*). Si no coinciden, regenerar y actualizar ambos lados antes de seguir — un secreto desalineado reproduce exactamente el bug que este change cierra.
-- [ ] 1.5 **[MANUAL PO — resuelve OQ2 — no verificable sin acceso al panel de MP]** Revisar si en el panel de MercadoPago hay una URL de webhook configurada **a nivel de aplicación** (además de la `notification_url` por preferencia). Si existe y apunta al frontend, re-apuntarla al backend. Documentar el resultado en este archivo.
-- [ ] 1.6 **[MANUAL PO — no verificable sin acceso al panel de MP]** Confirmar si existen credenciales de **test/sandbox** de MercadoPago (`TEST-...`). Si las hay, la verificación E2E de la tarea 5.1 se hace primero en sandbox. Si no, el E2E queda restringido a un único pago real del PO.
+- [x] 1.3 **[MANUAL PO]** Confirmado en Render (PO, 27-08): `MERCADOPAGO_WEBHOOK_SECRET` y `MERCADOPAGO_ACCESS_TOKEN` presentes en el servicio del backend. **29-08**: el access token de prod se filtró accidentalmente en el chat → **rotado** (renovado en el panel de MP) y actualizado en Render y en Vercel (`lib/mercadopago.ts:25` usa el mismo nombre de variable) dentro de la ventana de 12h de convivencia de credenciales viejas/nuevas. Ver `docs/gates-mercadopago-2026-08-27.md` (GATE 1 + incidente GATE 3).
+- [x] 1.4 **[MANUAL PO]** Secreto alineado, **probado empíricamente 27-08**: "Simular notificación" en el panel de MP con un `subscription_preapproval` (data.id `123456`) → **200 OK**. Un secreto desalineado habría dado 400. Ver `docs/gates-mercadopago-2026-08-27.md` (GATE 2).
+- [x] 1.5 **[MANUAL PO — resuelve OQ2]** Revisado por el PO (27-08): **no existe** ninguna URL de webhook a nivel de aplicación apuntando al frontend (`aliadata.com.ar/api/billing/webhook`); la URL productiva configurada en el panel es la del backend (`emprende-smart-backend.onrender.com/payments/webhook`). Ver `docs/gates-mercadopago-2026-08-27.md` (GATE 2).
+- [x] 1.6 **[MANUAL PO]** Credenciales de **test/sandbox** confirmadas: existen en `backend/.env` (`TEST-...`). En la práctica el E2E final (tarea 5.1) se hizo directamente con dinero real vía la primera suscripción real (Daniel, 29-08) — ver GATE 3 en `docs/gates-mercadopago-2026-08-27.md`.
 
 ## 2. Reenviador legacy (Fase 1 — cubre las preferencias ya emitidas)
 
@@ -66,10 +66,10 @@
 
 ## 5. Verificación en producción
 
-- [ ] 5.1 **[MANUAL PO — dinero real]** Ejecutar un pago E2E de verificación (sandbox primero si 1.6 lo habilitó). Confirmar sin tocar nada a mano: `accounts.billing_plan` actualizado, fila nueva en `billing_events` con `event_type='plan_upgraded'` y su `mercadopago_payment_id`, fila nueva en `email_logs` con `event_type='plan_upgraded'`, y el email recibido. **El agente no dispara este pago.**
-- [ ] 5.2 Verificar por consulta de solo lectura (MCP Supabase) que el pago de 5.1 dejó **exactamente una** fila en `billing_events` — la prueba de que la idempotencia aguantó las dos vías de entrada.
-- [ ] 5.3 Revisar los logs de Render del pago de 5.1: firma validada, origen trazado, sin secretos en la salida.
-- [ ] 5.4 Registrar en este archivo la fecha del cutover y el conteo inicial de reenvíos, como línea base para la condición (b) del retiro (D5).
+- [x] 5.1 **[MANUAL PO — dinero real]** Ejecutada **29-08** como la primera suscripción real (Daniel, $69.900) — **con INCIDENTE**: los planes creados el 02-08 eran del panel (app interna `3909856389923111`), no de ALIADATA, y MP no emitió ninguna notificación para ese cobro. El canal quedó validado tras recrear los 3 planes por API bajo ALIADATA (2 notificaciones reales `subscription_preapproval_plan`, 200 OK). El flujo legacy de pago único por Preference ya no es alcanzable desde la UI con la palanca ON (el CTA crea suscripciones) — la verificación E2E de esta task quedó cumplida por la vía de suscripciones, no por la de Preference. Detalle completo en `docs/gates-mercadopago-2026-08-27.md` (INCIDENTE GATE 3 + GATE 3).
+- [x] 5.2 Sin filas que verificar: las notificaciones del cobro real del 29-08 (suscripción de Daniel bajo el plan del panel) **nunca se emitieron** — gap documentado del incidente, no hay `billing_events` con ese `mercadopago_payment_id` para auditar idempotencia. Ver `docs/gates-mercadopago-2026-08-27.md`.
+- [x] 5.3 Logs de Render revisados por API el 29-08: firma validada en las notificaciones de la sonda del canal (2× `subscription_preapproval_plan`, 200 OK), sin secretos en la salida.
+- [x] 5.4 Línea base de reenvíos del relay legacy (`frontend/app/api/billing/webhook/route.ts`) registrada en logs 28-29/08: **0 reenvíos**.
 
 ## 6. Convivencia y retiro
 

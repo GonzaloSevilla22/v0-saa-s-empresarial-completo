@@ -91,7 +91,7 @@
   - "Cuenta exenta no ve ningún CTA de pago" → `PlanComparison.test.tsx` (billingExempt, 4.4 + 6.1)
   - "La exención se comunica, no se disimula" → `PlanComparison.test.tsx` (banner con/sin canal) + `PlanesPage.test.tsx` (billing_exempt wiring)
   - "Una cuenta exenta no puede iniciar una contratación" → `PlanComparison.test.tsx` (cero `createSubscription`/`fetch`)
-- [ ] 10.5 Pendiente — PR a crear ahora; CI la monitorea el orquestador (no se espera acá).
-- [ ] 10.6 🔎 **[MANUAL/post-merge]** — Checkpoint PO en producción. No se ejecuta en este apply (instrucción explícita del orquestador).
-- [ ] 10.7 Pendiente — se deja para que el orquestador actualice `CHANGES.md` con el resumen de PR + hallazgos (patrón del proyecto: la entrada del roadmap se agrega al mergear).
-- [ ] 10.8 Pendiente — se ejecuta al cierre de esta sesión (mem_save).
+- [x] 10.5 PR #473 mergeado squash `1ab55a3` (2026-08-29); CI verde (checks incluido `Docs Sync`/`KPI_Validation`/`Frontend_Tests`).
+- [ ] 10.6 🔎 **[MANUAL/post-merge]** — Checkpoint PO en producción. Pendiente de primer uso real (no se ejecuta en este apply, instrucción explícita del orquestador).
+- [x] 10.7 `CHANGES.md` actualizado con la entrada del roadmap (governance MEDIUM, hallazgo lateral del espejo TS de `getEffectivePlan`, 5 OQs por recomendación) — hecho en la sesión de archive (2026-08-29).
+- [x] 10.8 `mem_save` ejecutado al cierre de la sesión de archive (`topic_key: opsx/planes-suscribirse-plan-vigente/archive`, 2026-08-29).

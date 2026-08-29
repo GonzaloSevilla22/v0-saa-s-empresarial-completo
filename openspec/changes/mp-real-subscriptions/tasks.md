@@ -122,14 +122,18 @@
 
 ## 9. Activación en producción (Fase 5)
 
-- [ ] 9.0 **[MANUAL PO — condicionado a `v31-mp-upgrade-webhook-fix` 5.1]** Verificar el pago E2E real de `v31-mp-upgrade-webhook-fix` tarea 5.1 (canal de webhook sano). Es la primera de las dos condiciones de la palanca — ver `design.md` Amendment "Activación gated".
-- [ ] 9.1 **[MANUAL PO]** Crear los `preapproval_plan` de producción para los tres tiers pagos (1.4: `inicial`, `avanzado`, `pro`), con los precios de `plan_limits`. Registrar los identificadores en la configuración (no en el código). **Instrucciones exactas**: `POST https://api.mercadopago.com/preapproval_plan` con el `MERCADOPAGO_ACCESS_TOKEN` de **producción** (nunca el de test), body `{"reason": "<nombre del tier>", "back_url": "https://www.aliadata.com.ar/facturacion", "auto_recurring": {"frequency": 1, "frequency_type": "months", "transaction_amount": <precio de plan_limits para ese tier>, "currency_id": "ARS"}}`; guardar el `id` de la respuesta (formato: string alfanumérico de 32 chars) como variable de entorno en Render (`MP_PLAN_ID_INICIAL`/`MP_PLAN_ID_AVANZADO`/`MP_PLAN_ID_PRO` o equivalente), **nunca en el código ni en una migración**. Repetir 3 veces, una por tier.
-- [ ] 9.2 **[MANUAL PO]** Habilitar los topics `subscription_preapproval` y `subscription_authorized_payment` en el panel de webhooks de MercadoPago, apuntando al webhook del backend.
-- [ ] 9.3 **[MANUAL PO]** Verificar que llega y verifica firma al menos una notificación de cada topic nuevo en producción.
-- [ ] 9.4 **[MANUAL PO — D12, decisión firmada]** Migrar la cuenta `danielsevilla64` (`accounts.id 0f627a85-7d01-4323-8b3f-122bd834a4ab`): fijar `plan_expires_at` en **activación + 30 días** y enviarle el enlace de la suscripción nueva (el `init_point` del `preapproval_plan` de su tier, creado en 9.1). El mes y medio transcurrido queda de **cortesía**. **Sin cobro retroactivo ni automático.**
-- [ ] 9.5 Verificar por consulta de solo lectura que esa cuenta conserva su plan efectivo tras la migración y que su vencimiento quedó donde corresponde.
-- [ ] 9.6 **[MANUAL PO]** Confirmar con el PO el primer cobro mensual real cuando ocurra: acreditado, auditado, `plan_expires_at` corrido, correo enviado.
-- [ ] 9.7 **[MANUAL PO]** Encender `BILLING_SUBSCRIPTIONS_ENABLED=true` en Render, recién con 9.0 y 9.1 cumplidos. Reversión: apagar la palanca, sin rebuild (mismo patrón que `TENANCY_TX_SCOPE_ENABLED`).
+> **Nota (2026-08-29)**: La activación ocurrió el 02-08 sin registro; el 27-29/08 se verificó,
+> se corrigió el incidente de los planes del panel y se completó la evidencia — ver
+> `docs/gates-mercadopago-2026-08-27.md`.
+
+- [x] 9.0 **[MANUAL PO — condicionado a `v31-mp-upgrade-webhook-fix` 5.1]** Reinterpretada: el canal quedó validado 29-08 (incidente resuelto — ver nota de §9 y `docs/gates-mercadopago-2026-08-27.md`, INCIDENTE GATE 3).
+- [x] 9.1 **[MANUAL PO]** **REHECHA 29-08** por API bajo ALIADATA (los `preapproval_plan` creados el 02-08 eran del panel de MP → pertenecían a la app interna del panel, sin webhook configurado): `inicial` `024813393f994f819327459602d1f8a1`, `avanzado` `40ed6824eab14ac2b457ded0851a7b46`, `pro` `7c756ee46c4942c1ac3d749740ed4ae6` — los 3 verificados con `application_id 5864120912417849` (ALIADATA). **REGLA dura nueva**: los `preapproval_plan` se crean SIEMPRE por API con el token de la app del webhook, NUNCA desde el panel — y se chequea `application_id` en cada respuesta de creación.
+- [x] 9.2 **[MANUAL PO]** Topics habilitados desde el 02-08 (junto con la activación sin registro), verificados 27-08.
+- [~] 9.3 **[MANUAL PO]** Parcial: simulación de "Simular notificación" → 200 OK + 2 notificaciones reales de `subscription_preapproval_plan` con firma validada (29-08, sonda de dos PUTs al plan PRO nuevo). El pleno (una notificación de cada topic — `preapproval` y `authorized_payment` — con datos reales) se cierra con la primera conversión orgánica (9.6).
+- [x] 9.4 **[MANUAL PO — D12, decisión firmada]** Ejecutada 02-08 (sin registro); complementada 29-08 tras el incidente: `plan_expires_at` de `danielsevilla64` (`0f627a85-7d01-4323-8b3f-122bd834a4ab`) ajustado a **2026-10-09** (fin del período pagado 29-09 + 10 días de gracia) — Daniel pagó $69.900 el 29-08 en una suscripción huérfana bajo la app del panel (la que MP nunca notificó). Migración a la suscripción sana bajo ALIADATA queda prevista para **~29-09**, habilitada por el change `planes-suscribirse-plan-vigente` (PR #473) vía el CTA de `/planes`.
+- [x] 9.5 Verificada 29-08: la cuenta conserva plan efectivo `pro`/`active` y vencimiento en `2026-10-09`.
+- [ ] 9.6 **[MANUAL PO]** Pendiente — se cierra con la primera conversión orgánica (nueva cuenta) o el primer cobro post-migración de Daniel (~29-09).
+- [x] 9.7 **[MANUAL PO]** Palanca `BILLING_SUBSCRIPTIONS_ENABLED=true` encendida en Render desde el 02-08 (sin registro en su momento), confirmada por el PO en Render el 27-08.
 
 ## 10. Documentación y cierre
 

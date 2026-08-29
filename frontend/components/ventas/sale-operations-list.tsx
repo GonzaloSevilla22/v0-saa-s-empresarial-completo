@@ -29,6 +29,7 @@ import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { Badge }    from "@/components/ui/badge"
+import { PaymentMethodBadge } from "@/components/payment-methods/PaymentMethodBadge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupSalesByOperation, type SaleOperation } from "@/lib/group-operations"
@@ -413,9 +414,7 @@ export function SaleOperationsList({
                     <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                     <span className="text-sm font-bold text-success tabular-nums">{formatMoney(op.total, op.currency)}</span>
                   </div>
-                  <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
-                    {op.items[0]?.paymentMethodName ?? "Sin especificar"}
-                  </Badge>
+                  <PaymentMethodBadge name={op.items[0]?.paymentMethodName} />
                 </div>
 
                 {/* Desktop */}
@@ -430,9 +429,7 @@ export function SaleOperationsList({
                         <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
                       )}
                     </span>
-                    <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
-                      {op.items[0]?.paymentMethodName ?? "Sin especificar"}
-                    </Badge>
+                    <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
                   </div>
                   <span className="text-sm text-muted-foreground truncate">{op.clientName}</span>
                   <div className="flex justify-center">

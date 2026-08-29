@@ -16,18 +16,10 @@ import { Plus, Pencil, PowerOff, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { isBankPaymentKind, type PaymentMethod, type PaymentMethodKind } from "@/lib/types"
 import { getAccountKindIcon } from "@/lib/bank-account-kind"
-
-const KIND_LABELS: Record<PaymentMethodKind, string> = {
-  cash: "Efectivo",
-  transfer: "Transferencia",
-  card: "Tarjeta",
-  check: "Cheque",
-  wallet: "Billetera virtual",
-  credit: "Cuenta corriente",
-  other: "Otro",
-}
-
-const KIND_OPTIONS: PaymentMethodKind[] = ["cash", "transfer", "card", "check", "wallet", "credit", "other"]
+// gastos-forma-pago (D16): KIND_LABELS/KIND_OPTIONS eran constantes privadas de
+// este archivo; subieron a la capa canonica para que otras superficies (badge
+// de forma de pago, listado de gastos) las reusen en vez de copiarlas.
+import { KIND_LABELS, KIND_OPTIONS } from "@/lib/payment-method-meta"
 
 /**
  * Catalog management screen for payment methods (metodos-pago-operaciones).

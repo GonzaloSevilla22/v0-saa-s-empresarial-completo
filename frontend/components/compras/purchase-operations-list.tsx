@@ -10,6 +10,7 @@ import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { Badge }    from "@/components/ui/badge"
+import { PaymentMethodBadge } from "@/components/payment-methods/PaymentMethodBadge"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-operations"
@@ -341,9 +342,7 @@ export function PurchaseOperationsList({
                         {op.items[0].costCenterName}
                       </Badge>
                     )}
-                    <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
-                      {op.items[0]?.paymentMethodName ?? "Sin especificar"}
-                    </Badge>
+                    <PaymentMethodBadge name={op.items[0]?.paymentMethodName} />
                     {/* compras-proveedor-cuenta-corriente (D9): badge de
                         proveedor, junto a centro de costo y forma de pago. */}
                     <Badge variant="outline" className="text-[10px] w-fit text-muted-foreground">
@@ -366,9 +365,7 @@ export function PurchaseOperationsList({
                         {op.items[0].costCenterName}
                       </Badge>
                     )}
-                    <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
-                      {op.items[0]?.paymentMethodName ?? "Sin especificar"}
-                    </Badge>
+                    <PaymentMethodBadge name={op.items[0]?.paymentMethodName} layout="inline" />
                     {/* compras-proveedor-cuenta-corriente (D9): badge de
                         proveedor, junto a centro de costo y forma de pago. */}
                     <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">

@@ -869,11 +869,18 @@ BEGIN
   RAISE NOTICE 'PASS (3.7b-e): kind no efectivo, sesión cerrada, sesión de otra sucursal y fecha de ayer rechazados con P0422, sin fila nueva.';
 
   -- ═══ (3.7f) ZONA HORARIA — el resultado NO depende del TimeZone de la sesión
-  -- ⚠️ Éste es el caso que el "gasto de hoy a las 15:00" NO detecta: a las
-  -- 18:00 UTC cae en el mismo día calendario y pasaría igual con un
-  -- `p_date timestamptz` castado con `::date`. Con p_date DATE el resultado es
-  -- invariante por construcción; con timestamptz::date diverge en la franja
-  -- 21:00-23:59 ART, que es justo cuando el microemprendedor cierra el día.
+  -- Con `p_date date` el resultado es invariante POR CONSTRUCCIÓN, y esta
+  -- corrida lo comprueba de punta a punta bajo las dos zonas.
+  --
+  -- ⚠️ CORRECCIÓN (revisión adversarial del apply, 2026-08-29): lo que este
+  -- assert NO puede detectar es la regresión `p_date timestamptz` con `::date`.
+  -- `reporting_local_today()` tiene la zona HARDCODEADA
+  -- ((now() AT TIME ZONE 'America/Argentina/Mendoza')::date), así que el
+  -- set_config no mueve ninguno de los dos lados del predicado; y el roundtrip
+  -- date→timestamptz→date dentro de la misma sesión es la identidad. Medido:
+  -- reporting_local_today() devuelve el mismo día bajo UTC, ART y UTC+14. La
+  -- invariante REAL que sostiene D1 es la FIRMA, y se congela en (8.6). Este
+  -- bloque queda como control de humo de las dos zonas, sin prometer más.
   PERFORM set_config('TimeZone', 'UTC', true);
   v_result := public.rpc_create_expense(
     p_category => 'Insumos', p_amount => 151, p_date => public.reporting_local_today(),
@@ -1831,16 +1838,28 @@ BEGIN
     RAISE EXCEPTION 'GATE GASTOS FAILED (5.7): el DELETE del gasto está ANTES de alguna compensación (caja=%, banco=%, delete=%) — los guards y las compensaciones van primero.', v_pos_cash, v_pos_bank, v_pos_delete;
   END IF;
 
-  -- Y el CÓDIGO (sin comentarios) tiene que llevar el guard INVERTIDO y no el
-  -- del original. Los dos asserts van juntos: exigir sólo la ausencia del
-  -- equivocado pasaría también si el bloque se hubiera borrado entero.
-  IF position('v_cash_amount < 0' in v_code) = 0 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense no contiene el guard invertido `v_cash_amount < 0`. Los movimientos de gasto son NEGATIVOS (D8).';
+  -- Y el CÓDIGO (sin comentarios) tiene que llevar el guard INDEPENDIENTE DEL
+  -- SIGNO y no ninguno de los dos direccionales. Los asserts van juntos:
+  -- exigir sólo la ausencia del equivocado pasaría también si el bloque se
+  -- hubiera borrado entero.
+  --
+  -- Por qué `<> 0` y no `< 0` (revisión adversarial del apply, 2026-08-29):
+  -- `< 0` sigue dependiendo de una invariante que vive en OTRA función —que el
+  -- alta jamás acepte un importe no positivo—. Un solo movimiento 'expense'
+  -- positivo hacía que el DELETE procediera sin compensar y sin levantar un
+  -- error. Con `<> 0` la regla es local y completa: existe movimiento de caja
+  -- del gasto ⇒ SIEMPRE se compensa. El comportamiento lo ejercita 8.5,
+  -- inyectando a mano el estado corrupto.
+  IF position('v_cash_amount <> 0' in v_code) = 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense no contiene el guard `v_cash_amount <> 0`. La compensación no puede depender del signo que le ponga otra función (D8 + hallazgo del apply).';
   END IF;
   IF position('v_cash_amount > 0' in v_code) > 0 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense contiene el guard `v_cash_amount > 0` copiado verbatim de rpc_delete_sale_operation. Los movimientos de gasto son NEGATIVOS: ese guard es falso para todo gasto y desactiva la compensación entera —sin levantar un solo error—. El guard correcto es `v_cash_amount < 0` (D8).';
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense contiene el guard `v_cash_amount > 0` copiado verbatim de rpc_delete_sale_operation. Los movimientos de gasto son NEGATIVOS: ese guard es falso para todo gasto y desactiva la compensación entera —sin levantar un solo error—.';
   END IF;
-  RAISE NOTICE 'PASS (5.7): las dos compensaciones preceden al DELETE y el guard de signo está invertido, como exige D8.';
+  IF position('v_cash_amount < 0' in v_code) > 0 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (5.7-signo): rpc_delete_expense volvió al guard direccional `v_cash_amount < 0`, que sólo compensa si el movimiento tiene el signo que se espera. Un movimiento ''expense'' positivo se saltearía la compensación entera en silencio.';
+  END IF;
+  RAISE NOTICE 'PASS (5.7): las dos compensaciones preceden al DELETE y el guard de signo compensa cualquiera sea el signo, como exige D8.';
 END $$;
 
 -- ═══════ (6) READ-MODELS — reporte de formas de pago y reporte por sucursal ══
@@ -2364,6 +2383,310 @@ BEGIN
   RAISE NOTICE 'PASS (7.4): is_delete_blocked da vuelta con la caja (cerrada→true+P0426, abierta→false+borrado) — mide, no está cableado.';
 
   RAISE NOTICE 'PASS (7): los 4 derivados de lectura del backend coinciden con el comportamiento real de los guards sobre los mismos gastos.';
+END $$;
+
+-- ═════════ (8) IMPORTE POSITIVO, GUARD DE SIGNO Y REENVÍO DE LA IMPUTACIÓN ══
+-- Hallazgos de la revisión adversarial del apply (2026-08-29):
+--
+--   (a) SEVERIDAD ALTA — ninguna de las tres capas validaba que el importe del
+--       gasto fuera POSITIVO. Un `p_amount` negativo hacía que la pata de caja
+--       registrara `-p_amount` = un movimiento 'expense' POSITIVO: un "gasto"
+--       que SUMA plata al cajón. Peor: el guard de signo del borrado
+--       (`v_cash_amount < 0`, sección 4 de la migración) quedaba FALSO, así que
+--       el DELETE procedía SIN registrar el expense_reversal y la plata
+--       fantasma quedaba en una sesión que después se arquea y se firma, sin
+--       ningún documento que la respalde. Es el modo de falla exacto de
+--       delete-guard-ledgers reintroducido por el change que dice cerrarlo.
+--       Los dos baselines de los que este RPC copia verbatim SÍ tienen el
+--       guard (`rpc_create_sale_operation_v2` L154 y
+--       `rpc_create_purchase_operation` L239, ambos P0400): la copia se trajo
+--       el opt-in y la llamada bancaria y dejó afuera la precondición que los
+--       hace correctos.
+--
+--   (b) El guard del borrado se endurece a `v_cash_amount <> 0`: que exista
+--       movimiento de caja del gasto ⇒ SIEMPRE se compensa, cualquiera sea el
+--       signo. Así el borrado deja de depender de una invariante que vive en
+--       OTRA función. (8.6) lo ejercita inyectando a mano el estado corrupto.
+--
+--   (c) SEVERIDAD BAJA — reenviar la forma de pago VIGENTE de un gasto cuya
+--       forma fue desactivada después rebotaba con P0404, y el formulario la
+--       manda SIEMPRE (`includeInactive={isEdit}` la ofrece a propósito). El
+--       gasto quedaba inoperable hasta reactivar la forma. Reenviar lo vigente
+--       es PRESERVAR, no reimputar. (8.8)
+--
+--   (d) El assert 3.7f (invarianza por zona horaria) NO puede detectar la
+--       regresión que su comentario prometía: `reporting_local_today()` tiene
+--       la zona hardcodeada y `p_date` es `date`, así que el `set_config` no
+--       toca ninguno de los dos lados del predicado. La invariante REAL que
+--       sostiene D1 es la FIRMA — se congela en (8.7), con el mismo patrón de
+--       introspección que ya usa 5.7.
+DO $$
+DECLARE
+  v_user_a       uuid;  v_account_a uuid;  v_branch_a1 uuid;
+  v_session_a1   uuid;
+  v_pm_cash_a    uuid;  v_pm_other_a uuid;  v_pm_inactive uuid;
+  v_pm_reenvio   uuid;
+  v_exp          uuid;  v_exp_pos uuid;
+  v_result       jsonb;
+  v_count        integer;
+  v_rejected     boolean;  v_sqlstate text;
+  v_today        date;
+  v_balance_pre  numeric;  v_balance_post numeric;
+  v_caso         text;     v_n integer;
+  v_args         text;
+  v_amount       numeric;
+BEGIN
+  SELECT id INTO v_user_a FROM auth.users WHERE email = 'gastos-forma-pago-a@test.local';
+  IF v_user_a IS NULL THEN RAISE NOTICE 'GATE GASTOS (8): sin anchors — degradando.'; RETURN; END IF;
+
+  SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  SELECT id INTO v_branch_a1 FROM public.branches WHERE account_id = v_account_a AND name NOT LIKE '__gate_gfp_branch%' ORDER BY created_at LIMIT 1;
+  SELECT cs.id INTO v_session_a1 FROM public.cash_sessions cs JOIN public.cashboxes cb ON cb.id = cs.cashbox_id
+    WHERE cb.name = '__gate_gfp_cashbox_a1__' AND cs.status = 'open';
+  SELECT id INTO v_pm_cash_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active AND deleted_at IS NULL LIMIT 1;
+  SELECT id INTO v_pm_other_a FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'other' AND is_active AND deleted_at IS NULL AND name NOT LIKE '__gate_gfp%' LIMIT 1;
+  SELECT id INTO v_pm_inactive FROM public.payment_methods WHERE name = '__gate_gfp_pm_inactive__';
+
+  IF v_session_a1 IS NULL OR v_pm_cash_a IS NULL OR v_pm_other_a IS NULL OR v_pm_inactive IS NULL THEN
+    RAISE NOTICE 'GATE GASTOS (8): fixtures incompletos — degradando.'; RETURN;
+  END IF;
+
+  v_today := public.reporting_local_today();
+
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_user_a THEN
+    RAISE NOTICE 'GATE GASTOS (8): auth.uid() no resuelve — degradando.'; RETURN;
+  END IF;
+
+  -- ═══ (8.1) ALTA con importe NO POSITIVO → P0400, sin fila y sin caja ══════
+  -- El caso negativo va CON opt-in de caja porque es el que inflaba el cajón:
+  -- un assert que sólo mirara `expenses` dejaría pasar el daño real.
+  SELECT COALESCE(SUM(amount), 0) INTO v_balance_pre
+  FROM public.cash_movements WHERE session_id = v_session_a1;
+
+  FOR v_caso, v_n IN
+    SELECT * FROM (VALUES ('importe negativo', 1), ('importe cero', 2), ('importe nulo', 3)) t(c, n)
+  LOOP
+    v_rejected := false; v_sqlstate := NULL;
+    v_amount := CASE v_n WHEN 1 THEN -5000 WHEN 2 THEN 0 ELSE NULL END;
+    BEGIN
+      PERFORM public.rpc_create_expense(
+        p_category => 'Insumos', p_amount => v_amount, p_date => v_today,
+        p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_session_a1);
+    EXCEPTION WHEN OTHERS THEN
+      v_sqlstate := SQLSTATE;
+      IF SQLSTATE = 'P0400' THEN v_rejected := true; ELSE RAISE; END IF;
+    END;
+
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (8.1 %): el alta ACEPTÓ un importe no positivo. Con -5000 la pata de caja escribe un movimiento ''expense'' de +5000 (un gasto que SUMA plata) y el guard de signo del borrado queda falso: el DELETE procede sin compensar y la plata fantasma queda en una sesión que se arquea y se firma. Los dos baselines copiados (rpc_create_sale_operation_v2 L154, rpc_create_purchase_operation L239) rechazan con P0400.', v_caso;
+    END IF;
+
+    SELECT COUNT(*) INTO v_count FROM public.expenses
+    WHERE account_id = v_account_a AND amount IS NOT DISTINCT FROM v_amount;
+    IF v_count <> 0 THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (8.1 %-efectos): el rechazo dejó % filas en expenses.', v_caso, v_count;
+    END IF;
+  END LOOP;
+
+  SELECT COALESCE(SUM(amount), 0) INTO v_balance_post
+  FROM public.cash_movements WHERE session_id = v_session_a1;
+  IF v_balance_post <> v_balance_pre THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.1-caja): los rechazos por importe movieron la caja (% → %) — no puede quedar ni un movimiento.', v_balance_pre, v_balance_post;
+  END IF;
+
+  -- CONTROL POSITIVO: sin él, un RPC que rechazara TODO dejaría 8.1 en verde.
+  v_result := public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 1234.50, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a, p_cash_session_id => v_session_a1);
+  IF (v_result->>'expense_id') IS NULL OR (v_result->>'cash_movement_id') IS NULL THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.1-control): el alta legítima de 1234.50 dejó de funcionar.';
+  END IF;
+  IF (SELECT amount FROM public.cash_movements WHERE id = (v_result->>'cash_movement_id')::uuid) <> -1234.50 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.1-control): el movimiento del gasto legítimo no es -1234.50.';
+  END IF;
+  v_exp := (v_result->>'expense_id')::uuid;
+  RAISE NOTICE 'PASS (8.1): importe negativo, cero y nulo rechazados con P0400 sin fila ni movimiento; el alta legítima sigue escribiendo -1234.50 en caja.';
+
+  -- ═══ (8.2) EDICIÓN con importe no positivo → P0400 y el gasto intacto ════
+  -- El espejo del alta: sin esto, la edición sería el bypass del guard.
+  v_exp_pos := (public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 2600, p_date => v_today,
+    p_payment_method_id => v_pm_other_a)->>'expense_id')::uuid;
+
+  FOREACH v_amount IN ARRAY ARRAY[-1::numeric, 0::numeric] LOOP
+    v_rejected := false;
+    BEGIN
+      PERFORM public.rpc_update_expense(p_expense_id => v_exp_pos, p_amount => v_amount);
+    EXCEPTION WHEN OTHERS THEN
+      IF SQLSTATE = 'P0400' THEN v_rejected := true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_rejected THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (8.2): la edición aceptó el importe % — la edición no puede ser el bypass del guard del alta.', v_amount;
+    END IF;
+    IF (SELECT amount FROM public.expenses WHERE id = v_exp_pos) <> 2600 THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (8.2-efectos): el gasto cambió pese al rechazo.';
+    END IF;
+  END LOOP;
+
+  -- CONTROL POSITIVO de la edición: un importe válido sigue entrando, y la
+  -- ausencia del parámetro (NULL = "no cambia", semántica COALESCE heredada)
+  -- NO se confunde con "importe nulo inválido".
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_pos, p_amount => 2700);
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_pos) <> 2700 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.2-control): la edición legítima del importe dejó de aplicarse.';
+  END IF;
+  PERFORM public.rpc_update_expense(p_expense_id => v_exp_pos, p_category => 'Servicios');
+  IF (SELECT amount FROM public.expenses WHERE id = v_exp_pos) <> 2700 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.2-control-omision): editar sin mandar importe cambió el importe — p_amount NULL es "no cambia", no "cero".';
+  END IF;
+  RAISE NOTICE 'PASS (8.2): la edición rechaza importe negativo y cero con P0400, y sigue aceptando el importe válido y la omisión.';
+
+  -- ═══ (8.3) CHECK de tabla: la última línea, para todo camino futuro ═══════
+  -- El INSERT directo saltea las tres RPCs. Sin el CHECK, cualquier camino
+  -- nuevo (un backfill, un importador, una migración) reintroduce el agujero.
+  v_rejected := false; v_sqlstate := NULL;
+  BEGIN
+    INSERT INTO public.expenses (user_id, account_id, category, amount, date)
+    VALUES (v_user_a, v_account_a, '__gate_gfp_check__', -1, v_today);
+  EXCEPTION WHEN OTHERS THEN
+    v_sqlstate := SQLSTATE;
+    IF SQLSTATE = '23514' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.3): public.expenses aceptó un INSERT directo con amount = -1 — falta el CHECK expenses_amount_positive (sqlstate=%).', COALESCE(v_sqlstate, 'ninguno');
+  END IF;
+  -- Control positivo del CHECK: el importe válido entra igual.
+  INSERT INTO public.expenses (user_id, account_id, category, amount, date)
+  VALUES (v_user_a, v_account_a, '__gate_gfp_check__', 1, v_today);
+  DELETE FROM public.expenses WHERE category = '__gate_gfp_check__';
+  RAISE NOTICE 'PASS (8.3): el CHECK de tabla rechaza el importe no positivo también por INSERT directo, y deja pasar el válido.';
+
+  -- ═══ (8.4) ALTA por transferencia con importe negativo → sin banco ═══════
+  -- La pata bancaria del importe negativo produce un 'transfer_out' que SUMA
+  -- saldo y se va a la conciliación contra el extracto real.
+  SELECT COUNT(*) INTO v_count FROM public.bank_movements WHERE account_id = v_account_a;
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_create_expense(
+      p_category => 'Insumos', p_amount => -3300, p_date => v_today,
+      p_payment_method_id => (SELECT id FROM public.payment_methods WHERE name = '__gate_gfp_pm_transfer_default__'));
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0400' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.4): el alta por transferencia aceptó -3300 — sería un egreso etiquetado que AUMENTA el saldo del banco y entra a la conciliación.';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.bank_movements WHERE account_id = v_account_a) <> v_count THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.4-efectos): el rechazo dejó un movimiento bancario.';
+  END IF;
+  RAISE NOTICE 'PASS (8.4): el importe no positivo tampoco escribe en el ledger bancario.';
+
+  -- ═══ (8.5) el guard de signo del borrado NO depende de la buena fe ═══════
+  -- Estado corrupto inyectado A MANO (el guard del alta ya lo vuelve
+  -- inalcanzable por la puerta de adelante): un movimiento 'expense' POSITIVO
+  -- vinculado a un gasto. Con `v_cash_amount < 0` el borrado se salteaba el
+  -- bloque entero y la plata quedaba en el cajón sin documento. Con `<> 0`
+  -- SIEMPRE compensa.
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 800, p_date => v_today,
+    p_payment_method_id => v_pm_cash_a)->>'expense_id')::uuid;
+
+  PERFORM public.c28_register_cash_movement(v_session_a1, 800, 'expense', v_exp);
+
+  SELECT COALESCE(SUM(amount), 0) INTO v_balance_pre
+  FROM public.cash_movements WHERE session_id = v_session_a1;
+
+  PERFORM public.rpc_delete_expense(p_expense_id => v_exp);
+
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements
+  WHERE reference_id = v_exp AND movement_type = 'expense_reversal';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.5): el borrado dejó % contra-movimientos para un movimiento de caja de signo invertido (esperaba 1) — el guard tiene que ser <> 0, no < 0: existe movimiento de caja del gasto ⇒ SIEMPRE se compensa.', v_count;
+  END IF;
+  SELECT COALESCE(SUM(amount), 0) INTO v_balance_post
+  FROM public.cash_movements WHERE session_id = v_session_a1;
+  IF v_balance_post <> v_balance_pre - 800 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.5-saldo): la compensación no devolvió el saldo (% → %, esperaba %).', v_balance_pre, v_balance_post, v_balance_pre - 800;
+  END IF;
+  IF (SELECT COUNT(*) FROM public.cash_movements WHERE reference_id = v_exp AND movement_type = 'expense') <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.5-append-only): el movimiento original fue tocado — el ledger de caja es append-only.';
+  END IF;
+  RAISE NOTICE 'PASS (8.5): el borrado compensa el movimiento de caja del gasto cualquiera sea su signo, y no toca el original.';
+
+  -- ═══ (8.6) FIRMA CONGELADA: p_date es `date`, nunca timestamptz ══════════
+  -- Ésta es la invariante REAL que sostiene D1, y la que 3.7f NO puede
+  -- ejercitar: con `p_date date` la comparación contra reporting_local_today()
+  -- es invariante por construcción, y el roundtrip date→timestamptz→date en la
+  -- misma sesión es la identidad, así que ningún set_config puede distinguir
+  -- las dos implementaciones. Lo que sí se puede congelar es la firma. Mismo
+  -- patrón de introspección que 5.7.
+  FOR v_caso IN SELECT unnest(ARRAY['rpc_create_expense', 'rpc_update_expense']) LOOP
+    SELECT pg_get_function_arguments(p.oid) INTO v_args
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = v_caso;
+
+    IF v_args IS NULL OR position('p_date date' in v_args) = 0 THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (8.6 %): p_date dejó de estar declarado como `date` (firma: %). Con `timestamptz` el `::date` se resuelve en el TimeZone de la SESIÓN (UTC en el servidor) mientras reporting_local_today() usa la zona del tenant: un gasto legítimo de hoy cargado entre las 21:00 y las 23:59 ART se rechazaría con P0422 justo cuando el microemprendedor cierra el día (D1).', v_caso, COALESCE(v_args, 'NULL');
+    END IF;
+    IF position('timestamp' in v_args) > 0 THEN
+      RAISE EXCEPTION 'GATE GASTOS FAILED (8.6 %): apareció un parámetro timestamp/timestamptz en la firma (%) — D1 lo prohíbe explícitamente.', v_caso, v_args;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS (8.6): la firma de las RPCs de gasto declara p_date como `date` y ningún parámetro timestamptz.';
+
+  -- ═══ (8.7) reenviar la forma de pago VIGENTE (ya inactiva) PRESERVA ══════
+  -- El formulario manda `paymentMethodId` SIEMPRE (el payload lo lleva en el
+  -- literal) y en edición ofrece a propósito las formas dadas de baja
+  -- (`includeInactive={isEdit}`). Con el predicado de reimputación aplicado sin
+  -- excepción, ese gasto quedaba inoperable: cualquier edición rebotaba con
+  -- P0404 hasta reactivar la forma. Reenviar lo vigente es PRESERVAR.
+  INSERT INTO public.payment_methods (account_id, name, kind, is_active, sort_order)
+  VALUES (v_account_a, '__gate_gfp_pm_reenvio__', 'other', TRUE, 900)
+  RETURNING id INTO v_pm_reenvio;
+
+  v_exp := (public.rpc_create_expense(
+    p_category => 'Insumos', p_amount => 910, p_date => v_today,
+    p_payment_method_id => v_pm_reenvio)->>'expense_id')::uuid;
+
+  UPDATE public.payment_methods SET is_active = FALSE WHERE id = v_pm_reenvio;
+
+  BEGIN
+    PERFORM public.rpc_update_expense(
+      p_expense_id => v_exp, p_amount => 915,
+      p_payment_method_id => v_pm_reenvio, p_payment_method_provided => TRUE);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.7): editar un gasto reenviando su PROPIA forma de pago —desactivada después del alta— fue RECHAZADO con % (%). El formulario la manda siempre y la ofrece a propósito en edición (includeInactive): reenviar lo vigente es PRESERVAR, no reimputar, y con el rechazo el gasto queda inoperable hasta reactivar la forma.', SQLSTATE, SQLERRM;
+  END;
+
+  SELECT amount INTO v_amount FROM public.expenses WHERE id = v_exp;
+  IF v_amount <> 915 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.7): editar un gasto reenviando su PROPIA forma de pago —desactivada después del alta— no se aplicó. El formulario la manda siempre y la ofrece a propósito en edición: reenviar lo vigente es PRESERVAR, no reimputar.';
+  END IF;
+  IF (SELECT payment_method_id FROM public.expenses WHERE id = v_exp) IS DISTINCT FROM v_pm_reenvio THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.7-efectos): la edición perdió la imputación histórica del gasto.';
+  END IF;
+
+  -- CONTROL NEGATIVO: cambiar a OTRA forma inactiva sigue siendo P0404. Sin
+  -- este control, "saltear la validación cuando el valor no cambia" podría
+  -- haberse implementado como "no validar nunca".
+  v_rejected := false;
+  BEGIN
+    PERFORM public.rpc_update_expense(
+      p_expense_id => v_exp, p_payment_method_id => v_pm_inactive, p_payment_method_provided => TRUE);
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLSTATE = 'P0404' THEN v_rejected := true; ELSE RAISE; END IF;
+  END;
+  IF NOT v_rejected THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.7-control): reimputar a una forma de pago inactiva DISTINTA de la vigente fue aceptado — la excepción es sólo para el reenvío del valor propio.';
+  END IF;
+  IF (SELECT payment_method_id FROM public.expenses WHERE id = v_exp) IS DISTINCT FROM v_pm_reenvio THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (8.7-control-efectos): el gasto no conservó su forma de pago tras el rechazo.';
+  END IF;
+  RAISE NOTICE 'PASS (8.7): reenviar la forma de pago vigente ya desactivada preserva la imputación y deja editar; reimputar a otra inactiva sigue dando P0404.';
+
+  RAISE NOTICE 'PASS (8): importe positivo exigido en las tres capas, guard de signo del borrado independiente del alta, firma congelada y reenvío de la imputación vigente.';
 END $$;
 
 -- @@CLEANUP@@

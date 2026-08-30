@@ -93,6 +93,40 @@ COMMENT ON COLUMN public.expenses.payment_method_id IS
 CREATE INDEX IF NOT EXISTS idx_expenses_account_payment_method
     ON public.expenses (account_id, payment_method_id);
 
+-- El importe del gasto es POSITIVO, en la tabla y no sólo en las RPCs.
+-- `public.expenses` no tenía NI UN CHECK, y a partir de este change el importe
+-- gobierna dinero real: con un importe negativo la pata de caja escribe un
+-- movimiento 'expense' POSITIVO (un "gasto" que suma plata al cajón) y el
+-- guard de signo del borrado queda falso. Las RPCs ya lo rechazan con P0400;
+-- este CHECK es la última línea, la que cubre todo camino que no pase por
+-- ellas (un backfill, un importador, una migración futura).
+--
+-- Idempotente y sin auditar los históricos de golpe: se agrega NOT VALID y se
+-- valida sólo si no hay ninguna fila que lo viole. En prod medido el 2026-08-29
+-- (sólo SELECT): 175 gastos, 0 con amount <= 0, mínimo 10 → valida en el acto.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'expenses_amount_positive'
+      AND conrelid = 'public.expenses'::regclass
+  ) THEN
+    ALTER TABLE public.expenses
+      ADD CONSTRAINT expenses_amount_positive CHECK (amount > 0) NOT VALID;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM public.expenses WHERE amount <= 0) THEN
+    ALTER TABLE public.expenses VALIDATE CONSTRAINT expenses_amount_positive;
+  ELSE
+    RAISE NOTICE 'gastos-forma-pago: expenses_amount_positive queda NOT VALID — hay filas históricas con amount <= 0 (revisar antes de validar).';
+  END IF;
+END $$;
+
+COMMENT ON CONSTRAINT expenses_amount_positive ON public.expenses IS
+  'gastos-forma-pago: el importe del gasto es estrictamente positivo. El signo
+  del movimiento lo pone el caller (caja: -importe; banco: egreso), así que un
+  importe negativo invertiría el efecto en libros sin que ningún guard lo note.';
+
 -- Vocabulario de caja: expense_reversal es la contra-partida del expense, con
 -- el mismo patrón de contra-movimiento automático con tipo propio que
 -- sale_reversal (D9). Dos taxonomías distintas que NO hay que mezclar: por
@@ -179,6 +213,31 @@ BEGIN
   IF NOT public.is_account_writer(v_account_id) THEN
     RAISE EXCEPTION 'unauthorized'
       USING ERRCODE = 'P0401';
+  END IF;
+
+  -- ── IMPORTE POSITIVO — la precondición de la que depende TODO lo de abajo ─
+  -- COPIADO VERBATIM de los dos baselines de los que este RPC toma sus otros
+  -- predicados (rpc_create_sale_operation_v2 L154 y rpc_create_purchase_
+  -- operation L239: 'Amount must be greater than zero', P0400). La primera
+  -- versión de este archivo se trajo el bloque de opt-in de caja y la llamada
+  -- bancaria y dejó afuera esta línea, y sin ella:
+  --   · la pata de caja registra `-p_amount`, o sea que con p_amount = -5000
+  --     escribe un movimiento 'expense' de +5000 — un "gasto" que SUMA plata
+  --     al cajón que después se arquea y se firma;
+  --   · el guard de signo del borrado (sección 4, `v_cash_amount < 0`) queda
+  --     FALSO sobre ese movimiento positivo, así que el DELETE procede SIN
+  --     registrar el expense_reversal y la plata fantasma queda sin ningún
+  --     documento que la respalde ni forma de rastrearla (el gasto ya no
+  --     existe). Es el modo de falla exacto de delete-guard-ledgers —204
+  --     operaciones backfilleadas— reintroducido por el change que dice
+  --     cerrarlo;
+  --   · la pata bancaria produce un 'transfer_out' que AUMENTA el saldo y se
+  --     va a la conciliación contra el extracto real.
+  -- Se rechaza en el SERVIDOR aunque la UI ya lo limite, por la misma doctrina
+  -- que D3: la API no puede ser un bypass del formulario. Gate: sección 8.
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RAISE EXCEPTION 'Amount must be greater than zero'
+      USING ERRCODE = 'P0400';
   END IF;
 
   -- ── Derivación del kind desde el catálogo ─────────────────────────────────
@@ -485,9 +544,31 @@ BEGIN
       USING ERRCODE = 'P0423';
   END IF;
 
+  -- ── Importe positivo, espejo del alta ─────────────────────────────────────
+  -- Sin esto la edición sería el bypass del guard del alta: un gasto legítimo
+  -- pasaría a importe negativo con un solo PUT. `NULL` conserva la semántica
+  -- COALESCE heredada del UPDATE que este RPC reemplaza ("no cambia"), y por
+  -- eso el predicado es IS NOT NULL AND <= 0 y no el del alta.
+  IF p_amount IS NOT NULL AND p_amount <= 0 THEN
+    RAISE EXCEPTION 'Amount must be greater than zero'
+      USING ERRCODE = 'P0400';
+  END IF;
+
   -- ── D12: tri-estado, campo por campo, con validación ANTES del UPDATE ─────
   IF p_payment_method_provided THEN
-    IF p_payment_method_id IS NOT NULL THEN
+    -- ⚠️ La validación de reimputación se aplica SÓLO cuando el valor cambia.
+    -- El formulario manda `paymentMethodId` SIEMPRE (está en el literal del
+    -- payload) y en edición ofrece a propósito las formas dadas de baja
+    -- (`includeInactive={isEdit}`, para que un gasto histórico siga nombrando
+    -- la suya). Con el predicado aplicado sin excepción, desactivar una forma
+    -- de pago volvía INOPERABLE todo gasto que la usara: cualquier edición
+    -- —aunque sólo tocara el importe— rebotaba con P0404 hasta reactivarla.
+    -- Reenviar el valor vigente es PRESERVAR, no reimputar. La TENENCIA sí se
+    -- verifica siempre: lo que se relaja es `is_active`/`deleted_at`, nunca el
+    -- `account_id`. Gate: sección 8.7, con control negativo (cambiar a OTRA
+    -- forma inactiva sigue siendo P0404).
+    IF p_payment_method_id IS NOT NULL
+       AND p_payment_method_id IS DISTINCT FROM v_old.payment_method_id THEN
       -- Mismo predicado que el alta: cuenta + activa + no borrada.
       IF NOT EXISTS (
         SELECT 1 FROM public.payment_methods
@@ -501,6 +582,17 @@ BEGIN
       IF (SELECT kind FROM public.payment_methods WHERE id = p_payment_method_id) = 'credit' THEN
         RAISE EXCEPTION 'credit_not_supported_for_expense: un gasto no tiene contraparte con cuenta corriente — para un egreso que vas a pagar después, cargalo como compra a proveedor'
           USING ERRCODE = 'P0400';
+      END IF;
+    ELSIF p_payment_method_id IS NOT NULL THEN
+      -- Reenvío del valor vigente: sólo tenencia (el gasto ya es del tenant,
+      -- pero la FK de payment_methods no está scopeada por cuenta y el guard
+      -- de tenencia no se relaja nunca — lección de cuenta-corriente-party-guard).
+      IF NOT EXISTS (
+        SELECT 1 FROM public.payment_methods
+        WHERE id = p_payment_method_id AND account_id = v_account_id
+      ) THEN
+        RAISE EXCEPTION 'payment_method_not_found or not active for this account'
+          USING ERRCODE = 'P0404';
       END IF;
     END IF;
     v_final_payment_method_id := p_payment_method_id;
@@ -643,9 +735,19 @@ BEGIN
   -- exactamente el borrado inseguro que motivó delete-guard-ledgers, desde el
   -- change que dice cerrarlo. Y sin levantar un solo error.
   --
-  -- Por eso el guard correcto es `v_cash_amount < 0`, y por eso el gate tiene
-  -- un CONTROL NEGATIVO obligatorio (5.4b): un test que sólo assertara "no
-  -- hubo error" quedaría verde por omisión.
+  -- Por eso el guard correcto NO es el positivo del original, y por eso el
+  -- gate tiene un CONTROL NEGATIVO obligatorio (5.4b): un test que sólo
+  -- assertara "no hubo error" quedaría verde por omisión.
+  --
+  -- ⚠️ Y por eso tampoco es `v_cash_amount < 0`: esa forma sigue dependiendo
+  -- de una invariante que vive en OTRA función (que el alta nunca acepte un
+  -- importe no positivo). El guard es `<> 0`: **existe movimiento de caja del
+  -- gasto ⇒ SIEMPRE se compensa**, cualquiera sea el signo. Con `< 0`, un solo
+  -- movimiento 'expense' positivo —el que producía el alta antes del guard de
+  -- P0400, o cualquier camino futuro— hacía que el DELETE procediera sin
+  -- compensar y SIN levantar un error. El SELECT de abajo ya filtra
+  -- `movement_type = 'expense'`, así que las reversas no se autocompensan.
+  -- Gate: sección 8.5, que inyecta a mano el estado corrupto.
   --
   -- La sesión ORIGINAL nunca se toca: el ledger de caja es append-only. El
   -- contra-movimiento va SIEMPRE a la sesión abierta actual de la MISMA caja,
@@ -660,7 +762,7 @@ BEGIN
   ) v_sum
   JOIN public.cash_sessions cs ON cs.id = v_sum.session_id;
 
-  IF v_cashbox_id IS NOT NULL AND v_cash_amount < 0 THEN
+  IF v_cashbox_id IS NOT NULL AND v_cash_amount <> 0 THEN
     SELECT id INTO v_open_session_id
     FROM public.cash_sessions
     WHERE cashbox_id = v_cashbox_id AND status = 'open'
@@ -672,8 +774,11 @@ BEGIN
         USING ERRCODE = 'P0426';
     END IF;
 
-    -- v_cash_amount es NEGATIVO, así que -v_cash_amount da el INGRESO positivo
-    -- que repone la plata en el cajón.
+    -- El movimiento del gasto es NEGATIVO (lo garantiza el guard de importe
+    -- positivo del alta), así que -v_cash_amount da el INGRESO positivo que
+    -- repone la plata en el cajón. Si por cualquier camino el movimiento
+    -- fuera positivo, la contra-partida sale negativa y compensa igual: la
+    -- reversa es siempre el opuesto exacto de lo que se posteó.
     v_cash_reversal_id := public.c28_register_cash_movement(
       v_open_session_id, -v_cash_amount, 'expense_reversal', p_expense_id
     );
@@ -724,9 +829,11 @@ COMMENT ON FUNCTION public.rpc_delete_expense(uuid) IS
   'gastos-forma-pago: borrado atómico del gasto con compensación de las DOS
   patas —caja (expense_reversal positivo en la sesión abierta actual de la
   misma caja, P0426 si no hay ninguna) y banco (espejo invertido)— antes del
-  DELETE. ⚠️ El guard de signo está INVERTIDO respecto del de
-  rpc_delete_sale_operation (v_cash_amount < 0): los movimientos de gasto son
-  negativos y el guard positivo del original sería falso para todo gasto (D8).';
+  DELETE. ⚠️ El guard de signo NO es el de rpc_delete_sale_operation
+  (v_cash_amount > 0): los movimientos de gasto son negativos y el guard
+  positivo del original sería falso para todo gasto (D8). Es `<> 0` y no
+  `< 0` para que la compensación no dependa de una invariante que vive en
+  otra función: existe movimiento de caja del gasto => siempre se compensa.';
 
 
 -- =============================================================================

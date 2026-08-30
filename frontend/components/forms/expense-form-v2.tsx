@@ -76,6 +76,16 @@ export function ExpenseForm({ onSuccess, initialData }: ExpenseFormProps) {
       toast.error("Completá todos los campos")
       return
     }
+    // El importe gobierna dinero real: la caja postea `-importe` y el banco un
+    // egreso, así que un importe no positivo invertiría el efecto en libros.
+    // El servidor es la autoridad (P0400 en la RPC + CHECK en la tabla); acá se
+    // avisa con el motivo para que el usuario no coma un error crudo — el
+    // `min={0}` del input deja pasar el cero, y NumericInput manda 0 cuando el
+    // campo queda vacío.
+    if (!(amount > 0)) {
+      toast.error("El monto tiene que ser mayor a cero")
+      return
+    }
     // Se avisa acá para que el usuario no coma el P0412 del servidor, que es
     // la autoridad real (422 con field = bank_account_id).
     if (bankAccountRequired && !bankAccountId) {

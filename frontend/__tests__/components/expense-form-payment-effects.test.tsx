@@ -18,6 +18,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
 import { argentinaToday } from "@/lib/date-range"
+import { toast } from "sonner"
 
 const addExpenseMock = vi.fn().mockResolvedValue(undefined)
 const updateExpenseMock = vi.fn().mockResolvedValue(undefined)
@@ -91,10 +92,14 @@ const PM_CASH = { id: "pm-cash", name: "Efectivo", kind: "cash", isActive: true 
 const PM_TRANSFER = { id: "pm-transfer", name: "Transferencia", kind: "transfer", isActive: true }
 const PM_OTHER = { id: "pm-other", name: "Otro", kind: "other", isActive: true }
 
-/** Completa los dos campos obligatorios por el mismo camino que el usuario. */
+/** Completa los campos obligatorios por el mismo camino que el usuario.
+ *  El importe entra acá porque desde el hallazgo del apply el formulario exige
+ *  un monto POSITIVO: el alta con 0 se rechaza antes de salir (la RPC devuelve
+ *  P0400 y la tabla tiene el CHECK). */
 async function fillRequired() {
   const user = userEvent.setup()
   fireEvent.change(screen.getByLabelText(/descripci[oó]n/i), { target: { value: "Luz de agosto" } })
+  fireEvent.change(screen.getByLabelText(/monto/i), { target: { value: "1500" } })
   // El Select de categoría es de Radix y SÍ abre en jsdom: `__tests__/setup.ts`
   // parchea hasPointerCapture/scrollIntoView (molde de RegisterPaymentForms).
   await user.click(screen.getByRole("combobox", { name: /categor[ií]a/i }))
@@ -113,6 +118,37 @@ describe("ExpenseForm — selector de forma de pago (10.1/10.2)", () => {
     paymentMethodsMock = [PM_CASH]
     render(<ExpenseForm onSuccess={vi.fn()} />)
     expect(screen.getByTestId("payment-method-select")).toHaveAttribute("data-context", "expense")
+  })
+})
+
+describe("ExpenseForm — importe positivo (hallazgo del apply)", () => {
+  it("no manda el alta con importe cero y avisa el motivo", async () => {
+    // El servidor es la autoridad (P0400 en la RPC, CHECK en la tabla), pero
+    // el `min={0}` del input deja pasar el cero y el usuario comería un error
+    // crudo del backend. `NumericInput` renderiza "" cuando el valor es 0, así
+    // que dejar el campo vacío manda exactamente este caso.
+    paymentMethodsMock = [PM_OTHER]
+    render(<ExpenseForm onSuccess={vi.fn()} />)
+    await fillRequired()
+    // Se vacía el monto a propósito: NumericInput manda 0 con el campo vacío.
+    fireEvent.change(screen.getByLabelText(/monto/i), { target: { value: "" } })
+
+    fireEvent.click(screen.getByRole("button", { name: /registrar gasto/i }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(String(vi.mocked(toast.error).mock.calls[0][0])).toMatch(/mayor a cero/i)
+    expect(addExpenseMock).not.toHaveBeenCalled()
+  })
+
+  it("con importe positivo el alta sigue viajando (control positivo)", async () => {
+    paymentMethodsMock = [PM_OTHER]
+    render(<ExpenseForm onSuccess={vi.fn()} />)
+    await fillRequired()
+
+    fireEvent.click(screen.getByRole("button", { name: /registrar gasto/i }))
+
+    await waitFor(() => expect(addExpenseMock).toHaveBeenCalledTimes(1))
+    expect(addExpenseMock.mock.calls[0][0]).toMatchObject({ amount: 1500 })
   })
 })
 

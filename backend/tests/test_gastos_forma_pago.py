@@ -138,6 +138,55 @@ class TestExpenseCreateSchema:
         assert payload.bank_account_id is None
 
 
+class TestExpenseAmountIsPositive:
+    """Hallazgo de la revisión adversarial del apply (2026-08-29, severidad alta).
+
+    Ninguna de las tres capas exigía un importe positivo. Con `amount = -5000`
+    la pata de caja de `rpc_create_expense` escribe `-p_amount` = un movimiento
+    ``'expense'`` POSITIVO (un "gasto" que suma plata al cajón) y el guard de
+    signo del borrado queda falso: el DELETE procede sin registrar el
+    ``expense_reversal``. Pydantic es la primera de las tres capas —devuelve 422
+    sin llegar a la base—; las otras dos son el `P0400` de las RPCs y el CHECK
+    `expenses_amount_positive` (gate SQL, sección 8).
+    """
+
+    @pytest.mark.parametrize("bad", ["-5000", "-0.01", "0"])
+    def test_create_rejects_non_positive_amount(self, bad):
+        from backend.schemas.expenses import ExpenseCreate
+
+        with pytest.raises(ValidationError) as exc:
+            ExpenseCreate(
+                category="alquiler", amount=Decimal(bad), date=datetime.date(2026, 8, 29)
+            )
+        assert any(e["loc"] == ("amount",) for e in exc.value.errors())
+
+    @pytest.mark.parametrize("bad", ["-1", "0"])
+    def test_update_rejects_non_positive_amount(self, bad):
+        from backend.schemas.expenses import ExpenseUpdate
+
+        with pytest.raises(ValidationError) as exc:
+            ExpenseUpdate.model_validate({"amount": bad})
+        assert any(e["loc"] == ("amount",) for e in exc.value.errors())
+
+    def test_positive_amount_still_passes(self):
+        """Control positivo: sin él, un schema que rechazara TODO pasaría."""
+        from backend.schemas.expenses import ExpenseCreate, ExpenseUpdate
+
+        assert ExpenseCreate(
+            category="alquiler", amount=Decimal("0.01"), date=datetime.date(2026, 8, 29)
+        ).amount == Decimal("0.01")
+        assert ExpenseUpdate.model_validate({"amount": "150.00"}).amount == Decimal("150.00")
+
+    def test_update_without_amount_is_still_valid(self):
+        """`amount` ausente sigue siendo "no cambia" — el guard no lo convierte
+        en obligatorio (la RPC lo resuelve con COALESCE)."""
+        from backend.schemas.expenses import ExpenseUpdate
+
+        payload = ExpenseUpdate.model_validate({"category": "servicios"})
+        assert "amount" not in payload.model_fields_set
+        assert payload.amount is None
+
+
 class TestExpenseUpdateTriState:
     """D12 — el contrato es por AUSENCIA, nunca por `is None`."""
 
@@ -579,6 +628,26 @@ class TestExpenseRepositoryReads:
         # el COUNT usa los MISMOS filtros que el SELECT (si no, `total` miente)
         count_args = mock_conn.fetchval.call_args_list[0].args
         assert count_args[1:] == args[1:len(count_args)]
+
+    @pytest.mark.asyncio
+    async def test_search_matches_category_and_description(self, mock_conn):
+        """Fija QUÉ columnas busca el buscador del listado.
+
+        D18 movió la búsqueda de PostgREST (`ilike("description", ...)`, sólo
+        descripción) al servidor y le sumó la categoría — decisión deliberada,
+        documentada en el `description` del Query del router. Nada la fijaba: el
+        test de filtros sólo verifica que el parámetro VIAJE, no contra qué se
+        compara. Medido en prod: buscar "servicios" pasa de 0 a 36 resultados.
+        El copy del buscador de /gastos tiene que decir lo mismo que este SQL.
+        """
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+        await _repo(mock_conn).list_paginated(
+            ACCOUNT_ID, page=0, page_size=10, search="servicios"
+        )
+        sql = " ".join(_sql_of(mock_conn.fetch.call_args_list[0]).lower().split())
+        assert "e.category ilike" in sql
+        assert "e.description ilike" in sql
 
     @pytest.mark.asyncio
     async def test_list_paginated_names_inactive_payment_methods(self, mock_conn):

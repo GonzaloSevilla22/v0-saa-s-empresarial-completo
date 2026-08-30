@@ -4,14 +4,20 @@ import datetime
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.schemas.common import PageOut
 
 
 class ExpenseCreate(BaseModel):
     category: str
-    amount: Decimal
+    # gastos-forma-pago: el importe es ESTRICTAMENTE POSITIVO, en las tres
+    # capas (Pydantic → P0400 de la RPC → CHECK expenses_amount_positive). El
+    # signo del movimiento lo pone el caller —caja postea `-importe`—, así que
+    # un importe negativo escribe un movimiento 'expense' POSITIVO (un gasto
+    # que suma plata al cajón) y desactiva en silencio la compensación del
+    # borrado. Acá corta antes de tocar la base, con 422 y `loc = ("amount",)`.
+    amount: Decimal = Field(gt=0)
     description: str | None = None
     date: datetime.date
     # cost-center-dimension: optional analytic dimension
@@ -61,7 +67,10 @@ class ExpenseUpdate(BaseModel):
     """
 
     category: str | None = None
-    amount: Decimal | None = None
+    # Espejo del alta: ausente = "no cambia" (la RPC lo resuelve con COALESCE),
+    # pero un valor presente tiene que ser positivo — sin esto la edición sería
+    # el bypass del guard del alta.
+    amount: Decimal | None = Field(default=None, gt=0)
     description: str | None = None
     date: datetime.date | None = None
     # cost-center-dimension: optional analytic dimension

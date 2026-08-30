@@ -340,6 +340,55 @@ class TestPaymentMethodReportEndpoint:
         assert data[0]["total_sold"] == 15000.0
 
     @pytest.mark.asyncio
+    async def test_report_row_carries_total_spent(self, async_client, mock_pool):
+        """gastos-forma-pago (D14) — hallazgo de la revisión adversarial del apply.
+
+        `rpc_payment_method_report` pasó a devolver 8 columnas (la 8ª es
+        `total_spent`), el repositorio hace `SELECT *` y el service devuelve
+        `dict(r)` tal cual — pero `response_model=list[PaymentMethodReportRow]`
+        FILTRA la salida a los campos declarados en el schema. Con el schema sin
+        migrar, `total_spent` se descartaba antes de llegar al cliente y
+        `/reportes/formas-pago` mostraba $0,00 en la columna "Gastado" de todas
+        las filas, en el pie y en la serie del gráfico, mientras la RPC
+        calculaba bien (el gate SQL 6.2/6.4 verifica 13.800 y pasa).
+
+        El assert que importa es el de PRESENCIA de la clave: el mapper del
+        frontend degrada la clave ausente a 0 por diseño, así que un assert
+        sólo de valor pasaría igual con el bug adentro.
+        """
+        pool, conn = mock_pool
+        conn.fetch = AsyncMock(return_value=[
+            {
+                "payment_method_id": PM_ID,
+                "payment_method_name": "Efectivo",
+                "payment_method_kind": "cash",
+                "is_active": True,
+                "total_sold": 15000.0,
+                "total_purchased": 3000.0,
+                "total_spent": 6000.0,
+                "operation_count": 5,
+            }
+        ])
+        member_token = _account_role_token("member")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/reports/payment-methods?start=2026-08-01&end=2026-08-29",
+                headers={"Authorization": f"Bearer {member_token}"},
+            )
+
+        assert resp.status_code == 200
+        row = resp.json()[0]
+        assert "total_spent" in row, (
+            "el response_model filtró total_spent: la columna 'Gastado' del "
+            f"reporte queda en $0 para todas las filas (claves: {sorted(row)})"
+        )
+        assert row["total_spent"] == 6000.0
+        # Control positivo: las columnas viejas siguen viajando.
+        assert row["total_sold"] == 15000.0
+        assert row["total_purchased"] == 3000.0
+
+    @pytest.mark.asyncio
     async def test_report_missing_range_returns_422(self, async_client, mock_pool):
         pool, conn = mock_pool
         owner_token = _account_role_token("owner")

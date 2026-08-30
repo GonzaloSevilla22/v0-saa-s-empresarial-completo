@@ -153,7 +153,10 @@ export default function GastosPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar descripción..."
+              // El filtro server-side de D18 busca en categoría Y descripción
+              // (`e.category ILIKE $4 OR e.description ILIKE $4`, documentado en el
+              // Query del router): el copy tiene que decir lo mismo que el SQL.
+              placeholder="Buscar descripción o categoría..."
               className="pl-9 bg-background border-border text-foreground"
             />
           </div>

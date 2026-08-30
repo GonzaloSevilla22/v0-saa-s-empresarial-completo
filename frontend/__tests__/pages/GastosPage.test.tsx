@@ -134,6 +134,16 @@ describe("/gastos — origen de datos (11.0, D18)", () => {
     expect(screen.getAllByText("Luz de agosto").length).toBeGreaterThan(0)
   })
 
+  it("el buscador declara que también busca por categoría (D18 lo sumó al filtro server-side)", () => {
+    render(<GastosPage />)
+    // El filtro nuevo es `e.category ILIKE $4 OR e.description ILIKE $4`; el
+    // camino anterior por PostgREST buscaba SÓLO en descripción. Con el copy
+    // viejo, escribir "servicios" devuelve 36 gastos que no la tienen en la
+    // descripción — el campo mentía sobre qué busca.
+    const input = screen.getByPlaceholderText(/buscar/i)
+    expect(input.getAttribute("placeholder")).toMatch(/categor[ií]a/i)
+  })
+
   it("los tres filtros que ya existían siguen funcionando, ahora server-side", async () => {
     const user = userEvent.setup()
     render(<GastosPage />)

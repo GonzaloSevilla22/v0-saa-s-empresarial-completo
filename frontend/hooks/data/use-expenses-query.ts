@@ -98,6 +98,79 @@ function mapExpense(e: ExpenseApiRow): Expense {
   }
 }
 
+/**
+ * Alta contra `POST /expenses`. Vive en el módulo, no dentro del hook, para que
+ * el alta suelta (`useExpenses`) y el alta masiva del importador
+ * (`useBulkAddExpense`) compartan EXACTAMENTE el mismo payload: dos copias del
+ * mapeo divergen y el bug aparece sólo por uno de los dos caminos.
+ */
+async function postExpense(expense: ExpenseCreateInput) {
+  return pythonClient.post<ExpenseApiRow>("/expenses", {
+    category:        expense.category,
+    description:     expense.description ?? null,
+    amount:          expense.amount,
+    date:            expense.date,
+    // cost-center-dimension: optional analytic dimension
+    cost_center_id:  expense.costCenterId ?? null,
+    // gastos-forma-pago (D6): el form lo mandaba y el payload lo tiraba —
+    // 0 de 175 gastos de prod tienen sucursal por este bug.
+    branch_id:         expense.branchId ?? null,
+    payment_method_id: expense.paymentMethodId ?? null,
+    cash_session_id:   expense.cashSessionId ?? null,
+    bank_account_id:   expense.bankAccountId ?? null,
+  })
+}
+
+/**
+ * Set completo de invalidaciones de las mutaciones de gasto.
+ *
+ * Un gasto en efectivo escribe en `cash_movements` y uno por método bancario
+ * en `bank_movements`; el borrado compensa las DOS patas. Invalidar sólo
+ * `expenses` deja /caja, /banco, la conciliación y el reporte de formas de
+ * pago mostrando un saldo que ya no existe — el precedente ya se pagó una vez
+ * en ventas, donde faltaba `customerAccounts`.
+ *
+ * ⚠️ Lo que esto NO alcanza, a propósito: el `refreshToken` de
+ * `LedgerMovementsPanel` es `useState` LOCAL de /banco y /caja — no hay query
+ * key ni store que una mutación de /gastos pueda tocar, y esos paneles ni
+ * siquiera están montados mientras el usuario está en /gastos (montan y hacen
+ * fetch al navegar). El repo ya fijó esa división en
+ * `use-cash-movements.ts:121-125`. Refresco cross-página = mover el token a un
+ * store: alcance nuevo, no de este change.
+ *
+ * Se expone como hook propio para que el importador pueda invalidar UNA vez al
+ * terminar el lote en vez de una vez por fila.
+ */
+export function useInvalidateExpenseLedgers() {
+  const queryClient = useQueryClient()
+  return useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.bankReconciliation.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.paymentMethods.all() })
+  }, [queryClient])
+}
+
+/**
+ * Alta MASIVA para el importador CSV (D13): la misma alta, SIN invalidación por
+ * fila y sin montar el listado.
+ *
+ * El importador llama al alta una vez por fila, en serie. Con `onSuccess:
+ * invalidateLedgers` eso son seis invalidaciones por fila —y, en /gastos, dos
+ * refetches reales por fila— todos descartados salvo el último. Y en este
+ * camino son además inútiles por definición: por D13 las filas importadas
+ * viajan sin forma de pago, sin sesión de caja y sin cuenta bancaria, así que
+ * un alta por importación no puede tocar caja, banco ni el catálogo. El
+ * diálogo invalida UNA vez al terminar el lote.
+ */
+export function useBulkAddExpense() {
+  const invalidateLedgers = useInvalidateExpenseLedgers()
+  const addExpenseMutation = useMutation({ mutationFn: postExpense })
+  return { addExpenseMutation, invalidateLedgers }
+}
+
 // ── Unified hook ─────────────────────────────────────────────────────────────
 
 /**
@@ -109,8 +182,6 @@ function mapExpense(e: ExpenseApiRow): Expense {
  * hook sólo alimentaba `recent-activity.tsx`.
  */
 export function useExpenses() {
-  const queryClient = useQueryClient()
-
   // ── Pagination & filter state ─────────────────────────────────────────────
   const [page,     setPageState]     = useState(0)
   const [pageSize, setPageSizeState] = useState<PageSizeOption>(25)
@@ -180,49 +251,12 @@ export function useExpenses() {
     [page, pageSize, query.data?.total],
   )
 
-  /**
-   * Set completo de invalidaciones de las tres mutaciones.
-   *
-   * Un gasto en efectivo escribe en `cash_movements` y uno por método bancario
-   * en `bank_movements`; el borrado compensa las DOS patas. Invalidar sólo
-   * `expenses` deja /caja, /banco, la conciliación y el reporte de formas de
-   * pago mostrando un saldo que ya no existe — el precedente ya se pagó una
-   * vez en ventas, donde faltaba `customerAccounts`.
-   *
-   * ⚠️ Lo que esto NO alcanza, a propósito: el `refreshToken` de
-   * `LedgerMovementsPanel` es `useState` LOCAL de /banco y /caja — no hay
-   * query key ni store que una mutación de /gastos pueda tocar, y esos paneles
-   * ni siquiera están montados mientras el usuario está en /gastos (montan y
-   * hacen fetch al navegar). El repo ya fijó esa división en
-   * `use-cash-movements.ts:121-125`. Refresco cross-página = mover el token a
-   * un store: alcance nuevo, no de este change.
-   */
-  const invalidateLedgers = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.expenses.all() })
-    queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
-    queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
-    queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
-    queryClient.invalidateQueries({ queryKey: queryKeys.bankReconciliation.all() })
-    queryClient.invalidateQueries({ queryKey: queryKeys.paymentMethods.all() })
-  }, [queryClient])
+  // Set completo de invalidaciones (definido arriba, compartido con el
+  // importador masivo).
+  const invalidateLedgers = useInvalidateExpenseLedgers()
 
   const addExpenseMutation = useMutation({
-    mutationFn: async (expense: ExpenseCreateInput) => {
-      return pythonClient.post<ExpenseApiRow>("/expenses", {
-        category:        expense.category,
-        description:     expense.description ?? null,
-        amount:          expense.amount,
-        date:            expense.date,
-        // cost-center-dimension: optional analytic dimension
-        cost_center_id:  expense.costCenterId ?? null,
-        // gastos-forma-pago (D6): el form lo mandaba y el payload lo tiraba —
-        // 0 de 175 gastos de prod tienen sucursal por este bug.
-        branch_id:         expense.branchId ?? null,
-        payment_method_id: expense.paymentMethodId ?? null,
-        cash_session_id:   expense.cashSessionId ?? null,
-        bank_account_id:   expense.bankAccountId ?? null,
-      })
-    },
+    mutationFn: postExpense,
     onSuccess: invalidateLedgers,
   })
 

@@ -3,7 +3,9 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 // parseAndValidate is a pure module-level function, but importing the file
 // pulls in useAddExpense (react-query + the Python backend client, which
 // throws without NEXT_PUBLIC_BACKEND_URL in a test env) — stub it out.
-vi.mock("@/hooks/data/use-expenses-query", () => ({ useAddExpense: () => ({ mutateAsync: vi.fn() }) }))
+vi.mock("@/hooks/data/use-expenses-query", () => ({
+  useBulkAddExpense: () => ({ addExpenseMutation: { mutateAsync: vi.fn() }, invalidateLedgers: vi.fn() }),
+}))
 
 import { parseAndValidate } from "@/components/gastos/expense-import-dialog"
 

@@ -16,8 +16,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 
 const addExpenseMock = vi.fn().mockResolvedValue(undefined)
+// El importador usa el alta MASIVA (sin invalidación por fila): ver
+// expense-import-dialog-invalidation.test.tsx.
 vi.mock("@/hooks/data/use-expenses-query", () => ({
-  useAddExpense: () => ({ mutateAsync: addExpenseMock }),
+  useBulkAddExpense: () => ({
+    addExpenseMutation: { mutateAsync: addExpenseMock },
+    invalidateLedgers: vi.fn(),
+  }),
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 

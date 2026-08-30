@@ -47,8 +47,7 @@ import { humanizeOperationError } from "@/lib/operation-errors"
 import { useRouter } from "next/navigation"
 import { useCustomerAccount } from "@/hooks/data/use-customer-account"
 import { useBranches } from "@/hooks/data/use-branches"
-import { useCashboxes } from "@/hooks/data/use-cashboxes"
-import { useCurrentSession } from "@/hooks/data/use-cash-session"
+import { useCashOptin } from "@/hooks/use-cash-optin"
 
 interface SaleFormProps {
   onSuccess: () => void
@@ -180,9 +179,13 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
   // cuenta cuando no se eligió ninguna (mismo fallback que la RPC —
   // c26_default_branch — y que /ventas/pos).
-  const isCashSelected = resolvedKind === "cash"
+  // gastos-forma-pago (D16, task 8.5): las tres condiciones salieron de acá a
+  // `useCashOptin` — el formulario de gasto es el segundo consumidor del bloque
+  // exacto. Extracción pura: mismos hooks, mismos predicados, mismos textos.
   const { branches } = useBranches()
-  const effectiveBranchId = branchId || branches[0]?.id || null
+  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "venta" })
+  const isCashSelected = cashOptin.isCashSelected
+  const effectiveBranchId = cashOptin.effectiveBranchId
   // Contexto para traducir errores de la RPC (bug prod 2026-08-24: el error de
   // stock llegaba con el UUID crudo y culpaba al inventario cuando el problema
   // real era la sucursal). El nombre sale del carrito primero (lo que el
@@ -210,17 +213,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
     [router, lookupProductName, effectiveBranchName],
   )
 
-  const { data: cashboxes } = useCashboxes(isCashSelected ? effectiveBranchId : null)
-  const firstCashbox = cashboxes?.[0] ?? null
-  const { data: currentSession } = useCurrentSession(isCashSelected ? (firstCashbox?.id ?? null) : null)
-  const isDateToday = date === argentinaToday()
   // Las TRES condiciones de servidor (D4) — el checkbox sólo aparece cuando
   // las tres se cumplen; si no, se explica el motivo (nunca se oculta en
   // silencio).
-  const cashOptinEligible = isCashSelected && !!currentSession && isDateToday
-  const cashOptinReason = !isDateToday
-    ? "Sólo se puede registrar en caja una venta fechada hoy."
-    : "No hay caja abierta en esta sucursal — el efectivo no se registrará en el arqueo."
+  const currentSession = cashOptin.session
+  const cashOptinEligible = cashOptin.eligible
+  const cashOptinReason = cashOptin.reason
 
   // Resolve selected unit from the map (O(1) vs O(n) Array.find)
   const selectedUnit = useMemo(

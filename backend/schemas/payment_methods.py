@@ -67,4 +67,11 @@ class PaymentMethodReportRow(BaseModel):
     is_active: bool
     total_sold: float
     total_purchased: float
+    # gastos-forma-pago (D14): 8ª columna de rpc_payment_method_report. El
+    # response_model FILTRA la salida a los campos declarados acá: sin esta
+    # línea el total gastado se descarta entre el service y el cliente, y
+    # /reportes/formas-pago muestra $0,00 en la columna "Gastado" de todas las
+    # filas, en el pie y en la serie del gráfico, mientras la RPC lo calcula
+    # bien. Default 0.0 por si una lectura llega de una base sin la migración.
+    total_spent: float = 0.0
     operation_count: int

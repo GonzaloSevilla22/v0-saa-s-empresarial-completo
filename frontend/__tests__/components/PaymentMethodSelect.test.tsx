@@ -161,3 +161,99 @@ describe("BankAccountDestinationSelect — ícono por account_kind", () => {
     expect(document.querySelector(".lucide-landmark")).toBeTruthy()
   })
 })
+
+// ── gastos-forma-pago (D3/D5, tasks 10.2 y 10.3): contexto de GASTO ─────────
+
+describe("PaymentMethodSelect — contexto de gasto (D3)", () => {
+  it("NO ofrece las formas de pago de kind='credit': un gasto no tiene cuenta corriente", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const user = userEvent.setup()
+
+    render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="expense" />)
+    await user.click(screen.getByRole("combobox"))
+
+    expect(await screen.findByRole("option", { name: /Efectivo/ })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: /Transferencia bancaria/ })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: /Cuenta corriente/ })).not.toBeInTheDocument()
+  })
+
+  it("CONTROL POSITIVO: en contexto de venta esa misma forma de pago SÍ se ofrece", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const user = userEvent.setup()
+
+    render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="sale" />)
+    await user.click(screen.getByRole("combobox"))
+
+    // Sin este control, un filtro que escondiera TODAS las opciones también
+    // pasaría el test de arriba.
+    expect(await screen.findByRole("option", { name: /Cuenta corriente/ })).toBeInTheDocument()
+  })
+
+  it("el texto de apoyo de 'cash' en gasto anuncia que el egreso se registra salvo que se destilde", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="expense" />)
+
+    expect(screen.getByText(/salvo que destildes/i)).toBeInTheDocument()
+    // No debe filtrarse el texto de venta, que habla del POS.
+    expect(screen.queryByText(/POS/)).not.toBeInTheDocument()
+  })
+
+  it("el texto de apoyo de 'credit' en gasto redirige a la compra a proveedor (D3)", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-credit" onChange={vi.fn()} context="expense" />)
+
+    expect(screen.getByText(/compra a proveedor/i)).toBeInTheDocument()
+    expect(screen.queryByText(/cuenta corriente del cliente/i)).not.toBeInTheDocument()
+  })
+})
+
+describe("BankAccountDestinationSelect — modo obligatorio del gasto (D5 / OQ-2)", () => {
+  const ACCOUNTS = [
+    { id: "ba-1", accountId: "a", name: "Cuenta corriente Galicia", bankName: "Banco Galicia", cbu: null, alias: null, currency: "ARS", accountKind: "bank", isActive: true },
+  ]
+
+  it("required: el label dice (obligatorio) y NO se ofrece 'usar el destino configurado'", async () => {
+    useBankAccountsMock.mockReturnValue({ data: ACCOUNTS, isLoading: false, isError: false, error: null })
+    const user = userEvent.setup()
+
+    render(<BankAccountDestinationSelect paymentMethodKind="transfer" value={null} onChange={vi.fn()} required />)
+
+    expect(screen.getByText("(obligatorio)")).toBeInTheDocument()
+    await user.click(screen.getByRole("combobox", { name: /cuenta bancaria/i }))
+    expect(await screen.findByRole("option", { name: /Galicia/ })).toBeInTheDocument()
+    // Con 0 de 37 catálogos con destino configurado, dejar esa opción sería
+    // ofrecer el no-op silencioso que este change viene a cerrar.
+    expect(screen.queryByRole("option", { name: /destino configurado/i })).not.toBeInTheDocument()
+  })
+
+  it("sin `required` conserva exactamente el comportamiento de venta y compra", async () => {
+    useBankAccountsMock.mockReturnValue({ data: ACCOUNTS, isLoading: false, isError: false, error: null })
+    const user = userEvent.setup()
+
+    render(<BankAccountDestinationSelect paymentMethodKind="transfer" value={null} onChange={vi.fn()} />)
+
+    expect(screen.getByText("(opcional)")).toBeInTheDocument()
+    await user.click(screen.getByRole("combobox", { name: /cuenta bancaria/i }))
+    expect(await screen.findByRole("option", { name: /destino configurado/i })).toBeInTheDocument()
+  })
+
+  it("sin cuentas activas y con showEmptyNotice: explica que el gasto no va a llegar a la conciliación", () => {
+    useBankAccountsMock.mockReturnValue({ data: [], isLoading: false, isError: false, error: null })
+
+    render(<BankAccountDestinationSelect paymentMethodKind="transfer" value={null} onChange={vi.fn()} required showEmptyNotice />)
+
+    expect(screen.getByTestId("bank-accounts-empty-notice")).toBeInTheDocument()
+    expect(screen.getByText(/no va a aparecer en la conciliación/i)).toBeInTheDocument()
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument()
+  })
+
+  it("sin cuentas activas y SIN showEmptyNotice: cero render, como en venta y compra", () => {
+    useBankAccountsMock.mockReturnValue({ data: [], isLoading: false, isError: false, error: null })
+
+    const { container } = render(<BankAccountDestinationSelect paymentMethodKind="transfer" value={null} onChange={vi.fn()} />)
+
+    expect(container).toBeEmptyDOMElement()
+  })
+})

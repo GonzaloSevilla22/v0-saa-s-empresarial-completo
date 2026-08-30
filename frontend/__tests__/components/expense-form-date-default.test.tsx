@@ -11,6 +11,21 @@ vi.mock("@/hooks/data/use-expenses-query", () => ({
 }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
+// gastos-forma-pago (safety net D15): el formulario ahora monta el selector de
+// forma de pago, el de cuenta bancaria y el bloque de opt-in de caja. Se suman
+// SOLO los mocks de esos hooks — sin ellos el import real de use-payment-methods
+// dispara el throw de arranque de python-client (NEXT_PUBLIC_BACKEND_URL no
+// definida en el entorno de test). NINGUNA aserción de este archivo cambia: lo
+// que verifica sigue siendo el <input type="date">.
+vi.mock("@/hooks/data/use-payment-methods", () => ({
+  usePaymentMethods: () => ({ paymentMethods: [], isLoading: false }),
+}))
+vi.mock("@/hooks/data/use-bank-accounts", () => ({
+  useBankAccounts: () => ({ data: [], isLoading: false, isError: false, error: null }),
+}))
+vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
+vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))
+vi.mock("@/hooks/data/use-cash-session", () => ({ useCurrentSession: () => ({ data: null }) }))
 
 describe("ExpenseForm — fecha por defecto (app-timezone-argentina)", () => {
   afterEach(() => {

@@ -1,0 +1,6 @@
+# Los baselines son copias BYTE A BYTE del pg_get_functiondef vivo de prod y llevan
+# su md5 en la cabecera. Sin esto, core.autocrlf=true los materializa en CRLF en el
+# working tree y el md5 documentado deja de ser verificable (es lo que le pasa a
+# archive/2026-08-23-cuenta-corriente-party-guard/baseline/, que queda w/crlf).
+# `-text` los congela en LF en el indice Y en el working tree.
+*.sql -text

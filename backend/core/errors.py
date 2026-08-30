@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncpg
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
@@ -164,6 +164,49 @@ BANK_ACCOUNT_CREATE_ERRCODE_STATUS = {
     **_BUSINESS_ERRCODE_STATUS,
     "P0400": 422,  # name requerido (validación de payload)
 }
+
+# gastos-forma-pago (D19): override POR ENDPOINT para el camino de gasto.
+# D5 reusa P0412 para "falta elegir la cuenta bancaria de origen", que es una
+# validación de PAYLOAD sobre `bank_account_id` — no el "cuenta no encontrada /
+# inactiva" que el mapeo global expresa con 404. Sin este override, el usuario
+# que manda un gasto por transferencia sin destino recibiría un 404 sin campo
+# ofensor. Mismo patrón que BANK_ACCOUNT_CREATE_ERRCODE_STATUS: P0412 CONSERVA
+# su 404 global para el resto de los callers de banco.
+EXPENSE_ERRCODE_STATUS = {
+    **_BUSINESS_ERRCODE_STATUS,
+    "P0412": 422,  # bank_account_required_for_expense (validación de payload)
+}
+
+EXPENSE_FIELD_BY_ERRCODE: dict[str, str] = {
+    **_FIELD_BY_ERRCODE,
+    "P0412": "bank_account_id",
+}
+
+
+class ProblemHTTPException(HTTPException):
+    """`HTTPException` que además transporta las extensiones RFC 7807.
+
+    v3-api-standards §1 exige `code` (código de negocio) y, en errores de
+    validación, `field`. El `http_exception_handler` global aplana cualquier
+    `HTTPException` a `code="http_error"` sin `field`, así que un override de
+    ERRCODE por endpoint (BANK_ACCOUNT_CREATE_ERRCODE_STATUS,
+    EXPENSE_ERRCODE_STATUS) perdía el sqlstate por el camino. Esta subclase lo
+    preserva; el handler la reconoce por atributo, así que las
+    `HTTPException` planas siguen comportándose exactamente igual que antes.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        detail: str,
+        code: str,
+        field: str | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(status_code=status_code, detail=detail, headers=headers)
+        self.code = code
+        self.field = field
 
 
 async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) -> JSONResponse:

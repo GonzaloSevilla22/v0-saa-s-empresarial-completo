@@ -24,7 +24,7 @@
  */
 
 import { useState, useCallback, useRef } from "react"
-import { useAddExpense } from "@/hooks/data/use-expenses-query"
+import { useBulkAddExpense } from "@/hooks/data/use-expenses-query"
 import { toast } from "sonner"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -253,7 +253,12 @@ export function ExpenseImportDialog({
   onOpenChange,
   onSuccess,
 }: ExpenseImportDialogProps) {
-  const addExpenseMutation = useAddExpense()
+  // Alta masiva: la misma alta, pero SIN invalidar por fila. El importador
+  // llama al alta una vez por fila en serie; con la invalidación en `onSuccess`
+  // eso son seis invalidaciones (y dos refetches reales en /gastos) por cada
+  // fila del CSV, todas descartadas salvo la última. Se invalida UNA vez al
+  // final del lote, y sólo si algo se escribió.
+  const { addExpenseMutation, invalidateLedgers } = useBulkAddExpense()
 
   const [step,     setStep]     = useState<Step>(1)
   const [rows,     setRows]     = useState<ParsedRow[]>([])
@@ -344,13 +349,17 @@ export function ExpenseImportDialog({
     const ok  = updated.filter((r) => r.imported === true).length
     const err = updated.filter((r) => r.imported === false && r.status !== "error").length
 
+    // Una sola invalidación por lote, y sólo si hubo altas: sin escrituras no
+    // hay nada que refrescar.
+    if (ok > 0) invalidateLedgers()
+
     if (err === 0) {
       toast.success(`${ok} gasto${ok !== 1 ? "s" : ""} importado${ok !== 1 ? "s" : ""} correctamente`)
       onSuccess?.()
     } else {
       toast.warning(`${ok} OK · ${err} con error — revisá los detalles`)
     }
-  }, [rows, addExpenseMutation, onSuccess])
+  }, [rows, addExpenseMutation, invalidateLedgers, onSuccess])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -459,6 +468,23 @@ export function ExpenseImportDialog({
                 </div>
                 <p className="text-[11px] text-muted-foreground/60">
                   Si omitís la categoría o no coincide, se asignará "Otros" por defecto.
+                </p>
+              </div>
+
+              {/* gastos-forma-pago (D13, task 11.7): el texto tiene que decir la
+                  verdad COMPLETA. La edición no postea movimientos
+                  (rpc_update_expense ni siquiera recibe p_cash_session_id /
+                  p_bank_account_id), así que prometer que imputar después hace
+                  impactar los libros sería un no-op silencioso anunciado. */}
+              <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 flex flex-col gap-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Forma de pago
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Los gastos importados quedan sin forma de pago y sin impacto en caja ni en
+                  banco. Podés imputarles la forma de pago después desde el listado, pero eso
+                  es sólo una etiqueta: para que el gasto impacte caja o banco hay que
+                  cargarlo desde el formulario.
                 </p>
               </div>
             </div>

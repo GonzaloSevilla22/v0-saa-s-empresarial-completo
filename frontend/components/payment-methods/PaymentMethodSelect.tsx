@@ -1,5 +1,6 @@
 "use client"
 
+import { useId } from "react"
 import Link from "next/link"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -9,6 +10,19 @@ import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { isBankPaymentKind, type PaymentMethodKind } from "@/lib/types"
 import { getAccountKindIcon } from "@/lib/bank-account-kind"
+
+export type PaymentMethodContext = "sale" | "purchase" | "expense"
+
+/**
+ * Opciones ofrecidas por contexto — D3. Es la regla que usa el render, no una
+ * copia: el `.map()` del componente consume exactamente esta función.
+ */
+export function paymentMethodOptionsFor<T extends { kind: PaymentMethodKind }>(
+  methods: T[],
+  context: PaymentMethodContext,
+): T[] {
+  return context === "expense" ? methods.filter((pm) => pm.kind !== "credit") : methods
+}
 
 interface PaymentMethodSelectProps {
   value: string | null
@@ -28,8 +42,18 @@ interface PaymentMethodSelectProps {
    * reachable, D "La baja es desactivación y preserva la imputación").
    */
   includeInactive?: boolean
-  /** D8: which support text to show when kind is 'credit' (cliente vs proveedor). Default "sale". */
-  context?: "sale" | "purchase"
+  /**
+   * D8: which support text to show when kind is 'credit' (cliente vs
+   * proveedor). Default "sale".
+   *
+   * gastos-forma-pago (D3, task 10.2): suma "expense" — EXTENSIÓN ADITIVA,
+   * no un selector nuevo. En ese contexto las formas de pago de
+   * `kind = 'credit'` NO se ofrecen: `expenses` no tiene contraparte
+   * (ni `supplier_id` ni `client_id`), así que no hay cuenta corriente que
+   * cargar. El servidor lo respalda con `P0400` para que la API no sea un
+   * bypass de la UI.
+   */
+  context?: PaymentMethodContext
   /**
    * D8: show the "esto no genera X" support text below the select. Default
    * true for forms (new entry / edit). Set false for filter usages — the
@@ -58,11 +82,22 @@ export function PaymentMethodSelect({
   showSupportText = true,
 }: PaymentMethodSelectProps) {
   const { paymentMethods, isLoading } = usePaymentMethods(includeInactive)
+  const options = paymentMethodOptionsFor(paymentMethods, context)
+  const selectedKind = paymentMethods.find((pm) => pm.id === value)?.kind ?? null
+
+  // a11y (task 10.7): sin `htmlFor`/`id` el campo no era alcanzable por su
+  // label, y el texto de apoyo —el que dice qué hace y qué NO hace la forma
+  // de pago elegida— no lo leía ningún lector de pantalla. Mismo gap que el
+  // precedente de proveedores encontró en `supplier-form.tsx`.
+  const reactId = useId()
+  const selectId = `payment-method-${reactId}`
+  const supportId = `payment-method-support-${reactId}`
+  const hasSupportText = showSupportText && (selectedKind === "credit" || selectedKind === "cash")
 
   return (
     <div className="flex flex-col gap-2">
       {showLabel && (
-        <Label className="text-foreground text-sm">
+        <Label htmlFor={selectId} className="text-foreground text-sm">
           {label ?? (
             <>
               Forma de pago <span className="text-muted-foreground font-normal">(opcional)</span>
@@ -75,12 +110,16 @@ export function PaymentMethodSelect({
         onValueChange={(v) => onChange(v === "__none__" ? null : v)}
         disabled={isLoading}
       >
-        <SelectTrigger className={className ?? "bg-background border-border text-foreground"}>
+        <SelectTrigger
+          id={selectId}
+          aria-describedby={hasSupportText ? supportId : undefined}
+          className={className ?? "bg-background border-border text-foreground"}
+        >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__none__">{placeholder}</SelectItem>
-          {paymentMethods.map((pm) => (
+          {options.map((pm) => (
             <SelectItem key={pm.id} value={pm.id}>
               {pm.name}
               {!pm.isActive && " (inactiva)"}
@@ -89,7 +128,7 @@ export function PaymentMethodSelect({
         </SelectContent>
       </Select>
       {showSupportText && (
-        <PaymentMethodSupportText kind={paymentMethods.find((pm) => pm.id === value)?.kind ?? null} context={context} />
+        <PaymentMethodSupportText id={supportId} kind={selectedKind} context={context} />
       )}
     </div>
   )
@@ -97,7 +136,9 @@ export function PaymentMethodSelect({
 
 interface PaymentMethodSupportTextProps {
   kind: PaymentMethodKind | null
-  context: "sale" | "purchase"
+  context: PaymentMethodContext
+  /** a11y: id al que apunta el `aria-describedby` del selector. */
+  id?: string
 }
 
 /**
@@ -118,14 +159,25 @@ interface PaymentMethodSupportTextProps {
  * automático (0 proveedores, sin selector en el form — compras-proveedor-
  * cuenta-corriente es un change aparte).
  */
-export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupportTextProps) {
+export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSupportTextProps) {
   // pos-banco-movimientos: la etiqueta bancaria dice lo que hace — el texto
   // se resuelve en BankAccountDestinationSelect (nombra la cuenta elegida o
   // el default configurado), acá sólo se cubre la ausencia de contexto de
   // cuenta bancaria (sin bank_accounts cargadas — D9, cero UI).
   if (kind === "credit") {
+    // gastos-forma-pago (D3): en gastos ni siquiera se ofrece, pero un gasto
+    // histórico puede tener imputada una forma de pago que después pasó a
+    // `credit` — el texto tiene que decir cuál es el camino correcto.
+    if (context === "expense") {
+      return (
+        <p id={id} className="text-xs text-muted-foreground">
+          Un gasto no tiene cuenta corriente. Para un gasto que vas a pagar después,
+          cargalo como compra a proveedor: la cuenta corriente vive ahí.
+        </p>
+      )
+    }
     return (
-      <p className="text-xs text-muted-foreground">
+      <p id={id} className="text-xs text-muted-foreground">
         {context === "sale"
           ? "Esta forma de pago carga la venta a la cuenta corriente del cliente al confirmarla — requiere elegir un cliente."
           : "Esta etiqueta no genera un cargo en la cuenta corriente del proveedor. Para eso, registrá el pago desde la cuenta corriente del proveedor."}
@@ -133,8 +185,19 @@ export function PaymentMethodSupportText({ kind, context }: PaymentMethodSupport
     )
   }
   if (kind === "cash") {
+    // gastos-forma-pago (D1): el opt-in del gasto arranca PRE-MARCADO (OQ-1),
+    // al revés que el de venta — la asimetría es deliberada y se dice acá.
+    if (context === "expense") {
+      return (
+        <p id={id} className="text-xs text-muted-foreground">
+          El egreso se registra en la caja abierta, salvo que destildes "Registrar en
+          caja" (por ejemplo, si lo pagaste de otro bolsillo). Sólo si hay una sesión
+          abierta hoy en la sucursal.
+        </p>
+      )
+    }
     return (
-      <p className="text-xs text-muted-foreground">
+      <p id={id} className="text-xs text-muted-foreground">
         {context === "sale" ? (
           <>
             El{" "}
@@ -162,6 +225,23 @@ interface BankAccountDestinationSelectProps {
   value: string | null
   onChange: (value: string | null) => void
   className?: string
+  /**
+   * gastos-forma-pago (D5 / OQ-2 firmada): en el formulario de GASTO elegir
+   * la cuenta es OBLIGATORIO — desaparece la opción "usar el destino
+   * configurado". Motivo medido: hay 0 de 37 catálogos con `bank_account_id`
+   * configurado, así que el default no resuelve para NINGÚN tenant y el
+   * movimiento bancario no se escribiría — un no-op silencioso, que es
+   * exactamente lo que este change viene a cerrar. La RPC lo respalda con
+   * `P0412` cuando la organización tiene cuentas activas.
+   */
+  required?: boolean
+  /**
+   * Cuando la organización no tiene NINGUNA cuenta bancaria activa (33 de 37
+   * hoy), el componente devuelve `null` — cero render. Con esto en `true`
+   * muestra en su lugar el motivo: el gasto se guarda igual, pero no va a
+   * llegar a la conciliación, y eso no puede quedar en silencio.
+   */
+  showEmptyNotice?: boolean
 }
 
 /**
@@ -179,28 +259,42 @@ export function BankAccountDestinationSelect({
   value,
   onChange,
   className,
+  required = false,
+  showEmptyNotice = false,
 }: BankAccountDestinationSelectProps) {
   const { data: bankAccounts, isLoading } = useBankAccounts()
   const activeAccounts = (bankAccounts ?? []).filter((b) => b.isActive)
 
   if (!isBankPaymentKind(paymentMethodKind)) return null
-  if (activeAccounts.length === 0) return null
+  if (activeAccounts.length === 0) {
+    if (!showEmptyNotice) return null
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="bank-accounts-empty-notice">
+        No tenés cuentas bancarias cargadas: este gasto se va a guardar con su forma de
+        pago, pero no va a aparecer en la conciliación bancaria.
+      </p>
+    )
+  }
 
+  const selectId = "bank-account-destination"
   return (
     <div className="flex flex-col gap-2">
-      <Label className="text-foreground text-sm">
-        Cuenta bancaria <span className="text-muted-foreground font-normal">(opcional)</span>
+      <Label htmlFor={selectId} className="text-foreground text-sm">
+        Cuenta bancaria{" "}
+        <span className="text-muted-foreground font-normal">
+          {required ? "(obligatorio)" : "(opcional)"}
+        </span>
       </Label>
       <Select
-        value={value ?? "__default__"}
+        value={value ?? (required ? "" : "__default__")}
         onValueChange={(v) => onChange(v === "__default__" ? null : v)}
         disabled={isLoading}
       >
-        <SelectTrigger className={className ?? "bg-background border-border text-foreground"}>
-          <SelectValue placeholder="Usar el destino configurado" />
+        <SelectTrigger id={selectId} className={className ?? "bg-background border-border text-foreground"}>
+          <SelectValue placeholder={required ? "Elegí la cuenta de la que sale el dinero" : "Usar el destino configurado"} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="__default__">Usar el destino configurado</SelectItem>
+          {!required && <SelectItem value="__default__">Usar el destino configurado</SelectItem>}
           {activeAccounts.map((b) => {
             const AccountIcon = getAccountKindIcon(b.accountKind)
             return (
@@ -215,8 +309,9 @@ export function BankAccountDestinationSelect({
         </SelectContent>
       </Select>
       <p className="text-xs text-muted-foreground">
-        Registra el movimiento en la cuenta bancaria elegida. Sin elegir ninguna, se usa el destino
-        configurado en la forma de pago — si tampoco tiene uno, no se registra ningún movimiento.
+        {required
+          ? "El egreso se registra en la cuenta elegida y queda pendiente de conciliar."
+          : "Registra el movimiento en la cuenta bancaria elegida. Sin elegir ninguna, se usa el destino configurado en la forma de pago — si tampoco tiene uno, no se registra ningún movimiento."}
       </p>
     </div>
   )

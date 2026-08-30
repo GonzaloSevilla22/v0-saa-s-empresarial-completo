@@ -91,7 +91,11 @@ async function fetchPurchasesRows(supabase: any, dateFrom: string) {
 async function fetchExpensesRows(supabase: any, dateFrom: string) {
   const { data } = await supabase
     .from('expenses')
-    .select('date, amount, category, description, currency, branch:branches(name)')
+    // gastos-forma-pago (task 11.5b): el nombre de la forma de pago se
+    // resuelve con un LEFT JOIN al catálogo, SIN filtrar is_active/deleted_at
+    // — una forma dada de baja tiene que seguir nombrándose en los gastos
+    // históricos que la usaron.
+    .select('date, amount, category, description, currency, branch:branches(name), payment_method:payment_methods(name)')
     .gte('date', dateFrom)
     .order('date', { ascending: false })
     .limit(10000)
@@ -99,6 +103,9 @@ async function fetchExpensesRows(supabase: any, dateFrom: string) {
     fecha:       (r.date as string)?.split('T')[0] ?? r.date,
     categoria:   r.category,
     descripcion: r.description,
+    // Mismo literal que muestra el badge del listado y que exporta el CSV
+    // local de /gastos: una celda vacía no se distingue de un dato faltante.
+    forma_pago:  ((r.payment_method as Record<string, unknown>)?.name as string) ?? 'Sin especificar',
     monto:       r.amount,
     moneda:      r.currency,
     sucursal:    ((r.branch as Record<string, unknown>)?.name as string) ?? 'Principal',
@@ -254,7 +261,7 @@ Deno.serve(async (req) => {
         csvText = rowsToCsv(['fecha', 'producto', 'cantidad', 'precio_unit', 'total', 'moneda', 'sucursal'], rows)
       } else if (exportType === 'expenses_csv') {
         const rows = await fetchExpensesRows(supabase, dateFrom)
-        csvText = rowsToCsv(['fecha', 'categoria', 'descripcion', 'monto', 'moneda', 'sucursal'], rows)
+        csvText = rowsToCsv(['fecha', 'categoria', 'descripcion', 'forma_pago', 'monto', 'moneda', 'sucursal'], rows)
       } else {
         // stock_csv
         const rows = await fetchStockRows(supabase)

@@ -113,10 +113,14 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 # también deben salir en 7807, no en el shape default de Starlette.
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    # gastos-forma-pago (D19): un `ProblemHTTPException` trae el código de
+    # negocio y el campo ofensor (los overrides de ERRCODE por endpoint los
+    # necesitan); una `HTTPException` plana sigue saliendo como antes.
     return problem_response(
         status=exc.status_code,
         detail=str(exc.detail),
-        code="http_error",
+        code=getattr(exc, "code", None) or "http_error",
+        field=getattr(exc, "field", None),
         headers={**cors_error_headers(request), **(exc.headers or {})},
     )
 

@@ -79,6 +79,8 @@ El sistema SHALL registrar un contra-movimiento de tipo `expense_reversal` con i
 
 El contra-movimiento SHALL registrarse contra la **sesión abierta actual de la misma caja**, con el mismo criterio que ya rige para el borrado de una venta en efectivo. Si no existe ninguna sesión abierta en esa caja, el borrado completo SHALL rechazarse con el código de error `P0426`, indicando que hay que abrir la caja para poder borrar el gasto.
 
+La compensación SHALL dispararse por la **existencia** de un movimiento de caja del gasto y SHALL NOT depender del signo de ese movimiento: el importe del contra-movimiento es el opuesto exacto de lo posteado. Condicionar el disparo al signo esperado haría que un movimiento con el signo contrario —llegado por cualquier camino— se saltee la compensación entera sin levantar ningún error.
+
 #### Scenario: Gasto con movimiento de caja y sesión abierta
 
 - **GIVEN** un gasto que descontó de la caja y una sesión abierta en esa misma caja
@@ -100,6 +102,13 @@ El contra-movimiento SHALL registrarse contra la **sesión abierta actual de la 
 - **WHEN** se intenta borrar el gasto
 - **THEN** la operación es rechazada con `P0426`
 - **AND** el gasto sigue existiendo y ningún libro se altera
+
+#### Scenario: El disparo de la compensación no depende del signo
+
+- **GIVEN** un gasto cuyo movimiento de caja quedó registrado con el signo contrario al esperado
+- **WHEN** se borra el gasto
+- **THEN** la caja recibe igual su contra-movimiento por el importe opuesto
+- **AND** el borrado no procede sin compensar
 
 #### Scenario: Gasto sin movimiento de caja
 

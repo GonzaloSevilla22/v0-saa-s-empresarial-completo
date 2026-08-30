@@ -171,6 +171,10 @@ export type CashMovementType =
   | "advance"
   | "withdrawal"
   | "sale_reversal"
+  // gastos-forma-pago (D9): contra-partida automática del egreso por gasto,
+  // espejo de `sale_reversal` en FAMILIA (Reversas) y opuesto en SIGNO
+  // (repone plata, así que es ingreso en backend/schemas/cash.py).
+  | "expense_reversal"
   | "adjustment"
 
 /**
@@ -459,6 +463,19 @@ export interface Expense {
   branchId?: string | null
   /** cost-center-dimension: optional analytic dimension (V2.5). */
   costCenterId?: string | null
+  // ── gastos-forma-pago ─────────────────────────────────────────────────────
+  /** Forma de pago imputada del catálogo. null = "Sin especificar" (D7). */
+  paymentMethodId?: string | null
+  /** Nombre resuelto por el BACKEND (LEFT JOIN al catálogo), no por un Map en cliente. */
+  paymentMethodName?: string | null
+  paymentMethodKind?: PaymentMethodKind | null
+  /** D11: hay movimiento de caja o bancario del gasto → la edición es P0423. */
+  isPaymentLocked?: boolean
+  /** D18: separados para que el diálogo de borrado enumere qué libro compensa. */
+  hasCashMovement?: boolean
+  hasBankMovement?: boolean
+  /** D8: hay movimiento de caja y NO hay sesión abierta en esa caja → el borrado sería P0426. */
+  isDeleteBlocked?: boolean
 }
 
 // ── cost-center-dimension (V2.5 Finanzas) ────────────────────────────────────
@@ -570,6 +587,8 @@ export interface PaymentMethodReportRow {
   isActive: boolean
   totalSold: number
   totalPurchased: number
+  /** gastos-forma-pago (D14): gastos del período imputados a esta forma de pago. */
+  totalSpent: number
   operationCount: number
 }
 

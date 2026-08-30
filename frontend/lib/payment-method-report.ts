@@ -24,6 +24,8 @@ export interface PaymentMethodReportRawRow {
   is_active?: boolean | null
   total_sold?: string | number | null
   total_purchased?: string | number | null
+  /** gastos-forma-pago (D14): 8ª columna de rpc_payment_method_report. */
+  total_spent?: string | number | null
   operation_count?: string | number | null
 }
 
@@ -41,6 +43,8 @@ export function mapPaymentMethodReportRow(raw: PaymentMethodReportRawRow): Payme
     isActive:        raw.is_active ?? true,
     totalSold:       toNumber(raw.total_sold),
     totalPurchased:  toNumber(raw.total_purchased),
+    // Una lectura de 7 columnas (backend viejo) degrada a 0, no a NaN.
+    totalSpent:      toNumber(raw.total_spent),
     operationCount:  toNumber(raw.operation_count),
   }
 }
@@ -48,6 +52,7 @@ export function mapPaymentMethodReportRow(raw: PaymentMethodReportRawRow): Payme
 export interface PaymentMethodReportTotals {
   totalSold: number
   totalPurchased: number
+  totalSpent: number
   operationCount: number
 }
 
@@ -60,8 +65,9 @@ export function sumPaymentMethodReport(rows: PaymentMethodReportRow[]): PaymentM
     (acc, r) => ({
       totalSold:      acc.totalSold      + r.totalSold,
       totalPurchased: acc.totalPurchased + r.totalPurchased,
+      totalSpent:     acc.totalSpent     + r.totalSpent,
       operationCount: acc.operationCount + r.operationCount,
     }),
-    { totalSold: 0, totalPurchased: 0, operationCount: 0 },
+    { totalSold: 0, totalPurchased: 0, totalSpent: 0, operationCount: 0 },
   )
 }

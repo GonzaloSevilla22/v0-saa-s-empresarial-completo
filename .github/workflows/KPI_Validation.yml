@@ -377,6 +377,58 @@ jobs:
           # reaplicaciones directas seguidas, sin error y sin cambio de
           # fingerprint de cuerpos/ACLs/triggers/comments.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261014000001_sucursal_guard_vaciado_auditoria.sql
+          # gastos-forma-pago (2026-08-29): ÚLTIMO eslabón de la cadena, y acá
+          # el orden es una PRECONDICIÓN DURA, no una convención — más fuerte
+          # todavía que en el eslabón de tenancy-guard-caja-sesion.
+          #   1. Esta migración amplía el CHECK cash_movements_movement_type_
+          #      check de 7 a 8 tipos (agrega 'expense_reversal', el contra-
+          #      movimiento de caja al borrar un gasto en efectivo, D8) con el
+          #      molde DROP CONSTRAINT + ADD CONSTRAINT. DOS eslabones de más
+          #      arriba de esta misma cadena vuelven a escribir ESE MISMO
+          #      constraint con SU lista vigente en su fecha: 20261005000001
+          #      (delete-guard-ledgers) lo re-angosta a 6 tipos y
+          #      20261006000001 (banco-caja-historial-ajustes) a 7 — ninguno
+          #      de los dos conoce 'expense_reversal'. Puesta antes de ellos,
+          #      la cadena le BORRARÍA el octavo tipo en silencio y el gate de
+          #      abajo fallaría por orden, no por regresión: el borrado de un
+          #      gasto en efectivo reventaría con violación de CHECK. Es el
+          #      mismo mecanismo "phantom regression" ya documentado seis
+          #      veces en este paso, pero sobre un CHECK de tabla en vez de
+          #      sobre cuerpos de función o ACLs.
+          #   2. Esta migración además hace DROP+CREATE de
+          #      rpc_payment_method_report para agregarle la columna
+          #      total_spent (7 -> 8 columnas del RETURNS TABLE, D14). La
+          #      ÚNICA otra migración del repo que declara esa función es
+          #      20260928000001, que está en esta cadena y la crea con la
+          #      firma vieja de 7 columnas — un CREATE OR REPLACE con distinto
+          #      RETURNS TABLE es 42P13 (cannot change return type), no un
+          #      overload. 🛑 Ese choque NO ocurre, y está MEDIDO, no supuesto
+          #      (task 1.5, corrida DESPUÉS de aplicar esta migración): el
+          #      reapply de 20260928000001 aborta en su LÍNEA 1838 — el gate
+          #      ANTI-OVERLOAD de su sección 9, cuyo fallo ya se tolera arriba
+          #      por el marcador literal — y el CREATE de
+          #      rpc_payment_method_report vive en su LÍNEA 1850, o sea 12
+          #      líneas DESPUÉS: con ON_ERROR_STOP=1 las secciones 10-12 no
+          #      llegan a ejecutarse nunca. Si un cambio futuro moviera ese
+          #      gate después del CREATE (o lo quitara), el reapply fallaría
+          #      con 42P13 y habría que ampliar la tolerancia a ese SQLSTATE
+          #      de forma ACOTADA (grep del marcador, como ya se hace) y
+          #      reconverger reaplicando 20261015000001 — precedente
+          #      documentado más arriba para 20260930000001.
+          # Sin conflicto de firma/overload por sí misma: las 3 RPCs de gasto
+          # (rpc_create_expense / rpc_update_expense / rpc_delete_expense) son
+          # firmas NUEVAS que ninguna migración previa declara, y el archivo
+          # trae sus propios gates ANTI-OVERLOAD (secciones 5 y 6) que fallan
+          # el paso si quedara más de una definición de cualquiera de las 4
+          # funciones — así que la reconvergencia no es una promesa sino una
+          # aserción. Re-appliable por construcción (ADD COLUMN IF NOT EXISTS,
+          # CREATE INDEX IF NOT EXISTS, DROP+ADD del CHECK, CREATE OR REPLACE
+          # de las RPCs nuevas, DROP+CREATE del reporte con sus 3 sentencias
+          # de ACL) — verificado en local con la huella md5 de todo lo que la
+          # migración crea o toca (4 cuerpos + proacl + COMMENT de cada uno,
+          # la columna, el índice, el CHECK con su COMMENT, la FK y el conteo
+          # de definiciones): IDÉNTICA tras 0, 1 y 2 reaplicaciones.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261015000001_gastos_forma_pago.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -885,3 +937,50 @@ jobs:
       # verde sobre la misma base.
       - name: Run sucursal-guard-vaciado-auditoria gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_sucursal_guard_vaciado.sql
+
+      # gastos-forma-pago (2026-08-29): el gasto gana forma de pago y, con
+      # ella, impacto real en caja y en banco — las tres RPCs nuevas
+      # (rpc_create_expense / rpc_update_expense / rpc_delete_expense) son
+      # SECURITY DEFINER y mueven dinero, así que el gate cubre las dos patas
+      # y sus guards, sobre 3 tenants sintéticos (A opera, B ajeno, C sin
+      # cuentas bancarias) más un usuario D sin rol de escritura:
+      #   - alta en efectivo con opt-in que descuenta caja (predicado copiado
+      #     verbatim de rpc_create_sale_operation_v2), con las 4 condiciones
+      #     del opt-in rechazadas por P0422 y CERO filas nuevas (atomicidad),
+      #     más invarianza por zona horaria (UTC vs America/Argentina/Mendoza);
+      #   - alta por transferencia/tarjeta que escribe bank_movements por
+      #     _pay_register_operation_bank_movement (copiado de
+      #     rpc_create_purchase_operation), naciendo unreconciled y enganchando
+      #     con el predicado literal de BankReconciliationRepository.suggestions;
+      #   - alta sin forma de pago = no-op en los dos libros (los 175 gastos
+      #     históricos siguen siendo el caso mayoritario, D7);
+      #   - guard P0412 de cuenta bancaria obligatoria (OQ-2) en sus 3 casos, y
+      #     rechazo de kind='credit' con P0400 (D3, el gasto a crédito es una
+      #     compra a proveedor);
+      #   - inmutabilidad P0423 con mensajes distinguibles por pata (caja /
+      #     bancario) y contrato tri-estado de la edición;
+      #   - borrado que compensa las DOS patas (expense_reversal POSITIVO en
+      #     caja con el guard de signo INVERTIDO respecto de la venta, y
+      #     transfer_in espejo en banco) y P0426 cuando no hay ninguna sesión
+      #     abierta en esa caja, con su control negativo complementario;
+      #   - sesión de caja de OTRA sucursal / otra organización rechazada sin
+      #     tocar el arqueo de la víctima;
+      #   - total_spent del reporte de formas de pago con números exactos sobre
+      #     una ventana propia y vacía, y no-regresión de total_sold /
+      #     total_purchased;
+      #   - sección (7): los 4 derivados de lectura del repositorio
+      #     (has_cash_movement / has_bank_movement / is_payment_locked /
+      #     is_delete_blocked) evaluados sobre gastos reales y comparados
+      #     contra el rechazo REAL del guard sobre el mismo gasto — un test de
+      #     pytest exige además que los 4 predicados aparezcan idénticos en la
+      #     migración, en expense_repository.py y en este archivo.
+      # Controles negativos incluidos por diseño (matriz de evasión ejecutada:
+      # el guard de signo invertido y los derivados cableados fueron saboteados
+      # a mano y el gate los atrapó por dos caminos independientes cada uno).
+      # -v ON_ERROR_STOP=1 obligatorio: sin la flag psql imprime los RAISE
+      # EXCEPTION y sale 0, o sea que los asserts fallidos se verían verdes.
+      # Cleanup por email verificado (incluye operation_idempotency de
+      # event_consumer y email_logs, que no cuelgan del anchor): corre dos
+      # veces seguidas en verde sobre la misma base y no deja residuos.
+      - name: Run gastos-forma-pago gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_gastos_forma_pago.sql

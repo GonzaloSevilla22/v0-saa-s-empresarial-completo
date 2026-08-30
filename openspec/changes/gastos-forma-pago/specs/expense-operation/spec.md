@@ -40,6 +40,44 @@ El campo SHALL ser opcional: un gasto sin forma de pago es válido, queda en `NU
 - **THEN** todos conservan la forma de pago en nulo
 - **AND** ninguno recibe una imputación inventada por backfill
 
+### Requirement: El importe de un gasto es estrictamente positivo
+
+El sistema SHALL rechazar con el código de error `P0400` el alta y la edición de un gasto cuyo importe no sea estrictamente mayor que cero, con el mismo criterio y el mismo código que ya usan el alta de venta y el alta de compra, y SHALL hacerlo en el servidor aunque la superficie ya lo limite.
+
+El importe SHALL ser positivo también a nivel de persistencia: la tabla de gastos SHALL tener una restricción que lo garantice para todo camino de escritura, incluidos los que no pasan por las operaciones de gasto.
+
+El motivo SHALL entenderse como una **precondición de los efectos en libros**: el signo del movimiento lo pone la operación —la caja recibe el importe en negativo y el banco un egreso—, de modo que un importe negativo invertiría el efecto en los dos libros sin que ningún guard posterior lo advierta, y dejaría la compensación del borrado sin disparar.
+
+En la edición, la ausencia del importe SHALL seguir significando "no cambia", y SHALL NOT interpretarse como un importe inválido.
+
+#### Scenario: Alta de gasto con importe negativo
+
+- **WHEN** se intenta crear un gasto con importe negativo
+- **THEN** la operación es rechazada con `P0400`
+- **AND** no queda ninguna fila nueva en gastos
+- **AND** no se registra ningún movimiento de caja ni bancario
+
+#### Scenario: Alta de gasto con importe cero
+
+- **WHEN** se intenta crear un gasto con importe cero
+- **THEN** la operación es rechazada con `P0400`
+
+#### Scenario: Edición de un gasto a un importe no positivo
+
+- **WHEN** se intenta editar un gasto llevando su importe a cero o a un valor negativo
+- **THEN** la operación es rechazada con `P0400`
+- **AND** el gasto conserva su importe anterior
+
+#### Scenario: Escritura directa con importe no positivo
+
+- **WHEN** se intenta persistir un gasto con importe no positivo por un camino que no pasa por las operaciones de gasto
+- **THEN** la restricción de la tabla lo rechaza
+
+#### Scenario: El importe válido sigue entrando
+
+- **WHEN** se crea un gasto con un importe positivo
+- **THEN** el gasto se persiste y sus efectos en libros se registran normalmente
+
 ### Requirement: Cuenta corriente no es un camino válido para un gasto
 
 El sistema SHALL rechazar el alta de un gasto cuya forma de pago tenga `kind = 'credit'`, con el código de error `P0400`, porque un gasto no tiene contraparte con cuenta corriente: `public.expenses` no referencia ni cliente ni proveedor y no existe cuenta alguna que cargar.
@@ -74,11 +112,13 @@ Este requisito cumple RN-93 para el documento de gasto, que hasta ahora era el �
 - **WHEN** se crea un gasto informando una sucursal activa de la propia cuenta
 - **THEN** el gasto queda persistido con esa sucursal
 
-#### Scenario: El reporte por sucursal empieza a ver los gastos
+#### Scenario: El gasto queda dentro del predicado de agregación por sucursal
 
 - **GIVEN** un gasto nuevo imputado a una sucursal
-- **WHEN** se consulta el reporte por sucursal del período
-- **THEN** el gasto aparece atribuido a esa sucursal
+- **WHEN** se agregan los gastos del período por sucursal
+- **THEN** el gasto queda atribuido a esa sucursal
+
+> El read-model del reporte por sucursal tiene un defecto **pre-existente y ajeno a este cambio** (una referencia ambigua a la columna de sucursal) que lo hace fallar para todo llamador, así que esa pantalla todavía no puede mostrar ningún gasto. Este requisito cubre la atribución del dato, que es lo que este cambio entrega; arreglar ese read-model queda como cambio propio.
 
 #### Scenario: Los gastos históricos siguen siendo válidos sin sucursal
 
@@ -293,6 +333,8 @@ Ningún campo de contexto SHALL perderse por omisión, ni en el alta ni en la ed
 
 El valor reimputado SHALL pertenecer a la misma cuenta y estar activo, con el mismo criterio de rechazo que el alta.
 
+Reenviar el valor que el gasto **ya tiene** SHALL entenderse como preservación y SHALL NOT validarse como una reimputación: la superficie de edición envía siempre la forma de pago vigente y ofrece a propósito las formas dadas de baja para que un gasto histórico siga nombrando la suya, de modo que exigir que esté activa volvería inoperable todo gasto imputado a una forma de pago desactivada después. La pertenencia a la cuenta SHALL verificarse igual en los dos casos.
+
 #### Scenario: Editar el importe conserva la forma de pago y el centro de costo
 
 - **GIVEN** un gasto sin movimientos, con forma de pago y centro de costo imputados
@@ -314,6 +356,19 @@ El valor reimputado SHALL pertenecer a la misma cuenta y estar activo, con el mi
 - **WHEN** un usuario crea un gasto eligiendo una sucursal en el formulario
 - **THEN** el gasto queda persistido con esa sucursal
 - **AND** el valor no se pierde entre el formulario y la base
+
+#### Scenario: Editar un gasto imputado a una forma de pago desactivada
+
+- **GIVEN** un gasto sin dinero posteado, imputado a una forma de pago que después se desactivó
+- **WHEN** se edita cualquier otro campo del gasto reenviando su forma de pago vigente
+- **THEN** la edición se aplica
+- **AND** el gasto conserva su imputación histórica
+
+#### Scenario: Reimputar a otra forma de pago inactiva sigue rechazándose
+
+- **WHEN** se edita un gasto reimputándolo a una forma de pago distinta de la vigente que está inactiva
+- **THEN** la operación es rechazada
+- **AND** el gasto conserva su forma de pago anterior
 
 #### Scenario: Reimputar a un valor de otra cuenta es rechazado
 
@@ -369,6 +424,11 @@ Toda la superficie SHALL verificarse en escritorio y en móvil, y en tema claro 
 - **WHEN** un usuario abre el listado de gastos
 - **THEN** cada gasto muestra su forma de pago, y los gastos sin imputar la muestran como "Sin especificar"
 - **AND** el listado se puede filtrar por forma de pago
+
+#### Scenario: El buscador declara los campos que busca
+
+- **WHEN** un usuario mira el buscador del listado de gastos
+- **THEN** el texto de ayuda nombra los mismos campos que el filtro del servidor busca
 
 #### Scenario: Presentación responsive y por tema
 

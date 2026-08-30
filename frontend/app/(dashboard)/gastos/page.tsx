@@ -134,9 +134,36 @@ export default function GastosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
-        <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
+      {/* Las tres acciones de datos masivos (importar y los dos caminos de
+          exportación) viven en la fila del título; abajo queda sólo el CTA.
+          Medido a 1440px con el sidebar desplegado: el contenedor de controles
+          reparte 1136px, de los que el grupo de filtros toma 875px rígidos
+          (buscador w-64 + fechas + centro w-56 + formas w-56), y le deja 249px
+          a una barra que necesitaba 456px. Ese déficit de 207px era lo que la
+          quebraba en cuatro renglones escalonados, con el CTA primario último y
+          aislado; mover un solo botón bajaba a tres y no alcanzaba. Con las tres
+          acciones arriba, abajo quedan ~190px de contador + "Nuevo gasto" y la
+          barra entra en una fila. El ExportButton arriba, además, es el mismo
+          lugar que le da /ventas (ventas/page.tsx L60-66). */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Gastos</h1>
+          <p className="text-sm text-muted-foreground mt-1">Control de gastos operativos</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" className="border-border text-foreground"
+            onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4 mr-1" />Importar CSV
+          </Button>
+          {/* gastos-forma-pago (11.5): este botón NO existía — `handleExport`
+              estaba escrito y sin montar en ninguna parte, mientras /clientes,
+              /proveedores y /ventas sí lo exponen con este mismo markup. Se
+              monta acá para que la columna nueva tenga por dónde salir. */}
+          <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
+            <Download className="h-4 w-4 mr-1" />Exportar
+          </Button>
+          <ExportButton exportType="expenses_csv" />
+        </div>
       </div>
 
       {isAdmin && (
@@ -226,27 +253,18 @@ export default function GastosPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Sólo el contador y el CTA: ~190px, que entran en los 249px que deja
+            el grupo de filtros a 1440px. `shrink-0` evita que el CTA se comprima
+            si algún filtro crece. */}
+        <div className="flex shrink-0 items-center gap-2">
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
             {isLoading
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Cargando...</span>
               : `${meta.totalCount} gasto${meta.totalCount !== 1 ? "s" : ""}`
             }
           </span>
-          <Button variant="outline" size="sm" className="border-border text-foreground"
-            onClick={() => setImportOpen(true)}>
-            <Upload className="h-4 w-4 mr-1" />Importar CSV
-          </Button>
-          {/* gastos-forma-pago (11.5): este botón NO existía — `handleExport`
-              estaba escrito y sin montar en ninguna parte, mientras /clientes,
-              /proveedores y /ventas sí lo exponen con este mismo markup. Se
-              monta acá para que la columna nueva tenga por dónde salir. */}
-          <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
-            <Download className="h-4 w-4 mr-1" />Exportar
-          </Button>
-          <ExportButton exportType="expenses_csv" />
           {isWriter && (
-            <Button onClick={() => setAddOpen(true)} size="sm">
+            <Button onClick={() => setAddOpen(true)} size="sm" className="shrink-0">
               <Plus className="h-4 w-4 mr-1" />Nuevo gasto
             </Button>
           )}

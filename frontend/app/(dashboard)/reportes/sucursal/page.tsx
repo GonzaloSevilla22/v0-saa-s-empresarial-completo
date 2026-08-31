@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { startOfMonth, subDays } from "date-fns"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { useAuth } from "@/contexts/auth-context"
 import { createClient } from "@/lib/supabase/client"
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
@@ -65,6 +66,12 @@ function PlanGateFallback() {
 
 export default function SucursalReportPage() {
   const { limits, isLoading: gateLoading } = usePlanLimits()
+  // qa-integral-modulos (G4/H4): el tenant se resuelve por el canon de
+  // account_members (auth-context) — la lectura vieja de
+  // user_metadata.account_id no la escribe NADA en ningún entorno, así que la
+  // pantalla devolvía [] en silencio para todos los usuarios desde C-06.
+  const { user } = useAuth()
+  const accountId = user?.accountId ?? null
 
   const today = new Date()
   const [dateFrom, setDateFrom] = useState<Date>(startOfMonth(today))
@@ -72,17 +79,12 @@ export default function SucursalReportPage() {
 
   const minDate = subDays(today, limits?.historyDays ?? 30)
 
-  const { data: rows = [], isLoading } = useQuery<BranchReportRow[]>({
-    queryKey: ["branchReport", toISO(dateFrom), toISO(dateTo)],
+  const { data: rows = [], isLoading, isError } = useQuery<BranchReportRow[]>({
+    queryKey: ["branchReport", accountId, toISO(dateFrom), toISO(dateTo)],
     queryFn: async () => {
       const supabase = createClient()
-      const { data: session } = await supabase.auth.getSession()
-      const accountId = (session.session?.user.user_metadata?.account_id as string | undefined) ?? null
-
-      if (!accountId) return []
-
       const { data, error } = await supabase.rpc("rpc_branch_report", {
-        p_account_id: accountId,
+        p_account_id: accountId!,
         p_start:      toISO(dateFrom),
         p_end:        toISO(dateTo),
       })
@@ -96,7 +98,7 @@ export default function SucursalReportPage() {
         operation_count: Number(r.operation_count ?? 0),
       }))
     },
-    enabled: !!limits?.hasBranchesModule,
+    enabled: !!limits?.hasBranchesModule && !!accountId,
   })
 
   if (gateLoading) return null
@@ -145,6 +147,13 @@ export default function SucursalReportPage() {
           {isLoading ? (
             <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">
               Cargando...
+            </div>
+          ) : isError ? (
+            // qa-integral-modulos (G4/H4): rama de error VISIBLE — sin ella,
+            // un fallo de la RPC quedaba tapado como "Sin datos" en silencio.
+            <div className="h-56 flex items-center justify-center px-4 text-center text-sm text-destructive">
+              No se pudo cargar el reporte por sucursal. Probá de nuevo en unos
+              segundos; si sigue fallando, avisanos.
             </div>
           ) : rows.length === 0 ? (
             <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">

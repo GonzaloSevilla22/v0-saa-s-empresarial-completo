@@ -296,6 +296,13 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
             )}
           </div>
 
+          {/* qa-integral-modulos G2 (H2/2.7): las columnas en px fijos (84 +
+              140 + 96 + gaps) exceden el ancho móvil — el desborde ahora vive
+              en este contenedor con scroll horizontal propio, no en la página
+              (el hijo display:table del ScrollArea de Radix dimensionaba las
+              filas a max-content y estiraba el documento entero). */}
+          <div className="overflow-x-auto">
+          <div className="min-w-[420px]">
           {/* Cabecera de tabla */}
           <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-muted/10">
             <span className="w-[84px]  text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Fecha</span>
@@ -329,6 +336,8 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
               )}
             </div>
           </ScrollArea>
+          </div>
+          </div>
 
           {hasMore && (
             <div className="flex items-center justify-center px-4 py-3 border-t border-border">

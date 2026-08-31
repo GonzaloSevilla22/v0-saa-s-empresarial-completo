@@ -404,6 +404,11 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
             )}
           </div>
 
+          {/* qa-integral-modulos G2 (H2/2.7): mismo tratamiento que
+              LedgerMovementsPanel — columnas en px fijos scrollean dentro del
+              panel, no estiran la página. */}
+          <div className="overflow-x-auto">
+          <div className="min-w-[420px]">
           {/* Table header */}
           <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-muted/10">
             <span className="w-[84px]  text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Fecha</span>
@@ -435,6 +440,8 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
               )}
             </div>
           </ScrollArea>
+          </div>
+          </div>
 
           {/* Load more — visible for any active filter (item 10: server filters correctly) */}
           {hasMore && !search && (

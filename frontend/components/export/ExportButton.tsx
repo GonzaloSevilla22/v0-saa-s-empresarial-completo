@@ -128,9 +128,14 @@ export function ExportButton({
             ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
             : <Download className="h-4 w-4 mr-1.5" />
           }
-          {label}
+          {/* qa-integral-modulos G2 (H2/2.5): colapso responsive de la
+              etiqueta — "Exportar inventario CSV (50 restantes)" medía hasta
+              295 px de una pieza; mismo patrón hidden sm:inline que sus
+              hermanos de barra. */}
+          <span className="hidden sm:inline">{label}</span>
+          <span className="sm:hidden">Exportar</span>
           {quotaText && (
-            <span className="ml-1.5 text-xs text-muted-foreground">({quotaText})</span>
+            <span className="ml-1.5 text-xs text-muted-foreground hidden sm:inline">({quotaText})</span>
           )}
         </Button>
       </TooltipTrigger>

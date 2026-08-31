@@ -356,7 +356,9 @@ export function ProductCatalog({
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* qa-integral-modulos G2 (H2/2.4): flex-wrap — la barra sin wrap
+            empujaba el ancho de la página en móvil. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"

@@ -330,8 +330,15 @@ export function PurchaseOperationsList({
                     <div className="flex items-center gap-2 min-w-0">
                       {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
+                      {/* qa-integral-modulos G2 (H2/2.6): primer producto +
+                          "+N más" — el join de TODOS los nombres crecía hasta
+                          518 px sin que el truncate se active (el espejo de
+                          ventas, sale-operations-list.tsx, ya lo hacía bien). */}
                       <span className="text-sm font-medium text-foreground truncate">
-                        {op.items.map((i) => i.productName).join(" · ")}
+                        {op.items[0]?.productName}
+                        {op.items.length > 1 && (
+                          <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                        )}
                       </span>
                     </div>
                     <span className="text-sm font-bold text-cyan-400 tabular-nums shrink-0">{formatMoney(op.total)}</span>
@@ -357,8 +364,13 @@ export function PurchaseOperationsList({
                   <div className="flex items-center gap-2 min-w-0">
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
+                    {/* qa-integral-modulos G2 (H2/2.6): mismo patrón que el
+                        espejo de ventas también en desktop. */}
                     <span className="text-sm font-medium text-foreground truncate">
-                      {op.items.map((i) => i.productName).join(" · ")}
+                      {op.items[0]?.productName}
+                      {op.items.length > 1 && (
+                        <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                      )}
                     </span>
                     {op.items[0]?.costCenterName && (
                       <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">

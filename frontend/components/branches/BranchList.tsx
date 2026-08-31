@@ -103,7 +103,9 @@ export function BranchList({ limits }: BranchListProps) {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              {/* qa-integral-modulos G2 (H2/2.4): flex-wrap y sin shrink-0 —
+                  los 3 botones de fila empujaban la página a 485 px en móvil. */}
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 {branch.status === "closed" ? (
                   <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-600">Cerrada</Badge>
                 ) : (

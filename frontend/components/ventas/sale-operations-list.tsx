@@ -492,7 +492,9 @@ export function SaleOperationsList({
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center justify-between mt-3" onClick={(e) => e.stopPropagation()}>
+                  {/* qa-integral-modulos G2 (H2/2.4): flex-wrap — la fila
+                      Facturar/Comprobante/WhatsApp medía 399 px de mínimo. */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
                     {/* facturar-venta-manual (D7):
                         Paso 1: promote → SalesOrder (si aún no está promovida)
                         Paso 2: EmitInvoiceButton sobre la SalesOrder materializada

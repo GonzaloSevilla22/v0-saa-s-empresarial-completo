@@ -49,12 +49,14 @@ export default function ComprasPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
+      {/* qa-integral-modulos G2 (H2/2.4): flex-wrap — el encabezado sin wrap
+          medía 479 px de mínimo incluso con cero compras cargadas. */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Compras</h1>
           <p className="text-sm text-muted-foreground mt-1">Gestión de compras a proveedores</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportType="purchases_csv" />
           <InvoiceAIButton onPurchasesCreated={refetch} />
         </div>

@@ -25,7 +25,10 @@ export default async function DashboardLayout({
       <AppSidebar />
       <SidebarInset>
         <BreadcrumbNav />
-        <div className="flex-1 overflow-auto p-4 md:p-6">
+        {/* qa-integral-modulos G2 (H2): min-w-0 acá también — este div tampoco
+            cortaba la cadena min-width:auto y su overflow-auto era letra
+            muerta en el eje horizontal. Espejo en dev-harness/shell. */}
+        <div className="flex-1 min-w-0 overflow-auto p-4 md:p-6">
           {children}
         </div>
       </SidebarInset>

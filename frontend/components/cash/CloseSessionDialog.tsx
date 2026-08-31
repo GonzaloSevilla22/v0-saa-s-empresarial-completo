@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Loader2, X, AlertCircle, CheckCircle2 } from "lucide-react"
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -9,13 +9,19 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 interface CloseSessionDialogProps {
+  /**
+   * Controlado desde la página (G6/H6): el diálogo vive FUERA del ternario
+   * de sesión para que el panel de arqueo sobreviva al refetch de
+   * current-session (mismo patrón que LedgerAdjustmentDialog).
+   */
+  open: boolean
+  onOpenChange: (open: boolean) => void
   /** Expected balance = opening + Σ movements (shown read-only to the cashier) */
   expectedBalance: number
   onClose: (countedBalance: number) => Promise<void>
@@ -23,11 +29,12 @@ interface CloseSessionDialogProps {
 }
 
 export function CloseSessionDialog({
+  open,
+  onOpenChange,
   expectedBalance,
   onClose,
   isLoading,
 }: CloseSessionDialogProps) {
-  const [open, setOpen] = useState(false)
   const [counted, setCounted] = useState<string>("")
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{
@@ -44,7 +51,7 @@ export function CloseSessionDialog({
 
   function handleOpenChange(v: boolean) {
     if (!v) reset()
-    setOpen(v)
+    onOpenChange(v)
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -73,11 +80,6 @@ export function CloseSessionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="destructive" size="sm">
-          Cerrar caja
-        </Button>
-      </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Cierre de sesión de caja</DialogTitle>
@@ -143,7 +145,7 @@ export function CloseSessionDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => handleOpenChange(false)}
                 disabled={isLoading}
               >
                 Cancelar
@@ -197,7 +199,7 @@ export function CloseSessionDialog({
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={() => setOpen(false)}>Listo</Button>
+              <Button onClick={() => handleOpenChange(false)}>Listo</Button>
             </DialogFooter>
           </div>
         )}

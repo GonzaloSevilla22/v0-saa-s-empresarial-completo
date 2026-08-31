@@ -13,3 +13,5 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
 - `/dev-harness/popover` — G1: selector dentro de Dialog / Sheet / fuera de modal.
 - `/dev-harness/shell` — G2 + G13: SidebarProvider + SidebarInset con contenido
   ancho, trigger del menú y drawer móvil.
+- `/dev-harness/bell` — G5: campana de notificaciones (`NotificationBellView`)
+  con 15 notificaciones sintéticas + control sano de 3.

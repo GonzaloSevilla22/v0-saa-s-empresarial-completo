@@ -76,9 +76,12 @@
 
 ## 6. G6 — Arqueo autodestruido (H6) [MEDIUM]
 
-- [ ] 6.1 RED: test que cierra sesión con diferencia y resuelve el refetch de `current-session` a "sin sesión" — el panel de resultado debe seguir montado (hoy: se desmonta en 56–181 ms)
-- [ ] 6.2 GREEN: subir `<CloseSessionDialog>` fuera del ternario de `caja/page.tsx:216-232`, con estado `open` propio a nivel página (mismo patrón que `LedgerAdjustmentDialog` en L298); sin tocar `use-cash-session.ts`
-- [ ] 6.3 TRIANGULAR: arqueo exacto y con sobrante también persisten; "Listo" cierra el panel y la pantalla queda en "sin sesión abierta"
+- [x] 6.1 RED: test que cierra sesión con diferencia y resuelve el refetch de `current-session` a "sin sesión" — el panel de resultado debe seguir montado (hoy: se desmonta en 56–181 ms)
+  > **Evidencia (2026-08-31)**: `frontend/__tests__/pages/caja-page-arqueo-persist.test.tsx` — el mock de `useCloseSession` replica la carrera en su forma más cruel (al resolver la mutación, `current-session` YA es null = red rápida). RED ejecutado: 4/4 fallos pre-fix — "Faltante en caja" jamás aparece porque el diálogo se desmonta con el ternario.
+- [x] 6.2 GREEN: subir `<CloseSessionDialog>` fuera del ternario de `caja/page.tsx:216-232`, con estado `open` propio a nivel página (mismo patrón que `LedgerAdjustmentDialog` en L298); sin tocar `use-cash-session.ts`
+  > **Evidencia**: `CloseSessionDialog` pasa a controlado (`open`/`onOpenChange`, sin `DialogTrigger` interno — único consumidor verificado por grep); la página gana `closeDialogOpen` y monta el diálogo junto a `LedgerAdjustmentDialog`, fuera del ternario; el botón "Cerrar caja" dentro del ternario solo setea el estado. `use-cash-session.ts` intacto.
+- [x] 6.3 TRIANGULAR: arqueo exacto y con sobrante también persisten; "Listo" cierra el panel y la pantalla queda en "sin sesión abierta"
+  > **Evidencia**: 4/4 verdes post-fix — faltante ($37.200 visible con la pantalla ya en "sin sesión"), exacto ("Arqueo exacto — sin diferencia"), sobrante ("+$"), y "Listo" cierra dejando el formulario de apertura operable. `caja-page-preselection` (4) y `use-cash-session-close-idempotency` (2) sin regresión.
 - [ ] 6.4 Verificación visual: cierre real con faltante en local — el panel queda hasta que el usuario lo cierra, en ambos viewports
 
 ## 7. G7 — Toasts fantasma del export (H7) [MEDIUM]

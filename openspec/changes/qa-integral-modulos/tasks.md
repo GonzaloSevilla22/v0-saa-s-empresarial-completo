@@ -86,9 +86,12 @@
 
 ## 7. G7 — Toasts fantasma del export (H7) [MEDIUM]
 
-- [ ] 7.1 RED: test de `ExportButton` con la Edge Function fallando — el usuario ve un toast de error por `sonner` (hoy: nada, el Toaster de shadcn no está montado en ningún layout)
-- [ ] 7.2 GREEN: migrar las 5 ramas de `ExportButton.tsx` de `@/hooks/use-toast` a `sonner` (D5 — NO montar un segundo `<Toaster />`)
-- [ ] 7.3 TRIANGULAR: rama de éxito y rama de cuota agotada visibles; si `hooks/use-toast` queda sin consumidores, anotarlo como candidato de limpieza (no borrarlo acá)
+- [x] 7.1 RED: test de `ExportButton` con la Edge Function fallando — el usuario ve un toast de error por `sonner` (hoy: nada, el Toaster de shadcn no está montado en ningún layout)
+  > **Evidencia (2026-08-31)**: `frontend/__tests__/export-button-sonner.test.tsx` — contrato "el usuario ve el aviso" ≡ "se emite por sonner" (único Toaster montado, `app/layout.tsx`). RED ejecutado: 5/5 fallos pre-fix (las 5 ramas emitían al Toaster inexistente de shadcn).
+- [x] 7.2 GREEN: migrar las 5 ramas de `ExportButton.tsx` de `@/hooks/use-toast` a `sonner` (D5 — NO montar un segundo `<Toaster />`)
+  > **Evidencia**: las 5 ramas migradas (`toast.error`/`toast.success` con `description`, estilo del resto de la app); ningún `<Toaster />` nuevo montado.
+- [x] 7.3 TRIANGULAR: rama de éxito y rama de cuota agotada visibles; si `hooks/use-toast` queda sin consumidores, anotarlo como candidato de limpieza (no borrarlo acá)
+  > **Evidencia**: 5/5 verdes post-fix (EF caída, cuota agotada + invalidación del contador, éxito, sin sesión con `triggerExport` no llamado, excepción) + los 3 legacy de `export-button.test.tsx`. **`hooks/use-toast` NO queda huérfano**: siguen consumiéndolo `app/(dashboard)/exportaciones/page.tsx` (sus toasts de "regenerar" son igual de invisibles — mismo defecto H7, fuera del alcance declarado de este grupo), `components/ui/toaster.tsx` (el Toaster jamás montado) y el re-export de `hooks/index.ts` → **candidato de limpieza**: migrar exportaciones/page.tsx a sonner y retirar use-toast+toaster.tsx en un change chico.
 - [ ] 7.4 Verificación visual en `/ventas`, `/gastos` y `/compras`
 
 ## 8. G8 — Backend roto en silencio [MEDIUM]

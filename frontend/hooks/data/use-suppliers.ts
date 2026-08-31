@@ -39,6 +39,24 @@ function mapSupplier(s: SupplierApiRow): Supplier {
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
+ * qa-integral-modulos (G9/H14): detalle de un proveedor por id — espejo de
+ * useClient (use-clients.ts), nace acá (capa canónica) para que la cabecera
+ * de /proveedores/[id]/cuenta pueda nombrar al proveedor.
+ * GET /suppliers/{id} ya existe en backend/routers/suppliers.py.
+ */
+export function useSupplier(supplierId: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.suppliers.all(), "detail", supplierId ?? ""],
+    queryFn: async (): Promise<Supplier> => {
+      const data = await pythonClient.get<SupplierApiRow>(`/suppliers/${supplierId}`)
+      return mapSupplier(data)
+    },
+    enabled: !!supplierId,
+    staleTime: 60 * 1000,
+  })
+}
+
+/**
  * Returns suppliers list + mutations (add, update, delete) via Python API.
  */
 export function useSuppliers() {

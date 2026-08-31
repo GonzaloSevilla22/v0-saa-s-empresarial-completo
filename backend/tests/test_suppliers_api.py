@@ -447,7 +447,9 @@ async def test_delete_supplier_twice_second_call_is_404_not_crash(async_client, 
     404 en vez de reventar o soft-deletear dos veces."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
-    conn.fetchrow = AsyncMock(side_effect=[SUPPLIER_ROW, None])
+    # qa-integral-modulos (G9): el delete ahora consulta también el saldo de
+    # supplier_accounts (2º fetchrow del primer request → None = sin cuenta).
+    conn.fetchrow = AsyncMock(side_effect=[SUPPLIER_ROW, None, None])
     conn.execute = AsyncMock(return_value="UPDATE 1")
     with patch("backend.core.database.pool", pool):
         first = await async_client.delete(

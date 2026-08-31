@@ -429,6 +429,22 @@ jobs:
           # la columna, el índice, el CHECK con su COMMENT, la FK y el conteo
           # de definiciones): IDÉNTICA tras 0, 1 y 2 reaplicaciones.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261015000001_gastos_forma_pago.sql
+          # qa-integral-modulos: ÚLTIMO eslabón de la cadena — reescribe
+          # rpc_branch_report (fix 42702, H4) y rpc_product_profitability
+          # (fix 42804) desde el baseline VIVO de prod + backfill idempotente
+          # del motivo de los movimientos de gasto (OQ-3). Ninguna migración
+          # anterior de esta cadena toca esas dos funciones (su último archivo
+          # previo, 20260814000001, no se reaplica acá), así que no hay
+          # phantom regression que reconverger — pero DEBE quedar al final:
+          # si un cambio futuro entra a la cadena redefiniéndolas (o cuando
+          # 20261016000001 sume la reescritura de rpc_create_expense, que SÍ
+          # vive en 20261015000001, reaplicada justo arriba), el último apply
+          # vuelve a dejar los cuerpos corregidos. Re-appliable por
+          # construcción (CREATE OR REPLACE + UPDATEs acotados por
+          # description IS NULL) — verificado en local con fingerprint md5
+          # (2 cuerpos + proacl + conteos de movimientos): idéntico tras 1 y 2
+          # reaplicaciones. Trae su propio gate ANTI-OVERLOAD (sección 4).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261016000001_qa_integral_fixes.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.
@@ -984,3 +1000,11 @@ jobs:
       # veces seguidas en verde sobre la misma base y no deja residuos.
       - name: Run gastos-forma-pago gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_gastos_forma_pago.sql
+
+      # qa-integral-modulos (G4 + G8): rpc_branch_report ejecuta de verdad
+      # (42702 corregido — nunca funcionó desde C-06) y
+      # rpc_product_profitability ejecuta (42804) fechando en día LOCAL ART
+      # (un ::date desnudo regresivo falla el assert de fecha). Asserta
+      # EFECTOS con tenant sintético propio, degrade-don't-fail en local.
+      - name: Run qa-integral-modulos fix gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_qa_integral_fixes.sql

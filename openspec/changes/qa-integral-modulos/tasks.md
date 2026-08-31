@@ -9,8 +9,8 @@
 
 ## 1. G1 — Popover dentro de modal (H1, bug del PO) [MEDIUM]
 
-- [ ] 1.1 RED: test que monta un selector (searchable-select/product-picker) dentro de un Dialog, despacha `wheel` sobre la lista abierta y espera `scrollTop > 0` (hoy falla: el gesto se cancela)
-- [ ] 1.2 RED sano: test del comportamiento EXISTENTE fuera de modal — popover portalizado a `document.body`, cierra por click afuera y por Escape (protege contra la regresión del fix)
+- [ ] 1.1 RED **(navegador real — Playwright/CDP reusando la infraestructura de 0.2, NO vitest/jsdom)**: test que monta un selector (searchable-select/product-picker) dentro de un Dialog, despacha `wheel` sobre la lista abierta y espera `scrollTop > 0` (hoy falla: el gesto se cancela). jsdom no implementa layout ni scroll ante `wheel`, así que ahí el assert fallaría también DESPUÉS del fix — el contrato solo discrimina en navegador
+- [ ] 1.2 RED sano **(navegador real, mismo runner que 1.1)**: test del comportamiento EXISTENTE fuera de modal — popover portalizado a `document.body`, cierra por click afuera y por Escape (protege contra la regresión del fix)
 - [ ] 1.3 GREEN: `DialogContent` (`ui/dialog.tsx`) y `SheetContent` (`ui/sheet.tsx`) publican su nodo de contenido en `DialogContainerContext`; `ui/popover.tsx` pasa ese nodo como `container` del `PopoverPrimitive.Portal` cuando existe (D1)
 - [ ] 1.4 Eliminar el `modal={false}` mal ubicado de `frontend/components/shared/product-picker.tsx:199` y `frontend/components/ui/searchable-select.tsx:135` (atributo DOM espurio; advertencia de React)
 - [ ] 1.5 TRIANGULAR: mismo contrato con gesto táctil, y en los tres modales del informe (venta/editar venta, nueva compra, ajustar stock — este último usa otro contenedor)
@@ -18,8 +18,8 @@
 
 ## 2. G2 — Shell sin min-w-0 (H2, 12 pantallas) [MEDIUM]
 
-- [ ] 2.1 RED: test de layout — shell montado con contenido más ancho que el viewport en 390 px, `scrollWidth` del documento no supera el viewport (hoy falla)
-- [ ] 2.2 RED sano: test del sidebar/inset en desktop 1440 — dimensiones y colapso sin cambios
+- [ ] 2.1 RED **(navegador real — Playwright reusando la infraestructura de 0.2, NO vitest/jsdom)**: test de layout — shell montado con contenido más ancho que el viewport en 390 px, `scrollWidth` del documento no supera el viewport (hoy falla en navegador; en jsdom `scrollWidth` es siempre 0 y pasaría trivialmente ANTES del fix — verde falso). PROHIBIDO el RED alternativo de assertear `min-w-0` en el string de `className`: es la aserción trivial que el modo TDD estricto veta
+- [ ] 2.2 RED sano **(navegador real, mismo runner)**: test del sidebar/inset en desktop 1440 — dimensiones y colapso sin cambios
 - [ ] 2.3 GREEN: `min-w-0` en el `<main>` de `SidebarInset` (`ui/sidebar.tsx:334`) y en el contenedor de `app/(dashboard)/layout.tsx:28`
 - [ ] 2.4 Contribuyentes por pantalla: `flex-wrap` en las barras de acciones de `product-catalog.tsx:358`, `stock/page.tsx:160`, `compras/page.tsx:51-58` y `BranchList.tsx:105` (quitando `shrink-0`); `flex-wrap` en la fila de acciones del detalle expandido de `sale-operations-list.tsx:496`
 - [ ] 2.5 Colapso responsive de la etiqueta del `ExportButton` (`ExportButton.tsx:113-135`, patrón `hidden sm:inline` de sus hermanos)
@@ -46,7 +46,7 @@
 
 ## 5. G5 — Campana sin scroll (H5) [LOW]
 
-- [ ] 5.1 RED: test del panel con 15 notificaciones — el último ítem es alcanzable por scroll (hoy: recortado a 6, `overflow-y: hidden`)
+- [ ] 5.1 RED **(navegador real — Playwright reusando la infraestructura de 0.2; la alcanzabilidad por scroll no es observable en jsdom)**: test del panel con 15 notificaciones — el último ítem es alcanzable por scroll (hoy: recortado a 6, `overflow-y: hidden`)
 - [ ] 5.2 GREEN: `NotificationBell.tsx:92` — mover el límite de alto del root del `ScrollArea` al viewport interno
 - [ ] 5.3 Verificación visual: rueda y dedo llegan a la notificación 15 en ambos viewports
 
@@ -66,8 +66,8 @@
 
 ## 8. G8 — Backend roto en silencio [MEDIUM]
 
-- [ ] 8.1 `GET /sales-orders`: RED con fixture de órdenes sembradas (hoy 500: `SalesOrderOut.payment_method` requerido vs `SELECT` sin la columna, `schemas/sales_orders.py:101` + repositorio L140); GREEN alineando proyección SQL y contrato Pydantic mirando el DDL vivo (D6); TRIANGULAR con orden sin forma de pago
-- [ ] 8.2 `rpc_product_profitability`: RED SQL que hoy reproduce el `42804` (`last_sale_date date` vs `MAX(s.date)` timestamptz); GREEN en `20261016000001` con cast `::date` en el SELECT (conserva la firma, D6), baseline vivo + ACLs re-aplicadas; verificación de `/rentabilidad` cargando datos
+- [ ] 8.1 `GET /sales-orders`: RED con fixture de órdenes sembradas (hoy 500: `SalesOrderOut.payment_method` requerido vs `SELECT` sin la columna, `schemas/sales_orders.py:101` + `sales_order_repository.py:144`); GREEN alineando proyección SQL y contrato Pydantic mirando el DDL vivo (D6); TRIANGULAR con orden sin forma de pago
+- [ ] 8.2 `rpc_product_profitability`: RED SQL que hoy reproduce el `42804` (`last_sale_date date` vs `MAX(s.date)` timestamptz); GREEN en `20261016000001` con cast consciente de zona — `(MAX(s.date) AT TIME ZONE 'America/Argentina/Mendoza')::date` o el patrón de `reporting_local_today()`, NUNCA `::date` desnudo (reintroduciría el off-by-one de RN-D5; conserva la firma, D6), baseline vivo + ACLs re-aplicadas; verificación de `/rentabilidad` cargando datos
 - [ ] 8.3 Embed `account_members→profiles` (PGRST200): cambiar la query de `/organizacion/roles` y miembros de sucursales al patrón que ya funciona en otra pantalla (D6 — sin FK nueva); RED del hook con el 400 actual; verificación de Equipo mostrando los miembros reales (hoy "0 / 10 usuarios")
 
 ## 9. G9 — Proveedor con deuda (H10, H14, H22) [MEDIUM]
@@ -77,7 +77,8 @@
 - [ ] 9.3 Frontend: el diálogo de borrado traduce el 409 con el monto; TRIANGULAR: saldo 0 y sin cuenta siguen borrando; doble borrado sigue 404
 - [ ] 9.4 H14: encabezado de `/proveedores/{id}/cuenta` con el nombre del proveedor (mismo patrón que la pantalla de cliente); RED del render con el nombre
 - [ ] 9.5 H22: el 404 de cuenta inexistente degrada a estado "sin cuenta aún / $0" sin banner destructivo (mismo trato que ya le da el formulario de compra); RED del estado
-- [ ] 9.6 Verificación visual de listado y cuenta corriente en las 4 combinaciones
+- [ ] 9.6 Auditoría de daño histórico (D7): re-medir en prod proveedores soft-deleteados con `supplier_accounts.balance ≠ 0` (medido 0 el 2026-08-31); si aparece alguno, decidir con el PO (restaurar o saldar) antes de dar por cerrado el grupo
+- [ ] 9.7 Verificación visual de listado y cuenta corriente en las 4 combinaciones
 
 ## 10. G10 — Textos y avisos (H8, H12, H21, H25, H26) [LOW]
 

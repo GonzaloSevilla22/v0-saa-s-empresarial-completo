@@ -145,7 +145,7 @@ export function CostCenterManager() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-7 w-7"
+                    className="h-11 w-11 md:h-7 md:w-7"
                     onClick={() => openEdit(cc)}
                     title="Editar"
                   >
@@ -154,7 +154,7 @@ export function CostCenterManager() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-7 w-7 text-destructive hover:text-destructive"
+                    className="h-11 w-11 md:h-7 md:w-7 text-destructive hover:text-destructive"
                     onClick={() => handleDeactivate(cc)}
                     disabled={deactivateCostCenterMutation.isPending}
                     title="Desactivar"

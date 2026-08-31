@@ -237,7 +237,7 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
                 key={f.key}
                 onClick={() => setFamily(f.key)}
                 className={cn(
-                  "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                  "px-3 py-2 md:px-2.5 md:py-1 rounded-full text-xs font-medium border transition-colors",
                   family === f.key
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-background border-border text-muted-foreground hover:text-foreground",
@@ -251,7 +251,7 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
               <select
                 value={extraFilterValue}
                 onChange={(e) => setExtraFilterValue(e.target.value)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                className="h-9 md:h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
                 aria-label={config.extraFilter.label}
               >
                 <option value="">{config.extraFilter.label}: todos</option>
@@ -268,14 +268,14 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
                 placeholder="Buscar por motivo…"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="h-7 text-xs bg-background border-border"
+                className="h-9 md:h-7 text-xs bg-background border-border"
               />
             </div>
 
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-11 min-w-11 md:h-7 md:min-w-0 px-2"
               onClick={() => fetchPage(true)}
               disabled={loading}
               title="Actualizar"
@@ -287,7 +287,7 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 hidden sm:inline-flex"
+                className="h-11 min-w-11 md:h-7 md:min-w-0 px-2 hidden sm:inline-flex"
                 onClick={() => exportCsv(rows, config)}
                 title="Exportar CSV"
               >

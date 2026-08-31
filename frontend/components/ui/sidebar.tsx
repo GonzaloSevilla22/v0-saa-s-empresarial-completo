@@ -202,12 +202,15 @@ const Sidebar = React.forwardRef<
     }
 
     if (isMobile) {
+      // qa-integral-modulos G13 (H19): se retiró el [&>button]:hidden que
+      // escondía la X del drawer — el menú móvil quedaba sin botón de cierre
+      // visible (las únicas salidas eran el overlay o navegar).
       return (
         <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground"
             style={
               {
                 '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
@@ -280,7 +283,12 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn('h-7 w-7', className)}
+      className={cn(
+        // qa-integral-modulos G13 (H18): 44x44 en móvil (medía 28x28); desde
+        // md conserva el 28x28 compacto de siempre. Consumidor: breadcrumb-nav.
+        'h-11 w-11 md:h-7 md:w-7',
+        className,
+      )}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()

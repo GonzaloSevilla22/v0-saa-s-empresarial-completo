@@ -38,11 +38,40 @@ const PAGE_NAMES: Record<string, string> = {
   "/admin/metricas":   "Métricas Globales",
   "/admin/analytics":  "Panel Técnico",
   "/admin/landing":    "Gestionar Landing",
+  // qa-integral-modulos G13 / H17: las 11 rutas que caían al literal
+  // "ALIADATA" (en móvil el breadcrumb es lo único que dice dónde estás),
+  // más las dos hermanas de /reportes que tampoco estaban mapeadas.
+  // Nombres alineados con la entrada de menú / h1 de cada pantalla.
+  "/ventas/pos":              "POS — Venta Rápida",
+  "/caja":                    "Caja",
+  "/banco":                   "Banco",
+  "/sucursales":              "Sucursales",
+  "/rentabilidad":            "Rentabilidad",
+  "/reportes/comparativo":    "Comparativo",
+  "/reportes/sucursal":       "Por Sucursal",
+  "/reportes/centros-costo":  "Centros de costo",
+  "/reportes/formas-pago":    "Formas de pago",
+  "/planes":                  "Planes",
+  "/facturacion":             "Facturación",
+  "/exportaciones":           "Exportaciones",
+  "/configuracion/fiscal":    "Configuración fiscal",
+}
+
+/**
+ * H17 (spec responsive-shell): una ruta sin nombre mapeado deriva un nombre
+ * legible del último segmento ("/x/detalle-final" → "Detalle final") en lugar
+ * de mostrar solo la marca. El literal queda únicamente para la raíz.
+ */
+function nameFromLastSegment(pathname: string): string {
+  const segment = pathname.split("/").filter(Boolean).pop()
+  if (!segment) return "ALIADATA"
+  const legible = decodeURIComponent(segment).replace(/-/g, " ")
+  return legible.charAt(0).toUpperCase() + legible.slice(1)
 }
 
 export function BreadcrumbNav() {
   const pathname = usePathname()
-  const name = PAGE_NAMES[pathname] ?? "ALIADATA"
+  const name = PAGE_NAMES[pathname] ?? nameFromLastSegment(pathname)
   const [tutorialOpen, setTutorialOpen] = useState(false)
 
   const tutorialEntry = getTutorialByPathname(pathname)

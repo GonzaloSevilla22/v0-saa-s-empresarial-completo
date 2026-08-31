@@ -78,7 +78,9 @@ const SheetContent = React.forwardRef<
       <DialogContainerContext.Provider value={container}>
         {children}
       </DialogContainerContext.Provider>
-      <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+      {/* qa-integral-modulos G13 (H18/H19): p-2 -m-2 agranda el área táctil de
+          la X a 32x32 (piso WCAG 24) sin mover su posición visual. */}
+      <SheetPrimitive.Close className="absolute right-4 top-4 p-2 -m-2 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>

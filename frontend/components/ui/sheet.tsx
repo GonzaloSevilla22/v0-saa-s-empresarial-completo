@@ -6,6 +6,10 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import {
+  DialogContainerContext,
+  useDialogContainer,
+} from '@/components/ui/dialog-container-context'
 
 const Sheet = SheetPrimitive.Root
 
@@ -57,22 +61,31 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = 'right', className, children, ...props }, ref) => (
+>(({ side = 'right', className, children, ...props }, ref) => {
+  // qa-integral-modulos G1 (H1, D1): mismo contrato que DialogContent — el
+  // Sheet también es un Radix Dialog y bloquea el scroll de todo lo que quede
+  // fuera de este subárbol; ui/popover.tsx consume este contexto.
+  const [container, composedRef] = useDialogContainer<HTMLDivElement>(ref)
+
+  return (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
-      ref={ref}
+      ref={composedRef}
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >
-      {children}
+      <DialogContainerContext.Provider value={container}>
+        {children}
+      </DialogContainerContext.Provider>
       <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>
       </SheetPrimitive.Close>
     </SheetPrimitive.Content>
   </SheetPortal>
-))
+  )
+})
 SheetContent.displayName = SheetPrimitive.Content.displayName
 
 const SheetHeader = ({

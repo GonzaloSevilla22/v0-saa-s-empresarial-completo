@@ -191,12 +191,12 @@ export function ProductPicker({
         </Button>
       </PopoverTrigger>
 
+      {/* qa-integral-modulos G1 (1.4): se retiró el modal={false} mal ubicado —
+          era prop del <Popover> raíz, no del Content; se filtraba como atributo
+          DOM espurio (advertencia de React) y además es el default de Radix. */}
       <PopoverContent
         className="p-0 w-[var(--radix-popover-trigger-width)]"
         align="start"
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-expect-error modal prop exists at runtime but is missing from Radix types
-        modal={false}
       >
         <Command shouldFilter={false}>
           <CommandInput

@@ -4,8 +4,39 @@ import * as React from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
 
 import { cn } from '@/lib/utils'
+import { DialogContainerContext } from '@/components/ui/dialog-container-context'
 
-const Popover = PopoverPrimitive.Root
+/**
+ * qa-integral-modulos G1 (H1, el bug del PO — D1/R1, plan C promovido a plan A):
+ *
+ * Dentro de un Dialog/Sheet, react-remove-scroll (montado por el Dialog de
+ * Radix) cancela todo wheel/touchmove que caiga fuera del shard del contenido
+ * del modal — y el popover, portalizado a document.body, quedaba afuera: la
+ * lista no se movía un píxel (informe H1).
+ *
+ * La variante elegida por el design (portal con `container` al nodo del
+ * DialogContent) se implementó y se verificó en el arnés: el `transform` del
+ * DialogContent lo vuelve containing block del popper `fixed` y su
+ * `overflow-y-auto` lo recorta en el borde del diálogo (R1 confirmado
+ * empíricamente — captura en el run del 2026-08-31; el camino del Sheet sí
+ * funcionaba). Por eso se promueve el plan C que el propio design deja
+ * pre-autorizado: registrar el popper como shard del bloqueo de scroll.
+ *
+ * Mecanismo: `modal` en el Root de Radix Popover — su camino modal monta su
+ * PROPIO RemoveScroll con el popper como shard (API pública de Radix, sin
+ * parchear nada); al ser el lock más reciente, los gestos sobre la lista dejan
+ * de cancelarse. Se activa SOLO cuando DialogContainerContext dice que el
+ * popover vive dentro de un modal: fuera de modales el contexto es null y el
+ * comportamiento es EXACTAMENTE el de siempre (portal a body, no-modal) —
+ * el radio de explosión que descartó la opción 1 del informe no existe acá.
+ */
+const Popover = ({
+  modal,
+  ...props
+}: React.ComponentProps<typeof PopoverPrimitive.Root>) => {
+  const insideModal = React.useContext(DialogContainerContext) !== null
+  return <PopoverPrimitive.Root modal={modal ?? insideModal} {...props} />
+}
 
 const PopoverTrigger = PopoverPrimitive.Trigger
 

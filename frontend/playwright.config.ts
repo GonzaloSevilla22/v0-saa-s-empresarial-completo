@@ -36,7 +36,17 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], storageState: './e2e/.auth/user.json' },
       dependencies: ['setup'],
-      testIgnore: /auth\.setup\.ts/,
+      testIgnore: [/auth\.setup\.ts/, /harness[\\/]/],
+    },
+    // qa-integral-modulos (G1/G2/G13): specs de los componentes compartidos del
+    // design system contra las páginas de arnés de app/dev-harness (solo dev,
+    // sin sesión ni seeds) — por eso NO dependen del project `setup` ni usan
+    // storageState. Los contratos (scroll de popover en modal, min-w-0 del
+    // shell, drawer móvil) no son observables en jsdom; ver tasks 1.1/2.1.
+    {
+      name: 'harness',
+      testMatch: /harness[\\/].*\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
   webServer: {

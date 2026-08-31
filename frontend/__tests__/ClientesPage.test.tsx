@@ -101,6 +101,25 @@ describe("ClientesPage (clientes-frecuentes-historial)", () => {
     useClientActivityListMock.mockReturnValue(defaultHookReturn())
   })
 
+  // qa-integral-modulos G10 (H25): el subtítulo decía "1 clientes registrados"
+  // mientras el contador de la barra de filtros y el pie de tabla acertaban —
+  // tres criterios de pluralización en la misma pantalla.
+  it("subtítulo con 1 cliente: '1 cliente registrado' (G10/H25)", () => {
+    useClientActivityListMock.mockReturnValue({
+      ...defaultHookReturn(),
+      clients: [CLIENTS[0]],
+      meta: { page: 0, pageSize: 25, totalCount: 1, pageCount: 1, from: 1, to: 1 },
+    })
+    render(<ClientesPage />)
+    expect(screen.getByText("1 cliente registrado")).toBeInTheDocument()
+    expect(screen.queryByText("1 clientes registrados")).not.toBeInTheDocument()
+  })
+
+  it("subtítulo con varios: 'N clientes registrados' (G10/H25)", () => {
+    render(<ClientesPage />)
+    expect(screen.getByText("2 clientes registrados")).toBeInTheDocument()
+  })
+
   it("renders activity badges for each client", () => {
     render(<ClientesPage />)
     expect(screen.getAllByText(/frecuente/i).length).toBeGreaterThan(0)

@@ -37,6 +37,16 @@ export interface HumanizedOperationError {
 
 const STOCK_ERROR = /(?:insufficient_branch_stock|Insufficient stock) for product\s+([0-9a-f-]{36})/i
 
+// qa-integral-modulos G10 (H21a): tres details crudos que el QA vio impresos
+// tal cual al usuario — mismo mapa, sin crear otro (regla del proyecto).
+const RN_B4_ERROR = /RN-B4: el producto "([^"]+)" tiene stock \(([\d.]+)\)/i
+const AMOUNTS_MISMATCH_ERROR =
+  /amounts_mismatch(?::\s*Σ líneas \((-?[\d.]+)\) ≠ Σ movimientos \((-?[\d.]+)\))?/
+const PERIODO_INVALIDO_ERROR = /periodo_invalido/
+
+const fmtMoney = (n: number) =>
+  n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+
 /**
  * Convierte el error crudo de una RPC de operación en un mensaje accionable.
  * Si no reconoce el error, devuelve el mensaje original sin acción (nunca lo
@@ -63,6 +73,37 @@ export function humanizeOperationError(
         label: "Transferir stock",
         href: `/stock?product=${productId}`,
       },
+    }
+  }
+
+  const rnB4Match = message.match(RN_B4_ERROR)
+  if (rnB4Match) {
+    const [, name, rawQty] = rnB4Match
+    const qty = Number(rawQty) // "6.0000" → 6, sin los 4 decimales internos
+    const unidades = qty === 1 ? "1 unidad" : `${qty.toLocaleString("es-AR")} unidades`
+    return {
+      message:
+        `No se puede borrar «${name}» porque todavía tiene stock (${unidades}). ` +
+        `Llevá su stock a 0 (vendé, ajustá o transferí las unidades) y volvé a intentarlo.`,
+    }
+  }
+
+  const mismatchMatch = message.match(AMOUNTS_MISMATCH_ERROR)
+  if (mismatchMatch) {
+    const [, rawLines, rawMovs] = mismatchMatch
+    const detalle =
+      rawLines != null && rawMovs != null
+        ? `las líneas seleccionadas del extracto suman ${fmtMoney(Number(rawLines))} y los movimientos ${fmtMoney(Number(rawMovs))}`
+        : "lo seleccionado del extracto y los movimientos tienen totales distintos"
+    return {
+      message: `Las sumas no coinciden: ${detalle}. Ajustá la selección hasta que los dos totales sean iguales.`,
+    }
+  }
+
+  if (PERIODO_INVALIDO_ERROR.test(message)) {
+    return {
+      message:
+        "El período está invertido: la fecha «Desde» tiene que ser anterior o igual a «Hasta».",
     }
   }
 

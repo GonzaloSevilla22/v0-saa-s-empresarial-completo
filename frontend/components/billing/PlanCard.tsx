@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Crown, Check } from "lucide-react"
+import { Crown, Check, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { PLAN_DISPLAY_NAMES, PLAN_HIERARCHY } from "@/lib/plan-utils"
@@ -221,7 +221,16 @@ export function PlanCard({
           className={`w-full mt-2 ${ctaState.disabled ? "opacity-60 cursor-not-allowed" : ""} ${colors.button}`}
           variant="ghost"
         >
-          {ctaState.label}
+          {/* G10 (H21c): mientras el alta está en vuelo, el botón lo DICE —
+              antes solo se deshabilitaba sin señal, invitando al reintento. */}
+          {loading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Procesando…
+            </>
+          ) : (
+            ctaState.label
+          )}
         </Button>
       )}
 

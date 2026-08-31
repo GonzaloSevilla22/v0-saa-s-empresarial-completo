@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -90,7 +91,10 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
       setSelectedLines(new Set())
       setSelectedMovements(new Set())
     } catch (err) {
-      toast.error((err as Error).message || "No se pudo conciliar la selección")
+      // G10 (H21a): "amounts_mismatch: Σ líneas (…) ≠ Σ movimientos (…)" se
+      // traduce en el mapa canónico; un error no reconocido pasa intacto.
+      const raw = (err as Error).message || "No se pudo conciliar la selección"
+      toast.error(humanizeOperationError(raw).message)
     }
   }
 
@@ -332,7 +336,12 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
         <div className="flex items-center gap-3">
           <Button
             disabled={
-              selectedLines.size === 0 || selectedMovements.size === 0 || createMatch.isPending
+              selectedLines.size === 0 ||
+              selectedMovements.size === 0 ||
+              createMatch.isPending ||
+              // G10 (H21b): si la propia pantalla ya avisa "Las sumas no
+              // coinciden", el botón no invita al 422 del servidor.
+              sumSelectedLines !== sumSelectedMovements
             }
             onClick={() => handleMatch(Array.from(selectedLines), Array.from(selectedMovements))}
           >

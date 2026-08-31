@@ -30,6 +30,14 @@ export interface DeletableOperationFlags {
    * Ausente/false en ventas y compras: su borrado no tiene este bloqueo.
    */
   isDeleteBlocked?: boolean
+  /**
+   * qa-integral-modulos G10 (H12): el borrado de una COMPRA revierte además
+   * el stock que la compra ingresó (rpc_delete_purchase_operation emite el
+   * espejo REVERSE — stock-movements-edicion), y el diálogo no lo decía.
+   * Lo pasa el listado de compras; ausente en ventas y gastos (el informe
+   * no los observó y su redacción sería otra).
+   */
+  reversesStock?: boolean
 }
 
 export interface DeleteCompensationInfo {
@@ -84,6 +92,14 @@ export function getDeleteCompensation(
   }
   if (flags.hasBankMovement) {
     compensations.push("Se registrará el movimiento bancario inverso, pendiente de conciliar.")
+  }
+  if (flags.reversesStock) {
+    // Redacción alineada al tooltip del lápiz bloqueado de la misma fila
+    // ("revierte el cargo y repone el stock") — H12 pedía que el diálogo
+    // dijera lo mismo que ya decía el tooltip.
+    compensations.push(
+      "Se revertirá el ingreso de stock de esta compra (el stock vuelve al estado previo).",
+    )
   }
 
   return { deletable: true, blockedReason: null, compensations }

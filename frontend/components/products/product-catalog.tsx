@@ -22,6 +22,7 @@ import { formatMoney } from "@/lib/format"
 import { formatStock } from "@/lib/format-unit"
 import { resolveUnit } from "@/lib/unit-utils"
 import { exportToCSV } from "@/lib/excel"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import type { Product } from "@/lib/types"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -262,7 +263,9 @@ export function ProductCatalog({
         await onDelete(id)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Error al eliminar"
-        toast.error(msg)
+        // G10 (H21a): el detail crudo del backend (RN-B4 + 4 decimales) se
+        // traduce en el mapa canónico; un error no reconocido pasa intacto.
+        toast.error(humanizeOperationError(msg).message)
       } finally {
         setDeletingId(null)
       }

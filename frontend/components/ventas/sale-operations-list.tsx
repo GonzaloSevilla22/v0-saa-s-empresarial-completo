@@ -289,7 +289,7 @@ export function SaleOperationsList({
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
             {loading
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Cargando...</span>
-              : `${filtered.length} operación${filtered.length !== 1 ? "es" : ""}`
+              : filtered.length === 1 ? "1 operación" : `${filtered.length} operaciones`
             }
           </span>
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>

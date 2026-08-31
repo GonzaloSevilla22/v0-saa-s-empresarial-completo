@@ -14,6 +14,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+// G10 (H26): formato canónico de la app — "-$ 37.200,00", nunca "$-37.200,00"
+// (el mismo que usa el "Historial de sesiones" de la misma pantalla).
+const fmtMoney = (n: number) =>
+  n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+
 interface CloseSessionDialogProps {
   /**
    * Controlado desde la página (G6/H6): el diálogo vive FUERA del ternario
@@ -94,9 +99,7 @@ export function CloseSessionDialog({
             <div className="rounded-md bg-muted/60 px-4 py-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Saldo esperado</span>
-                <span className="font-semibold">
-                  ${expectedBalance.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                </span>
+                <span className="font-semibold">{fmtMoney(expectedBalance)}</span>
               </div>
               {previewDiff != null && (
                 <div className="flex justify-between mt-1">
@@ -108,8 +111,8 @@ export function CloseSessionDialog({
                         : "text-yellow-600 dark:text-yellow-400"
                     }`}
                   >
-                    {previewDiff >= 0 ? "+" : ""}$
-                    {previewDiff.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                    {previewDiff >= 0 ? "+" : ""}
+                    {fmtMoney(previewDiff)}
                   </span>
                 </div>
               )}
@@ -181,21 +184,17 @@ export function CloseSessionDialog({
                 <div className="flex items-center gap-1.5 font-semibold">
                   <AlertCircle className="h-4 w-4" />
                   {result.difference > 0 ? "Sobrante en caja" : "Faltante en caja"}:{" "}
-                  {result.difference >= 0 ? "+" : ""}$
-                  {result.difference.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                  {result.difference >= 0 ? "+" : ""}
+                  {fmtMoney(result.difference)}
                 </div>
               )}
               <div className="flex justify-between text-xs">
                 <span>Esperado</span>
-                <span>
-                  ${result.expected.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                </span>
+                <span>{fmtMoney(result.expected)}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span>Contado</span>
-                <span>
-                  ${result.counted.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                </span>
+                <span>{fmtMoney(result.counted)}</span>
               </div>
             </div>
             <DialogFooter>

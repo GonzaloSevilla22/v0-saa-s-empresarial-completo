@@ -541,6 +541,24 @@ describe("POST /api/billing/preferences — notification_url targets the backend
     expect(mockPreferenceCreate).not.toHaveBeenCalled()
   })
 
+  // qa-integral-modulos G10 (H21c): el catch tapaba el motivo real con
+  // "Error interno del servidor" — el usuario del QA vio eso mientras la
+  // consola tenía la explicación completa. El detalle se propaga.
+  it("propaga el detalle del fallo en lugar del 500 genérico (G10/H21c)", async () => {
+    mockPreferenceCreate.mockRejectedValue(new Error("invalid access token"))
+    const req = new Request("http://localhost/api/billing/preferences", {
+      method: "POST",
+      body: JSON.stringify({ plan: "avanzado" }),
+    })
+
+    const res = await preferencesPOST(req)
+    expect(res.status).toBe(500)
+    const body = (await res.json()) as { ok: boolean; error?: string }
+    expect(body.ok).toBe(false)
+    expect(body.error).toContain("invalid access token")
+    expect(body.error).not.toBe("Error interno del servidor")
+  })
+
   it("keeps back_urls pointing at the frontend app URL — user navigation, not server notifications (task 3.4)", async () => {
     const req = new Request("http://localhost/api/billing/preferences", {
       method: "POST",

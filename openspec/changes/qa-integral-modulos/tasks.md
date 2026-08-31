@@ -42,10 +42,14 @@
 
 ## 3. G3 — Comparativo invertido (H3) [LOW]
 
-- [ ] 3.1 RED: test de la página con datos sintéticos donde los gastos del mes en curso superan a los del anterior — el badge de gastos debe mostrar signo positivo en rojo (hoy: negativo en verde). Hoy no existe NINGÚN test de `rpc_period_comparison` ni de la página
-- [ ] 3.2 GREEN: invertir los defaults de `reportes/comparativo/page.tsx:152-155` (A = mes anterior = base, B = mes en curso, contrato `(B−A)/A` de la RPC — NO tocar la RPC ni `ai-comparativo`)
-- [ ] 3.3 Rotular el badge de delta (qué mide: evolución de A a B) en `DeltaBadge`
-- [ ] 3.4 TRIANGULAR: las 4 tarjetas con series que suben y que bajan; casos `invertColors` (gastos/compras) donde la doble inversión no se cancela; delta NULL → "N/A"
+- [x] 3.1 RED: test de la página con datos sintéticos donde los gastos del mes en curso superan a los del anterior — el badge de gastos debe mostrar signo positivo en rojo (hoy: negativo en verde). Hoy no existe NINGÚN test de `rpc_period_comparison` ni de la página
+  > **Evidencia (2026-08-31)**: `frontend/__tests__/ComparativoPage.test.tsx` — el mock de `usePeriodComparison` IMPLEMENTA el contrato `(B−A)/A` de la RPC sobre datos sintéticos por mes (gastos 10000→13000), así el signo esperado queda fijado de verdad (equivocar la inversión deja el test rojo, no verde). RED ejecutado: 7/7 fallos pre-fix.
+- [x] 3.2 GREEN: invertir los defaults de `reportes/comparativo/page.tsx:152-155` (A = mes anterior = base, B = mes en curso, contrato `(B−A)/A` de la RPC — NO tocar la RPC ni `ai-comparativo`)
+  > **Evidencia**: defaults invertidos (A = mes anterior completo, B = mes en curso hasta hoy) con comentario que ancla el contrato; test que fija los 4 argumentos exactos que la página le pasa a la RPC. Ni la RPC ni `ai-comparativo` se tocaron.
+- [x] 3.3 Rotular el badge de delta (qué mide: evolución de A a B) en `DeltaBadge`
+  > **Evidencia**: `title` en cada badge ("Evolución de {métrica} del período A al período B"), caption visible bajo el h1 ("Cada porcentaje mide la evolución del período A (base) al período B") y label del selector "Período A (base)".
+- [x] 3.4 TRIANGULAR: las 4 tarjetas con series que suben y que bajan; casos `invertColors` (gastos/compras) donde la doble inversión no se cancela; delta NULL → "N/A"
+  > **Evidencia**: gastos suben → `+30.0%` destructive; ventas bajan → `-0.7%` destructive; compras bajan → `-5.0%` verde (invertColors); operaciones suben → `+88.9%` verde; deltas NULL → "N/A" en las 4. 7/7 verdes post-fix.
 - [ ] 3.5 Verificación visual en las 4 combinaciones (390/1440 × claro/oscuro)
 
 ## 4. G4 — Reporte por sucursal muerto (H4) [MEDIUM]

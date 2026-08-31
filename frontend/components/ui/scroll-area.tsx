@@ -7,14 +7,25 @@ import { cn } from '@/lib/utils'
 
 const ScrollArea = React.forwardRef<
   React.ElementRef<typeof ScrollAreaPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root> & {
+    /**
+     * qa-integral-modulos (G5/H5): clases para el VIEWPORT interno de Radix.
+     * Un límite de alto (max-h-*) tiene que vivir acá y no en el root: el root
+     * es overflow-hidden, así que un max-h en el root RECORTA el contenido en
+     * vez de habilitar el scroll (el viewport crece a su contenido y queda
+     * cortado por el padre — el bug de la campana de notificaciones).
+     */
+    viewportClassName?: string
+  }
+>(({ className, viewportClassName, children, ...props }, ref) => (
   <ScrollAreaPrimitive.Root
     ref={ref}
     className={cn('relative overflow-hidden', className)}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    <ScrollAreaPrimitive.Viewport
+      className={cn('h-full w-full rounded-[inherit]', viewportClassName)}
+    >
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />

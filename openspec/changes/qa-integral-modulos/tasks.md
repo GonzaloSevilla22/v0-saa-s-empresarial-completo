@@ -68,8 +68,10 @@
 
 ## 5. G5 — Campana sin scroll (H5) [LOW]
 
-- [ ] 5.1 RED **(navegador real — Playwright reusando la infraestructura de 0.2; la alcanzabilidad por scroll no es observable en jsdom)**: test del panel con 15 notificaciones — el último ítem es alcanzable por scroll (hoy: recortado a 6, `overflow-y: hidden`)
-- [ ] 5.2 GREEN: `NotificationBell.tsx:92` — mover el límite de alto del root del `ScrollArea` al viewport interno
+- [x] 5.1 RED **(navegador real — Playwright reusando la infraestructura de 0.2; la alcanzabilidad por scroll no es observable en jsdom)**: test del panel con 15 notificaciones — el último ítem es alcanzable por scroll (hoy: recortado a 6, `overflow-y: hidden`)
+  > **Evidencia (2026-08-31)**: arnés nuevo `frontend/app/dev-harness/bell` (monta `NotificationBellView` — el panel REAL, extraído como presentacional del wireado de datos — con 15 notificaciones sintéticas + control sano de 3) + spec `e2e/harness/g5-bell-scroll.spec.ts`. RED ejecutado: 2/3 fallos (rueda Y dedo por CDP con `scrollTop` clavado en 0); el control sano de 3 visible sin scroll pasaba pre-fix.
+- [x] 5.2 GREEN: `NotificationBell.tsx:92` — mover el límite de alto del root del `ScrollArea` al viewport interno
+  > **Evidencia**: `ui/scroll-area.tsx` gana la prop OPCIONAL `viewportClassName` (aditiva — sin ella el markup es idéntico, cero cambio para los demás consumidores) y la campana pasa `viewportClassName="max-h-80"` en lugar de `className`. 3/3 verdes (rueda scrollea, ítem 15 alcanzable con el gesto, dedo scrollea); suite completa del arnés 14/14 (G1/G2/G13 sin regresión) y `NotificationBell.test.tsx` 4/4.
 - [ ] 5.3 Verificación visual: rueda y dedo llegan a la notificación 15 en ambos viewports
 
 ## 6. G6 — Arqueo autodestruido (H6) [MEDIUM]

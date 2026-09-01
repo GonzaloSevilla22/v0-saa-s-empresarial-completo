@@ -54,6 +54,16 @@ vi.mock("recharts", () => {
   }
 })
 
+// Los dos módulos de página se importan ACÁ, no dentro del `it`: cada uno
+// arrastra el kit de UI entero y su grafo tardaba ~4 s en importarse en una
+// máquina libre — dentro del test eso consume el testTimeout de 20 s y con la
+// suite completa en 8 workers se lo pasaba (clase H-3 del comentario de
+// vitest.config.ts). Fuera del test, el costo cae en la fase de import del
+// archivo, que no tiene ese techo. Los vi.mock de arriba se hoistean por
+// encima de estos imports, así que siguen aplicando.
+import CentrosCostoPage from "@/app/(dashboard)/reportes/centros-costo/page"
+import SucursalPage from "@/app/(dashboard)/reportes/sucursal/page"
+
 function renderPage(Page: React.ComponentType) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -85,8 +95,7 @@ describe("/reportes/centros-costo — un color fijo por serie + leyenda (G12/H16
       ],
       error: null,
     })
-    const { default: Page } = await import("@/app/(dashboard)/reportes/centros-costo/page")
-    renderPage(Page)
+    renderPage(CentrosCostoPage)
     await expectFixedSeries(["Gastos", "Compras"])
   })
 })
@@ -100,8 +109,7 @@ describe("/reportes/sucursal — un color fijo por serie + leyenda (G12/H16)", (
       ],
       error: null,
     })
-    const { default: Page } = await import("@/app/(dashboard)/reportes/sucursal/page")
-    renderPage(Page)
+    renderPage(SucursalPage)
     await expectFixedSeries(["Ventas", "Gastos"])
   })
 })

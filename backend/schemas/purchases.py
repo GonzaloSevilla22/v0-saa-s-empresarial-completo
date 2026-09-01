@@ -121,6 +121,16 @@ class PurchaseItemOut(BaseModel):
     # la lista deshabilite "Editar" con motivo visible ANTES de que el
     # usuario llegue al error del backend.
     is_payment_locked: bool = False
+    # qa-integral-modulos G10 (H12): los dos EXISTS que `list_paginated_by_
+    # operation` ya calcula por separado (repositories/purchase_repository.py)
+    # tienen que DECLARARSE acá o Pydantic los descarta al serializar y el
+    # diálogo de borrado nunca puede enumerar el cargo en cuenta corriente
+    # (frontend/lib/delete-compensation.ts depende de hasAccountCharge, no de
+    # is_payment_locked). Espejo de ExpenseItemOut; default False = una fila
+    # sin el derivado se trata como "sin dinero posteado" y el servidor sigue
+    # siendo la autoridad al borrar.
+    has_account_charge: bool = False
+    has_bank_movement: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

@@ -12,6 +12,27 @@ export interface CopilotPrompt {
   updated_at: string
 }
 
+/**
+ * fix/admin-timeseries-feria-copilot (mismo bug que #482 en
+ * insuranceService): shape consumido DIRECTO por `TimeSeriesLinesChart`
+ * (`period` ISO real, primero del mes UTC; `activations` = prompts dados
+ * de alta ese mes) — sin adapter en el JSX. El copiloto no tiene un
+ * segundo dato análogo a `umv_achieved`, por eso no se declara acá: el
+ * componente lo trata como serie opcional.
+ */
+export interface TimeSeriesPoint {
+  period: string
+  activations: number
+}
+
+export interface AdminStats {
+  total: number
+  active: number
+  totalUsage: number
+  mostUsed: string
+  timeSeries: TimeSeriesPoint[]
+}
+
 const supabase = createClient()
 
 export const copilotPromptsService = {
@@ -57,29 +78,47 @@ export const copilotPromptsService = {
     if (error) throw error
   },
 
-  async getAdminStats() {
+  async getAdminStats(): Promise<AdminStats> {
     const { data: all } = await supabase.schema("community").from("copilot_prompts").select("*")
-    
-    const stats = {
+
+    const stats: AdminStats = {
       total: all?.length || 0,
       active: all?.filter(i => i.status === 'active').length || 0,
       totalUsage: all?.reduce((acc, curr) => acc + (curr.usage_count || 0), 0) || 0,
       mostUsed: all?.sort((a,b) => (b.usage_count || 0) - (a.usage_count || 0))[0]?.name || "N/A",
       timeSeries: this.processTimeSeries(all || [])
     }
-    
+
     return stats
   },
 
-  processTimeSeries(data: any[]) {
-    const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-    const series = data.reduce((acc: any, curr: any) => {
+  /**
+   * fix/admin-timeseries-feria-copilot (mismo bug que #482): agrega por
+   * AÑO+mes (UTC) — antes agregaba solo por nombre de mes en español
+   * ("Mar"), así que marzo 2026 y marzo 2027 se mezclaban en el mismo
+   * bucket. El `period` que emite cada punto es una fecha ISO real
+   * (primero del mes, UTC) — `TimeSeriesLinesChart` hace
+   * `new Date(d.period)` para su escala temporal D3, y `"Mar"` daba
+   * `Invalid Date` (eje/extent rotos). UTC explícito (no el mes local del
+   * browser) para que la agregación sea determinística en tests y CI sin
+   * importar el timezone de la máquina.
+   */
+  processTimeSeries(data: Pick<CopilotPrompt, "created_at">[]): TimeSeriesPoint[] {
+    const buckets = data.reduce<Record<string, number>>((acc, curr) => {
       const date = new Date(curr.created_at)
-      const month = months[date.getMonth()]
-      acc[month] = (acc[month] || 0) + 1
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`
+      acc[key] = (acc[key] || 0) + 1
       return acc
     }, {})
 
-    return Object.entries(series).map(([name, total]) => ({ name, value: total }))
+    return Object.entries(buckets)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, activations]) => {
+        const [year, month] = key.split("-").map(Number)
+        return {
+          period: new Date(Date.UTC(year!, month! - 1, 1)).toISOString(),
+          activations,
+        }
+      })
   }
 }

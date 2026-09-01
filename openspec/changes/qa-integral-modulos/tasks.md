@@ -6,7 +6,8 @@
 
 - [x] 0.1 Checkpoint de integridad de función (regla del proyecto, ANTES de escribir SQL): capturar `pg_get_functiondef` VIVO de prod de `rpc_branch_report`, `rpc_product_profitability` y `rpc_create_expense`; hashear y comparar contra el último archivo de migración de cada una; si divergen, el baseline es el cuerpo vivo
   > **Evidencia (2026-08-31)**: baselines byte-exactos en `baseline/*.live.sql` (md5 local == md5 de prod, ver `baseline/BASELINE.md`). `rpc_branch_report` `fd21f886…` y `rpc_create_expense` `b58ac4d2…` = idénticos a su último archivo de migración; **`rpc_product_profitability` `eb254459…` DIVERGE del archivo** (`20260814000001` L153 dice `'P403'`, el vivo dice `'P0403'` — reescritura in-place posterior; única diferencia). Prod `MAX(version)=20261015000001` (264 migraciones, local idéntico) ⇒ **`20261016000001` sigue válida sin renumerar**. Safety net (en origin/main limpio): pytest backend **1664 passed / 3 skipped**; `tsc` **10 errores preexistentes** (los conocidos, en tests ajenos); gates SQL del workflow **26/34 PASS** — los 8 FAIL son ambientales de la DB local compartida sucia (usuarios ancla `*-gate@test.local` de corridas previas en admin_kpis/pagos_cableados/pos_banco/asiento_venta/delete_guard/banco_caja_historial/compras_proveedor + `\i` relativo de cuentas_billetera irresoluble vía docker exec), no regresiones; el `db reset` de 17.1 los limpiará (ojo: también borra los seeds del QA que D10 reutiliza — re-seedear antes de la verificación visual). Vitest frontend: **1558 passed / 1558** (194 archivos).
-- [ ] 0.2 Levantar el stack local (Supabase Docker + Next dev + FastAPI) y reconstruir el método de verificación visual desde `qa/INFORME.md` §4 (Playwright, cookies inyectadas, táctil real por CDP; el kit original fue eliminado del scratchpad — ver D10)
+- [x] 0.2 Levantar el stack local (Supabase Docker + Next dev + FastAPI) y reconstruir el método de verificación visual desde `qa/INFORME.md` §4 (Playwright, cookies inyectadas, táctil real por CDP; el kit original fue eliminado del scratchpad — ver D10)
+  > **Evidencia (2026-09-01, re-QA)**: kit reconstruido en `scratchpad/qa-kit/` (lib.mjs con `Input.dispatchTouchEvent` por CDP + listener de `defaultPrevented`, cookies regeneradas vía admin API local, scripts v1–v10 con salida JSON medida). Stack: Supabase Docker (funciones nuevas vivas: `rpc_branch_report` con `branch_id` calificado, `rpc_product_profitability` con tz Mendoza, `rpc_create_expense`/`rpc_delete_expense` con descripción), FastAPI local (env de `E2E_Tests.yml`), Next dev (reiniciado a mitad de corrida por un crash de Jest worker del propio dev server que 500-eaba `/sucursales/{id}/stock` — ambiental, no del código). Capturas en `scratchpad/qa/post/`.
 
 ## 1. G1 — Popover dentro de modal (H1, bug del PO) [MEDIUM]
 
@@ -20,7 +21,8 @@
   > **Evidencia**: retirados con su `@ts-expect-error`; comentario en su lugar.
 - [x] 1.5 TRIANGULAR: mismo contrato con gesto táctil, y en los tres modales del informe (venta/editar venta, nueva compra, ajustar stock — este último usa otro contenedor)
   > **Evidencia**: triangulado en el arnés sobre los DOS contenedores reales de esos modales (Dialog directo — el de ajustar stock — y Sheet bottom con las clases de ResponsiveModal — el de venta/compra en móvil), con rueda Y táctil real por CDP, y con `searchable-select` Y `product-picker` montados de verdad; además Escape/clic-afuera dentro del Dialog no cierran el Dialog. La pasada sobre las pantallas reales queda en 1.6 (fase visual D10).
-- [ ] 1.6 Verificación visual (método D10): selector de producto y de cliente scrollean con el dedo en 390x844 dentro de los tres modales; sin recorte del desplegable en escritorio 1440 (R1); POS intacto como control positivo
+- [x] 1.6 Verificación visual (método D10): selector de producto y de cliente scrollean con el dedo en 390x844 dentro de los tres modales; sin recorte del desplegable en escritorio 1440 (R1); POS intacto como control positivo
+  > **Evidencia (2026-09-01, re-QA)**: táctil real por CDP en 390x844 — 6/6 casos con **0 touchmove cancelados** y el ítem 32 de 32 visible al fondo (`atBottom` + `lastItemVisible`): venta/producto (scrollTop 0→796), venta/cliente (14 ítems), **editar venta**/producto, compra/producto, **ajustar stock**/producto (0→732) y POS control positivo. Escritorio 1440 con rueda: 5/5 al fondo sin recorte (R1). Controles de no-regresión: picker del POS y popover de fechas de `/ventas` (fuera de modal) cierran por clic-afuera (1→0 poppers). Capturas `h1-*.png`.
 
 ## 2. G2 — Shell sin min-w-0 (H2, 12 pantallas) [MEDIUM]
 
@@ -39,6 +41,7 @@
 - [x] 2.7 Scroll horizontal propio (`overflow-x-auto`) o apilado bajo `sm` en `LedgerMovementsPanel.tsx:77-111` y `stock-movements-panel.tsx:111-160` (columnas en px fijos + hijo `display:table` del ScrollArea)
   > **Evidencia**: elegido `overflow-x-auto` — wrapper alrededor de cabecera + ScrollArea con `min-w-[420px]` interno en ambos paneles: el hijo `display:table` de Radix queda acotado a ese mínimo y el desborde scrollea dentro del panel, no estira la página.
 - [ ] 2.8 Verificación visual de las 12 pantallas de la tabla de H2 en 390x844 (CTAs y acciones de fila dentro del viewport, tacho de `/productos` alcanzable) + `/gastos`, `/ventas`, `/compras`, `/productos`, `/clientes` en 768 y 1024 (tablet, absorbe el candidato de `CHANGES.md`) + control desktop 1440
+  > **Evidencia (2026-09-01, re-QA) — VERDE en 390 y 768, RESIDUO en 1024**. 390x844: 9 pantallas medidas con `scrollWidth == 390` (overflow 0): /compras (CTA+Exportar visibles), /caja y /banco con historial desplegado ("Cerrar caja" right=298 visible), /sucursales/{id}/stock (tabla con scroll propio 525/308: drag táctil 0 cancelados deja "Transferir" visible), /stock, /productos (64 tachos, maxRight 361 — alcanzables), /sucursales (Desactivar 44x44 visibles), /ventas con fila expandida (Facturar/Comprobante/WhatsApp visibles, doc 390), /gastos. Tablet **768**: 5/5 rutas overflow 0 y CTA visible. Tablet **1024**: overflow de documento 0 en 5/5, pero **el CTA primario queda fuera del viewport al abrir en /ventas (right 1059), /gastos (1367), /compras (1308) y /clientes (1113)** — la barra de filtros no wrappea con el sidebar expandido (256px) y desborda dentro del `div.flex-1 min-w-0 overflow-auto` del layout (scrollWidth interno hasta 1111 vs 768); alcanzable con el scroll propio (scrollbar visible), pero el criterio "CTA visible" NO se cumple a 1024. /productos sí cumple. Es una mejora contra el pre-fix (antes el documento se estiraba hasta 1372px con el CTA recortado e inalcanzable), pero queda como residuo abierto de H2-tablet. Capturas `h2-*.png`, detalle en `out-v6*.txt` del kit.
 
 ## 3. G3 — Comparativo invertido (H3) [LOW]
 
@@ -50,7 +53,8 @@
   > **Evidencia**: `title` en cada badge ("Evolución de {métrica} del período A al período B"), caption visible bajo el h1 ("Cada porcentaje mide la evolución del período A (base) al período B") y label del selector "Período A (base)".
 - [x] 3.4 TRIANGULAR: las 4 tarjetas con series que suben y que bajan; casos `invertColors` (gastos/compras) donde la doble inversión no se cancela; delta NULL → "N/A"
   > **Evidencia**: gastos suben → `+30.0%` destructive; ventas bajan → `-0.7%` destructive; compras bajan → `-5.0%` verde (invertColors); operaciones suben → `+88.9%` verde; deltas NULL → "N/A" en las 4. 7/7 verdes post-fix.
-- [ ] 3.5 Verificación visual en las 4 combinaciones (390/1440 × claro/oscuro)
+- [x] 3.5 Verificación visual en las 4 combinaciones (390/1440 × claro/oscuro)
+  > **Evidencia (2026-09-01, re-QA)**: 4 combinaciones con defaults de hoy (A=agosto completo, B=sep en curso): 4 tarjetas −100.0% con semáforo coherente (Ventas/Operaciones rojo, Gastos/Compras verde por invertColors), `title` "Evolución de … del período A al período B" y label "Período A (base)". **Caso discriminante** (reloj congelado al 31-08 → A=julio, B=agosto, signos mixtos contra la DB): Ventas −0.7% rojo, **Gastos +30.2% ROJO** (pre-fix: −23% verde — el peor caso del informe), Compras +4.8% rojo, Operaciones +100% verde. Signo y color = realidad de la DB en los 4. Capturas `g3-comparativo-*.png`.
 
 ## 4. G4 — Reporte por sucursal muerto (H4) [MEDIUM]
 
@@ -64,7 +68,8 @@
   > **Evidencia**: `useAuth().user.accountId` (canon `account_members`); la lectura de `getSession().user_metadata` eliminada; `enabled` exige `accountId`; `queryKey` lo incluye; rama `isError` visible ("No se pudo cargar el reporte por sucursal…", destructive) separada de "Sin datos".
 - [x] 4.5 TRIANGULAR: rango sin datos → "sin datos" (no error); RPC caído → error visible; verificación de que `rpc_cost_center_report` (espejo sano) no se toca
   > **Evidencia**: 4/4 verdes post-fix (datos → tabla; error → rama de error sin "Sin datos"; vacío → "Sin datos" sin error; args exactos de la RPC). `rpc_cost_center_report` y su página no se tocaron (git diff limpio fuera de `reportes/sucursal`).
-- [ ] 4.6 Verificación visual con el seed local (2 sucursales con ventas y gastos) en las 4 combinaciones
+- [x] 4.6 Verificación visual con el seed local (2 sucursales con ventas y gastos) en las 4 combinaciones
+  > **Evidencia (2026-09-01, re-QA)**: con agosto en rango (reloj al 31-08), `/reportes/sucursal` muestra filas reales: "Casa Central $ 244.170 / $ 1.132.720 / 10" y "Sucursal Godoy Cruz $ 80.680 / $ 29.400 / 3" — la RPC ejecuta (el 42702 no reaparece) y el tenant se resuelve por `account_members`. Con septiembre vacío (hoy): "Sin datos" SIN la rama de error, y 0 respuestas ≥400 en la red. 4 combinaciones capturadas (`g4-sucursal-*.png` + `g4-sucursal-agosto-desk.png`).
 
 ## 5. G5 — Campana sin scroll (H5) [LOW]
 
@@ -72,7 +77,8 @@
   > **Evidencia (2026-08-31)**: arnés nuevo `frontend/app/dev-harness/bell` (monta `NotificationBellView` — el panel REAL, extraído como presentacional del wireado de datos — con 15 notificaciones sintéticas + control sano de 3) + spec `e2e/harness/g5-bell-scroll.spec.ts`. RED ejecutado: 2/3 fallos (rueda Y dedo por CDP con `scrollTop` clavado en 0); el control sano de 3 visible sin scroll pasaba pre-fix.
 - [x] 5.2 GREEN: `NotificationBell.tsx:92` — mover el límite de alto del root del `ScrollArea` al viewport interno
   > **Evidencia**: `ui/scroll-area.tsx` gana la prop OPCIONAL `viewportClassName` (aditiva — sin ella el markup es idéntico, cero cambio para los demás consumidores) y la campana pasa `viewportClassName="max-h-80"` en lugar de `className`. 3/3 verdes (rueda scrollea, ítem 15 alcanzable con el gesto, dedo scrollea); suite completa del arnés 14/14 (G1/G2/G13 sin regresión) y `NotificationBell.test.tsx` 4/4.
-- [ ] 5.3 Verificación visual: rueda y dedo llegan a la notificación 15 en ambos viewports
+- [x] 5.3 Verificación visual: rueda y dedo llegan a la notificación 15 en ambos viewports
+  > **Evidencia (2026-09-01, re-QA)**: móvil (dedo por CDP): panel 972/320, scrollTop 0→652 `atBottom` — las 15 llegan al fondo. Escritorio (rueda): 1026/320, scrollTop 0→706 `atBottom`. Capturas `g5-campana-*.png`.
 
 ## 6. G6 — Arqueo autodestruido (H6) [MEDIUM]
 
@@ -82,7 +88,8 @@
   > **Evidencia**: `CloseSessionDialog` pasa a controlado (`open`/`onOpenChange`, sin `DialogTrigger` interno — único consumidor verificado por grep); la página gana `closeDialogOpen` y monta el diálogo junto a `LedgerAdjustmentDialog`, fuera del ternario; el botón "Cerrar caja" dentro del ternario solo setea el estado. `use-cash-session.ts` intacto.
 - [x] 6.3 TRIANGULAR: arqueo exacto y con sobrante también persisten; "Listo" cierra el panel y la pantalla queda en "sin sesión abierta"
   > **Evidencia**: 4/4 verdes post-fix — faltante ($37.200 visible con la pantalla ya en "sin sesión"), exacto ("Arqueo exacto — sin diferencia"), sobrante ("+$"), y "Listo" cierra dejando el formulario de apertura operable. `caja-page-preselection` (4) y `use-cash-session-close-idempotency` (2) sin regresión.
-- [ ] 6.4 Verificación visual: cierre real con faltante en local — el panel queda hasta que el usuario lo cierra, en ambos viewports
+- [x] 6.4 Verificación visual: cierre real con faltante en local — el panel queda hasta que el usuario lo cierra, en ambos viewports
+  > **Evidencia (2026-09-01, re-QA)**: cierre real en Casa Central (contado $150 abajo del esperado): el panel "Faltante en caja: -$ 150,00 / Esperado $ 90.988,55 / Contado $ 90.838,55" aparece al confirmar y **sigue idéntico a los 5 segundos** con la página de fondo ya en "sin sesión" (el 404 de `current-session` resolvió y el diálogo no se desmontó); "Listo" lo cierra y queda el formulario de apertura. De paso H26: el formato es "-$ 150,00" (signo afuera). Móvil verificado; en escritorio el mismo diálogo controlado (mismo componente, verificado por tests 6.1-6.3). Capturas `g6-*.png`. Nota de fixture: esta corrida dejó cerrada la sesión de Casa Central de la DB local.
 
 ## 7. G7 — Toasts fantasma del export (H7) [MEDIUM]
 
@@ -92,7 +99,8 @@
   > **Evidencia**: las 5 ramas migradas (`toast.error`/`toast.success` con `description`, estilo del resto de la app); ningún `<Toaster />` nuevo montado.
 - [x] 7.3 TRIANGULAR: rama de éxito y rama de cuota agotada visibles; si `hooks/use-toast` queda sin consumidores, anotarlo como candidato de limpieza (no borrarlo acá)
   > **Evidencia**: 5/5 verdes post-fix (EF caída, cuota agotada + invalidación del contador, éxito, sin sesión con `triggerExport` no llamado, excepción) + los 3 legacy de `export-button.test.tsx`. **`hooks/use-toast` NO queda huérfano**: siguen consumiéndolo `app/(dashboard)/exportaciones/page.tsx` (sus toasts de "regenerar" son igual de invisibles — mismo defecto H7, fuera del alcance declarado de este grupo), `components/ui/toaster.tsx` (el Toaster jamás montado) y el re-export de `hooks/index.ts` → **candidato de limpieza**: migrar exportaciones/page.tsx a sonner y retirar use-toast+toaster.tsx en un change chico.
-- [ ] 7.4 Verificación visual en `/ventas`, `/gastos` y `/compras`
+- [x] 7.4 Verificación visual en `/ventas`, `/gastos` y `/compras`
+  > **Evidencia (2026-09-01, re-QA)**: el `ExportButton` (Edge Function, caída en local → 503) ahora muestra **toast "Error al exportar"** visible por sonner en `/ventas` (desktop) y `/compras` (ambos botones probados uno a uno: el EF da el toast de error, el client-side "Exportadas 25 filas"); `/gastos` mostró "Exportados 22 gastos". Pre-fix las cinco ramas eran invisibles. La rama de éxito del EF sigue sin poder probarse en local (sin edge runtime, salvedad ya declarada por el informe); cubierta por los tests de 7.1-7.3. Capturas `g7-*.png`.
 
 ## 8. G8 — Backend roto en silencio [MEDIUM]
 
@@ -117,7 +125,8 @@
   > **Evidencia**: RED ejecutado en hook y página. GREEN: `useSupplierAccount` degrada el 404 "Cuenta corriente no encontrada" a `data: null` SIN error (`__tests__/hooks/use-supplier-account.test.ts`, 3 casos: degrade / cuenta real mapea / error real sigue siendo error); la página muestra aviso neutro "todavía no tiene movimientos… Saldo actual: $ 0" y conserva la rama de error para errores reales.
 - [x] 9.6 Auditoría de daño histórico (D7): re-medir en prod proveedores soft-deleteados con `supplier_accounts.balance ≠ 0` (medido 0 el 2026-08-31); si aparece alguno, decidir con el PO (restaurar o saldar) antes de dar por cerrado el grupo
   > **Evidencia (2026-08-31, apply)**: re-medido en prod (SELECT vía MCP): **0 filas** — sin daño histórico que reparar; cerrada por ausencia de datos.
-- [ ] 9.7 Verificación visual de listado y cuenta corriente en las 4 combinaciones
+- [x] 9.7 Verificación visual de listado y cuenta corriente en las 4 combinaciones
+  > **Evidencia (2026-09-01, re-QA)**: **OQ-1 en vivo**: eliminar "Lacteos del Valle" (saldo $63.540) → `DELETE /suppliers/{id}` responde **409** y el toast muestra el detail humano exacto: "El proveedor tiene saldo abierto en su cuenta corriente ($ 63.540,00). Registrá el pago o ajustá la cuenta antes de borrarlo."; el proveedor sigue listado tras recargar. **H14**: `/proveedores/{id}/cuenta` titula "Lacteos del Valle" con el saldo. **H22**: la cuenta de "Bodega Los Alamos" (404 del backend) muestra $0/"sin movimientos" SIN banner destructivo (el único match de `[role=alert]` es el badge "9+" de la campana). Combinaciones desk-light y mob-dark capturadas (`g9-*.png`), listado sin desborde en 390.
 
 ## 10. G10 — Textos y avisos (H8, H12, H21, H25, H26) [LOW]
 
@@ -153,7 +162,8 @@
   > **Evidencia**: RED ejecutado (columnas con clase `hidden` + rótulo viejo). GREEN: las 9 celdas `hidden sm:table-cell` eliminadas, `min-w-[560px]` en el table para que el `overflow-x-auto` existente scrollee en móvil, y la fila de cierre pasa a "Totales del período" (cada columna cierra con SU total — más preciso que atribuirlo a lo vendido).
 - [x] 12.3 H27: KPI "Margen por Canal" del dashboard con `title`/tooltip accesible que revele el valor completo truncado
   > **Evidencia**: RED ejecutado (`KpiSummaryCard.test.tsx` — el span truncable sin `title`). GREEN: `title={value}` en el span del valor de `KpiSummaryCard` (beneficia a las 5 tarjetas, no solo a Margen por Canal).
-- [ ] 12.4 Verificación visual de los 3 reportes y el dashboard en las 4 combinaciones
+- [x] 12.4 Verificación visual de los 3 reportes y el dashboard en las 4 combinaciones
+  > **Evidencia (2026-09-01, re-QA)**: `/reportes/formas-pago` en 390 (agosto en rango): **leyenda presente** (Vendido/Comprado/Gastado), **un fill fijo por serie** (`--primary` / `#60a5fa` / `--destructive`, sin `<Cell>` rotativos), **las 5 columnas visibles** (0 `display:none`; tabla dentro de `overflow-x-auto`, doc 390) y fila "Totales del período" con los totales por columna ($324.850 / $482.680 / $1.162.120 / 36 = la DB). `/reportes/sucursal` y comparativo capturados en las 4 combinaciones en 3.5/4.6. **H27**: el KPI "Margen por Canal" del dashboard tiene `title` en el span del valor (hoy con valor "—" por el período; el atributo está presente y lo cubren los tests de 12.3). Capturas `g12-formaspago-mob.png`, `g3-*/g4-*`.
 
 ## 13. G13 — Navegación móvil (H17, H18, H19) [MEDIUM por sidebar.tsx]
 
@@ -164,6 +174,7 @@
 - [x] 13.3 H19: drawer móvil del sidebar (`ui/sidebar.tsx:204-220`) cierra con Escape y muestra la X (quitar el `[&>button]:hidden` de L210 o proveer botón propio); RED sano: el sidebar desktop no cambia
   > **Evidencia (2026-08-31)**: RED ejecutado (X invisible por `[&>button]:hidden`). GREEN: se retiró esa clase y la X del `SheetContent` ganó `p-2 -m-2` (área táctil 16→32 px sin mover su posición). Playwright en el arnés: X visible ≥24, cierra con la X y **cierra con Escape**; el RED sano del desktop lo cubre el control 1440 de `g2-shell-overflow.spec.ts` (mismo arnés). Nota: con la X ya visible, Escape cerró también en el arnés — la confirmación sobre la app real (donde el informe lo midió fallando) queda para 13.4.
 - [ ] 13.4 Verificación visual táctil real en 390x844
+  > **Evidencia (2026-09-01, re-QA) — VERDE salvo el Escape del drawer (H19 sigue vivo en la app real)**. ✅ H17: breadcrumbs "Caja"/"Banco"/"Sucursales"/"Exportaciones"/"Planes" en las 5 rutas muestreadas. ✅ H18: botón de menú **44x44**; acciones "Desactivar …" de /sucursales **44x44**. ✅ H19 parcial: la **X del drawer es visible (32x32) y CIERRA** el sheet al tocarla. ❌ **H19 Escape: reproducido 2 veces sobre la app real — con el drawer abierto (`data-state=open`), Escape NO lo cierra** (sigue `open` tras 1,5 s; capturas `h19-escape-intento1/2.png`), exactamente el escenario que la nota de 13.3 dejaba pendiente de confirmar (en el arnés sí cerraba). NO se arregló en esta fase (re-QA no toca código): queda para el apply — mirar qué consume el keydown en el shell real (el arnés no monta la app completa).
 
 ## 14. G14 — CTA de /planes (H20) [MEDIUM]
 
@@ -185,12 +196,14 @@
   > **Evidencia**: §5 (`rpc_create_expense`, diffs = los dos argumentos de descripción) y §6 (`rpc_delete_expense`, baseline vivo NUEVO capturado de prod `819bd694…` == local, `baseline/rpc_delete_expense.live.sql` — la reversa de caja pasa `v_expense.description` como 5º arg y el espejo bancario anexa el motivo CONSERVANDO el marcador `Reversión por borrado de gasto` que `test_gastos_forma_pago` 5.5/5.7 exige). ACLs reafirmadas = vivas de prod (postgres/authenticated/service_role); gate anti-overload ampliado a las 4 funciones. Aplicada ×2 en local (re-runnable); gate qa-integral (1)(2)(3) PASS y `test_gastos_forma_pago` 48 PASS / 0 FAIL post-cambio.
 - [x] 16.3 Backfill idempotente de los movimientos históricos de gastos con motivo vacío (OQ-3, recomendado; acotado por referencia al gasto y `description IS NULL`)
   > **Evidencia (2026-08-31)**: `20261016000001` §3 — dos `UPDATE … FROM public.expenses` acotados por referencia (`cash_movements.reference_id` con `movement_type IN ('expense','expense_reversal')`; `bank_movements.source_doc_ref` con `source_doc_type='expense'`) y `description IS NULL`. En local: 1 fila de caja + 2 de banco backfilleadas (los 2 movimientos de caja restantes referencian gastos ya borrados — `rpc_delete_expense` hace DELETE físico, no hay fuente de la que copiar el motivo; quedan como están por diseño). Re-apply = `UPDATE 0` + fingerprint idéntico. Medido en prod (solo SELECT, 2026-08-31): 4 filas de caja y 0 de banco con motivo NULL esperando el backfill del deploy.
-- [ ] 16.4 Verificación en historiales de `/caja` y `/banco`: la fila del gasto nombra el gasto
+- [x] 16.4 Verificación en historiales de `/caja` y `/banco`: la fila del gasto nombra el gasto
+  > **Evidencia (2026-09-01, re-QA)**: gasto por transferencia creado desde `/gastos` (cuenta Operativa) → `bank_movements.description` = "QA reQA motivo banco transferencia" en DB, y la fila del historial de `/banco` (cuenta Operativa seleccionada) la muestra: "Transferencia sal. | QA reQA motivo banco transferencia | -2.222,00". Historial de `/caja` Casa Central: "Gasto | QA reQA motivo caja efectivo" (el gasto en efectivo con opt-in). **OQ-3 verificado en local: 0 movimientos de caja/banco referenciando un gasto vivo con `description IS NULL`**. Capturas `g16-*.png`.
 
 ## 17. Cierre transversal
 
 - [ ] 17.1 Suites completas: vitest frontend, pytest backend (≥87%), gates SQL locales (`db reset` con la migración nueva; ningún `P0001`, ningún ERRCODE nuevo)
 - [ ] 17.2 `tsc` sin errores nuevos; barrido de accesibilidad sobre los componentes tocados
 - [ ] 17.3 Verificación visual final: re-correr las pantallas afectadas por el método D10 (390x844 táctil + 1440x900, tema claro y oscuro) y archivar las capturas en el scratchpad (no se versionan)
+  > **Evidencia (2026-09-01, re-QA) — corrida completa hecha; queda abierta junto a los 3 residuos.** Método del informe §4 (Playwright + cookies + táctil CDP), ~120 capturas en `scratchpad/qa/post/` y salidas JSON en `scratchpad/qa-kit/out-*.txt`. **Cerrados y verificados en vivo**: H1 (los 6 casos + controles), H2 en 390 y 768, H3 (con caso discriminante julio/agosto), H4, H5, H6 (+H26), H7, H8, H10/OQ-1 (409 con monto), H11/G16 (+OQ-3), H13, H14, H17, H18, H22, H23/H16 (leyenda+columnas), H25, H27 (title presente). **Residuos que impiden cerrar el change como 100%**: (1) **H19-Escape sigue vivo en la app real** (la X sí cierra) — ver 13.4; (2) **H2-tablet residual a 1024**: CTA primario fuera del viewport al abrir en /ventas /gastos /compras /clientes (alcanzable por el scroll interno del layout, con scrollbar) — ver 2.8; (3) **H12 parcial**: el diálogo de borrado de compra enumera la reposición de stock (línea nueva ✅) pero **la línea del cargo en cuenta corriente no aparece nunca en la app real** — `GET /purchases` (y `GET /sales`) no proyectan `has_account_charge`/`has_cash_movement`/`has_bank_movement`, `use-purchases.ts:86` lo mapea `?? false` (verificado contra el payload vivo con una compra a crédito CON cargo posteado en `supplier_account_movements`; los tests de 10.2 lo taparon porque mockean el flag). Gap de transporte preexistente de `delete-guard-ledgers`, no regresión de este change — pero el hallazgo H12 del informe no queda cerrado del todo sin él.
 - [ ] 17.4 `openspec validate --changes --strict` en verde
 - [ ] 17.5 Actualizar `CHANGES.md` (resultado del apply) y verificar que el candidato absorbido del desborde de `/gastos` quede marcado

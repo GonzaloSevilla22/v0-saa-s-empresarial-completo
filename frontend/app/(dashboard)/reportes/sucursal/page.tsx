@@ -4,9 +4,10 @@ import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { startOfMonth, subDays } from "date-fns"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
+import { useAuth } from "@/contexts/auth-context"
 import { createClient } from "@/lib/supabase/client"
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,13 +31,8 @@ const fmtARS  = (n: number) =>
 
 const toISO = toISODate
 
-const COLORS = [
-  "hsl(var(--primary))",
-  "#60a5fa",
-  "#34d399",
-  "#f59e0b",
-  "#f87171",
-]
+// G12 (H16): un color FIJO por serie, compartido por los tres reportes.
+import { REPORT_SERIES_COLORS } from "@/lib/report-chart-colors"
 
 // ─── Plan gate ────────────────────────────────────────────────────────────────
 
@@ -65,6 +61,12 @@ function PlanGateFallback() {
 
 export default function SucursalReportPage() {
   const { limits, isLoading: gateLoading } = usePlanLimits()
+  // qa-integral-modulos (G4/H4): el tenant se resuelve por el canon de
+  // account_members (auth-context) — la lectura vieja de
+  // user_metadata.account_id no la escribe NADA en ningún entorno, así que la
+  // pantalla devolvía [] en silencio para todos los usuarios desde C-06.
+  const { user } = useAuth()
+  const accountId = user?.accountId ?? null
 
   const today = new Date()
   const [dateFrom, setDateFrom] = useState<Date>(startOfMonth(today))
@@ -72,17 +74,12 @@ export default function SucursalReportPage() {
 
   const minDate = subDays(today, limits?.historyDays ?? 30)
 
-  const { data: rows = [], isLoading } = useQuery<BranchReportRow[]>({
-    queryKey: ["branchReport", toISO(dateFrom), toISO(dateTo)],
+  const { data: rows = [], isLoading, isError } = useQuery<BranchReportRow[]>({
+    queryKey: ["branchReport", accountId, toISO(dateFrom), toISO(dateTo)],
     queryFn: async () => {
       const supabase = createClient()
-      const { data: session } = await supabase.auth.getSession()
-      const accountId = (session.session?.user.user_metadata?.account_id as string | undefined) ?? null
-
-      if (!accountId) return []
-
       const { data, error } = await supabase.rpc("rpc_branch_report", {
-        p_account_id: accountId,
+        p_account_id: accountId!,
         p_start:      toISO(dateFrom),
         p_end:        toISO(dateTo),
       })
@@ -96,7 +93,7 @@ export default function SucursalReportPage() {
         operation_count: Number(r.operation_count ?? 0),
       }))
     },
-    enabled: !!limits?.hasBranchesModule,
+    enabled: !!limits?.hasBranchesModule && !!accountId,
   })
 
   if (gateLoading) return null
@@ -146,6 +143,13 @@ export default function SucursalReportPage() {
             <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">
               Cargando...
             </div>
+          ) : isError ? (
+            // qa-integral-modulos (G4/H4): rama de error VISIBLE — sin ella,
+            // un fallo de la RPC quedaba tapado como "Sin datos" en silencio.
+            <div className="h-56 flex items-center justify-center px-4 text-center text-sm text-destructive">
+              No se pudo cargar el reporte por sucursal. Probá de nuevo en unos
+              segundos; si sigue fallando, avisanos.
+            </div>
           ) : rows.length === 0 ? (
             <div className="h-56 flex items-center justify-center text-muted-foreground text-sm">
               Sin datos para el período seleccionado
@@ -156,12 +160,9 @@ export default function SucursalReportPage() {
                 <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(v: number, name: string) => [fmtARS(v), name]} />
-                <Bar dataKey="Ventas" fill="hsl(var(--primary))" fillOpacity={0.85} radius={[0, 4, 4, 0]}>
-                  {chartData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} fillOpacity={0.85} />
-                  ))}
-                </Bar>
-                <Bar dataKey="Gastos" fill="#f87171" fillOpacity={0.7} radius={[0, 4, 4, 0]} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Ventas" fill={REPORT_SERIES_COLORS.sold} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="Gastos" fill={REPORT_SERIES_COLORS.spent} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}

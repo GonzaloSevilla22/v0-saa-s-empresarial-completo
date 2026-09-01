@@ -74,7 +74,12 @@ export function KpiSummaryCard({
             </span>
           </div>
           <div className="mt-3 flex flex-col gap-0.5 min-w-0">
-            <span className="text-xl font-bold text-card-foreground tracking-tight truncate">
+            {/* G12 (H27): el truncate cortaba "Feria 46% / S/C 45%" sin forma
+                de leer el segundo valor — title expone el valor completo. */}
+            <span
+              className="text-xl font-bold text-card-foreground tracking-tight truncate"
+              title={value}
+            >
               {value}
             </span>
             <span className="text-xs text-muted-foreground">{label}</span>

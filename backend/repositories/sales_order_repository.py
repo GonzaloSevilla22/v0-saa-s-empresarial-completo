@@ -138,12 +138,19 @@ class SalesOrderRepository(BaseRepository):
     # ── Lecturas ──────────────────────────────────────────────────────────────
 
     async def list_orders(self, account_id: str) -> list[dict]:
-        """Lista las órdenes de venta de una cuenta."""
+        """Lista las órdenes de venta de una cuenta.
+
+        qa-integral-modulos (G8/D6): payment_method se DERIVA de
+        payment_methods.kind vía LEFT JOIN — la columna propia (TEXT legacy)
+        fue retirada por limpiezas-pagos-admin y el SELECT * ya no la traía,
+        rompiendo el contrato SalesOrderOut (500 en todo el listado)."""
         return await self.fetch(
             """
-            SELECT * FROM public.sales_orders
-            WHERE account_id = $1::uuid
-            ORDER BY created_at DESC
+            SELECT so.*, pm.kind AS payment_method
+            FROM public.sales_orders so
+            LEFT JOIN public.payment_methods pm ON pm.id = so.payment_method_id
+            WHERE so.account_id = $1::uuid
+            ORDER BY so.created_at DESC
             """,
             account_id,
         )
@@ -155,7 +162,12 @@ class SalesOrderRepository(BaseRepository):
         account_id — GET /sales-orders/{id} era un IDOR (cualquier usuario
         autenticado podía leer la orden de venta de OTRO tenant)."""
         return await self.fetchrow(
-            "SELECT * FROM public.sales_orders WHERE id = $1::uuid AND account_id = $2::uuid",
+            """
+            SELECT so.*, pm.kind AS payment_method
+            FROM public.sales_orders so
+            LEFT JOIN public.payment_methods pm ON pm.id = so.payment_method_id
+            WHERE so.id = $1::uuid AND so.account_id = $2::uuid
+            """,
             sales_order_id,
             account_id,
         )

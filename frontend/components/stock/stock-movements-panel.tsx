@@ -358,7 +358,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
                 key={f}
                 onClick={() => setFilter(f)}
                 className={cn(
-                  "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                  "px-3 py-2 md:px-2.5 md:py-1 rounded-full text-xs font-medium border transition-colors",
                   filter === f
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-background border-border text-muted-foreground hover:text-foreground",
@@ -374,7 +374,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
                 placeholder="Buscar…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-7 text-xs bg-background border-border"
+                className="h-9 md:h-7 text-xs bg-background border-border"
               />
             </div>
 
@@ -382,7 +382,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-11 min-w-11 md:h-7 md:min-w-0 px-2"
               onClick={() => fetchPage(true, filter)}
               disabled={loading}
               title="Actualizar"
@@ -395,7 +395,7 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 hidden sm:inline-flex"
+                className="h-11 min-w-11 md:h-7 md:min-w-0 px-2 hidden sm:inline-flex"
                 onClick={() => exportCsv(filtered)}
                 title="Exportar CSV"
               >
@@ -404,6 +404,11 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
             )}
           </div>
 
+          {/* qa-integral-modulos G2 (H2/2.7): mismo tratamiento que
+              LedgerMovementsPanel — columnas en px fijos scrollean dentro del
+              panel, no estiran la página. */}
+          <div className="overflow-x-auto">
+          <div className="min-w-[420px]">
           {/* Table header */}
           <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-muted/10">
             <span className="w-[84px]  text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Fecha</span>
@@ -435,6 +440,8 @@ export function StockMovementsPanel({ productId }: StockMovementsPanelProps) {
               )}
             </div>
           </ScrollArea>
+          </div>
+          </div>
 
           {/* Load more — visible for any active filter (item 10: server filters correctly) */}
           {hasMore && !search && (

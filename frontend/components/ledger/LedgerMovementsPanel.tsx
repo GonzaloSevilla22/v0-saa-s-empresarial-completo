@@ -237,7 +237,7 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
                 key={f.key}
                 onClick={() => setFamily(f.key)}
                 className={cn(
-                  "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                  "px-3 py-2 md:px-2.5 md:py-1 rounded-full text-xs font-medium border transition-colors",
                   family === f.key
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-background border-border text-muted-foreground hover:text-foreground",
@@ -251,7 +251,7 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
               <select
                 value={extraFilterValue}
                 onChange={(e) => setExtraFilterValue(e.target.value)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+                className="h-9 md:h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
                 aria-label={config.extraFilter.label}
               >
                 <option value="">{config.extraFilter.label}: todos</option>
@@ -268,14 +268,14 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
                 placeholder="Buscar por motivo…"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                className="h-7 text-xs bg-background border-border"
+                className="h-9 md:h-7 text-xs bg-background border-border"
               />
             </div>
 
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2"
+              className="h-11 min-w-11 md:h-7 md:min-w-0 px-2"
               onClick={() => fetchPage(true)}
               disabled={loading}
               title="Actualizar"
@@ -287,7 +287,7 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 hidden sm:inline-flex"
+                className="h-11 min-w-11 md:h-7 md:min-w-0 px-2 hidden sm:inline-flex"
                 onClick={() => exportCsv(rows, config)}
                 title="Exportar CSV"
               >
@@ -296,6 +296,13 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
             )}
           </div>
 
+          {/* qa-integral-modulos G2 (H2/2.7): las columnas en px fijos (84 +
+              140 + 96 + gaps) exceden el ancho móvil — el desborde ahora vive
+              en este contenedor con scroll horizontal propio, no en la página
+              (el hijo display:table del ScrollArea de Radix dimensionaba las
+              filas a max-content y estiraba el documento entero). */}
+          <div className="overflow-x-auto">
+          <div className="min-w-[420px]">
           {/* Cabecera de tabla */}
           <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border/50 bg-muted/10">
             <span className="w-[84px]  text-[11px] font-medium text-muted-foreground uppercase tracking-wide">Fecha</span>
@@ -329,6 +336,8 @@ export function LedgerMovementsPanel<TRow extends LedgerRowBase>({
               )}
             </div>
           </ScrollArea>
+          </div>
+          </div>
 
           {hasMore && (
             <div className="flex items-center justify-center px-4 py-3 border-t border-border">

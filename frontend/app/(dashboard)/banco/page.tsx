@@ -12,6 +12,7 @@ import { useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { Landmark, Scale } from "lucide-react"
 import { toast } from "sonner"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -330,9 +331,11 @@ function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
       toast.success("Sesión de conciliación abierta")
       setOpenDialog(false)
     } catch (err) {
-      toast.error(
+      // G10 (H21a): "periodo_invalido: period_from debe ser <= period_to" se
+      // traduce en el mapa canónico; un error no reconocido pasa intacto.
+      const raw =
         (err as Error).message || "No se pudo abrir la sesión (¿ya hay una abierta para esta cuenta?)"
-      )
+      toast.error(humanizeOperationError(raw).message)
     }
   }
 

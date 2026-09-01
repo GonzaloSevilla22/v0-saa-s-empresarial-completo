@@ -122,6 +122,12 @@ export async function POST(req: Request): Promise<NextResponse> {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     console.error('[billing/preferences] Unhandled error:', message)
-    return NextResponse.json({ ok: false, error: 'Error interno del servidor' }, { status: 500 })
+    // qa-integral-modulos G10 (H21c): el 500 genérico tapaba el motivo real
+    // ("Error interno del servidor" mientras la consola tenía la explicación).
+    // Se propaga el detalle para que el usuario y el soporte vean lo mismo.
+    return NextResponse.json(
+      { ok: false, error: `No se pudo crear la preferencia de pago: ${message}` },
+      { status: 500 }
+    )
   }
 }

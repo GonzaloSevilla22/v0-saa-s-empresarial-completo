@@ -25,11 +25,15 @@ import type { Expense } from "@/lib/types"
 
 // ── Estado del hook, controlable por test ───────────────────────────────────
 let expensesFixture: Expense[] = []
+// G11 (H13): mutable para poder abrir el popover con el rango activo
+// (el botón "Limpiar filtro" solo se renderiza con un rango cargado).
+let dateFromFixture = ""
 const setSearchMock = vi.fn()
 const setDateFromMock = vi.fn()
 const setDateToMock = vi.fn()
 const setCostCenterIdMock = vi.fn()
 const setPaymentMethodIdMock = vi.fn()
+const clearFiltersMock = vi.fn()
 const deleteExpenseMock = vi.fn().mockResolvedValue(undefined)
 const setPageMock = vi.fn()
 
@@ -42,11 +46,11 @@ vi.mock("@/hooks/data/use-expenses-query", () => ({
     error: null,
     refetch: vi.fn(),
     search: "", setSearch: setSearchMock,
-    dateFrom: "", setDateFrom: setDateFromMock,
+    dateFrom: dateFromFixture, setDateFrom: setDateFromMock,
     dateTo: "", setDateTo: setDateToMock,
     costCenterId: null, setCostCenterId: setCostCenterIdMock,
     paymentMethodId: null, setPaymentMethodId: setPaymentMethodIdMock,
-    clearFilters: vi.fn(),
+    clearFilters: clearFiltersMock,
     setPage: setPageMock,
     setPageSize: vi.fn(),
     addExpense: vi.fn(), updateExpense: vi.fn(), deleteExpense: deleteExpenseMock,
@@ -119,6 +123,7 @@ const BASE: Expense = {
 beforeEach(() => {
   vi.clearAllMocks()
   expensesFixture = [BASE]
+  dateFromFixture = ""
 })
 
 // ── 11.0 ────────────────────────────────────────────────────────────────────
@@ -280,5 +285,25 @@ describe("/gastos — export local (11.5)", () => {
     // El gasto sin imputar exporta el mismo literal que muestra el badge, no
     // una celda vacía que después nadie sabe leer.
     expect(rows[1].paymentMethodName).toBe("Sin especificar")
+  })
+})
+
+// ── G11 (H13): "Limpiar filtro" del popover de fechas ───────────────────────
+describe("/gastos — 'Limpiar filtro' limpia SOLO el rango de fechas (G11/H13)", () => {
+  it("limpia dateFrom/dateTo sin tocar buscador, forma de pago ni centro", async () => {
+    dateFromFixture = "2026-08-01"
+    const user = userEvent.setup()
+    render(<GastosPage />)
+
+    await user.click(screen.getByRole("button", { name: /Filtrar fechas/ }))
+    await user.click(await screen.findByRole("button", { name: /Limpiar filtro/ }))
+
+    expect(setDateFromMock).toHaveBeenCalledWith("")
+    expect(setDateToMock).toHaveBeenCalledWith("")
+    // El limpiador GLOBAL no se dispara: el resto del filtrado sobrevive.
+    expect(clearFiltersMock).not.toHaveBeenCalled()
+    expect(setSearchMock).not.toHaveBeenCalled()
+    expect(setPaymentMethodIdMock).not.toHaveBeenCalled()
+    expect(setCostCenterIdMock).not.toHaveBeenCalled()
   })
 })

@@ -140,4 +140,21 @@ describe("ProveedoresPage", () => {
 
     await vi.waitFor(() => expect(deleteSupplierMock).toHaveBeenCalledWith("sup-1"))
   })
+
+  it("qa-integral-modulos (G9/9.3): el 409 de saldo abierto muestra el detail del backend con el monto (no el fallback genérico)", async () => {
+    const { toast } = await import("sonner")
+    const detail =
+      "El proveedor tiene saldo abierto en su cuenta corriente ($ 116.550,00). " +
+      "Registrá el pago o ajustá la cuenta antes de borrarlo."
+    deleteSupplierMock.mockRejectedValueOnce(new Error(detail))
+
+    render(<ProveedoresPage />)
+    const [deleteBtn] = screen.getAllByTestId("supplier-delete-sup-1")
+    fireEvent.click(deleteBtn)
+
+    const confirmBtn = await screen.findByRole("button", { name: /^eliminar$/i })
+    fireEvent.click(confirmBtn)
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith(detail))
+  })
 })

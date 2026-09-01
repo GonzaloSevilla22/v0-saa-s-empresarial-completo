@@ -64,12 +64,18 @@ describe("PaymentMethodSelect", () => {
     expect(screen.getByText(/carga la venta a la cuenta corriente del cliente al confirmarla/)).toBeInTheDocument()
   })
 
-  it("D8: el texto de apoyo de 'credit' para compras menciona al proveedor, no al cliente", () => {
+  it("qa-integral-modulos G10 (H8): el texto de apoyo de 'credit' en compra declara que SÍ carga la cuenta corriente del proveedor", () => {
+    // compras-proveedor-cuenta-corriente (2026-08-23, PR #452) cablea el cargo
+    // real — el texto viejo ("no genera un cargo") quedó mintiendo: el QA vio
+    // el saldo pasar de $0 a $8.900 con la etiqueta que se declaraba inocua.
     usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
 
     render(<PaymentMethodSelect value="pm-credit" onChange={vi.fn()} context="purchase" />)
 
-    expect(screen.getByText(/no genera un cargo en la cuenta corriente del proveedor/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/carga la compra a la cuenta corriente del proveedor al confirmarla/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/no genera un cargo/i)).not.toBeInTheDocument()
   })
 
   it("pos-catalogo-pagos D5: el texto de apoyo de 'cash' en venta nombra al POS como el camino automático", () => {

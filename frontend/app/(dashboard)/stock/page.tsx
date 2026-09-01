@@ -157,12 +157,15 @@ export default function StockPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* ── Page header ───────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      {/* qa-integral-modulos G2 (H2/2.4): flex-wrap en la barra de acciones —
+          sin wrap, "Ajustar stock" + "Importar ajuste" + export empujaban el
+          ancho de la página en móvil. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Stock</h1>
           <p className="text-sm text-muted-foreground mt-1">Control de inventario y reposición</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ExportButton exportType="stock_csv" />
           <Button
             variant="outline"

@@ -54,8 +54,25 @@ const toISO = (d: Date) => format(d, "yyyy-MM-dd")
 
 // ─── Delta badge ──────────────────────────────────────────────────────────────
 
-function DeltaBadge({ value, invertColors = false }: { value: number | null; invertColors?: boolean }) {
-  if (value == null) return <Badge variant="secondary" className="text-xs">N/A</Badge>
+function DeltaBadge({
+  value,
+  invertColors = false,
+  metricLabel,
+}: {
+  value: number | null
+  invertColors?: boolean
+  metricLabel: string
+}) {
+  // qa-integral-modulos (G3/H3): el badge queda rotulado — mide la evolución
+  // del período A (base) al período B, el contrato (B−A)/A de la RPC.
+  const title = `Evolución de ${metricLabel} del período A al período B`
+
+  if (value == null)
+    return (
+      <Badge variant="secondary" className="text-xs" title={title} data-testid={`delta-badge-${metricLabel}`}>
+        N/A
+      </Badge>
+    )
 
   const isPositive = value > 0
   const isGood     = invertColors ? !isPositive : isPositive
@@ -64,6 +81,8 @@ function DeltaBadge({ value, invertColors = false }: { value: number | null; inv
   return (
     <Badge
       variant="outline"
+      title={title}
+      data-testid={`delta-badge-${metricLabel}`}
       className={`text-xs font-semibold ${
         isGood
           ? "border-green-500/40 text-green-500 bg-green-500/10"
@@ -145,14 +164,18 @@ export default function ComparativoPage() {
 
   const { hasAccess, limits, isLoading: gateLoading } = usePlanGate("avanzado")
 
-  // Default: Período A = mes actual, Período B = mes anterior
+  // qa-integral-modulos (G3/H3): la RPC calcula (B−A)/A con A como BASE
+  // (20260606120000:104-111) y ai-comparativo rotula "vs período A" con la
+  // misma convención. Los defaults viejos (A = mes actual, B = mes anterior)
+  // invertían el signo y el semáforo de las 4 tarjetas.
+  // Default: Período A = mes anterior (base), Período B = mes en curso.
   const today    = new Date()
   const minDate  = subDays(today, limits?.historyDays ?? 30)
 
-  const [aFrom, setAFrom] = useState<Date>(startOfMonth(today))
-  const [aTo,   setATo]   = useState<Date>(today)
-  const [bFrom, setBFrom] = useState<Date>(startOfMonth(subMonths(today, 1)))
-  const [bTo,   setBTo]   = useState<Date>(endOfMonth(subMonths(today, 1)))
+  const [aFrom, setAFrom] = useState<Date>(startOfMonth(subMonths(today, 1)))
+  const [aTo,   setATo]   = useState<Date>(endOfMonth(subMonths(today, 1)))
+  const [bFrom, setBFrom] = useState<Date>(startOfMonth(today))
+  const [bTo,   setBTo]   = useState<Date>(today)
 
   const aStart = toISO(aFrom)
   const aEnd   = toISO(aTo)
@@ -308,7 +331,8 @@ export default function ComparativoPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground tracking-tight">Reporte Comparativo</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Comparación de métricas entre dos períodos
+            Comparación de métricas entre dos períodos. Cada porcentaje mide la
+            evolución del período A (base) al período B.
           </p>
         </div>
         <Button
@@ -330,7 +354,7 @@ export default function ComparativoPage() {
         <CardContent className="p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-8">
             <DateRangePicker
-              label="Período A"
+              label="Período A (base)"
               from={aFrom}
               to={aTo}
               onFromChange={setAFrom}
@@ -408,7 +432,7 @@ export default function ComparativoPage() {
                       <span className="text-xs text-muted-foreground">B</span>
                       <span className="text-sm font-semibold tabular-nums">{format(valueB)}</span>
                     </div>
-                    <DeltaBadge value={delta} invertColors={invertColors} />
+                    <DeltaBadge value={delta} invertColors={invertColors} metricLabel={label} />
                   </div>
                 </>
               )}

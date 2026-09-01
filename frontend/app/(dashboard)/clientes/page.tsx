@@ -156,7 +156,13 @@ export default function ClientesPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Clientes</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {act.meta.totalCount > 0 ? `${act.meta.totalCount} clientes registrados` : ""}
+          {/* G10 (H25): unificado con el criterio del contador de la barra de
+              filtros de esta misma pantalla ("1 cliente"). */}
+          {act.meta.totalCount > 0
+            ? act.meta.totalCount === 1
+              ? "1 cliente registrado"
+              : `${act.meta.totalCount} clientes registrados`
+            : ""}
         </p>
       </div>
 

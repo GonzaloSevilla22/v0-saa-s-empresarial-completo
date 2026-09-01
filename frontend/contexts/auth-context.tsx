@@ -6,16 +6,11 @@ import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
 import { getEffectivePlan } from "@/lib/plan-utils"
+import { buildProfileUpdatePayload, type ProfileUpdateData } from "@/lib/profile-update"
 
-export interface ProfileUpdateData {
-  name?: string
-  lastName?: string
-  businessName?: string
-  phone?: string
-  locality?: string
-  bio?: string
-  avatarUrl?: string
-}
+// G11 (H9): el tipo y el armado del payload viven en la capa canónica
+// (lib/profile-update.ts) — null limpia la columna, undefined la omite.
+export type { ProfileUpdateData } from "@/lib/profile-update"
 
 export interface PreferencesUpdateData {
   currency?: string
@@ -294,15 +289,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfile = useCallback(async (data: ProfileUpdateData) => {
     if (!user) throw new Error("No hay sesión activa")
-    const { error } = await supabase.from('profiles').update({
-      name:          data.name         ?? undefined,
-      last_name:     data.lastName     ?? undefined,
-      business_name: data.businessName ?? undefined,
-      phone:         data.phone        ?? undefined,
-      locality:      data.locality     ?? undefined,
-      bio:           data.bio          ?? undefined,
-      avatar_url:    data.avatarUrl    ?? undefined,
-    }).eq('id', user.id)
+    // G11 (H9): null limpia la columna, undefined la omite — el `?? undefined`
+    // anterior colapsaba ambos y vaciar un campo era imposible desde la UI.
+    const { error } = await supabase
+      .from('profiles')
+      .update(buildProfileUpdatePayload(data))
+      .eq('id', user.id)
     if (error) throw error
     await refreshSession()
   }, [supabase, user, refreshSession])

@@ -83,6 +83,26 @@ class TestCreateSubscriptionIntent:
         assert exc.value.status_code == 409
 
     @pytest.mark.asyncio
+    async def test_duplicate_same_tier_blocks_before_persisting_anything(self):
+        """qa-integral-modulos (G14 task 14.2, OQ-2/D8 — H20): el alta
+        duplicada del MISMO tier con suscripción viva se corta con 409 ANTES
+        de persistir la intención (el guard ya existía en
+        create_subscription_intent; este test lo fija como contrato: nada
+        queda escrito y el detail explica el conflicto)."""
+        repo = _mock_repo(
+            find_live_subscription=AsyncMock(
+                return_value={"id": SUBSCRIPTION_ID, "plan": "pro", "status": "authorized"}
+            )
+        )
+        with patch("backend.services.subscriptions.settings.mp_plan_id_pro", PLAN_ID):
+            with pytest.raises(HTTPException) as exc:
+                await create_subscription_intent(ACCOUNT_ID, USER_ID, "pro", repo)
+
+        assert exc.value.status_code == 409
+        assert "suscripción viva" in exc.value.detail
+        repo.create_intent.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_persists_intent_before_returning_init_point(self):
         """RED (6.3): la intención se persiste ANTES de devolver la URL."""
         repo = _mock_repo()

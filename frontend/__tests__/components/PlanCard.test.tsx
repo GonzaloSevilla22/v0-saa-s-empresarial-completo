@@ -153,6 +153,27 @@ describe("PlanCard — destacado vs. disponibilidad de contratación (3.2/3.4)",
     expect(onSelect).not.toHaveBeenCalled()
   })
 
+  // qa-integral-modulos G10 (H21c): mientras el alta está en vuelo el botón
+  // tiene que DECIR que está procesando — antes solo se deshabilitaba sin
+  // señal visible, invitando al reintento en loop.
+  it("loading: el CTA muestra estado de carga visible y queda deshabilitado (G10/H21c)", () => {
+    render(
+      <PlanCard
+        plan="pro"
+        currentPlan="inicial"
+        limits={PRO_LIMITS}
+        onSelect={vi.fn()}
+        canContract={true}
+        liveSubscriptionPlan={null}
+        loading={true}
+      />,
+    )
+
+    const btn = screen.getByRole("button")
+    expect(btn).toBeDisabled()
+    expect(btn).toHaveTextContent(/Procesando/i)
+  })
+
   it("ninguna etiqueta visible anuncia una baja de plan cuando se ofrece contratación (3.5)", () => {
     render(
       <PlanCard

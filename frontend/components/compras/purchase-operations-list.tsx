@@ -11,6 +11,7 @@ import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { Badge }    from "@/components/ui/badge"
 import { PaymentMethodBadge } from "@/components/payment-methods/PaymentMethodBadge"
+import { UNASSIGNED_PAYMENT_METHOD_LABEL } from "@/lib/payment-method-meta"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-operations"
@@ -98,22 +99,30 @@ export function PurchaseOperationsList({
   )
 
   function handleExport() {
+    // G15 (H24): forma de pago y proveedor son los dos badges con los que el
+    // usuario filtra en pantalla — sin ellos, quien exporta para conciliar en
+    // una planilla los pierde. Mismos literales de fallback que los badges.
     const rows = filtered.flatMap((op) =>
       op.items.map((item) => ({
         date: item.date, productName: item.productName,
         quantity: item.quantity, unitCost: item.unitCost,
         total: item.total, description: item.description ?? "",
+        paymentMethodName:
+          op.items[0]?.paymentMethodName ?? UNASSIGNED_PAYMENT_METHOD_LABEL,
+        supplierName: op.supplierName ?? "Sin proveedor",
         operationId: op.operationId ?? "",
       })),
     )
     exportToCSV(rows, [
-      { key: "date",        header: "Fecha"        },
-      { key: "productName", header: "Producto"     },
-      { key: "quantity",    header: "Cantidad"     },
-      { key: "unitCost",    header: "Costo unit."  },
-      { key: "total",       header: "Total"        },
-      { key: "description", header: "Descripción"  },
-      { key: "operationId", header: "ID Operación" },
+      { key: "date",              header: "Fecha"         },
+      { key: "productName",       header: "Producto"      },
+      { key: "quantity",          header: "Cantidad"      },
+      { key: "unitCost",          header: "Costo unit."   },
+      { key: "total",             header: "Total"         },
+      { key: "paymentMethodName", header: "Forma de pago" },
+      { key: "supplierName",      header: "Proveedor"     },
+      { key: "description",       header: "Descripción"   },
+      { key: "operationId",       header: "ID Operación"  },
     ], "compras")
     toast.success(`Exportadas ${rows.length} filas`)
   }
@@ -219,7 +228,7 @@ export function PurchaseOperationsList({
           <span className="text-sm text-muted-foreground tabular-nums mr-auto lg:mr-0">
             {loading
               ? <span className="flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />Cargando...</span>
-              : `${filtered.length} operación${filtered.length !== 1 ? "es" : ""}`
+              : filtered.length === 1 ? "1 operación" : `${filtered.length} operaciones`
             }
           </span>
           <Button variant="outline" size="sm" className="border-border text-foreground" onClick={handleExport}>
@@ -319,7 +328,7 @@ export function PurchaseOperationsList({
                       )}
                       <DeleteOperationDialog
                         label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                        info={getDeleteCompensation(op, "proveedor")}
+                        info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor")}
                         onConfirm={() => handleDelete(op)}
                         isDeleting={deletingKey === op.key}
                         onTriggerClick={(e) => e.stopPropagation()}
@@ -330,8 +339,15 @@ export function PurchaseOperationsList({
                     <div className="flex items-center gap-2 min-w-0">
                       {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
+                      {/* qa-integral-modulos G2 (H2/2.6): primer producto +
+                          "+N más" — el join de TODOS los nombres crecía hasta
+                          518 px sin que el truncate se active (el espejo de
+                          ventas, sale-operations-list.tsx, ya lo hacía bien). */}
                       <span className="text-sm font-medium text-foreground truncate">
-                        {op.items.map((i) => i.productName).join(" · ")}
+                        {op.items[0]?.productName}
+                        {op.items.length > 1 && (
+                          <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                        )}
                       </span>
                     </div>
                     <span className="text-sm font-bold text-cyan-400 tabular-nums shrink-0">{formatMoney(op.total)}</span>
@@ -357,8 +373,13 @@ export function PurchaseOperationsList({
                   <div className="flex items-center gap-2 min-w-0">
                     {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                       : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0 group-hover:text-foreground" />}
+                    {/* qa-integral-modulos G2 (H2/2.6): mismo patrón que el
+                        espejo de ventas también en desktop. */}
                     <span className="text-sm font-medium text-foreground truncate">
-                      {op.items.map((i) => i.productName).join(" · ")}
+                      {op.items[0]?.productName}
+                      {op.items.length > 1 && (
+                        <span className="text-muted-foreground font-normal"> · +{op.items.length - 1} más</span>
+                      )}
                     </span>
                     {op.items[0]?.costCenterName && (
                       <Badge variant="outline" className="text-[10px] shrink-0 text-muted-foreground">
@@ -397,7 +418,7 @@ export function PurchaseOperationsList({
                   }
                   <DeleteOperationDialog
                     label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                    info={getDeleteCompensation(op, "proveedor")}
+                    info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor")}
                     onConfirm={() => handleDelete(op)}
                     isDeleting={deletingKey === op.key}
                     onTriggerClick={(e) => e.stopPropagation()}

@@ -69,6 +69,11 @@ export default function CajaPage() {
   const registerMovement = useRegisterMovement(currentSession?.id ?? "")
 
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false)
+  // G6 (H6): estado del diálogo de cierre a nivel página — el diálogo vive
+  // FUERA del ternario de sesión para que el panel de arqueo no se desmonte
+  // cuando el refetch de current-session resuelve a "sin sesión" (mismo
+  // patrón que LedgerAdjustmentDialog).
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false)
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0)
 
   const bookConfig: LedgerBookConfig<CashMovementHistoryRow> = useMemo(
@@ -224,11 +229,13 @@ export default function CajaPage() {
                         <Scale className="mr-1.5 h-3.5 w-3.5" />
                         Registrar ajuste
                       </Button>
-                      <CloseSessionDialog
-                        expectedBalance={runningBalance ?? 0}
-                        onClose={handleCloseSession}
-                        isLoading={closeSession.isPending}
-                      />
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setCloseDialogOpen(true)}
+                      >
+                        Cerrar caja
+                      </Button>
                     </div>
                   )}
                   {!currentSession && (
@@ -294,6 +301,16 @@ export default function CajaPage() {
               </div>
             </div>
           )}
+
+          {/* Fuera del ternario de sesión (G6/H6): el panel de arqueo debe
+              sobrevivir a que current-session pase a null tras el cierre. */}
+          <CloseSessionDialog
+            open={closeDialogOpen}
+            onOpenChange={setCloseDialogOpen}
+            expectedBalance={runningBalance ?? 0}
+            onClose={handleCloseSession}
+            isLoading={closeSession.isPending}
+          />
 
           <LedgerAdjustmentDialog
             open={adjustDialogOpen}

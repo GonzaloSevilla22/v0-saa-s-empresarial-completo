@@ -64,6 +64,32 @@ export function NotificationBell() {
   }
 
   return (
+    <NotificationBellView
+      notifications={notifications}
+      unreadCount={unreadCount}
+      isLoading={isLoading}
+      onMarkRead={handleMarkRead}
+    />
+  )
+}
+
+/**
+ * qa-integral-modulos (G5/H5): panel presentacional separado del wireado de
+ * datos para que el arnés de navegador (/dev-harness/bell) pueda fijar el
+ * contrato de scroll con notificaciones sintéticas, sin sesión ni Realtime.
+ */
+export function NotificationBellView({
+  notifications,
+  unreadCount,
+  isLoading,
+  onMarkRead,
+}: {
+  notifications: Notification[]
+  unreadCount: number
+  isLoading: boolean
+  onMarkRead: (notification: Notification) => void
+}) {
+  return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
@@ -91,11 +117,14 @@ export function NotificationBell() {
           <DropdownMenuItem disabled>Sin notificaciones</DropdownMenuItem>
         )}
         {!isLoading && notifications.length > 0 && (
-          <ScrollArea className="max-h-80">
+          // qa-integral-modulos (G5/H5): el límite de alto va en el VIEWPORT
+          // interno, no en el root — en el root (overflow-hidden) recortaba el
+          // panel a 6 de 15 notificaciones sin habilitar ningún scroll.
+          <ScrollArea viewportClassName="max-h-80">
             {notifications.map((notification) => (
               <DropdownMenuItem
                 key={notification.id}
-                onClick={() => handleMarkRead(notification)}
+                onClick={() => onMarkRead(notification)}
                 className="flex items-start gap-2 py-2"
               >
                 <span

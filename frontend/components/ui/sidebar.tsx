@@ -202,12 +202,15 @@ const Sidebar = React.forwardRef<
     }
 
     if (isMobile) {
+      // qa-integral-modulos G13 (H19): se retiró el [&>button]:hidden que
+      // escondía la X del drawer — el menú móvil quedaba sin botón de cierre
+      // visible (las únicas salidas eran el overlay o navegar).
       return (
         <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
           <SheetContent
             data-sidebar="sidebar"
             data-mobile="true"
-            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground [&>button]:hidden"
+            className="w-[--sidebar-width] bg-sidebar p-0 text-sidebar-foreground"
             style={
               {
                 '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
@@ -280,7 +283,12 @@ const SidebarTrigger = React.forwardRef<
       data-sidebar="trigger"
       variant="ghost"
       size="icon"
-      className={cn('h-7 w-7', className)}
+      className={cn(
+        // qa-integral-modulos G13 (H18): 44x44 en móvil (medía 28x28); desde
+        // md conserva el 28x28 compacto de siempre. Consumidor: breadcrumb-nav.
+        'h-11 w-11 md:h-7 md:w-7',
+        className,
+      )}
       onClick={(event) => {
         onClick?.(event)
         toggleSidebar()
@@ -331,7 +339,12 @@ const SidebarInset = React.forwardRef<
     <main
       ref={ref}
       className={cn(
-        'relative flex min-h-svh flex-1 flex-col bg-background',
+        // qa-integral-modulos G2 (H2): min-w-0 rompe la cadena min-width:auto
+        // de flexbox — sin él, cualquier contenido ancho de cualquier pantalla
+        // estiraba el dashboard entero (12 pantallas desbordadas en móvil).
+        // El resto de este archivo ya lo usa (L433/504/702/734); al inset se
+        // le había pasado.
+        'relative flex min-h-svh min-w-0 flex-1 flex-col bg-background',
         'peer-data-[variant=inset]:min-h-[calc(100svh-theme(spacing.4))] md:peer-data-[variant=inset]:m-2 md:peer-data-[state=collapsed]:peer-data-[variant=inset]:ml-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow',
         className,
       )}
@@ -586,15 +599,26 @@ const SidebarMenuButton = React.forwardRef<
       }
     }
 
+    // qa-integral-modulos G13 (H19-Escape): el tooltip solo se ve con el
+    // riel colapsado en escritorio. Antes se montaba SIEMPRE y se ocultaba
+    // con `hidden` — invisible, pero vivo: al recibir foco (Radix Tooltip
+    // abre con `onFocus`) montaba un DismissableLayer que pasaba a ser la
+    // capa más alta de Radix. Como DismissableLayer solo atiende Escape en
+    // la capa más alta (`index === layers.size - 1`), el drawer móvil —que
+    // es un Dialog por debajo— dejaba de cerrarse con Escape en cuanto el
+    // foco tocaba cualquier ítem del menú (la captura del re-QA lo muestra
+    // en "Cerrar sesión"). No renderizar el contenido cuando estaría oculto
+    // elimina esa capa fantasma sin cambiar nada visible: el TooltipTrigger
+    // sigue envolviendo al botón siempre, así que colapsar/expandir no
+    // remonta el botón.
+    const tooltipHidden = isMobile || state !== 'collapsed'
+
     return (
       <Tooltip>
         <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="center"
-          hidden={state !== 'collapsed' || isMobile}
-          {...tooltip}
-        />
+        {!tooltipHidden && (
+          <TooltipContent side="right" align="center" {...tooltip} />
+        )}
       </Tooltip>
     )
   },

@@ -138,6 +138,14 @@ beforeEach(() => {
   ;(window as any).location = { href: "" }
 })
 
+// qa-integral-modulos (revisión post-apply): esta función es ASÍNCRONA — el
+// import dinámico de la página arrastra Table/Badge/Button/lucide y el módulo
+// del hook. Los tests la llamaban SIN await, así que el import + el render +
+// el efecto de gating tenían que entrar enteros en el timeout de 1 s del
+// waitFor/findBy siguiente; en una máquina cargada el PRIMER test (el único
+// que paga el costo del import, después vitest cachea el módulo) se pasaba de
+// 1 s y la suite se ponía roja sin ninguna causa real. Es una carrera de
+// verdad, no ruido: se cierra esperando el render antes de medir.
 async function renderPage() {
   const { default: SuscripcionesAmbiguasPage } = await import(
     "@/app/(dashboard)/admin/pagos/ambiguas/page"
@@ -150,7 +158,7 @@ async function renderPage() {
 describe("SuscripcionesAmbiguasPage — gating", () => {
   it("§1 RED: a non-admin sees nothing and gets redirected away", async () => {
     profileRole = "user"
-    renderPage()
+    await renderPage()
 
     await waitFor(() => expect(window.location.href).toBe("/dashboard"))
     expect(screen.queryByText(/suscripciones ambiguas/i)).not.toBeInTheDocument()
@@ -158,14 +166,14 @@ describe("SuscripcionesAmbiguasPage — gating", () => {
 
   it("§1 TRIANGULATE: an unauthenticated user is redirected to login without rendering", async () => {
     authUser = null
-    renderPage()
+    await renderPage()
 
     await waitFor(() => expect(window.location.href).toBe("/auth/login"))
     expect(screen.queryByText(/suscripciones ambiguas/i)).not.toBeInTheDocument()
   })
 
   it("§2 GREEN: an admin sees the page content", async () => {
-    renderPage()
+    await renderPage()
 
     expect(await screen.findByRole("heading", { name: /suscripciones ambiguas/i })).toBeInTheDocument()
   })
@@ -173,7 +181,7 @@ describe("SuscripcionesAmbiguasPage — gating", () => {
 
 describe("SuscripcionesAmbiguasPage — queue list", () => {
   it("§3 GREEN: renders one row per ambiguous subscription with plan/amount/reason", async () => {
-    renderPage()
+    await renderPage()
 
     await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
 
@@ -187,7 +195,7 @@ describe("SuscripcionesAmbiguasPage — queue list", () => {
 
   it("§4 TRIANGULATE: shows a clear empty state when the queue has no rows", async () => {
     mockHookState.data = []
-    renderPage()
+    await renderPage()
 
     expect(await screen.findByText(/no hay suscripciones pendientes de revisión/i)).toBeInTheDocument()
     expect(screen.queryByRole("table")).not.toBeInTheDocument()
@@ -196,7 +204,7 @@ describe("SuscripcionesAmbiguasPage — queue list", () => {
   it("§4b: shows a loading spinner while the query is in flight", async () => {
     mockHookState.isLoading = true
     mockHookState.data = undefined
-    renderPage()
+    await renderPage()
 
     expect(await screen.findByText(/cargando cola/i)).toBeInTheDocument()
   })
@@ -204,7 +212,7 @@ describe("SuscripcionesAmbiguasPage — queue list", () => {
   it("§4c: surfaces a fetch error", async () => {
     mockHookState.isError = true
     mockHookState.error = new Error("No se pudo cargar la cola de suscripciones ambiguas.")
-    renderPage()
+    await renderPage()
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no se pudo cargar la cola/i)
   })
@@ -212,7 +220,7 @@ describe("SuscripcionesAmbiguasPage — queue list", () => {
 
 describe("SuscripcionesAmbiguasPage — resolve flow", () => {
   it("§5 RED: 'Asignar' is disabled until an account is selected for that row", async () => {
-    renderPage()
+    await renderPage()
     await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
 
     const assignButtons = screen.getAllByRole("button", { name: /asignar suscripción/i })
@@ -222,7 +230,7 @@ describe("SuscripcionesAmbiguasPage — resolve flow", () => {
   it("§5 GREEN: selecting an account then clicking Asignar calls resolveSubscription with the row's ids", async () => {
     resolveSubscriptionMock.mockResolvedValueOnce({ ok: true })
     const user = userEvent.setup()
-    renderPage()
+    await renderPage()
     await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
 
     const [firstMockSelect] = screen.getAllByText("mock-select-account")
@@ -242,7 +250,7 @@ describe("SuscripcionesAmbiguasPage — resolve flow", () => {
   it("§6 GREEN: a successful resolve shows a success notice", async () => {
     resolveSubscriptionMock.mockResolvedValueOnce({ ok: true })
     const user = userEvent.setup()
-    renderPage()
+    await renderPage()
     await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
 
     const [firstMockSelect] = screen.getAllByText("mock-select-account")
@@ -256,7 +264,7 @@ describe("SuscripcionesAmbiguasPage — resolve flow", () => {
   it("§7 TRIANGULATE: a failed resolve shows an inline row error instead of a success notice", async () => {
     resolveSubscriptionMock.mockRejectedValueOnce(new Error("No hay una suscripción ambigua con ese id"))
     const user = userEvent.setup()
-    renderPage()
+    await renderPage()
     await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
 
     const [firstMockSelect] = screen.getAllByText("mock-select-account")

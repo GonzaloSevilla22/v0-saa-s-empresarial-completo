@@ -9,7 +9,10 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { toast } from "@/hooks/use-toast"
+// G7 (H7): sonner es el ÚNICO sistema de toast montado en la app
+// (app/layout.tsx) — el de @/hooks/use-toast emitía a un <Toaster /> que no
+// existe en ningún layout, así que las 5 ramas eran invisibles (D5).
+import { toast } from "sonner"
 import type { ExportType } from "@/lib/types"
 
 const EXPORT_LABELS: Record<ExportType, string> = {
@@ -68,7 +71,7 @@ export function ExportButton({
       const { data: session } = await supabase.auth.getSession()
       const token = session?.session?.access_token
       if (!token) {
-        toast({ title: "No autenticado", variant: "destructive" })
+        toast.error("No autenticado")
         return
       }
 
@@ -76,14 +79,12 @@ export function ExportButton({
 
       if (!result.ok) {
         if (result.error === "quota_exceeded") {
-          toast({
-            title: "Cuota agotada",
+          toast.error("Cuota agotada", {
             description: "Ya usaste todas tus exportaciones del mes.",
-            variant: "destructive",
           })
           queryClient.invalidateQueries({ queryKey: ["exportUsage", user?.id] })
         } else {
-          toast({ title: "Error al exportar", description: result.error, variant: "destructive" })
+          toast.error("Error al exportar", { description: result.error })
         }
         return
       }
@@ -98,13 +99,15 @@ export function ExportButton({
         document.body.removeChild(a)
       }
 
-      toast({ title: "Exportación lista", description: "El archivo se descargó correctamente." })
+      toast.success("Exportación lista", {
+        description: "El archivo se descargó correctamente.",
+      })
       // Refresh counter
       queryClient.invalidateQueries({ queryKey: ["exportUsage", user?.id] })
       queryClient.invalidateQueries({ queryKey: ["exportLogs", user?.id] })
 
     } catch {
-      toast({ title: "Error inesperado al exportar", variant: "destructive" })
+      toast.error("Error inesperado al exportar")
     } finally {
       setLoading(false)
     }
@@ -128,9 +131,14 @@ export function ExportButton({
             ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
             : <Download className="h-4 w-4 mr-1.5" />
           }
-          {label}
+          {/* qa-integral-modulos G2 (H2/2.5): colapso responsive de la
+              etiqueta — "Exportar inventario CSV (50 restantes)" medía hasta
+              295 px de una pieza; mismo patrón hidden sm:inline que sus
+              hermanos de barra. */}
+          <span className="hidden sm:inline">{label}</span>
+          <span className="sm:hidden">Exportar</span>
           {quotaText && (
-            <span className="ml-1.5 text-xs text-muted-foreground">({quotaText})</span>
+            <span className="ml-1.5 text-xs text-muted-foreground hidden sm:inline">({quotaText})</span>
           )}
         </Button>
       </TooltipTrigger>

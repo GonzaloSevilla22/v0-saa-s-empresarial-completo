@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Loader2, X, AlertCircle, CheckCircle2 } from "lucide-react"
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -9,13 +9,24 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+// G10 (H26): formato canónico de la app — "-$ 37.200,00", nunca "$-37.200,00"
+// (el mismo que usa el "Historial de sesiones" de la misma pantalla).
+const fmtMoney = (n: number) =>
+  n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
+
 interface CloseSessionDialogProps {
+  /**
+   * Controlado desde la página (G6/H6): el diálogo vive FUERA del ternario
+   * de sesión para que el panel de arqueo sobreviva al refetch de
+   * current-session (mismo patrón que LedgerAdjustmentDialog).
+   */
+  open: boolean
+  onOpenChange: (open: boolean) => void
   /** Expected balance = opening + Σ movements (shown read-only to the cashier) */
   expectedBalance: number
   onClose: (countedBalance: number) => Promise<void>
@@ -23,11 +34,12 @@ interface CloseSessionDialogProps {
 }
 
 export function CloseSessionDialog({
+  open,
+  onOpenChange,
   expectedBalance,
   onClose,
   isLoading,
 }: CloseSessionDialogProps) {
-  const [open, setOpen] = useState(false)
   const [counted, setCounted] = useState<string>("")
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{
@@ -44,7 +56,7 @@ export function CloseSessionDialog({
 
   function handleOpenChange(v: boolean) {
     if (!v) reset()
-    setOpen(v)
+    onOpenChange(v)
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -73,11 +85,6 @@ export function CloseSessionDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="destructive" size="sm">
-          Cerrar caja
-        </Button>
-      </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Cierre de sesión de caja</DialogTitle>
@@ -92,9 +99,7 @@ export function CloseSessionDialog({
             <div className="rounded-md bg-muted/60 px-4 py-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Saldo esperado</span>
-                <span className="font-semibold">
-                  ${expectedBalance.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                </span>
+                <span className="font-semibold">{fmtMoney(expectedBalance)}</span>
               </div>
               {previewDiff != null && (
                 <div className="flex justify-between mt-1">
@@ -106,8 +111,8 @@ export function CloseSessionDialog({
                         : "text-yellow-600 dark:text-yellow-400"
                     }`}
                   >
-                    {previewDiff >= 0 ? "+" : ""}$
-                    {previewDiff.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                    {previewDiff >= 0 ? "+" : ""}
+                    {fmtMoney(previewDiff)}
                   </span>
                 </div>
               )}
@@ -143,7 +148,7 @@ export function CloseSessionDialog({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setOpen(false)}
+                onClick={() => handleOpenChange(false)}
                 disabled={isLoading}
               >
                 Cancelar
@@ -179,25 +184,21 @@ export function CloseSessionDialog({
                 <div className="flex items-center gap-1.5 font-semibold">
                   <AlertCircle className="h-4 w-4" />
                   {result.difference > 0 ? "Sobrante en caja" : "Faltante en caja"}:{" "}
-                  {result.difference >= 0 ? "+" : ""}$
-                  {result.difference.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
+                  {result.difference >= 0 ? "+" : ""}
+                  {fmtMoney(result.difference)}
                 </div>
               )}
               <div className="flex justify-between text-xs">
                 <span>Esperado</span>
-                <span>
-                  ${result.expected.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                </span>
+                <span>{fmtMoney(result.expected)}</span>
               </div>
               <div className="flex justify-between text-xs">
                 <span>Contado</span>
-                <span>
-                  ${result.counted.toLocaleString("es-AR", { minimumFractionDigits: 2 })}
-                </span>
+                <span>{fmtMoney(result.counted)}</span>
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={() => setOpen(false)}>Listo</Button>
+              <Button onClick={() => handleOpenChange(false)}>Listo</Button>
             </DialogFooter>
           </div>
         )}

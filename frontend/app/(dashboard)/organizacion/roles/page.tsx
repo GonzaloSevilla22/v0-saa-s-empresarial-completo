@@ -1,7 +1,8 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useTeamMembers } from "@/hooks/data/use-team-members"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
@@ -16,13 +17,10 @@ import { formatDate } from "@/lib/format"
 import Link from "next/link"
 import type { OrgRole } from "@/lib/types"
 
-interface MemberRow {
-  id: string
-  user_id: string
-  role: OrgRole
-  created_at: string
-  profiles: { name: string | null; email: string | null } | null
-}
+// qa-integral-modulos (G8/D6): la fila y su query viven en el hook canónico
+// useTeamMembers (hooks/data/use-team-members.ts) — la copia local usaba el
+// embed profiles(name, email) que PostgREST rechaza con 400 PGRST200 (sin FK
+// account_members→profiles) y la pantalla nunca listaba a nadie.
 
 const ROLE_LABELS: Record<OrgRole, string> = {
   owner:  "Owner",
@@ -65,21 +63,8 @@ export default function RolesPage() {
   const isAdmin    = callerRole === "admin"
   const canManage  = isOwner || isAdmin
 
-  // Members query
-  const { data: members = [], isLoading } = useQuery<MemberRow[]>({
-    queryKey: ["teamMembers", accountId],
-    queryFn:  async () => {
-      const { data, error } = await supabase
-        .from("account_members")
-        .select("id, user_id, role, created_at, profiles(name, email)")
-        .eq("account_id", accountId)
-        .order("created_at", { ascending: true })
-      if (error) throw error
-      return (data ?? []) as unknown as MemberRow[]
-    },
-    enabled:   !!accountId,
-    staleTime: 60_000,
-  })
+  // Members query — hook canónico (dos queries + join en cliente, sin embed)
+  const { data: members = [], isLoading } = useTeamMembers(accountId)
 
   // Change role mutation
   const [changingId, setChangingId] = useState<string | null>(null)

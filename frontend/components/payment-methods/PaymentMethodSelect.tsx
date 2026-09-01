@@ -155,9 +155,11 @@ interface PaymentMethodSupportTextProps {
  * Venta — 'cash': el POS sigue moviendo caja automáticamente; el
  * FORMULARIO puede ahora optar-in con el checkbox "Registrar en caja",
  * condicionado a sesión abierta hoy en la sucursal.
- * Compra — 'credit'/'cash': SIN CAMBIOS — el lado proveedor sigue sin cargo
- * automático (0 proveedores, sin selector en el form — compras-proveedor-
- * cuenta-corriente es un change aparte).
+ * Compra — 'credit': desde compras-proveedor-cuenta-corriente (2026-08-23,
+ * PR #452) TAMBIÉN postea el cargo en la cuenta corriente del proveedor —
+ * exige proveedor (qa-integral-modulos G10/H8: el texto viejo decía que la
+ * etiqueta era inocua mientras el saldo del proveedor subía de verdad).
+ * Compra — 'cash': sigue sin mover caja (sin opt-in del lado compra).
  */
 export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSupportTextProps) {
   // pos-banco-movimientos: la etiqueta bancaria dice lo que hace — el texto
@@ -180,7 +182,7 @@ export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSup
       <p id={id} className="text-xs text-muted-foreground">
         {context === "sale"
           ? "Esta forma de pago carga la venta a la cuenta corriente del cliente al confirmarla — requiere elegir un cliente."
-          : "Esta etiqueta no genera un cargo en la cuenta corriente del proveedor. Para eso, registrá el pago desde la cuenta corriente del proveedor."}
+          : "Esta forma de pago carga la compra a la cuenta corriente del proveedor al confirmarla — requiere elegir un proveedor."}
       </p>
     )
   }

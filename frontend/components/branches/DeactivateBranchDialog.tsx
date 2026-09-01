@@ -50,7 +50,7 @@ export function DeactivateBranchDialog({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+          className="h-11 w-11 md:h-7 md:w-7 text-muted-foreground hover:text-destructive"
           disabled={isDeactivating || isLoading}
           aria-label={`Desactivar ${branchName}`}
         >

@@ -73,3 +73,49 @@ describe("humanizeOperationError — stock por sucursal", () => {
     })
   })
 })
+
+// qa-integral-modulos G10 (H21a): tres details crudos del backend que el QA
+// vio impresos tal cual al microemprendedor — se traducen en el MISMO mapa
+// (regla del proyecto: no crear otro).
+describe("humanizeOperationError — details crudos del servidor (G10/H21a)", () => {
+  it("RN-B4 (borrar producto con stock): sin el código interno ni los 4 decimales", () => {
+    const out = humanizeOperationError(
+      'RN-B4: el producto "QAT676743" tiene stock (6.0000) — ajustá el stock a 0 antes de borrarlo',
+    )
+
+    expect(out.message).not.toContain("RN-B4")
+    expect(out.message).not.toContain("6.0000")
+    expect(out.message).toContain("«QAT676743»")
+    expect(out.message).toContain("6")
+    expect(out.message).toMatch(/stock/i)
+    expect(out.message).toMatch(/lleg(á|ue)|llev(á|a)|ajust(á|a)/i)
+  })
+
+  it("amounts_mismatch (conciliación): explica los dos totales en formato moneda", () => {
+    const out = humanizeOperationError(
+      "amounts_mismatch: Σ líneas (420000.00) ≠ Σ movimientos (-64000.00)",
+    )
+
+    expect(out.message).not.toContain("amounts_mismatch")
+    expect(out.message).not.toContain("Σ")
+    expect(out.message).toContain("420.000")
+    expect(out.message).toContain("64.000")
+    expect(out.message).toMatch(/no coinciden|coincidir/i)
+    expect(out.message).toMatch(/selecci/i)
+  })
+
+  it("amounts_mismatch sin los montos parseables igual se traduce (degrada sin números)", () => {
+    const out = humanizeOperationError("amounts_mismatch")
+    expect(out.message).not.toContain("amounts_mismatch")
+    expect(out.message).toMatch(/no coinciden|coincidir/i)
+  })
+
+  it("periodo_invalido (nueva conciliación): habla de Desde/Hasta, no de period_from", () => {
+    const out = humanizeOperationError("periodo_invalido: period_from debe ser <= period_to")
+
+    expect(out.message).not.toContain("periodo_invalido")
+    expect(out.message).not.toContain("period_from")
+    expect(out.message).toMatch(/Desde/)
+    expect(out.message).toMatch(/Hasta/)
+  })
+})

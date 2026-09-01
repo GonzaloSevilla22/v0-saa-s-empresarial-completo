@@ -118,6 +118,16 @@ class SaleItemOut(BaseModel):
     # lista deshabilite "Editar" con motivo visible ANTES de que el usuario
     # llegue al error del backend.
     is_payment_locked: bool = False
+    # qa-integral-modulos G10 (H12): mismo hueco de serialización que en
+    # PurchaseItemOut — `list_paginated_by_operation` ya calcula los tres
+    # EXISTS por separado (repositories/sales_repository.py) para que el
+    # diálogo de borrado enumere QUÉ libro se compensa, pero sin declararlos
+    # acá Pydantic los descartaba y el diálogo nunca los podía nombrar.
+    # Default False: fila sin el derivado = "sin dinero posteado"; la
+    # autoridad al borrar sigue siendo el servidor.
+    has_account_charge: bool = False
+    has_cash_movement: bool = False
+    has_bank_movement: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

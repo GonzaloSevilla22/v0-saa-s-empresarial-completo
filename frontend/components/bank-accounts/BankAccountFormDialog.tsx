@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -66,6 +67,20 @@ export function BankAccountFormDialog({ open, onOpenChange, kind }: BankAccountF
 
   const isSaving = createBankAccountMutation.isPending
 
+  // G11 (H15): al cambiar de kind (banco→billetera) el mismo diálogo montado
+  // arrastraba nombre, saldo y hasta el error de validación del intento
+  // previo — el formulario vuelve a los defaults cuando cambia el destino.
+  useEffect(() => {
+    reset()
+  }, [kind, reset])
+
+  // G11 (H15): descartar (Escape, clic afuera, Cancelar) limpia el borrador —
+  // antes solo el submit exitoso hacía reset().
+  function handleOpenChange(v: boolean) {
+    if (!v) reset()
+    onOpenChange(v)
+  }
+
   async function onSubmit(values: BankAccountFormValues) {
     try {
       await createBankAccount({
@@ -87,7 +102,7 @@ export function BankAccountFormDialog({ open, onOpenChange, kind }: BankAccountF
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{labels.dialogTitle}</DialogTitle>
@@ -141,7 +156,7 @@ export function BankAccountFormDialog({ open, onOpenChange, kind }: BankAccountF
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isSaving}>
               Cancelar
             </Button>
             <Button type="submit" disabled={isSaving}>

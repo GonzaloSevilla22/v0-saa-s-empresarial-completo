@@ -8,7 +8,7 @@ import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -22,14 +22,10 @@ import {
 import type { PaymentMethodReportRow } from "@/lib/types"
 import { Wallet } from "lucide-react"
 
-// Paleta de la serie, alineada con /reportes/centros-costo y /reportes/sucursal.
-const COLORS = [
-  "hsl(var(--primary))",
-  "#60a5fa",
-  "#34d399",
-  "#f59e0b",
-  "#f87171",
-]
+// G12 (H16): un color FIJO por serie, compartido por los tres reportes
+// (lib/report-chart-colors.ts) — la paleta rotativa por fila colisionaba
+// con el fill fijo de las otras series.
+import { REPORT_SERIES_COLORS } from "@/lib/report-chart-colors"
 
 export default function FormasPagoReportPage() {
   const { user } = useAuth()
@@ -122,15 +118,12 @@ export default function FormasPagoReportPage() {
                 <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(v: number, name: string) => [formatMoney(v), name]} />
-                <Bar dataKey="Vendido" fill="hsl(var(--primary))" fillOpacity={0.85} radius={[0, 4, 4, 0]}>
-                  {chartData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} fillOpacity={0.85} />
-                  ))}
-                </Bar>
-                <Bar dataKey="Comprado" fill="#60a5fa" fillOpacity={0.7} radius={[0, 4, 4, 0]} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Vendido" fill={REPORT_SERIES_COLORS.sold} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="Comprado" fill={REPORT_SERIES_COLORS.purchased} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
                 {/* gastos-forma-pago (D14): tercera serie — sin ella el reporte
                     miente por omisión sobre un tercio del dinero. */}
-                <Bar dataKey="Gastado" fill="hsl(var(--destructive))" fillOpacity={0.7} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="Gastado" fill={REPORT_SERIES_COLORS.spent} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -151,16 +144,18 @@ export default function FormasPagoReportPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* G12 (H23): las 5 columnas viajan SIEMPRE — en móvil se
+                  alcanzan scrolleando dentro del overflow-x-auto del
+                  contenedor (min-w del table), no desaparecen con
+                  display:none como antes. */}
+              <table className="w-full min-w-[560px] text-sm">
                 <thead>
-                  {/* En mobile se muestran solo Forma de pago y Vendido: 5
-                      columnas en 375px obligan a scrollear el shell entero. */}
                   <tr className="border-b border-border bg-muted/40">
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">Forma de pago</th>
                     <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vendido</th>
-                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Comprado</th>
-                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Gastado</th>
-                    <th className="hidden sm:table-cell px-4 py-3 text-right font-medium text-muted-foreground">Operaciones</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Comprado</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Gastado</th>
+                    <th className="px-4 py-3 text-right font-medium text-muted-foreground">Operaciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -177,19 +172,21 @@ export default function FormasPagoReportPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right tabular-nums font-medium">{formatMoney(row.totalSold)}</td>
-                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(row.totalPurchased)}</td>
-                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(row.totalSpent)}</td>
-                      <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{row.operationCount}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatMoney(row.totalPurchased)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatMoney(row.totalSpent)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{row.operationCount}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-border font-semibold bg-muted/30">
-                    <td className="px-4 py-3">Total del período</td>
+                    {/* G12 (H23): cada columna cierra con SU total; el rótulo viejo
+                        parecía atribuirle todo a lo vendido. */}
+                    <td className="px-4 py-3">Totales del período</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalSold)}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalPurchased)}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalSpent)}</td>
-                    <td className="hidden sm:table-cell px-4 py-3 text-right tabular-nums">{totals.operationCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalPurchased)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatMoney(totals.totalSpent)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{totals.operationCount}</td>
                   </tr>
                 </tfoot>
               </table>

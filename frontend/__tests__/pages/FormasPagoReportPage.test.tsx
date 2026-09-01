@@ -36,11 +36,14 @@ vi.mock("recharts", () => {
     BarChart: ({ data, children }: { data: unknown[]; children?: React.ReactNode }) => (
       <div data-testid="chart" data-series={JSON.stringify(data)}>{children}</div>
     ),
-    Bar: ({ dataKey }: { dataKey: string }) => <div data-testid={`bar-${dataKey}`} />,
+    Bar: ({ dataKey, fill, children }: { dataKey: string; fill?: string; children?: React.ReactNode }) => (
+      <div data-testid={`bar-${dataKey}`} data-fill={fill}>{children}</div>
+    ),
     XAxis: () => null,
     YAxis: () => null,
     Tooltip: () => null,
-    Cell: () => null,
+    Legend: () => <div data-testid="legend" />,
+    Cell: ({ fill }: { fill?: string }) => <div data-testid="cell" data-fill={fill} />,
   }
 })
 
@@ -100,7 +103,7 @@ describe("/reportes/formas-pago — columna de gastos (D14)", () => {
     expect(screen.getAllByText(/\$\s?7\.000/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/\$\s?800/).length).toBeGreaterThan(0)
 
-    const footer = screen.getByText("Total del período").closest("tr")!
+    const footer = screen.getByText(/Totales del período/).closest("tr")!
     expect(footer.textContent).toMatch(/13\.800/)
   })
 
@@ -125,7 +128,43 @@ describe("/reportes/formas-pago — columna de gastos (D14)", () => {
     renderPage()
     await waitFor(() => expect(screen.getByText("Efectivo")).toBeInTheDocument())
 
-    const footer = screen.getByText("Total del período").closest("tr")!
+    const footer = screen.getByText(/Totales del período/).closest("tr")!
     expect(footer.textContent).not.toMatch(/NaN/)
+  })
+})
+
+// qa-integral-modulos G12 (H16/H23): un color FIJO por serie (nunca Cells con
+// paleta rotativa que colisiona con el fill de otra serie), leyenda presente,
+// y la tabla no esconde columnas con display:none en móvil (el contenedor ya
+// tiene overflow-x-auto — scrollear es el mecanismo, no ocultar).
+describe("/reportes/formas-pago — series con identidad fija y tabla completa (G12)", () => {
+  it("H16: leyenda presente y cada serie con SU color, sin Cells rotativos", async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId("chart")).toBeInTheDocument())
+
+    expect(screen.getByTestId("legend")).toBeInTheDocument()
+    expect(screen.queryAllByTestId("cell")).toHaveLength(0)
+
+    const fills = ["Vendido", "Comprado", "Gastado"].map(
+      (k) => screen.getByTestId(`bar-${k}`).getAttribute("data-fill"),
+    )
+    expect(new Set(fills).size).toBe(3)
+    for (const fill of fills) expect(fill).toBeTruthy()
+  })
+
+  it("H23: ninguna columna de la tabla viaja con display:none responsive (hidden sm:*)", async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText("Efectivo")).toBeInTheDocument())
+
+    for (const header of ["Comprado", "Gastado", "Operaciones"]) {
+      const th = screen.getByRole("columnheader", { name: header })
+      expect(th.className).not.toMatch(/hidden/)
+    }
+  })
+
+  it("H23: la fila de cierre se llama 'Totales del período' (no atribuye todo a lo vendido)", async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByText("Efectivo")).toBeInTheDocument())
+    expect(screen.getByText(/Totales del período/)).toBeInTheDocument()
   })
 })

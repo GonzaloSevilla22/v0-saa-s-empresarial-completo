@@ -98,7 +98,13 @@ class SalesOrderOut(BaseModel):
     client_id:          Optional[uuid.UUID] = None
     source_quote_id:    Optional[uuid.UUID] = None
     status:             SalesOrderStatus
-    payment_method:     PaymentMethod
+    # qa-integral-modulos (G8/D6): la columna sales_orders.payment_method (TEXT
+    # legacy) fue retirada por limpiezas-pagos-admin — el repo DERIVA este campo
+    # de payment_methods.kind vía LEFT JOIN; una orden sin imputación es legal
+    # (None), por eso es Optional. Dejarlo requerido rompía TODO el listado con
+    # ResponseValidationError → 500 (QA 2026-08-30).
+    payment_method:     Optional[PaymentMethod] = None
+    payment_method_id:  Optional[uuid.UUID] = None
     total:              Decimal
     sale_operation_id:  Optional[uuid.UUID] = None
     fiscal_document_id: Optional[uuid.UUID] = None

@@ -118,10 +118,24 @@ export function useSupplierAccount(supplierId: string | null) {
     queryKey: queryKeys.supplierAccounts.bySupplier(supplierId ?? ""),
     queryFn: async (): Promise<SupplierAccount | null> => {
       if (!supplierId) return null
-      const row = await pythonClient.get<SupplierAccountApi>(
-        `/proveedores/${supplierId}/cuenta`
-      )
-      return mapAccount(row)
+      try {
+        const row = await pythonClient.get<SupplierAccountApi>(
+          `/proveedores/${supplierId}/cuenta`
+        )
+        return mapAccount(row)
+      } catch (err) {
+        // qa-integral-modulos (G9/H22): el proveedor sin cuenta corriente aún
+        // (nunca compró a crédito) responde 404 — NO es un error: degrada a
+        // null para que la pantalla muestre "sin cuenta aún / $0" en lugar
+        // del banner destructivo (mismo trato que el formulario de compra).
+        if (
+          err instanceof Error &&
+          err.message.includes("Cuenta corriente no encontrada")
+        ) {
+          return null
+        }
+        throw err
+      }
     },
     enabled: !!supplierId,
     staleTime: 30 * 1000,

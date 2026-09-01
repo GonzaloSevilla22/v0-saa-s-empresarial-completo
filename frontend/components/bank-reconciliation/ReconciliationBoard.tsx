@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { toast } from "sonner"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -90,7 +91,10 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
       setSelectedLines(new Set())
       setSelectedMovements(new Set())
     } catch (err) {
-      toast.error((err as Error).message || "No se pudo conciliar la selección")
+      // G10 (H21a): "amounts_mismatch: Σ líneas (…) ≠ Σ movimientos (…)" se
+      // traduce en el mapa canónico; un error no reconocido pasa intacto.
+      const raw = (err as Error).message || "No se pudo conciliar la selección"
+      toast.error(humanizeOperationError(raw).message)
     }
   }
 
@@ -251,11 +255,21 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
                   Sin líneas pendientes — importá un extracto o ya está todo conciliado.
                 </p>
               )}
+              {/* qa-integral-modulos G13 (H18): la fila ENTERA alterna la
+                  selección — el checkbox de 16x16 era el único objetivo táctil
+                  dentro de una fila de 78 px. El checkbox y "Anotar" cortan la
+                  propagación para no duplicar el toggle. */}
               {lines.map((l) => (
-                <div key={l.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                <div
+                  key={l.id}
+                  className="flex items-center gap-2 rounded-md border p-2 text-sm cursor-pointer"
+                  onClick={() => toggle(selectedLines, l.id, setSelectedLines)}
+                >
                   <Checkbox
                     checked={selectedLines.has(l.id)}
+                    onClick={(e) => e.stopPropagation()}
                     onCheckedChange={() => toggle(selectedLines, l.id, setSelectedLines)}
+                    aria-label={`Seleccionar línea ${l.valueDate} ${l.description ?? ""}`.trim()}
                   />
                   <span className="flex-1">
                     {l.valueDate} · {l.description ?? "(sin descripción)"}
@@ -267,7 +281,8 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
                     size="sm"
                     variant="ghost"
                     title="Anotar en el ledger (comisión/impuesto/interés sin contraparte)"
-                    onClick={() => {
+                    onClick={(e) => {
+                      e.stopPropagation()
                       setAnnotateLine(l)
                       setAnnotateType(l.amount < 0 ? "fee" : "interest")
                     }}
@@ -289,11 +304,19 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
               {movements.length === 0 && (
                 <p className="text-sm text-muted-foreground">Sin movimientos pendientes.</p>
               )}
+              {/* qa-integral-modulos G13 (H18): fila entera clickeable, mismo
+                  contrato que el panel del extracto. */}
               {movements.map((m) => (
-                <div key={m.id} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                <div
+                  key={m.id}
+                  className="flex items-center gap-2 rounded-md border p-2 text-sm cursor-pointer"
+                  onClick={() => toggle(selectedMovements, m.id, setSelectedMovements)}
+                >
                   <Checkbox
                     checked={selectedMovements.has(m.id)}
+                    onClick={(e) => e.stopPropagation()}
                     onCheckedChange={() => toggle(selectedMovements, m.id, setSelectedMovements)}
+                    aria-label={`Seleccionar movimiento ${m.valueDate ?? "s/f"} ${m.description ?? m.movementType}`.trim()}
                   />
                   <span className="flex-1">
                     {m.valueDate ?? "s/f"} · {m.description ?? m.movementType}
@@ -313,7 +336,12 @@ export function ReconciliationBoard({ sessionId, bankAccountId }: Props) {
         <div className="flex items-center gap-3">
           <Button
             disabled={
-              selectedLines.size === 0 || selectedMovements.size === 0 || createMatch.isPending
+              selectedLines.size === 0 ||
+              selectedMovements.size === 0 ||
+              createMatch.isPending ||
+              // G10 (H21b): si la propia pantalla ya avisa "Las sumas no
+              // coinciden", el botón no invita al 422 del servidor.
+              sumSelectedLines !== sumSelectedMovements
             }
             onClick={() => handleMatch(Array.from(selectedLines), Array.from(selectedMovements))}
           >

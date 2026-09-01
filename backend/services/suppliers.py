@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
+from backend.core.errors import ProblemHTTPException
 from backend.core.guards import require_role
 from backend.repositories.supplier_repository import SupplierRepository
 from backend.schemas.suppliers import SupplierCreate, SupplierUpdate
@@ -50,12 +51,37 @@ async def update_supplier(
     return dict(record)
 
 
+def _format_ars(amount) -> str:
+    """Formato AR: miles con punto, decimales con coma (mismo criterio que el
+    frontend). Solo para el detail humano del 409 — el dato duro es el code."""
+    entero, _, dec = f"{amount:,.2f}".partition(".")
+    return entero.replace(",", ".") + "," + dec
+
+
 async def delete_supplier(repo: SupplierRepository, auth: dict, account_id: str, supplier_id: str) -> None:
     """v3-soft-delete-policy: borrado soft (RN-B1/RN-B2) — la fila persiste
     con deleted_at + deleted_by y sale de todas las lecturas por defecto.
-    Mismo patrón que delete_client."""
+    Mismo patrón que delete_client.
+
+    qa-integral-modulos (G9/D7, OQ-1 recomendada): con saldo abierto en la
+    cuenta corriente el borrado se BLOQUEA con 409 (`P0409`, ya mapeado — sin
+    ERRCODE nuevo): el soft delete sacaría al proveedor de todas las listas y
+    su cuenta corriente (solo alcanzable desde la fila del proveedor) quedaría
+    inalcanzable — deuda invisible (los $116.550 del QA). Saldo 0 o sin cuenta
+    siguen borrando; el flujo de pago/ajuste existente permite saldar primero."""
     require_role(auth, ["user", "admin"])
     existing = await repo.get_by_id(supplier_id, account_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    balance = await repo.get_account_balance(supplier_id, account_id)
+    if balance is not None and balance != 0:
+        raise ProblemHTTPException(
+            status_code=409,
+            detail=(
+                "El proveedor tiene saldo abierto en su cuenta corriente "
+                f"($ {_format_ars(balance)}). Registrá el pago o ajustá la "
+                "cuenta antes de borrarlo."
+            ),
+            code="P0409",
+        )
     await repo.soft_delete("suppliers", supplier_id, account_id, auth["user_id"])

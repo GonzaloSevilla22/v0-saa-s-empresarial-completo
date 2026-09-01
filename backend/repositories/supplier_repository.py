@@ -52,6 +52,21 @@ class SupplierRepository(BaseRepository):
         )
         return int(row["total"]) if row else 0
 
+    async def get_account_balance(self, supplier_id: str, account_id: str):
+        """qa-integral-modulos (G9/D7): saldo de la cuenta corriente del
+        proveedor, scopeado a la cuenta del caller. `None` = el proveedor no
+        tiene cuenta corriente (nunca compró a crédito) — distinto de saldo 0.
+        Devuelve Decimal | None (asyncpg mapea numeric a Decimal)."""
+        row = await self.fetchrow(
+            "SELECT balance FROM supplier_accounts"
+            " WHERE supplier_id = $1 AND account_id = $2",
+            supplier_id,
+            account_id,
+        )
+        if row is None:
+            return None
+        return row.get("balance")
+
     async def create(self, account_id: str, data: dict) -> asyncpg.Record | None:
         # Mirror exacto de ClientRepository.create() (mismas 7 columnas). Hasta
         # el fix de 20261009000001 STEP 1, suppliers.company_id era NOT NULL

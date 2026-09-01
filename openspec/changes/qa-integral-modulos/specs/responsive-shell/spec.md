@@ -4,7 +4,9 @@
 
 ### Requirement: El shell del dashboard nunca desborda horizontalmente el viewport
 
-El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del viewport en cualquier ancho desde 390 px: el `<main>` del shell (`SidebarInset`) y el contenedor de contenido del layout SHALL romper la cadena `min-width:auto` de flexbox (`min-w-0`), de modo que ningún contenido de pantalla pueda estirar el documento más allá del viewport. El contenido intrínsecamente ancho (tablas, paneles de movimientos, historiales) SHALL scrollear dentro de su propio contenedor con `overflow-x-auto`, nunca desbordando la página. Los controles primarios de cada pantalla (CTAs, acciones de fila, paginación) SHALL ser visibles y operables sin panear la ventana visual del navegador.
+El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del viewport en cualquier ancho desde 390 px: el `<main>` del shell (`SidebarInset`) y el contenedor de contenido del layout SHALL romper la cadena `min-width:auto` de flexbox (`min-w-0`), de modo que ningún contenido de pantalla pueda estirar el documento más allá del viewport. El contenido que exceda el ancho disponible SHALL scrollear dentro de su propio contenedor con `overflow-x-auto`, nunca desbordando la página. **En viewport móvil (≤ 430 px)** los controles primarios de cada pantalla (CTAs, acciones de fila, paginación) SHALL además ser visibles y operables sin desplazamiento horizontal alguno.
+
+> **Alcance deliberado de la última cláusula**: se acota a móvil porque la pasada responsive de tablet (768–1024 px) es un Non-Goal declarado de este change (`design.md` §Non-Goals). A 1024 px con el riel expandido, las barras de **filtros** de `/ventas`, `/gastos`, `/compras` y `/clientes` no wrappean y su CTA queda fuera del viewport inicial — alcanzable con el scroll propio del contenedor, con barra visible, y sin estirar el documento (medido en la task 2.8). Es una mejora medida contra el estado previo (documento estirado hasta 1372 px y CTA inalcanzable), pero **no** cumple "visible al abrir": queda como candidato para la pasada de tablet, no como promesa de esta capability.
 
 #### Scenario: Pantalla con tabla ancha en móvil
 
@@ -18,6 +20,12 @@ El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del
 - **WHEN** se abren `/compras`, `/productos`, `/stock`, `/sucursales`, `/caja` o `/banco` en 390 px
 - **THEN** el CTA primario de la pantalla y las acciones de fila (incluido el borrado de producto) caen dentro del viewport sin panear
 
+#### Scenario: Tablet no estira el documento
+
+- **WHEN** se abren `/ventas`, `/gastos`, `/compras`, `/clientes` o `/productos` en 768 px y en 1024 px
+- **THEN** `document.documentElement.scrollWidth` no supera el ancho del viewport
+- **AND** lo que no entra scrollea dentro del contenedor de contenido, con barra visible
+
 #### Scenario: El desktop no cambia
 
 - **WHEN** el shell se renderiza a 1440 px
@@ -25,7 +33,7 @@ El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del
 
 ### Requirement: Los desplegables dentro de un modal son desplazables
 
-El sistema SHALL permitir desplazar (rueda del mouse y gesto táctil) el contenido de todo popover o desplegable abierto dentro de un Dialog o Sheet: el nodo del popover SHALL quedar dentro del subárbol exceptuado del bloqueo de scroll del modal (el shard de `react-remove-scroll`), de modo que ningún gesto sobre la lista sea cancelado. Los popovers abiertos fuera de un modal SHALL conservar su comportamiento actual sin ningún cambio (portal a `document.body`, cierre por click afuera y por Escape).
+El sistema SHALL permitir desplazar (rueda del mouse y gesto táctil) el contenido de todo popover o desplegable abierto dentro de un Dialog o Sheet: ningún gesto de rueda ni táctil sobre la lista SHALL ser cancelado por el bloqueo de scroll del modal, y el último ítem SHALL ser alcanzable y quedar visible (sin recorte del desplegable). Mecanismo: al detectar que vive dentro de un modal, el popover SHALL activar su propio contexto modal de scroll —el bloqueo más reciente, que exime a su propio contenido— y SHALL permanecer portalizado a `document.body` (colgarlo del subárbol del `DialogContent` lo somete al `transform` y al `overflow-y-auto` de ese nodo, que recortan el popper; verificado en el arnés, R1). Los popovers abiertos fuera de un modal SHALL conservar su comportamiento actual sin ningún cambio (cierre por click afuera y por Escape, sin bloqueo de scroll propio).
 
 #### Scenario: Selector de producto dentro del formulario de venta
 
@@ -42,7 +50,7 @@ El sistema SHALL permitir desplazar (rueda del mouse y gesto táctil) el conteni
 
 - **GIVEN** el mismo componente selector usado en una página sin modal (POS)
 - **WHEN** se abre y se desplaza
-- **THEN** sigue funcionando como hasta ahora, portalizado a `document.body`, y cierra por click afuera y por Escape
+- **THEN** sigue funcionando como hasta ahora —sin bloquear el scroll de la página— y cierra por click afuera y por Escape
 
 ### Requirement: Los paneles de overlay con listas largas scrollean hasta el último ítem
 
@@ -70,13 +78,20 @@ El sistema SHALL garantizar en viewport móvil un objetivo táctil de al menos 2
 
 ### Requirement: El menú lateral móvil se cierra por las vías estándar
 
-El sistema SHALL cerrar el drawer del menú lateral móvil por las tres vías estándar de la app: tecla Escape, botón de cierre visible dentro del panel, y toque sobre el overlay.
+El sistema SHALL cerrar el drawer del menú lateral móvil por las tres vías estándar de la app: tecla Escape, botón de cierre visible dentro del panel, y toque sobre el overlay. Para que Escape siga llegando al drawer, ninguna capa de overlay que no se muestre en ese estado (por ejemplo el tooltip de un ítem del menú, que solo se ve con el riel colapsado en escritorio) SHALL montarse por encima de él: una capa invisible pero viva se vuelve la capa más alta y se queda con la tecla.
 
 #### Scenario: Escape cierra el drawer
 
-- **GIVEN** el menú lateral móvil abierto
+- **GIVEN** el menú lateral móvil abierto, con el foco en cualquier ítem del menú (el estado normal tras abrirlo)
 - **WHEN** el usuario presiona Escape
 - **THEN** el drawer se cierra y el foco vuelve al disparador
+
+#### Scenario: El tooltip del riel no monta contenido en móvil
+
+- **GIVEN** el menú lateral móvil abierto
+- **WHEN** un ítem del menú recibe el foco
+- **THEN** no se monta el contenido de su tooltip (en móvil nunca se muestra)
+- **AND** el tooltip sigue apareciendo en escritorio con el riel colapsado, que es cuando el nombre del ítem no se lee de otra forma
 
 #### Scenario: Botón de cierre visible
 

@@ -50,11 +50,11 @@
 
 ## 6. Índice `/seguros` adaptativo
 
-- [ ] 6.1 **RED** — Tests del índice: con 1 asesor visible y 0 ofertas lleva al perfil sin grilla de tres columnas; con 2+ asesores renderiza una card por asesor enlazando a su slug; las ofertas legacy siguen renderizando con su link saliente; sin entradas visibles se conserva el estado vacío actual.
-- [ ] 6.2 **GREEN** — Modificar `frontend/app/(dashboard)/seguros/page.tsx` para decidir por **el conteo real de filas visibles**, nunca por una constante ni por un flag cableado a "hay un solo partner".
-- [ ] 6.3 **TRIANGULATE** — Caso mixto (asesores + ofertas visibles a la vez) y caso de 3 asesores; verificar que el layout no deja huecos en ninguno.
-- [ ] 6.4 **[safety net]** Re-correr `seguros-click-tracking.test.tsx`: los casos que renderizan `SegurosPage` con ofertas deben seguir verdes sin editarse.
-- [ ] 6.5 **REFACTOR** — Unificar la card de asesor con los componentes base ya existentes en vez de crear variantes nuevas.
+- [x] 6.1 **RED** — Tests del índice: con 1 asesor visible y 0 ofertas lleva al perfil sin grilla de tres columnas; con 2+ asesores renderiza una card por asesor enlazando a su slug; las ofertas legacy siguen renderizando con su link saliente; sin entradas visibles se conserva el estado vacío actual. `frontend/__tests__/SegurosIndexPage.test.tsx` creado; confirmado rojo (4/6 fallando: el índice viejo no distinguía asesores) antes de implementar.
+- [x] 6.2 **GREEN** — Modificar `frontend/app/(dashboard)/seguros/page.tsx` para decidir por **el conteo real de filas visibles**, nunca por una constante ni por un flag cableado a "hay un solo partner". `insurances.filter(isAdvisorEntry)` / `.filter(entry => !isAdvisorEntry(entry))` calculados en cada render a partir de la respuesta real del servicio — sin caché, sin flag. Extraído `AdvisorProfileContent` (compartido con `/seguros/[slug]`, evita duplicar el perfil completo) y `AdvisorCard` nuevo (resumen de grilla).
+- [x] 6.3 **TRIANGULATE** — Caso mixto (asesores + ofertas visibles a la vez) y caso de 3 asesores; verificar que el layout no deja huecos en ninguno. Cubierto: 2 asesores, 3 asesores, mixto 1 asesor+1 oferta — misma grilla `md:grid-cols-2 lg:grid-cols-3` para ambos tipos de card, sin huecos.
+- [x] 6.4 **[safety net]** Re-correr `seguros-click-tracking.test.tsx`: los casos que renderizan `SegurosPage` con ofertas deben seguir verdes sin editarse. **7/7 verdes** (la rama de renderizado de ofertas es la misma JSX, sin cambios de comportamiento; `entry_type` ausente en los mocks se clasifica como oferta vía `isAdvisorEntry`).
+- [x] 6.5 **REFACTOR** — Unificar la card de asesor con los componentes base ya existentes en vez de crear variantes nuevas. `AdvisorCard` reutiliza `Card`/`CardContent`/`Badge`/`Button` y el propio `AdvisorAvatar` del perfil (mismo componente, tamaño reducido vía `className`) — no un avatar/badge paralelo. 29/29 verdes (6 índice + 16 perfil + 7 red de seguridad) tras el refactor.
 
 ## 7. Panel de administración
 

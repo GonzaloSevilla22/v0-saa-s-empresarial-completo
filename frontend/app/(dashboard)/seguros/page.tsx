@@ -1,12 +1,28 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { insuranceService, Insurance } from "@/lib/services/insuranceService"
+import { insuranceService, Insurance, isAdvisorEntry, type ContactChannel } from "@/lib/services/insuranceService"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Shield, ExternalLink, Info } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { AdvisorCard } from "@/components/seguros/AdvisorCard"
+import { AdvisorProfileContent } from "@/components/seguros/AdvisorProfileContent"
 
+/**
+ * Índice de /seguros — se adapta al CONTEO REAL de entradas visibles
+ * (seguros-perfil-asesor, design.md D5), nunca a una constante ni a un flag
+ * cableado a "hay un solo partner" (misma lección que dejó
+ * planes-suscribirse-plan-vigente):
+ * - 1 asesor visible y 0 ofertas -> presenta el contenido completo del
+ *   asesor acá mismo, sin fingir una grilla de catálogo con huecos.
+ * - 2+ asesores visibles -> grilla, cada card enlaza a /seguros/[slug].
+ * - Ofertas legacy (`entry_type` 'offer' o ausente) -> siguen renderizando
+ *   exactamente como antes, con su link saliente "Más información" (no se
+ *   toca esa rama: es la que cubre la red de seguridad de
+ *   seguros-click-tracking.test.tsx).
+ * - Sin ninguna entrada visible -> el estado vacío existente.
+ */
 export default function SegurosPage() {
   const [insurances, setInsurances] = useState<Insurance[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,6 +41,44 @@ export default function SegurosPage() {
     loadInsurances()
   }, [])
 
+  function trackAdvisorContact(advisorId: string, channel: ContactChannel) {
+    void insuranceService.incrementContactClick(advisorId, channel)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground tracking-tight">Seguros para emprendedores</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Protegé tu negocio con opciones de seguros pensadas para emprendedores.
+          </p>
+        </div>
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+          {[1, 2, 3].map((i) => (
+            <Card key={i} className="animate-pulse border-border bg-card h-[250px]" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  const advisors = insurances.filter(isAdvisorEntry)
+  const offers = insurances.filter((entry) => !isAdvisorEntry(entry))
+
+  // Un único asesor y ninguna oferta: es el destino principal, no un
+  // catálogo — se presenta su contenido completo, sin la grilla de 3
+  // columnas con 2 celdas vacías que motivó este change.
+  if (advisors.length === 1 && offers.length === 0) {
+    const advisor = advisors[0]!
+    return (
+      <AdvisorProfileContent
+        advisor={advisor}
+        onTrackContact={(channel) => trackAdvisorContact(advisor.id, channel)}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -34,15 +88,12 @@ export default function SegurosPage() {
         </p>
       </div>
 
-      {loading ? (
+      {insurances.length > 0 ? (
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3].map((i) => (
-            <Card key={i} className="animate-pulse border-border bg-card h-[250px]" />
+          {advisors.map((advisor) => (
+            <AdvisorCard key={advisor.id} advisor={advisor} />
           ))}
-        </div>
-      ) : insurances.length > 0 ? (
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-          {insurances.map((seguro) => (
+          {offers.map((seguro) => (
             <Card key={seguro.id} className="border-border bg-card relative overflow-hidden group hover:border-primary/30 transition-all flex flex-col h-full shadow-sm">
               <div className="h-1.5 bg-primary/20 group-hover:bg-primary/40 transition-colors" />
               <CardHeader className="pb-2">

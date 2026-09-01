@@ -147,9 +147,12 @@
 
 ## 12. G12 — Gráficos y visualización (H16, H23, H27) [LOW]
 
-- [ ] 12.1 H16: leyenda + un color fijo por serie (sin `Cell` con paleta rotativa que colisiona con el fill de otra serie) en `/reportes/formas-pago`, `centros-costo/page.tsx:128-133` y `sucursal/page.tsx:159-164` — respetar la skill de dataviz del proyecto
-- [ ] 12.2 H23: tabla de `/reportes/formas-pago` en móvil — reemplazar `hidden sm:table-cell` (L161-163, L180-182, L190-192) por el `overflow-x-auto` que el contenedor ya tiene; aclarar que la fila "Total del período" es de lo vendido
-- [ ] 12.3 H27: KPI "Margen por Canal" del dashboard con `title`/tooltip accesible que revele el valor completo truncado
+- [x] 12.1 H16: leyenda + un color fijo por serie (sin `Cell` con paleta rotativa que colisiona con el fill de otra serie) en `/reportes/formas-pago`, `centros-costo/page.tsx:128-133` y `sucursal/page.tsx:159-164` — respetar la skill de dataviz del proyecto
+  > **Evidencia (2026-08-31)**: skill de dataviz cargada; RED ejecutado en los TRES reportes (mock de recharts que expone fills/Cells/Legend: sin leyenda, con Cells rotativos, pre-fix). GREEN: paleta canónica `lib/report-chart-colors.ts` — un color fijo por CONCEPTO consistente entre reportes (vendido=primary, comprado=#60a5fa, gastado=destructive), `<Legend />` en los tres, cero `<Cell>`. **Paleta validada con `validate_palette.js`** (claro: PASS completo, CVD ΔE 23.2 deutan / normal 26.8; WARN de contraste relevado por la tabla que acompaña a cada gráfico; oscuro: identidad/CVD/contraste PASS — la banda de luminosidad queda al borde por los tokens de marca, anotado en la lib). Tests: `FormasPagoReportPage.test.tsx` + `report-charts-series-colors.test.tsx` (fills distintos, sin cells, leyenda, en los 3).
+- [x] 12.2 H23: tabla de `/reportes/formas-pago` en móvil — reemplazar `hidden sm:table-cell` (L161-163, L180-182, L190-192) por el `overflow-x-auto` que el contenedor ya tiene; aclarar que la fila "Total del período" es de lo vendido
+  > **Evidencia**: RED ejecutado (columnas con clase `hidden` + rótulo viejo). GREEN: las 9 celdas `hidden sm:table-cell` eliminadas, `min-w-[560px]` en el table para que el `overflow-x-auto` existente scrollee en móvil, y la fila de cierre pasa a "Totales del período" (cada columna cierra con SU total — más preciso que atribuirlo a lo vendido).
+- [x] 12.3 H27: KPI "Margen por Canal" del dashboard con `title`/tooltip accesible que revele el valor completo truncado
+  > **Evidencia**: RED ejecutado (`KpiSummaryCard.test.tsx` — el span truncable sin `title`). GREEN: `title={value}` en el span del valor de `KpiSummaryCard` (beneficia a las 5 tarjetas, no solo a Margen por Canal).
 - [ ] 12.4 Verificación visual de los 3 reportes y el dashboard en las 4 combinaciones
 
 ## 13. G13 — Navegación móvil (H17, H18, H19) [MEDIUM por sidebar.tsx]

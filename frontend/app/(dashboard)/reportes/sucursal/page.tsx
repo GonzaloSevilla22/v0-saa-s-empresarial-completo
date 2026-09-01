@@ -7,7 +7,7 @@ import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useAuth } from "@/contexts/auth-context"
 import { createClient } from "@/lib/supabase/client"
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -31,13 +31,8 @@ const fmtARS  = (n: number) =>
 
 const toISO = toISODate
 
-const COLORS = [
-  "hsl(var(--primary))",
-  "#60a5fa",
-  "#34d399",
-  "#f59e0b",
-  "#f87171",
-]
+// G12 (H16): un color FIJO por serie, compartido por los tres reportes.
+import { REPORT_SERIES_COLORS } from "@/lib/report-chart-colors"
 
 // ─── Plan gate ────────────────────────────────────────────────────────────────
 
@@ -165,12 +160,9 @@ export default function SucursalReportPage() {
                 <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 }} />
                 <Tooltip formatter={(v: number, name: string) => [fmtARS(v), name]} />
-                <Bar dataKey="Ventas" fill="hsl(var(--primary))" fillOpacity={0.85} radius={[0, 4, 4, 0]}>
-                  {chartData.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} fillOpacity={0.85} />
-                  ))}
-                </Bar>
-                <Bar dataKey="Gastos" fill="#f87171" fillOpacity={0.7} radius={[0, 4, 4, 0]} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="Ventas" fill={REPORT_SERIES_COLORS.sold} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="Gastos" fill={REPORT_SERIES_COLORS.spent} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}

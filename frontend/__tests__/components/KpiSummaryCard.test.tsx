@@ -40,6 +40,24 @@ describe("KpiSummaryCard", () => {
     expect(screen.getByText("+12%")).toBeInTheDocument()
   })
 
+  // qa-integral-modulos G12 (H27): el valor lleva `truncate` — "Feria 46% /
+  // S/C 45%" se cortaba en "…S/C …" sin ninguna forma de leer el segundo
+  // porcentaje. El span del valor expone el valor completo vía `title`
+  // (tooltip nativo accesible), en todas las tarjetas.
+  it("el valor truncable expone el texto completo en title (G12/H27)", () => {
+    render(
+      <KpiSummaryCard
+        label="Margen por Canal"
+        value="Feria 46% / S/C 45%"
+        badge="Feria lidera"
+        tone="green"
+        icon={DollarSign}
+      />
+    )
+    const value = screen.getByText("Feria 46% / S/C 45%")
+    expect(value).toHaveAttribute("title", "Feria 46% / S/C 45%")
+  })
+
   // ── Regression guard: className (col-span-2 for "Ticket Promedio" in
   // KpiSummaryBlock) must land on the outermost/direct grid child, not get
   // stranded on an inner element, or the CSS Grid placement breaks. ──

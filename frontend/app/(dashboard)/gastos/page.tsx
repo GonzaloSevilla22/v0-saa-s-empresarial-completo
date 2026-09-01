@@ -84,7 +84,6 @@ export default function GastosPage() {
     dateTo, setDateTo,
     costCenterId, setCostCenterId,
     paymentMethodId, setPaymentMethodId,
-    clearFilters,
     setPage, setPageSize, refetch,
     deleteExpense,
   } = useExpenses()
@@ -215,7 +214,15 @@ export default function GastosPage() {
                     className="bg-background border-border text-foreground" />
                 </div>
                 {isDateFilterActive && (
-                  <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={clearFilters}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground"
+                    // G11 (H13): limpia SOLO el rango de fechas — antes llamaba
+                    // al clearFilters() GLOBAL y borraba buscador, forma de
+                    // pago y centro de costo en el mismo clic.
+                    onClick={() => { setDateFrom(""); setDateTo("") }}
+                  >
                     <X className="h-3 w-3 mr-1" />Limpiar filtro
                   </Button>
                 )}

@@ -39,19 +39,23 @@ export function ProfileForm() {
     }
 
     setSaving(true)
+    // G11 (H9): vaciar un campo ≠ omitirlo — el string vacío viaja como null
+    // explícito para que la columna se limpie de verdad (antes `|| undefined`
+    // lo omitía del update y el valor viejo reaparecía tras el toast verde).
+    const emptyToNull = (v: string) => (v.trim() === "" ? null : v.trim())
     try {
       await updateProfile({
         name:         name.trim(),
-        lastName:     lastName.trim()     || undefined,
-        businessName: businessName.trim() || undefined,
-        phone:        phone.trim()        || undefined,
-        locality:     locality.trim()     || undefined,
-        bio:          bio.trim()          || undefined,
-        avatarUrl:    avatarUrl           ?? undefined,
+        lastName:     emptyToNull(lastName),
+        businessName: emptyToNull(businessName),
+        phone:        emptyToNull(phone),
+        locality:     emptyToNull(locality),
+        bio:          emptyToNull(bio),
+        avatarUrl:    avatarUrl ?? undefined,
       })
       toast.success("Perfil actualizado correctamente")
-    } catch (err: any) {
-      toast.error(err.message || "Error al guardar el perfil")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error && err.message ? err.message : "Error al guardar el perfil")
     } finally {
       setSaving(false)
     }

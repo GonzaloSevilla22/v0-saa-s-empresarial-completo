@@ -138,9 +138,12 @@
 
 ## 11. G11 — Estado de formularios (H9, H13, H15) [LOW]
 
-- [ ] 11.1 H9: `ProfileForm.tsx:45-49` — distinguir "no enviado" de "enviado vacío" en los 5 campos opcionales (mandar `null` explícito o el equivalente de `model_fields_set` del backend); RED: vaciar un campo persiste el vacío tras recargar (hoy: reaparece el valor viejo con toast de éxito)
-- [ ] 11.2 H13: el "Limpiar filtro" del popover de fechas de `/gastos` limpia SOLO el rango de fechas (hoy llama al `clearFilters()` global de `useExpenses`); RED: buscador y filtros sobreviven
-- [ ] 11.3 H15: `reset()` al cerrar/descartar en `LedgerAdjustmentDialog` y `BankAccountFormDialog` (hoy solo en submit exitoso, `BankAccountFormDialog.tsx:82`), y al cambiar de `kind` (banco→billetera); RED: reabrir tras Escape muestra formulario limpio
+- [x] 11.1 H9: `ProfileForm.tsx:45-49` — distinguir "no enviado" de "enviado vacío" en los 5 campos opcionales (mandar `null` explícito o el equivalente de `model_fields_set` del backend); RED: vaciar un campo persiste el vacío tras recargar (hoy: reaparece el valor viejo con toast de éxito)
+  > **Evidencia (2026-08-31)**: RED ejecutado en dos capas — el test viejo que FIJABA el bug ("manda la localidad vacía como undefined") reescrito a `null` explícito + caso del negocio (2 fallos pre-fix); `buildProfileUpdatePayload` nuevo en `lib/profile-update.ts` (capa canónica: null pasa/limpia, undefined se omite, camelCase→snake_case — 3 casos) consumido por `updateProfile` de `auth-context` (el `?? undefined` que colapsaba ambos eliminado). Triangulado: campo NO tocado conserva su valor. `ProfileUpdateData` re-exportado desde la lib.
+- [x] 11.2 H13: el "Limpiar filtro" del popover de fechas de `/gastos` limpia SOLO el rango de fechas (hoy llama al `clearFilters()` global de `useExpenses`); RED: buscador y filtros sobreviven
+  > **Evidencia**: RED ejecutado en `GastosPage.test.tsx` (mock con rango activo; `clearFilters` global disparado pre-fix). GREEN: el botón hace `setDateFrom(""); setDateTo("")` y `clearFilters` salió del destructuring (sin otros usos); el test asserta que buscador/forma de pago/centro NO se tocan.
+- [x] 11.3 H15: `reset()` al cerrar/descartar en `LedgerAdjustmentDialog` y `BankAccountFormDialog` (hoy solo en submit exitoso, `BankAccountFormDialog.tsx:82`), y al cambiar de `kind` (banco→billetera); RED: reabrir tras Escape muestra formulario limpio
+  > **Evidencia**: RED ejecutado (`dialog-reset-on-close.test.tsx`, 3 fallos pre-fix con arneses controlados). GREEN: `handleOpenChange` con `reset()` al cerrar en AMBOS diálogos (cubre Escape, clic afuera y Cancelar) + `useEffect` de reset al cambiar `kind` en `BankAccountFormDialog`. Triangulado: borrador de ajuste (importe/motivo/Faltante) limpio al reabrir; banco→billetera sin nombre/saldo arrastrados; el error "El nombre es obligatorio" del intento vacío no aparece sobre la billetera jamás tocada. Suites previas de ambos diálogos sin regresión.
 
 ## 12. G12 — Gráficos y visualización (H16, H23, H27) [LOW]
 

@@ -74,6 +74,15 @@ export function LedgerAdjustmentDialog({
     },
   })
 
+  // G11 (H15): descartar (Escape, clic afuera, Cancelar) también limpia el
+  // borrador — antes solo el submit exitoso hacía reset() y el diálogo
+  // reabría con importe, motivo y "Faltante" marcados, a un clic de un
+  // "Confirmar ajuste" irreversible.
+  function handleOpenChange(v: boolean) {
+    if (!v) reset()
+    onOpenChange(v)
+  }
+
   async function onSubmit(values: AdjustmentFormValues) {
     const signedAmount = values.direction === "surplus" ? values.amount : -values.amount
     try {
@@ -91,7 +100,7 @@ export function LedgerAdjustmentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Registrar ajuste</DialogTitle>
@@ -163,7 +172,7 @@ export function LedgerAdjustmentDialog({
           </Alert>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isSubmitting}>
               Cancelar
             </Button>
             <Button type="submit" disabled={isSubmitting || !canSubmit}>

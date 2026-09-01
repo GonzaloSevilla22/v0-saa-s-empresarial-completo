@@ -5,12 +5,22 @@ import * as d3 from 'd3'
 import { chartGradients } from '@/lib/chart-utils'
 
 interface TimeSeriesLinesChartProps {
-    data: { period: string; activations: number; umv_achieved: number }[]
+    /**
+     * fix/admin-seguros-timeseries: `umv_achieved` es opcional — no todo
+     * caller tiene una segunda serie análoga (admin/seguros solo tiene
+     * altas por mes). Cuando NINGÚN punto lo trae, la línea/área/puntos
+     * verdes no se dibujan (en vez de rellenar con 0, que dibujaba una
+     * línea plana falsa). `admin/metricas` y `admin/analytics` siguen
+     * pasando ambas series siempre — sin cambio de comportamiento ahí.
+     */
+    data: { period: string; activations: number; umv_achieved?: number }[]
     width?: number
     height?: number
+    /** Etiqueta del tooltip de la serie azul (default "Actives", el label histórico). */
+    activationsLabel?: string
 }
 
-export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }: TimeSeriesLinesChartProps) {
+export default function TimeSeriesLinesChart({ data, width = 600, height = 300, activationsLabel = "Actives" }: TimeSeriesLinesChartProps) {
     const svgRef = useRef<SVGSVGElement>(null)
 
     useEffect(() => {
@@ -31,11 +41,16 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             date: new Date(d.period)
         }))
 
+        // fix/admin-seguros-timeseries: la serie UMV es opcional — solo se
+        // dibuja si AL MENOS un punto la trae (no rellenamos con 0, que
+        // dibujaba una línea plana falsa para callers sin ese dato).
+        const hasUmv = parsedData.some(d => d.umv_achieved !== undefined)
+
         const x = d3.scaleTime()
             .domain(d3.extent(parsedData, d => d.date) as [Date, Date])
             .range([0, innerWidth])
 
-        const maxVal = d3.max(parsedData, d => Math.max(d.activations, d.umv_achieved)) || 0
+        const maxVal = d3.max(parsedData, d => Math.max(d.activations, d.umv_achieved ?? 0)) || 0
 
         const y = d3.scaleLinear()
             .domain([0, maxVal * 1.2]) // Add 20% breathing room
@@ -62,12 +77,6 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .y1(d => y(d.activations))
             .curve(d3.curveMonotoneX)
 
-        const areaUmv = d3.area<typeof parsedData[0]>()
-            .x(d => x(d.date))
-            .y0(innerHeight)
-            .y1(d => y(d.umv_achieved))
-            .curve(d3.curveMonotoneX)
-
         // Draw Areas first
         g.append("path")
             .datum(parsedData)
@@ -75,11 +84,19 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .attr("stroke", "none")
             .attr("d", areaActivations)
 
-        g.append("path")
-            .datum(parsedData)
-            .attr("fill", "url(#gradient-emerald)")
-            .attr("stroke", "none")
-            .attr("d", areaUmv)
+        if (hasUmv) {
+            const areaUmv = d3.area<typeof parsedData[0]>()
+                .x(d => x(d.date))
+                .y0(innerHeight)
+                .y1(d => y(d.umv_achieved ?? 0))
+                .curve(d3.curveMonotoneX)
+
+            g.append("path")
+                .datum(parsedData)
+                .attr("fill", "url(#gradient-emerald)")
+                .attr("stroke", "none")
+                .attr("d", areaUmv)
+        }
 
         // Activations Line
         const lineActivations = d3.line<typeof parsedData[0]>()
@@ -95,19 +112,21 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .attr("stroke-linecap", "round")
             .attr("d", lineActivations)
 
-        // UMV Line
-        const lineUmv = d3.line<typeof parsedData[0]>()
-            .x(d => x(d.date))
-            .y(d => y(d.umv_achieved))
-            .curve(d3.curveMonotoneX)
+        if (hasUmv) {
+            // UMV Line
+            const lineUmv = d3.line<typeof parsedData[0]>()
+                .x(d => x(d.date))
+                .y(d => y(d.umv_achieved ?? 0))
+                .curve(d3.curveMonotoneX)
 
-        g.append("path")
-            .datum(parsedData)
-            .attr("fill", "none")
-            .attr("stroke", "#10b981") // emerald-500
-            .attr("stroke-width", 3)
-            .attr("stroke-linecap", "round")
-            .attr("d", lineUmv)
+            g.append("path")
+                .datum(parsedData)
+                .attr("fill", "none")
+                .attr("stroke", "#10b981") // emerald-500
+                .attr("stroke-width", 3)
+                .attr("stroke-linecap", "round")
+                .attr("d", lineUmv)
+        }
 
         // Tooltip logic
         const tooltip = d3.select("body").append("div")
@@ -124,7 +143,7 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
             .attr("r", 4)
             .attr("fill", "#3b82f6")
             .on("mouseover", (event, d) => {
-                tooltip.style("display", "block").html(`<strong>Actives:</strong> ${d.activations}`)
+                tooltip.style("display", "block").html(`<strong>${activationsLabel}:</strong> ${d.activations}`)
                 d3.select(event.currentTarget).attr("r", 6)
             })
             .on("mousemove", (event) => tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 20) + "px"))
@@ -133,25 +152,27 @@ export default function TimeSeriesLinesChart({ data, width = 600, height = 300 }
                 d3.select(event.currentTarget).attr("r", 4)
             })
 
-        dots.append("circle")
-            .attr("cx", d => x(d.date))
-            .attr("cy", d => y(d.umv_achieved))
-            .attr("r", 4)
-            .attr("fill", "#10b981")
-            .on("mouseover", (event, d) => {
-                tooltip.style("display", "block").html(`<strong>UMV:</strong> ${d.umv_achieved}`)
-                d3.select(event.currentTarget).attr("r", 6)
-            })
-            .on("mousemove", (event) => tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 20) + "px"))
-            .on("mouseout", (event) => {
-                tooltip.style("display", "none")
-                d3.select(event.currentTarget).attr("r", 4)
-            })
+        if (hasUmv) {
+            dots.append("circle")
+                .attr("cx", d => x(d.date))
+                .attr("cy", d => y(d.umv_achieved ?? 0))
+                .attr("r", 4)
+                .attr("fill", "#10b981")
+                .on("mouseover", (event, d) => {
+                    tooltip.style("display", "block").html(`<strong>UMV:</strong> ${d.umv_achieved ?? 0}`)
+                    d3.select(event.currentTarget).attr("r", 6)
+                })
+                .on("mousemove", (event) => tooltip.style("left", (event.pageX + 10) + "px").style("top", (event.pageY - 20) + "px"))
+                .on("mouseout", (event) => {
+                    tooltip.style("display", "none")
+                    d3.select(event.currentTarget).attr("r", 4)
+                })
+        }
 
         return () => {
             d3.selectAll('.d3-tooltip').remove()
         }
-    }, [data, width, height])
+    }, [data, width, height, activationsLabel])
 
     if (!data || data.length === 0) {
         return (

@@ -1,7 +1,8 @@
 # insurance-advisor-profile Specification
 
 ## Purpose
-TBD - created by archiving change seguros-perfil-asesor. Update Purpose after archive.
+
+Perfil público de asesor de seguros dentro de `community.seguros`, distinguido por `entry_type` (`'offer'` | `'advisor'`) del catálogo de ofertas legacy que ya existía. Cubre el modelo estructurado del contenido del partner (identidad, matrícula, líneas de servicio, pilares, zonas de cobertura, vías de contacto, foto opcional), su ruta propia y estable (`/seguros/[slug]`), la adaptación del índice `/seguros` al conteo real de asesores visibles, el tracking de clicks desglosado por vía de contacto sin alterar el contador total preexistente, la superficie completa de alta y edición en `/admin/seguros`, y la publicación como acción explícita del PO (seed con `is_visible = false`). Nace del acuerdo comercial con el primer partner (Julián Dupás, PAS matriculado) publicado en 2026-09.
 ## Requirements
 ### Requirement: El catálogo de seguros distingue ofertas de perfiles de asesor
 `community.seguros` SHALL discriminar el tipo de cada entrada mediante una columna `entry_type` con un conjunto cerrado de valores (`'offer'`, `'advisor'`), con default `'offer'` para preservar el comportamiento de las filas existentes. Una entrada de tipo `'advisor'` MUST tener `slug`; esa invariante MUST estar expresada como restricción de la tabla y no sólo como validación del formulario, para que no se pueda evadir escribiendo por la Data API.

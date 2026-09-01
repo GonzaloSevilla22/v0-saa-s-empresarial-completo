@@ -12,13 +12,13 @@
 
 ## 2. Migración: modelo de datos
 
-- [ ] 2.1 Crear `supabase/migrations/20261017000001_seguros_perfil_asesor.sql` (número confirmado en 1.4), con cabecera que explique el porqué del change, como es costumbre en las migraciones de este repo.
-- [ ] 2.2 Agregar las columnas nuevas con `ADD COLUMN IF NOT EXISTS`, todas nullable o con default, sin tocar las 4 columnas existentes: `entry_type`, `slug`, `advisor_name`, `advisor_role`, `license_number`, `license_authority`, `headline`, `bio`, `photo_url`, `contact_phone`, `contact_whatsapp`, `contact_email`, `service_lines`, `pillars`, `coverage_areas`, `disclaimer`, `contact_clicks`, `is_featured`, `sort_order`.
-- [ ] 2.3 Agregar el CHECK del conjunto cerrado de `entry_type` (`'offer'`, `'advisor'`) con default `'offer'`, de forma guardada para poder reaplicar la migración.
-- [ ] 2.4 Agregar el CHECK condicional `entry_type <> 'advisor' OR slug IS NOT NULL` (invariante de datos, no de formulario).
-- [ ] 2.5 Agregar los CHECK de `jsonb_typeof(...) = 'array'` sobre `service_lines` y `pillars`. Dejar comentado en el SQL por qué no se valida la forma de cada elemento en la DB (un CHECK no admite subconsulta) y dónde sí se valida (Zod, task 3.3).
-- [ ] 2.6 Crear el índice único parcial sobre `slug` (`WHERE slug IS NOT NULL`).
-- [ ] 2.7 **[checkpoint]** Verificar que la migración es idempotente aplicándola dos veces seguidas contra una base local, y que no altera ninguna policy ni el trigger `update_seguros_updated_at`.
+- [x] 2.1 Crear `supabase/migrations/20261017000001_seguros_perfil_asesor.sql` (número confirmado en 1.4), con cabecera que explique el porqué del change, como es costumbre en las migraciones de este repo.
+- [x] 2.2 Agregar las columnas nuevas con `ADD COLUMN IF NOT EXISTS`, todas nullable o con default, sin tocar las 4 columnas existentes: `entry_type`, `slug`, `advisor_name`, `advisor_role`, `license_number`, `license_authority`, `headline`, `bio`, `photo_url`, `contact_phone`, `contact_whatsapp`, `contact_email`, `service_lines`, `pillars`, `coverage_areas`, `disclaimer`, `contact_clicks`, `is_featured`, `sort_order`.
+- [x] 2.3 Agregar el CHECK del conjunto cerrado de `entry_type` (`'offer'`, `'advisor'`) con default `'offer'`, de forma guardada para poder reaplicar la migración.
+- [x] 2.4 Agregar el CHECK condicional `entry_type <> 'advisor' OR slug IS NOT NULL` (invariante de datos, no de formulario).
+- [x] 2.5 Agregar los CHECK de `jsonb_typeof(...) = 'array'` sobre `service_lines` y `pillars`. Dejar comentado en el SQL por qué no se valida la forma de cada elemento en la DB (un CHECK no admite subconsulta) y dónde sí se valida (Zod, task 3.3).
+- [x] 2.6 Crear el índice único parcial sobre `slug` (`WHERE slug IS NOT NULL`).
+- [x] 2.7 **[checkpoint]** Verificar que la migración es idempotente aplicándola dos veces seguidas contra una base local, y que no altera ninguna policy ni el trigger `update_seguros_updated_at`. **Hallazgo real (no cosmético): `ON CONFLICT (slug) DO UPDATE` fallaba con `42P10` (no unique/exclusion constraint matching) porque el índice único es PARCIAL (`WHERE slug IS NOT NULL`) — Postgres exige que el `ON CONFLICT` repita el mismo predicado para poder inferir el arbiter. Corregido a `ON CONFLICT (slug) WHERE slug IS NOT NULL DO UPDATE`. Verificado con `npx supabase migration up --local` + reaplicación directa por `psql`: 1 fila, sin duplicar; los 4 CHECK vivos; `anon`=false/`authenticated`=true en la función nueva; trigger `update_seguros_updated_at` y las 2 policies (`Public items are viewable by everyone`, `seguros_admin_all`) intactos.
 
 ## 3. Capa canónica: tipos y servicio
 

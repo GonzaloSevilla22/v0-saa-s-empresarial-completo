@@ -167,6 +167,13 @@ GRANT  EXECUTE ON FUNCTION public.increment_seguros_contact_click(uuid, text) TO
 --    updated_at es exactamente "esta fila nunca fue tocada desde que se
 --    sembró" — apenas el PO edite o publique (ambos son UPDATE), la
 --    condición se vuelve falsa y el reseed deja de pisarla.
+--
+--    photo_url: la foto SÍ estaba disponible (embebida en el PDF fuente,
+--    extraída) — se sirve como asset estático del propio frontend
+--    (`frontend/public/julian-dupas.jpg`), mismo patrón que
+--    `/aliadata-logo.png` (ver `frontend/app/auth/login/page.tsx`), no
+--    Storage. El fallback a iniciales (D8) sigue existiendo y cubierto por
+--    tests para cualquier fila futura sin foto.
 -- ───────────────────────────────────────────────────────────────────────────
 
 INSERT INTO community.seguros (
@@ -179,6 +186,7 @@ INSERT INTO community.seguros (
   license_authority,
   headline,
   bio,
+  photo_url,
   service_lines,
   pillars,
   coverage_areas,
@@ -200,6 +208,7 @@ VALUES (
   'Un seguro no termina cuando se emite la póliza.',
   'Mi trabajo comienza con el análisis de cada situación particular. Comparo alternativas entre distintas compañías, explico con claridad el alcance de cada cobertura y acompaño al asegurado durante todo el proceso, especialmente cuando debe afrontar un siniestro.' || E'\n\n' ||
     'Un seguro no es un trámite. Es una decisión.',
+  '/julian-dupas.jpg',
   '[
     {"title": "Autos y motos", "description": "Coberturas adaptadas al uso real del vehículo, con asesoramiento personalizado y seguimiento integral de los siniestros."},
     {"title": "Hogar y comercio", "description": "Sumas aseguradas actualizadas para que la cobertura responda adecuadamente cuando más la necesitás."},
@@ -219,7 +228,7 @@ VALUES (
   'Aliadata no es aseguradora ni intermediaria. La contratación se realiza directamente con el asesor y la compañía correspondiente.',
   false
 )
-ON CONFLICT (slug) DO UPDATE SET
+ON CONFLICT (slug) WHERE slug IS NOT NULL DO UPDATE SET
   title              = EXCLUDED.title,
   advisor_name       = EXCLUDED.advisor_name,
   advisor_role       = EXCLUDED.advisor_role,
@@ -227,6 +236,7 @@ ON CONFLICT (slug) DO UPDATE SET
   license_authority  = EXCLUDED.license_authority,
   headline           = EXCLUDED.headline,
   bio                = EXCLUDED.bio,
+  photo_url          = EXCLUDED.photo_url,
   service_lines      = EXCLUDED.service_lines,
   pillars            = EXCLUDED.pillars,
   coverage_areas     = EXCLUDED.coverage_areas,

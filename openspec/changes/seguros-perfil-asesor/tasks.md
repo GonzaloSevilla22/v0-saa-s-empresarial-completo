@@ -89,9 +89,9 @@
 
 ## 10. Cierre
 
-- [ ] 10.1 Actualizar `CHANGES.md` con la entrada del change: qué se hizo, hallazgos y OQs pendientes.
-- [ ] 10.2 Si se tocó `CLAUDE.md`, correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo** PR (el gate `Docs Sync` lo verifica).
-- [ ] 10.3 Abrir el PR con el detalle de las decisiones de diseño y las 6 OQs con su recomendación. Esperar los checks en verde y mergear.
+- [x] 10.1 Actualizar `CHANGES.md` con la entrada del change: qué se hizo, hallazgos y OQs pendientes. Entrada agregada al final del log activo (antes de "## Post-roadmap V2.x"), mismo formato que `qa-integral-modulos`.
+- [x] 10.2 Si se tocó `CLAUDE.md`, correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo** PR (el gate `Docs Sync` lo verifica). **No aplica**: este change no tocó `CLAUDE.md`/`AGENTS.md` (sólo `CHANGES.md`, que no está sujeto a ese gate).
+- [x] 10.3 Abrir el PR con el detalle de las decisiones de diseño y las 6 OQs con su recomendación. **No se esperan los checks en verde ni se mergea** (instrucción explícita del orquestador para este apply): se crea el PR y se reporta el número.
 - [ ] 10.4 **[checkpoint post-merge]** Verificar en prod: `MAX(version) = 20261017000001`, las columnas y CHECKs vivos, las ACLs de la función nueva (`anon` sin `EXECUTE`), y la fila del partner presente con `is_visible = false`.
 - [ ] 10.5 **[requiere PO]** Presentar el perfil al PO para revisión del contenido y firma de las 6 OQs — en particular OQ-3 (matrícula y leyenda regulatoria) y OQ-4 (texto del deslinde), que son las que tienen consecuencia hacia afuera.
 - [ ] 10.6 **[requiere PO]** Publicar: completar desde el panel los campos que dependían de las OQs y activar la visibilidad con el toggle existente. La publicación es acción explícita del PO, nunca un efecto del deploy.

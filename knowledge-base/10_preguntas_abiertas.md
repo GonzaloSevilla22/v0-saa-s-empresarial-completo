@@ -47,9 +47,10 @@ Campo canónico: `usage_reset_at` (renombrado de `insights_reset_at` en C-01).
 **Respuesta canónica**: "Usuario activo" para retención = registró ≥ 1 evento `operation_created` (venta/compra/gasto). La ventana de retención es un **horizonte censurado `[30,H)`** con `H=60` días por defecto: un usuario cuenta como retenido si opera entre el día 30 y el día `H` desde su `first_operation`. Sólo se comparan cohortes con al menos `H` días de vida (`is_mature`); las más jóvenes se marcan y el panel no las usa como dato representativo. La ventana fija anterior `[30,37)` era el caso `H=37` de esta misma fórmula; la lectura literal "≥30 días" de la visión (`01_vision_y_objetivos.md`) es el caso `H=∞`, descartada porque vuelve incomparables cohortes de distinta edad.  
 **Ver**: `rpc_admin_retention_30d(cohort_granularity, date_from, date_to, p_horizon_days)` (`supabase/migrations/20260921000001_admin_kpi_freemium_retention.sql`), `openspec/specs/admin-analytics-kpis/spec.md`.
 
-### PA-08 — Estado del módulo de seguros (`/seguros`)
-**Pregunta**: ¿Qué hace exactamente el módulo de seguros? ¿Es un marketplace de alianzas, un formulario de contacto, o algo más?  
-**Contexto**: Existe la ruta `/seguros` y `/admin/seguros` pero no fue explorado en detalle. Es posiblemente un módulo de partnerships o contenido estático.
+### ~~PA-08 — Estado del módulo de seguros (`/seguros`)~~ ✅ RESUELTA (seguros-perfil-asesor)
+**Resuelto**: 2026-09-01 — `openspec/changes/archive/2026-09-01-seguros-perfil-asesor/`, sign-off del PO sobre las 6 OQs de `design.md`.  
+**Respuesta canónica**: es un **directorio de partners de seguros** dentro de la app autenticada (no un marketplace transaccional: Aliadata no cotiza, contrata ni cobra — publica el contacto directo con el asesor). `community.seguros` distingue `entry_type` (`'offer'` legacy vs `'advisor'`) en la misma tabla; hoy vive el primer perfil de asesor completo (Julián Dupás, PAS matriculado), publicado y confirmado visualmente por el PO. `/seguros` se adapta al conteo real de asesores visibles: con uno solo lleva directo al perfil (`/seguros/[slug]`), con dos o más muestra grilla. Todo el contenido es editable desde `/admin/seguros`, sin flags cableados a un supuesto de "un solo partner".  
+**Ver**: `openspec/specs/insurance-advisor-profile/spec.md`, `frontend/lib/services/insuranceService.ts`, `CHANGES.md` (entrada `seguros-perfil-asesor`).
 
 ### PA-09 — Estrategia de OCR para facturas sin CUIT
 **Pregunta**: ¿Qué hace la app cuando una factura no tiene CUIT identificable (ej: ticket de caja)?  

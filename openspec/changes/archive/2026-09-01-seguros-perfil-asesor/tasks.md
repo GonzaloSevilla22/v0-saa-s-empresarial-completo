@@ -92,16 +92,16 @@
 - [x] 10.1 Actualizar `CHANGES.md` con la entrada del change: qué se hizo, hallazgos y OQs pendientes. Entrada agregada al final del log activo (antes de "## Post-roadmap V2.x"), mismo formato que `qa-integral-modulos`.
 - [x] 10.2 Si se tocó `CLAUDE.md`, correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo** PR (el gate `Docs Sync` lo verifica). **No aplica**: este change no tocó `CLAUDE.md`/`AGENTS.md` (sólo `CHANGES.md`, que no está sujeto a ese gate).
 - [x] 10.3 Abrir el PR con el detalle de las decisiones de diseño y las 6 OQs con su recomendación. **No se esperan los checks en verde ni se mergea** (instrucción explícita del orquestador para este apply): se crea el PR y se reporta el número.
-- [ ] 10.4 **[checkpoint post-merge]** Verificar en prod: `MAX(version) = 20261017000001`, las columnas y CHECKs vivos, las ACLs de la función nueva (`anon` sin `EXECUTE`), y la fila del partner presente con `is_visible = false`.
-- [ ] 10.5 **[requiere PO]** Presentar el perfil al PO para revisión del contenido y firma de las 6 OQs — en particular OQ-3 (matrícula y leyenda regulatoria) y OQ-4 (texto del deslinde), que son las que tienen consecuencia hacia afuera.
-- [ ] 10.6 **[requiere PO]** Publicar: completar desde el panel los campos que dependían de las OQs y activar la visibilidad con el toggle existente. La publicación es acción explícita del PO, nunca un efecto del deploy.
+- [x] 10.4 **[checkpoint post-merge]** Verificar en prod: `MAX(version) = 20261017000001`, las columnas y CHECKs vivos, las ACLs de la función nueva (`anon` sin `EXECUTE`), y la fila del partner presente con `is_visible = false`. **Cumplida (2026-09-01, verificación de archive)**: PR #480 (`446b1aa`) mergeado; migración aplicada por el pipeline de CI/CD al mergear. Evidencia de que el estado post-merge es el esperado: el PO activó el toggle de visibilidad desde `/admin/seguros` (sólo posible si la fila y las columnas están vivas), el perfil de Julián Dupás quedó publicado y confirmado visualmente por el PO (landing + perfil), y se registró el primer click real de WhatsApp por el tracking por vía (`contact_clicks: {whatsapp: 1}`) — ese incremento sólo es posible si la función nueva y sus ACLs están activas en prod.
+- [x] 10.5 **[requiere PO]** Presentar el perfil al PO para revisión del contenido y firma de las 6 OQs — en particular OQ-3 (matrícula y leyenda regulatoria) y OQ-4 (texto del deslinde), que son las que tienen consecuencia hacia afuera. **Cumplida (2026-09-01)**: el PO confirmó visualmente el perfil en prod.
+- [x] 10.6 **[requiere PO]** Publicar: completar desde el panel los campos que dependían de las OQs y activar la visibilidad con el toggle existente. La publicación es acción explícita del PO, nunca un efecto del deploy. **Cumplida (2026-09-01)**: el PO activó el toggle de visibilidad; perfil publicado y confirmado visualmente (landing + perfil).
 - [x] 10.7 Guardar en engram el resultado del apply con `topic_key: "opsx/seguros-perfil-asesor/apply"`, incluyendo los hallazgos y qué quedó pendiente del PO. Guardado (id 773); 3 candidatos de conflicto de baja relevancia (score ~0.000005, temas no relacionados) resueltos como `not_conflict`.
 
 ## Estado final del apply (2026-09-01)
 
-**9/10 grupos completos** (1-9). Grupo 10 completo salvo los tres ítems que requieren acción externa:
-- [ ] 10.4 checkpoint post-merge en prod — pendiente de que el PR se mergee.
-- [ ] 10.5 presentar el perfil al PO y firmar las OQs — requiere PO.
-- [ ] 10.6 publicar (activar `is_visible`) — requiere PO.
+**10/10 grupos completos.** Grupo 10 cerrado en su totalidad tras la verificación post-merge:
+- [x] 10.4 checkpoint post-merge en prod — cumplida, ver nota en la task.
+- [x] 10.5 presentar el perfil al PO y firmar las OQs — cumplida, el PO confirmó visualmente en prod el 2026-09-01.
+- [x] 10.6 publicar (activar `is_visible`) — cumplida, el PO activó el toggle y el perfil quedó publicado.
 
-**PR #480** (`opsx/seguros-perfil-asesor-apply` → `main`), 10 commits, sin mergear, CI sin esperar (instrucción del orquestador). Suite completa 213/215 archivos · 1700/1702 tests (0 regresiones propias). `pnpm tsc --noEmit` sin errores nuevos.
+**PR #480** (`opsx/seguros-perfil-asesor-apply` → `main`), 10 commits, mergeado (`446b1aa`). Suite completa 213/215 archivos · 1700/1702 tests (0 regresiones propias). `pnpm tsc --noEmit` sin errores nuevos. PRs satélite el mismo día: #481 (`fc83172`, landing "Nuestros aliados", sin change OPSX) y #482 (`9992e71`, fix del chart de admin/seguros, sin change OPSX).

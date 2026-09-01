@@ -68,10 +68,10 @@
 
 ## 8. Seed del partner
 
-- [ ] 8.1 Agregar a la migración el `INSERT ... ON CONFLICT (slug) DO UPDATE` con el contenido transcripto en 1.5, con `is_visible = false`.
-- [ ] 8.2 Sembrar `contact_whatsapp`, `license_authority` y `disclaimer` **vacíos**: dependen de OQ-1, OQ-3 y OQ-4. Deben quedar completables desde el panel sin migración nueva.
-- [ ] 8.3 Sembrar `contact_url` con la web del partner hallada en el PDF (`www.argbroker.com.ar`) y `license_number` con la matrícula declarada en el material (`98506`), ambos **a confirmar** por el PO en OQ-3 antes de publicar.
-- [ ] 8.4 **[checkpoint]** Aplicar dos veces en base local y verificar que existe exactamente una fila con ese slug y que la segunda aplicación no pisa con vacíos lo editado a mano.
+- [x] 8.1 Agregar a la migración el `INSERT ... ON CONFLICT (slug) DO UPDATE` con el contenido transcripto en 1.5, con `is_visible = false`. Hecho en el corte anterior (grupo 2), verificado en el checkpoint 2.7 de esta sesión.
+- [x] 8.2 Sembrar `contact_whatsapp`, `license_authority` y `disclaimer` **vacíos**: dependen de OQ-1, OQ-3 y OQ-4. Deben quedar completables desde el panel sin migración nueva. **Divergencia real, documentada en el propio SQL**: para cuando se escribió esta migración (mismo día, 2026-09-01) el PO ya había firmado OQ-1 (WhatsApp: número personal de Julián, confirmado) y OQ-4 (texto del disclaimer aprobado) — esos dos se siembran con el valor real, no vacíos. Sólo `license_authority` (OQ-3, la matrícula del broker `argbroker.com.ar` en sí, distinta de la matrícula personal de Julián que sí se confirmó) sigue sin resolver y se siembra `NULL`, completable desde el panel sin migración nueva (verificado: grupo 7, campo "Leyenda del organismo (opcional)").
+- [x] 8.3 Sembrar `contact_url` con la web del partner hallada en el PDF (`www.argbroker.com.ar`) y `license_number` con la matrícula declarada en el material (`98506`), ambos **a confirmar** por el PO en OQ-3 antes de publicar. Sembrados; la matrícula personal (98506) quedó confirmada por el PO, ver 8.2.
+- [x] 8.4 **[checkpoint]** Aplicar dos veces en base local y verificar que existe exactamente una fila con ese slug y que la segunda aplicación no pisa con vacíos lo editado a mano. **Verificación específica de esta sesión** (2.7 sólo había probado "no duplica"): se editó a mano `license_authority` en la fila sembrada (simulando una edición real desde el panel, que dispara el trigger `update_seguros_updated_at`), se reaplicó la migración completa por `psql`, y el resultado fue `INSERT 0 0` — el `WHERE updated_at = created_at` del `ON CONFLICT` detectó la edición y NO tocó la fila. 1 fila, edición intacta. Revertido a `NULL` después para dejar la base local limpia para la verificación visual (grupo 9).
 
 ## 9. Verificación
 

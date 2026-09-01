@@ -59,6 +59,32 @@ export function getGreetingPeriod(date: Date = new Date()): string {
   return "Buenas noches"
 }
 
+// ─── getInitials ──────────────────────────────────────────────────────────────
+/**
+ * Derives up to two uppercase initials from a full name: first letter of the
+ * first word + first letter of the last word (when there's more than one
+ * word). Used for avatar fallbacks when there's no photo (e.g. the insurance
+ * advisor profile, seguros-perfil-asesor D8) — same shape/size as the photo
+ * would occupy, so the layout doesn't shift.
+ *
+ * @example
+ *   getInitials("Julián Dupás")   // "JD"
+ *   getInitials("Gonzalo")        // "G"
+ *   getInitials("  maria  jose "),// "MJ"
+ *   getInitials(null)             // "" (or the fallback, if provided)
+ */
+export function getInitials(
+  fullName: string | null | undefined,
+  fallback = ""
+): string {
+  const words = (fullName ?? "").trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return fallback
+  const first = words[0]!.charAt(0)
+  const last = words.length > 1 ? words[words.length - 1]!.charAt(0) : ""
+  const initials = `${first}${last}`.toUpperCase()
+  return initials || fallback
+}
+
 // ─── getGreeting ──────────────────────────────────────────────────────────────
 /**
  * Time-aware greeting in Spanish, combined with the user first name.

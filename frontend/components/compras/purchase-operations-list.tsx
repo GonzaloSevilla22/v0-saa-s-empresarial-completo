@@ -11,6 +11,7 @@ import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import { Badge }    from "@/components/ui/badge"
 import { PaymentMethodBadge } from "@/components/payment-methods/PaymentMethodBadge"
+import { UNASSIGNED_PAYMENT_METHOD_LABEL } from "@/lib/payment-method-meta"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { PaginationBar } from "@/components/ui/pagination-bar"
 import { groupPurchasesByOperation, type PurchaseOperation } from "@/lib/group-operations"
@@ -98,22 +99,30 @@ export function PurchaseOperationsList({
   )
 
   function handleExport() {
+    // G15 (H24): forma de pago y proveedor son los dos badges con los que el
+    // usuario filtra en pantalla — sin ellos, quien exporta para conciliar en
+    // una planilla los pierde. Mismos literales de fallback que los badges.
     const rows = filtered.flatMap((op) =>
       op.items.map((item) => ({
         date: item.date, productName: item.productName,
         quantity: item.quantity, unitCost: item.unitCost,
         total: item.total, description: item.description ?? "",
+        paymentMethodName:
+          op.items[0]?.paymentMethodName ?? UNASSIGNED_PAYMENT_METHOD_LABEL,
+        supplierName: op.supplierName ?? "Sin proveedor",
         operationId: op.operationId ?? "",
       })),
     )
     exportToCSV(rows, [
-      { key: "date",        header: "Fecha"        },
-      { key: "productName", header: "Producto"     },
-      { key: "quantity",    header: "Cantidad"     },
-      { key: "unitCost",    header: "Costo unit."  },
-      { key: "total",       header: "Total"        },
-      { key: "description", header: "Descripción"  },
-      { key: "operationId", header: "ID Operación" },
+      { key: "date",              header: "Fecha"         },
+      { key: "productName",       header: "Producto"      },
+      { key: "quantity",          header: "Cantidad"      },
+      { key: "unitCost",          header: "Costo unit."   },
+      { key: "total",             header: "Total"         },
+      { key: "paymentMethodName", header: "Forma de pago" },
+      { key: "supplierName",      header: "Proveedor"     },
+      { key: "description",       header: "Descripción"   },
+      { key: "operationId",       header: "ID Operación"  },
     ], "compras")
     toast.success(`Exportadas ${rows.length} filas`)
   }

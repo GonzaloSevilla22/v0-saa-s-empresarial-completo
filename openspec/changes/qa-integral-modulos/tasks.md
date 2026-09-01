@@ -167,13 +167,15 @@
 
 ## 14. G14 — CTA de /planes (H20) [MEDIUM]
 
-- [ ] 14.1 Test del discriminante del CTA en ambos estados: sin suscripción viva → habilitado (comportamiento ESPECIFICADO por `planes-suscribirse-plan-vigente`, no regresionarlo); con suscripción viva del mismo tier → deshabilitado/sin CTA
+- [x] 14.1 Test del discriminante del CTA en ambos estados: sin suscripción viva → habilitado (comportamiento ESPECIFICADO por `planes-suscribirse-plan-vigente`, no regresionarlo); con suscripción viva del mismo tier → deshabilitado/sin CTA
+  > **Evidencia (2026-08-31)**: los DOS estados ya están fijados por los tests que dejó `planes-suscribirse-plan-vigente` y siguen verdes (verificado en esta corrida, 28/28): `PlanCard.test.tsx` — "plan efectivo + contratación disponible: CTA habilitado" (el caso del incidente 29-08) y "plan efectivo + suscripción viva del MISMO tier: sin CTA de compra, con el aviso OQ-5"; `PlanComparison.test.tsx` — "con suscripción viva: ningún CTA visible dispara createSubscription". No se escribió test duplicado (reutilización); el discriminante NO se tocó en este change (D8) — G10/H21c solo agregó el estado de carga visible del botón, cubierto por su propio test.
 - [x] 14.2 Verificar que el backend rechaza el alta de suscripción duplicada del mismo tier con suscripción viva; si el guard no existe, agregarlo en el service de payments con 409 + test (OQ-2, D8)
   > **Evidencia (2026-08-31)**: OQ-2 verificada — **el guard YA existe**: `create_subscription_intent` (`backend/services/subscriptions.py:85-87`) corta con 409 "Ya existe una suscripción viva para esta cuenta" ante `find_live_subscription`, y ya tenía test (`test_rejects_when_live_subscription_exists`). Se agregó `test_duplicate_same_tier_blocks_before_persisting_anything` (mismo tier + suscripción viva → 409 con detail y `create_intent` NO awaited: nada queda escrito). Sin código de producción nuevo; el discriminante del CTA de /planes NO se tocó (D8). 27/27 verde.
 
 ## 15. G15 — CSV de compras (H24) [LOW]
 
-- [ ] 15.1 Agregar "Forma de pago" y "Proveedor" al CSV client-side de `/compras` (los dos badges con los que el usuario filtra en pantalla; contraste: el de gastos ya lleva forma de pago); RED del contenido del CSV
+- [x] 15.1 Agregar "Forma de pago" y "Proveedor" al CSV client-side de `/compras` (los dos badges con los que el usuario filtra en pantalla; contraste: el de gastos ya lleva forma de pago); RED del contenido del CSV
+  > **Evidencia (2026-08-31)**: RED ejecutado (`purchase-export-csv.test.tsx`, 2 fallos pre-fix). GREEN: `handleExport` suma las columnas "Forma de pago" y "Proveedor" con los MISMOS literales de fallback que los badges de la pantalla (`UNASSIGNED_PAYMENT_METHOD_LABEL` / "Sin proveedor"). Triangulado: fila imputada (Cuenta corriente / Insumos Andinos) y fila sin imputar.
 
 ## 16. G16 — Motivo de los movimientos de gasto (H11) [MEDIUM]
 

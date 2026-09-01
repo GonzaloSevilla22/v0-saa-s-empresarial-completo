@@ -286,3 +286,34 @@ describe("AdminSegurosPage — métricas", () => {
     expect(within(breakdown).getByText("2")).toBeInTheDocument()
   })
 })
+
+describe("AdminSegurosPage — gráfico de evolución temporal (fix/admin-seguros-timeseries)", () => {
+  it("n=1 (estado real hoy: solo el seed del asesor): renderiza el chart sin caer al estado 'datos insuficientes'", async () => {
+    getAllInsurancesMock.mockResolvedValue([])
+    getAdminStatsMock.mockResolvedValue({
+      ...baseStats,
+      timeSeries: [{ period: "2026-08-01T00:00:00.000Z", activations: 1 }],
+    })
+    const { container } = render(<AdminSegurosPage />)
+
+    await screen.findByText(/evolución temporal/i)
+    expect(screen.queryByText(/datos insuficientes/i)).not.toBeInTheDocument()
+    // El SVG del chart debe montarse con al menos un punto real, sin NaN en
+    // los paths/circles (regresión: "Ene".."Dic" producía Invalid Date).
+    const circles = container.querySelectorAll("circle")
+    expect(circles.length).toBeGreaterThan(0)
+    circles.forEach((c) => {
+      expect(c.getAttribute("cx")).not.toBe("NaN")
+      expect(c.getAttribute("cy")).not.toBe("NaN")
+    })
+  })
+
+  it("n=0: sin datos históricos, muestra el estado vacío en vez de un canvas roto", async () => {
+    getAllInsurancesMock.mockResolvedValue([])
+    getAdminStatsMock.mockResolvedValue({ ...baseStats, timeSeries: [] })
+    render(<AdminSegurosPage />)
+
+    await screen.findByText(/evolución temporal/i)
+    expect(screen.getByText(/datos insuficientes/i)).toBeInTheDocument()
+  })
+})

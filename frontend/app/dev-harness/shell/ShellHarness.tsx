@@ -45,9 +45,15 @@ export function ShellHarness() {
             <SidebarGroupLabel>Principal</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
+                {/* qa-integral-modulos G13 (H19-Escape): `tooltip` NO es
+                    decorativo acá — AppSidebar se lo pasa a TODOS sus ítems y
+                    su ausencia en este arnés fue justo lo que hizo pasar el
+                    test de Escape de 13.3 mientras la app real fallaba (el
+                    tooltip montaba un DismissableLayer por encima del drawer).
+                    Si AppSidebar deja de pasarlo, actualizá este arnés. */}
                 {ITEMS.map((title) => (
                   <SidebarMenuItem key={title}>
-                    <SidebarMenuButton>{title}</SidebarMenuButton>
+                    <SidebarMenuButton tooltip={title}>{title}</SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>

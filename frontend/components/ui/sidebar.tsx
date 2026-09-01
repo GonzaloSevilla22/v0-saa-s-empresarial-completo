@@ -599,15 +599,26 @@ const SidebarMenuButton = React.forwardRef<
       }
     }
 
+    // qa-integral-modulos G13 (H19-Escape): el tooltip solo se ve con el
+    // riel colapsado en escritorio. Antes se montaba SIEMPRE y se ocultaba
+    // con `hidden` — invisible, pero vivo: al recibir foco (Radix Tooltip
+    // abre con `onFocus`) montaba un DismissableLayer que pasaba a ser la
+    // capa más alta de Radix. Como DismissableLayer solo atiende Escape en
+    // la capa más alta (`index === layers.size - 1`), el drawer móvil —que
+    // es un Dialog por debajo— dejaba de cerrarse con Escape en cuanto el
+    // foco tocaba cualquier ítem del menú (la captura del re-QA lo muestra
+    // en "Cerrar sesión"). No renderizar el contenido cuando estaría oculto
+    // elimina esa capa fantasma sin cambiar nada visible: el TooltipTrigger
+    // sigue envolviendo al botón siempre, así que colapsar/expandir no
+    // remonta el botón.
+    const tooltipHidden = isMobile || state !== 'collapsed'
+
     return (
       <Tooltip>
         <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="center"
-          hidden={state !== 'collapsed' || isMobile}
-          {...tooltip}
-        />
+        {!tooltipHidden && (
+          <TooltipContent side="right" align="center" {...tooltip} />
+        )}
       </Tooltip>
     )
   },

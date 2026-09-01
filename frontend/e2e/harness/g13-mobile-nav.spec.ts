@@ -53,4 +53,23 @@ test.describe('G13 — móvil 390x844', () => {
     await page.keyboard.press('Escape')
     await expect(drawer).toBeHidden()
   })
+
+  // Residuo del re-QA (2026-09-01): en la app real Escape NO cerraba el
+  // drawer y este arnés decía que sí. La diferencia era el foco: los ítems de
+  // AppSidebar llevan `tooltip`, y el Tooltip de Radix abre con `onFocus`
+  // montando un DismissableLayer POR ENCIMA del Sheet — y DismissableLayer
+  // solo atiende Escape en la capa más alta. Con el foco puesto dentro del
+  // drawer (como en la captura h19-escape-intento2.png) el caso se reproduce.
+  test('cierra con Escape también con el foco puesto en un ítem del menú', async ({ page }) => {
+    await page.goto(HARNESS)
+    await page.getByTestId('trigger-menu').tap()
+    const drawer = page.locator('[data-sidebar="sidebar"][data-mobile="true"]')
+    await expect(drawer).toBeVisible()
+
+    await drawer.getByRole('button', { name: 'Gastos' }).focus()
+    await expect(drawer.getByRole('button', { name: 'Gastos' })).toBeFocused()
+
+    await page.keyboard.press('Escape')
+    await expect(drawer).toBeHidden()
+  })
 })

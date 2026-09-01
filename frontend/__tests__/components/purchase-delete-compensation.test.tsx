@@ -18,7 +18,7 @@ import type { PaginationMeta } from "@/lib/pagination-utils"
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMethodSelect: () => null }))
 
-const meta: PaginationMeta = { page: 0, pageSize: 20, total: 1, pages: 1, hasNext: false, hasPrev: false }
+const meta: PaginationMeta = { page: 0, pageSize: 25, totalCount: 1, pageCount: 1, from: 1, to: 1 }
 
 function makePurchase(overrides: Partial<Purchase> = {}): Purchase {
   return {

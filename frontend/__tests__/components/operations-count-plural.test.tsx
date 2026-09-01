@@ -20,7 +20,7 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({ PaymentMeth
 vi.mock("@/components/ventas/sale-receipt-button", () => ({ SaleReceiptButton: () => null }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 
-const meta: PaginationMeta = { page: 0, pageSize: 25, total: 21, pages: 1, hasNext: false, hasPrev: false }
+const meta: PaginationMeta = { page: 0, pageSize: 25, totalCount: 21, pageCount: 1, from: 1, to: 21 }
 
 function makeSales(n: number): Sale[] {
   return Array.from({ length: n }, (_, i) => ({

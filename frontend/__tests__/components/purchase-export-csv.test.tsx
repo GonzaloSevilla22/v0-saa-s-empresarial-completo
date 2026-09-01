@@ -21,7 +21,7 @@ vi.mock("@/lib/excel", () => ({ exportToCSV: exportToCSVMock }))
 
 import { PurchaseOperationsList } from "@/components/compras/purchase-operations-list"
 
-const meta: PaginationMeta = { page: 0, pageSize: 20, total: 2, pages: 1, hasNext: false, hasPrev: false }
+const meta: PaginationMeta = { page: 0, pageSize: 25, totalCount: 2, pageCount: 1, from: 1, to: 2 }
 
 const PURCHASES: Purchase[] = [
   {

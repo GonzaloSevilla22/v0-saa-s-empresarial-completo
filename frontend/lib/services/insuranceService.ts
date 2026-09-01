@@ -87,9 +87,16 @@ export function isAdvisorEntry(entry: Pick<Insurance, "entry_type">): boolean {
   return entry.entry_type === "advisor"
 }
 
+/**
+ * fix/admin-seguros-timeseries: shape consumido DIRECTO por
+ * `TimeSeriesLinesChart` (`period` ISO real, primero del mes UTC;
+ * `activations` = altas de seguros ese mes) — sin adapter en el JSX.
+ * Seguros no tiene un segundo dato análogo a `umv_achieved`, por eso no
+ * se declara acá: el componente lo trata como serie opcional.
+ */
 export interface TimeSeriesPoint {
-  name: string
-  value: number
+  period: string
+  activations: number
 }
 
 export interface AdminStats {
@@ -287,15 +294,32 @@ export const insuranceService = {
     }
   },
 
+  /**
+   * fix/admin-seguros-timeseries: agrega por AÑO+mes (UTC) — antes agregaba
+   * solo por nombre de mes en español ("Mar"), así que marzo 2026 y marzo
+   * 2027 se mezclaban en el mismo bucket. El `period` que emite cada punto
+   * es una fecha ISO real (primero del mes, UTC) — `TimeSeriesLinesChart`
+   * hace `new Date(d.period)` para su escala temporal D3, y `"Mar"` daba
+   * `Invalid Date` (eje/extent rotos). UTC explícito (no el mes local del
+   * browser) para que la agregación sea determinística en tests y CI sin
+   * importar el timezone de la máquina.
+   */
   processTimeSeries(data: Pick<Insurance, "created_at">[]): TimeSeriesPoint[] {
-    const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-    const series = data.reduce<Record<string, number>>((acc, curr) => {
+    const buckets = data.reduce<Record<string, number>>((acc, curr) => {
       const date = new Date(curr.created_at)
-      const month = months[date.getMonth()]!
-      acc[month] = (acc[month] || 0) + 1
+      const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`
+      acc[key] = (acc[key] || 0) + 1
       return acc
     }, {})
 
-    return Object.entries(series).map(([name, value]) => ({ name, value }))
+    return Object.entries(buckets)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, activations]) => {
+        const [year, month] = key.split("-").map(Number)
+        return {
+          period: new Date(Date.UTC(year!, month! - 1, 1)).toISOString(),
+          activations,
+        }
+      })
   }
 }

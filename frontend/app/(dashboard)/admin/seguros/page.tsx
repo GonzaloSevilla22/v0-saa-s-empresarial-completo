@@ -299,21 +299,16 @@ export default function AdminSegurosPage() {
         </div>
         <div className="aspect-[21/9] w-full flex items-center justify-center p-4">
           {stats?.timeSeries && stats.timeSeries.length > 0 ? (
-            // Pre-existente (no lo introduce este change): TimeSeriesLinesChart
-            // espera { period: string parseable como Date; activations;
-            // umv_achieved }, pero processTimeSeries produce { name: "Ene".."Dic";
-            // value } — antes quedaba invisible porque `stats` era `any`. El
-            // adapter de abajo sólo hace compilar el tipo correcto que agregamos
-            // acá (task 7.7); no corrige el desajuste real del chart (fuera de
-            // alcance de seguros-perfil-asesor).
+            // fix/admin-seguros-timeseries: processTimeSeries ya emite el
+            // shape que el chart consume directo ({ period ISO; activations
+            // }) — sin adapter. Seguros no tiene una segunda serie análoga a
+            // umv_achieved, así que no se inventa un filler: el componente
+            // trata esa serie como opcional y no la dibuja cuando falta.
             <TimeSeriesLinesChart
-              data={stats.timeSeries.map((point) => ({
-                period: point.name,
-                activations: point.value,
-                umv_achieved: 0,
-              }))}
+              data={stats.timeSeries}
               width={1000}
               height={350}
+              activationsLabel="Altas"
             />
           ) : (
             <span className="text-slate-500">Datos insuficientes para el gráfico (Se requieren datos históricos)</span>

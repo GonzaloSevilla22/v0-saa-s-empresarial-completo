@@ -95,4 +95,13 @@
 - [ ] 10.4 **[checkpoint post-merge]** Verificar en prod: `MAX(version) = 20261017000001`, las columnas y CHECKs vivos, las ACLs de la función nueva (`anon` sin `EXECUTE`), y la fila del partner presente con `is_visible = false`.
 - [ ] 10.5 **[requiere PO]** Presentar el perfil al PO para revisión del contenido y firma de las 6 OQs — en particular OQ-3 (matrícula y leyenda regulatoria) y OQ-4 (texto del deslinde), que son las que tienen consecuencia hacia afuera.
 - [ ] 10.6 **[requiere PO]** Publicar: completar desde el panel los campos que dependían de las OQs y activar la visibilidad con el toggle existente. La publicación es acción explícita del PO, nunca un efecto del deploy.
-- [ ] 10.7 Guardar en engram el resultado del apply con `topic_key: "opsx/seguros-perfil-asesor/apply"`, incluyendo los hallazgos y qué quedó pendiente del PO.
+- [x] 10.7 Guardar en engram el resultado del apply con `topic_key: "opsx/seguros-perfil-asesor/apply"`, incluyendo los hallazgos y qué quedó pendiente del PO. Guardado (id 773); 3 candidatos de conflicto de baja relevancia (score ~0.000005, temas no relacionados) resueltos como `not_conflict`.
+
+## Estado final del apply (2026-09-01)
+
+**9/10 grupos completos** (1-9). Grupo 10 completo salvo los tres ítems que requieren acción externa:
+- [ ] 10.4 checkpoint post-merge en prod — pendiente de que el PR se mergee.
+- [ ] 10.5 presentar el perfil al PO y firmar las OQs — requiere PO.
+- [ ] 10.6 publicar (activar `is_visible`) — requiere PO.
+
+**PR #480** (`opsx/seguros-perfil-asesor-apply` → `main`), 10 commits, sin mergear, CI sin esperar (instrucción del orquestador). Suite completa 213/215 archivos · 1700/1702 tests (0 regresiones propias). `pnpm tsc --noEmit` sin errores nuevos.

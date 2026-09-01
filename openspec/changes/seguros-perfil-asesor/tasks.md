@@ -30,13 +30,13 @@
 
 ## 4. Tracking por vía de contacto
 
-- [ ] 4.1 Escribir en la migración la función `public.increment_seguros_contact_click(row_id uuid, channel text)`: `SECURITY DEFINER`, `SET search_path = ''`, referencia calificada `community.seguros`, un único UPDATE atómico que incrementa `clicks_count` y la clave de la vía dentro de `contact_clicks`, con el conjunto de vías validado dentro de la función.
-- [ ] 4.2 Agregar `REVOKE EXECUTE ON FUNCTION ... FROM PUBLIC, anon;` y `GRANT EXECUTE ... TO authenticated;` inmediatamente después del `CREATE`. Revocar sólo de `PUBLIC` no alcanza: un `CREATE` fresco le regala `EXECUTE` a `anon` por privilegios por defecto, y el gate de ACLs corta el CI.
-- [ ] 4.3 **RED** — Tests del método nuevo del servicio: llama al RPC con `row_id` y `channel` correctos, y ante error **loguea sin re-lanzar** (mismo contrato fire-and-forget que el contador existente).
-- [ ] 4.4 **GREEN** — Implementar el método en `insuranceService.ts`, junto al `incrementClicks` existente y sin modificarlo.
-- [ ] 4.5 **TRIANGULATE** — Casos con vía desconocida, con error de red (rechazo de la promesa) y con error del RPC; verificar que en ningún caso se cae en una escritura directa a la tabla.
-- [ ] 4.6 **[safety net]** Re-correr `seguros-click-tracking.test.tsx` **sin editarlo**: los 7 casos deben seguir verdes. Si alguno se pone rojo, el contrato legacy se rompió — revertir y rediseñar, no ajustar el test.
-- [ ] 4.7 Verificar en base local que `has_function_privilege` da falso para `anon` y verdadero para `authenticated` sobre la función nueva.
+- [x] 4.1 Escribir en la migración la función `public.increment_seguros_contact_click(row_id uuid, channel text)`: `SECURITY DEFINER`, `SET search_path = ''`, referencia calificada `community.seguros`, un único UPDATE atómico que incrementa `clicks_count` y la clave de la vía dentro de `contact_clicks`, con el conjunto de vías validado dentro de la función. (Ya estaba en la migración del corte anterior, grupo 2.)
+- [x] 4.2 Agregar `REVOKE EXECUTE ON FUNCTION ... FROM PUBLIC, anon;` y `GRANT EXECUTE ... TO authenticated;` inmediatamente después del `CREATE`. Revocar sólo de `PUBLIC` no alcanza: un `CREATE` fresco le regala `EXECUTE` a `anon` por privilegios por defecto, y el gate de ACLs corta el CI. (Ídem, ya en la migración.)
+- [x] 4.3 **RED** — Tests del método nuevo del servicio en `frontend/__tests__/seguros-contact-tracking.test.tsx`: llama al RPC con `row_id` y `channel` correctos, y ante error **loguea sin re-lanzar** (mismo contrato fire-and-forget que el contador existente). **5/5 rojos confirmados** (`incrementContactClick is not a function`).
+- [x] 4.4 **GREEN** — Implementar el método en `insuranceService.ts`, junto al `incrementClicks` existente y sin modificarlo. **5/5 verdes.**
+- [x] 4.5 **TRIANGULATE** — Casos con vía desconocida, con error de red (rechazo de la promesa) y con error del RPC; verificar que en ningún caso se cae en una escritura directa a la tabla. Cubierto (vía desconocida se delega a la validación server-side de la función; `schemaMock` nunca se llama en ningún camino de error).
+- [x] 4.6 **[safety net]** Re-correr `seguros-click-tracking.test.tsx` **sin editarlo**: los 7 casos deben seguir verdes. Si alguno se pone rojo, el contrato legacy se rompió — revertir y rediseñar, no ajustar el test. **7/7 verdes**, corridos junto con los 13+5 nuevos (25/25 en total).
+- [x] 4.7 Verificar en base local que `has_function_privilege` da falso para `anon` y verdadero para `authenticated` sobre la función nueva. **Ya verificado en el checkpoint 2.7** (`anon_can=f`, `authenticated_can=t`).
 
 ## 5. Ruta de perfil `/seguros/[slug]`
 

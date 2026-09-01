@@ -220,6 +220,29 @@ export const insuranceService = {
   },
 
   /**
+   * Increment the per-channel contact click breakdown for an advisor
+   * (design.md D6). Mismo contrato fire-and-forget que `incrementClicks`
+   * (decisión PO 2026-08-01): ante cualquier error, loguea y no re-lanza,
+   * y nunca cae en un fallback de escritura directa a la tabla — la
+   * función nueva (`increment_seguros_contact_click`, migración
+   * 20261017000001) valida el conjunto cerrado de vías del lado servidor,
+   * así que una vía desconocida no lanza acá tampoco.
+   * `incrementClicks` (arriba) NO se toca ni se renombra: es la red de
+   * seguridad de este change.
+   */
+  async incrementContactClick(id: string, channel: ContactChannel) {
+    try {
+      const { error } = await supabase.rpc("increment_seguros_contact_click", {
+        row_id: id,
+        channel,
+      })
+      if (error) throw error
+    } catch (error) {
+      console.error("Error incrementando clicks por vía de contacto:", error)
+    }
+  },
+
+  /**
    * Fetch admin dashboard metrics for seguros
    */
   async getAdminStats() {

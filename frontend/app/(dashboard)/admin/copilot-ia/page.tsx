@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { copilotPromptsService, CopilotPrompt } from "@/lib/services/copilotPromptsService"
+import { copilotPromptsService, CopilotPrompt, AdminStats } from "@/lib/services/copilotPromptsService"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -38,7 +38,7 @@ import TimeSeriesLinesChart from "@/components/admin/charts/TimeSeriesLinesChart
 export default function AdminCopilotIaPage() {
   const [prompts, setPrompts] = useState<CopilotPrompt[]>([])
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState<any>(null)
+  const [stats, setStats] = useState<AdminStats | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedPrompt, setSelectedPrompt] = useState<Partial<CopilotPrompt> | null>(null)
   
@@ -184,7 +184,7 @@ export default function AdminCopilotIaPage() {
         </div>
         <div className="aspect-[21/9] w-full flex items-center justify-center p-4">
           {stats?.timeSeries && stats.timeSeries.length > 0 ? (
-            <TimeSeriesLinesChart data={stats.timeSeries} width={1000} height={350} />
+            <TimeSeriesLinesChart data={stats.timeSeries} width={1000} height={350} activationsLabel="Prompts" />
           ) : (
             <span className="text-slate-500 italic">Datos de uso en proceso de carga...</span>
           )}

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { fairAiToolsService, FairAiTool } from "@/lib/services/fairAiToolsService"
+import { fairAiToolsService, FairAiTool, AdminStats } from "@/lib/services/fairAiToolsService"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -48,7 +48,7 @@ import TimeSeriesLinesChart from "@/components/admin/charts/TimeSeriesLinesChart
 export default function AdminFeriaIaPage() {
   const [tools, setTools] = useState<FairAiTool[]>([])
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState<any>(null)
+  const [stats, setStats] = useState<AdminStats | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedTool, setSelectedTool] = useState<Partial<FairAiTool> | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FairAiTool | null>(null)
@@ -200,7 +200,7 @@ export default function AdminFeriaIaPage() {
         </div>
         <div className="aspect-[21/9] w-full flex items-center justify-center p-4">
           {stats?.timeSeries && stats.timeSeries.length > 0 ? (
-            <TimeSeriesLinesChart data={stats.timeSeries} width={1000} height={350} />
+            <TimeSeriesLinesChart data={stats.timeSeries} width={1000} height={350} activationsLabel="Herramientas" />
           ) : (
             <span className="text-slate-500 italic">Esperando recolección de datos...</span>
           )}

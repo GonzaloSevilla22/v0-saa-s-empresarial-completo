@@ -10,6 +10,7 @@ import { useState } from "react"
 import type { LandingSection } from "@/lib/landing"
 import { getAvailableTutorials } from "@/lib/tutorials"
 import { TutorialsSection } from "@/components/landing/TutorialsSection"
+import { PartnersSection } from "@/components/landing/PartnersSection"
 import { HeroSceneMount } from "@/components/three/HeroSceneMount"
 import { EnterprisePlanCard } from "@/components/shared/EnterprisePlanCard"
 
@@ -607,7 +608,7 @@ function Footer({ contactWhatsAppUrl }: { contactWhatsAppUrl?: string }) {
 // ─────────────────────────────────────────────
 // MAIN EXPORT — receives DB sections from server component
 // Admin-editable: hero, features, testimonials, cta
-// Hardcoded: Navbar, Stats, HowItWorks, AI, Pricing, Support, Footer
+// Hardcoded: Navbar, Stats, Tutorials, HowItWorks, AI, Pricing, Partners, Support, Footer
 // ─────────────────────────────────────────────
 export function LandingPageFull({
   sections = [],
@@ -636,6 +637,7 @@ export function LandingPageFull({
       <AISection />
       <Pricing enterpriseWhatsAppUrl={enterpriseWhatsAppUrl} />
       <Testimonials section={testimonialsSection} />
+      <PartnersSection />
       <Support />
       <FinalCTA section={ctaSection} />
       <Footer contactWhatsAppUrl={contactWhatsAppUrl} />

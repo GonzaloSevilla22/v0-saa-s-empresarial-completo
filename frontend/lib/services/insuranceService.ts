@@ -87,6 +87,21 @@ export function isAdvisorEntry(entry: Pick<Insurance, "entry_type">): boolean {
   return entry.entry_type === "advisor"
 }
 
+export interface TimeSeriesPoint {
+  name: string
+  value: number
+}
+
+export interface AdminStats {
+  total: number
+  visible: number
+  hidden: number
+  totalClicks: number
+  timeSeries: TimeSeriesPoint[]
+  /** Desglose de clicks por vía de contacto, sumado sobre todas las filas. */
+  channelClicks: Record<ContactChannel, number>
+}
+
 const supabase = createClient()
 
 export const insuranceService = {
@@ -243,31 +258,44 @@ export const insuranceService = {
   },
 
   /**
-   * Fetch admin dashboard metrics for seguros
+   * Fetch admin dashboard metrics for seguros. Incluye `channelClicks`
+   * (task 7.5, seguros-perfil-asesor): el desglose de clicks por vía de
+   * contacto, sumado sobre todas las filas — junto al `totalClicks`
+   * agregado que ya existía.
    */
-  async getAdminStats() {
-    const { data: all } = await supabase.schema("community").from("seguros").select("is_visible, clicks_count, created_at")
-    
-    const stats = {
-      total: all?.length || 0,
-      visible: all?.filter(i => i.is_visible).length || 0,
-      hidden: all?.filter(i => !i.is_visible).length || 0,
-      totalClicks: all?.reduce((acc, curr) => acc + (curr.clicks_count || 0), 0) || 0,
-      timeSeries: this.processTimeSeries(all || [])
+  async getAdminStats(): Promise<AdminStats> {
+    const { data: all } = await supabase
+      .schema("community").from("seguros")
+      .select("is_visible, clicks_count, created_at, contact_clicks")
+
+    const rows = all ?? []
+    const channelClicks = CONTACT_CHANNELS.reduce((acc, channel) => {
+      acc[channel] = rows.reduce((sum, row) => {
+        const value = (row.contact_clicks as Record<string, number> | null)?.[channel]
+        return sum + (typeof value === "number" ? value : 0)
+      }, 0)
+      return acc
+    }, {} as Record<ContactChannel, number>)
+
+    return {
+      total: rows.length,
+      visible: rows.filter((i) => i.is_visible).length,
+      hidden: rows.filter((i) => !i.is_visible).length,
+      totalClicks: rows.reduce((acc, curr) => acc + (curr.clicks_count || 0), 0),
+      timeSeries: this.processTimeSeries(rows),
+      channelClicks,
     }
-    
-    return stats
   },
 
-  processTimeSeries(data: any[]) {
+  processTimeSeries(data: Pick<Insurance, "created_at">[]): TimeSeriesPoint[] {
     const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
-    const series = data.reduce((acc: any, curr: any) => {
+    const series = data.reduce<Record<string, number>>((acc, curr) => {
       const date = new Date(curr.created_at)
-      const month = months[date.getMonth()]
+      const month = months[date.getMonth()]!
       acc[month] = (acc[month] || 0) + 1
       return acc
     }, {})
 
-    return Object.entries(series).map(([name, total]) => ({ name, value: total }))
+    return Object.entries(series).map(([name, value]) => ({ name, value }))
   }
 }

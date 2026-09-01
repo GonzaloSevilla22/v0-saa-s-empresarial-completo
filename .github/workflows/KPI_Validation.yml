@@ -430,20 +430,24 @@ jobs:
           # de definiciones): IDÉNTICA tras 0, 1 y 2 reaplicaciones.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261015000001_gastos_forma_pago.sql
           # qa-integral-modulos: ÚLTIMO eslabón de la cadena — reescribe
-          # rpc_branch_report (fix 42702, H4) y rpc_product_profitability
-          # (fix 42804) desde el baseline VIVO de prod + backfill idempotente
-          # del motivo de los movimientos de gasto (OQ-3). Ninguna migración
-          # anterior de esta cadena toca esas dos funciones (su último archivo
-          # previo, 20260814000001, no se reaplica acá), así que no hay
-          # phantom regression que reconverger — pero DEBE quedar al final:
-          # si un cambio futuro entra a la cadena redefiniéndolas (o cuando
-          # 20261016000001 sume la reescritura de rpc_create_expense, que SÍ
-          # vive en 20261015000001, reaplicada justo arriba), el último apply
-          # vuelve a dejar los cuerpos corregidos. Re-appliable por
-          # construcción (CREATE OR REPLACE + UPDATEs acotados por
-          # description IS NULL) — verificado en local con fingerprint md5
-          # (2 cuerpos + proacl + conteos de movimientos): idéntico tras 1 y 2
-          # reaplicaciones. Trae su propio gate ANTI-OVERLOAD (sección 4).
+          # CUATRO funciones desde el baseline VIVO de prod:
+          # rpc_branch_report (fix 42702, H4), rpc_product_profitability
+          # (fix 42804), rpc_create_expense (§5) y rpc_delete_expense (§6),
+          # las dos últimas para que el motivo del gasto llegue a los libros
+          # (H11 / G16), + backfill idempotente de los movimientos ya
+          # creados (OQ-3, §3).
+          # DEBE quedar al final: rpc_create_expense y rpc_delete_expense
+          # también viven en 20261015000001 (reaplicada justo arriba), así
+          # que sin este orden el reapply dejaría los cuerpos VIEJOS y el
+          # gate de test_qa_integral_fixes.sql §(3) se pondría rojo por
+          # phantom regression. rpc_branch_report y rpc_product_profitability
+          # no las toca ninguna otra migración de la cadena (su último
+          # archivo previo, 20260814000001, no se reaplica acá).
+          # Re-appliable por construcción (CREATE OR REPLACE + UPDATEs
+          # acotados por description IS NULL) — verificado en local con
+          # fingerprint md5 (4 cuerpos + proacl + conteos de movimientos):
+          # idéntico tras 1 y 2 reaplicaciones. Trae su propio gate
+          # ANTI-OVERLOAD (sección 7 — la numeración del archivo salta la 4).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261016000001_qa_integral_fixes.sql
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION

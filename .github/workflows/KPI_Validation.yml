@@ -50,6 +50,31 @@ jobs:
           set -e
           DSN=postgresql://postgres:postgres@127.0.0.1:54322/postgres
           FINGERPRINT="SELECT (SELECT count(*) FROM public.analytics_events WHERE event_name='operation_created') || '|' || (SELECT count(*) FROM public.sale_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.purchase_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.account_feature_flags WHERE flag_key='sale_items_rpc_v2')"
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2): este paso
+          # reaplica migraciones VIEJAS fuera de su orden cronológico real para
+          # probar idempotencia — eso es un ejercicio, no debe dejar rastro. El
+          # FINGERPRINT de arriba sólo cubre 4 contadores de DATOS; los gates
+          # ANTI-OVERLOAD tolerados más abajo sólo cubren FUNCIONES puntuales
+          # que ya sabíamos que rompían. Pero cualquier objeto de schema no
+          # cubierto por ninguno de los dos (constraints, ACLs, lo que sea) que
+          # una migración VIEJA de esta cadena también toque puede revertir en
+          # silencio sin que nada de lo anterior lo note — el primer síntoma
+          # sería un gate de OTRO paso, más adelante en el job (pasó de verdad:
+          # el CHECK de cash_movements.movement_type volvía a 7/8 tipos en vez
+          # de los 13 vigentes, y lo agarró test_cash_movement_types.sql, no
+          # este paso). schema_snapshot() es la red generalizada: constraints
+          # (pg_get_constraintdef) + TODAS las firmas de función de
+          # public/community (pg_get_function_arguments — cualquier overload
+          # fantasma que se nos escape aparece acá también, no sólo los 3 ya
+          # conocidos) + ACLs de función (proacl). Se captura ANTES de tocar
+          # nada — es la definición de "estado correcto" contra la que se
+          # compara al final.
+          schema_snapshot() {
+            psql -tA "$DSN" -c "SELECT n.nspname || '.' || c.relname || '.' || con.conname || ' :: ' || pg_get_constraintdef(con.oid) FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
+            psql -tA "$DSN" -c "SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_arguments(p.oid) || ') RETURNS ' || pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
+            psql -tA "$DSN" -c "SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') :: ' || COALESCE(array_to_string(p.proacl, ','), '<default>') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
+          }
+          schema_snapshot > /tmp/schema_before_reapply.txt
           BEFORE=$(psql -tA "$DSN" -c "$FINGERPRINT")
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260924000001_activate_sale_items_rpc_v2.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260925000001_cleanup_analytics_and_line_account_id.sql
@@ -557,6 +582,55 @@ jobs:
           # idéntico tras 1 y 2 reaplicaciones. Trae su propio gate
           # ANTI-OVERLOAD (sección 7 — la numeración del archivo salta la 4).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261016000001_qa_integral_fixes.sql
+
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
+          # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
+          # reaplica migraciones VIEJAS fuera de orden para probar
+          # idempotencia; eso deja overloads fantasma (3 ya tolerados y
+          # limpiados quirúrgicamente arriba) y — recién descubierto — objetos
+          # NO-función revertidos: 20261019000001 (cobranzas-reverso, fuera de
+          # esta cadena) dejó cash_movements_movement_type_check en 13 tipos,
+          # y el reapply de 20261006000001/20261015000001 más arriba en esta
+          # misma cadena lo re-angosta a 7/8 con SU PROPIO DROP CONSTRAINT +
+          # ADD CONSTRAINT — sin ningún gate ANTI-OVERLOAD que lo note (un
+          # CHECK no tiene overloads). Reconstruir a mano la definición
+          # "verdadera" de cada objeto revertido es frágil por partida doble:
+          # (a) hay que enumerarlos TODOS (constraints hoy, ¿índices, políticas
+          # RLS, comments, mañana?), y (b) incluso sabiendo CUÁL objeto,
+          # copiar la definición de la migración que "parece" la más nueva es
+          # una trampa — se verificó acá mismo que 20261018000001 YA NO es la
+          # fuente de verdad de este CHECK: 20261019000001 lo vuelve a tocar
+          # después. Whack-a-mole real, no hipotético.
+          #
+          # En vez de perseguir objeto por objeto, se reconstruye la DB entera:
+          # `supabase db reset` reaplica TODA la migration history real, en su
+          # orden cronológico verdadero — exactamente el mismo mecanismo que ya
+          # usó `supabase start` al principio del job para llegar al estado
+          # correcto. Es agnóstico de QUÉ objeto haya revertido (no hace falta
+          # enumerarlos de antemano) y no puede quedar "un paso atrás" como una
+          # reconvergencia a mano, porque no es incremental. Cuesta ~60-90s
+          # extra — verificado en local (Postgres 17.6 en Docker) — pero es la
+          # única forma de no volver a escribir este bloque cada vez que una
+          # migración nueva le cambie la definición a algo que una migración
+          # VIEJA de esta cadena también toca (y van dos capas: funciones acá
+          # arriba, constraints acá abajo).
+          #
+          # La aserción real es la que sigue, no la reconstrucción en sí: el
+          # schema (constraints + firmas de función + ACLs, capturado por
+          # schema_snapshot()) tiene que quedar IDÉNTICO al de antes de
+          # arrancar este paso. No es una promesa, es una aserción — si
+          # `supabase db reset` alguna vez no alcanzara para reconverger algo
+          # (por lo que sea), este diff lo va a mostrar en vez de dejarlo pasar
+          # en verde.
+          echo "Reconvergiendo: supabase db reset (reconstruye la DB desde cero con la migration history real, mismo mecanismo que 'supabase start')..."
+          supabase db reset
+          schema_snapshot > /tmp/schema_after_reconverge.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_reconverge.txt > /tmp/schema_diff.txt; then
+            echo "NOT IDEMPOTENT: el schema (constraints + firmas de función + ACLs) quedó distinto del estado previo a este paso, incluso después de la reconvergencia:"
+            cat /tmp/schema_diff.txt
+            exit 1
+          fi
+          echo "Reconvergencia OK: constraints + firmas de función + ACLs quedaron IDÉNTICOS al estado previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

@@ -54,11 +54,20 @@ export interface DeleteCompensationInfo {
 const FISCAL_BLOCKED_REASON =
   "No se puede borrar: la operación tiene un comprobante fiscal emitido. El camino correcto es emitir una Nota de Crédito."
 
-/** Documento sobre el que se deriva — sólo cambia la redacción, no la lógica. */
-export type DeletableDocument = "operacion" | "gasto"
+/** Documento sobre el que se deriva — sólo cambia la redacción, no la lógica.
+ * caja-compras-cobranzas (task 12.2): suma "compra" — la compra ahora
+ * también puede tener movimiento de caja posteado (D7). */
+export type DeletableDocument = "operacion" | "gasto" | "compra"
 
-const NO_OPEN_SESSION_BLOCKED_REASON =
-  "No se puede borrar: el gasto descontó de una caja que ya está cerrada. Abrí la caja para poder borrarlo."
+/** caja-compras-cobranzas (task 12.2): la redacción original era literal
+ * para "el gasto" — sirve también a "la compra" desde D7. Frase completa por
+ * documento (no una plantilla con género interpolado) para no arriesgar una
+ * concordancia rota. */
+const NO_OPEN_SESSION_BLOCKED_REASON: Record<DeletableDocument, string> = {
+  operacion: "No se puede borrar: la operación descontó de una caja que ya está cerrada. Abrí la caja para poder borrarla.",
+  gasto: "No se puede borrar: el gasto descontó de una caja que ya está cerrada. Abrí la caja para poder borrarlo.",
+  compra: "No se puede borrar: la compra descontó de una caja que ya está cerrada. Abrí la caja para poder borrarla.",
+}
 
 export function getDeleteCompensation(
   flags: DeletableOperationFlags,
@@ -69,7 +78,7 @@ export function getDeleteCompensation(
     return { deletable: false, blockedReason: FISCAL_BLOCKED_REASON, compensations: [] }
   }
   if (flags.isDeleteBlocked) {
-    return { deletable: false, blockedReason: NO_OPEN_SESSION_BLOCKED_REASON, compensations: [] }
+    return { deletable: false, blockedReason: NO_OPEN_SESSION_BLOCKED_REASON[document], compensations: [] }
   }
 
   const compensations: string[] = []
@@ -82,10 +91,12 @@ export function getDeleteCompensation(
   }
   if (flags.hasCashMovement) {
     // El signo es opuesto según el documento: borrar una venta SACA plata de
-    // la caja; borrar un gasto la REPONE (expense es negativo, su reversa
-    // positiva). Decir "salida" en un gasto sería mentir sobre el arqueo.
+    // la caja; borrar un gasto o una compra la REPONE (expense/purchase_
+    // payment son negativos, sus reversas positivas). Decir "salida" en un
+    // gasto o una compra sería mentir sobre el arqueo (caja-compras-
+    // cobranzas, task 12.2: compra se suma a la misma rama que gasto).
     compensations.push(
-      document === "gasto"
+      document === "gasto" || document === "compra"
         ? "Se registrará el ingreso correspondiente en la caja abierta actual."
         : "Se registrará la salida correspondiente en la caja abierta actual.",
     )

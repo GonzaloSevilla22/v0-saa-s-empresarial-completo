@@ -41,6 +41,9 @@ interface ClientActivityApiRow {
   last_purchase_date: string | null
   days_since_last_purchase: number | string | null
   activity_status: ClientActivityStatus
+  // cobranzas-panel (D9): saldo materializado de la cuenta corriente —
+  // Decimal de Pydantic viaja como string; ausente en backends viejos.
+  current_balance?: number | string
 }
 
 interface ClientActivityPageResponse {
@@ -64,6 +67,8 @@ export interface ClientActivity {
   lastPurchaseDate: string | null
   daysSinceLastPurchase: number | null
   activityStatus: ClientActivityStatus
+  /** cobranzas-panel (D9): saldo de cuenta corriente — 0 = al día o sin cuenta. */
+  currentBalance: number
 }
 
 interface ClientPurchaseApiRow {
@@ -128,6 +133,8 @@ function mapClientActivity(r: ClientActivityApiRow): ClientActivity {
     lastPurchaseDate:       r.last_purchase_date,
     daysSinceLastPurchase:  toNullableNumber(r.days_since_last_purchase),
     activityStatus:         r.activity_status,
+    // Una respuesta sin la columna (backend viejo) degrada a 0, no a NaN.
+    currentBalance:         toNumber(r.current_balance),
   }
 }
 

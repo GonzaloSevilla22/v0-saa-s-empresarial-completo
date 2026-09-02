@@ -161,9 +161,16 @@ class ClientRepository(BaseRepository):
                     COALESCE(agg.total_spent, 0)::numeric AS total_spent,
                     agg.last_op_day AS last_purchase_date,
                     CASE WHEN agg.last_op_day IS NULL THEN NULL
-                         ELSE ($1::date - agg.last_op_day) END AS days_since_last_purchase
+                         ELSE ($1::date - agg.last_op_day) END AS days_since_last_purchase,
+                    COALESCE(ca.balance, 0)::numeric AS current_balance
                 FROM clients c
                 {self._activity_lateral_sql()}
+                -- cobranzas-panel (D9): saldo de cuenta corriente en la MISMA
+                -- consulta — LEFT JOIN 1:0..1 sobre el UNIQUE (account_id,
+                -- client_id): no multiplica filas ni cambia el COUNT de la
+                -- paginación; el cliente sin cuenta expone 0, no NULL.
+                LEFT JOIN public.customer_accounts ca
+                  ON ca.account_id = c.account_id AND ca.client_id = c.id
                 WHERE {where_clients_sql}
             ),
             classified_activity AS (

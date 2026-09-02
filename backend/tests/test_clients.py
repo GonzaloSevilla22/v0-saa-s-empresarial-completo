@@ -504,3 +504,41 @@ async def test_update_client_fiscal_fields_only(async_client, mock_pool):
     assert "UPDATE clients" in update_sql
     assert "tax_id" in update_sql
     assert "20-12345678-6" in conn.fetchrow.await_args.args
+
+
+# ── cobranzas-panel (task 6.1 RED / 6.3 GREEN) — current_balance ─────────────
+
+
+async def test_get_client_activity_includes_current_balance(async_client, valid_token, mock_pool):
+    """El read-model expone el saldo de cuenta corriente por cliente (D9)."""
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 1])
+    conn.fetch = AsyncMock(return_value=[{**ACTIVITY_ROW, "current_balance": "12000.00"}])
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?page=0&size=25",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    row = resp.json()["items"][0]
+    assert float(row["current_balance"]) == 12000.0
+
+
+async def test_get_client_activity_balance_defaults_to_zero_not_none(
+    async_client, valid_token, mock_pool
+):
+    """Cliente sin cuenta corriente → saldo 0, no null: "sin cuenta" y
+    "cuenta en cero" son lo mismo para quien lee la lista (spec
+    client-activity, escenario 'Cliente sin cuenta corriente')."""
+    pool, conn = mock_pool
+    conn.fetchval = AsyncMock(side_effect=["2026-08-14", 1])
+    conn.fetch = AsyncMock(return_value=[dict(ACTIVITY_ROW)])  # sin current_balance
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/clients/activity?page=0&size=25",
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+    assert resp.status_code == 200
+    row = resp.json()["items"][0]
+    assert row["current_balance"] is not None
+    assert float(row["current_balance"]) == 0.0

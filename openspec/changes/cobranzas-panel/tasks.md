@@ -33,7 +33,7 @@
 - [x] 3.6 GREEN — `backend/routers/customer_accounts.py`: `report_router = APIRouter(prefix="/reports/receivables")` con `GET ""` (paginado) y `GET "/summary"`; `sort`/`sort_dir` tipados como `Literal`. Registrar el router en `backend/main.py` junto a los otros `/reports/*`.
 - [x] 3.7 TRIANGULATE — Casos de router: página fuera de rango devuelve `items: []` con `total` correcto (no 404); `size` sobre el máximo devuelve 422 problem+json; `sort` fuera del `Literal` devuelve 422 sin ejecutar consulta; `P0401` del RPC se traduce a la respuesta RFC 7807 correspondiente.
 - [x] 3.8 TRIANGULATE — Caso del resumen: el `total_receivable` coincide con la suma de los saldos de todas las páginas del listado (el escenario "el total cierra contra la lista" de la spec).
-- [ ] 3.9 REFACTOR — Cobertura del módulo nuevo por encima del umbral de CI (≥87%); sin duplicar el predicado de deudor en ningún lado.
+- [x] 3.9 REFACTOR — Cobertura del módulo nuevo por encima del umbral de CI (≥87%); sin duplicar el predicado de deudor en ningún lado.
 
 ## 4. Frontend: capa canónica (mapper, tipos, claves, hooks)
 
@@ -58,13 +58,13 @@
 
 ## 6. Frontend + Backend: saldo y acceso en `/clientes` (tramo sensible)
 
-- [ ] 6.1 RED — Test del read-model: `list_activity_page` devuelve `current_balance` por cliente; el cliente sin cuenta corriente devuelve `0` y no `None`; **el `total` del envelope y la cantidad de filas por página no cambian** respecto del baseline de 1.5.
-- [ ] 6.2 GREEN — `backend/repositories/client_repository.py`: `LEFT JOIN public.customer_accounts ca ON ca.account_id = c.account_id AND ca.client_id = c.id` dentro de `_classified_activity_cte` (compartido por lista y detalle, D9), proyectando `COALESCE(ca.balance, 0)::numeric AS current_balance`.
-- [ ] 6.3 GREEN — `backend/schemas/clients.py`: `current_balance: Decimal = Decimal("0")` en `ClientActivityOut`.
-- [ ] 6.4 TRIANGULATE — Correr el SAFETY NET de 1.5 completo y exigir el mismo verde. Cualquier fallo nuevo bloquea el grupo.
-- [ ] 6.5 RED+GREEN — `frontend/hooks/data/use-client-activity.ts` y `frontend/lib/types.ts`: `currentBalance` en el tipo mapeado, con test del mapeo.
-- [ ] 6.6 RED+GREEN — `frontend/app/(dashboard)/clientes/page.tsx`: columna "Saldo" (desktop y móvil) + botón de acceso a la cuenta corriente por fila con ícono `Landmark`, `data-testid` y `aria-label`, copiando el patrón de `/proveedores`. El acceso NO debe disparar la activación de la fila que abre el detalle (`stopPropagation`).
-- [ ] 6.7 TRIANGULATE — Test de que activar el acceso a la cuenta navega a la cuenta corriente y **no** al detalle del cliente.
+- [x] 6.1 RED — Test del read-model: `list_activity_page` devuelve `current_balance` por cliente; el cliente sin cuenta corriente devuelve `0` y no `None`; **el `total` del envelope y la cantidad de filas por página no cambian** respecto del baseline de 1.5.
+- [x] 6.2 GREEN — `backend/repositories/client_repository.py`: `LEFT JOIN public.customer_accounts ca ON ca.account_id = c.account_id AND ca.client_id = c.id` dentro de `_classified_activity_cte` (compartido por lista y detalle, D9), proyectando `COALESCE(ca.balance, 0)::numeric AS current_balance`.
+- [x] 6.3 GREEN — `backend/schemas/clients.py`: `current_balance: Decimal = Decimal("0")` en `ClientActivityOut`.
+- [x] 6.4 TRIANGULATE — Correr el SAFETY NET de 1.5 completo y exigir el mismo verde. Cualquier fallo nuevo bloquea el grupo.
+- [x] 6.5 RED+GREEN — `frontend/hooks/data/use-client-activity.ts` y `frontend/lib/types.ts`: `currentBalance` en el tipo mapeado, con test del mapeo.
+- [x] 6.6 RED+GREEN — `frontend/app/(dashboard)/clientes/page.tsx`: columna "Saldo" (desktop y móvil) + botón de acceso a la cuenta corriente por fila con ícono `Landmark`, `data-testid` y `aria-label`, copiando el patrón de `/proveedores`. El acceso NO debe disparar la activación de la fila que abre el detalle (`stopPropagation`).
+- [x] 6.7 TRIANGULATE — Test de que activar el acceso a la cuenta navega a la cuenta corriente y **no** al detalle del cliente.
 
 ## 7. Verificación
 

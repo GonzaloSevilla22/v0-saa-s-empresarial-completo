@@ -418,3 +418,69 @@ class TestArgentinianCalendarDay:
         text = source.read_text(encoding="utf-8")
         assert "now() -" not in text
         assert "now()::date" not in text
+
+
+# ── cobranzas-panel (task 6.1 RED / 6.2 GREEN) — saldo de cuenta corriente ───
+
+
+class TestCurrentBalanceInActivity:
+    """D9: el saldo viaja en el CTE compartido `_classified_activity_cte`
+    (lista y detalle), en la MISMA consulta — nunca una consulta por fila."""
+
+    @pytest.mark.asyncio
+    async def test_list_projects_current_balance_via_left_join(self, client_repo):
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        # LEFT JOIN (no INNER): el cliente sin cuenta corriente sigue en la
+        # lista, y COALESCE lo expone como 0 — no como NULL.
+        assert "LEFT JOIN public.customer_accounts ca" in sql
+        assert "COALESCE(ca.balance, 0)::numeric AS current_balance" in sql
+
+    @pytest.mark.asyncio
+    async def test_balance_join_correlates_by_account_and_client(self, client_repo):
+        """El JOIN es 1:0..1 sobre el UNIQUE (account_id, client_id): ambos
+        predicados presentes — ni multiplica filas ni cruza tenants."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+
+        sql = conn.fetch.call_args.args[0]
+        assert "ca.account_id = c.account_id" in sql
+        assert "ca.client_id = c.id" in sql
+
+    @pytest.mark.asyncio
+    async def test_count_sql_unchanged_by_balance_join(self, client_repo):
+        """La cláusula del COUNT usa el mismo CTE — el JOIN 1:0..1 no puede
+        alterar el `total` del envelope (escenario 'La paginación no cambia')."""
+        repo, conn = client_repo
+        conn.fetchval = AsyncMock(return_value=0)
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_activity_page(ACCOUNT_ID, today=TODAY, page=0, size=25)
+
+        count_sql = conn.fetchval.call_args.args[0]
+        select_sql = conn.fetch.call_args.args[0]
+        assert "COUNT(*)" in count_sql
+        # Mismo CTE en ambas: el fragmento del JOIN aparece idéntico.
+        assert "LEFT JOIN public.customer_accounts ca" in count_sql
+        assert count_sql.split("SELECT COUNT(*)")[0] == select_sql.split("SELECT * FROM classified_activity")[0]
+
+    @pytest.mark.asyncio
+    async def test_detail_exposes_same_balance_definition(self, client_repo):
+        """El detalle (get_activity_for) comparte el CTE — mismo saldo que la
+        fila del listado, escrito UNA sola vez."""
+        repo, conn = client_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        await repo.get_activity_for(CLIENT_ID, ACCOUNT_ID, today=TODAY)
+
+        sql = conn.fetchrow.call_args.args[0]
+        assert "LEFT JOIN public.customer_accounts ca" in sql
+        assert "COALESCE(ca.balance, 0)::numeric AS current_balance" in sql

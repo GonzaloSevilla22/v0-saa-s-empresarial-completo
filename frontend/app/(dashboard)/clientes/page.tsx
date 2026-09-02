@@ -23,7 +23,7 @@ import { exportToCSV } from "@/lib/excel"
 import { MAX_CLIENTS_FREE } from "@/lib/constants"
 import {
   Plus, Trash2, Pencil, Search, PackageOpen, Download, Upload, Loader2,
-  ArrowUpDown,
+  ArrowUpDown, Landmark,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Client, IvaCondition } from "@/lib/types"
@@ -103,6 +103,14 @@ export default function ClientesPage() {
       goToDetail(id)
     }
   }, [goToDetail])
+
+  // cobranzas-panel (task 6.6): acceso directo a la cuenta corriente desde la
+  // fila — patrón de /proveedores. stopPropagation: el acceso NO debe disparar
+  // la activación de la fila que abre el detalle.
+  const goToAccount = useCallback((e: MouseEvent, id: string) => {
+    e.stopPropagation()
+    router.push(`/clientes/${id}/cuenta`)
+  }, [router])
 
   // Los controles dentro de la fila (editar/borrar) detienen la propagación
   // para no disparar la navegación (client-purchase-history §"Acciones de la
@@ -267,9 +275,9 @@ export default function ClientesPage() {
 
       {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden">
-        <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_80px_72px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_110px_80px_100px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           <span>Nombre</span><span>Estado</span><span>Última compra</span>
-          <span>Total comprado</span><span>Compras</span><span />
+          <span>Total comprado</span><span>Saldo</span><span>Compras</span><span />
         </div>
 
         {/* Skeleton */}
@@ -277,8 +285,8 @@ export default function ClientesPage() {
           <div className="flex flex-col">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
-                <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_80px_72px] gap-3 items-center">
-                  {Array.from({ length: 5 }).map((_, j) => (
+                <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_110px_80px_100px] gap-3 items-center">
+                  {Array.from({ length: 6 }).map((_, j) => (
                     <div key={j} className="h-3.5 rounded bg-accent animate-pulse" />
                   ))}
                   <div />
@@ -322,11 +330,22 @@ export default function ClientesPage() {
                 </div>
                 <ClientActivityBadge status={row.activityStatus} className="shrink-0" />
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground tabular-nums">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground tabular-nums min-w-0 truncate">
                   {formatLastPurchase(row.lastPurchaseDate, row.daysSinceLastPurchase)} · {currencyFormatter.format(row.totalSpent)}
+                  {/* cobranzas-panel (task 6.6): saldo visible también en móvil */}
+                  {" · "}
+                  <span className={row.currentBalance > 0 ? "text-warning font-medium" : undefined}>
+                    Saldo {currencyFormatter.format(row.currentBalance)}
+                  </span>
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    data-testid={`client-account-${row.id}`}
+                    aria-label={`Cuenta corriente de ${row.name}`}
+                    onClick={(e) => goToAccount(e, row.id)}>
+                    <Landmark className="h-3.5 w-3.5" />
+                  </Button>
                   <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
                     data-testid={`client-edit-${row.id}`}
                     onClick={(e) => handleEdit(e, row)}>
@@ -342,7 +361,7 @@ export default function ClientesPage() {
             </div>
 
             {/* Desktop */}
-            <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_80px_72px] gap-3 px-4 py-3 items-center">
+            <div className="hidden sm:grid grid-cols-[1fr_120px_140px_130px_110px_80px_100px] gap-3 px-4 py-3 items-center">
               <div className="flex flex-col min-w-0">
                 <span className="text-sm font-medium text-foreground truncate">{row.name}</span>
                 <span className="text-[10px] text-muted-foreground truncate">{row.email}</span>
@@ -354,8 +373,19 @@ export default function ClientesPage() {
               <span className="text-sm text-foreground tabular-nums">
                 {currencyFormatter.format(row.totalSpent)}
               </span>
+              {/* cobranzas-panel (task 6.6): saldo de cuenta corriente — el
+                  importe comunica por texto; el color solo refuerza. */}
+              <span className={`text-sm tabular-nums ${row.currentBalance > 0 ? "text-warning font-medium" : "text-muted-foreground"}`}>
+                {currencyFormatter.format(row.currentBalance)}
+              </span>
               <span className="text-sm text-muted-foreground tabular-nums">{row.purchaseCount}</span>
               <div className="flex items-center gap-1 justify-end">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                  data-testid={`client-account-${row.id}`}
+                  aria-label={`Cuenta corriente de ${row.name}`}
+                  onClick={(e) => goToAccount(e, row.id)}>
+                  <Landmark className="h-3.5 w-3.5" />
+                </Button>
                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
                   data-testid={`client-edit-${row.id}`}
                   onClick={(e) => handleEdit(e, row)}>

@@ -39,9 +39,12 @@ interface PurchaseApiRow {
   // cargo de cuenta corriente posteado.
   is_payment_locked?: boolean
   // delete-guard-ledgers (task 9.2): mismos EXISTS de is_payment_locked,
-  // expuestos por separado (sin pata de caja — las compras no la tienen).
+  // expuestos por separado.
   has_account_charge?: boolean
   has_bank_movement?: boolean
+  // caja-compras-cobranzas (D9): mismos dos derivados que expenses.
+  has_cash_movement?: boolean
+  is_delete_blocked?: boolean
   // compras-proveedor-cuenta-corriente (task 9.2/10.4): supplier_id + nombre
   // resueltos en el mismo query del backend (LEFT JOIN suppliers).
   supplier_id?: string | null
@@ -85,6 +88,8 @@ function mapPurchase(p: PurchaseApiRow): Purchase {
     isPaymentLocked: p.is_payment_locked ?? false,
     hasAccountCharge: p.has_account_charge ?? false,
     hasBankMovement:  p.has_bank_movement  ?? false,
+    hasCashMovement:  p.has_cash_movement  ?? false,
+    isDeleteBlocked:  p.is_delete_blocked  ?? false,
     supplierId:   p.supplier_id   ?? null,
     supplierName: p.supplier_name ?? null,
   }
@@ -189,11 +194,24 @@ export function usePurchases() {
          * tri-estado de la edición.
          */
         supplierId?: string | null
+        /**
+         * caja-compras-cobranzas (D2): opt-in de caja. null/ausente = la
+         * compra no toca caja (no-op en la RPC). Sólo se manda cuando las
+         * tres condiciones del servidor se cumplen Y el usuario lo dejó
+         * tildado.
+         */
+        cashSessionId?: string | null
       }
     }): Promise<PurchaseOperationResult> => {
       const payload = {
         org_id:           opMeta.orgId,
         date:             opMeta.date,
+        // caja-compras-cobranzas (D3): antes se descartaba acá — el 5º
+        // argumento de la RPC llegaba NULL literal (bug medido: 0 de 507
+        // compras con branch_id). Es el ancla de la condición 2 del opt-in
+        // de caja: sin sucursal persistida, la compra y la caja podrían
+        // quedar en sucursales distintas sin que nada lo note.
+        branch_id:        opMeta.branchId ?? null,
         // cost-center-dimension: shared by all lines of the operation
         cost_center_id:   opMeta.costCenterId ?? null,
         // metodos-pago-operaciones: shared by all lines of the operation
@@ -201,6 +219,8 @@ export function usePurchases() {
         bank_account_id:  opMeta.bankAccountId ?? null,
         // compras-proveedor-cuenta-corriente (D4): shared by all lines of the operation
         supplier_id:      opMeta.supplierId ?? null,
+        // caja-compras-cobranzas (D2): shared by all lines of the operation
+        cash_session_id:  opMeta.cashSessionId ?? null,
         items: items.map(item => ({
           product_id:  item.productId,
           amount:      item.unitCost,
@@ -222,6 +242,13 @@ export function usePurchases() {
       // postea un cargo en supplierAccounts — sin esto la cuenta corriente
       // del proveedor queda stale (staleTime 30s en useSupplierAccount).
       queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+      // caja-compras-cobranzas (task 10.5): la compra en efectivo puede
+      // haber descontado de la caja — sin esto el arqueo y el historial de
+      // /caja quedan stale. NO se bumpea el refreshToken de
+      // LedgerMovementsPanel (estado local de /caja y /banco, que no están
+      // montados desde /compras).
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
     },
   })
 

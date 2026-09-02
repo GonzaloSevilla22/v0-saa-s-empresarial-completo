@@ -59,13 +59,20 @@ class SupplierAccountRepository(BaseRepository):
         — antes solo filtraba por supplier_account_id (IDOR: un id de OTRO
         tenant devolvía sus movimientos). account_id está desnormalizado en
         la tabla (RLS), así que el filtro es directo, sin JOIN.
+
+        caja-compras-cobranzas (OQ-1, task 8.5): payment_method resuelto por
+        LEFT JOIN a payments_made (reference_id = payments_made.id, sólo
+        pobla cuando movement_type='payment_made') — NULL para el resto de
+        los tipos y para los pagos históricos, sin backfill.
         """
         return await self.fetch(
             """
-            SELECT *
-            FROM public.supplier_account_movements
-            WHERE supplier_account_id = $1::uuid AND account_id = $2::uuid
-            ORDER BY created_at DESC
+            SELECT sam.*, pm.payment_method
+            FROM public.supplier_account_movements sam
+            LEFT JOIN public.payments_made pm
+              ON pm.id = sam.reference_id AND sam.movement_type = 'payment_made'
+            WHERE sam.supplier_account_id = $1::uuid AND sam.account_id = $2::uuid
+            ORDER BY sam.created_at DESC
             LIMIT $3
             OFFSET $4
             """,
@@ -88,18 +95,21 @@ class SupplierAccountRepository(BaseRepository):
         lista plana).
 
         fix/tenancy-bank-accounts-leak: `account_id` obligatorio — mismo IDOR
-        que list_movements (ver nota ahí)."""
+        que list_movements (ver nota ahí). caja-compras-cobranzas (OQ-1):
+        mismo LEFT JOIN a payments_made que list_movements."""
         return await self.paginate(
             """
-            SELECT *
-            FROM public.supplier_account_movements
-            WHERE supplier_account_id = $1::uuid AND account_id = $2::uuid
-            ORDER BY created_at DESC
+            SELECT sam.*, pmd.payment_method
+            FROM public.supplier_account_movements sam
+            LEFT JOIN public.payments_made pmd
+              ON pmd.id = sam.reference_id AND sam.movement_type = 'payment_made'
+            WHERE sam.supplier_account_id = $1::uuid AND sam.account_id = $2::uuid
+            ORDER BY sam.created_at DESC
             """,
             """
             SELECT COUNT(*)
-            FROM public.supplier_account_movements
-            WHERE supplier_account_id = $1::uuid AND account_id = $2::uuid
+            FROM public.supplier_account_movements sam
+            WHERE sam.supplier_account_id = $1::uuid AND sam.account_id = $2::uuid
             """,
             supplier_account_id,
             account_id,
@@ -115,16 +125,19 @@ class SupplierAccountRepository(BaseRepository):
         reference_purchase_id: str | None = None,
         payment_method: str = "cash",
         bank_account_id: str | None = None,
+        cash_session_id: str | None = None,
     ) -> dict:
         """Invoca rpc_register_payment_made → registra pago a la cuenta del proveedor.
 
         bank-payment-routing C2: payment_method/bank_account_id son params aditivos
         trailing (default cash/None) — retrocompatibles con la firma de C-30.
+        caja-compras-cobranzas (D5): cash_session_id trailing — NULL = no-op,
+        el pago no toca caja.
         """
         row = await self.fetchrow(
             """
             SELECT public.rpc_register_payment_made(
-              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::text, $6::uuid
+              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::text, $6::uuid, $7::uuid
             ) AS result
             """,
             idempotency_key,
@@ -133,6 +146,7 @@ class SupplierAccountRepository(BaseRepository):
             reference_purchase_id,
             payment_method,
             bank_account_id,
+            cash_session_id,
         )
         return _jsonb(row["result"])
 

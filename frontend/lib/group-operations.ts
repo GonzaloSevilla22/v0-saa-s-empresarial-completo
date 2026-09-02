@@ -109,10 +109,14 @@ export interface PurchaseOperation {
   /** pagos-cableados-restantes (D6, task 9.3): true si la operación tiene un
    * cargo de cuenta corriente posteado — inmutable (P0423). */
   isPaymentLocked: boolean
-  /** delete-guard-ledgers: desglose de isPaymentLocked por libro (sin
-   * caja — las compras no tienen opt-in de caja). */
+  /** delete-guard-ledgers: desglose de isPaymentLocked por libro. */
   hasAccountCharge: boolean
   hasBankMovement: boolean
+  /** caja-compras-cobranzas (D9): mismos dos derivados que SaleOperation —
+   * hay movimiento de caja de esta compra, y si además no hay sesión
+   * abierta en esa caja el borrado quedaría bloqueado (P0426). */
+  hasCashMovement: boolean
+  isDeleteBlocked: boolean
   /** compras-proveedor-cuenta-corriente (D4): proveedor imputado a la
    * operación (editable, tri-estado — D7). null = sin proveedor. */
   supplierId: string | null
@@ -139,6 +143,8 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
       op.isPaymentLocked = op.isPaymentLocked || !!purchase.isPaymentLocked
       op.hasAccountCharge = op.hasAccountCharge || !!purchase.hasAccountCharge
       op.hasBankMovement = op.hasBankMovement || !!purchase.hasBankMovement
+      op.hasCashMovement = op.hasCashMovement || !!purchase.hasCashMovement
+      op.isDeleteBlocked = op.isDeleteBlocked || !!purchase.isDeleteBlocked
     } else {
       map.set(key, {
         key,
@@ -154,6 +160,8 @@ export function groupPurchasesByOperation(purchases: Purchase[]): PurchaseOperat
         isPaymentLocked: !!purchase.isPaymentLocked,
         hasAccountCharge: !!purchase.hasAccountCharge,
         hasBankMovement: !!purchase.hasBankMovement,
+        hasCashMovement: !!purchase.hasCashMovement,
+        isDeleteBlocked: !!purchase.isDeleteBlocked,
         supplierId: purchase.supplierId ?? null,
         supplierName: purchase.supplierName ?? null,
         costCenterId: purchase.costCenterId ?? null,

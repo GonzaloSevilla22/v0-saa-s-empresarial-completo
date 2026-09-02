@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
@@ -44,6 +45,7 @@ import { BranchSelect } from "@/components/branches/BranchSelect"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
+import { useCashOptin } from "@/hooks/use-cash-optin"
 
 interface PurchaseFormProps {
   onSuccess: () => void
@@ -162,6 +164,15 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // del egreso — sólo en alta (espejo de SaleForm; la edición no tiene
   // parámetro de banco en la RPC, D8).
   const [bankAccountId, setBankAccountId] = useState<string | null>(null)
+  /**
+   * caja-compras-cobranzas (D4): el opt-in de caja arranca PRE-MARCADO,
+   * alineado con el gasto y no con la venta — la venta arranca desmarcada
+   * por 223 operaciones históricas de carga retroactiva; la compra no tiene
+   * esa deuda y el pedido del PO es literalmente que la compra en efectivo
+   * concilie caja. Sólo en el alta (D8: una compra con caja posteada pasa a
+   * ser inmutable, así que la edición no ofrece esta afirmación).
+   */
+  const [registerInCash, setRegisterInCash] = useState(true)
   // compras-proveedor-cuenta-corriente (D4/D7): proveedor imputado a la
   // operación. Precargado al editar desde editingOperation.supplierId.
   const [supplierId, setSupplierId] = useState<string | null>(
@@ -193,6 +204,11 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     () => paymentMethods.find((pm) => pm.id === paymentMethodId)?.kind ?? null,
     [paymentMethods, paymentMethodId],
   )
+
+  // caja-compras-cobranzas (D2): mismo hook que venta y gasto — las tres
+  // condiciones no se reescriben, se reusan (tercer consumidor).
+  const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "compra" })
+  const showCashBlock = !isEdit && cashOptin.isCashSelected
 
   // compras-proveedor-cuenta-corriente (D6/OQ-D): kind=credit exige proveedor
   // y postea el cargo en su cuenta corriente — mismo patrón que SaleForm.
@@ -607,6 +623,10 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
           // compras-proveedor-cuenta-corriente (D4): atributo de la
           // operación, siempre enviado (null cuando no se eligió proveedor).
           supplierId,
+          // caja-compras-cobranzas (D2): sólo cuando las tres condiciones se
+          // cumplen Y el usuario lo dejó tildado. En cualquier otro caso
+          // viaja null y la RPC no toca caja.
+          cashSessionId: cashOptin.eligible && registerInCash ? (cashOptin.session?.id ?? null) : null,
         },
       })
       resetIdempotencyKey()
@@ -753,6 +773,32 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             />
           )}
         </div>
+
+        {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado) ────────
+            Las tres condiciones las verifica el servidor; acá se muestran
+            para que el usuario no descubra el bloqueo con un error. Cuando
+            no aplican, el motivo se muestra: nunca se oculta en silencio.
+            Sólo en el alta (D8: la compra con caja posteada es inmutable). */}
+        {showCashBlock && (
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
+            {cashOptin.eligible ? (
+              <label className="flex items-center gap-2 cursor-pointer text-foreground">
+                <Checkbox
+                  checked={registerInCash}
+                  onCheckedChange={(v) => setRegisterInCash(v === true)}
+                />
+                <span>
+                  Registrar en caja — sesión {cashOptin.session?.id.slice(0, 8)}…
+                </span>
+              </label>
+            ) : (
+              <div role="note" className="flex items-center gap-2 text-muted-foreground">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>{cashOptin.reason}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Proveedor (compras-proveedor-cuenta-corriente D10) ────────────
             Combobox buscable + alta inline, molde del selector de cliente

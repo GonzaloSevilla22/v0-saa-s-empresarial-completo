@@ -34,12 +34,17 @@ import { useCurrentSession } from "@/hooks/data/use-cash-session"
 import { argentinaToday } from "@/lib/date-range"
 import type { CashSession, PaymentMethodKind } from "@/lib/types"
 
-export type CashOptinDocument = "venta" | "gasto"
+export type CashOptinDocument = "venta" | "gasto" | "compra" | "cobro"
 
-/** Condición 3 — el texto nombra el documento; el resto es común. */
+/** Condición 3 — el texto nombra el documento; el resto es común.
+ * caja-compras-cobranzas: "cobro" nunca lee esta entrada (requiresDate la
+ * apaga, D5 — el cobro/pago no tiene fecha propia), pero el Record exige
+ * una entrada por cada miembro del union. */
 const DATE_REASON: Record<CashOptinDocument, string> = {
   venta: "Sólo se puede registrar en caja una venta fechada hoy.",
   gasto: "Sólo se puede registrar en caja un gasto fechado hoy.",
+  compra: "Sólo se puede registrar en caja una compra fechada hoy.",
+  cobro: "Sólo se puede registrar en caja un movimiento fechado hoy.",
 }
 /** Condición 2 — literal heredado de `sale-form.tsx`, sin cambiar una coma. */
 const NO_SESSION_REASON =
@@ -58,6 +63,14 @@ export interface UseCashOptinParams {
   /** Fecha del documento, `YYYY-MM-DD`. */
   date: string
   document?: CashOptinDocument
+  /**
+   * caja-compras-cobranzas (D5): el cobro y el pago de cuenta corriente no
+   * tienen fecha propia — se registran en el instante en que ocurren, así
+   * que la condición 3 no aplica. `false` desactiva el chequeo de fecha
+   * (la condición se trata como cumplida por construcción). Default `true`
+   * — venta, gasto y compra siguen exigiendo fecha de hoy.
+   */
+  requiresDate?: boolean
 }
 
 export interface CashOptinState {
@@ -82,6 +95,7 @@ export function useCashOptin({
   branchId,
   date,
   document = "venta",
+  requiresDate = true,
 }: UseCashOptinParams): CashOptinState {
   const isCashSelected = kind === "cash"
 
@@ -94,7 +108,10 @@ export function useCashOptin({
   const cashboxId = cashboxes?.[0]?.id ?? null
   const { data: currentSession } = useCurrentSession(isCashSelected ? cashboxId : null)
 
-  const isDateToday = date === argentinaToday()
+  // caja-compras-cobranzas (D5): con requiresDate=false la condición 3 se
+  // trata como cumplida por construcción — el cobro/pago no tiene fecha
+  // propia, así que "hoy" no es un chequeo que pueda fallar.
+  const isDateToday = !requiresDate || date === argentinaToday()
   const eligible = isCashSelected && !!currentSession && isDateToday
 
   const reason = !isCashSelected

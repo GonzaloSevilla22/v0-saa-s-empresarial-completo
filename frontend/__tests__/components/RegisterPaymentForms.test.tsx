@@ -25,6 +25,13 @@ vi.mock("@/hooks/data/use-supplier-account", () => ({
   useRegisterPaymentMade: () => ({ mutateAsync: vi.fn() }),
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
+// caja-compras-cobranzas: los dos formularios ahora montan useCashOptin
+// (default paymentMethod="cash", así que ya consulta caja desde el primer
+// render) — sin mockear la cadena, pythonClient explota por falta de
+// NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
+vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))
+vi.mock("@/hooks/data/use-cash-session", () => ({ useCurrentSession: () => ({ data: null }) }))
 
 async function selectTransferMethod(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("combobox", { name: /método de pago/i }))

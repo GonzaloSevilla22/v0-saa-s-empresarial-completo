@@ -1012,3 +1012,31 @@ jobs:
       # EFECTOS con tenant sintético propio, degrade-don't-fail en local.
       - name: Run qa-integral-modulos fix gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_qa_integral_fixes.sql
+
+      # caja-compras-cobranzas (grupo 2): el CHECK de cash_movements.movement_type
+      # pasa de 8 a 11 tipos. Asserta el CHECK vivo, rechazo de 'tip', aceptación
+      # de los tres tipos nuevos, históricos intactos e idempotencia de la
+      # reaplicación del DROP+ADD. Degrade-don't-fail en local.
+      - name: Run caja-compras-cobranzas cash movement types gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cash_movement_types.sql
+
+      # caja-compras-cobranzas (grupos 3 + 6): la compra en efectivo descuenta
+      # de la caja por opt-in con las tres condiciones verificadas en servidor
+      # (mismo molde que el gasto), y la compra con caja posteada pasa a ser
+      # inmutable (P0423). Control de regresión: crédito y banco siguen igual.
+      - name: Run caja-compras-cobranzas purchase cash opt-in gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_purchase_cash_optin.sql
+
+      # caja-compras-cobranzas (grupo 4): el cobro y el pago de cuenta
+      # corriente en efectivo alimentan la caja por opt-in de DOS condiciones
+      # (sin fecha ni sucursal propias). La idempotencia (4.6) es la aserción
+      # que más importa: un replay no puede duplicar el movimiento de caja.
+      - name: Run caja-compras-cobranzas party payment cash gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_party_payment_cash.sql
+
+      # caja-compras-cobranzas (grupo 5): el borrado de una compra en efectivo
+      # compensa la caja — disparo por EXISTENCIA del movimiento, jamás por su
+      # signo (5.4 es el control negativo, mismo criterio que delete-guard-
+      # ledgers para el gasto). Sin sesión abierta, P0426 y todo-o-nada (5.3).
+      - name: Run caja-compras-cobranzas purchase delete cash compensation gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_purchase_delete_cash_compensation.sql

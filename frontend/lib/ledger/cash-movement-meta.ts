@@ -17,7 +17,12 @@ import type { CashMovementType } from "@/lib/types"
 export const CASH_MOVEMENT_META: Record<CashMovementType, LedgerMovementMeta> = {
   sale:             { label: "Venta",              icon: ArrowUpCircle,  tone: "success",     family: "income" },
   advance:          { label: "Adelanto / depósito", icon: ArrowUpCircle, tone: "success",     family: "income" },
-  purchase_payment: { label: "Pago a proveedor",    icon: ShoppingBag,   tone: "destructive", family: "expense" },
+  // caja-compras-cobranzas (OQ-3): relabel — este tipo pasa a significar
+  // "compra al contado", no "pago a proveedor" (ese nombre ahora es de
+  // payment_made). 0 filas en prod al momento del cambio, así que el relabel
+  // no reescribe historia. El ícono (ShoppingBag) ya encajaba mejor con el
+  // significado nuevo que con el viejo.
+  purchase_payment: { label: "Compra en efectivo",  icon: ShoppingBag,   tone: "destructive", family: "expense" },
   expense:          { label: "Gasto",               icon: ArrowDownCircle, tone: "destructive", family: "expense" },
   withdrawal:       { label: "Retiro",              icon: Wallet,        tone: "destructive", family: "expense" },
   sale_reversal:    { label: "Reversa de venta",    icon: RotateCcw,     tone: "warning",     family: "reversal" },
@@ -25,13 +30,20 @@ export const CASH_MOVEMENT_META: Record<CashMovementType, LedgerMovementMeta> = 
   // `income`. El espejo de sale_reversal es de familia; el de signo es el
   // opuesto y vive en backend/schemas/cash.py (_INCOME_TYPES).
   expense_reversal: { label: "Reversa de gasto",    icon: RotateCcw,     tone: "warning",     family: "reversal" },
+  // caja-compras-cobranzas (D1): tres tipos nuevos. purchase_payment_reversal
+  // es ingreso por signo (revertir un egreso repone plata) y Reversas por
+  // familia — mismo patrón que expense_reversal/sale_reversal. payment_received
+  // y payment_made son los productores reales del cobro/pago de cta cte.
+  purchase_payment_reversal: { label: "Reversa de compra", icon: RotateCcw,      tone: "warning",     family: "reversal" },
+  payment_received:          { label: "Cobro de cliente",  icon: ArrowUpCircle,  tone: "success",     family: "income" },
+  payment_made:               { label: "Pago a proveedor",  icon: ArrowDownCircle, tone: "destructive", family: "expense" },
   adjustment:       { label: "Ajuste",              icon: Scale,         tone: "warning",     family: "adjustment" },
 }
 
 export const CASH_MOVEMENT_FAMILIES: LedgerFamily[] = [
   { key: "all",        label: "Todos",     types: [] },
-  { key: "income",     label: "Ingresos",  types: ["sale", "advance"] },
-  { key: "expense",    label: "Egresos",   types: ["purchase_payment", "expense", "withdrawal"] },
-  { key: "reversal",   label: "Reversas",  types: ["sale_reversal", "expense_reversal"] },
+  { key: "income",     label: "Ingresos",  types: ["sale", "advance", "payment_received"] },
+  { key: "expense",    label: "Egresos",   types: ["purchase_payment", "expense", "withdrawal", "payment_made"] },
+  { key: "reversal",   label: "Reversas",  types: ["sale_reversal", "expense_reversal", "purchase_payment_reversal"] },
   { key: "adjustment", label: "Ajustes",   types: ["adjustment"] },
 ]

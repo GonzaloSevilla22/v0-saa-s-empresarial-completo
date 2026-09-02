@@ -42,8 +42,11 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // (rpc_delete_purchase_operation compensa cta cte + banco + stock) y
 // recargarla. El motivo ahora también nombra explícitamente que el cargo es
 // del PROVEEDOR (antes era genérico y no distinguía de qué cuenta).
+// caja-compras-cobranzas (D8, task 12.4): suma la caja al motivo — antes era
+// inalcanzable (ninguna compra tenía movimiento de caja), ahora la compra
+// con opt-in tildado también puede caer en este bloqueo.
 const PAYMENT_LOCKED_REASON =
-  "No editable: esta operación ya tiene un cargo de cuenta corriente del proveedor o un movimiento bancario registrado. Para corregirla, borrá esta compra (revierte el cargo y repone el stock) y volvé a cargarla."
+  "No editable: esta operación ya tiene un cargo de cuenta corriente del proveedor, un movimiento bancario o un movimiento de caja registrado. Para corregirla, borrá esta compra (revierte el cargo, la caja y el banco, y repone el stock) y volvé a cargarla."
 
 interface PurchaseOperationsListProps {
   purchases:       Purchase[]
@@ -328,7 +331,7 @@ export function PurchaseOperationsList({
                       )}
                       <DeleteOperationDialog
                         label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                        info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor")}
+                        info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor", "compra")}
                         onConfirm={() => handleDelete(op)}
                         isDeleting={deletingKey === op.key}
                         onTriggerClick={(e) => e.stopPropagation()}
@@ -418,7 +421,7 @@ export function PurchaseOperationsList({
                   }
                   <DeleteOperationDialog
                     label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta compra"}
-                    info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor")}
+                    info={getDeleteCompensation({ ...op, reversesStock: true }, "proveedor", "compra")}
                     onConfirm={() => handleDelete(op)}
                     isDeleting={deletingKey === op.key}
                     onTriggerClick={(e) => e.stopPropagation()}

@@ -876,7 +876,15 @@ BEGIN
   --   (a) el literal del guard está presente, y
   --   (b) su posición cae DESPUÉS de la última validación de payload y
   --       ANTES del INSERT de idempotencia — que es exactamente D2.
-  v_def := pg_get_functiondef('public.rpc_register_payment_received(text, uuid, numeric, uuid, text, uuid)'::regprocedure);
+  --
+  -- caja-compras-cobranzas (2026-09-01): la firma ganó un 7º argumento
+  -- (p_cash_session_id uuid DEFAULT NULL, trailing) — DROP+CREATE, no
+  -- overload. El literal de acá se actualiza a la firma nueva; el orden
+  -- relativo bank_account_not_found < client_not_found < idempotencia que
+  -- este candado verifica sigue intacto (el bloque nuevo del opt-in de caja
+  -- se insertó ANTES del guard de tenencia, sin mover ninguna de las tres
+  -- anclas).
+  v_def := pg_get_functiondef('public.rpc_register_payment_received(text, uuid, numeric, uuid, text, uuid, uuid)'::regprocedure);
   v_pos_guard := position('client_not_found' in v_def);
   v_pos_prev  := position('bank_account_not_found' in v_def);
   v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);
@@ -890,7 +898,7 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.1-orden): en rpc_register_payment_received el guard de cliente debe ir DESPUÉS de la validación de bank_account y ANTES del INSERT de idempotencia (D2). Posiciones: bank=%, guard=%, idempotencia=%.', v_pos_prev, v_pos_guard, v_pos_idem;
   END IF;
 
-  v_def := pg_get_functiondef('public.rpc_register_payment_made(text, uuid, numeric, uuid, text, uuid)'::regprocedure);
+  v_def := pg_get_functiondef('public.rpc_register_payment_made(text, uuid, numeric, uuid, text, uuid, uuid)'::regprocedure);
   v_pos_guard := position('supplier_not_found' in v_def);
   v_pos_prev  := position('bank_account_not_found' in v_def);
   v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);

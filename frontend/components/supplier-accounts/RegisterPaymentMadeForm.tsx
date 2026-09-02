@@ -7,14 +7,17 @@ import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
-import { Loader2 } from "lucide-react"
+import { AlertCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useRegisterPaymentMade } from "@/hooks/data/use-supplier-account"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { getAccountKindIcon } from "@/lib/bank-account-kind"
+import { useCashOptin } from "@/hooks/use-cash-optin"
+import { argentinaToday } from "@/lib/date-range"
 
 // bank-payment-routing C2: taxonomía { cash, transfer, card, check }.
 const PAYMENT_METHODS = [
@@ -53,6 +56,11 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
   const [submitting, setSubmitting] = useState(false)
   const { mutateAsync: registerPayment } = useRegisterPaymentMade(supplierId)
   const { data: bankAccounts, isLoading: bankAccountsLoading } = useBankAccounts()
+  /**
+   * caja-compras-cobranzas (D4): espejo exacto de RegisterPaymentForm —
+   * arranca PRE-MARCADO.
+   */
+  const [registerInCash, setRegisterInCash] = useState(true)
 
   const {
     register,
@@ -69,6 +77,16 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
   const paymentMethod = watch("paymentMethod")
   const isBankMethod = BANK_METHODS.has(paymentMethod)
 
+  // caja-compras-cobranzas (D5): espejo exacto del cobro — document="cobro"
+  // (el motivo de fecha nunca se usa, requiresDate=false) y requiresDate=false.
+  const cashOptin = useCashOptin({
+    kind: paymentMethod,
+    branchId: null,
+    date: argentinaToday(),
+    document: "cobro",
+    requiresDate: false,
+  })
+
   async function onSubmit(values: FormValues) {
     setSubmitting(true)
     try {
@@ -78,6 +96,7 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
         amount: Number(values.amount),
         paymentMethod: values.paymentMethod,
         bankAccountId: isBankMethod ? values.bankAccountId : undefined,
+        cashSessionId: cashOptin.eligible && registerInCash ? (cashOptin.session?.id ?? null) : null,
       })
       if (result.replayed) {
         toast.info("Pago ya registrado (idempotente)")
@@ -168,6 +187,28 @@ export function RegisterPaymentMadeForm({ supplierId, onSuccess }: RegisterPayme
           </Select>
           {errors.bankAccountId && (
             <p className="text-xs text-destructive">{errors.bankAccountId.message}</p>
+          )}
+        </div>
+      )}
+
+      {/* ── Opt-in de caja (caja-compras-cobranzas D4, pre-marcado) ─────── */}
+      {cashOptin.isCashSelected && (
+        <div className="flex flex-col gap-1.5 rounded-md border border-border bg-accent/20 px-3 py-2 text-xs">
+          {cashOptin.eligible ? (
+            <label className="flex items-center gap-2 cursor-pointer text-foreground">
+              <Checkbox
+                checked={registerInCash}
+                onCheckedChange={(v) => setRegisterInCash(v === true)}
+              />
+              <span>
+                Registrar en caja — sesión {cashOptin.session?.id.slice(0, 8)}…
+              </span>
+            </label>
+          ) : (
+            <div role="note" className="flex items-center gap-2 text-muted-foreground">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{cashOptin.reason}</span>
+            </div>
           )}
         </div>
       )}

@@ -37,6 +37,13 @@ vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1", 
 vi.mock("@/hooks/use-units-of-measure", () => ({ useUnitsOfMeasure: () => ({ units: [], unitsById: new Map() }) }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => <div data-testid="branch-select" /> }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
+// caja-compras-cobranzas: purchase-form.tsx ahora monta useCashOptin, que
+// consulta useBranches/useCashboxes/useCurrentSession directo (no vía
+// BranchSelect) — sin mockearlos, la cadena real llega a pythonClient y
+// explota por falta de NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
+vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))
+vi.mock("@/hooks/data/use-cash-session", () => ({ useCurrentSession: () => ({ data: null }) }))
 vi.mock("@/components/shared/product-picker", () => ({
   ProductPicker: ({
     products,
@@ -155,6 +162,8 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     key: "op-1", operationId: "op-1", date: "2026-08-20", items: [makePurchase()], total: 150,
     description: "", isGrouped: false, paymentMethodId: null, branchId: null, unitId: null,
     isPaymentLocked: false, hasAccountCharge: false, hasBankMovement: false,
+    // caja-compras-cobranzas (D9): campos nuevos requeridos por PurchaseOperation.
+    hasCashMovement: false, isDeleteBlocked: false,
     supplierId: null, supplierName: null, costCenterId: null,
     ...overrides,
   }

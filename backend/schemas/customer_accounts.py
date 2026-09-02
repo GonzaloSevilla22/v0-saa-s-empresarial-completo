@@ -54,6 +54,10 @@ class AccountMovementOut(BaseModel):
     reference_id:         uuid.UUID | None = None
     created_by:           uuid.UUID
     created_at:           datetime.datetime
+    # caja-compras-cobranzas (OQ-1, task 8.5): resuelto por LEFT JOIN a
+    # payments_received cuando movement_type='payment_received'. NULL para
+    # todo el resto de los tipos y para los cobros históricos (sin backfill).
+    payment_method:       str | None = None
 
 
 # v3-api-standards §2.7: envelope estándar {items,total,page,pages} para
@@ -78,6 +82,11 @@ class PaymentReceivedIn(BaseModel):
     # (aditivo, retrocompatible — mismo criterio que el RPC).
     payment_method:     str = "cash"
     bank_account_id:    uuid.UUID | None = None
+    # caja-compras-cobranzas (D5): opt-in de caja. NULL = el cobro no toca
+    # caja. Con sesión informada, la RPC valida DOS condiciones (no tres: el
+    # cobro no tiene fecha ni sucursal propias) y rechaza con P0422 si alguna
+    # falla.
+    cash_session_id:    uuid.UUID | None = None
 
     @field_validator("amount")
     @classmethod
@@ -98,6 +107,19 @@ class PaymentReceivedIn(BaseModel):
         if self.payment_method in ("transfer", "card", "check") and self.bank_account_id is None:
             raise ValueError(
                 f"payment_method={self.payment_method} exige bank_account_id"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_cash_session_requires_cash_method(self) -> "PaymentReceivedIn":
+        # caja-compras-cobranzas (task 8.1): defensa en profundidad — la
+        # autoridad sigue siendo la RPC (P0422 cash_optin_requires_cash_kind),
+        # pero rechazar acá evita el round-trip cuando el payload ya es
+        # incoherente (mismo criterio que el guard de cuenta bancaria de
+        # arriba).
+        if self.cash_session_id is not None and self.payment_method != "cash":
+            raise ValueError(
+                f"cash_session_id sólo aplica si payment_method=cash (recibido: {self.payment_method})"
             )
         return self
 

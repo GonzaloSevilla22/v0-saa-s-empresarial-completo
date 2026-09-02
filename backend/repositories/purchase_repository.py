@@ -102,8 +102,14 @@ class PurchaseRepository(BaseRepository):
                    -- rpc_atomic_update_purchase_operation (source_doc_type='purchase').
                    -- delete-guard-ledgers (task 9.2): expuestos también por
                    -- separado para que el diálogo de borrado enumere qué
-                   -- libro compensaría (no hay pata de caja para compras —
-                   -- las compras no tienen opt-in de caja, design.md Non-Goals).
+                   -- libro compensaría.
+                   -- caja-compras-cobranzas (D9): tercer término —
+                   -- has_cash_movement, mismo predicado que el tercer EXISTS
+                   -- del guard P0423 de rpc_atomic_update_purchase_operation
+                   -- (movement_type='purchase_payment'). is_delete_blocked es
+                   -- el MISMO EXISTS que precede al P0426 de
+                   -- rpc_delete_purchase_operation: hay movimiento de caja Y
+                   -- no hay sesión abierta en esa caja.
                    EXISTS (
                      SELECT 1 FROM supplier_account_movements sam
                      WHERE sam.reference_id = p.operation_id
@@ -112,6 +118,24 @@ class PurchaseRepository(BaseRepository):
                      SELECT 1 FROM bank_movements bm
                      WHERE bm.source_doc_type = 'purchase' AND bm.source_doc_ref = p.operation_id
                    ) AS has_bank_movement,
+                   EXISTS (
+                     SELECT 1 FROM cash_movements cm
+                     WHERE cm.movement_type = 'purchase_payment' AND cm.reference_id = p.operation_id
+                   ) AS has_cash_movement,
+                   -- Mismo molde que _EXPENSE_PROJECTION.is_delete_blocked
+                   -- (backend/repositories/expense_repository.py): hay
+                   -- movimiento de caja de esta compra Y no hay sesión
+                   -- abierta en ESA MISMA caja donde compensar.
+                   EXISTS (
+                     SELECT 1
+                     FROM cash_movements cm
+                     JOIN cash_sessions cs ON cs.id = cm.session_id
+                     WHERE cm.reference_id = p.operation_id AND cm.movement_type = 'purchase_payment'
+                       AND NOT EXISTS (
+                         SELECT 1 FROM cash_sessions os
+                         WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
+                       )
+                   ) AS is_delete_blocked,
                    (
                      EXISTS (
                        SELECT 1 FROM supplier_account_movements sam
@@ -120,6 +144,10 @@ class PurchaseRepository(BaseRepository):
                      OR EXISTS (
                        SELECT 1 FROM bank_movements bm
                        WHERE bm.source_doc_type = 'purchase' AND bm.source_doc_ref = p.operation_id
+                     )
+                     OR EXISTS (
+                       SELECT 1 FROM cash_movements cm
+                       WHERE cm.movement_type = 'purchase_payment' AND cm.reference_id = p.operation_id
                      )
                    ) AS is_payment_locked
             FROM purchases p
@@ -240,17 +268,25 @@ class PurchaseRepository(BaseRepository):
         idempotency_key: str,
         date: datetime.date | None = None,
         description: str | None = None,
+        branch_id: str | None = None,
         cost_center_id: str | None = None,
         payment_method_id: str | None = None,
         bank_account_id: str | None = None,
         supplier_id: str | None = None,
+        cash_session_id: str | None = None,
     ) -> dict | None:
+        # caja-compras-cobranzas (D3): branch_id propagated as the RPC's 5th
+        # argument — antes se pasaba NULL literal acá (bug medido: 0 de 507
+        # compras con branch_id). Es el ancla de la condición 2 del opt-in de
+        # caja (D2): sin sucursal persistida, "sucursal efectiva de la
+        # compra" nunca coincide con la de ninguna caja real.
         # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         # metodos-pago-operaciones: payment_method_id propagated the same way
         # pos-banco-movimientos: bank_account_id propagated the same way (D2)
         # compras-proveedor-cuenta-corriente (D4): supplier_id propagated the
-        # same way — TRAILING (9th arg) in rpc_create_purchase_operation, after
-        # bank_account_id (ver p_supplier_id en 20261009000001).
+        # same way (9th arg in rpc_create_purchase_operation).
+        # caja-compras-cobranzas (D2): cash_session_id propagated as the RPC's
+        # 10th (trailing) argument — NULL = no-op, la compra no toca caja.
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
             return dict(existing)
@@ -268,7 +304,7 @@ class PurchaseRepository(BaseRepository):
         row = await self._conn.fetchrow(
             """
             SELECT
-                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid, $8::uuid)->>'operation_id')::uuid
+                (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, $5::uuid, $6::uuid, $7::uuid, $8::uuid, $9::uuid, $10::uuid)->>'operation_id')::uuid
                     AS operation_id,
                 'purchase'::text AS operation_kind
             """,
@@ -276,10 +312,12 @@ class PurchaseRepository(BaseRepository):
             date or datetime.date.today(),
             description,
             json.dumps(clean_items, default=_default),
+            branch_id,
             cost_center_id,
             payment_method_id,
             bank_account_id,
             supplier_id,
+            cash_session_id,
         )
         return dict(row) if row else None
 
@@ -292,10 +330,12 @@ class PurchaseRepository(BaseRepository):
         idempotency_key: str,
         date: datetime.date | None = None,
         description: str | None = None,
+        branch_id: str | None = None,
         cost_center_id: str | None = None,
         payment_method_id: str | None = None,
         bank_account_id: str | None = None,
         supplier_id: str | None = None,
+        cash_session_id: str | None = None,
     ) -> dict | None:
         """C-25 producer: create purchase + emit PurchaseCreated in the SAME transaction.
 
@@ -319,14 +359,17 @@ class PurchaseRepository(BaseRepository):
         ]
 
         # Run mutation + event INSERT in the same transaction (DEC-20)
+        # caja-compras-cobranzas (D3): branch_id propagated — mismo fix que
+        # create_operation, las DOS ramas tenían el mismo NULL hardcodeado.
         # cost-center-dimension: cost_center_id propagated to all rows via the RPC
         # metodos-pago-operaciones: payment_method_id propagated the same way
         # compras-proveedor-cuenta-corriente: supplier_id propagated the same way
+        # caja-compras-cobranzas (D2): cash_session_id propagated, trailing.
         async with self._conn.transaction():
             row = await self._conn.fetchrow(
                 """
                 SELECT
-                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, NULL, $5::uuid, $6::uuid, $7::uuid, $8::uuid)->>'operation_id')::uuid
+                    (rpc_create_purchase_operation($1, $2, $3, $4::jsonb, $5::uuid, $6::uuid, $7::uuid, $8::uuid, $9::uuid, $10::uuid)->>'operation_id')::uuid
                         AS operation_id,
                     'purchase'::text AS operation_kind
                 """,
@@ -334,10 +377,12 @@ class PurchaseRepository(BaseRepository):
                 date or datetime.date.today(),
                 description,
                 json.dumps(clean_items, default=_default),
+                branch_id,
                 cost_center_id,
                 payment_method_id,
                 bank_account_id,
                 supplier_id,
+                cash_session_id,
             )
 
             if row is None:

@@ -23,6 +23,13 @@ class PurchaseOperationIn(BaseModel):
     org_id: str
     items: list[PurchaseItemIn]
     date: datetime.date | None = None
+    # caja-compras-cobranzas (D3): sucursal de la operación. Bug preexistente
+    # que este change cierra: la cadena entera la descartaba (0 de 507
+    # compras con branch_id) — el frontend nunca la mandaba en el payload de
+    # alta y el repository pasaba NULL literal a la RPC. Es el ancla de la
+    # condición 2 del opt-in de caja de más abajo (sesión abierta en la
+    # sucursal EFECTIVA de la compra).
+    branch_id: uuid.UUID | None = None
     # cost-center-dimension: optional, shared by all lines of the operation
     cost_center_id: uuid.UUID | None = None
     # metodos-pago-operaciones: optional, shared by all lines of the operation
@@ -35,6 +42,11 @@ class PurchaseOperationIn(BaseModel):
     # bank_account_id. Si el payment_method imputado es kind='credit', la RPC
     # exige este campo (P0400 credit_requires_supplier) y postea el cargo real.
     supplier_id: uuid.UUID | None = None
+    # caja-compras-cobranzas (D2): opt-in de caja. NULL = la compra no toca
+    # caja. Si viene informado, la RPC valida las TRES condiciones del
+    # formulario de venta/gasto (kind=cash, sesión abierta en la sucursal
+    # efectiva, fecha=hoy local) y rechaza con P0422 si alguna falla.
+    cash_session_id: uuid.UUID | None = None
 
 
 class PurchaseOperationOut(BaseModel):
@@ -131,6 +143,13 @@ class PurchaseItemOut(BaseModel):
     # siendo la autoridad al borrar.
     has_account_charge: bool = False
     has_bank_movement: bool = False
+    # caja-compras-cobranzas (D9): mismos dos derivados que ExpenseItemOut —
+    # tienen que DECLARARSE en el modelo Pydantic o Pydantic los descarta al
+    # serializar (lección G10/H12 de qa-integral-modulos). is_delete_blocked
+    # = hay movimiento de caja Y no hay sesión abierta en esa caja (mismo
+    # EXISTS que precede al P0426 de rpc_delete_purchase_operation).
+    has_cash_movement: bool = False
+    is_delete_blocked: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

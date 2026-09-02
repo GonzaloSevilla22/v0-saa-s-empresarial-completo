@@ -56,6 +56,10 @@ class SupplierMovementOut(BaseModel):
     reference_id:         uuid.UUID | None = None
     created_by:           uuid.UUID
     created_at:           datetime.datetime
+    # caja-compras-cobranzas (OQ-1, task 8.5): resuelto por LEFT JOIN a
+    # payments_made cuando movement_type='payment_made'. NULL para todo el
+    # resto de los tipos y para los pagos históricos (sin backfill).
+    payment_method:       str | None = None
 
 
 # v3-api-standards §2.8: envelope estándar {items,total,page,pages} para
@@ -80,6 +84,8 @@ class PaymentMadeIn(BaseModel):
     # (aditivo, retrocompatible — mismo criterio que el RPC).
     payment_method:        str = "cash"
     bank_account_id:       uuid.UUID | None = None
+    # caja-compras-cobranzas (D5): espejo exacto de PaymentReceivedIn.
+    cash_session_id:       uuid.UUID | None = None
 
     @field_validator("amount")
     @classmethod
@@ -100,6 +106,16 @@ class PaymentMadeIn(BaseModel):
         if self.payment_method in ("transfer", "card", "check") and self.bank_account_id is None:
             raise ValueError(
                 f"payment_method={self.payment_method} exige bank_account_id"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_cash_session_requires_cash_method(self) -> "PaymentMadeIn":
+        # caja-compras-cobranzas (task 8.1): espejo exacto del validador de
+        # PaymentReceivedIn.
+        if self.cash_session_id is not None and self.payment_method != "cash":
+            raise ValueError(
+                f"cash_session_id sólo aplica si payment_method=cash (recibido: {self.payment_method})"
             )
         return self
 

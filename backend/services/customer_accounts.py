@@ -104,6 +104,9 @@ async def register_payment_received(
             reference_sale_id=str(payload.reference_sale_id) if payload.reference_sale_id else None,
             payment_method=payload.payment_method,
             bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
+            # caja-compras-cobranzas (D2): passthrough del opt-in de caja —
+            # la RPC resuelve y valida las dos condiciones (P0422).
+            cash_session_id=str(payload.cash_session_id) if payload.cash_session_id else None,
         )
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc

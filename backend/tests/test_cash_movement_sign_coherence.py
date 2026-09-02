@@ -41,7 +41,7 @@ MOVEMENT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
 
 class TestRegisterMovementInSignCoherence:
-    @pytest.mark.parametrize("movement_type", ["sale", "advance"])
+    @pytest.mark.parametrize("movement_type", ["sale", "advance", "purchase_payment_reversal", "payment_received"])
     def test_income_with_negative_amount_rejected(self, movement_type):
         with pytest.raises(ValidationError, match="ingreso") as exc_info:
             RegisterMovementIn(amount=Decimal("-100"), movement_type=movement_type)
@@ -52,7 +52,7 @@ class TestRegisterMovementInSignCoherence:
         # corre con movement_type ya disponible.
         assert errors[0]["loc"] == ("amount",)
 
-    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal", "sale_reversal"])
+    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal", "sale_reversal", "payment_made"])
     def test_expense_with_positive_amount_rejected(self, movement_type):
         with pytest.raises(ValidationError, match="egreso") as exc_info:
             RegisterMovementIn(amount=Decimal("100"), movement_type=movement_type)
@@ -60,12 +60,12 @@ class TestRegisterMovementInSignCoherence:
         assert len(errors) == 1
         assert errors[0]["loc"] == ("amount",)
 
-    @pytest.mark.parametrize("movement_type", ["sale", "advance"])
+    @pytest.mark.parametrize("movement_type", ["sale", "advance", "purchase_payment_reversal", "payment_received"])
     def test_income_with_positive_amount_accepted(self, movement_type):
         payload = RegisterMovementIn(amount=Decimal("100"), movement_type=movement_type)
         assert payload.amount == Decimal("100")
 
-    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal", "sale_reversal"])
+    @pytest.mark.parametrize("movement_type", ["purchase_payment", "expense", "withdrawal", "sale_reversal", "payment_made"])
     def test_expense_with_negative_amount_accepted(self, movement_type):
         payload = RegisterMovementIn(amount=Decimal("-100"), movement_type=movement_type)
         assert payload.amount == Decimal("-100")

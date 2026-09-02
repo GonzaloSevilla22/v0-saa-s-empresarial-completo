@@ -30,6 +30,14 @@ class MovementType(str, Enum):
     # `adjustment`: el vocabulario de caja distingue la compensación
     # automática de la corrección manual, y `adjustment` además exige motivo.
     expense_reversal = "expense_reversal"
+    # caja-compras-cobranzas (D1): tres tipos nuevos. purchase_payment_reversal
+    # es el contra-movimiento AUTOMÁTICO del borrado de una compra en efectivo
+    # (rpc_delete_purchase_operation), tipo propio por el mismo motivo que
+    # expense_reversal. payment_received/payment_made son los productores
+    # reales del cobro/pago de cuenta corriente en efectivo.
+    purchase_payment_reversal = "purchase_payment_reversal"
+    payment_received          = "payment_received"
+    payment_made              = "payment_made"
 
 
 # Movement types that are expected to be income (positive amount).
@@ -39,7 +47,18 @@ class MovementType(str, Enum):
 # familia `reversal` del historial de caja), NO de signo — sale_reversal está
 # en _EXPENSE_TYPES, o sea el signo opuesto. Las dos taxonomías son distintas
 # y mezclarlas rompe el filtro "Reversas" o el validador de signo.
-_INCOME_TYPES = {MovementType.sale, MovementType.advance, MovementType.expense_reversal}
+_INCOME_TYPES = {
+    MovementType.sale,
+    MovementType.advance,
+    MovementType.expense_reversal,
+    # caja-compras-cobranzas (D1): revertir un egreso de compra REPONE plata,
+    # así que purchase_payment_reversal es ingreso por signo (aunque su
+    # familia de UI sea "Reversas", igual que expense_reversal/sale_reversal
+    # — las dos taxonomías son distintas, D9 de gastos-forma-pago). El cobro
+    # de cuenta corriente también ingresa.
+    MovementType.purchase_payment_reversal,
+    MovementType.payment_received,
+}
 # Movement types that are expected to be expenses (negative amount).
 # sale_reversal entra acá por pedido del PO (2026-08-22, sucesor de PR #442): la spec
 # cash-movement lo define como egreso con signo negativo esperado y la RPC de
@@ -51,6 +70,8 @@ _EXPENSE_TYPES = {
     MovementType.expense,
     MovementType.withdrawal,
     MovementType.sale_reversal,
+    # caja-compras-cobranzas (D1): el pago a proveedor egresa de la caja.
+    MovementType.payment_made,
 }
 # adjustment queda FUERA de ambos conjuntos a propósito: es signado
 # libremente (sobrante +/faltante -, D4 del design de

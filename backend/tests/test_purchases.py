@@ -77,10 +77,13 @@ async def test_create_purchase_passes_payment_method_id_to_rpc(async_client, moc
 
 
 async def test_create_purchase_without_payment_method_passes_none(async_client, mock_pool):
-    """Sin payment_method_id/bank_account_id/supplier_id en el payload, el
-    RPC recibe NULL en los tres (compras-proveedor-cuenta-corriente agrega
-    supplier_id trailing DESPUÉS de bank_account_id — 8 -> 9 args, por eso
-    ahora son -3/-2/-1, no sólo -2/-1)."""
+    """Sin branch_id/payment_method_id/bank_account_id/supplier_id/
+    cash_session_id en el payload, el RPC recibe NULL en los cinco.
+
+    caja-compras-cobranzas (D2/D3): branch_id deja de ser el literal `NULL`
+    hardcodeado en la query y pasa a ser un bound param real (5º arg), y
+    cash_session_id se suma TRAILING (10º) — 9 -> 10 args. Los índices
+    negativos se corren: ahora son -6 (branch_id) .. -1 (cash_session_id)."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     captured: dict = {}
@@ -99,9 +102,12 @@ async def test_create_purchase_without_payment_method_passes_none(async_client, 
             headers={"Authorization": f"Bearer {owner_token}"},
         )
     assert resp.status_code == 201
-    assert captured["args"][-3] is None  # payment_method_id
-    assert captured["args"][-2] is None  # bank_account_id
-    assert captured["args"][-1] is None  # supplier_id
+    assert captured["args"][-6] is None  # branch_id
+    assert captured["args"][-5] is None  # cost_center_id
+    assert captured["args"][-4] is None  # payment_method_id
+    assert captured["args"][-3] is None  # bank_account_id
+    assert captured["args"][-2] is None  # supplier_id
+    assert captured["args"][-1] is None  # cash_session_id
 
 
 async def test_create_purchase_passes_bank_account_id_to_rpc(async_client, mock_pool):
@@ -139,8 +145,12 @@ SUPPLIER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 async def test_create_purchase_passes_supplier_id_to_rpc(async_client, mock_pool):
     """9.1 RED / 9.3 GREEN: el supplier_id del payload llega como argumento
-    TRAILING (9º) del RPC rpc_create_purchase_operation — mismo criterio que
-    cost_center_id/payment_method_id/bank_account_id."""
+    del RPC rpc_create_purchase_operation — mismo criterio que
+    cost_center_id/payment_method_id/bank_account_id.
+
+    caja-compras-cobranzas: supplier_id deja de ser el último argumento —
+    cash_session_id se suma trailing DESPUÉS (10º arg), así que supplier_id
+    pasa a ser args[-2]."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     captured: dict = {}
@@ -162,10 +172,94 @@ async def test_create_purchase_passes_supplier_id_to_rpc(async_client, mock_pool
     assert resp.status_code == 201
     assert "rpc_create_purchase_operation" in captured["query"]
     assert SUPPLIER_ID in [str(a) for a in captured["args"]]
-    assert captured["args"][-1] == SUPPLIER_ID  # trailing, después de bank_account_id
+    assert captured["args"][-2] == SUPPLIER_ID  # penúltimo: cash_session_id es el trailing real
 
 
 async def test_create_purchase_without_supplier_passes_none(async_client, mock_pool):
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["args"] = args
+        return {"operation_id": PURCHASE_ID, "operation_kind": "purchase"}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/purchases",
+            json=CREATE_PURCHASE_PAYLOAD,
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert captured["args"][-2] is None  # supplier_id (cash_session_id, -1, is None too)
+
+
+# ── caja-compras-cobranzas (D2/D3, task 7.3/7.4 RED->GREEN): branch_id y
+# cash_session_id passthrough al RPC ────────────────────────────────────────
+
+BRANCH_ID_FOR_CREATE = "77777777-7777-7777-7777-777777777777"
+CASH_SESSION_ID = "66666666-6666-6666-6666-666666666666"
+
+
+async def test_create_purchase_passes_branch_id_to_rpc(async_client, mock_pool):
+    """D3: branch_id del payload llega al RPC como bound param — antes se
+    descartaba (el 5º argumento de la RPC llegaba NULL literal, bug medido:
+    0 de 507 compras con branch_id)."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["query"] = query
+        captured["args"] = args
+        return {"operation_id": PURCHASE_ID, "operation_kind": "purchase"}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/purchases",
+            json={**CREATE_PURCHASE_PAYLOAD, "branch_id": BRANCH_ID_FOR_CREATE},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "rpc_create_purchase_operation" in captured["query"]
+    assert captured["args"][-6] == BRANCH_ID_FOR_CREATE
+
+
+async def test_create_purchase_passes_cash_session_id_to_rpc(async_client, mock_pool):
+    """D2: cash_session_id del payload llega al RPC como el argumento
+    TRAILING (10º) — la RPC valida las tres condiciones y decide."""
+    pool, conn = mock_pool
+    owner_token = make_token({"role": "user"})
+    captured: dict = {}
+
+    async def fetchrow_side_effect(query, *args):
+        if "operation_idempotency" in query:
+            return None
+        captured["query"] = query
+        captured["args"] = args
+        return {"operation_id": PURCHASE_ID, "operation_kind": "purchase"}
+
+    conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.post(
+            "/purchases",
+            json={**CREATE_PURCHASE_PAYLOAD, "cash_session_id": CASH_SESSION_ID},
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+    assert resp.status_code == 201
+    assert "rpc_create_purchase_operation" in captured["query"]
+    assert captured["args"][-1] == CASH_SESSION_ID
+
+
+async def test_create_purchase_without_cash_session_id_is_noop(async_client, mock_pool):
+    """Ausencia de cash_session_id = NO-OP: el RPC recibe NULL en el
+    trailing y no bloquea el alta (la compra se registra igual)."""
     pool, conn = mock_pool
     owner_token = make_token({"role": "user"})
     captured: dict = {}
@@ -1147,3 +1241,110 @@ async def test_list_purchases_row_without_supplier_returns_null_name(
     item = resp.json()["items"][0]
     assert item["supplier_id"] is None
     assert item["supplier_name"] is None
+
+
+# ── caja-compras-cobranzas (D9, task 7.5/7.6): has_cash_movement/
+# is_delete_blocked expuestos en el listado — mismo molde que
+# is_payment_locked/hasAccountCharge/hasBankMovement de arriba. Los campos
+# TIENEN que declararse en PurchaseItemOut o Pydantic los descarta al
+# serializar (lección G10/H12 de qa-integral-modulos).
+
+
+async def test_list_purchases_row_exposes_has_cash_movement_flag(
+    async_client, valid_token, mock_pool
+):
+    pool, conn = mock_pool
+    row = {
+        "id": PURCHASE_ID, "date": "2026-01-15", "operation_id": None,
+        "description": "Insumos", "product_id": None, "quantity": "1",
+        "amount": "100.00", "total": "100.00", "product_name": None,
+        "cost_center_id": None, "cost_center_name": None,
+        "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
+        "is_payment_locked": True, "has_account_charge": False, "has_bank_movement": False,
+        "has_cash_movement": True, "is_delete_blocked": False,
+        "supplier_id": None, "supplier_name": None,
+    }
+    conn.fetch = AsyncMock(return_value=[row])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["has_cash_movement"] is True
+    assert item["is_delete_blocked"] is False
+
+
+async def test_list_purchases_row_exposes_is_delete_blocked_flag(
+    async_client, valid_token, mock_pool
+):
+    """Compra con caja posteada y SIN sesión abierta en esa caja →
+    is_delete_blocked=true — el listado anticipa el P0426 antes del 409."""
+    pool, conn = mock_pool
+    row = {
+        "id": PURCHASE_ID, "date": "2026-01-15", "operation_id": None,
+        "description": "Insumos", "product_id": None, "quantity": "1",
+        "amount": "100.00", "total": "100.00", "product_name": None,
+        "cost_center_id": None, "cost_center_name": None,
+        "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
+        "is_payment_locked": True, "has_account_charge": False, "has_bank_movement": False,
+        "has_cash_movement": True, "is_delete_blocked": True,
+        "supplier_id": None, "supplier_name": None,
+    }
+    conn.fetch = AsyncMock(return_value=[row])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["is_delete_blocked"] is True
+
+
+async def test_list_purchases_row_without_cash_movement_defaults_false(
+    async_client, valid_token, mock_pool
+):
+    """Una compra sin caja devuelve los dos flags en false (default del
+    modelo) cuando la fila no los trae — servidor sigue siendo la autoridad."""
+    pool, conn = mock_pool
+    row = {
+        "id": PURCHASE_ID, "date": "2026-01-15", "operation_id": None,
+        "description": "Insumos", "product_id": None, "quantity": "1",
+        "amount": "100.00", "total": "100.00", "product_name": None,
+        "cost_center_id": None, "cost_center_name": None,
+        "payment_method_id": None, "payment_method_name": None, "payment_method_kind": None,
+        "is_payment_locked": False,
+        "supplier_id": None, "supplier_name": None,
+    }
+    conn.fetch = AsyncMock(return_value=[row])
+    conn.fetchval = AsyncMock(return_value=1)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["has_cash_movement"] is False
+    assert item["is_delete_blocked"] is False
+
+
+async def test_list_purchases_row_exposes_cash_movement_query_predicate(
+    async_client, valid_token, mock_pool
+):
+    """El predicado de has_cash_movement/is_delete_blocked consulta
+    cash_movements por movement_type='purchase_payment' y p.operation_id —
+    mismo criterio que el tercer EXISTS del guard P0423."""
+    pool, conn = mock_pool
+    captured = _capture_queries(conn)
+    with patch("backend.core.database.pool", pool):
+        resp = await async_client.get(
+            "/purchases", headers={"Authorization": f"Bearer {valid_token}"}
+        )
+    assert resp.status_code == 200
+    rows_query, _ = captured["rows"]
+    assert "cash_movements" in rows_query
+    assert "purchase_payment" in rows_query
+    assert "has_cash_movement" in rows_query
+    assert "is_delete_blocked" in rows_query

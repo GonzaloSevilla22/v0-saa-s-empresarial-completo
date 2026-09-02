@@ -106,6 +106,14 @@ async def create_purchase_operation(
     # la RPC resuelve pertenencia (P0404) y exige proveedor si kind='credit'
     # (P0400 credit_requires_supplier).
     supplier_id = str(payload.supplier_id) if payload.supplier_id is not None else None
+    # caja-compras-cobranzas (D3): passthrough de branch_id — antes se
+    # descartaba acá (el 5.º argumento de la RPC llegaba NULL literal).
+    branch_id = str(payload.branch_id) if payload.branch_id is not None else None
+    # caja-compras-cobranzas (D2): passthrough del opt-in de caja — la RPC
+    # resuelve y valida las tres condiciones (P0422).
+    cash_session_id = (
+        str(payload.cash_session_id) if payload.cash_session_id is not None else None
+    )
     record = await repo.create_operation(
         auth["user_id"],
         account_id,
@@ -113,10 +121,12 @@ async def create_purchase_operation(
         payload.idempotency_key,
         date=payload.date,
         description=description,
+        branch_id=branch_id,
         cost_center_id=cost_center_id,
         payment_method_id=payment_method_id,
         bank_account_id=bank_account_id,
         supplier_id=supplier_id,
+        cash_session_id=cash_session_id,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de compra")

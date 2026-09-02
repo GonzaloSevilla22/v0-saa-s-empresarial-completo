@@ -192,6 +192,45 @@ class TestCustomerAccountRepository:
         assert result["balance_after"] == "600.00"
 
     @pytest.mark.asyncio
+    async def test_register_payment_received_passes_cash_session_id_trailing(self, mock_conn):
+        """caja-compras-cobranzas (D2, task 8.2 RED->GREEN): cash_session_id
+        llega al RPC como el argumento TRAILING (7º)."""
+        from backend.repositories.customer_account_repository import CustomerAccountRepository
+        rpc_result = json.dumps(PAYMENT_RECEIVED_RPC_RESULT)
+        mock_conn.fetchrow.return_value = {"result": rpc_result}
+        cash_session_id = "55555555-5555-5555-5555-555555555555"
+
+        repo = CustomerAccountRepository(mock_conn)
+        await repo.register_payment_received(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=CLIENT_ID,
+            amount=400.0,
+            cash_session_id=cash_session_id,
+        )
+
+        call = mock_conn.fetchrow.call_args
+        assert "rpc_register_payment_received" in call[0][0]
+        assert call[0][-1] == cash_session_id
+
+    @pytest.mark.asyncio
+    async def test_register_payment_received_without_cash_session_passes_none(self, mock_conn):
+        """caja-compras-cobranzas (D2): contrato retrocompatible — sin
+        cash_session_id, el RPC recibe NULL en el trailing (no-op)."""
+        from backend.repositories.customer_account_repository import CustomerAccountRepository
+        rpc_result = json.dumps(PAYMENT_RECEIVED_RPC_RESULT)
+        mock_conn.fetchrow.return_value = {"result": rpc_result}
+
+        repo = CustomerAccountRepository(mock_conn)
+        await repo.register_payment_received(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=CLIENT_ID,
+            amount=400.0,
+        )
+
+        call = mock_conn.fetchrow.call_args
+        assert call[0][-1] is None
+
+    @pytest.mark.asyncio
     async def test_get_account_selects_by_client_id(self, mock_conn):
         """get_account hace SELECT de customer_accounts filtrando por client_id."""
         from backend.repositories.customer_account_repository import CustomerAccountRepository
@@ -292,6 +331,43 @@ class TestSupplierAccountRepository:
         call_args = mock_conn.fetchrow.call_args[0][0]
         assert "rpc_register_payment_made" in call_args
         assert result["replayed"] is False
+
+    @pytest.mark.asyncio
+    async def test_register_payment_made_passes_cash_session_id_trailing(self, mock_conn):
+        """caja-compras-cobranzas (D5, task 8.2 RED->GREEN): espejo exacto
+        del cobro — cash_session_id trailing (7º arg)."""
+        from backend.repositories.supplier_account_repository import SupplierAccountRepository
+        rpc_result = json.dumps(PAYMENT_MADE_RPC_RESULT)
+        mock_conn.fetchrow.return_value = {"result": rpc_result}
+        cash_session_id = "55555555-5555-5555-5555-555555555555"
+
+        repo = SupplierAccountRepository(mock_conn)
+        await repo.register_payment_made(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=SUPPLIER_ID,
+            amount=400.0,
+            cash_session_id=cash_session_id,
+        )
+
+        call = mock_conn.fetchrow.call_args
+        assert "rpc_register_payment_made" in call[0][0]
+        assert call[0][-1] == cash_session_id
+
+    @pytest.mark.asyncio
+    async def test_register_payment_made_without_cash_session_passes_none(self, mock_conn):
+        from backend.repositories.supplier_account_repository import SupplierAccountRepository
+        rpc_result = json.dumps(PAYMENT_MADE_RPC_RESULT)
+        mock_conn.fetchrow.return_value = {"result": rpc_result}
+
+        repo = SupplierAccountRepository(mock_conn)
+        await repo.register_payment_made(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=SUPPLIER_ID,
+            amount=400.0,
+        )
+
+        call = mock_conn.fetchrow.call_args
+        assert call[0][-1] is None
 
     @pytest.mark.asyncio
     async def test_register_supplier_charge_calls_rpc(self, mock_conn):
@@ -434,6 +510,79 @@ class TestCustomerAccountService:
                 amount=Decimal("-50"),
             )
 
+    @pytest.mark.asyncio
+    async def test_register_payment_propagates_cash_session_id_to_repo(self):
+        """caja-compras-cobranzas (task 8.3 RED->GREEN): el service propaga
+        payload.cash_session_id al repositorio."""
+        from backend.services import customer_accounts as svc
+        from backend.schemas.customer_accounts import PaymentReceivedIn
+
+        mock_repo = AsyncMock()
+        mock_repo.register_payment_received.return_value = dict(PAYMENT_RECEIVED_RPC_RESULT)
+        cash_session_id = "55555555-5555-5555-5555-555555555555"
+
+        auth = self._make_auth("user")
+        payload = PaymentReceivedIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=uuid.UUID(CLIENT_ID),
+            amount=Decimal("400"),
+            cash_session_id=uuid.UUID(cash_session_id),
+        )
+
+        await svc.register_payment_received(mock_repo, auth, payload)
+
+        _, kwargs = mock_repo.register_payment_received.call_args
+        assert kwargs["cash_session_id"] == cash_session_id
+
+    @pytest.mark.asyncio
+    async def test_register_payment_without_cash_session_id_calls_repo_same_as_before(self):
+        """caja-compras-cobranzas (task 8.4 TRIANGULATE): un pago sin
+        cash_session_id produce EXACTAMENTE la misma llamada que antes del
+        change — contrato retrocompatible verificado por aserción sobre los
+        argumentos del mock, no por inspección."""
+        from backend.services import customer_accounts as svc
+        from backend.schemas.customer_accounts import PaymentReceivedIn
+
+        mock_repo = AsyncMock()
+        mock_repo.register_payment_received.return_value = dict(PAYMENT_RECEIVED_RPC_RESULT)
+
+        auth = self._make_auth("user")
+        payload = PaymentReceivedIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=uuid.UUID(CLIENT_ID),
+            amount=Decimal("400"),
+        )
+
+        await svc.register_payment_received(mock_repo, auth, payload)
+
+        _, kwargs = mock_repo.register_payment_received.call_args
+        assert kwargs == {
+            "idempotency_key": IDEMPOTENCY_KEY,
+            "client_id": CLIENT_ID,
+            "amount": 400.0,
+            "reference_sale_id": None,
+            "payment_method": "cash",
+            "bank_account_id": None,
+            "cash_session_id": None,
+        }
+
+    def test_payment_received_schema_rejects_cash_session_with_bank_method(self):
+        """caja-compras-cobranzas (task 8.1): defensa en profundidad — el
+        payload es incoherente si informa cash_session_id junto a un método
+        bancario. La autoridad real sigue siendo la RPC (P0422)."""
+        from backend.schemas.customer_accounts import PaymentReceivedIn
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PaymentReceivedIn(
+                idempotency_key=IDEMPOTENCY_KEY,
+                client_id=uuid.UUID(CLIENT_ID),
+                amount=Decimal("400"),
+                payment_method="transfer",
+                bank_account_id=uuid.UUID(ACCOUNT_ID),
+                cash_session_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+            )
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 4: Service — SupplierAccountService
@@ -514,6 +663,75 @@ class TestSupplierAccountService:
             await svc.register_payment_made(mock_repo, auth, payload)
 
         assert exc_info.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_register_payment_made_propagates_cash_session_id_to_repo(self):
+        """caja-compras-cobranzas (task 8.3 RED->GREEN): espejo exacto del
+        cobro."""
+        from backend.services import supplier_accounts as svc
+        from backend.schemas.supplier_accounts import PaymentMadeIn
+
+        mock_repo = AsyncMock()
+        mock_repo.register_payment_made.return_value = dict(PAYMENT_MADE_RPC_RESULT)
+        cash_session_id = "55555555-5555-5555-5555-555555555555"
+
+        auth = self._make_auth("user")
+        payload = PaymentMadeIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=uuid.UUID(SUPPLIER_ID),
+            amount=Decimal("400"),
+            cash_session_id=uuid.UUID(cash_session_id),
+        )
+
+        await svc.register_payment_made(mock_repo, auth, payload)
+
+        _, kwargs = mock_repo.register_payment_made.call_args
+        assert kwargs["cash_session_id"] == cash_session_id
+
+    @pytest.mark.asyncio
+    async def test_register_payment_made_without_cash_session_id_calls_repo_same_as_before(self):
+        """caja-compras-cobranzas (task 8.4 TRIANGULATE): contrato
+        retrocompatible — espejo exacto del cobro."""
+        from backend.services import supplier_accounts as svc
+        from backend.schemas.supplier_accounts import PaymentMadeIn
+
+        mock_repo = AsyncMock()
+        mock_repo.register_payment_made.return_value = dict(PAYMENT_MADE_RPC_RESULT)
+
+        auth = self._make_auth("user")
+        payload = PaymentMadeIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=uuid.UUID(SUPPLIER_ID),
+            amount=Decimal("400"),
+        )
+
+        await svc.register_payment_made(mock_repo, auth, payload)
+
+        _, kwargs = mock_repo.register_payment_made.call_args
+        assert kwargs == {
+            "idempotency_key": IDEMPOTENCY_KEY,
+            "supplier_id": SUPPLIER_ID,
+            "amount": 400.0,
+            "reference_purchase_id": None,
+            "payment_method": "cash",
+            "bank_account_id": None,
+            "cash_session_id": None,
+        }
+
+    def test_payment_made_schema_rejects_cash_session_with_bank_method(self):
+        """caja-compras-cobranzas (task 8.1): espejo exacto del cobro."""
+        from backend.schemas.supplier_accounts import PaymentMadeIn
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PaymentMadeIn(
+                idempotency_key=IDEMPOTENCY_KEY,
+                supplier_id=uuid.UUID(SUPPLIER_ID),
+                amount=Decimal("400"),
+                payment_method="transfer",
+                bank_account_id=uuid.UUID(ACCOUNT_ID),
+                cash_session_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

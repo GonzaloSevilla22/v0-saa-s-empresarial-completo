@@ -80,9 +80,17 @@ export const pythonClient = {
     return handleResponse<T>(response);
   },
 
-  async delete<T>(path: string): Promise<T> {
+  async delete<T>(path: string, body?: unknown): Promise<T> {
+    // cobranzas-reverso (task 12.1): DELETE con body opcional — la
+    // anulación de un cobro/pago acepta un motivo por body (D9: sin
+    // Idempotency-Key). `body` es opcional para no romper ninguno de los
+    // llamadores existentes, que nunca lo pasan.
     const headers = await getAuthHeaders();
-    const response = await fetch(`${BACKEND_URL as string}${path}`, { method: "DELETE", headers });
+    const response = await fetch(`${BACKEND_URL as string}${path}`, {
+      method: "DELETE",
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
     return handleResponse<T>(response);
   },
 };

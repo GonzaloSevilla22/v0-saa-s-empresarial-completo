@@ -44,6 +44,17 @@ const AMOUNTS_MISMATCH_ERROR =
   /amounts_mismatch(?::\s*Σ líneas \((-?[\d.]+)\) ≠ Σ movimientos \((-?[\d.]+)\))?/
 const PERIODO_INVALIDO_ERROR = /periodo_invalido/
 
+// cobranzas-reverso (task 11.4): errores propios de la anulación de un
+// cobro/pago. no_open_session_for_reversal (P0426) y payment_not_found
+// (P0404) los emiten las RPCs de reverso; journal_entry_original_not_found
+// (P0451) sólo puede llegar al usuario si el consumidor contable corre
+// SINCRÓNICO con el request (hoy no es el caso — es async por outbox), pero
+// se mapea igual por consistencia con el resto del vocabulario de errores
+// de la casa y por si un camino futuro lo expone.
+const NO_OPEN_SESSION_FOR_REVERSAL_ERROR = /no_open_session_for_reversal/
+const PAYMENT_NOT_FOUND_ERROR = /payment_not_found/
+const JOURNAL_ENTRY_ORIGINAL_NOT_FOUND_ERROR = /journal_entry_original_not_found/
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 
@@ -104,6 +115,27 @@ export function humanizeOperationError(
     return {
       message:
         "El período está invertido: la fecha «Desde» tiene que ser anterior o igual a «Hasta».",
+    }
+  }
+
+  if (NO_OPEN_SESSION_FOR_REVERSAL_ERROR.test(message)) {
+    return {
+      message:
+        "No se puede anular: la caja que registró este movimiento ya está cerrada. Abrí la caja para poder anularlo.",
+    }
+  }
+
+  if (PAYMENT_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "No se pudo anular: el cobro o pago ya no existe (puede que ya se haya anulado antes).",
+    }
+  }
+
+  if (JOURNAL_ENTRY_ORIGINAL_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "La anulación se registró, pero el asiento contable todavía no está listo para revertirse. Se completará solo en unos minutos.",
     }
   }
 

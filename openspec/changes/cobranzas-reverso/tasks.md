@@ -111,11 +111,11 @@
 
 ## 11. Frontend — librerías compartidas
 
-- [ ] 11.1 `lib/types.ts`: `CashMovementType` suma los dos tipos.
-- [ ] 11.2 `lib/ledger/cash-movement-meta.ts`: entradas para los dos tipos — etiquetas "Anulación de cobro" / "Anulación de pago", íconos, tonos semánticos, **familia "Reversas"** para los dos (D10).
-- [ ] 11.3 `lib/delete-compensation.ts`: `DeletableDocument` suma `"cobro"` y `"pago"`; `NO_OPEN_SESSION_BLOCKED_REASON` gana sus dos frases completas (no una plantilla con género interpolado); la rama de `hasCashMovement` distingue **salida** (cobro) de **ingreso** (pago).
-- [ ] 11.4 `lib/operation-errors.ts`: mensajes legibles para `P0426`, `P0404` y `P0451` en el contexto de anulación.
-- [ ] 11.5 Tests unitarios de las cuatro (el proyecto ya tiene `__tests__/lib/cash-movement-meta.test.ts` y `operation-errors.test.ts` — extenderlos, no duplicarlos).
+- [x] 11.1 `lib/types.ts`: `CashMovementType` suma los dos tipos.
+- [x] 11.2 `lib/ledger/cash-movement-meta.ts`: entradas para los dos tipos — etiquetas "Anulación de cobro" / "Anulación de pago", ícono propio (`Undo2`), tonos OPUESTOS (destructive/success), **familia "Reversas"** para los dos (D10).
+- [x] 11.3 `lib/delete-compensation.ts`: `DeletableDocument` suma `"cobro"` y `"pago"`; `NO_OPEN_SESSION_BLOCKED_REASON` gana sus dos frases completas (verbo "anular", no "borrar"); la rama de `hasCashMovement` distingue **salida** (cobro) de **ingreso** (pago, junto a gasto/compra); ítem propio de "reposición de deuda" (no reutiliza `hasAccountCharge`) y de "reversión del asiento contable" (D5: siempre, nunca diferido) para `document === "cobro" | "pago"`.
+- [x] 11.4 `lib/operation-errors.ts`: mensajes legibles para `no_open_session_for_reversal` (P0426), `payment_not_found` (P0404) y `journal_entry_original_not_found` (P0451).
+- [x] 11.5 Tests unitarios extendidos (no duplicados): `cash-movement-meta.test.ts` (11→13 tipos + 2 casos de tono opuesto), `operation-errors.test.ts` (+3 casos), `delete-operation-dialog.test.tsx` (+5 casos de `getDeleteCompensation` con `document="cobro"/"pago"`), `python-client.test.ts` (+2 casos del body opcional de `delete`). Extra: `components/shared/delete-operation-dialog.tsx` (compartido por venta/compra/gasto) ganó `actionVerb`/`actionVerbGerund`/`icon`/`reasonField` opcionales con defaults que preservan el comportamiento de los 3 consumidores existentes (8 tests preexistentes siguen en verde) — reutilizado por la superficie de anulación del grupo 13 en vez de duplicar el diálogo.
 
 ## 12. Frontend — hooks de datos
 

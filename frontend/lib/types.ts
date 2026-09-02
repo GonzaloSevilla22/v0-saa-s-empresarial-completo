@@ -182,6 +182,12 @@ export type CashMovementType =
   | "purchase_payment_reversal"
   | "payment_received"
   | "payment_made"
+  // cobranzas-reverso (D10): anulación de un cobro/pago de cuenta corriente.
+  // Familia "Reversas" (igual que las otras tres), pero SIGNO OPUESTO entre
+  // sí: anular un cobro saca plata del cajón (egreso), anular un pago la
+  // repone (ingreso) — ver backend/schemas/cash.py _INCOME_TYPES/_EXPENSE_TYPES.
+  | "payment_received_reversal"
+  | "payment_made_reversal"
   | "adjustment"
 
 /**

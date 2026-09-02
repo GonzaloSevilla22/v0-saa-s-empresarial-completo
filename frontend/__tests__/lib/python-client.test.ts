@@ -67,3 +67,36 @@ describe("pythonClient.post extra headers", () => {
     expect(init.headers["Idempotency-Key"]).toBeUndefined()
   })
 })
+
+// cobranzas-reverso (task 12.1): pythonClient.delete gana un body opcional
+// para la anulación de un cobro/pago (motivo opcional por body, D9).
+describe("pythonClient.delete optional body", () => {
+  let pythonClient: typeof import("@/lib/api/python-client").pythonClient
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "http://localhost:8000")
+    ;({ pythonClient } = await import("@/lib/api/python-client"))
+  })
+
+  it("sends no body when omitted (backward compatible con los 9 llamadores existentes)", async () => {
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ ok: true }))
+
+    await pythonClient.delete("/expenses/exp-1")
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.method).toBe("DELETE")
+    expect(init.body).toBeUndefined()
+  })
+
+  it("sends a JSON body when provided", async () => {
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ ok: true }))
+
+    await pythonClient.delete("/customer-accounts/payments/pay-1", { reason: "cobro duplicado" })
+
+    const [, init] = mockFetch.mock.calls[0]
+    expect(init.method).toBe("DELETE")
+    expect(JSON.parse(init.body)).toEqual({ reason: "cobro duplicado" })
+  })
+})

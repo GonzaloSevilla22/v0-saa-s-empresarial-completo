@@ -1,0 +1,156 @@
+> **Governance: MEDIA con tramo ALTO.** Los grupos 3, 4, 5 y 6 escriben dinero real en cuatro
+> libros. Cada uno lleva un **🛑 checkpoint** explícito: se para, se muestra lo hecho y se sigue
+> sólo con visto bueno. Los grupos 1, 2, 8-14 son autónomos.
+>
+> **TDD estricto** en backend y frontend: test que falla → mínimo código → triangular → refactor.
+> Nunca aserciones triviales. Los gates SQL exigen **control negativo** (§7.7).
+>
+> **Toda commit vía PR, jamás a `main`.** Rama: `opsx/cobranzas-reverso-apply`.
+
+> **Sign-off del PO (2026-09-02, "continua"):** las 5 OQs del design quedan resueltas
+> por su recomendación (default del proyecto cuando el PO no objeta, confirmado por
+> el "continua"): **OQ-1** el cobro/pago anulado se BORRA (no `voided_at`); **OQ-2**
+> motivo OPCIONAL pero visible en el diálogo y viaja al contra-movimiento de caja y
+> al payload del evento; **OQ-3** `is_account_writer` anula, igual que cobra; **OQ-4**
+> SIN ventana temporal — el molde `P0426` + sesión abierta actual ya produce el único
+> límite que importa; **OQ-5** `payment_method` NULL de las filas con documento
+> borrado se acepta (cosmético, ya pasa con los 7 pagos históricos).
+
+## 1. Checkpoint de integridad de función (ANTES de escribir una línea de SQL)
+
+- [x] 1.1 Re-capturar `md5(pg_get_functiondef(oid))` + `length` de las 12 funciones de `baseline/prod_measurements_2026-09-02.md` (la query está en el archivo) vía `mcp__supabase__execute_sql`.
+- [x] 1.2 Comparar contra la tabla del baseline. **12/12 hashes COINCIDEN EXACTO** contra el baseline — cero divergencia. PASA.
+- [x] 1.3 Volcados a `baseline/live_functiondefs/`: `_journal_post_from_event.sql`, `rpc_process_outbox_dispatch.sql` (las dos que se reescriben) y `rpc_delete_expense.sql` (el molde). La reescritura partió de esos archivos.
+- [x] 1.4 Re-verificada la correlativa: `MAX(version)` en prod = `20261018000001` (267 filas), idéntico al último archivo de `origin/main` tras `git fetch` (`249bfbd`, sin ninguna rama `opsx/*-apply` de otro change pendiente de merge). `20261019000001` confirmado, sin renumerar.
+- [x] 1.5 Estado de datos re-medido 2026-09-02, **idéntico al baseline**: 6 `payments_received` + 1 `payments_made`, 0/7 con `payment_method`, 6/6 y 1/1 con asiento `posted`, 6 `bank_movements`, 0 `cash_movements` de tipo pago, 75 `cash_movements` totales, 4 sesiones abiertas. Nada cambió materialmente.
+
+## 2. Migración — CHECKs de los tres ledgers (idempotente, aditiva)
+
+- [x] 2.1 Creado `supabase/migrations/20261019000001_cobranzas_reverso.sql` con cabecera que documenta procedencia, hashes del baseline y el número de change.
+- [x] 2.2 `cash_movements.movement_type`: `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` con los **13** tipos. Idempotente (verificado con reaplicación directa vía psql — sin error, mismo resultado).
+- [x] 2.3 `customer_account_movements.movement_type`: ampliado a **5**.
+- [x] 2.4 `supplier_account_movements.movement_type`: ampliado a **5**.
+- [x] 2.5 Verificado con `supabase db reset` (aplica desde cero, sin filas previas que invalidar) + reaplicación directa del archivo vía `psql` sobre la DB ya poblada: sin error, `ALTER TABLE` × 6 no-op en el segundo pase.
+
+## 3. 🛑 Migración — `rpc_reverse_payment_received`
+
+- [x] 3.1 RPC `SECURITY DEFINER`, `SET search_path = public`, firma `(p_payment_id uuid, p_reason text DEFAULT NULL) RETURNS jsonb`, calcada de `rpc_delete_expense`.
+- [x] 3.2 Guards en orden: `auth.uid()` no nulo → `current_account_ids()` (`P0403`) → `is_account_writer` (`P0401`) → resolver el pago con `WHERE id = p_payment_id AND account_id = v_account_id`, `P0404` si no aparece, mensaje que no revela tenencia ajena (D8).
+- [x] 3.3 Cuenta corriente: `c30_register_customer_account_movement(v_payment.customer_account_id, v_payment.amount, 'payment_received_reversal', p_payment_id)`. Sin traducción `P0409`→`P0425` — comentario D6 en el cuerpo.
+- [x] 3.4 Caja: bloque calcado del molde, guard `v_cash_amount <> 0`, sesión abierta más reciente de la misma caja, `P0426` si no hay, `c28_register_cash_movement(v_open_session_id, -v_cash_amount, 'payment_received_reversal', p_payment_id, p_reason)`.
+- [x] 3.5 Banco: loop sobre `bank_movements` con `source_doc_type='payment_received'`, inversión `transfer_in↔transfer_out`, `_register_bank_movement`, descripción con motivo.
+- [x] 3.6 Evento: `INSERT` plano sin `EXCEPTION` de `PaymentReceivedReversed`, `aggregate_type='CustomerAccount'`, payload completo.
+- [x] 3.7 `DELETE FROM payments_received ...` al final, después de las cuatro compensaciones.
+- [x] 3.8 `RETURN jsonb` con `payment_id`, `reversed=true`, `account_movement_id`, `cash_reversal_id`, `bank_reversals`.
+- [x] 3.9 `REVOKE ALL ... FROM PUBLIC, anon, authenticated` + `GRANT EXECUTE TO authenticated` en la misma migración. Verificado: `anon_exec=false`, `auth_exec=true`.
+- [x] 3.10 🛑 Checkpoint: SQL completo escrito, aplicado y verificado contra el molde antes de seguir con el grupo 4.
+
+## 4. 🛑 Migración — `rpc_reverse_payment_made` (espejo)
+
+- [x] 4.1 Espejo exacto del grupo 3 sobre `payments_made` / `supplier_account_movements` / `supplier_accounts`, `payment_made_reversal`, `source_doc_type='payment_made'`, evento `PaymentMadeReversed` (`aggregate_type='SupplierAccount'`).
+- [x] 4.2 Signo: movimiento de caja del pago es negativo, reversa positiva. Guard sigue siendo `<> 0` (comentado en el cuerpo).
+- [x] 4.3 `REVOKE`/`GRANT` igual que 3.9. Verificado: `anon_exec=false`, `auth_exec=true`.
+- [x] 4.4 🛑 Checkpoint: diff contra el grupo 3 confirmado — única diferencia tabla/tipo/signo/evento.
+
+## 5. 🛑 Migración — dos ramas en `_journal_post_from_event`
+
+- [x] 5.1 Partido del volcado vivo de 1.3, copiado el archivo entero y editado (no reescrito de memoria).
+- [x] 5.2 Filtro `v_event_type NOT IN (...)` ampliado de 9 a 11 tipos.
+- [x] 5.3 Rama `PaymentReceivedReversed` calcada de `PurchaseDeleted`: localiza por `(CustomerAccount, payment_id, posted, account_id)`; `P0451` si no aparece; contra-entry con `reversal_of`; líneas invertidas.
+- [x] 5.4 Rama `PaymentMadeReversed`: idéntica con `SupplierAccount`.
+- [x] 5.5 Verificado: el ASSERT de balance genérico (`v_event_type != 'CreditNoteIssued'`) cubre las dos ramas nuevas sin código adicional.
+- [x] 5.6 Diff contra el volcado vivo: las 9 ramas preexistentes quedaron byte a byte (verificado por lectura del archivo final contra el baseline).
+- [x] 5.7 🛑 Checkpoint: diff mostrado y aplicado sin error en `supabase db reset`.
+
+## 6. 🛑 Migración — filtro del Consumer 3 en `rpc_process_outbox_dispatch`
+
+- [x] 6.1 Partido del volcado vivo de 1.3. `IF v_event.event_type IN (...)` del Consumer 3 ampliado de 9 a 11 tipos, mismo conjunto que 5.2.
+- [x] 6.2 Comentario de cabecera actualizado.
+- [x] 6.3 Diff contra el volcado: Consumers 1, 2 y 4 y el aislamiento por evento quedaron byte a byte.
+- [x] 6.4 🛑 Checkpoint: diff mostrado y aplicado sin error.
+
+## 7. Gates SQL
+
+- [ ] 7.1 `supabase/tests/test_cobranzas_reverso.sql` — nuevo, con el patrón de los gates existentes.
+- [ ] 7.2 Caso: anular un cobro con cuenta corriente + caja + banco + asiento → los cuatro contra-movimientos existen, el documento no, el saldo volvió al valor previo.
+- [ ] 7.3 Caso: anular un cobro **sin** movimiento de caja con todas las cajas cerradas → procede (no exige sesión).
+- [ ] 7.4 Caso: anular un cobro **con** movimiento de caja y sin sesión abierta → `P0426`, y **nada** cambió (los cuatro libros intactos + documento vivo).
+- [ ] 7.5 Caso: anular dos veces → el segundo intento `P0404`, sin segundo contra-movimiento.
+- [ ] 7.6 Caso: anular un pago de otro tenant → `P0404`, sin efectos en ninguna de las dos cuentas.
+- [ ] 7.7 **Control negativo obligatorio** (lección literal de `gastos-forma-pago`): inyectar a mano un movimiento de caja con el signo *contrario* al esperado para su tipo y verificar que la anulación **igual** lo compensa. Un test que sólo assertara "no hubo error" quedaría verde por omisión — este caso es el que prueba que el guard es `<> 0` y no un guard de signo.
+- [ ] 7.8 Caso: anular el cobro que dejó el saldo en 0 → procede, saldo vuelve al original, **no** aparece `P0425` (D6).
+- [ ] 7.9 Caso contable: procesar el evento de anulación **antes** que el del alta → `P0451` y evento pendiente; procesarlo después → contra-asiento correcto y original `reversed`.
+- [ ] 7.10 **Gate nuevo del invariante de los dos filtros** (D13): extraer de los cuerpos vivos los conjuntos de `event_type` de `_journal_post_from_event` y del Consumer 3, compararlos, y fallar nombrando el tipo que sobra o falta. Verificarlo con una matriz de evasión ejecutada: introducir a propósito una divergencia y comprobar que el gate la detecta (lección de `tenancy-guard-caja-outbox`: un detector de texto sin matriz de evasión no es un gate).
+- [ ] 7.11 Extender `test_cash_movement_types.sql` con los dos tipos nuevos y sus signos opuestos.
+- [ ] 7.12 Verificar que `test_function_acl_gate.sql` barre las dos RPCs nuevas y las da por conformes; si el barrido es por convención de nombre, confirmar que `rpc_reverse_payment_*` entra.
+- [ ] 7.13 Correr **todos** los gates SQL existentes: ninguno puede romperse por los CHECK ampliados ni por las ramas nuevas (atención especial a `test_delete_guard_ledgers.sql`, `test_asiento_venta_formulario.sql`, `test_outbox_single_dispatcher.sql`, `test_kpis.sql`).
+
+## 8. Backend — schemas
+
+- [ ] 8.1 `backend/schemas/cash.py`: `MovementType` suma `payment_received_reversal` y `payment_made_reversal`; `_EXPENSE_TYPES` suma el primero, `_INCOME_TYPES` el segundo (D10 — atención: signos opuestos).
+- [ ] 8.2 `backend/schemas/customer_accounts.py`: `AccountMovementOut` gana `is_reversible: bool` e `is_reversal_blocked: bool`; nuevo `PaymentReversalOut` (`payment_id`, `reversed`, `account_movement_id`, `cash_reversal_id`, `bank_reversals`); nuevo `PaymentReversalIn` con `reason: str | None`.
+- [ ] 8.3 `backend/schemas/supplier_accounts.py`: espejo exacto.
+- [ ] 8.4 Tests de schema: los dos derivados default a `False`; el signo de los dos tipos nuevos se valida en el camino de la API.
+
+## 9. Backend — repositories
+
+- [ ] 9.1 `customer_account_repository.py`: `reverse_payment_received(payment_id, reason)` → `SELECT public.rpc_reverse_payment_received($1, $2)`. Filtro explícito por `account_id` donde aplique (regla dura: RLS es red, no guard único).
+- [ ] 9.2 `customer_account_repository.py`: `list_movements_page` suma los dos `EXISTS` derivados —documento vivo, y caja-sin-sesión-abierta— con el **mismo predicado** que evalúa la RPC (D12). No columnas denormalizadas.
+- [ ] 9.3 `supplier_account_repository.py`: espejo de 9.1 y 9.2.
+- [ ] 9.4 Tests de repository con `asyncpg` mockeado, verificando la SQL emitida y los parámetros (incluido que `account_id` viaja explícito).
+
+## 10. Backend — services y routers
+
+- [ ] 10.1 `services/customer_accounts.py`: `reverse_payment_received(repo, auth, payment_id, reason)` con el guard de rol; **cero lógica en el router**.
+- [ ] 10.2 `services/supplier_accounts.py`: espejo.
+- [ ] 10.3 `routers/customer_accounts.py`: `DELETE /customer-accounts/payments/{payment_id}`, `response_model=PaymentReversalOut`, motivo por body opcional.
+- [ ] 10.4 `routers/supplier_accounts.py`: `DELETE /supplier-accounts/payments/{payment_id}`.
+- [ ] 10.5 `core/errors.py`: verificar que `P0451` está mapeado (409 o 422 según la familia); **no** agregar ERRCODEs nuevos — `P0401/P0404/P0409/P0426` ya existen.
+- [ ] 10.6 Tests de router/service: 404 por pago ajeno, 409 por `P0426`, 200 con el cuerpo esperado, y que el guard de rol se evalúa **antes** de llamar al repo.
+- [ ] 10.7 Coverage backend ≥ 87 % (umbral de CI) y suite completa en verde.
+
+## 11. Frontend — librerías compartidas
+
+- [ ] 11.1 `lib/types.ts`: `CashMovementType` suma los dos tipos.
+- [ ] 11.2 `lib/ledger/cash-movement-meta.ts`: entradas para los dos tipos — etiquetas "Anulación de cobro" / "Anulación de pago", íconos, tonos semánticos, **familia "Reversas"** para los dos (D10).
+- [ ] 11.3 `lib/delete-compensation.ts`: `DeletableDocument` suma `"cobro"` y `"pago"`; `NO_OPEN_SESSION_BLOCKED_REASON` gana sus dos frases completas (no una plantilla con género interpolado); la rama de `hasCashMovement` distingue **salida** (cobro) de **ingreso** (pago).
+- [ ] 11.4 `lib/operation-errors.ts`: mensajes legibles para `P0426`, `P0404` y `P0451` en el contexto de anulación.
+- [ ] 11.5 Tests unitarios de las cuatro (el proyecto ya tiene `__tests__/lib/cash-movement-meta.test.ts` y `operation-errors.test.ts` — extenderlos, no duplicarlos).
+
+## 12. Frontend — hooks de datos
+
+- [ ] 12.1 `hooks/data/use-customer-account.ts`: mutación `useReversePaymentReceived`; el tipo del movimiento suma los dos derivados nuevos.
+- [ ] 12.2 `hooks/data/use-supplier-account.ts`: espejo.
+- [ ] 12.3 **Invalidaciones**: las dos mutaciones invalidan cuenta corriente, **caja**, **banco** y **KPIs del dashboard** con las claves que ya existen en `lib/query-keys.ts`. (Lección de `compras-proveedor-cuenta-corriente`: invalidar en TODAS las mutaciones que postean en libros.)
+- [ ] 12.4 Tests de hook con `vi.hoisted` para los mocks; correr con `pnpm vitest run <archivo>` (nunca pipeando a `tail`, que enmascara el exit code).
+
+## 13. Frontend — superficie
+
+- [ ] 13.1 `components/customer-accounts/CustomerAccountHistory.tsx`: acción "Anular" por fila, visible sólo con `isReversible`; deshabilitada con motivo cuando `isReversalBlocked`; etiquetas e íconos para el tipo `payment_received_reversal` en `MOVEMENT_LABELS` / `MOVEMENT_ICONS` (hoy son `Record` cerrados sobre 4 tipos — agregar el quinto o el build rompe).
+- [ ] 13.2 `components/supplier-accounts/SupplierAccountHistory.tsx`: espejo, con `payment_made_reversal`.
+- [ ] 13.3 Diálogo de confirmación que enumera las compensaciones vía `getDeleteCompensation({...}, party, "cobro"|"pago")` y nombra el efecto sobre la deuda ("se repondrá la deuda del cliente por $X"), con campo de motivo opcional.
+- [ ] 13.4 Verificar que el signo del ledger se sigue mostrando en valor absoluto con el signo puesto por el componente (el bug del PO de 2026-08-21, "Cobro −$-58.750,00", ya está corregido — no reintroducirlo con el tipo nuevo).
+- [ ] 13.5 `/caja`: comprobar que el historial muestra los dos tipos nuevos con su familia de filtro correcta (el meta de 11.2 alcanza; verificarlo en pantalla, no asumirlo).
+- [ ] 13.6 Verificación visual: capturas en **desktop y móvil × tema claro y oscuro** (4 combinaciones) del historial con la acción, de la acción bloqueada y del diálogo. Contraste medido ≥ 4,5:1.
+- [ ] 13.7 Revisión de accesibilidad: la acción de fila tiene nombre accesible, el diálogo tiene foco atrapado y el motivo del bloqueo llega a lectores de pantalla (no sólo como `title`).
+- [ ] 13.8 `pnpm tsc --noEmit` sin errores nuevos y suite de frontend en verde.
+
+## 14. Verificación, PR y cierre
+
+- [ ] 14.1 Suite completa: backend (`pytest`, coverage ≥ 87 %), frontend (`vitest`), `tsc`, gates SQL.
+- [ ] 14.2 Revisión adversarial del diff propio antes del PR, con foco en: el guard `<> 0` en las dos RPCs, que las 9 ramas contables preexistentes no cambiaron, que los dos filtros de `event_type` coinciden, y que ningún `REVOKE` quedó sin su `GRANT`.
+- [ ] 14.3 PR contra `main` con descripción que enumere los cuatro libros afectados y el sign-off pedido. **Nunca commitear a `main` directo.**
+- [ ] 14.4 Esperar checks verdes (incluido `KPI_Validation`) y mergear.
+- [ ] 14.5 **Verificación post-merge en prod**: `MAX(version)` = la correlativa nueva; los tres `CHECK` con sus tipos nuevos; ACLs de las 2 RPCs (`anon` sin `EXECUTE`); cuerpos vivos de `_journal_post_from_event` y `rpc_process_outbox_dispatch` con los 11 tipos en ambos filtros.
+- [ ] 14.6 **Humo real en prod**: registrar un cobro de prueba en efectivo con caja abierta, verificar los cuatro libros, anularlo, y verificar los cuatro contra-movimientos + que `collected_revenue` del dashboard volvió a su valor previo. Limpiar los datos de prueba dejando el rastro documentado.
+- [ ] 14.7 Confirmar que el `pg_cron` del relay procesó los dos eventos de anulación y que los asientos quedaron `reversed` + contra-asiento posteado.
+- [ ] 14.8 Actualizar `CHANGES.md`: entrada propia del change, corregir el puntero de "próximo change recomendado", y dar de baja `cobranzas-reverso` de la lista de candidatos.
+- [ ] 14.9 Anotar en `CHANGES.md` los hallazgos laterales que este change deja abiertos (§15).
+- [ ] 14.10 `openspec archive cobranzas-reverso` y verificar que los requirements sincronizados están en **HEAD**, no sólo en el árbol de trabajo (gotcha conocido del archive).
+
+## 15. Hallazgos laterales a registrar (no se arreglan acá)
+
+- [ ] 15.1 **`transactional-outbox/spec.md` tiene dos requirements con el nombre malformado `### MODIFIED Requirement: ...`** — el prefijo del delta quedó horneado en el nombre durante un archive anterior. Además, su enumeración del Consumer 3 lista **7** tipos y quedó desactualizada cuando `delete-guard-ledgers` agregó `SaleOperationDeleted` y `PurchaseDeleted`: la spec afirma algo falso y **ningún gate lo detecta**. Este change lo neutraliza declarando el conjunto canónico en un requirement nuevo, pero no corrige los headers ni la enumeración vieja. Anotar como candidato barato.
+- [ ] 15.2 **`payment_method` es NULL en los 7 pagos históricos.** El historial de cuenta corriente lo resuelve por `LEFT JOIN`, así que ya lo muestra vacío para ellos, y tras una anulación lo mostrará vacío también para el cobro anulado (OQ-5). Cosmético; anotar.
+- [ ] 15.3 **`bank_movements` no tiene tipo de reversa para `card_settlement`** (D11): la reversa conserva el tipo con importe negativo. Es el comportamiento del molde, pero merece revisarse cuando la conciliación bancaria trate liquidaciones de tarjeta con más detalle.
+- [ ] 15.4 Registrar en engram (`topic_key: "opsx/cobranzas-reverso/apply"`) los hallazgos reales del apply, especialmente cualquier divergencia detectada en el checkpoint 1.2.

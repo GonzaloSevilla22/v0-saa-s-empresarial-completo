@@ -3,9 +3,7 @@
 ## Purpose
 
 Comparación de métricas entre dos períodos: RPC `rpc_period_comparison`, Edge Function `ai-comparativo` para análisis IA de variaciones, y la página `/reportes/comparativo` con KPI cards, chart agrupado y panel de insight. Extendido con las invariantes RN-D1/D5 del Modelo V3 (§8): revenue = total de línea menos NC del período, conteo de operaciones unificado (`COUNT(DISTINCT COALESCE(operation_id, id))`) y bordes de período en fecha local del tenant — ver capability `reporting-invariants`.
-
 ## Requirements
-
 ### Requirement: RPC de comparación de métricas entre dos períodos
 
 El sistema SHALL proveer el RPC `rpc_period_comparison(p_a_start DATE, p_a_end DATE, p_b_start DATE, p_b_end DATE)` que calcula para la cuenta activa, en cada período: `period_a_revenue`, `period_a_expenses`, `period_a_purchases`, `period_a_operations`, y los equivalentes `period_b_*`, más los deltas porcentuales `revenue_delta_pct`, `expenses_delta_pct`, `purchases_delta_pct`, `operations_delta_pct`. El RPC deriva el `account_id` internamente desde `current_account_ids()` — no acepta parámetros de identidad. Reglas de cálculo (RN-D):
@@ -90,11 +88,13 @@ El sistema SHALL proveer la Edge Function `ai-comparativo` que: verifica cuota I
 ### Requirement: Página `/reportes/comparativo` con KPIs, chart y análisis IA
 
 El sistema SHALL proveer la página `/reportes/comparativo` con:
-- Selectores de fecha para dos períodos (Período A y Período B); por defecto: Período A = mes actual, Período B = mes anterior; el rango máximo seleccionable respeta `historyDays` del plan.
-- Cuatro cards de KPI (ventas, gastos, compras, operaciones): valor en Período A, valor en Período B, delta % con badge verde/rojo.
+- Selectores de fecha para dos períodos (Período A y Período B); por defecto: **Período A = mes anterior (la base de comparación), Período B = mes en curso**, respetando el contrato de `rpc_period_comparison` que calcula los deltas como `(B − A) / A` con A como base; el rango máximo seleccionable respeta `historyDays` del plan.
+- Cuatro cards de KPI (ventas, gastos, compras, operaciones): valor en Período A, valor en Período B, delta % con badge verde/rojo. El badge SHALL estar rotulado con qué mide (la evolución del Período A al Período B), de modo que el usuario sepa la dirección temporal del porcentaje.
 - BarChart agrupado (Recharts) con dos barras por métrica (una por período).
 - Panel con el último insight IA (type=`'comparativo'`) y botón "Analizar con IA".
 - Gating: solo accesible para `'avanzado'` y `'pro'`; para planes inferiores muestra `PlanGateFallback`.
+
+El signo y el color del delta SHALL describir la evolución real del negocio del período más viejo al más nuevo: métricas que suben entre A y B muestran signo positivo (verde para ventas; rojo para gastos y compras, que invierten el semáforo).
 
 #### Scenario: Usuario avanzado ve el reporte comparativo completo
 
@@ -108,11 +108,17 @@ El sistema SHALL proveer la página `/reportes/comparativo` con:
 - **WHEN** navega a `/reportes/comparativo`
 - **THEN** ve `PlanGateFallback` con CTA al plan Avanzado y no accede al contenido del reporte
 
+#### Scenario: Con los defaults, gastos que subieron se muestran en rojo con signo positivo
+
+- **GIVEN** un tenant cuyos gastos del mes en curso superan a los del mes anterior
+- **WHEN** carga la página sin tocar los selectores
+- **THEN** el badge de gastos muestra un porcentaje positivo en rojo (subieron), nunca un porcentaje negativo en verde
+
 #### Scenario: Delta positivo en ventas se muestra en verde, negativo en rojo
 
-- **GIVEN** un usuario avanzado con período B con más ventas que período A
+- **GIVEN** un usuario avanzado con el período nuevo (B) con más ventas que el período base (A)
 - **WHEN** carga la página
-- **THEN** el badge de delta de ventas es verde con el valor `+X%`; si período B tiene menos ventas, el badge es rojo con `-X%`
+- **THEN** el badge de delta de ventas es verde con el valor `+X%`; si el período nuevo tiene menos ventas, el badge es rojo con `-X%`
 
 #### Scenario: Delta NULL se muestra como "N/A"
 
@@ -131,3 +137,4 @@ El sistema SHALL proveer la página `/reportes/comparativo` con:
 - **GIVEN** el usuario selecciona períodos que comparten días
 - **WHEN** carga los datos
 - **THEN** se muestra un banner de advertencia indicando que los períodos se superponen
+

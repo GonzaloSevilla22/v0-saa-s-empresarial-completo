@@ -57,6 +57,8 @@ Condicionar al signo dejaría pasar sin compensar —y **sin levantar ningún er
 
 El predicado de existencia SHALL filtrar por el tipo de movimiento del **registro original** del pago, no por el de su reversa, de modo que una reversa no pueda auto-compensarse.
 
+Esta independencia SHALL sostenerse **con independencia de cómo el documento persista su forma de pago**. En particular, la migración de la forma de pago desde una etiqueta de texto hacia una referencia al catálogo NO SHALL alterar el comportamiento de la anulación: las funciones de anulación NO SHALL leer la columna de forma de pago del documento por ningún camino, ni para decidir qué libro compensar, ni para calcular importes, ni para localizar el asiento contable a revertir. Un cambio en la persistencia de la forma de pago que exigiera modificar una función de anulación sería, por sí mismo, evidencia de que este requirement dejó de cumplirse.
+
 #### Scenario: Pago sin forma de pago registrada compensa igual
 
 - **GIVEN** un pago anterior a la persistencia de la forma de pago, con movimiento bancario asociado
@@ -75,6 +77,26 @@ El predicado de existencia SHALL filtrar por el tipo de movimiento del **registr
 - **GIVEN** un pago bancario, o un pago en efectivo registrado sin impacto en caja
 - **WHEN** se anula
 - **THEN** la pata de caja no se dispara y la anulación no exige ninguna sesión de caja
+
+#### Scenario: Un pago imputado a una forma de pago del catálogo se anula igual
+
+- **GIVEN** un cobro en efectivo imputado a una forma de pago del catálogo, con movimiento de caja registrado y asiento contable posteado
+- **WHEN** se anula
+- **THEN** los cuatro libros se compensan igual que para un pago sin forma de pago imputada: contra-movimiento en la cuenta corriente, contra-movimiento de caja en la sesión abierta, espejo bancario si lo hubiera, y contra-asiento
+- **AND** el resultado es idéntico al de anular un cobro sin imputar del mismo importe
+
+#### Scenario: Un pago imputado a una forma de pago bancaria del catálogo compensa el banco
+
+- **GIVEN** un cobro imputado a una forma de pago de `kind = 'wallet'`, con su movimiento bancario de ingreso
+- **WHEN** se anula
+- **THEN** se registra el movimiento bancario espejo con la dirección invertida sobre la misma cuenta
+- **AND** el tipo de movimiento invertido se resuelve por el tipo del movimiento original, no por la forma de pago del documento
+
+#### Scenario: Las funciones de anulación no referencian la forma de pago del documento
+
+- **WHEN** se inspecciona el cuerpo vivo de las funciones de anulación de cobro y de pago
+- **THEN** ninguna referencia la columna de forma de pago de `payments_received` ni de `payments_made`
+- **AND** las cuatro patas de compensación se resuelven por la existencia de movimientos y por los campos de importe y de parte del documento
 
 ### Requirement: La compensación de caja va a la sesión abierta actual y exige que exista
 

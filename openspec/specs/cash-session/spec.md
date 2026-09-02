@@ -11,7 +11,9 @@ El sistema SHALL alimentar `cash_movements` de tipo `sale` desde el camino del m
 
 Para los caminos que registran un **documento con fecha y sucursal propias** —formulario de venta, gasto y compra— el servidor SHALL honrar el opt-in sólo si se cumplen simultáneamente las tres condiciones siguientes: la forma de pago imputada tiene `kind = 'cash'`, existe una sesión de caja `open` en la sucursal efectiva del documento, y la fecha del documento es el día de hoy en `America/Argentina/Mendoza`.
 
-Para el **cobro y el pago de cuenta corriente** el servidor SHALL honrar el opt-in si se cumplen las dos condiciones aplicables: el método de pago informado es efectivo, y la sesión de caja informada está `open` y pertenece a la cuenta. La condición de fecha NO SHALL exigirse, y la de sucursal NO SHALL exigirse como coincidencia: un cobro no tiene fecha ni sucursal propias —se registra en el instante en que ocurre y su sucursal es, por construcción, la de la caja elegida—, de modo que ambas condiciones son verdaderas por diseño y especificarlas como guards sugeriría un caso retroactivo que el modelo no admite. La pertenencia de la sesión a la cuenta SHALL verificarse igual, y la aporta el punto de paso obligado del registro de movimientos de caja.
+Para el **cobro y el pago de cuenta corriente** el servidor SHALL honrar el opt-in si se cumplen las dos condiciones aplicables: **la forma de pago imputada tiene `kind = 'cash'`**, y la sesión de caja informada está `open` y pertenece a la cuenta. La condición de fecha NO SHALL exigirse, y la de sucursal NO SHALL exigirse como coincidencia: un cobro no tiene fecha ni sucursal propias —se registra en el instante en que ocurre y su sucursal es, por construcción, la de la caja elegida—, de modo que ambas condiciones son verdaderas por diseño y especificarlas como guards sugeriría un caso retroactivo que el modelo no admite. La pertenencia de la sesión a la cuenta SHALL verificarse igual, y la aporta el punto de paso obligado del registro de movimientos de caja.
+
+La condición de efectivo SHALL evaluarse, **en los cuatro caminos por igual**, sobre el `kind` derivado del catálogo de formas de pago a partir del identificador imputado al documento, y NO SHALL evaluarse sobre ninguna etiqueta de texto recibida del cliente ni sobre el valor de un control de selección de la interfaz. Esta uniformidad es normativa: el cobro y el pago de cuenta corriente eran los últimos caminos que resolvían la condición contra una taxonomía de texto propia, y mientras lo hicieran la misma pregunta —«¿esto es efectivo?»— tenía dos implementaciones distintas que podían divergir sin que nada lo detectara.
 
 En ausencia del opt-in, ningún camino distinto del mostrador SHALL generar `cash_movements`, aunque la operación esté imputada a efectivo. Todas las condiciones SHALL verificarse en el servidor y NO SHALL delegarse en la interfaz: una solicitud que informe una sesión de caja sin cumplirlas SHALL fallar en vez de registrar el movimiento.
 
@@ -55,14 +57,14 @@ La asimetría entre automático y opt-in es deliberada y SHALL declararse al usu
 #### Scenario: Cobro de cuenta corriente en efectivo con opt-in suma al arqueo
 
 - **GIVEN** una sesión de caja abierta con `opening_balance = 5000` y sin movimientos
-- **WHEN** se registra un cobro de 1200 en efectivo sobre la cuenta corriente de un cliente, confirmando el impacto en caja
+- **WHEN** se registra un cobro de 1200 imputado a una forma de pago de `kind = 'cash'` sobre la cuenta corriente de un cliente, confirmando el impacto en caja
 - **AND** se cierra la sesión declarando `counted_balance = 6200`
 - **THEN** `expected_balance = 6200` y `difference = 0`
 
 #### Scenario: Pago a proveedor en efectivo con opt-in resta del arqueo
 
 - **GIVEN** una sesión de caja abierta con `opening_balance = 5000` y sin movimientos
-- **WHEN** se registra un pago de 1200 en efectivo a un proveedor, confirmando el impacto en caja
+- **WHEN** se registra un pago de 1200 imputado a una forma de pago de `kind = 'cash'` a un proveedor, confirmando el impacto en caja
 - **AND** se cierra la sesión declarando `counted_balance = 3800`
 - **THEN** `expected_balance = 3800` y `difference = 0`
 
@@ -73,6 +75,18 @@ La asimetría entre automático y opt-in es deliberada y SHALL declararse al usu
 - **AND** se cierra la sesión declarando `counted_balance = 5000`
 - **THEN** `expected_balance = 5000` y `difference = 0`
 - **AND** el saldo del cliente igual se redujo en 1200
+
+#### Scenario: El cobro con forma de pago de efectivo renombrada suma igual al arqueo
+
+- **GIVEN** una sesión de caja abierta y una forma de pago de `kind = 'cash'` que el usuario renombró a "Caja chica"
+- **WHEN** se registra un cobro imputado a ella, confirmando el impacto en caja
+- **THEN** el movimiento de caja se registra igual, porque la condición se evalúa sobre el `kind` derivado del catálogo y no sobre el nombre
+
+#### Scenario: El cobro imputado a una forma de pago no efectiva no puede optar por caja
+
+- **GIVEN** una sesión de caja abierta
+- **WHEN** se registra un cobro imputado a una forma de pago de `kind` bancario informando esa sesión
+- **THEN** la operación falla con `cash_optin_requires_cash_kind` y no se registra ni el cobro ni ningún movimiento
 
 #### Scenario: El cobro no exige que la fecha sea hoy
 
@@ -97,29 +111,6 @@ La asimetría entre automático y opt-in es deliberada y SHALL declararse al usu
 - **GIVEN** una sucursal sin ninguna sesión de caja `open`
 - **WHEN** se registra hoy desde el formulario una venta imputada a `kind = 'cash'` informando un identificador de sesión
 - **THEN** la operación falla con `cash_optin_requires_open_session` y no se crea ninguna venta ni movimiento de caja
-
-#### Scenario: El opt-in con una forma de pago que no es efectivo es rechazado
-
-- **GIVEN** una sesión de caja abierta en la sucursal
-- **WHEN** se registra hoy desde el formulario una venta imputada a una forma de pago de `kind = 'transfer'` informando la sesión de caja
-- **THEN** la operación falla con `cash_optin_requires_cash_kind` y no se crea ninguna venta ni movimiento de caja
-
-#### Scenario: El opt-in exige que la sesión sea de la sucursal de la venta
-
-- **GIVEN** dos sucursales, cada una con su caja, y una sesión abierta sólo en la sucursal B
-- **WHEN** se registra hoy desde el formulario una venta en la sucursal A imputada a `kind = 'cash'` informando la sesión de la sucursal B
-- **THEN** la operación falla con `cash_optin_requires_open_session` y el arqueo de la sesión de B no se ve afectado
-
-#### Scenario: La superficie declara qué camino mueve la caja
-
-- **WHEN** el usuario elige en el formulario de venta, en el de compra, en el de gasto o en el modal de cobro una forma de pago en efectivo y no se cumplen las condiciones del opt-in
-- **THEN** la pantalla no ofrece el opt-in y explica cuál de las condiciones falta
-
-#### Scenario: Una venta a cuenta corriente no toca la caja
-
-- **GIVEN** una sesión de caja abierta
-- **WHEN** se cobra desde el POS con una forma de pago de `kind = 'credit'`
-- **THEN** no se crea ningún `cash_movements` y el arqueo de esa sesión no se ve afectado
 
 ### Requirement: Caja (Cashbox) por sucursal
 El sistema SHALL permitir definir una o más cajas (`Cashbox`) por sucursal, cada una con `name` y `currency` (default `'ARS'`), perteneciente a una `Branch` activa. El aislamiento por cuenta (RLS) SHALL resolverse vía `cashboxes.branch_id → branches.account_id`, sin usar `company_id` ni `user_id`.

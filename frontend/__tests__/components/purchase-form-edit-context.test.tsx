@@ -23,6 +23,13 @@ vi.mock("@/components/branches/BranchSelect", () => ({
     <div data-testid="branch-select-value">{value ?? "null"}</div>
   ),
 }))
+// caja-compras-cobranzas: purchase-form.tsx ahora monta useCashOptin, que
+// consulta useBranches/useCashboxes/useCurrentSession directo (no vía
+// BranchSelect) — sin mockearlos, la cadena real llega a pythonClient y
+// explota por falta de NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
+vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))
+vi.mock("@/hooks/data/use-cash-session", () => ({ useCurrentSession: () => ({ data: null }) }))
 // review B (FE-1/OQ-5 A): mock informativo (a diferencia de `() => null`)
 // para poder verificar prefill + el patrón de "tocado" — value/onChange
 // espejo del mock de BranchSelect de arriba.
@@ -120,6 +127,9 @@ function makeOperation(overrides: Partial<PurchaseOperation> = {}): PurchaseOper
     supplierId: null,
     supplierName: null,
     hasBankMovement: false,
+    // caja-compras-cobranzas (D9): campos nuevos requeridos por PurchaseOperation.
+    hasCashMovement: false,
+    isDeleteBlocked: false,
     costCenterId: null,
     ...overrides,
   }

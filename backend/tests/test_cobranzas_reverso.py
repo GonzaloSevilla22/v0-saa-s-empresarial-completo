@@ -269,6 +269,8 @@ class TestCustomerAccountRepositoryReversal:
         select_sql = mock_conn.fetch.call_args[0][0]
         assert "is_reversible" in select_sql
         assert "is_reversal_blocked" in select_sql
+        assert "has_cash_movement" in select_sql
+        assert "has_bank_movement" in select_sql
         assert "payments_received" in select_sql
         assert "cash_sessions" in select_sql
 
@@ -313,6 +315,8 @@ class TestSupplierAccountRepositoryReversal:
         select_sql = mock_conn.fetch.call_args[0][0]
         assert "is_reversible" in select_sql
         assert "is_reversal_blocked" in select_sql
+        assert "has_cash_movement" in select_sql
+        assert "has_bank_movement" in select_sql
         assert "payments_made" in select_sql
 
 

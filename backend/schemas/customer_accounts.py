@@ -68,6 +68,11 @@ class AccountMovementOut(BaseModel):
     # ofrece la acción por default.
     is_reversible:        bool = False
     is_reversal_blocked:  bool = False
+    # cobranzas-reverso (task 9.2): mismo molde que PurchaseOperationOut
+    # (has_cash_movement/has_bank_movement) — el diálogo de anulación los
+    # necesita para enumerar sólo las patas que aplican a ESTE pago.
+    has_cash_movement:    bool = False
+    has_bank_movement:    bool = False
 
 
 # v3-api-standards §2.7: envelope estándar {items,total,page,pages} para

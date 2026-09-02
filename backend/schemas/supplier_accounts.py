@@ -64,6 +64,8 @@ class SupplierMovementOut(BaseModel):
     # (customer_accounts.py) — derivados del servidor, nunca denormalizados.
     is_reversible:        bool = False
     is_reversal_blocked:  bool = False
+    has_cash_movement:    bool = False
+    has_bank_movement:    bool = False
 
 
 # v3-api-standards §2.8: envelope estándar {items,total,page,pages} para

@@ -100,8 +100,8 @@ class SupplierAccountRepository(BaseRepository):
 
         cobranzas-reverso (D12, task 9.3): espejo exacto de
         CustomerAccountRepository.list_movements_page — is_reversible/
-        is_reversal_blocked con el mismo predicado que evalúa
-        rpc_reverse_payment_made."""
+        is_reversal_blocked/has_cash_movement/has_bank_movement con el mismo
+        predicado que evalúa rpc_reverse_payment_made."""
         return await self.paginate(
             """
             SELECT sam.*, pmd.payment_method,
@@ -117,7 +117,15 @@ class SupplierAccountRepository(BaseRepository):
                     SELECT 1 FROM public.cash_sessions cs_open
                     WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
                   )
-              ) AS is_reversal_blocked
+              ) AS is_reversal_blocked,
+              EXISTS (
+                SELECT 1 FROM public.cash_movements cm2
+                WHERE cm2.reference_id = sam.reference_id AND cm2.movement_type = 'payment_made'
+              ) AS has_cash_movement,
+              EXISTS (
+                SELECT 1 FROM public.bank_movements bm
+                WHERE bm.source_doc_type = 'payment_made' AND bm.source_doc_ref = sam.reference_id
+              ) AS has_bank_movement
             FROM public.supplier_account_movements sam
             LEFT JOIN public.payments_made pmd
               ON pmd.id = sam.reference_id AND sam.movement_type = 'payment_made'

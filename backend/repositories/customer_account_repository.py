@@ -99,12 +99,17 @@ class CustomerAccountRepository(BaseRepository):
         que list_movements (ver nota ahí). caja-compras-cobranzas (OQ-1):
         mismo LEFT JOIN a payments_received que list_movements.
 
-        cobranzas-reverso (D12, task 9.2): suma los dos derivados —
+        cobranzas-reverso (D12, task 9.2): suma los derivados —
         `is_reversible` (el movimiento es 'payment_received' y su documento
-        sigue vivo) e `is_reversal_blocked` (tiene movimiento de caja y esa
+        sigue vivo), `is_reversal_blocked` (tiene movimiento de caja y esa
         caja no tiene ninguna sesión abierta) — con el MISMO predicado que
         evalúa `rpc_reverse_payment_received`, nunca columnas denormalizadas
-        (regla D5 de delete-guard-ledgers)."""
+        (regla D5 de delete-guard-ledgers). `has_cash_movement`/
+        `has_bank_movement` siguen el MISMO molde que purchase_repository.py
+        (has_cash_movement/has_bank_movement de PurchaseOperationOut) — el
+        diálogo de anulación los necesita para enumerar sólo las patas que
+        aplican; `payment_method` NO sirve para esto (NULL en el 100% de los
+        pagos históricos, D3)."""
         return await self.paginate(
             """
             SELECT cam.*, pr.payment_method,
@@ -120,7 +125,15 @@ class CustomerAccountRepository(BaseRepository):
                     SELECT 1 FROM public.cash_sessions cs_open
                     WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
                   )
-              ) AS is_reversal_blocked
+              ) AS is_reversal_blocked,
+              EXISTS (
+                SELECT 1 FROM public.cash_movements cm2
+                WHERE cm2.reference_id = cam.reference_id AND cm2.movement_type = 'payment_received'
+              ) AS has_cash_movement,
+              EXISTS (
+                SELECT 1 FROM public.bank_movements bm
+                WHERE bm.source_doc_type = 'payment_received' AND bm.source_doc_ref = cam.reference_id
+              ) AS has_bank_movement
             FROM public.customer_account_movements cam
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'

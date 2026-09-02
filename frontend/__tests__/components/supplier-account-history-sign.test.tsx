@@ -12,10 +12,21 @@
  * derivada del SIGNO de m.amount (no del tipo).
  */
 import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+// cobranzas-reverso (task 13.2): espejo exacto de
+// customer-account-history-sign.test.tsx — mockeado por completo para no
+// arrastrar pythonClient real.
+vi.mock("@/hooks/data/use-supplier-account", () => ({
+  useReversePaymentMade: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
 
 import { SupplierAccountHistory } from "@/components/supplier-accounts/SupplierAccountHistory"
 import type { SupplierAccountMovement } from "@/hooks/data/use-supplier-account"
+
+function renderWithClient(ui: React.ReactElement) {
+  return render(ui)
+}
 
 const MOVEMENTS: SupplierAccountMovement[] = [
   {
@@ -57,13 +68,13 @@ const MOVEMENTS: SupplierAccountMovement[] = [
 
 describe("SupplierAccountHistory — signo único y por SIGNO de monto (no por tipo)", () => {
   it("una compra (monto positivo) muestra +$ una sola vez", () => {
-    render(<SupplierAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<SupplierAccountHistory movements={MOVEMENTS} supplierId="sup-1" />)
 
     expect(screen.getAllByText("+$8.400,00").length).toBeGreaterThan(0)
   })
 
   it("un pago (monto negativo en el ledger) muestra −$ una sola vez, sin doble signo", () => {
-    render(<SupplierAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<SupplierAccountHistory movements={MOVEMENTS} supplierId="sup-1" />)
 
     expect(screen.getAllByText("−$8.400,00").length).toBeGreaterThan(0)
     expect(screen.queryByText(/−\$-/)).toBeNull()
@@ -71,7 +82,7 @@ describe("SupplierAccountHistory — signo único y por SIGNO de monto (no por t
   })
 
   it("una nota de débito de REVERSA (monto negativo) se pinta como reducción de deuda, no como cargo", () => {
-    render(<SupplierAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<SupplierAccountHistory movements={MOVEMENTS} supplierId="sup-1" />)
 
     // Dos movimientos negativos (pago + reversa) × 2 layouts (mobile+desktop
     // renderizan ambos en jsdom, ocultos por CSS) = 4 ocurrencias del "−". La
@@ -82,7 +93,7 @@ describe("SupplierAccountHistory — signo único y por SIGNO de monto (no por t
   })
 
   it("un ajuste positivo y uno negativo muestran cada uno su propio signo, con la misma etiqueta", () => {
-    render(<SupplierAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<SupplierAccountHistory movements={MOVEMENTS} supplierId="sup-1" />)
 
     expect(screen.getAllByText("+$500,00").length).toBeGreaterThan(0)
     expect(screen.getAllByText("−$500,00").length).toBeGreaterThan(0)

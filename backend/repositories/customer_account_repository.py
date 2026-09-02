@@ -65,10 +65,40 @@ class CustomerAccountRepository(BaseRepository):
         LEFT JOIN a payments_received (reference_id = payments_received.id,
         sólo pobla cuando movement_type='payment_received') — NULL para el
         resto de los tipos y para los cobros históricos, sin backfill.
+
+        cobranzas-reverso (D12, hallazgo del propio TDD del apply — task
+        13.1): esta es la query que alimenta la vista combinada de
+        GET /clientes/{id}/cuenta (get_account → CustomerAccountHistory en
+        la pantalla real), NO list_movements_page — que sólo sirve al
+        endpoint paginado dedicado. Sin los mismos 4 derivados acá, la
+        acción "Anular" nunca aparecería en la pantalla que el usuario
+        realmente mira: is_reversible/is_reversal_blocked por defecto en
+        False la habrían dejado siempre oculta.
         """
         return await self.fetch(
             """
-            SELECT cam.*, pr.payment_method
+            SELECT cam.*, pr.payment_method,
+              (cam.movement_type = 'payment_received' AND EXISTS (
+                SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
+              )) AS is_reversible,
+              EXISTS (
+                SELECT 1
+                FROM public.cash_movements cm
+                JOIN public.cash_sessions cs ON cs.id = cm.session_id
+                WHERE cm.reference_id = cam.reference_id AND cm.movement_type = 'payment_received'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM public.cash_sessions cs_open
+                    WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
+                  )
+              ) AS is_reversal_blocked,
+              EXISTS (
+                SELECT 1 FROM public.cash_movements cm2
+                WHERE cm2.reference_id = cam.reference_id AND cm2.movement_type = 'payment_received'
+              ) AS has_cash_movement,
+              EXISTS (
+                SELECT 1 FROM public.bank_movements bm
+                WHERE bm.source_doc_type = 'payment_received' AND bm.source_doc_ref = cam.reference_id
+              ) AS has_bank_movement
             FROM public.customer_account_movements cam
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'
@@ -97,10 +127,43 @@ class CustomerAccountRepository(BaseRepository):
 
         fix/tenancy-bank-accounts-leak: `account_id` obligatorio — mismo IDOR
         que list_movements (ver nota ahí). caja-compras-cobranzas (OQ-1):
-        mismo LEFT JOIN a payments_received que list_movements."""
+        mismo LEFT JOIN a payments_received que list_movements.
+
+        cobranzas-reverso (D12, task 9.2): suma los derivados —
+        `is_reversible` (el movimiento es 'payment_received' y su documento
+        sigue vivo), `is_reversal_blocked` (tiene movimiento de caja y esa
+        caja no tiene ninguna sesión abierta) — con el MISMO predicado que
+        evalúa `rpc_reverse_payment_received`, nunca columnas denormalizadas
+        (regla D5 de delete-guard-ledgers). `has_cash_movement`/
+        `has_bank_movement` siguen el MISMO molde que purchase_repository.py
+        (has_cash_movement/has_bank_movement de PurchaseOperationOut) — el
+        diálogo de anulación los necesita para enumerar sólo las patas que
+        aplican; `payment_method` NO sirve para esto (NULL en el 100% de los
+        pagos históricos, D3)."""
         return await self.paginate(
             """
-            SELECT cam.*, pr.payment_method
+            SELECT cam.*, pr.payment_method,
+              (cam.movement_type = 'payment_received' AND EXISTS (
+                SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
+              )) AS is_reversible,
+              EXISTS (
+                SELECT 1
+                FROM public.cash_movements cm
+                JOIN public.cash_sessions cs ON cs.id = cm.session_id
+                WHERE cm.reference_id = cam.reference_id AND cm.movement_type = 'payment_received'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM public.cash_sessions cs_open
+                    WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
+                  )
+              ) AS is_reversal_blocked,
+              EXISTS (
+                SELECT 1 FROM public.cash_movements cm2
+                WHERE cm2.reference_id = cam.reference_id AND cm2.movement_type = 'payment_received'
+              ) AS has_cash_movement,
+              EXISTS (
+                SELECT 1 FROM public.bank_movements bm
+                WHERE bm.source_doc_type = 'payment_received' AND bm.source_doc_ref = cam.reference_id
+              ) AS has_bank_movement
             FROM public.customer_account_movements cam
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'
@@ -117,6 +180,21 @@ class CustomerAccountRepository(BaseRepository):
             page=page,
             size=size,
         )
+
+    async def reverse_payment_received(self, payment_id: str, reason: str | None) -> dict:
+        """cobranzas-reverso (task 9.1): invoca rpc_reverse_payment_received.
+
+        Sin idempotency_key (D9 — idempotente por ausencia del documento).
+        `account_id` NO viaja como parámetro: la RPC lo resuelve internamente
+        de la sesión (SECURITY DEFINER + current_account_ids()) y filtra por
+        él antes de tocar cualquier libro (D8) — el mismo patrón que
+        rpc_delete_expense."""
+        row = await self.fetchrow(
+            "SELECT public.rpc_reverse_payment_received($1::uuid, $2::text) AS result",
+            payment_id,
+            reason,
+        )
+        return _jsonb(row["result"])
 
     async def register_payment_received(
         self,

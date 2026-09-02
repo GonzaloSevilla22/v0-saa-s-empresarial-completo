@@ -16,6 +16,15 @@
  * Reutilizado por ambos listados — un solo componente, sin lógica de
  * negocio propia (getDeleteCompensation en lib/delete-compensation.ts ya
  * resolvió todo lo que hay que mostrar).
+ *
+ * cobranzas-reverso (task 13.3): el vocabulario ("Eliminar"/Trash2) es
+ * configurable vía `actionVerb`/`actionVerbGerund`/`icon` — con sus
+ * defaults ORIGINALES, para no tocar el comportamiento de los tres
+ * consumidores existentes (venta/compra/gasto). La anulación de un cobro/
+ * pago de cuenta corriente reutiliza este mismo componente con "Anular"/
+ * RotateCcw: es la MISMA estructura (bloqueado con razón / enumeración de
+ * compensaciones / confirmar), sólo cambia el verbo — reutilización real,
+ * no una copia con otro nombre.
  */
 
 import { Button } from "@/components/ui/button"
@@ -24,6 +33,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Lock, Trash2 } from "lucide-react"
 import type { DeleteCompensationInfo } from "@/lib/delete-compensation"
 
@@ -36,11 +47,29 @@ interface DeleteOperationDialogProps {
   /** Detiene la propagación del click del trigger — el botón vive dentro de
    * una fila clickeable que expande/colapsa el detalle. */
   onTriggerClick?: (e: React.MouseEvent) => void
+  /** cobranzas-reverso: verbo de la acción, infinitivo. Default "Eliminar"
+   * — preserva el comportamiento de los consumidores existentes. */
+  actionVerb?: string
+  /** Gerundio para el estado "en curso" del botón de confirmación. Default "Eliminando". */
+  actionVerbGerund?: string
+  /** Ícono del trigger. Default Trash2. */
+  icon?: React.ReactNode
+  /** cobranzas-reverso (task 13.3, OQ-2 apply): campo de motivo OPCIONAL —
+   * visible en el diálogo, controlado por el padre. Ausente en los tres
+   * consumidores existentes (venta/compra/gasto no lo piden). */
+  reasonField?: {
+    value: string
+    onChange: (value: string) => void
+    label?: string
+  }
 }
 
 export function DeleteOperationDialog({
   label, info, onConfirm, isDeleting, onTriggerClick,
+  actionVerb = "Eliminar", actionVerbGerund = "Eliminando", icon, reasonField,
 }: DeleteOperationDialogProps) {
+  const triggerIcon = icon ?? <Trash2 className="h-3.5 w-3.5" />
+
   if (!info.deletable) {
     return (
       <Button
@@ -49,7 +78,7 @@ export function DeleteOperationDialog({
         size="icon"
         disabled
         title={info.blockedReason ?? undefined}
-        aria-label={info.blockedReason ?? "No se puede eliminar"}
+        aria-label={info.blockedReason ?? `No se puede ${actionVerb.toLowerCase()}`}
         className="h-8 w-8 text-muted-foreground/50"
         data-testid="delete-operation-blocked"
       >
@@ -69,14 +98,15 @@ export function DeleteOperationDialog({
           disabled={isDeleting}
           className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
           data-testid="delete-operation-trigger"
+          aria-label={`${actionVerb} ${label}`}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          {triggerIcon}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent className="bg-card border-border" onClick={(e) => e.stopPropagation()}>
         <AlertDialogHeader>
           <AlertDialogTitle className="text-card-foreground">
-            ¿Eliminar {label}?
+            ¿{actionVerb} {label}?
           </AlertDialogTitle>
           <AlertDialogDescription asChild>
             <div className="space-y-2 text-sm text-muted-foreground">
@@ -91,6 +121,21 @@ export function DeleteOperationDialog({
                   </ul>
                 </div>
               )}
+              {reasonField && (
+                <div className="space-y-1.5 pt-1">
+                  <Label htmlFor="delete-operation-reason" className="text-foreground">
+                    {reasonField.label ?? "Motivo (opcional)"}
+                  </Label>
+                  <Textarea
+                    id="delete-operation-reason"
+                    value={reasonField.value}
+                    onChange={(e) => reasonField.onChange(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    placeholder="Ej: importe cargado por error"
+                    className="min-h-16 bg-background border-border text-foreground"
+                  />
+                </div>
+              )}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -103,7 +148,7 @@ export function DeleteOperationDialog({
             disabled={isDeleting}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {isDeleting ? "Eliminando…" : "Eliminar"}
+            {isDeleting ? `${actionVerbGerund}…` : actionVerb}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

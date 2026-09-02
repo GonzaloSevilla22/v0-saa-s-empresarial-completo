@@ -80,6 +80,7 @@ export default function ProveedorAccountPage({ params }: PageProps) {
       <SupplierAccountHistory
         movements={account?.movements ?? []}
         loading={isLoading}
+        supplierId={supplierId}
       />
 
       {/* Register payment dialog */}

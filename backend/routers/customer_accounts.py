@@ -29,6 +29,8 @@ from backend.schemas.customer_accounts import (
     CustomerAccountOut,
     PaymentReceivedIn,
     PaymentReceivedOut,
+    PaymentReversalIn,
+    PaymentReversalOut,
 )
 from backend.services import customer_accounts as customer_account_service
 
@@ -94,3 +96,22 @@ async def register_payment_received(
     """
     payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await customer_account_service.register_payment_received(repo, auth, payload)
+
+
+@router.delete("/customer-accounts/payments/{payment_id}", response_model=PaymentReversalOut)
+async def reverse_payment_received(
+    payment_id: uuid.UUID,
+    payload: Optional[PaymentReversalIn] = None,
+    auth: dict = Depends(get_current_user),
+    repo: CustomerAccountRepository = Depends(get_customer_account_repo),
+):
+    """cobranzas-reverso (task 10.3): anula un cobro de cuenta corriente.
+
+    Motivo opcional por body (D9 — sin Idempotency-Key: es idempotente por
+    ausencia del documento, el segundo intento falla P0404). El cuerpo entero
+    es opcional: un DELETE sin body llega con payload=None.
+    """
+    reason_payload = payload if payload is not None else PaymentReversalIn()
+    return await customer_account_service.reverse_payment_received(
+        repo, auth, str(payment_id), reason_payload
+    )

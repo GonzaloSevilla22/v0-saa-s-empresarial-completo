@@ -54,6 +54,7 @@ export default function ClienteAccountPage({ params }: PageProps) {
       <CustomerAccountHistory
         movements={account?.movements ?? []}
         loading={isLoading}
+        clientId={clientId}
       />
 
       {/* Register payment dialog */}

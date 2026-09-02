@@ -1,7 +1,13 @@
 "use client"
 
-import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal } from "lucide-react"
+import { useState } from "react"
+import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal, Undo2 } from "lucide-react"
+import { toast } from "sonner"
 import type { SupplierAccountMovement } from "@/hooks/data/use-supplier-account"
+import { useReversePaymentMade } from "@/hooks/data/use-supplier-account"
+import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
+import { getDeleteCompensation } from "@/lib/delete-compensation"
+import { humanizeOperationError } from "@/lib/operation-errors"
 
 const MOVEMENT_LABELS: Record<SupplierAccountMovement["movementType"], string> = {
   purchase:     "Compra / cargo",
@@ -10,15 +16,34 @@ const MOVEMENT_LABELS: Record<SupplierAccountMovement["movementType"], string> =
   // de un cargo (SupplierAccountChargeReversed) — no un cargo nuevo. La
   // etiqueta lo deja explícito.
   debit_note:   "Nota de débito / reversa",
+  // cobranzas-reverso (task 13.2): el Record es CERRADO — agregar
+  // payment_made_reversal acá o el build rompe.
+  payment_made_reversal: "Anulación de pago",
   adjustment:   "Ajuste",
 }
 
 interface SupplierAccountHistoryProps {
   movements: SupplierAccountMovement[]
   loading?: boolean
+  /** cobranzas-reverso (task 13.2): requerido para ofrecer "Anular" por fila. */
+  supplierId: string
 }
 
-export function SupplierAccountHistory({ movements, loading }: SupplierAccountHistoryProps) {
+export function SupplierAccountHistory({ movements, loading, supplierId }: SupplierAccountHistoryProps) {
+  const [reason, setReason] = useState("")
+  const reverseMutation = useReversePaymentMade(supplierId)
+
+  async function handleReverse(movement: SupplierAccountMovement) {
+    try {
+      await reverseMutation.mutateAsync({ paymentId: movement.referenceId ?? "", reason: reason || undefined })
+      toast.success("Pago anulado")
+      setReason("")
+    } catch (err) {
+      const { message } = humanizeOperationError((err as Error).message)
+      toast.error(message)
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-lg border border-border overflow-hidden">
@@ -66,12 +91,13 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
         </p>
       </div>
 
-      <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px] gap-3 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+      <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px_auto] gap-3 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
         <span className="w-8" />
         <span>Tipo</span>
         <span className="text-right">Importe</span>
         <span className="text-right">Saldo después</span>
         <span>Fecha</span>
+        <span className="w-8" />
       </div>
 
       {movements.map((m) => {
@@ -90,11 +116,19 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })
+        // cobranzas-reverso (task 13.2): a diferencia de las filas
+        // preexistentes (colores literales, de antes del token-contrast-aa),
+        // el ícono de la anulación de pago usa el token semántico —
+        // consistente con CustomerAccountHistory.tsx y con el resto de la
+        // superficie NUEVA de este change (D10: es un ingreso — repone la
+        // caja — mismo tono "success" que CASH_MOVEMENT_META.payment_made_reversal).
         const icon = m.movementType === "adjustment"
           ? <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-          : isPositive
-            ? <ArrowUpRight className="h-4 w-4 text-yellow-400" />
-            : <ArrowDownLeft className="h-4 w-4 text-emerald-400" />
+          : m.movementType === "payment_made_reversal"
+            ? <Undo2 className="h-4 w-4 text-success" />
+            : isPositive
+              ? <ArrowUpRight className="h-4 w-4 text-yellow-400" />
+              : <ArrowDownLeft className="h-4 w-4 text-emerald-400" />
         const formattedBalance = m.balanceAfter.toLocaleString("es-AR", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
@@ -104,6 +138,16 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
           month: "short",
           year:  "numeric",
         })
+
+        const compensationInfo = getDeleteCompensation(
+          {
+            isDeleteBlocked: m.isReversalBlocked,
+            hasCashMovement: m.hasCashMovement,
+            hasBankMovement: m.hasBankMovement,
+          },
+          "proveedor",
+          "pago",
+        )
 
         return (
           <div
@@ -133,10 +177,22 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
                   saldo: ${formattedBalance}
                 </p>
               </div>
+              {m.isReversible && (
+                <DeleteOperationDialog
+                  label="este pago"
+                  info={compensationInfo}
+                  onConfirm={() => handleReverse(m)}
+                  isDeleting={reverseMutation.isPending}
+                  actionVerb="Anular"
+                  actionVerbGerund="Anulando"
+                  icon={<Undo2 className="h-3.5 w-3.5" />}
+                  reasonField={{ value: reason, onChange: setReason }}
+                />
+              )}
             </div>
 
             {/* Desktop */}
-            <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px] gap-3 px-4 py-3 items-center">
+            <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px_auto] gap-3 px-4 py-3 items-center">
               <div className="w-8 flex justify-center">
                 <div className="rounded-full bg-accent p-1.5">
                   {icon}
@@ -156,6 +212,20 @@ export function SupplierAccountHistory({ movements, loading }: SupplierAccountHi
                 ${formattedBalance}
               </span>
               <span className="text-xs text-muted-foreground">{formattedDate}</span>
+              <div className="w-8 flex justify-center">
+                {m.isReversible && (
+                  <DeleteOperationDialog
+                    label="este pago"
+                    info={compensationInfo}
+                    onConfirm={() => handleReverse(m)}
+                    isDeleting={reverseMutation.isPending}
+                    actionVerb="Anular"
+                    actionVerbGerund="Anulando"
+                    icon={<Undo2 className="h-3.5 w-3.5" />}
+                    reasonField={{ value: reason, onChange: setReason }}
+                  />
+                )}
+              </div>
             </div>
           </div>
         )

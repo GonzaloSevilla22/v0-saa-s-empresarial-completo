@@ -58,6 +58,21 @@ class AccountMovementOut(BaseModel):
     # payments_received cuando movement_type='payment_received'. NULL para
     # todo el resto de los tipos y para los cobros históricos (sin backfill).
     payment_method:       str | None = None
+    # cobranzas-reverso (D12, task 8.2): derivados en el SERVIDOR con EXISTS
+    # — nunca columnas denormalizadas (regla D5 de delete-guard-ledgers).
+    # is_reversible: el movimiento es 'payment_received' Y su documento sigue
+    # vivo en payments_received. is_reversal_blocked: el cobro tiene
+    # movimiento de caja Y no hay sesión abierta en esa caja — el MISMO EXISTS
+    # que evalúa rpc_reverse_payment_received. Default False: un movimiento
+    # sin resolver esos EXISTS (p.ej. en un test que no los provee) nunca
+    # ofrece la acción por default.
+    is_reversible:        bool = False
+    is_reversal_blocked:  bool = False
+    # cobranzas-reverso (task 9.2): mismo molde que PurchaseOperationOut
+    # (has_cash_movement/has_bank_movement) — el diálogo de anulación los
+    # necesita para enumerar sólo las patas que aplican a ESTE pago.
+    has_cash_movement:    bool = False
+    has_bank_movement:    bool = False
 
 
 # v3-api-standards §2.7: envelope estándar {items,total,page,pages} para
@@ -130,3 +145,21 @@ class PaymentReceivedOut(BaseModel):
     balance_after:        Decimal | None
     replayed:             bool
     operation_id:         uuid.UUID | None = None
+
+
+class PaymentReversalIn(BaseModel):
+    """cobranzas-reverso (D1 apply, OQ-2): motivo OPCIONAL — se muestra en el
+    diálogo y viaja al `description` del contra-movimiento de caja y al
+    payload del evento, pero nunca es exigido (rpc_reverse_payment_received
+    no lo requiere; D9: la anulación es idempotente por ausencia del
+    documento, sin p_idempotency_key)."""
+    reason: str | None = None
+
+
+class PaymentReversalOut(BaseModel):
+    """Respuesta de rpc_reverse_payment_received (jsonb)."""
+    payment_id:           uuid.UUID
+    reversed:              bool
+    account_movement_id:  uuid.UUID
+    cash_reversal_id:      uuid.UUID | None = None
+    bank_reversals:        int = 0

@@ -12,10 +12,12 @@ from backend.core.guards import require_role
 from backend.repositories.supplier_account_repository import SupplierAccountRepository
 from backend.schemas.supplier_accounts import (
     PaymentMadeIn,
+    PaymentReversalIn,
     SupplierChargeIn,
 )
 
 # bank-payment-routing C2: P0412 (bank_account no encontrada/inactiva) → 400.
+# cobranzas-reverso: P0426/P0451, espejo exacto de services/customer_accounts.py.
 _ERRCODE_STATUS = {
     "P0400": 400,
     "P0401": 403,
@@ -24,6 +26,8 @@ _ERRCODE_STATUS = {
     "P0409": 409,
     "P0412": 400,
     "P0422": 422,
+    "P0426": 409,
+    "P0451": 409,
 }
 
 
@@ -121,5 +125,20 @@ async def register_supplier_charge(
             amount=float(payload.amount),
             reference_id=str(payload.reference_id) if payload.reference_id else None,
         )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+
+async def reverse_payment_made(
+    repo: SupplierAccountRepository,
+    auth: dict,
+    payment_id: str,
+    payload: PaymentReversalIn,
+) -> dict:
+    """cobranzas-reverso (task 10.2): anula un pago a proveedor. Espejo
+    exacto de services/customer_accounts.py::reverse_payment_received."""
+    require_role(auth, ["user", "admin"])
+    try:
+        return await repo.reverse_payment_made(payment_id, payload.reason)
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc

@@ -56,17 +56,22 @@ const FISCAL_BLOCKED_REASON =
 
 /** Documento sobre el que se deriva — sólo cambia la redacción, no la lógica.
  * caja-compras-cobranzas (task 12.2): suma "compra" — la compra ahora
- * también puede tener movimiento de caja posteado (D7). */
-export type DeletableDocument = "operacion" | "gasto" | "compra"
+ * también puede tener movimiento de caja posteado (D7). cobranzas-reverso
+ * (task 11.3): suma "cobro"/"pago" — la anulación de un cobro/pago de
+ * cuenta corriente reusa el mismo contrato transversal. */
+export type DeletableDocument = "operacion" | "gasto" | "compra" | "cobro" | "pago"
 
 /** caja-compras-cobranzas (task 12.2): la redacción original era literal
- * para "el gasto" — sirve también a "la compra" desde D7. Frase completa por
- * documento (no una plantilla con género interpolado) para no arriesgar una
- * concordancia rota. */
+ * para "el gasto" — sirve también a "la compra" desde D7, y a "el cobro"/
+ * "el pago" desde cobranzas-reverso. Frase completa por documento (no una
+ * plantilla con género interpolado) para no arriesgar una concordancia
+ * rota. */
 const NO_OPEN_SESSION_BLOCKED_REASON: Record<DeletableDocument, string> = {
   operacion: "No se puede borrar: la operación descontó de una caja que ya está cerrada. Abrí la caja para poder borrarla.",
   gasto: "No se puede borrar: el gasto descontó de una caja que ya está cerrada. Abrí la caja para poder borrarlo.",
   compra: "No se puede borrar: la compra descontó de una caja que ya está cerrada. Abrí la caja para poder borrarla.",
+  cobro: "No se puede anular: el cobro descontó de una caja que ya está cerrada. Abrí la caja para poder anularlo.",
+  pago: "No se puede anular: el pago descontó de una caja que ya está cerrada. Abrí la caja para poder anularlo.",
 }
 
 export function getDeleteCompensation(
@@ -89,20 +94,42 @@ export function getDeleteCompensation(
         : "Se revertirá el cargo registrado en la cuenta corriente del cliente.",
     )
   }
+  // cobranzas-reverso (D12 apply, task 11.3): "se repondrá la deuda" — un
+  // cobro/pago no es un "cargo" (no hay nada previo que "revertir" en el
+  // sentido de venta/compra), es la anulación de un COBRO/PAGO que aumenta
+  // la deuda de la parte. Redacción propia, distinta de hasAccountCharge.
+  if (document === "cobro") {
+    compensations.push("Se repondrá la deuda del cliente por el importe del cobro anulado.")
+  }
+  if (document === "pago") {
+    compensations.push("Se repondrá la deuda con el proveedor por el importe del pago anulado.")
+  }
   if (flags.hasCashMovement) {
     // El signo es opuesto según el documento: borrar una venta SACA plata de
     // la caja; borrar un gasto o una compra la REPONE (expense/purchase_
     // payment son negativos, sus reversas positivas). Decir "salida" en un
     // gasto o una compra sería mentir sobre el arqueo (caja-compras-
     // cobranzas, task 12.2: compra se suma a la misma rama que gasto).
+    // cobranzas-reverso (D12): anular un COBRO saca plata (mismo sentido que
+    // una venta — el cobro había hecho ENTRAR plata); anular un PAGO la
+    // repone (mismo sentido que gasto/compra — el pago había hecho SALIR
+    // plata). "cobro" NO se suma a la rama de gasto/compra: es lo opuesto.
     compensations.push(
-      document === "gasto" || document === "compra"
+      document === "gasto" || document === "compra" || document === "pago"
         ? "Se registrará el ingreso correspondiente en la caja abierta actual."
         : "Se registrará la salida correspondiente en la caja abierta actual.",
     )
   }
   if (flags.hasBankMovement) {
     compensations.push("Se registrará el movimiento bancario inverso, pendiente de conciliar.")
+  }
+  // cobranzas-reverso (D5): el contra-asiento contable NACE con el reverso,
+  // nunca se difiere — a diferencia de gasto/compra (sin rama contable
+  // todavía), el cobro/pago SIEMPRE dispara la reversión del asiento.
+  // Último ítem enumerado (deuda → caja/banco → asiento, mismo orden que
+  // el requirement de payment-reversal/operation-delete-compensation).
+  if (document === "cobro" || document === "pago") {
+    compensations.push("Se revertirá el asiento contable de esta operación.")
   }
   if (flags.reversesStock) {
     // Redacción alineada al tooltip del lápiz bloqueado de la misma fila

@@ -40,6 +40,50 @@ describe("getDeleteCompensation (operation-delete-compensation, derivado de lect
     expect(info.deletable).toBe(true)
     expect(info.compensations).toEqual([])
   })
+
+  // cobranzas-reverso (task 11.3): documentos "cobro"/"pago" — la anulación
+  // de un cobro/pago de cuenta corriente, con su propia redacción (repone
+  // deuda, no "revierte cargo") y el asiento contable SIEMPRE enumerado
+  // (D5: nace con el reverso, no se difiere).
+  it("anular un cobro EN EFECTIVO enumera deuda + caja (salida) + asiento", () => {
+    const info = getDeleteCompensation({ hasCashMovement: true }, "cliente", "cobro")
+    expect(info.deletable).toBe(true)
+    expect(info.compensations).toHaveLength(3)
+    expect(info.compensations[0]).toMatch(/repondrá la deuda del cliente/i)
+    expect(info.compensations[1]).toMatch(/salida.*caja/i)
+    expect(info.compensations[2]).toMatch(/asiento contable/i)
+    expect(info.compensations.some((c) => /bancario/i.test(c))).toBe(false)
+  })
+
+  it("anular un cobro BANCARIO enumera deuda + banco + asiento, sin mencionar la caja", () => {
+    const info = getDeleteCompensation({ hasBankMovement: true }, "cliente", "cobro")
+    expect(info.compensations).toHaveLength(3)
+    expect(info.compensations[0]).toMatch(/repondrá la deuda del cliente/i)
+    expect(info.compensations[1]).toMatch(/bancario/i)
+    expect(info.compensations[2]).toMatch(/asiento contable/i)
+    expect(info.compensations.some((c) => /caja/i.test(c))).toBe(false)
+  })
+
+  it("anular un pago a proveedor EN EFECTIVO dice INGRESO en caja (repone), no salida", () => {
+    const info = getDeleteCompensation({ hasCashMovement: true }, "proveedor", "pago")
+    expect(info.compensations[0]).toMatch(/repondrá la deuda con el proveedor/i)
+    expect(info.compensations[1]).toMatch(/ingreso.*caja/i)
+    expect(info.compensations.some((c) => /salida/i.test(c))).toBe(false)
+  })
+
+  it("anular un cobro SIN caja ni banco (ninguna pata posteada) igual enumera deuda + asiento", () => {
+    const info = getDeleteCompensation({}, "cliente", "cobro")
+    expect(info.compensations).toHaveLength(2)
+    expect(info.compensations[0]).toMatch(/repondrá la deuda/i)
+    expect(info.compensations[1]).toMatch(/asiento contable/i)
+  })
+
+  it("anulación de cobro bloqueada por caja cerrada usa la razón propia de 'cobro' (verbo anular, no borrar)", () => {
+    const info = getDeleteCompensation({ isDeleteBlocked: true }, "cliente", "cobro")
+    expect(info.deletable).toBe(false)
+    expect(info.blockedReason).toMatch(/no se puede anular/i)
+    expect(info.blockedReason).toMatch(/abrí la caja/i)
+  })
 })
 
 describe("DeleteOperationDialog", () => {

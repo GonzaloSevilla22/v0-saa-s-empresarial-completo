@@ -1,11 +1,20 @@
 "use client"
 
-import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal } from "lucide-react"
+import { useState } from "react"
+import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal, Undo2 } from "lucide-react"
+import { toast } from "sonner"
 import type { CustomerAccountMovement } from "@/hooks/data/use-customer-account"
+import { useReversePaymentReceived } from "@/hooks/data/use-customer-account"
+import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
+import { getDeleteCompensation } from "@/lib/delete-compensation"
+import { humanizeOperationError } from "@/lib/operation-errors"
 
 const MOVEMENT_LABELS: Record<CustomerAccountMovement["movementType"], string> = {
   sale:             "Venta a crédito",
   payment_received: "Cobro",
+  // cobranzas-reverso (task 13.1): el Record es CERRADO sobre los tipos de
+  // movementType — agregar payment_received_reversal acá o el build rompe.
+  payment_received_reversal: "Anulación de cobro",
   credit_note:      "Nota de crédito",
   adjustment:       "Ajuste",
 }
@@ -13,6 +22,7 @@ const MOVEMENT_LABELS: Record<CustomerAccountMovement["movementType"], string> =
 const MOVEMENT_ICONS: Record<CustomerAccountMovement["movementType"], React.ReactNode> = {
   sale:             <ArrowUpRight className="h-4 w-4 text-yellow-400" />,
   payment_received: <ArrowDownLeft className="h-4 w-4 text-emerald-400" />,
+  payment_received_reversal: <Undo2 className="h-4 w-4 text-destructive" />,
   credit_note:      <ArrowDownLeft className="h-4 w-4 text-blue-400" />,
   adjustment:       <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />,
 }
@@ -20,9 +30,27 @@ const MOVEMENT_ICONS: Record<CustomerAccountMovement["movementType"], React.Reac
 interface CustomerAccountHistoryProps {
   movements: CustomerAccountMovement[]
   loading?: boolean
+  /** cobranzas-reverso (task 13.1): requerido para ofrecer "Anular" por
+   * fila — la mutación necesita el clientId para invalidar la cuenta
+   * correcta. */
+  clientId: string
 }
 
-export function CustomerAccountHistory({ movements, loading }: CustomerAccountHistoryProps) {
+export function CustomerAccountHistory({ movements, loading, clientId }: CustomerAccountHistoryProps) {
+  const [reason, setReason] = useState("")
+  const reverseMutation = useReversePaymentReceived(clientId)
+
+  async function handleReverse(movement: CustomerAccountMovement) {
+    try {
+      await reverseMutation.mutateAsync({ paymentId: movement.referenceId ?? "", reason: reason || undefined })
+      toast.success("Cobro anulado")
+      setReason("")
+    } catch (err) {
+      const { message } = humanizeOperationError((err as Error).message)
+      toast.error(message)
+    }
+  }
+
   if (loading) {
     return (
       <div className="rounded-lg border border-border overflow-hidden">
@@ -71,12 +99,13 @@ export function CustomerAccountHistory({ movements, loading }: CustomerAccountHi
       </div>
 
       {/* Header (desktop) */}
-      <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px] gap-3 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+      <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px_auto] gap-3 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
         <span className="w-8" />
         <span>Tipo</span>
         <span className="text-right">Importe</span>
         <span className="text-right">Saldo después</span>
         <span>Fecha</span>
+        <span className="w-8" />
       </div>
 
       {movements.map((m) => {
@@ -98,6 +127,19 @@ export function CustomerAccountHistory({ movements, loading }: CustomerAccountHi
           month: "short",
           year:  "numeric",
         })
+
+        // cobranzas-reverso (task 13.1): la acción de anular sólo se ofrece
+        // en filas de cobro cuyo documento sigue vivo (is_reversible,
+        // derivado del servidor — D12).
+        const compensationInfo = getDeleteCompensation(
+          {
+            isDeleteBlocked: m.isReversalBlocked,
+            hasCashMovement: m.hasCashMovement,
+            hasBankMovement: m.hasBankMovement,
+          },
+          "cliente",
+          "cobro",
+        )
 
         return (
           <div
@@ -127,10 +169,22 @@ export function CustomerAccountHistory({ movements, loading }: CustomerAccountHi
                   saldo: ${formattedBalance}
                 </p>
               </div>
+              {m.isReversible && (
+                <DeleteOperationDialog
+                  label="este cobro"
+                  info={compensationInfo}
+                  onConfirm={() => handleReverse(m)}
+                  isDeleting={reverseMutation.isPending}
+                  actionVerb="Anular"
+                  actionVerbGerund="Anulando"
+                  icon={<Undo2 className="h-3.5 w-3.5" />}
+                  reasonField={{ value: reason, onChange: setReason }}
+                />
+              )}
             </div>
 
             {/* Desktop */}
-            <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px] gap-3 px-4 py-3 items-center">
+            <div className="hidden sm:grid grid-cols-[auto_1fr_140px_140px_100px_auto] gap-3 px-4 py-3 items-center">
               <div className="w-8 flex justify-center">
                 <div className="rounded-full bg-accent p-1.5">
                   {MOVEMENT_ICONS[m.movementType]}
@@ -150,6 +204,20 @@ export function CustomerAccountHistory({ movements, loading }: CustomerAccountHi
                 ${formattedBalance}
               </span>
               <span className="text-xs text-muted-foreground">{formattedDate}</span>
+              <div className="w-8 flex justify-center">
+                {m.isReversible && (
+                  <DeleteOperationDialog
+                    label="este cobro"
+                    info={compensationInfo}
+                    onConfirm={() => handleReverse(m)}
+                    isDeleting={reverseMutation.isPending}
+                    actionVerb="Anular"
+                    actionVerbGerund="Anulando"
+                    icon={<Undo2 className="h-3.5 w-3.5" />}
+                    reasonField={{ value: reason, onChange: setReason }}
+                  />
+                )}
+              </div>
             </div>
           </div>
         )

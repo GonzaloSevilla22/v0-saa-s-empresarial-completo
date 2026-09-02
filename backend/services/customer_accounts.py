@@ -14,11 +14,15 @@ from backend.core.guards import require_role
 from backend.repositories.customer_account_repository import CustomerAccountRepository
 from backend.schemas.customer_accounts import (
     PaymentReceivedIn,
+    PaymentReversalIn,
 )
 
 # Mapa de ERRCODEs propios de C-30 → HTTP status
 # bank-payment-routing C2: P0412 (bank_account no encontrada/inactiva) → 400
 # (mismo tratamiento que P0400: error de payload/referencia inválida del cliente).
+# cobranzas-reverso: P0426 (sin sesión de caja abierta para compensar) y
+# P0451 (asiento original no encontrado todavía — retry async) — mismo 409
+# que el resto de los conflictos de estado (P0409/P0423/P0425).
 _ERRCODE_STATUS = {
     "P0400": 400,
     "P0401": 403,
@@ -27,6 +31,8 @@ _ERRCODE_STATUS = {
     "P0409": 409,
     "P0412": 400,
     "P0422": 422,
+    "P0426": 409,
+    "P0451": 409,
 }
 
 
@@ -108,5 +114,23 @@ async def register_payment_received(
             # la RPC resuelve y valida las dos condiciones (P0422).
             cash_session_id=str(payload.cash_session_id) if payload.cash_session_id else None,
         )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+
+async def reverse_payment_received(
+    repo: CustomerAccountRepository,
+    auth: dict,
+    payment_id: str,
+    payload: PaymentReversalIn,
+) -> dict:
+    """cobranzas-reverso (task 10.1): anula un cobro. Guard is_account_writer
+    evaluado ANTES de llamar al repo (D8 se re-verifica además en la RPC,
+    pero el guard de rol del service es la primera capa — mismo criterio que
+    register_payment_received). Cero lógica de negocio acá: sólo el guard y
+    la propagación de errores."""
+    require_role(auth, ["user", "admin"])
+    try:
+        return await repo.reverse_payment_received(payment_id, payload.reason)
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc

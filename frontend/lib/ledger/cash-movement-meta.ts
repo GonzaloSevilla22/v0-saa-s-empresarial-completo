@@ -9,7 +9,7 @@
  */
 import {
   ArrowUpCircle, ArrowDownCircle, ShoppingBag, Wallet,
-  RotateCcw, Scale,
+  RotateCcw, Scale, Undo2,
 } from "lucide-react"
 import type { LedgerFamily, LedgerMovementMeta } from "./types"
 import type { CashMovementType } from "@/lib/types"
@@ -37,6 +37,14 @@ export const CASH_MOVEMENT_META: Record<CashMovementType, LedgerMovementMeta> = 
   purchase_payment_reversal: { label: "Reversa de compra", icon: RotateCcw,      tone: "warning",     family: "reversal" },
   payment_received:          { label: "Cobro de cliente",  icon: ArrowUpCircle,  tone: "success",     family: "income" },
   payment_made:               { label: "Pago a proveedor",  icon: ArrowDownCircle, tone: "destructive", family: "expense" },
+  // cobranzas-reverso (D10): anulación de cobro/pago — familia "Reversas"
+  // (junto a las otras tres), pero SIGNO OPUESTO entre sí: anular un cobro
+  // SACA plata del cajón (egreso/destructive), anular un pago la REPONE
+  // (ingreso/success) — al revés del tono de su hecho original. Ícono propio
+  // (Undo2) para distinguirlas visualmente de sale_reversal/expense_reversal/
+  // purchase_payment_reversal en el filtro "Reversas".
+  payment_received_reversal: { label: "Anulación de cobro", icon: Undo2, tone: "destructive", family: "reversal" },
+  payment_made_reversal:     { label: "Anulación de pago",  icon: Undo2, tone: "success",     family: "reversal" },
   adjustment:       { label: "Ajuste",              icon: Scale,         tone: "warning",     family: "adjustment" },
 }
 
@@ -44,6 +52,6 @@ export const CASH_MOVEMENT_FAMILIES: LedgerFamily[] = [
   { key: "all",        label: "Todos",     types: [] },
   { key: "income",     label: "Ingresos",  types: ["sale", "advance", "payment_received"] },
   { key: "expense",    label: "Egresos",   types: ["purchase_payment", "expense", "withdrawal", "payment_made"] },
-  { key: "reversal",   label: "Reversas",  types: ["sale_reversal", "expense_reversal", "purchase_payment_reversal"] },
+  { key: "reversal",   label: "Reversas",  types: ["sale_reversal", "expense_reversal", "purchase_payment_reversal", "payment_received_reversal", "payment_made_reversal"] },
   { key: "adjustment", label: "Ajustes",   types: ["adjustment"] },
 ]

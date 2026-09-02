@@ -118,4 +118,31 @@ describe("humanizeOperationError — details crudos del servidor (G10/H21a)", ()
     expect(out.message).toMatch(/Desde/)
     expect(out.message).toMatch(/Hasta/)
   })
+
+  // cobranzas-reverso (task 11.4): errores propios de la anulación de un
+  // cobro/pago de cuenta corriente.
+  it("no_open_session_for_reversal (P0426): explica que hay que abrir la caja", () => {
+    const out = humanizeOperationError(
+      "no_open_session_for_reversal: abrí la caja para poder anular este cobro",
+    )
+    expect(out.message).not.toContain("no_open_session_for_reversal")
+    expect(out.message).toMatch(/caja/i)
+    expect(out.message).toMatch(/cerrada|abrir|abrí/i)
+  })
+
+  it("payment_not_found (P0404): dice que ya no existe, sin exponer el detalle técnico", () => {
+    const out = humanizeOperationError(
+      "payment_not_found: el cobro no existe o no pertenece a esta cuenta",
+    )
+    expect(out.message).not.toContain("payment_not_found")
+    expect(out.message).toMatch(/no existe|anuló/i)
+  })
+
+  it("journal_entry_original_not_found (P0451): no es un error fatal, explica que se completa solo", () => {
+    const out = humanizeOperationError(
+      "journal_entry_original_not_found: no se encontró el asiento vigente para el cobro anulado",
+    )
+    expect(out.message).not.toContain("journal_entry_original_not_found")
+    expect(out.message).toMatch(/asiento/i)
+  })
 })

@@ -1247,6 +1247,16 @@ Con esto, **la saga de pagos que arrancó en `metodos-pago-operaciones` (#419) q
 
 ---
 
+**Change `caja-compras-cobranzas`** 🔨 **PROPUESTA 2026-09-01 · APPLY EN CURSO** (artefactos en `openspec/changes/caja-compras-cobranzas/`; rama `opsx/caja-compras-cobranzas-apply`; governance MEDIA con un tramo ALTA — grupos 3, 4 y 5 escriben dinero real en caja desde RPCs `SECURITY DEFINER`). Pedido textual del PO: *"No se registra la compra con Efectivo en el historial de caja y tampoco cuando cobrás una cuenta corriente; tiene que funcionar; también cuando se elimine una compra en efectivo se compense."* Verificado contra el `pg_get_functiondef` **vivo de producción** (2026-09-01): `rpc_create_purchase_operation`, `rpc_delete_purchase_operation`, `rpc_register_payment_received` y `rpc_register_payment_made` no tocan caja — el helper bancario compartido hace `RETURN NULL` sin error para `kind` no bancario, y nadie escribió la rama de efectivo para estos tres caminos (mismo patrón que `gastos-forma-pago` resolvió para el gasto).
+
+- **Sign-off del PO (2026-09-01)**: *"aplicalo con todas las recomendaciones"*. Grupo 0 firmado: sin backfill de los 11 históricos (4 compras + 6 cobros + 1 pago, imposible además por falta de datos); compra con caja posteada → inmutable (borrar y recrear); borrado de compra con caja exige sesión abierta (`P0426`). Las 5 OQs por recomendación: (1) `payment_method` persistido en cobros/pagos de ahora en más (aditivo, sin backfill); (2) opt-in de caja pre-marcado en compra, cobro y pago; (3) relabel de `purchase_payment` → "Compra en efectivo" sin sign-off adicional (0 filas); (4) reverso de cobros/pagos fuera de este change (candidato `cobranzas-reverso`); (5) sin backfill confirmado.
+- **Hallazgo lateral que el change absorbe**: 0 de 507 compras tienen `branch_id` — el `BranchSelect` del formulario es decorativo, `useCreatePurchase` descarta `branchId` del payload y `PurchaseRepository.create_operation` pasa `NULL` literal como 5.º argumento. Mismo bug que `gastos-forma-pago` encontró y arregló en gastos (0/175); acá es load-bearing porque la condición 2 del opt-in de caja depende de la sucursal efectiva de la compra.
+- **Vocabulario de caja**: el CHECK de `cash_movements.movement_type` pasa de 8 a 11 tipos (`purchase_payment_reversal`, `payment_received`, `payment_made` nuevos; `purchase_payment` relabeleado de "Pago a proveedor" a "Compra en efectivo" — 0 filas, no reescribe historia).
+- **Resultado del apply**: se completa en la sección de cierre de esta misma entrada al terminar (task 16.1).
+- **Leer antes**: `openspec/changes/caja-compras-cobranzas/design.md` (D1-D12 + las 5 OQs), `openspec/changes/archive/2026-08-30-gastos-forma-pago/` (molde literal que este change copia a tres caminos más).
+
+---
+
 ## Post-roadmap V2.x (changes no numerados, post C-30)
 
 > Trabajo dirigido por el PO tras cerrar el roadmap numerado C-01→C-30. No llevan código `C-NN`; viven en `openspec/changes/archive/` con nombre propio. Se listan acá para que CHANGES.md refleje el estado real del repo.

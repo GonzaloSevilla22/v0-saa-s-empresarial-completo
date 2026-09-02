@@ -175,6 +175,13 @@ export type CashMovementType =
   // espejo de `sale_reversal` en FAMILIA (Reversas) y opuesto en SIGNO
   // (repone plata, así que es ingreso en backend/schemas/cash.py).
   | "expense_reversal"
+  // caja-compras-cobranzas (D1): tres tipos nuevos. purchase_payment_reversal
+  // es la contra-partida automática del borrado de una compra en efectivo
+  // (familia Reversas, ingreso por signo — repone plata). payment_received/
+  // payment_made son el cobro/pago de cuenta corriente en efectivo.
+  | "purchase_payment_reversal"
+  | "payment_received"
+  | "payment_made"
   | "adjustment"
 
 /**
@@ -431,10 +438,14 @@ export interface Purchase {
   branchId?: string | null
   /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente posteado — inmutable. */
   isPaymentLocked?: boolean
-  /** delete-guard-ledgers: mismos EXISTS de isPaymentLocked, separados
-   * (sin caja — las compras no tienen opt-in de caja). */
+  /** delete-guard-ledgers: mismos EXISTS de isPaymentLocked, separados. */
   hasAccountCharge?: boolean
   hasBankMovement?: boolean
+  /** caja-compras-cobranzas (D9): mismos dos derivados que Expense — hay
+   * movimiento de caja de esta compra, y si además no hay sesión abierta en
+   * esa caja el borrado quedaría bloqueado (P0426). */
+  hasCashMovement?: boolean
+  isDeleteBlocked?: boolean
   /** compras-proveedor-cuenta-corriente (D4): proveedor imputado a la
    * operación (editable, tri-estado — D7). null = "Sin proveedor". */
   supplierId?: string | null

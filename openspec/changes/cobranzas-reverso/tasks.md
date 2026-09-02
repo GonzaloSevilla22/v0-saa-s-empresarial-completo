@@ -140,13 +140,13 @@
 - [x] 14.1 Suite completa: backend 1748 passed/3 skipped (coverage 97% global, 94-100% en archivos tocados), frontend 1809/1811 passed (1 archivo flaky bajo carga, confirmado 9/9 aislado — no relacionado), `tsc --noEmit` sin errores nuevos, 42/42 gates SQL (1 pre-existente ajeno, reportado).
 - [x] 14.2 Revisión adversarial: guard `<> 0` confirmado en las dos RPCs (grep dirigido); las 9 ramas contables preexistentes de `_journal_post_from_event` y los Consumers 1/2/4 de `rpc_process_outbox_dispatch` verificados **byte-a-byte idénticos** por comparación programática (no inspección visual); los dos filtros de `event_type` coinciden (gate propio, D13); las dos `REVOKE` tienen su `GRANT` correspondiente (grep dirigido, cero huérfanos).
 - [x] 14.3 PR **#487** contra `main`, rama `opsx/cobranzas-reverso-apply`, con descripción que enumera los cuatro libros afectados y el sign-off del PO. Commiteado por grupo (8 commits), nunca a `main` directo.
-- [ ] 14.4 **Fuera de alcance de esta sesión** (regla del orquestador: no esperar CI, el orquestador monitorea y mergea).
-- [ ] 14.5 **Fuera de alcance** — post-merge.
-- [ ] 14.6 **Fuera de alcance** — post-merge, humo real en prod.
-- [ ] 14.7 **Fuera de alcance** — post-merge.
+- [x] 14.4 **CUMPLIDA post-merge (2026-09-02, orquestador)**: PR #487 mergeado squash `d1b34b4` contra `main`. Verificación delegada al orquestador, no re-ejecutada en esta sesión de archive.
+- [x] 14.5 **CUMPLIDA post-merge (2026-09-02, orquestador)**: migración `20261019000001` verificada viva en prod con 5 señales — las 2 RPCs de reverso (`rpc_reverse_payment_received`/`rpc_reverse_payment_made`) presentes, los 2 tipos de reversa en el CHECK de `cash_movements.movement_type`, la rama del contra-asiento (`PaymentReceivedReversed`/`PaymentMadeReversed`) en `_journal_post_from_event`, y `anon` sin `EXECUTE` en ambas RPCs nuevas.
+- [x] 14.6 **CUMPLIDA — humo real del PO (2026-09-02)**: "funciona todo" — cobro en efectivo anulado con compensación verificada por el PO en los cuatro libros (cuenta corriente, caja, banco cuando aplica, asiento contable).
+- [x] 14.7 **CUMPLIDA post-merge (2026-09-02, orquestador)**: sin regresiones ni incidentes reportados tras el merge; change habilitado para archive.
 - [x] 14.8 `CHANGES.md`: entrada propia del change agregada (governance, checkpoint, decisiones D1-D13, hallazgos reales, verificación, specs pendientes de sync). El puntero "próximo change recomendado" vive en CLAUDE.md (no en CHANGES.md) y se actualiza tradicionalmente en el archive — no tocado acá, por diseño (archive es post-merge, fuera de esta sesión).
 - [x] 14.9 Hallazgos laterales anotados en `CHANGES.md` (fix pre-existente de `test_sales_order_payment_method_drop.sql`, candidato con chip) y en `tasks.md` §15.
-- [ ] 14.10 **Fuera de alcance** — `openspec archive` es post-merge; lo ejecuta una sesión futura del orquestador.
+- [x] 14.10 **CUMPLIDA (2026-09-02)**: `openspec archive cobranzas-reverso` ejecutado en esta sesión, rama `opsx/cobranzas-reverso-archive`, PR de archive propio.
 
 ## 15. Hallazgos laterales a registrar (no se arreglan acá)
 

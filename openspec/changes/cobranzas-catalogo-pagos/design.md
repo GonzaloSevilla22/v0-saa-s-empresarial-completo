@@ -245,6 +245,8 @@ Por eso el cableado del `kind` derivado es **parte del núcleo de este change**,
 
 ## Open Questions
 
+> **Sign-off del PO (2026-09-02, "aplicalo con todas las recomendaciones")**: las 5 OQs quedan resueltas por su recomendación — OQ-1 rechazar, OQ-2 aceptar, OQ-3 dropear, OQ-4 un contexto, OQ-5 fuera de este change (candidato). Aplicado en la migración `20261020000001`.
+
 **OQ-1 — ¿`credit` se rechaza o se acepta como etiqueta?**
 D2 decide **rechazar con `P0400`** en servidor y no ofrecerlo en el selector: cancelar una deuda con deuda es circular. La alternativa es aceptarlo como etiqueta pura (como `other`), que evitaría un error posible pero produciría filas que se leen como un cargo siendo un pago.
 **Recomendación: rechazar (D2).** Es la dirección reversible —permitirlo después es borrar una condición; prohibirlo después rompería filas ya escritas— y replica el precedente firmado de `gastos-forma-pago` (D3). **Si el PO no responde, se hace así.**

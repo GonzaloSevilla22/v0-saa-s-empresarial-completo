@@ -162,6 +162,13 @@ export function SupplierAccountHistory({ movements, loading, supplierId }: Suppl
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">
                   {MOVEMENT_LABELS[m.movementType]}
+                  {/* cobranzas-catalogo-pagos (D3, task 10.2): espejo exacto
+                      de CustomerAccountHistory. */}
+                  {m.movementType === "payment_made" && m.paymentMethod && (
+                    <span className="ml-1.5 font-normal text-muted-foreground">
+                      · {m.paymentMethod}
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">{formattedDate}</p>
               </div>
@@ -200,6 +207,11 @@ export function SupplierAccountHistory({ movements, loading, supplierId }: Suppl
               </div>
               <span className="text-sm text-foreground">
                 {MOVEMENT_LABELS[m.movementType]}
+                {m.movementType === "payment_made" && m.paymentMethod && (
+                  <span className="ml-1.5 font-normal text-muted-foreground">
+                    · {m.paymentMethod}
+                  </span>
+                )}
               </span>
               <span
                 className={`text-sm font-semibold tabular-nums text-right ${

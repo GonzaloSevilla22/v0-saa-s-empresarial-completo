@@ -11,17 +11,24 @@ import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { isBankPaymentKind, type PaymentMethodKind } from "@/lib/types"
 import { getAccountKindIcon } from "@/lib/bank-account-kind"
 
-export type PaymentMethodContext = "sale" | "purchase" | "expense"
+export type PaymentMethodContext = "sale" | "purchase" | "expense" | "collection"
 
 /**
- * Opciones ofrecidas por contexto — D3. Es la regla que usa el render, no una
- * copia: el `.map()` del componente consume exactamente esta función.
+ * Opciones ofrecidas por contexto — D3, extendido por cobranzas-catalogo-pagos
+ * (D6): "collection" es el contexto ÚNICO compartido por el modal de cobro de
+ * cuenta corriente y el de pago a proveedor — ofrecen exactamente el mismo
+ * conjunto (6 de 7 kinds, sin credit) y difieren sólo en la dirección del
+ * dinero, que ya se resuelve en el texto de apoyo, no en las opciones. Es la
+ * regla que usa el render, no una copia: el `.map()` del componente consume
+ * exactamente esta función.
  */
 export function paymentMethodOptionsFor<T extends { kind: PaymentMethodKind }>(
   methods: T[],
   context: PaymentMethodContext,
 ): T[] {
-  return context === "expense" ? methods.filter((pm) => pm.kind !== "credit") : methods
+  return context === "expense" || context === "collection"
+    ? methods.filter((pm) => pm.kind !== "credit")
+    : methods
 }
 
 interface PaymentMethodSelectProps {
@@ -178,6 +185,18 @@ export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSup
         </p>
       )
     }
+    // cobranzas-catalogo-pagos (D2/D6, task 8.4): el selector NO ofrece esta
+    // opción en "collection" (paymentMethodOptionsFor la filtra), pero un
+    // cobro o pago imputado a un método que después pasó a `credit` puede
+    // seguir mostrando esta rama — mismo patrón que "expense".
+    if (context === "collection") {
+      return (
+        <p id={id} className="text-xs text-muted-foreground">
+          Cobrar o pagar una cuenta corriente con cuenta corriente es circular —
+          esta forma de pago no está disponible acá.
+        </p>
+      )
+    }
     return (
       <p id={id} className="text-xs text-muted-foreground">
         {context === "sale"
@@ -195,6 +214,19 @@ export function PaymentMethodSupportText({ kind, context, id }: PaymentMethodSup
           El egreso se registra en la caja abierta, salvo que destildes "Registrar en
           caja" (por ejemplo, si lo pagaste de otro bolsillo). Sólo si hay una sesión
           abierta hoy en la sucursal.
+        </p>
+      )
+    }
+    // cobranzas-catalogo-pagos (D6, task 8.3): el opt-in del cobro/pago
+    // TAMBIÉN arranca PRE-MARCADO (caja-compras-cobranzas D4) — la redacción
+    // sigue la misma fórmula que "expense" ("salvo que destildes…"), NO la
+    // de "sale" (que describe un opt-in que arranca DESTILDADO). Decirlo al
+    // revés sería el bug que qa-integral-modulos G10/H8 corrigió para compra.
+    if (context === "collection") {
+      return (
+        <p id={id} className="text-xs text-muted-foreground">
+          El movimiento se registra en la caja abierta, salvo que destildes "Registrar
+          en caja". Sólo si hay una sesión abierta.
         </p>
       )
     }

@@ -48,7 +48,7 @@ describe("useRegisterPayment — passthrough de cashSessionId (D2)", () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        idempotencyKey: "k1", amount: 400, paymentMethod: "cash", cashSessionId: CASH_SESSION_ID,
+        idempotencyKey: "k1", amount: 400, paymentMethodId: "pm-cash", cashSessionId: CASH_SESSION_ID,
       })
     })
 
@@ -61,7 +61,7 @@ describe("useRegisterPayment — passthrough de cashSessionId (D2)", () => {
     const { result } = renderHook(() => useRegisterPayment("client-1"), { wrapper })
 
     await act(async () => {
-      await result.current.mutateAsync({ idempotencyKey: "k1", amount: 400, paymentMethod: "cash" })
+      await result.current.mutateAsync({ idempotencyKey: "k1", amount: 400, paymentMethodId: "pm-cash" })
     })
 
     const [, body] = (pythonClient.post as ReturnType<typeof vi.fn>).mock.calls[0]
@@ -75,7 +75,7 @@ describe("useRegisterPayment — passthrough de cashSessionId (D2)", () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        idempotencyKey: "k1", amount: 400, paymentMethod: "cash", cashSessionId: CASH_SESSION_ID,
+        idempotencyKey: "k1", amount: 400, paymentMethodId: "pm-cash", cashSessionId: CASH_SESSION_ID,
       })
     })
 
@@ -99,7 +99,7 @@ describe("useRegisterPaymentMade — passthrough de cashSessionId (D5, espejo)",
 
     await act(async () => {
       await result.current.mutateAsync({
-        idempotencyKey: "k1", amount: 400, paymentMethod: "cash", cashSessionId: CASH_SESSION_ID,
+        idempotencyKey: "k1", amount: 400, paymentMethodId: "pm-cash", cashSessionId: CASH_SESSION_ID,
       })
     })
 
@@ -114,7 +114,7 @@ describe("useRegisterPaymentMade — passthrough de cashSessionId (D5, espejo)",
 
     await act(async () => {
       await result.current.mutateAsync({
-        idempotencyKey: "k1", amount: 400, paymentMethod: "cash", cashSessionId: CASH_SESSION_ID,
+        idempotencyKey: "k1", amount: 400, paymentMethodId: "pm-cash", cashSessionId: CASH_SESSION_ID,
       })
     })
 

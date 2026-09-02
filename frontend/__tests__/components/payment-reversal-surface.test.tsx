@@ -47,6 +47,7 @@ function customerMovement(overrides: Partial<CustomerAccountMovement>): Customer
     isReversalBlocked: false,
     hasCashMovement: false,
     hasBankMovement: false,
+    paymentMethod: null,
     ...overrides,
   }
 }
@@ -66,6 +67,7 @@ function supplierMovement(overrides: Partial<SupplierAccountMovement>): Supplier
     isReversalBlocked: false,
     hasCashMovement: false,
     hasBankMovement: false,
+    paymentMethod: null,
     ...overrides,
   }
 }

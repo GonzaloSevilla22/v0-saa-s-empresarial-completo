@@ -15,8 +15,19 @@ const bankAccountsFixture = [
   { id: "ba-bank", accountId: "a", name: "Cuenta corriente Galicia", bankName: "Banco Galicia", cbu: null, alias: null, currency: "ARS", accountKind: "bank" as const, isActive: true },
 ]
 
+// cobranzas-catalogo-pagos: los dos modales migraron al catálogo
+// (PaymentMethodSelect + usePaymentMethods) — el <Select> de 4 opciones
+// hardcodeadas desapareció.
+const paymentMethodsFixture = [
+  { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash" as const, isActive: true, sortOrder: 1, createdAt: "2026-01-01", bankAccountId: null },
+  { id: "pm-transfer", accountId: "a", name: "Transferencia", kind: "transfer" as const, isActive: true, sortOrder: 2, createdAt: "2026-01-01", bankAccountId: null },
+]
+
 vi.mock("@/hooks/data/use-bank-accounts", () => ({
   useBankAccounts: () => ({ data: bankAccountsFixture, isLoading: false, isError: false, error: null }),
+}))
+vi.mock("@/hooks/data/use-payment-methods", () => ({
+  usePaymentMethods: () => ({ paymentMethods: paymentMethodsFixture, isLoading: false, isError: false, error: null }),
 }))
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useRegisterPayment: () => ({ mutateAsync: vi.fn() }),
@@ -26,15 +37,15 @@ vi.mock("@/hooks/data/use-supplier-account", () => ({
 }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 // caja-compras-cobranzas: los dos formularios ahora montan useCashOptin
-// (default paymentMethod="cash", así que ya consulta caja desde el primer
-// render) — sin mockear la cadena, pythonClient explota por falta de
-// NEXT_PUBLIC_BACKEND_URL en el entorno de test.
+// (con la forma de pago 'cash' del catálogo, así que ya consulta caja desde
+// el primer render) — sin mockear la cadena, pythonClient explota por falta
+// de NEXT_PUBLIC_BACKEND_URL en el entorno de test.
 vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
 vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))
 vi.mock("@/hooks/data/use-cash-session", () => ({ useCurrentSession: () => ({ data: null }) }))
 
 async function selectTransferMethod(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("combobox", { name: /método de pago/i }))
+  await user.click(screen.getByRole("combobox", { name: /forma de pago/i }))
   await user.click(await screen.findByRole("option", { name: "Transferencia" }))
 }
 

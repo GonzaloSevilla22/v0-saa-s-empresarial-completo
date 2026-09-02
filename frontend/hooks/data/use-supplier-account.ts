@@ -21,6 +21,9 @@ export interface SupplierAccountMovementApi {
   is_reversal_blocked?: boolean
   has_cash_movement?: boolean
   has_bank_movement?: boolean
+  // cobranzas-catalogo-pagos (D3, task 10.2): espejo exacto — nombre
+  // configurado de la forma de pago del pago.
+  payment_method?: string | null
 }
 
 export interface SupplierAccountApi {
@@ -72,6 +75,8 @@ export interface SupplierAccountMovement {
   isReversalBlocked: boolean
   hasCashMovement: boolean
   hasBankMovement: boolean
+  /** cobranzas-catalogo-pagos (D3, task 10.2): espejo exacto del cliente. */
+  paymentMethod: string | null
 }
 
 export interface SupplierAccount {
@@ -100,6 +105,7 @@ function mapMovement(r: SupplierAccountMovementApi): SupplierAccountMovement {
     isReversalBlocked: r.is_reversal_blocked ?? false,
     hasCashMovement:   r.has_cash_movement ?? false,
     hasBankMovement:   r.has_bank_movement ?? false,
+    paymentMethod:     r.payment_method ?? null,
   }
 }
 
@@ -122,7 +128,11 @@ function translateError(message: string): string {
   if (message.includes("bank_account_required"))  return "Elegí una cuenta bancaria para este método de pago."
   if (message.includes("bank_account_not_found")) return "La cuenta bancaria seleccionada no existe."
   if (message.includes("bank_account_inactive"))  return "La cuenta bancaria seleccionada está inactiva."
-  if (message.includes("invalid_payment_method")) return "Método de pago inválido."
+  // cobranzas-catalogo-pagos (D2/D5)
+  if (message.includes("credit_payment_method_invalid"))
+    return "No se puede pagar imputando a una forma de pago de cuenta corriente."
+  if (message.includes("payment_method_not_found"))
+    return "La forma de pago seleccionada no existe."
   if (message.includes("account_not_found"))      return "Cuenta corriente del proveedor no encontrada."
   if (message.includes("No autorizado"))          return "No tenés permisos para registrar pagos."
   return message || "Ocurrió un error inesperado."
@@ -175,16 +185,20 @@ export function useRegisterPaymentMade(supplierId: string) {
       idempotencyKey,
       amount,
       referencePurchaseId,
-      paymentMethod,
+      paymentMethodId,
       bankAccountId,
       cashSessionId,
     }: {
       idempotencyKey: string
       amount: number
       referencePurchaseId?: string
-      /** bank-payment-routing C2: {cash,transfer,card,check}. Omitido → default 'cash' del backend. */
-      paymentMethod?: string
-      /** Requerido cuando paymentMethod es bancario (transfer/card/check). */
+      /**
+       * cobranzas-catalogo-pagos (D1): identificador del catálogo — el kind
+       * se deriva en el servidor. Omitido → el pago queda sin imputar
+       * (NULL, D3).
+       */
+      paymentMethodId?: string
+      /** Requerido cuando el kind derivado es bancario (transfer/card/check/wallet). */
       bankAccountId?: string
       /**
        * caja-compras-cobranzas (D2/D5): opt-in de caja. Omitido/null = el
@@ -201,7 +215,7 @@ export function useRegisterPaymentMade(supplierId: string) {
             supplier_id:           supplierId,
             amount:                amount.toString(),
             reference_purchase_id: referencePurchaseId ?? null,
-            ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+            ...(paymentMethodId ? { payment_method_id: paymentMethodId } : {}),
             ...(bankAccountId ? { bank_account_id: bankAccountId } : {}),
             ...(cashSessionId ? { cash_session_id: cashSessionId } : {}),
           },
@@ -219,6 +233,8 @@ export function useRegisterPaymentMade(supplierId: string) {
       // egresado de la caja.
       queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+      // cobranzas-catalogo-pagos (task 9.7): espejo exacto del cobro.
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
     },
   })
 }

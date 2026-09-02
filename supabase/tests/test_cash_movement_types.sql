@@ -1,20 +1,27 @@
 -- =============================================================================
 -- GATE: test_cash_movement_types.sql
 -- CHANGE: caja-compras-cobranzas — grupo 2 (vocabulario de caja)
+-- Extendido por cobranzas-reverso (2026-09-02) — 11 → 13 tipos.
 --
--- El CHECK de cash_movements.movement_type pasa de 8 a 11 tipos:
--- purchase_payment_reversal, payment_received, payment_made (nuevos).
--- purchase_payment ya existía (0 filas) — el relabel a "Compra en efectivo"
--- es sólo frontend (CASH_MOVEMENT_META), no toca este gate.
+-- El CHECK de cash_movements.movement_type pasa de 8 a 11 tipos (caja-
+-- compras-cobranzas: purchase_payment_reversal, payment_received,
+-- payment_made) y luego de 11 a 13 (cobranzas-reverso: payment_received_
+-- reversal, payment_made_reversal — la anulación de un cobro/pago). purchase_
+-- payment ya existía (0 filas) — el relabel a "Compra en efectivo" es sólo
+-- frontend (CASH_MOVEMENT_META), no toca este gate.
 --
 -- Qué ejercita:
---   (2.1) el CHECK vivo incluye los 11 tipos, en su pg_get_constraintdef.
+--   (2.1) el CHECK vivo incluye los 13 tipos, en su pg_get_constraintdef.
 --   (2.2) 'tip' (fuera del conjunto) sigue rechazado.
---   (2.3) los tres tipos nuevos SÍ son aceptados por el CHECK.
+--   (2.3) los tres + dos tipos nuevos SÍ son aceptados por el CHECK, con
+--         signo coherente cada uno — payment_received_reversal (egreso) y
+--         payment_made_reversal (ingreso) son OPUESTOS entre sí (D10 de
+--         cobranzas-reverso).
 --   (2.4) conteo de filas antes/después de la migración es idéntico —
 --         ampliar el CHECK no puede invalidar ni reescribir nada.
 --   (2.5) idempotencia real: reaplicar el DROP+ADD dos veces dentro de esta
---         corrida deja exactamente UNA constraint con ese nombre.
+--         corrida deja exactamente UNA constraint con ese nombre, con la
+--         definición VIGENTE (13 tipos) — no la de un change anterior.
 --
 -- Degrade-don't-fail: si el anchor sintético no resuelve auth.uid() bajo
 -- request.jwt.claims local, el gate emite NOTICE y no aborta.
@@ -48,6 +55,12 @@ BEGIN
      OR position('''payment_received''' in v_condef) = 0
      OR position('''payment_made''' in v_condef) = 0 THEN
     RAISE EXCEPTION 'GATE CAJA-COMPRAS-COBRANZAS FAILED (2.1): el CHECK no acepta los tres tipos nuevos. Definición viva: %', v_condef;
+  END IF;
+
+  -- cobranzas-reverso: los dos tipos de reverso de pago.
+  IF position('''payment_received_reversal''' in v_condef) = 0
+     OR position('''payment_made_reversal''' in v_condef) = 0 THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (2.1): el CHECK no acepta payment_received_reversal/payment_made_reversal. Definición viva: %', v_condef;
   END IF;
 
   -- Los 8 tipos previos siguen aceptados.
@@ -116,14 +129,37 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (2.2/2.3): ''tip'' rechazado; los tres tipos nuevos aceptados.';
 
+  -- ═══ cobranzas-reverso (2026-09-02): 11 → 13 tipos ═══════════════════════
+  -- payment_received_reversal (EGRESO: anular un cobro saca plata del cajón)
+  -- y payment_made_reversal (INGRESO: anular un pago la repone) — signos
+  -- OPUESTOS entre sí, D10 del design de cobranzas-reverso.
+  INSERT INTO public.cash_movements (session_id, amount, movement_type, balance_after, created_by)
+  VALUES (v_session, -50, 'payment_received_reversal', 0, v_user);
+  INSERT INTO public.cash_movements (session_id, amount, movement_type, balance_after, created_by)
+  VALUES (v_session, 50, 'payment_made_reversal', 50, v_user);
+
+  SELECT COUNT(*) INTO v_count FROM public.cash_movements
+  WHERE session_id = v_session
+    AND movement_type IN ('payment_received_reversal', 'payment_made_reversal');
+  IF v_count <> 2 THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (2.3-cash-types): esperaba 2 movimientos de los tipos nuevos, hay %.', v_count;
+  END IF;
+  RAISE NOTICE 'PASS (2.3-cash-types): payment_received_reversal (egreso) y payment_made_reversal (ingreso) aceptados, signos opuestos entre sí.';
+
   -- (2.5) idempotencia real: reaplicar el DROP+ADD del CHECK dos veces más
   -- dentro de esta corrida no deja overloads ni constraints duplicadas.
+  -- cobranzas-reverso: la reaplicación usa la definición VIGENTE de 13 tipos
+  -- (no la de 11 de caja-compras-cobranzas) — reaplicar la definición vieja
+  -- acá downgradearía en silencio el CHECK que la migración de este change
+  -- ya dejó en 13, y rompería cualquier gate que corra después en la misma
+  -- base.
   ALTER TABLE public.cash_movements DROP CONSTRAINT IF EXISTS cash_movements_movement_type_check;
   ALTER TABLE public.cash_movements ADD CONSTRAINT cash_movements_movement_type_check
     CHECK (movement_type IN (
       'sale', 'purchase_payment', 'expense', 'advance', 'withdrawal',
       'sale_reversal', 'expense_reversal',
       'purchase_payment_reversal', 'payment_received', 'payment_made',
+      'payment_received_reversal', 'payment_made_reversal',
       'adjustment'
     ));
 

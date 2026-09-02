@@ -156,6 +156,7 @@ export function useRegisterPaymentMade(supplierId: string) {
       referencePurchaseId,
       paymentMethod,
       bankAccountId,
+      cashSessionId,
     }: {
       idempotencyKey: string
       amount: number
@@ -164,6 +165,11 @@ export function useRegisterPaymentMade(supplierId: string) {
       paymentMethod?: string
       /** Requerido cuando paymentMethod es bancario (transfer/card/check). */
       bankAccountId?: string
+      /**
+       * caja-compras-cobranzas (D2/D5): opt-in de caja. Omitido/null = el
+       * pago no toca caja (no-op en la RPC).
+       */
+      cashSessionId?: string | null
     }): Promise<PaymentMadeResult> => {
       try {
         // v3-api-standards §3/§6.2: la clave de idempotencia viaja por el
@@ -176,6 +182,7 @@ export function useRegisterPaymentMade(supplierId: string) {
             reference_purchase_id: referencePurchaseId ?? null,
             ...(paymentMethod ? { payment_method: paymentMethod } : {}),
             ...(bankAccountId ? { bank_account_id: bankAccountId } : {}),
+            ...(cashSessionId ? { cash_session_id: cashSessionId } : {}),
           },
           { "Idempotency-Key": idempotencyKey }
         )
@@ -187,6 +194,10 @@ export function useRegisterPaymentMade(supplierId: string) {
       queryClient.invalidateQueries({
         queryKey: queryKeys.supplierAccounts.bySupplier(supplierId),
       })
+      // caja-compras-cobranzas (task 11.4): el pago en efectivo puede haber
+      // egresado de la caja.
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
     },
   })
 }

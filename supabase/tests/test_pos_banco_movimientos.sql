@@ -279,8 +279,10 @@ BEGIN
 
   SELECT id INTO v_op2_id FROM public.sales WHERE operation_id = v_op_id LIMIT 1;
 
+  -- cobranzas-catalogo-pagos (D1): 5º arg pasa de text a uuid — el kind se
+  -- deriva del catálogo, v_pm_transfer ya resuelto arriba en el setup.
   PERFORM public.rpc_register_payment_received(
-    'gate-pbm-4-payment', v_client2_id, 10000, v_op2_id, 'transfer', v_bank_a
+    'gate-pbm-4-payment', v_client2_id, 10000, v_op2_id, v_pm_transfer, v_bank_a
   );
 
   -- rpc_register_payment_received (C2) referencia su bank_movement por

@@ -213,10 +213,14 @@ DECLARE
   v_balance      numeric;  v_count integer;
   v_movement     RECORD;  v_cash_mov RECORD;
   v_entry        RECORD;
+  v_pm_cash      uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (2): sin anchor A — degradando.'; RETURN; END IF;
   SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  -- cobranzas-catalogo-pagos (D1/D5): el kind se deriva del catálogo — se
+  -- resuelve el id, ya no se manda el texto literal.
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
   SELECT id INTO v_client FROM public.clients WHERE account_id = v_account_a AND name = '__gate_cr_client_cash__';
   SELECT id INTO v_ca_id FROM public.customer_accounts WHERE account_id = v_account_a AND client_id = v_client;
   SELECT cb.id INTO v_cashbox FROM public.cashboxes cb WHERE cb.name = '__gate_cr_cashbox_a__';
@@ -230,7 +234,7 @@ BEGIN
 
   -- Alta: cobro de 400 en efectivo, opt-in de caja.
   v_result := public.rpc_register_payment_received(
-    'gate-cr-cash-' || gen_random_uuid()::text, v_client, 400, NULL, 'cash', NULL, v_session
+    'gate-cr-cash-' || gen_random_uuid()::text, v_client, 400, NULL, v_pm_cash, NULL, v_session
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
 
@@ -352,6 +356,7 @@ DECLARE
   v_result     jsonb; v_payment_id uuid; v_reverse_result jsonb;
   v_balance    numeric; v_count integer;
   v_bank_mov   RECORD;
+  v_pm_transfer uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (3): sin anchor A — degradando.'; RETURN; END IF;
@@ -359,6 +364,7 @@ BEGIN
   SELECT id INTO v_client FROM public.clients WHERE account_id = v_account_a AND name = '__gate_cr_client_bank__';
   SELECT id INTO v_ca_id FROM public.customer_accounts WHERE account_id = v_account_a AND client_id = v_client;
   SELECT id INTO v_ba FROM public.bank_accounts WHERE account_id = v_account_a AND name = '__gate_cr_bank_a__';
+  SELECT id INTO v_pm_transfer FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'transfer' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
@@ -370,7 +376,7 @@ BEGIN
   FROM public.cashboxes cb WHERE cb.id = cs.cashbox_id AND cb.name = '__gate_cr_cashbox_a__' AND cs.status = 'open';
 
   v_result := public.rpc_register_payment_received(
-    'gate-cr-bank-' || gen_random_uuid()::text, v_client, 700, NULL, 'transfer', v_ba, NULL
+    'gate-cr-bank-' || gen_random_uuid()::text, v_client, 700, NULL, v_pm_transfer, v_ba, NULL
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
   PERFORM public.rpc_process_outbox_dispatch();
@@ -419,6 +425,7 @@ DECLARE
   v_sa_id      uuid; v_cashbox uuid; v_session uuid;
   v_result     jsonb; v_payment_id uuid; v_reverse_result jsonb;
   v_balance    numeric; v_movement RECORD; v_cash_mov RECORD;
+  v_pm_cash    uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (4): sin anchor A — degradando.'; RETURN; END IF;
@@ -427,12 +434,13 @@ BEGIN
   SELECT id INTO v_sa_id FROM public.supplier_accounts WHERE account_id = v_account_a AND supplier_id = v_supplier;
   SELECT cb.id INTO v_cashbox FROM public.cashboxes cb WHERE cb.name = '__gate_cr_cashbox_a__';
   SELECT cs.id INTO v_session FROM public.cash_sessions cs WHERE cs.cashbox_id = v_cashbox AND cs.status = 'open';
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
 
   v_result := public.rpc_register_payment_made(
-    'gate-cr-pay-' || gen_random_uuid()::text, v_supplier, 300, NULL, 'cash', NULL, v_session
+    'gate-cr-pay-' || gen_random_uuid()::text, v_supplier, 300, NULL, v_pm_cash, NULL, v_session
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
   PERFORM public.rpc_process_outbox_dispatch();
@@ -484,6 +492,7 @@ DECLARE
   v_balance_before numeric; v_balance_after numeric;
   v_count_before   integer; v_count_after integer;
   v_rejected   boolean; v_sqlstate text;
+  v_pm_cash    uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (5): sin anchor A — degradando.'; RETURN; END IF;
@@ -491,13 +500,14 @@ BEGIN
   SELECT id INTO v_client FROM public.clients WHERE account_id = v_account_a AND name = '__gate_cr_client_noopen__';
   SELECT id INTO v_ca_id FROM public.customer_accounts WHERE account_id = v_account_a AND client_id = v_client;
   SELECT cb.id INTO v_cashbox FROM public.cashboxes cb WHERE cb.name = '__gate_cr_cashbox_a__';
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
 
   SELECT id INTO v_session_own FROM public.cash_sessions WHERE cashbox_id = v_cashbox AND status = 'open';
   v_result := public.rpc_register_payment_received(
-    'gate-cr-noopen-' || gen_random_uuid()::text, v_client, 250, NULL, 'cash', NULL, v_session_own
+    'gate-cr-noopen-' || gen_random_uuid()::text, v_client, 250, NULL, v_pm_cash, NULL, v_session_own
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
 
@@ -547,6 +557,7 @@ DECLARE
   v_cashbox  uuid; v_session uuid;
   v_result   jsonb; v_payment_id uuid;
   v_count    integer; v_rejected boolean;
+  v_pm_cash  uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (6): sin anchor A — degradando.'; RETURN; END IF;
@@ -554,12 +565,13 @@ BEGIN
   SELECT id INTO v_client FROM public.clients WHERE account_id = v_account_a AND name = '__gate_cr_client_twice__';
   SELECT cb.id INTO v_cashbox FROM public.cashboxes cb WHERE cb.name = '__gate_cr_cashbox_a__';
   SELECT cs.id INTO v_session FROM public.cash_sessions cs WHERE cs.cashbox_id = v_cashbox AND cs.status = 'open';
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
 
   v_result := public.rpc_register_payment_received(
-    'gate-cr-twice-' || gen_random_uuid()::text, v_client, 150, NULL, 'cash', NULL, v_session
+    'gate-cr-twice-' || gen_random_uuid()::text, v_client, 150, NULL, v_pm_cash, NULL, v_session
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
 
@@ -599,6 +611,7 @@ DECLARE
   v_client_b  uuid; v_ca_b   uuid;
   v_payment_b jsonb; v_balance_before numeric; v_balance_after numeric;
   v_rejected  boolean;
+  v_pm_cash_b uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   SELECT id INTO v_user_b FROM auth.users WHERE email = 'cobranzas-reverso-b@test.local';
@@ -607,12 +620,13 @@ BEGIN
   SELECT account_id INTO v_account_b FROM public.account_members WHERE user_id = v_user_b ORDER BY created_at LIMIT 1;
   SELECT id INTO v_client_b FROM public.clients WHERE account_id = v_account_b AND name = '__gate_cr_client_b__';
   SELECT id INTO v_ca_b FROM public.customer_accounts WHERE account_id = v_account_b AND client_id = v_client_b;
+  SELECT id INTO v_pm_cash_b FROM public.payment_methods WHERE account_id = v_account_b AND kind = 'cash' AND is_active LIMIT 1;
 
   -- Registrar un cobro REAL para B, como B (para que el pago exista de verdad).
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_b::text, 'role', 'authenticated')::text, true);
   SELECT (public.rpc_register_payment_received(
-    'gate-cr-tenancy-b-' || gen_random_uuid()::text, v_client_b, 500, NULL, 'cash', NULL, NULL
+    'gate-cr-tenancy-b-' || gen_random_uuid()::text, v_client_b, 500, NULL, v_pm_cash_b, NULL, NULL
   )) INTO v_payment_b;
   -- v_payment_b es jsonb; extraer el id:
   DECLARE v_payment_b_id uuid := (v_payment_b->>'payment_id')::uuid;
@@ -662,6 +676,7 @@ DECLARE
   v_ca_id    uuid; v_cashbox uuid; v_session uuid;
   v_result   jsonb; v_payment_id uuid; v_reverse_result jsonb;
   v_cash_mov RECORD;
+  v_pm_cash  uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (8): sin anchor A — degradando.'; RETURN; END IF;
@@ -670,6 +685,7 @@ BEGIN
   SELECT id INTO v_ca_id FROM public.customer_accounts WHERE account_id = v_account_a AND client_id = v_client;
   SELECT cb.id INTO v_cashbox FROM public.cashboxes cb WHERE cb.name = '__gate_cr_cashbox_a__';
   SELECT cs.id INTO v_session FROM public.cash_sessions cs WHERE cs.cashbox_id = v_cashbox AND cs.status = 'open';
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
@@ -677,7 +693,7 @@ BEGIN
   -- Alta SIN opt-in de caja (para no dejar el movimiento "correcto" +100 de
   -- por medio) — el movimiento de caja de este pago se inyecta a mano.
   v_result := public.rpc_register_payment_received(
-    'gate-cr-negctrl-' || gen_random_uuid()::text, v_client, 100, NULL, 'cash', NULL, NULL
+    'gate-cr-negctrl-' || gen_random_uuid()::text, v_client, 100, NULL, v_pm_cash, NULL, NULL
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
 
@@ -716,19 +732,21 @@ DECLARE
   v_user_a   uuid; v_account_a uuid; v_client uuid; v_ca_id uuid;
   v_result   jsonb; v_payment_id uuid; v_reverse_result jsonb;
   v_balance  numeric;
+  v_pm_cash  uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (9): sin anchor A — degradando.'; RETURN; END IF;
   SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
   SELECT id INTO v_client FROM public.clients WHERE account_id = v_account_a AND name = '__gate_cr_client_zero__';
   SELECT id INTO v_ca_id FROM public.customer_accounts WHERE account_id = v_account_a AND client_id = v_client;
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
 
   -- Deuda inicial = 400 (seteada en (1)). Cobrar EXACTAMENTE 400 → balance 0.
   v_result := public.rpc_register_payment_received(
-    'gate-cr-zero-' || gen_random_uuid()::text, v_client, 400, NULL, 'cash', NULL, NULL
+    'gate-cr-zero-' || gen_random_uuid()::text, v_client, 400, NULL, v_pm_cash, NULL, NULL
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
 
@@ -761,11 +779,13 @@ DECLARE
   v_ev_reverso   public.events%ROWTYPE;
   v_rejected     boolean;
   v_entry_count  integer;
+  v_pm_cash      uuid;
 BEGIN
   SELECT id INTO v_user_a FROM auth.users WHERE email = 'cobranzas-reverso-a@test.local';
   IF v_user_a IS NULL THEN RAISE NOTICE 'GATE COBRANZAS-REVERSO (10): sin anchor A — degradando.'; RETURN; END IF;
   SELECT account_id INTO v_account_a FROM public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
   SELECT id INTO v_client FROM public.clients WHERE account_id = v_account_a AND name = '__gate_cr_client_ledger__';
+  SELECT id INTO v_pm_cash FROM public.payment_methods WHERE account_id = v_account_a AND kind = 'cash' AND is_active LIMIT 1;
 
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text, true);
@@ -773,7 +793,7 @@ BEGIN
   -- Alta y reverso, SIN correr el dispatcher todavía: los dos eventos
   -- (PaymentReceived, PaymentReceivedReversed) quedan sin procesar.
   v_result := public.rpc_register_payment_received(
-    'gate-cr-ledger-' || gen_random_uuid()::text, v_client, 350, NULL, 'cash', NULL, NULL
+    'gate-cr-ledger-' || gen_random_uuid()::text, v_client, 350, NULL, v_pm_cash, NULL, NULL
   );
   v_payment_id := (v_result->>'payment_id')::uuid;
 
@@ -928,6 +948,46 @@ BEGIN
 
     RAISE NOTICE 'PASS (11b — matriz de evasión): el mismo comparador SÍ detecta una divergencia plantada (% vs %) — el gate (11a) es un detector real.', v_synth_a_set, v_synth_b_set;
   END;
+END $$;
+
+
+-- ═══ (12) cobranzas-catalogo-pagos (gate 5.6 del apply, D7) — las funciones
+-- de anulación NO referencian la columna de forma de pago del documento ═══
+-- payments_received/payments_made ya NO tienen columna payment_method (text)
+-- — la migran a payment_method_id (uuid, D3). Este gate verifica en el
+-- cuerpo VIVO de las dos RPCs de anulación que ninguna las referencia, para
+-- que este change (o cualquier otro futuro) no pueda romper el reverso sin
+-- que algo lo note. Los bloques (2), (3) y (4) de arriba ya ejercitan la
+-- anulación de un cobro/pago imputado por catálogo (payment_method_id real,
+-- no NULL) y verifican que los libros compensan igual — la prueba
+-- FUNCIONAL de D7/5.7 ya está cubierta; este bloque es la prueba
+-- ESTRUCTURAL de que la independencia se sostiene por diseño, no por
+-- casualidad.
+DO $$
+DECLARE
+  v_def_reverse_received text;
+  v_def_reverse_made     text;
+BEGIN
+  SELECT pg_get_functiondef(p.oid) INTO v_def_reverse_received
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_reverse_payment_received';
+
+  SELECT pg_get_functiondef(p.oid) INTO v_def_reverse_made
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_reverse_payment_made';
+
+  IF v_def_reverse_received IS NULL OR v_def_reverse_made IS NULL THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (12-setup): no se pudo leer el cuerpo vivo de una de las dos funciones de anulación.';
+  END IF;
+
+  IF v_def_reverse_received ILIKE '%payment_method%' THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (12-cobro): rpc_reverse_payment_received referencia la columna de forma de pago del documento — el requirement de payment-reversal (D7) exige que las cuatro patas se disparen por existencia del movimiento, nunca por la forma de pago declarada.';
+  END IF;
+  IF v_def_reverse_made ILIKE '%payment_method%' THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (12-pago): rpc_reverse_payment_made referencia la columna de forma de pago del documento — mismo requirement que el cobro.';
+  END IF;
+
+  RAISE NOTICE 'PASS (12): ninguna de las dos funciones de anulación referencia la columna de forma de pago — la migración a payment_method_id (cobranzas-catalogo-pagos D3) no pudo romper el reverso, por construcción.';
 END $$;
 
 

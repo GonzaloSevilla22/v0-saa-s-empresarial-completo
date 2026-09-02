@@ -99,7 +99,8 @@ async def register_payment_received(
 ) -> dict:
     """Registra un cobro. Guard is_account_writer. Idempotente.
 
-    bank-payment-routing C2: propaga payment_method/bank_account_id al repo.
+    cobranzas-catalogo-pagos (D1): propaga payment_method_id (uuid) al repo —
+    el kind se deriva en el servidor, nunca acá.
     """
     require_role(auth, ["user", "admin"])
     try:
@@ -108,7 +109,7 @@ async def register_payment_received(
             client_id=str(payload.client_id),
             amount=float(payload.amount),
             reference_sale_id=str(payload.reference_sale_id) if payload.reference_sale_id else None,
-            payment_method=payload.payment_method,
+            payment_method_id=str(payload.payment_method_id) if payload.payment_method_id else None,
             bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
             # caja-compras-cobranzas (D2): passthrough del opt-in de caja —
             # la RPC resuelve y valida las dos condiciones (P0422).

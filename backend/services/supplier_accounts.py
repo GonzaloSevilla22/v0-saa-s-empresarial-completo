@@ -93,7 +93,8 @@ async def register_payment_made(
 ) -> dict:
     """Registra un pago al proveedor. Guard is_account_writer. Idempotente.
 
-    bank-payment-routing C2: propaga payment_method/bank_account_id al repo.
+    cobranzas-catalogo-pagos (D1): espejo exacto de
+    services/customer_accounts.py::register_payment_received.
     """
     require_role(auth, ["user", "admin"])
     try:
@@ -102,7 +103,7 @@ async def register_payment_made(
             supplier_id=str(payload.supplier_id),
             amount=float(payload.amount),
             reference_purchase_id=str(payload.reference_purchase_id) if payload.reference_purchase_id else None,
-            payment_method=payload.payment_method,
+            payment_method_id=str(payload.payment_method_id) if payload.payment_method_id else None,
             bank_account_id=str(payload.bank_account_id) if payload.bank_account_id else None,
             # caja-compras-cobranzas (D5): passthrough del opt-in de caja.
             cash_session_id=str(payload.cash_session_id) if payload.cash_session_id else None,

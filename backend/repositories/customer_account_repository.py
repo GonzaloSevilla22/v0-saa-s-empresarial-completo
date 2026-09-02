@@ -66,6 +66,16 @@ class CustomerAccountRepository(BaseRepository):
         sólo pobla cuando movement_type='payment_received') — NULL para el
         resto de los tipos y para los cobros históricos, sin backfill.
 
+        cobranzas-catalogo-pagos (D3, task 7.2): el JOIN se extiende a
+        payment_methods.name — payments_received.payment_method (texto) ya
+        no existe, la columna se dropeó. El alias del resultado sigue
+        llamándose payment_method (mismo campo, mismo consumidor) pero ahora
+        expone el NOMBRE que el usuario configuró en su catálogo, resuelto a
+        través de payment_method_id. Un cobro sin imputar (payment_method_id
+        NULL) o imputado a un método desde entonces dado de baja (is_active
+        pasa a false, pero la fila del catálogo sigue existiendo) resuelve
+        igual por el LEFT JOIN — la baja es desactivación, nunca borrado.
+
         cobranzas-reverso (D12, hallazgo del propio TDD del apply — task
         13.1): esta es la query que alimenta la vista combinada de
         GET /clientes/{id}/cuenta (get_account → CustomerAccountHistory en
@@ -77,7 +87,7 @@ class CustomerAccountRepository(BaseRepository):
         """
         return await self.fetch(
             """
-            SELECT cam.*, pr.payment_method,
+            SELECT cam.*, pm.name AS payment_method,
               (cam.movement_type = 'payment_received' AND EXISTS (
                 SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
               )) AS is_reversible,
@@ -102,6 +112,8 @@ class CustomerAccountRepository(BaseRepository):
             FROM public.customer_account_movements cam
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'
+            LEFT JOIN public.payment_methods pm
+              ON pm.id = pr.payment_method_id
             WHERE cam.customer_account_id = $1::uuid AND cam.account_id = $2::uuid
             ORDER BY cam.created_at DESC
             LIMIT $3
@@ -142,7 +154,7 @@ class CustomerAccountRepository(BaseRepository):
         pagos históricos, D3)."""
         return await self.paginate(
             """
-            SELECT cam.*, pr.payment_method,
+            SELECT cam.*, pm.name AS payment_method,
               (cam.movement_type = 'payment_received' AND EXISTS (
                 SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
               )) AS is_reversible,
@@ -167,6 +179,8 @@ class CustomerAccountRepository(BaseRepository):
             FROM public.customer_account_movements cam
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'
+            LEFT JOIN public.payment_methods pm
+              ON pm.id = pr.payment_method_id
             WHERE cam.customer_account_id = $1::uuid AND cam.account_id = $2::uuid
             ORDER BY cam.created_at DESC
             """,
@@ -202,28 +216,30 @@ class CustomerAccountRepository(BaseRepository):
         client_id: str,
         amount: float,
         reference_sale_id: str | None = None,
-        payment_method: str = "cash",
+        payment_method_id: str | None = None,
         bank_account_id: str | None = None,
         cash_session_id: str | None = None,
     ) -> dict:
         """Invoca rpc_register_payment_received → registra cobro en la cuenta del cliente.
 
-        bank-payment-routing C2: payment_method/bank_account_id son params aditivos
-        trailing (default cash/None) — retrocompatibles con la firma de C-30.
+        cobranzas-catalogo-pagos (D1): payment_method (text) → payment_method_id
+        (uuid) en la MISMA posición — el kind se deriva en el servidor desde el
+        catálogo. Verificado contra la firma nueva: un desplazamiento
+        posicional acá mandaría el uuid al parámetro equivocado.
         caja-compras-cobranzas (D5): cash_session_id trailing — NULL = no-op,
         el cobro no toca caja.
         """
         row = await self.fetchrow(
             """
             SELECT public.rpc_register_payment_received(
-              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::text, $6::uuid, $7::uuid
+              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::uuid, $6::uuid, $7::uuid
             ) AS result
             """,
             idempotency_key,
             client_id,
             amount,
             reference_sale_id,
-            payment_method,
+            payment_method_id,
             bank_account_id,
             cash_session_id,
         )

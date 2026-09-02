@@ -561,27 +561,53 @@ class TestCustomerAccountService:
             "client_id": CLIENT_ID,
             "amount": 400.0,
             "reference_sale_id": None,
-            "payment_method": "cash",
+            "payment_method_id": None,
             "bank_account_id": None,
             "cash_session_id": None,
         }
 
-    def test_payment_received_schema_rejects_cash_session_with_bank_method(self):
-        """caja-compras-cobranzas (task 8.1): defensa en profundidad — el
-        payload es incoherente si informa cash_session_id junto a un método
-        bancario. La autoridad real sigue siendo la RPC (P0422)."""
+    def test_payment_received_schema_accepts_payment_method_id(self):
+        """cobranzas-catalogo-pagos (D1/task 6.1): payment_method_id es un
+        uuid opcional — válido informado, válido ausente (None = sin
+        imputar, D3)."""
         from backend.schemas.customer_accounts import PaymentReceivedIn
-        from pydantic import ValidationError
 
-        with pytest.raises(ValidationError):
-            PaymentReceivedIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                client_id=uuid.UUID(CLIENT_ID),
-                amount=Decimal("400"),
-                payment_method="transfer",
-                bank_account_id=uuid.UUID(ACCOUNT_ID),
-                cash_session_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
-            )
+        pm_id = "66666666-6666-6666-6666-666666666666"
+        payload = PaymentReceivedIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=uuid.UUID(CLIENT_ID),
+            amount=Decimal("400"),
+            payment_method_id=uuid.UUID(pm_id),
+        )
+        assert str(payload.payment_method_id) == pm_id
+
+        payload_sin_imputar = PaymentReceivedIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=uuid.UUID(CLIENT_ID),
+            amount=Decimal("400"),
+        )
+        assert payload_sin_imputar.payment_method_id is None
+
+    def test_payment_received_schema_no_longer_validates_cash_session_coherence(self):
+        """cobranzas-catalogo-pagos (task 6.3/6.4): el validador que rechazaba
+        cash_session_id junto a un payment_method bancario dependía de leer
+        el kind directamente del texto — con payment_method_id como uuid,
+        Pydantic ya no puede decidirlo sin consultar el catálogo (duplicaría
+        la fuente de verdad). El schema ahora ACEPTA cualquier combinación de
+        payment_method_id + cash_session_id sin objetar: la RPC es la única
+        autoridad (P0422 cash_optin_requires_cash_kind) — este test fija que
+        el retiro fue deliberado y no una regresión silenciosa."""
+        from backend.schemas.customer_accounts import PaymentReceivedIn
+
+        payload = PaymentReceivedIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            client_id=uuid.UUID(CLIENT_ID),
+            amount=Decimal("400"),
+            payment_method_id=uuid.UUID("66666666-6666-6666-6666-666666666666"),
+            bank_account_id=uuid.UUID(ACCOUNT_ID),
+            cash_session_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+        )
+        assert payload.cash_session_id is not None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -713,25 +739,46 @@ class TestSupplierAccountService:
             "supplier_id": SUPPLIER_ID,
             "amount": 400.0,
             "reference_purchase_id": None,
-            "payment_method": "cash",
+            "payment_method_id": None,
             "bank_account_id": None,
             "cash_session_id": None,
         }
 
-    def test_payment_made_schema_rejects_cash_session_with_bank_method(self):
-        """caja-compras-cobranzas (task 8.1): espejo exacto del cobro."""
+    def test_payment_made_schema_accepts_payment_method_id(self):
+        """cobranzas-catalogo-pagos (D1/task 6.1): espejo exacto del cobro."""
         from backend.schemas.supplier_accounts import PaymentMadeIn
-        from pydantic import ValidationError
 
-        with pytest.raises(ValidationError):
-            PaymentMadeIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                supplier_id=uuid.UUID(SUPPLIER_ID),
-                amount=Decimal("400"),
-                payment_method="transfer",
-                bank_account_id=uuid.UUID(ACCOUNT_ID),
-                cash_session_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
-            )
+        pm_id = "66666666-6666-6666-6666-666666666666"
+        payload = PaymentMadeIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=uuid.UUID(SUPPLIER_ID),
+            amount=Decimal("400"),
+            payment_method_id=uuid.UUID(pm_id),
+        )
+        assert str(payload.payment_method_id) == pm_id
+
+        payload_sin_imputar = PaymentMadeIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=uuid.UUID(SUPPLIER_ID),
+            amount=Decimal("400"),
+        )
+        assert payload_sin_imputar.payment_method_id is None
+
+    def test_payment_made_schema_no_longer_validates_cash_session_coherence(self):
+        """cobranzas-catalogo-pagos (task 6.3/6.4): espejo exacto del cobro —
+        ver el docstring de test_payment_received_schema_no_longer_validates_
+        cash_session_coherence."""
+        from backend.schemas.supplier_accounts import PaymentMadeIn
+
+        payload = PaymentMadeIn(
+            idempotency_key=IDEMPOTENCY_KEY,
+            supplier_id=uuid.UUID(SUPPLIER_ID),
+            amount=Decimal("400"),
+            payment_method_id=uuid.UUID("66666666-6666-6666-6666-666666666666"),
+            bank_account_id=uuid.UUID(ACCOUNT_ID),
+            cash_session_id=uuid.UUID("55555555-5555-5555-5555-555555555555"),
+        )
+        assert payload.cash_session_id is not None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -46,13 +46,13 @@
 
 ## 3. Verificación de firma — corrección obligatoria (D9)
 
-- [ ] 3.1 **Safety Net** — Correr `pytest backend/tests/test_payments.py` y registrar el baseline verde antes de tocar `verify_mp_signature`.
-- [ ] 3.2 **RED** — Test: una notificación con `data.id` alfanumérico en mayúsculas en el query param verifica firma correctamente cuando el manifiesto se arma con el valor **en minúsculas**. Debe fallar hoy.
-- [ ] 3.3 **GREEN** — Modificar la derivación en `backend/services/payments.py` para tomar `data.id` del query param y pasarlo a minúsculas.
-- [ ] 3.4 **TRIANGULATE — no regresión** — Test: una notificación `payment` con id numérico sigue verificando exactamente igual que antes. Este test protege el camino que hoy funciona.
-- [ ] 3.5 **TRIANGULATE** — Test: sin query param `data.id`, la derivación cae al cuerpo aplicando la misma regla de minúsculas.
-- [ ] 3.6 **TRIANGULATE** — Test: una firma que no corresponde al manifiesto se rechaza, tanto para `payment` como para los topics de suscripción.
-- [ ] 3.7 **REFACTOR** — Extraer la derivación del identificador a una función pura y testeada aparte de la verificación HMAC.
+- [x] 3.1 **Safety Net** — Correr `pytest backend/tests/test_payments.py` y registrar el baseline verde antes de tocar `verify_mp_signature`. **Bookkeeping 2026-09-02**: implementado y mergeado en PR #343 junto con el resto de §3 — ciclo TDD ejecutado ahí, no registrado en su momento en este archivo.
+- [x] 3.2 **RED** — Test: una notificación con `data.id` alfanumérico en mayúsculas en el query param verifica firma correctamente cuando el manifiesto se arma con el valor **en minúsculas**. Debe fallar hoy. Evidencia: `test_verify_signature_query_param_alphanumeric_uppercase_lowercased` en `backend/tests/test_payments.py` (PR #343).
+- [x] 3.3 **GREEN** — Modificar la derivación en `backend/services/payments.py` para tomar `data.id` del query param y pasarlo a minúsculas. Evidencia: `derive_signed_notification_id()` en `backend/services/payments.py` (~L22-48, PR #343).
+- [x] 3.4 **TRIANGULATE — no regresión** — Test: una notificación `payment` con id numérico sigue verificando exactamente igual que antes. Este test protege el camino que hoy funciona. Evidencia: `test_verify_signature_query_param_not_lowercased_fails` y el resto de la suite de no-regresión de `payment` en `backend/tests/test_payments.py` (PR #343).
+- [x] 3.5 **TRIANGULATE** — Test: sin query param `data.id`, la derivación cae al cuerpo aplicando la misma regla de minúsculas. Evidencia: `test_derive_notification_id_falls_back_to_body_lowercased` en `backend/tests/test_payments.py` (PR #343).
+- [x] 3.6 **TRIANGULATE** — Test: una firma que no corresponde al manifiesto se rechaza, tanto para `payment` como para los topics de suscripción. Evidencia: casos de rechazo en `backend/tests/test_payments.py` (PR #343).
+- [x] 3.7 **REFACTOR** — Extraer la derivación del identificador a una función pura y testeada aparte de la verificación HMAC. Evidencia: `derive_signed_notification_id()` extraída como función pura en `backend/services/payments.py` (PR #343).
 
 ## 4. Migración de esquema (Fase 1) — `20260829000001`
 
@@ -63,7 +63,7 @@
 - [x] 4.4 RLS `ENABLE` + policy `SELECT` únicamente en ambas tablas (`current_account_ids()`). Sin `INSERT`/`UPDATE`/`DELETE` para `authenticated`, documentado en `COMMENT ON POLICY` explícito citando el precedente de `bank_accounts`/`cashboxes`. Test de contenido `test_no_write_policies_for_authenticated` lo protege.
 - [x] 4.5 CHECK de `operation_idempotency.operation_kind` recreado (`DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`) con la unión de 4.1 (9 valores) **más** `'subscription_webhook'` (10 total).
 - [x] 4.6 `SubscriptionPaymentFailed` agregada a `_notification_from_event` con `CREATE OR REPLACE` sobre la misma firma (`public.events`): target `ADMIN`, severidad `warning`, sin `branch_id`. `rpc_process_outbox_dispatch` no tocado.
-- [ ] 4.7 **Diferido a PR3** (deliberado): el productor del aviso de vencimiento próximo se implementa junto con el resto del dunning backend (sección 7), no en el PR de esquema — evita mezclar DDL puro con un cron/producer que depende de decisiones aún por afinar en el procesamiento de notificaciones (sección 6).
+- [x] 4.7 **Diferido a PR3** (deliberado): el productor del aviso de vencimiento próximo se implementa junto con el resto del dunning backend (sección 7), no en el PR de esquema — evita mezclar DDL puro con un cron/producer que depende de decisiones aún por afinar en el procesamiento de notificaciones (sección 6). **Bookkeeping 2026-09-02**: shipped en la migración `20260830000002_mp_real_subscriptions_producers.sql`; verificado vivo en prod 2026-09-02 — pg_cron jobs `mp-subscriptions-plan-expiring-soon-sweep` (`0 12 * * *`, activo) y `mp-subscriptions-expire-stale-intents-sweep` (`*/30 * * * *`, activo).
 - [x] 4.8 `REVOKE ALL ... FROM PUBLIC, anon, authenticated` explícito tras `_notification_from_event` y `get_effective_plan` — verificado por `test_notification_from_event_revokes_anon_and_authenticated` y `test_get_effective_plan_revoke_and_grant_reaffirmed`.
 - [x] 4.9 No aplica: esta migración no referencia ninguna función que pueda no existir (no usa `::regprocedure` en ningún punto) — se evitó el patrón por completo usando `pg_proc`/`pg_get_constraintdef` en los gates.
 - [x] 4.10 Cabecera con propósito, referencia a `design.md`, notas de idempotencia y **rollback textual listo para pegar** (incl. el cuerpo anterior completo de `get_effective_plan`). Verificado por `test_rollback_header_documents_get_effective_plan_restoration`.
@@ -79,7 +79,7 @@
 - [x] 5.5 **TRIANGULATE** — Gate (a): exactamente 1 definición, `STABLE SECURITY DEFINER`, `search_path` fijo.
 - [x] 5.6 **TRIANGULATE** — Gate (b): `authenticated`/`anon` sin `EXECUTE`, `supabase_auth_admin` con `EXECUTE`.
 - [x] 5.7 **CRITERIO DE ACEPTACIÓN — verificado post-merge 2026-08-01** (PR #344, merge `8f68302`): recapturado el plan efectivo de las 34 cuentas → **34/34 siguen en `'pro'`, idéntico a la captura pre-merge (5.1). Cero diferencias.** Confirmado además: `get_effective_plan`/`_notification_from_event` con exactamente 1 definición cada una; tablas `subscriptions`/`subscription_intents` existen (2); CHECK de `operation_kind` con los 10 valores incluyendo `subscription_webhook`; `GET /health` → 200.
-- [ ] 5.8 **Diferido a PR4** (frontend): el espejo del plan efectivo en frontend se actualiza junto con `/facturacion` (sección 8).
+- [x] 5.8 **Diferido a PR4** (frontend): el espejo del plan efectivo en frontend se actualiza junto con `/facturacion` (sección 8). **Bookkeeping 2026-09-02**: shipped en PR #348.
 
 ## 6. Backend — alta, baja y procesamiento de notificaciones (Fase 3) — D2bis — ✅ PR3 (#345)
 

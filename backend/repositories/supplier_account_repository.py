@@ -64,10 +64,36 @@ class SupplierAccountRepository(BaseRepository):
         LEFT JOIN a payments_made (reference_id = payments_made.id, sólo
         pobla cuando movement_type='payment_made') — NULL para el resto de
         los tipos y para los pagos históricos, sin backfill.
+
+        cobranzas-reverso (D12, task 13.2): espejo exacto del hallazgo de
+        CustomerAccountRepository.list_movements — es la query que alimenta
+        GET /proveedores/{id}/cuenta (SupplierAccountHistory en la pantalla
+        real), no list_movements_page.
         """
         return await self.fetch(
             """
-            SELECT sam.*, pm.payment_method
+            SELECT sam.*, pm.payment_method,
+              (sam.movement_type = 'payment_made' AND EXISTS (
+                SELECT 1 FROM public.payments_made pm2 WHERE pm2.id = sam.reference_id
+              )) AS is_reversible,
+              EXISTS (
+                SELECT 1
+                FROM public.cash_movements cm
+                JOIN public.cash_sessions cs ON cs.id = cm.session_id
+                WHERE cm.reference_id = sam.reference_id AND cm.movement_type = 'payment_made'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM public.cash_sessions cs_open
+                    WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
+                  )
+              ) AS is_reversal_blocked,
+              EXISTS (
+                SELECT 1 FROM public.cash_movements cm2
+                WHERE cm2.reference_id = sam.reference_id AND cm2.movement_type = 'payment_made'
+              ) AS has_cash_movement,
+              EXISTS (
+                SELECT 1 FROM public.bank_movements bm
+                WHERE bm.source_doc_type = 'payment_made' AND bm.source_doc_ref = sam.reference_id
+              ) AS has_bank_movement
             FROM public.supplier_account_movements sam
             LEFT JOIN public.payments_made pm
               ON pm.id = sam.reference_id AND sam.movement_type = 'payment_made'

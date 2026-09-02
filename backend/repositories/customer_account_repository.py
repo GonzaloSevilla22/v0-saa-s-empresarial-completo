@@ -65,10 +65,40 @@ class CustomerAccountRepository(BaseRepository):
         LEFT JOIN a payments_received (reference_id = payments_received.id,
         sólo pobla cuando movement_type='payment_received') — NULL para el
         resto de los tipos y para los cobros históricos, sin backfill.
+
+        cobranzas-reverso (D12, hallazgo del propio TDD del apply — task
+        13.1): esta es la query que alimenta la vista combinada de
+        GET /clientes/{id}/cuenta (get_account → CustomerAccountHistory en
+        la pantalla real), NO list_movements_page — que sólo sirve al
+        endpoint paginado dedicado. Sin los mismos 4 derivados acá, la
+        acción "Anular" nunca aparecería en la pantalla que el usuario
+        realmente mira: is_reversible/is_reversal_blocked por defecto en
+        False la habrían dejado siempre oculta.
         """
         return await self.fetch(
             """
-            SELECT cam.*, pr.payment_method
+            SELECT cam.*, pr.payment_method,
+              (cam.movement_type = 'payment_received' AND EXISTS (
+                SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
+              )) AS is_reversible,
+              EXISTS (
+                SELECT 1
+                FROM public.cash_movements cm
+                JOIN public.cash_sessions cs ON cs.id = cm.session_id
+                WHERE cm.reference_id = cam.reference_id AND cm.movement_type = 'payment_received'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM public.cash_sessions cs_open
+                    WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
+                  )
+              ) AS is_reversal_blocked,
+              EXISTS (
+                SELECT 1 FROM public.cash_movements cm2
+                WHERE cm2.reference_id = cam.reference_id AND cm2.movement_type = 'payment_received'
+              ) AS has_cash_movement,
+              EXISTS (
+                SELECT 1 FROM public.bank_movements bm
+                WHERE bm.source_doc_type = 'payment_received' AND bm.source_doc_ref = cam.reference_id
+              ) AS has_bank_movement
             FROM public.customer_account_movements cam
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'

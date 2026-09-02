@@ -274,6 +274,24 @@ class TestCustomerAccountRepositoryReversal:
         assert "payments_received" in select_sql
         assert "cash_sessions" in select_sql
 
+    @pytest.mark.asyncio
+    async def test_list_movements_selects_derived_columns(self, mock_conn):
+        """D12 (hallazgo TDD, task 13.1): list_movements — NO
+        list_movements_page — es la query real detrás de GET /clientes/{id}
+        /cuenta (get_account), la pantalla que el usuario mira. Sin los
+        mismos derivados acá, "Anular" nunca aparecería en la UI real."""
+        from backend.repositories.customer_account_repository import CustomerAccountRepository
+        mock_conn.fetch.return_value = []
+
+        repo = CustomerAccountRepository(mock_conn)
+        await repo.list_movements(MOVEMENT_ID, ACCOUNT_ID)
+
+        select_sql = mock_conn.fetch.call_args[0][0]
+        assert "is_reversible" in select_sql
+        assert "is_reversal_blocked" in select_sql
+        assert "has_cash_movement" in select_sql
+        assert "has_bank_movement" in select_sql
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 4: Repository — SupplierAccountRepository.reverse_payment_made
@@ -318,6 +336,23 @@ class TestSupplierAccountRepositoryReversal:
         assert "has_cash_movement" in select_sql
         assert "has_bank_movement" in select_sql
         assert "payments_made" in select_sql
+
+    @pytest.mark.asyncio
+    async def test_list_movements_selects_derived_columns(self, mock_conn):
+        """Espejo exacto del hallazgo TDD de CustomerAccountRepository:
+        list_movements (no list_movements_page) alimenta GET /proveedores/
+        {id}/cuenta, la pantalla real."""
+        from backend.repositories.supplier_account_repository import SupplierAccountRepository
+        mock_conn.fetch.return_value = []
+
+        repo = SupplierAccountRepository(mock_conn)
+        await repo.list_movements(MOVEMENT_ID, ACCOUNT_ID)
+
+        select_sql = mock_conn.fetch.call_args[0][0]
+        assert "is_reversible" in select_sql
+        assert "is_reversal_blocked" in select_sql
+        assert "has_cash_movement" in select_sql
+        assert "has_bank_movement" in select_sql
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

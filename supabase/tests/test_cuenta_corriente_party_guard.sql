@@ -805,7 +805,7 @@ BEGIN
       p_idempotency_key => 'gate-ccpg-4-7a',
       p_client_id       => v_client_b,
       p_amount          => 100,
-      p_payment_method  => 'transfer',
+      p_payment_method_id => v_pm_transfer,
       p_bank_account_id => v_bank_a
     );
   EXCEPTION
@@ -830,7 +830,7 @@ BEGIN
       p_idempotency_key => 'gate-ccpg-4-7b',
       p_client_id       => v_client_b,
       p_amount          => 100,
-      p_payment_method  => 'transfer',
+      p_payment_method_id => v_pm_transfer,
       p_bank_account_id => v_ghost
     );
   EXCEPTION
@@ -853,7 +853,7 @@ BEGIN
       p_idempotency_key => 'gate-ccpg-4-7c',
       p_supplier_id     => v_supplier_b,
       p_amount          => 100,
-      p_payment_method  => 'transfer',
+      p_payment_method_id => v_pm_transfer,
       p_bank_account_id => v_ghost
     );
   EXCEPTION
@@ -884,7 +884,7 @@ BEGIN
   -- este candado verifica sigue intacto (el bloque nuevo del opt-in de caja
   -- se insertó ANTES del guard de tenencia, sin mover ninguna de las tres
   -- anclas).
-  v_def := pg_get_functiondef('public.rpc_register_payment_received(text, uuid, numeric, uuid, text, uuid, uuid)'::regprocedure);
+  v_def := pg_get_functiondef('public.rpc_register_payment_received(text, uuid, numeric, uuid, uuid, uuid, uuid)'::regprocedure);
   v_pos_guard := position('client_not_found' in v_def);
   v_pos_prev  := position('bank_account_not_found' in v_def);
   v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);
@@ -898,7 +898,7 @@ BEGIN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (4.1-orden): en rpc_register_payment_received el guard de cliente debe ir DESPUÉS de la validación de bank_account y ANTES del INSERT de idempotencia (D2). Posiciones: bank=%, guard=%, idempotencia=%.', v_pos_prev, v_pos_guard, v_pos_idem;
   END IF;
 
-  v_def := pg_get_functiondef('public.rpc_register_payment_made(text, uuid, numeric, uuid, text, uuid, uuid)'::regprocedure);
+  v_def := pg_get_functiondef('public.rpc_register_payment_made(text, uuid, numeric, uuid, uuid, uuid, uuid)'::regprocedure);
   v_pos_guard := position('supplier_not_found' in v_def);
   v_pos_prev  := position('bank_account_not_found' in v_def);
   v_pos_idem  := position('INSERT INTO public.operation_idempotency' in v_def);

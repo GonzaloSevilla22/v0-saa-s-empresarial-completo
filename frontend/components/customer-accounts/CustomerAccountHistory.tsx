@@ -154,6 +154,15 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground">
                   {MOVEMENT_LABELS[m.movementType]}
+                  {/* cobranzas-catalogo-pagos (D3, task 10.1): nombre real de
+                      la forma de pago configurada por el usuario — se omite
+                      cuando no hay imputación (históricos), nunca se inventa
+                      un valor. */}
+                  {m.movementType === "payment_received" && m.paymentMethod && (
+                    <span className="ml-1.5 font-normal text-muted-foreground">
+                      · {m.paymentMethod}
+                    </span>
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">{formattedDate}</p>
               </div>
@@ -192,6 +201,11 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
               </div>
               <span className="text-sm text-foreground">
                 {MOVEMENT_LABELS[m.movementType]}
+                {m.movementType === "payment_received" && m.paymentMethod && (
+                  <span className="ml-1.5 font-normal text-muted-foreground">
+                    · {m.paymentMethod}
+                  </span>
+                )}
               </span>
               <span
                 className={`text-sm font-semibold tabular-nums text-right ${

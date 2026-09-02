@@ -1,33 +1,42 @@
 """
 bank-payment-routing C2 — Tests TDD (Strict TDD Mode).
 
+cobranzas-catalogo-pagos (2026-09-02, D1/D2): payment_method (str) →
+payment_method_id (uuid, opcional) en PaymentReceivedIn/PaymentMadeIn y en
+CustomerAccountRepository.register_payment_received /
+SupplierAccountRepository.register_payment_made. Las validaciones de
+taxonomía y de "bank_account_id exigido para método bancario" que vivían en
+el schema se RETIRARON (no se pueden decidir sin consultar el catálogo desde
+Pydantic) — la RPC es la única autoridad. La Section 1 de este archivo se
+redujo en consecuencia; la cobertura de PaymentReceivedIn/PaymentMadeIn con
+payment_method_id vive en test_c30_customer_supplier_accounts.py (que
+también fija, con un test dedicado, que el retiro fue deliberado).
+
 Comportamientos cubiertos:
   ── Schemas Pydantic ──────────────────────────────────────────────────────────
-  - PaymentReceivedIn / PaymentMadeIn aceptan payment_method + bank_account_id (opcionales)
-  - payment_method inválido (fuera de {cash,transfer,card,check}) → ValidationError
-  - método bancario sin bank_account_id → ValidationError (validado en el schema,
-    doble red de seguridad con el guard P0400 del RPC)
-  - payment_method ausente → default 'cash' (retrocompatible)
+  - PaymentReceivedIn / PaymentMadeIn aceptan payment_method_id + bank_account_id
+    (opcionales) — cobertura completa en test_c30_customer_supplier_accounts.py
 
   ── Repository ────────────────────────────────────────────────────────────────
-  - register_payment_received invoca rpc_register_payment_received con los 6 args
-    (incluye payment_method + bank_account_id)
-  - register_payment_made invoca rpc_register_payment_made con los 6 args
+  - register_payment_received invoca rpc_register_payment_received con los 7 args
+    (incluye payment_method_id + bank_account_id + cash_session_id)
+  - register_payment_made invoca rpc_register_payment_made con los 7 args
   - BankAccountRepository.list_active lee bank_accounts activas de la cuenta
 
   ── Service ───────────────────────────────────────────────────────────────────
-  - register_payment_received propaga payment_method/bank_account_id al repo
-  - register_payment_made propaga payment_method/bank_account_id al repo
+  - register_payment_received propaga payment_method_id/bank_account_id al repo
+  - register_payment_made propaga payment_method_id/bank_account_id al repo
   - P0412 (bank_account no encontrada/inactiva) → HTTPException 412... mapeado a 400
     (reutiliza _ERRCODE_STATUS; P0412 no whitelisteado → 500 salvo que se agregue)
 
   ── Endpoint HTTP ─────────────────────────────────────────────────────────────
-  - POST /customer-accounts/payments con payment_method=transfer + bank_account_id → 200
-  - POST /supplier-accounts/payments con payment_method=card + bank_account_id → 200
+  - POST /customer-accounts/payments con payment_method_id + bank_account_id → 200
+  - POST /supplier-accounts/payments con payment_method_id + bank_account_id → 200
   - GET  /bank-accounts → 200, lista de cuentas activas
 
   ── Regresión (retrocompatibilidad) ───────────────────────────────────────────
-  - Payload sin payment_method/bank_account_id sigue funcionando (default cash)
+  - Payload sin payment_method_id/bank_account_id sigue funcionando (default
+    None = sin imputar, D3)
 
 Run: python -m pytest backend/tests/test_c2_bank_payment_routing.py
 """
@@ -60,6 +69,7 @@ SUPPLIER_ID         = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 CUSTOMER_ACCOUNT_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 SUPPLIER_ACCOUNT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 BANK_ACCOUNT_ID     = "99999999-9999-9999-9999-999999999999"
+PAYMENT_METHOD_ID   = "77777777-7777-7777-7777-777777777777"
 PAYMENT_ID          = "11111111-1111-1111-1111-111111111111"
 OPERATION_ID        = "33333333-3333-3333-3333-333333333333"
 IDEMPOTENCY_KEY     = "test-idempotency-key-c2-bank-001"
@@ -74,10 +84,14 @@ def _jsonb(val):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestPaymentReceivedSchemaBankRouting:
-    """RED → GREEN: el schema acepta payment_method + bank_account_id."""
+    """cobranzas-catalogo-pagos: el schema acepta payment_method_id (uuid) +
+    bank_account_id. La taxonomía y la exigencia de bank_account_id para un
+    kind bancario YA NO se validan acá (no hay forma de saber el kind sin
+    consultar el catálogo) — cobertura completa, incluido el test que fija
+    el retiro como deliberado, en test_c30_customer_supplier_accounts.py."""
 
-    def test_defaults_to_cash_when_omitted(self):
-        """Retrocompatibilidad: sin payment_method → default 'cash', bank_account_id None."""
+    def test_defaults_to_none_when_omitted(self):
+        """Sin payment_method_id → None (sin imputar, D3), bank_account_id None."""
         from backend.schemas.customer_accounts import PaymentReceivedIn
 
         payload = PaymentReceivedIn(
@@ -85,67 +99,27 @@ class TestPaymentReceivedSchemaBankRouting:
             client_id=uuid.UUID(CLIENT_ID),
             amount=Decimal("400"),
         )
-        assert payload.payment_method == "cash"
+        assert payload.payment_method_id is None
         assert payload.bank_account_id is None
 
-    def test_accepts_transfer_with_bank_account_id(self):
+    def test_accepts_payment_method_id_with_bank_account_id(self):
         from backend.schemas.customer_accounts import PaymentReceivedIn
 
         payload = PaymentReceivedIn(
             idempotency_key=IDEMPOTENCY_KEY,
             client_id=uuid.UUID(CLIENT_ID),
             amount=Decimal("400"),
-            payment_method="transfer",
+            payment_method_id=uuid.UUID(PAYMENT_METHOD_ID),
             bank_account_id=uuid.UUID(BANK_ACCOUNT_ID),
         )
-        assert payload.payment_method == "transfer"
+        assert str(payload.payment_method_id) == PAYMENT_METHOD_ID
         assert str(payload.bank_account_id) == BANK_ACCOUNT_ID
-
-    def test_accepts_card_and_check(self):
-        from backend.schemas.customer_accounts import PaymentReceivedIn
-
-        for method in ("card", "check"):
-            payload = PaymentReceivedIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                client_id=uuid.UUID(CLIENT_ID),
-                amount=Decimal("100"),
-                payment_method=method,
-                bank_account_id=uuid.UUID(BANK_ACCOUNT_ID),
-            )
-            assert payload.payment_method == method
-
-    def test_rejects_invalid_payment_method(self):
-        """payment_method fuera de la taxonomía → ValidationError (defensa en profundidad del RPC)."""
-        from backend.schemas.customer_accounts import PaymentReceivedIn
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            PaymentReceivedIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                client_id=uuid.UUID(CLIENT_ID),
-                amount=Decimal("100"),
-                payment_method="bitcoin",
-            )
-
-    def test_bank_method_without_bank_account_id_rejected_by_schema(self):
-        """Defensa en profundidad: el schema también exige bank_account_id para métodos bancarios."""
-        from backend.schemas.customer_accounts import PaymentReceivedIn
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            PaymentReceivedIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                client_id=uuid.UUID(CLIENT_ID),
-                amount=Decimal("100"),
-                payment_method="transfer",
-                bank_account_id=None,
-            )
 
 
 class TestPaymentMadeSchemaBankRouting:
-    """RED → GREEN: espejo de arriba para PaymentMadeIn."""
+    """cobranzas-catalogo-pagos: espejo de arriba para PaymentMadeIn."""
 
-    def test_defaults_to_cash_when_omitted(self):
+    def test_defaults_to_none_when_omitted(self):
         from backend.schemas.supplier_accounts import PaymentMadeIn
 
         payload = PaymentMadeIn(
@@ -153,44 +127,20 @@ class TestPaymentMadeSchemaBankRouting:
             supplier_id=uuid.UUID(SUPPLIER_ID),
             amount=Decimal("400"),
         )
-        assert payload.payment_method == "cash"
+        assert payload.payment_method_id is None
         assert payload.bank_account_id is None
 
-    def test_accepts_transfer_with_bank_account_id(self):
+    def test_accepts_payment_method_id_with_bank_account_id(self):
         from backend.schemas.supplier_accounts import PaymentMadeIn
 
         payload = PaymentMadeIn(
             idempotency_key=IDEMPOTENCY_KEY,
             supplier_id=uuid.UUID(SUPPLIER_ID),
             amount=Decimal("400"),
-            payment_method="transfer",
+            payment_method_id=uuid.UUID(PAYMENT_METHOD_ID),
             bank_account_id=uuid.UUID(BANK_ACCOUNT_ID),
         )
-        assert payload.payment_method == "transfer"
-
-    def test_rejects_invalid_payment_method(self):
-        from backend.schemas.supplier_accounts import PaymentMadeIn
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            PaymentMadeIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                supplier_id=uuid.UUID(SUPPLIER_ID),
-                amount=Decimal("100"),
-                payment_method="cheque_rebotado",
-            )
-
-    def test_bank_method_without_bank_account_id_rejected_by_schema(self):
-        from backend.schemas.supplier_accounts import PaymentMadeIn
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            PaymentMadeIn(
-                idempotency_key=IDEMPOTENCY_KEY,
-                supplier_id=uuid.UUID(SUPPLIER_ID),
-                amount=Decimal("100"),
-                payment_method="card",
-            )
+        assert str(payload.payment_method_id) == PAYMENT_METHOD_ID
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -225,19 +175,21 @@ class TestCustomerAccountRepositoryBankRouting:
             client_id=CLIENT_ID,
             amount=400.0,
             reference_sale_id=None,
-            payment_method="transfer",
+            payment_method_id=PAYMENT_METHOD_ID,
             bank_account_id=BANK_ACCOUNT_ID,
         )
 
         call_args, call_params = mock_conn.fetchrow.call_args[0][0], mock_conn.fetchrow.call_args[0][1:]
         assert "rpc_register_payment_received" in call_args
-        assert "transfer" in call_params
+        assert PAYMENT_METHOD_ID in call_params
         assert BANK_ACCOUNT_ID in call_params
         assert result["replayed"] is False
 
     @pytest.mark.asyncio
-    async def test_register_payment_received_defaults_method_to_cash(self, mock_conn):
-        """Retrocompatibilidad: sin especificar método, el repo pasa 'cash' y bank_account_id=None."""
+    async def test_register_payment_received_defaults_method_to_none(self, mock_conn):
+        """cobranzas-catalogo-pagos (D3): sin especificar payment_method_id,
+        el repo pasa None (sin imputar) — ya NO 'cash' (el default de texto
+        de bank-payment-routing quedó retirado junto con la taxonomía)."""
         from backend.repositories.customer_account_repository import CustomerAccountRepository
 
         rpc_result = json.dumps({
@@ -257,8 +209,10 @@ class TestCustomerAccountRepositoryBankRouting:
         )
 
         call_params = mock_conn.fetchrow.call_args[0][1:]
-        assert "cash" in call_params
-        assert None in call_params
+        assert "cash" not in call_params
+        # payment_method_id (posición 5) y bank_account_id (posición 6) son
+        # ambos None cuando no se informan.
+        assert call_params.count(None) >= 2
 
 
 class TestSupplierAccountRepositoryBankRouting:
@@ -289,13 +243,13 @@ class TestSupplierAccountRepositoryBankRouting:
             supplier_id=SUPPLIER_ID,
             amount=400.0,
             reference_purchase_id=None,
-            payment_method="card",
+            payment_method_id=PAYMENT_METHOD_ID,
             bank_account_id=BANK_ACCOUNT_ID,
         )
 
         call_args, call_params = mock_conn.fetchrow.call_args[0][0], mock_conn.fetchrow.call_args[0][1:]
         assert "rpc_register_payment_made" in call_args
-        assert "card" in call_params
+        assert PAYMENT_METHOD_ID in call_params
         assert BANK_ACCOUNT_ID in call_params
         assert result["replayed"] is False
 
@@ -360,14 +314,14 @@ class TestCustomerAccountServiceBankRouting:
             idempotency_key=IDEMPOTENCY_KEY,
             client_id=uuid.UUID(CLIENT_ID),
             amount=Decimal("400"),
-            payment_method="transfer",
+            payment_method_id=uuid.UUID(PAYMENT_METHOD_ID),
             bank_account_id=uuid.UUID(BANK_ACCOUNT_ID),
         )
 
         await svc.register_payment_received(mock_repo, auth, payload)
 
         _, kwargs = mock_repo.register_payment_received.call_args
-        assert kwargs["payment_method"] == "transfer"
+        assert kwargs["payment_method_id"] == PAYMENT_METHOD_ID
         assert kwargs["bank_account_id"] == BANK_ACCOUNT_ID
 
     @pytest.mark.asyncio
@@ -388,7 +342,7 @@ class TestCustomerAccountServiceBankRouting:
             idempotency_key=IDEMPOTENCY_KEY,
             client_id=uuid.UUID(CLIENT_ID),
             amount=Decimal("400"),
-            payment_method="transfer",
+            payment_method_id=uuid.UUID(PAYMENT_METHOD_ID),
             bank_account_id=uuid.UUID(BANK_ACCOUNT_ID),
         )
 
@@ -420,14 +374,14 @@ class TestSupplierAccountServiceBankRouting:
             idempotency_key=IDEMPOTENCY_KEY,
             supplier_id=uuid.UUID(SUPPLIER_ID),
             amount=Decimal("400"),
-            payment_method="card",
+            payment_method_id=uuid.UUID(PAYMENT_METHOD_ID),
             bank_account_id=uuid.UUID(BANK_ACCOUNT_ID),
         )
 
         await svc.register_payment_made(mock_repo, auth, payload)
 
         _, kwargs = mock_repo.register_payment_made.call_args
-        assert kwargs["payment_method"] == "card"
+        assert kwargs["payment_method_id"] == PAYMENT_METHOD_ID
         assert kwargs["bank_account_id"] == BANK_ACCOUNT_ID
 
 
@@ -453,11 +407,11 @@ class TestBankPaymentRoutingEndpoints:
             response = await async_client.post(
                 "/customer-accounts/payments",
                 json={
-                    "idempotency_key": IDEMPOTENCY_KEY,
-                    "client_id":       CLIENT_ID,
-                    "amount":          "400.00",
-                    "payment_method":  "transfer",
-                    "bank_account_id": BANK_ACCOUNT_ID,
+                    "idempotency_key":    IDEMPOTENCY_KEY,
+                    "client_id":          CLIENT_ID,
+                    "amount":             "400.00",
+                    "payment_method_id":  PAYMENT_METHOD_ID,
+                    "bank_account_id":    BANK_ACCOUNT_ID,
                 },
                 headers=headers,
             )
@@ -481,11 +435,11 @@ class TestBankPaymentRoutingEndpoints:
             response = await async_client.post(
                 "/supplier-accounts/payments",
                 json={
-                    "idempotency_key": IDEMPOTENCY_KEY,
-                    "supplier_id":     SUPPLIER_ID,
-                    "amount":          "400.00",
-                    "payment_method":  "card",
-                    "bank_account_id": BANK_ACCOUNT_ID,
+                    "idempotency_key":    IDEMPOTENCY_KEY,
+                    "supplier_id":        SUPPLIER_ID,
+                    "amount":             "400.00",
+                    "payment_method_id":  PAYMENT_METHOD_ID,
+                    "bank_account_id":    BANK_ACCOUNT_ID,
                 },
                 headers=headers,
             )
@@ -494,7 +448,8 @@ class TestBankPaymentRoutingEndpoints:
 
     @pytest.mark.asyncio
     async def test_post_payment_received_without_method_still_works(self, async_client, mock_pool):
-        """Regresión: payload sin payment_method/bank_account_id sigue funcionando (default cash)."""
+        """Regresión: payload sin payment_method_id/bank_account_id sigue
+        funcionando — default None (sin imputar, D3), no 'cash'."""
         pool, conn = mock_pool
         rpc_result = json.dumps({
             "payment_id":          PAYMENT_ID,

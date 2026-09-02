@@ -3,6 +3,11 @@ Schemas Pydantic v2 para C-30 — SupplierAccount / PaymentMade / SupplierCharge
 bank-payment-routing C2: PaymentMadeIn gana payment_method + bank_account_id
 (taxonomía {cash,transfer,card,check}, default cash, retrocompatible).
 
+cobranzas-catalogo-pagos: espejo exacto de customer_accounts.py — payment_method
+(str) → payment_method_id (uuid, opcional), el kind se DERIVA en el servidor y
+las dos validaciones que dependían del texto se retiran (ver el docstring de
+PaymentMadeIn).
+
 Enums:
   SupplierMovementType: purchase | payment_made | debit_note | adjustment
 
@@ -22,7 +27,7 @@ import uuid
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from backend.schemas.common import PageOut
 
@@ -59,6 +64,9 @@ class SupplierMovementOut(BaseModel):
     # caja-compras-cobranzas (OQ-1, task 8.5): resuelto por LEFT JOIN a
     # payments_made cuando movement_type='payment_made'. NULL para todo el
     # resto de los tipos y para los pagos históricos (sin backfill).
+    # cobranzas-catalogo-pagos (D3/task 6.6): espejo exacto de
+    # AccountMovementOut — el JOIN pasa a payment_methods.name, el nombre del
+    # campo se conserva.
     payment_method:       str | None = None
     # cobranzas-reverso (D12, task 8.3): espejo exacto de AccountMovementOut
     # (customer_accounts.py) — derivados del servidor, nunca denormalizados.
@@ -86,9 +94,9 @@ class PaymentMadeIn(BaseModel):
     supplier_id:           uuid.UUID
     amount:                Decimal
     reference_purchase_id: uuid.UUID | None = None
-    # bank-payment-routing C2: taxonomía {cash,transfer,card,check}. Default 'cash'
-    # (aditivo, retrocompatible — mismo criterio que el RPC).
-    payment_method:        str = "cash"
+    # cobranzas-catalogo-pagos (D1/D2): espejo exacto de PaymentReceivedIn —
+    # identificador del catálogo, el kind se DERIVA en el servidor.
+    payment_method_id:     uuid.UUID | None = None
     bank_account_id:       uuid.UUID | None = None
     # caja-compras-cobranzas (D5): espejo exacto de PaymentReceivedIn.
     cash_session_id:       uuid.UUID | None = None
@@ -100,30 +108,10 @@ class PaymentMadeIn(BaseModel):
             raise ValueError("amount debe ser > 0")
         return v
 
-    @field_validator("payment_method")
-    @classmethod
-    def validate_payment_method(cls, v: str) -> str:
-        if v not in ("cash", "transfer", "card", "check"):
-            raise ValueError("payment_method debe ser uno de: cash, transfer, card, check")
-        return v
-
-    @model_validator(mode="after")
-    def validate_bank_account_required_for_bank_method(self) -> "PaymentMadeIn":
-        if self.payment_method in ("transfer", "card", "check") and self.bank_account_id is None:
-            raise ValueError(
-                f"payment_method={self.payment_method} exige bank_account_id"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_cash_session_requires_cash_method(self) -> "PaymentMadeIn":
-        # caja-compras-cobranzas (task 8.1): espejo exacto del validador de
-        # PaymentReceivedIn.
-        if self.cash_session_id is not None and self.payment_method != "cash":
-            raise ValueError(
-                f"cash_session_id sólo aplica si payment_method=cash (recibido: {self.payment_method})"
-            )
-        return self
+    # cobranzas-catalogo-pagos (task 6.3/6.4): espejo exacto de
+    # PaymentReceivedIn — las dos validaciones que dependían del texto del
+    # kind se retiran; la RPC es la única autoridad posible sin duplicar una
+    # consulta al catálogo desde el schema.
 
 
 class PaymentMadeOut(BaseModel):

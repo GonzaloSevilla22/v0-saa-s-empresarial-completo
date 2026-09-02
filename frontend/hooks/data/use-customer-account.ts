@@ -23,6 +23,11 @@ export interface CustomerAccountMovementApi {
   is_reversal_blocked?: boolean
   has_cash_movement?: boolean
   has_bank_movement?: boolean
+  // cobranzas-catalogo-pagos (D3, task 10.1): nombre configurado de la forma
+  // de pago (payment_methods.name, resuelto por JOIN vía payment_method_id).
+  // NULL para movimientos que no son payment_received y para cobros sin
+  // imputar (históricos, o registrados sin forma de pago).
+  payment_method?: string | null
 }
 
 export interface CustomerAccountApi {
@@ -73,6 +78,9 @@ export interface CustomerAccountMovement {
    * — mismo molde que PurchaseOperation.hasCashMovement/hasBankMovement. */
   hasCashMovement: boolean
   hasBankMovement: boolean
+  /** cobranzas-catalogo-pagos (D3, task 10.1): nombre configurado de la
+   * forma de pago del cobro, o null si no está imputado / no es un cobro. */
+  paymentMethod: string | null
 }
 
 export interface CustomerAccount {
@@ -101,6 +109,7 @@ function mapMovement(r: CustomerAccountMovementApi): CustomerAccountMovement {
     isReversalBlocked: r.is_reversal_blocked ?? false,
     hasCashMovement:   r.has_cash_movement ?? false,
     hasBankMovement:   r.has_bank_movement ?? false,
+    paymentMethod:     r.payment_method ?? null,
   }
 }
 
@@ -124,7 +133,11 @@ function translateError(message: string): string {
   if (message.includes("bank_account_required"))   return "Elegí una cuenta bancaria para este método de pago."
   if (message.includes("bank_account_not_found"))  return "La cuenta bancaria seleccionada no existe."
   if (message.includes("bank_account_inactive"))   return "La cuenta bancaria seleccionada está inactiva."
-  if (message.includes("invalid_payment_method"))  return "Método de pago inválido."
+  // cobranzas-catalogo-pagos (D2/D5)
+  if (message.includes("credit_payment_method_invalid"))
+    return "No se puede cobrar imputando a una forma de pago de cuenta corriente."
+  if (message.includes("payment_method_not_found"))
+    return "La forma de pago seleccionada no existe."
   if (message.includes("account_not_found"))       return "Cuenta corriente no encontrada."
   if (message.includes("No autorizado"))           return "No tenés permisos para registrar cobros."
   return message || "Ocurrió un error inesperado."
@@ -164,16 +177,20 @@ export function useRegisterPayment(clientId: string) {
       idempotencyKey,
       amount,
       referenceSaleId,
-      paymentMethod,
+      paymentMethodId,
       bankAccountId,
       cashSessionId,
     }: {
       idempotencyKey: string
       amount: number
       referenceSaleId?: string
-      /** bank-payment-routing C2: {cash,transfer,card,check}. Omitido → default 'cash' del backend. */
-      paymentMethod?: string
-      /** Requerido cuando paymentMethod es bancario (transfer/card/check). */
+      /**
+       * cobranzas-catalogo-pagos (D1): identificador del catálogo — el kind
+       * se deriva en el servidor. Omitido → el cobro queda sin imputar
+       * (NULL, D3).
+       */
+      paymentMethodId?: string
+      /** Requerido cuando el kind derivado es bancario (transfer/card/check/wallet). */
       bankAccountId?: string
       /**
        * caja-compras-cobranzas (D2/D5): opt-in de caja. Omitido/null = el
@@ -190,7 +207,7 @@ export function useRegisterPayment(clientId: string) {
             client_id:         clientId,
             amount:            amount.toString(),
             reference_sale_id: referenceSaleId ?? null,
-            ...(paymentMethod ? { payment_method: paymentMethod } : {}),
+            ...(paymentMethodId ? { payment_method_id: paymentMethodId } : {}),
             ...(bankAccountId ? { bank_account_id: bankAccountId } : {}),
             ...(cashSessionId ? { cash_session_id: cashSessionId } : {}),
           },
@@ -209,6 +226,11 @@ export function useRegisterPayment(clientId: string) {
       // quedan stale.
       queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+      // cobranzas-catalogo-pagos (task 9.7): un cobro por transfer/card/
+      // check/wallet escribe un bank_movement (D4) — sin esto /banco queda
+      // stale (gotcha registrado de compras-proveedor-cuenta-corriente:
+      // invalidar en TODAS las mutaciones que postean, no sólo en el reverso).
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
     },
   })
 }

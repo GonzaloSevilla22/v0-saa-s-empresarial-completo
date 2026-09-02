@@ -3,6 +3,15 @@ Schemas Pydantic v2 para C-30 — CustomerAccount / PaymentReceived.
 bank-payment-routing C2: PaymentReceivedIn gana payment_method + bank_account_id
 (taxonomía {cash,transfer,card,check}, default cash, retrocompatible).
 
+cobranzas-catalogo-pagos (D1/D2): payment_method (str) → payment_method_id
+(uuid, opcional). El kind (y por lo tanto la taxonomía aceptada — 6 de 7,
+credit rechazado) se DERIVA en el servidor desde el catálogo bajo el
+account_id del tenant — Pydantic ya no puede validarlo sin consultar la DB, así
+que las dos validaciones que dependían del texto (payment_method en la
+taxonomía, bank_account_id exigido para un kind bancario, cash_session_id
+exigido con kind=cash) se retiran de acá: la RPC ya las tiene y son la única
+autoridad posible sin duplicar una consulta al catálogo desde el schema.
+
 Enums:
   CustomerMovementType: sale | payment_received | credit_note | adjustment
 
@@ -20,7 +29,7 @@ import uuid
 from decimal import Decimal
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from backend.schemas.common import PageOut
 
@@ -57,6 +66,11 @@ class AccountMovementOut(BaseModel):
     # caja-compras-cobranzas (OQ-1, task 8.5): resuelto por LEFT JOIN a
     # payments_received cuando movement_type='payment_received'. NULL para
     # todo el resto de los tipos y para los cobros históricos (sin backfill).
+    # cobranzas-catalogo-pagos (D3/task 6.5): el JOIN pasa de
+    # payments_received.payment_method (texto crudo del kind) a
+    # payment_methods.name (el nombre que el usuario configuró) — se
+    # conserva el NOMBRE del campo para no romper el frontend, que ya lo
+    # consume como "la forma de pago del cobro".
     payment_method:       str | None = None
     # cobranzas-reverso (D12, task 8.2): derivados en el SERVIDOR con EXISTS
     # — nunca columnas denormalizadas (regla D5 de delete-guard-ledgers).
@@ -93,9 +107,12 @@ class PaymentReceivedIn(BaseModel):
     client_id:          uuid.UUID
     amount:             Decimal
     reference_sale_id:  uuid.UUID | None = None
-    # bank-payment-routing C2: taxonomía {cash,transfer,card,check}. Default 'cash'
-    # (aditivo, retrocompatible — mismo criterio que el RPC).
-    payment_method:     str = "cash"
+    # cobranzas-catalogo-pagos (D1/D2): identificador del catálogo — el kind
+    # (y por lo tanto si es bancario, si es cash, si es credit) se DERIVA en
+    # el servidor bajo el account_id del tenant. NULL = sin imputar (no
+    # rompe nada: los cobros anteriores a este cambio quedaron así, sin
+    # backfill, D3).
+    payment_method_id:  uuid.UUID | None = None
     bank_account_id:    uuid.UUID | None = None
     # caja-compras-cobranzas (D5): opt-in de caja. NULL = el cobro no toca
     # caja. Con sesión informada, la RPC valida DOS condiciones (no tres: el
@@ -110,33 +127,18 @@ class PaymentReceivedIn(BaseModel):
             raise ValueError("amount debe ser > 0")
         return v
 
-    @field_validator("payment_method")
-    @classmethod
-    def validate_payment_method(cls, v: str) -> str:
-        if v not in ("cash", "transfer", "card", "check"):
-            raise ValueError("payment_method debe ser uno de: cash, transfer, card, check")
-        return v
-
-    @model_validator(mode="after")
-    def validate_bank_account_required_for_bank_method(self) -> "PaymentReceivedIn":
-        if self.payment_method in ("transfer", "card", "check") and self.bank_account_id is None:
-            raise ValueError(
-                f"payment_method={self.payment_method} exige bank_account_id"
-            )
-        return self
-
-    @model_validator(mode="after")
-    def validate_cash_session_requires_cash_method(self) -> "PaymentReceivedIn":
-        # caja-compras-cobranzas (task 8.1): defensa en profundidad — la
-        # autoridad sigue siendo la RPC (P0422 cash_optin_requires_cash_kind),
-        # pero rechazar acá evita el round-trip cuando el payload ya es
-        # incoherente (mismo criterio que el guard de cuenta bancaria de
-        # arriba).
-        if self.cash_session_id is not None and self.payment_method != "cash":
-            raise ValueError(
-                f"cash_session_id sólo aplica si payment_method=cash (recibido: {self.payment_method})"
-            )
-        return self
+    # cobranzas-catalogo-pagos (task 6.3/6.4): las dos validaciones que vivían
+    # acá — "bank_account_id exigido si el método es bancario" y
+    # "cash_session_id exigido sólo con kind=cash" — dependían de leer el
+    # kind directamente del payload (payment_method era texto). Con
+    # payment_method_id como uuid, Pydantic NO conoce el kind sin consultar
+    # el catálogo, y consultarlo desde el schema duplicaría la fuente de
+    # verdad que ya vive en la RPC (regla de reutilización, PO 2026-08-02).
+    # Las dos validaciones se retiran EN LUGAR de reimplementarse a medias:
+    # la RPC ya las tiene (P0400 bank_account_required / P0412 para la
+    # primera, P0422 cash_optin_requires_cash_kind para la segunda) y sigue
+    # siendo, como siempre, la única autoridad real — este schema nunca fue
+    # más que una defensa en profundidad que ahorraba un round-trip.
 
 
 class PaymentReceivedOut(BaseModel):

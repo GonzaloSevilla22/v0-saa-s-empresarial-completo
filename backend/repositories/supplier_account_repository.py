@@ -72,7 +72,7 @@ class SupplierAccountRepository(BaseRepository):
         """
         return await self.fetch(
             """
-            SELECT sam.*, pm.payment_method,
+            SELECT sam.*, pmethod.name AS payment_method,
               (sam.movement_type = 'payment_made' AND EXISTS (
                 SELECT 1 FROM public.payments_made pm2 WHERE pm2.id = sam.reference_id
               )) AS is_reversible,
@@ -97,6 +97,8 @@ class SupplierAccountRepository(BaseRepository):
             FROM public.supplier_account_movements sam
             LEFT JOIN public.payments_made pm
               ON pm.id = sam.reference_id AND sam.movement_type = 'payment_made'
+            LEFT JOIN public.payment_methods pmethod
+              ON pmethod.id = pm.payment_method_id
             WHERE sam.supplier_account_id = $1::uuid AND sam.account_id = $2::uuid
             ORDER BY sam.created_at DESC
             LIMIT $3
@@ -130,7 +132,7 @@ class SupplierAccountRepository(BaseRepository):
         predicado que evalúa rpc_reverse_payment_made."""
         return await self.paginate(
             """
-            SELECT sam.*, pmd.payment_method,
+            SELECT sam.*, pmethod.name AS payment_method,
               (sam.movement_type = 'payment_made' AND EXISTS (
                 SELECT 1 FROM public.payments_made pm2 WHERE pm2.id = sam.reference_id
               )) AS is_reversible,
@@ -155,6 +157,8 @@ class SupplierAccountRepository(BaseRepository):
             FROM public.supplier_account_movements sam
             LEFT JOIN public.payments_made pmd
               ON pmd.id = sam.reference_id AND sam.movement_type = 'payment_made'
+            LEFT JOIN public.payment_methods pmethod
+              ON pmethod.id = pmd.payment_method_id
             WHERE sam.supplier_account_id = $1::uuid AND sam.account_id = $2::uuid
             ORDER BY sam.created_at DESC
             """,
@@ -185,28 +189,29 @@ class SupplierAccountRepository(BaseRepository):
         supplier_id: str,
         amount: float,
         reference_purchase_id: str | None = None,
-        payment_method: str = "cash",
+        payment_method_id: str | None = None,
         bank_account_id: str | None = None,
         cash_session_id: str | None = None,
     ) -> dict:
         """Invoca rpc_register_payment_made → registra pago a la cuenta del proveedor.
 
-        bank-payment-routing C2: payment_method/bank_account_id son params aditivos
-        trailing (default cash/None) — retrocompatibles con la firma de C-30.
+        cobranzas-catalogo-pagos (D1): espejo exacto de
+        CustomerAccountRepository.register_payment_received — payment_method
+        (text) → payment_method_id (uuid) en la MISMA posición.
         caja-compras-cobranzas (D5): cash_session_id trailing — NULL = no-op,
         el pago no toca caja.
         """
         row = await self.fetchrow(
             """
             SELECT public.rpc_register_payment_made(
-              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::text, $6::uuid, $7::uuid
+              $1::text, $2::uuid, $3::numeric, $4::uuid, $5::uuid, $6::uuid, $7::uuid
             ) AS result
             """,
             idempotency_key,
             supplier_id,
             amount,
             reference_purchase_id,
-            payment_method,
+            payment_method_id,
             bank_account_id,
             cash_session_id,
         )

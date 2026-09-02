@@ -263,3 +263,55 @@ describe("BankAccountDestinationSelect — modo obligatorio del gasto (D5 / OQ-2
     expect(container).toBeEmptyDOMElement()
   })
 })
+
+// ── cobranzas-catalogo-pagos (D2/D6, tasks 8.1-8.5): contexto de COBRANZA ───
+// (cobro de cuenta corriente + pago a proveedor comparten el mismo contexto)
+
+describe("PaymentMethodSelect — contexto de cobranza (D2/D6)", () => {
+  it("NO ofrece las formas de pago de kind='credit': cobrar/pagar con cuenta corriente es circular", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const user = userEvent.setup()
+
+    render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="collection" />)
+    await user.click(screen.getByRole("combobox"))
+
+    expect(await screen.findByRole("option", { name: /Efectivo/ })).toBeInTheDocument()
+    expect(screen.getByRole("option", { name: /Transferencia bancaria/ })).toBeInTheDocument()
+    expect(screen.queryByRole("option", { name: /Cuenta corriente/ })).not.toBeInTheDocument()
+  })
+
+  it("el texto de apoyo de 'cash' en cobranza declara el opt-in PRE-MARCADO (no el de venta, que arranca destildado)", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-cash" onChange={vi.fn()} context="collection" />)
+
+    expect(screen.getByText(/salvo que destildes/i)).toBeInTheDocument()
+    // No debe reutilizar la redacción de venta, que nombra el POS y describe
+    // un opt-in que arranca DESTILDADO.
+    expect(screen.queryByText(/POS/)).not.toBeInTheDocument()
+  })
+
+  it("el texto de apoyo de 'credit' en cobranza explica por qué no está disponible, aunque el selector no lo ofrezca", () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+
+    render(<PaymentMethodSelect value="pm-credit" onChange={vi.fn()} context="collection" />)
+
+    expect(screen.getByText(/circular/i)).toBeInTheDocument()
+  })
+
+  it("las opciones de cobranza son IDÉNTICAS entre 'collection' usado para cobro y para pago — mismo contexto, mismo componente", async () => {
+    usePaymentMethodsMock.mockReturnValue({ paymentMethods: METHODS, isLoading: false })
+    const user = userEvent.setup()
+
+    const { unmount } = render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="collection" />)
+    await user.click(screen.getByRole("combobox"))
+    const cobroOptions = screen.getAllByRole("option").map((o) => o.textContent)
+    unmount()
+
+    render(<PaymentMethodSelect value={null} onChange={vi.fn()} context="collection" />)
+    await user.click(screen.getByRole("combobox"))
+    const pagoOptions = screen.getAllByRole("option").map((o) => o.textContent)
+
+    expect(cobroOptions).toEqual(pagoOptions)
+  })
+})

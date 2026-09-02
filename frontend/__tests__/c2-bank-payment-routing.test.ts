@@ -4,14 +4,17 @@
  * Cycle: RED → GREEN → TRIANGULATE
  * Mock: @/lib/api/python-client
  *
+ * cobranzas-catalogo-pagos (D1): paymentMethod (str) → paymentMethodId (uuid)
+ * en las Sections 2/3 — el kind se deriva en el servidor.
+ *
  * Comportamientos cubiertos:
  *  - useBankAccounts: fetch de cuentas bancarias activas, mapeo camelCase
- *  - useRegisterPayment: acepta paymentMethod + bankAccountId opcionales; los envía
- *    como payment_method/bank_account_id; sin especificar → default 'cash' implícito
- *    del backend (el hook no fuerza default, deja que el backend lo aplique)
+ *  - useRegisterPayment: acepta paymentMethodId + bankAccountId opcionales; los
+ *    envía como payment_method_id/bank_account_id; sin especificar → sin imputar
+ *    (NULL, D3 — el hook no fuerza default, deja la imputación vacía)
  *  - useRegisterPaymentMade: espejo de arriba para pagos a proveedor
- *  - TRIANGULATE: retrocompatibilidad — llamada sin paymentMethod/bankAccountId sigue
- *    funcionando (no rompe la firma existente de C-30)
+ *  - TRIANGULATE: retrocompatibilidad — llamada sin paymentMethodId/bankAccountId
+ *    sigue funcionando (no rompe la firma existente de C-30)
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
@@ -44,6 +47,7 @@ const ACCOUNT_ID      = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 const CA_ID           = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 const SA_ID           = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 const BANK_ACCOUNT_ID = "99999999-9999-9999-9999-999999999999"
+const PAYMENT_METHOD_ID = "77777777-7777-7777-7777-777777777777"
 const PAYMENT_ID      = "11111111-1111-1111-1111-111111111111"
 const OP_ID           = "33333333-3333-3333-3333-333333333333"
 
@@ -118,7 +122,7 @@ describe("useBankAccounts", () => {
 describe("useRegisterPayment (bank routing)", () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it("sends payment_method + bank_account_id when provided (transfer)", async () => {
+  it("sends payment_method_id + bank_account_id when provided (transfer)", async () => {
     vi.mocked(pythonClient.post).mockResolvedValueOnce(PAYMENT_RECEIVED_RESULT)
 
     const { result } = renderHook(
@@ -130,7 +134,7 @@ describe("useRegisterPayment (bank routing)", () => {
       await result.current.mutateAsync({
         idempotencyKey: "test-key-002",
         amount: 400,
-        paymentMethod: "transfer",
+        paymentMethodId: PAYMENT_METHOD_ID,
         bankAccountId: BANK_ACCOUNT_ID,
       })
     })
@@ -140,16 +144,16 @@ describe("useRegisterPayment (bank routing)", () => {
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/customer-accounts/payments",
       expect.objectContaining({
-        client_id:         CLIENT_ID,
-        amount:            "400",
-        payment_method:    "transfer",
-        bank_account_id:   BANK_ACCOUNT_ID,
+        client_id:          CLIENT_ID,
+        amount:             "400",
+        payment_method_id:  PAYMENT_METHOD_ID,
+        bank_account_id:    BANK_ACCOUNT_ID,
       }),
       { "Idempotency-Key": "test-key-002" }
     )
   })
 
-  it("still works without paymentMethod/bankAccountId (regression, C-30 default cash)", async () => {
+  it("still works without paymentMethodId/bankAccountId (regression, D3 sin imputar)", async () => {
     vi.mocked(pythonClient.post).mockResolvedValueOnce(PAYMENT_RECEIVED_RESULT)
 
     const { result } = renderHook(
@@ -177,7 +181,7 @@ describe("useRegisterPayment (bank routing)", () => {
 describe("useRegisterPaymentMade (bank routing)", () => {
   beforeEach(() => { vi.clearAllMocks() })
 
-  it("sends payment_method + bank_account_id when provided (card)", async () => {
+  it("sends payment_method_id + bank_account_id when provided (card)", async () => {
     vi.mocked(pythonClient.post).mockResolvedValueOnce(PAYMENT_MADE_RESULT)
 
     const { result } = renderHook(
@@ -189,7 +193,7 @@ describe("useRegisterPaymentMade (bank routing)", () => {
       await result.current.mutateAsync({
         idempotencyKey: "pay-supplier-002",
         amount: 400,
-        paymentMethod: "card",
+        paymentMethodId: PAYMENT_METHOD_ID,
         bankAccountId: BANK_ACCOUNT_ID,
       })
     })
@@ -199,10 +203,10 @@ describe("useRegisterPaymentMade (bank routing)", () => {
     expect(pythonClient.post).toHaveBeenCalledWith(
       "/supplier-accounts/payments",
       expect.objectContaining({
-        supplier_id:      SUPPLIER_ID,
-        amount:           "400",
-        payment_method:   "card",
-        bank_account_id:  BANK_ACCOUNT_ID,
+        supplier_id:        SUPPLIER_ID,
+        amount:             "400",
+        payment_method_id:  PAYMENT_METHOD_ID,
+        bank_account_id:    BANK_ACCOUNT_ID,
       }),
       { "Idempotency-Key": "pay-supplier-002" }
     )

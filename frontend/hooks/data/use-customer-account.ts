@@ -12,10 +12,15 @@ export interface CustomerAccountMovementApi {
   account_id: string
   amount: string | number
   balance_after: string | number
-  movement_type: "sale" | "payment_received" | "credit_note" | "adjustment"
+  movement_type: "sale" | "payment_received" | "payment_received_reversal" | "credit_note" | "adjustment"
   reference_id: string | null
   created_by: string
   created_at: string
+  // cobranzas-reverso (D12): derivados del SERVIDOR — nunca reglas de
+  // cliente. Ausentes en respuestas que no los resuelven (p.ej. la vista
+  // combinada de get_account) → tratados como false por el mapper.
+  is_reversible?: boolean
+  is_reversal_blocked?: boolean
 }
 
 export interface CustomerAccountApi {
@@ -35,6 +40,14 @@ export interface PaymentReceivedResult {
   operation_id: string | null
 }
 
+export interface PaymentReversalResult {
+  payment_id: string
+  reversed: boolean
+  account_movement_id: string
+  cash_reversal_id: string | null
+  bank_reversals: number
+}
+
 // ── Domain types ──────────────────────────────────────────────────────────────
 
 export interface CustomerAccountMovement {
@@ -43,10 +56,17 @@ export interface CustomerAccountMovement {
   accountId: string
   amount: number
   balanceAfter: number
-  movementType: "sale" | "payment_received" | "credit_note" | "adjustment"
+  movementType: "sale" | "payment_received" | "payment_received_reversal" | "credit_note" | "adjustment"
   referenceId: string | null
   createdBy: string
   createdAt: string
+  /** cobranzas-reverso (D12): el movimiento es un cobro cuyo documento
+   * sigue vivo — sólo entonces la fila ofrece la acción "Anular". */
+  isReversible: boolean
+  /** cobranzas-reverso (D12): el cobro tiene movimiento de caja y esa caja
+   * no tiene ninguna sesión abierta — bloquea la acción con el motivo,
+   * ANTES de intentar (mismo predicado que evalúa el servidor). */
+  isReversalBlocked: boolean
 }
 
 export interface CustomerAccount {
@@ -71,6 +91,8 @@ function mapMovement(r: CustomerAccountMovementApi): CustomerAccountMovement {
     referenceId:       r.reference_id,
     createdBy:         r.created_by,
     createdAt:         r.created_at,
+    isReversible:      r.is_reversible ?? false,
+    isReversalBlocked: r.is_reversal_blocked ?? false,
   }
 }
 
@@ -179,6 +201,53 @@ export function useRegisterPayment(clientId: string) {
       // quedan stale.
       queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+    },
+  })
+}
+
+/**
+ * Anula un cobro de cuenta corriente (cobranzas-reverso, task 12.1).
+ * DELETE /customer-accounts/payments/{paymentId} — motivo opcional por body.
+ *
+ * Invalida cuenta corriente + caja + banco + KPIs del dashboard (task 12.3
+ * — lección de compras-proveedor-cuenta-corriente: invalidar en TODAS las
+ * mutaciones que postean en libros, no sólo en el alta).
+ */
+export function useReversePaymentReceived(clientId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      paymentId,
+      reason,
+    }: {
+      paymentId: string
+      reason?: string
+    }): Promise<PaymentReversalResult> => {
+      try {
+        return await pythonClient.delete<PaymentReversalResult>(
+          `/customer-accounts/payments/${paymentId}`,
+          { reason: reason ?? null },
+        )
+      } catch (err) {
+        throw new Error((err as Error).message)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.customerAccounts.byClient(clientId),
+      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+      // El contra-movimiento bancario, si aplica, invalida el saldo de la
+      // cuenta bancaria mostrada en /banco.
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+      // El KPI "Cobrado" (collected_revenue) deja de contar el cobro
+      // anulado por construcción (D2: el documento se borra) — pero el
+      // dashboard igual necesita refetchear para dejar de mostrar el valor
+      // stale. use-dashboard-kpi-summary.ts no pasa por queryKeys.ts (clave
+      // literal): se invalida por el prefijo del array.
+      queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
     },
   })
 }

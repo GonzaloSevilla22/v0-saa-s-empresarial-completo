@@ -119,10 +119,10 @@
 
 ## 12. Frontend — hooks de datos
 
-- [ ] 12.1 `hooks/data/use-customer-account.ts`: mutación `useReversePaymentReceived`; el tipo del movimiento suma los dos derivados nuevos.
-- [ ] 12.2 `hooks/data/use-supplier-account.ts`: espejo.
-- [ ] 12.3 **Invalidaciones**: las dos mutaciones invalidan cuenta corriente, **caja**, **banco** y **KPIs del dashboard** con las claves que ya existen en `lib/query-keys.ts`. (Lección de `compras-proveedor-cuenta-corriente`: invalidar en TODAS las mutaciones que postean en libros.)
-- [ ] 12.4 Tests de hook con `vi.hoisted` para los mocks; correr con `pnpm vitest run <archivo>` (nunca pipeando a `tail`, que enmascara el exit code).
+- [x] 12.1 `hooks/data/use-customer-account.ts`: mutación `useReversePaymentReceived(clientId)` → `DELETE /customer-accounts/payments/{id}` con `{reason}` en el body; el tipo `CustomerAccountMovement` suma `isReversible`/`isReversalBlocked` (default `false` cuando la API no los resuelve) y `payment_received_reversal` al union de `movementType`.
+- [x] 12.2 `hooks/data/use-supplier-account.ts`: espejo (`useReversePaymentMade`).
+- [x] 12.3 **Invalidaciones**: `customerAccounts.byClient`/`supplierAccounts.bySupplier` + `cashSessions.all()` + `cashMovements.all()` + `bankAccounts.all()` + `["dashboardKpiSummary"]` (clave literal — ese hook no pasa por `queryKeys.ts`, se invalida por prefijo). RED genuino verificado quitando la invalidación de `bankAccounts` — el test correspondiente falló mostrando el array sin esa clave.
+- [x] 12.4 Tests: `__tests__/hooks/use-payment-reversal.test.ts` (nuevo, 6 casos: body con/sin motivo, invalidaciones de las dos mutaciones, propagación de error). Corridos con `pnpm vitest run <archivo>` (sin pipear a `tail`).
 
 ## 13. Frontend — superficie
 

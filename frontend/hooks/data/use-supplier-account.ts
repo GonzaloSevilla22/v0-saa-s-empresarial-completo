@@ -12,10 +12,13 @@ export interface SupplierAccountMovementApi {
   account_id: string
   amount: string | number
   balance_after: string | number
-  movement_type: "purchase" | "payment_made" | "debit_note" | "adjustment"
+  movement_type: "purchase" | "payment_made" | "payment_made_reversal" | "debit_note" | "adjustment"
   reference_id: string | null
   created_by: string
   created_at: string
+  // cobranzas-reverso (D12): espejo exacto de CustomerAccountMovementApi.
+  is_reversible?: boolean
+  is_reversal_blocked?: boolean
 }
 
 export interface SupplierAccountApi {
@@ -43,6 +46,14 @@ export interface SupplierChargeResult {
   operation_id: string | null
 }
 
+export interface PaymentReversalResult {
+  payment_id: string
+  reversed: boolean
+  account_movement_id: string
+  cash_reversal_id: string | null
+  bank_reversals: number
+}
+
 // ── Domain types ──────────────────────────────────────────────────────────────
 
 export interface SupplierAccountMovement {
@@ -51,10 +62,12 @@ export interface SupplierAccountMovement {
   accountId: string
   amount: number
   balanceAfter: number
-  movementType: "purchase" | "payment_made" | "debit_note" | "adjustment"
+  movementType: "purchase" | "payment_made" | "payment_made_reversal" | "debit_note" | "adjustment"
   referenceId: string | null
   createdBy: string
   createdAt: string
+  isReversible: boolean
+  isReversalBlocked: boolean
 }
 
 export interface SupplierAccount {
@@ -79,6 +92,8 @@ function mapMovement(r: SupplierAccountMovementApi): SupplierAccountMovement {
     referenceId:       r.reference_id,
     createdBy:         r.created_by,
     createdAt:         r.created_at,
+    isReversible:      r.is_reversible ?? false,
+    isReversalBlocked: r.is_reversal_blocked ?? false,
   }
 }
 
@@ -198,6 +213,42 @@ export function useRegisterPaymentMade(supplierId: string) {
       // egresado de la caja.
       queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+    },
+  })
+}
+
+/**
+ * Anula un pago a proveedor (cobranzas-reverso, task 12.2). Espejo exacto
+ * de use-customer-account.ts::useReversePaymentReceived.
+ */
+export function useReversePaymentMade(supplierId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      paymentId,
+      reason,
+    }: {
+      paymentId: string
+      reason?: string
+    }): Promise<PaymentReversalResult> => {
+      try {
+        return await pythonClient.delete<PaymentReversalResult>(
+          `/supplier-accounts/payments/${paymentId}`,
+          { reason: reason ?? null },
+        )
+      } catch (err) {
+        throw new Error((err as Error).message)
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.supplierAccounts.bySupplier(supplierId),
+      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashSessions.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+      queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
     },
   })
 }

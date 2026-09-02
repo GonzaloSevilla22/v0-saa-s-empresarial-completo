@@ -50,6 +50,31 @@ jobs:
           set -e
           DSN=postgresql://postgres:postgres@127.0.0.1:54322/postgres
           FINGERPRINT="SELECT (SELECT count(*) FROM public.analytics_events WHERE event_name='operation_created') || '|' || (SELECT count(*) FROM public.sale_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.purchase_items WHERE account_id IS NULL) || '|' || (SELECT count(*) FROM public.account_feature_flags WHERE flag_key='sale_items_rpc_v2')"
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2): este paso
+          # reaplica migraciones VIEJAS fuera de su orden cronológico real para
+          # probar idempotencia — eso es un ejercicio, no debe dejar rastro. El
+          # FINGERPRINT de arriba sólo cubre 4 contadores de DATOS; los gates
+          # ANTI-OVERLOAD tolerados más abajo sólo cubren FUNCIONES puntuales
+          # que ya sabíamos que rompían. Pero cualquier objeto de schema no
+          # cubierto por ninguno de los dos (constraints, ACLs, lo que sea) que
+          # una migración VIEJA de esta cadena también toque puede revertir en
+          # silencio sin que nada de lo anterior lo note — el primer síntoma
+          # sería un gate de OTRO paso, más adelante en el job (pasó de verdad:
+          # el CHECK de cash_movements.movement_type volvía a 7/8 tipos en vez
+          # de los 13 vigentes, y lo agarró test_cash_movement_types.sql, no
+          # este paso). schema_snapshot() es la red generalizada: constraints
+          # (pg_get_constraintdef) + TODAS las firmas de función de
+          # public/community (pg_get_function_arguments — cualquier overload
+          # fantasma que se nos escape aparece acá también, no sólo los 3 ya
+          # conocidos) + ACLs de función (proacl). Se captura ANTES de tocar
+          # nada — es la definición de "estado correcto" contra la que se
+          # compara al final.
+          schema_snapshot() {
+            psql -tA "$DSN" -c "SELECT n.nspname || '.' || c.relname || '.' || con.conname || ' :: ' || pg_get_constraintdef(con.oid) FROM pg_constraint con JOIN pg_class c ON c.oid = con.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
+            psql -tA "$DSN" -c "SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_arguments(p.oid) || ') RETURNS ' || pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
+            psql -tA "$DSN" -c "SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ') :: ' || COALESCE(array_to_string(p.proacl, ','), '<default>') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname IN ('public','community') ORDER BY 1"
+          }
+          schema_snapshot > /tmp/schema_before_reapply.txt
           BEFORE=$(psql -tA "$DSN" -c "$FINGERPRINT")
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260924000001_activate_sale_items_rpc_v2.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20260925000001_cleanup_analytics_and_line_account_id.sql
@@ -259,7 +284,45 @@ jobs:
           # Su propio gate ANTI-OVERLOAD interno (STEP 4) falla el paso si
           # quedara más de una firma por función, así que la reconvergencia no
           # es una promesa sino una aserción.
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261009000001_compras_proveedor_cuenta_corriente.sql
+          #
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02): lo de arriba dejó
+          # de ser cierto — caja-compras-cobranzas (20261018000001, que NO
+          # está en esta cadena) volvió a cambiar rpc_create_purchase_operation
+          # (9 -> 10 args, + p_cash_session_id) DESPUÉS de esta migración. El
+          # DROP FUNCTION IF EXISTS de este archivo (firma de 9 args) ya no
+          # matchea la firma de 10 args vigente, así que su CREATE FUNCTION
+          # crea un OVERLOAD FANTASMA en vez de reemplazar — mismo mecanismo
+          # 42725 documentado seis veces en este paso, un tramo más adelante
+          # en la cadena — y su propio gate ANTI-OVERLOAD (STEP 4, que la nota
+          # de arriba describía como "aserción" de que no pasaría) lo detecta
+          # y falla correctamente. Se tolera ESTRECHAMENTE (mismo criterio que
+          # los demás: sólo el marcador literal de ESTE gate) y se reconverge
+          # con una limpieza quirúrgica más abajo (después de
+          # cuenta-corriente-party-guard, que le pasa lo mismo a las 2 RPCs de
+          # pago) — reaplicar 20261018000001 entero NO sirve como
+          # reconvergencia acá: a diferencia de las migraciones que sí se
+          # reaplican en esta cadena, la suya usa CREATE FUNCTION liso (no OR
+          # REPLACE) para rpc_create_purchase_operation, y su propio DROP
+          # FUNCTION IF EXISTS apunta a la firma de 9 args (la que este mismo
+          # archivo acaba de crear), no a la de 10 — con la firma de 10 args
+          # ya viva sin tocar, el CREATE FUNCTION de 20261018000001 choca con
+          # "function already exists with same argument types" (verificado
+          # localmente: `docker exec ... psql -f 20261018000001...sql` sobre
+          # este estado aborta ahí, un error CRUDO de Postgres, no el gate
+          # controlado — no es tolerable con el patrón grep de este paso).
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261009000001_compras_proveedor_cuenta_corriente.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'GATE compras-proveedor (anti-overload) FAILED: public.rpc_create_purchase_operation tiene 2 definiciones (esperado 1)'; then
+              echo "20261009000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20261018000001 ya cambió de nuevo la firma) — se reconverge con la limpieza quirúrgica de más abajo"
+            else
+              echo "ERROR: el reapply de 20261009000001 falló por un motivo DISTINTO del gate ANTI-OVERLOAD esperado."
+              exit 1
+            fi
+          fi
           # revoke-internal-money-helpers (hotfix 2026-08-23): tiene que ir
           # DESPUÉS de todos los reapplies que reabren el agujero — es el
           # ANTEÚLTIMO eslabón desde que cuenta-corriente-party-guard se sumó
@@ -281,10 +344,11 @@ jobs:
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261010000001_revoke_internal_money_helpers.sql
           # cuenta-corriente-party-guard: ÚLTIMO eslabón de la cadena, y tiene
           # que serlo. Esta migración es el caso más simple de todos —solo
-          # CREATE OR REPLACE (ninguna de las 5 funciones cambia de firma, así
-          # que no puede generar overloads fantasma: su propio gate
-          # ANTI-OVERLOAD lo verifica) más REVOKE/GRANT y COMMENT, todos
-          # idempotentes—, pero va al final por DOS razones concretas:
+          # CREATE OR REPLACE (ninguna de las 5 funciones cambia de firma POR
+          # SÍ MISMA, así que no puede generar overloads fantasma POR SU
+          # PROPIA CUENTA: su propio gate ANTI-OVERLOAD lo verifica) más
+          # REVOKE/GRANT y COMMENT, todos idempotentes—, pero va al final por
+          # DOS razones concretas:
           #   1. Revoca c30_get_or_create_customer_account / _supplier_account
           #      (los dos choke points), y el reapply de 20261001000001 (L137)
           #      y 20261004000001 (~L1778) más arriba en esta cadena vuelve a
@@ -306,7 +370,76 @@ jobs:
           # De paso, prueba que el archivo es re-appliable (verificado también
           # en local: doble aplicación sin error y sin cambio de fingerprint de
           # cuerpos, ACLs y comments de las 7 funciones tocadas).
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261011000001_cuenta_corriente_party_guard.sql
+          #
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02): "ninguna cambia de
+          # firma" ya no alcanza — dos de las 5 funciones que este archivo
+          # reescribe (rpc_register_payment_received / rpc_register_payment_
+          # made) SÍ cambiaron de firma DESPUÉS, en dos pasos: caja-compras-
+          # cobranzas (20261018000001, +p_cash_session_id, 6 -> 7 args) y
+          # cobranzas-catalogo-pagos (20261020000001, p_payment_method text ->
+          # p_payment_method_id uuid, misma aridad). Ninguna de las dos está en
+          # esta cadena. El CREATE OR REPLACE de este archivo (firma vieja de 6
+          # args, p_payment_method text) ya no matchea ninguna firma vigente,
+          # así que en vez de reemplazar crea DOS overloads fantasma (uno por
+          # función) — mismo mecanismo 42725, esta vez sin DROP FUNCTION de por
+          # medio (CREATE OR REPLACE con una lista de argumentos distinta
+          # también lo dispara). Su propio gate ANTI-OVERLOAD (que la nota de
+          # arriba describía como prueba de que "no puede pasar") lo detecta:
+          # esperaba 5 definiciones y encuentra 7. Se tolera ESTRECHAMENTE
+          # (marcador literal de este gate) y se reconverge con la limpieza
+          # quirúrgica de abajo — reaplicar 20261018000001/20261020000001
+          # enteras no sirve por el mismo motivo que en la nota de
+          # 20261009000001 más arriba (CREATE FUNCTION liso, no OR REPLACE,
+          # sobre una firma que ya está viva sin tocar: choca con "already
+          # exists", un error crudo, no el gate controlado — verificado
+          # localmente para las dos).
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261011000001_cuenta_corriente_party_guard.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'cuenta-corriente-party-guard ANTI-OVERLOAD: esperaba exactamente 5 definiciones de las 5 funciones reescritas (ninguna cambió de firma), hay 7'; then
+              echo "20261011000001 reapply disparó su propio gate ANTI-OVERLOAD (esperado: 20261018000001/20261020000001 ya cambiaron de nuevo las 2 firmas de pago) — se reconverge con la limpieza quirúrgica de abajo"
+            else
+              echo "ERROR: el reapply de 20261011000001 falló por un motivo DISTINTO del gate ANTI-OVERLOAD esperado."
+              exit 1
+            fi
+          fi
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02): limpieza
+          # quirúrgica de los overloads fantasma tolerados arriba (20261009000001
+          # sobre rpc_create_purchase_operation, 20261011000001 sobre las 2 RPCs
+          # de pago). Nada MÁS ADELANTE en esta cadena toca esas 3 firmas —a
+          # diferencia de todos los casos anteriores de este paso, donde una
+          # migración posterior con CREATE OR REPLACE reconvergía sola—, así que
+          # sin esto el paso terminaría "verde" dejando 2 definiciones vivas por
+          # función (9 y 10 args para la de compra; 6 y 7 para cada una de pago)
+          # para el resto del pipeline de CI. Verificado localmente que eso es
+          # peligroso, no solo antiestético: los call-sites reales de los tests
+          # (test_compras_proveedor_cuenta_corriente.sql, test_cuenta_corriente_
+          # party_guard.sql, test_party_payment_cash.sql, etc.) llaman con
+          # notación con nombre y omiten los parámetros nuevos (p_cash_session_id
+          # / el propio p_payment_method_id vs p_payment_method) — con las DOS
+          # firmas vivas, Postgres resuelve el overload por "menos argumentos
+          # completados por DEFAULT", que es la firma VIEJA, no la nueva: la
+          # llamada no explota (nunca da "is not unique"), pero silenciosamente
+          # invoca la función equivocada. Se dropean por firma EXACTA (no la
+          # firma nueva — DROP FUNCTION IF EXISTS es un no-op si ya no existe,
+          # así que este bloque es idempotente si algún día una firma vieja deja
+          # de estar presente) y se ASERTA que sólo queda 1 definición de cada
+          # una de las 3 — no es una promesa, es una aserción (mismo criterio que
+          # el resto de este paso).
+          psql -v ON_ERROR_STOP=1 "$DSN" -c "
+            DROP FUNCTION IF EXISTS public.rpc_create_purchase_operation(text, date, text, jsonb, uuid, uuid, uuid, uuid, uuid);
+            DROP FUNCTION IF EXISTS public.rpc_register_payment_received(text, uuid, numeric, uuid, text, uuid);
+            DROP FUNCTION IF EXISTS public.rpc_register_payment_made(text, uuid, numeric, uuid, text, uuid);
+          "
+          OVERLOAD_COUNT=$(psql -tA "$DSN" -c "SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname IN ('rpc_create_purchase_operation','rpc_register_payment_received','rpc_register_payment_made')")
+          if [ "$OVERLOAD_COUNT" -ne 3 ]; then
+            echo "NOT IDEMPOTENT: tras la limpieza quirúrgica esperaba exactamente 3 definiciones (1 por función), hay $OVERLOAD_COUNT."
+            exit 1
+          fi
+          echo "Limpieza quirúrgica OK: 1 sola definición viva de cada una de las 3 funciones (overloads fantasma reconciliados)."
           # revoke-outbox-cross-tenant (hotfix 2026-08-24, tramo h2 de
           # tenancy-guard-caja-outbox): ÚLTIMO eslabón de la cadena, y hereda
           # el puesto del anterior por las mismas dos razones, una más fuerte
@@ -449,6 +582,55 @@ jobs:
           # idéntico tras 1 y 2 reaplicaciones. Trae su propio gate
           # ANTI-OVERLOAD (sección 7 — la numeración del archivo salta la 4).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261016000001_qa_integral_fixes.sql
+
+          # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
+          # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
+          # reaplica migraciones VIEJAS fuera de orden para probar
+          # idempotencia; eso deja overloads fantasma (3 ya tolerados y
+          # limpiados quirúrgicamente arriba) y — recién descubierto — objetos
+          # NO-función revertidos: 20261019000001 (cobranzas-reverso, fuera de
+          # esta cadena) dejó cash_movements_movement_type_check en 13 tipos,
+          # y el reapply de 20261006000001/20261015000001 más arriba en esta
+          # misma cadena lo re-angosta a 7/8 con SU PROPIO DROP CONSTRAINT +
+          # ADD CONSTRAINT — sin ningún gate ANTI-OVERLOAD que lo note (un
+          # CHECK no tiene overloads). Reconstruir a mano la definición
+          # "verdadera" de cada objeto revertido es frágil por partida doble:
+          # (a) hay que enumerarlos TODOS (constraints hoy, ¿índices, políticas
+          # RLS, comments, mañana?), y (b) incluso sabiendo CUÁL objeto,
+          # copiar la definición de la migración que "parece" la más nueva es
+          # una trampa — se verificó acá mismo que 20261018000001 YA NO es la
+          # fuente de verdad de este CHECK: 20261019000001 lo vuelve a tocar
+          # después. Whack-a-mole real, no hipotético.
+          #
+          # En vez de perseguir objeto por objeto, se reconstruye la DB entera:
+          # `supabase db reset` reaplica TODA la migration history real, en su
+          # orden cronológico verdadero — exactamente el mismo mecanismo que ya
+          # usó `supabase start` al principio del job para llegar al estado
+          # correcto. Es agnóstico de QUÉ objeto haya revertido (no hace falta
+          # enumerarlos de antemano) y no puede quedar "un paso atrás" como una
+          # reconvergencia a mano, porque no es incremental. Cuesta ~60-90s
+          # extra — verificado en local (Postgres 17.6 en Docker) — pero es la
+          # única forma de no volver a escribir este bloque cada vez que una
+          # migración nueva le cambie la definición a algo que una migración
+          # VIEJA de esta cadena también toca (y van dos capas: funciones acá
+          # arriba, constraints acá abajo).
+          #
+          # La aserción real es la que sigue, no la reconstrucción en sí: el
+          # schema (constraints + firmas de función + ACLs, capturado por
+          # schema_snapshot()) tiene que quedar IDÉNTICO al de antes de
+          # arrancar este paso. No es una promesa, es una aserción — si
+          # `supabase db reset` alguna vez no alcanzara para reconverger algo
+          # (por lo que sea), este diff lo va a mostrar en vez de dejarlo pasar
+          # en verde.
+          echo "Reconvergiendo: supabase db reset (reconstruye la DB desde cero con la migration history real, mismo mecanismo que 'supabase start')..."
+          supabase db reset
+          schema_snapshot > /tmp/schema_after_reconverge.txt
+          if ! diff -u /tmp/schema_before_reapply.txt /tmp/schema_after_reconverge.txt > /tmp/schema_diff.txt; then
+            echo "NOT IDEMPOTENT: el schema (constraints + firmas de función + ACLs) quedó distinto del estado previo a este paso, incluso después de la reconvergencia:"
+            cat /tmp/schema_diff.txt
+            exit 1
+          fi
+          echo "Reconvergencia OK: constraints + firmas de función + ACLs quedaron IDÉNTICOS al estado previo a este paso."
 
       # -v ON_ERROR_STOP=1 is required: without it psql prints RAISE EXCEPTION
       # errors but still exits 0, so failing assertions show green in CI.

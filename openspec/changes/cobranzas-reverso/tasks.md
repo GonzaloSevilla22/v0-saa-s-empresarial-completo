@@ -137,21 +137,21 @@
 
 ## 14. Verificación, PR y cierre
 
-- [ ] 14.1 Suite completa: backend (`pytest`, coverage ≥ 87 %), frontend (`vitest`), `tsc`, gates SQL.
-- [ ] 14.2 Revisión adversarial del diff propio antes del PR, con foco en: el guard `<> 0` en las dos RPCs, que las 9 ramas contables preexistentes no cambiaron, que los dos filtros de `event_type` coinciden, y que ningún `REVOKE` quedó sin su `GRANT`.
-- [ ] 14.3 PR contra `main` con descripción que enumere los cuatro libros afectados y el sign-off pedido. **Nunca commitear a `main` directo.**
-- [ ] 14.4 Esperar checks verdes (incluido `KPI_Validation`) y mergear.
-- [ ] 14.5 **Verificación post-merge en prod**: `MAX(version)` = la correlativa nueva; los tres `CHECK` con sus tipos nuevos; ACLs de las 2 RPCs (`anon` sin `EXECUTE`); cuerpos vivos de `_journal_post_from_event` y `rpc_process_outbox_dispatch` con los 11 tipos en ambos filtros.
-- [ ] 14.6 **Humo real en prod**: registrar un cobro de prueba en efectivo con caja abierta, verificar los cuatro libros, anularlo, y verificar los cuatro contra-movimientos + que `collected_revenue` del dashboard volvió a su valor previo. Limpiar los datos de prueba dejando el rastro documentado.
-- [ ] 14.7 Confirmar que el `pg_cron` del relay procesó los dos eventos de anulación y que los asientos quedaron `reversed` + contra-asiento posteado.
-- [ ] 14.8 Actualizar `CHANGES.md`: entrada propia del change, corregir el puntero de "próximo change recomendado", y dar de baja `cobranzas-reverso` de la lista de candidatos.
-- [ ] 14.9 Anotar en `CHANGES.md` los hallazgos laterales que este change deja abiertos (§15).
-- [ ] 14.10 `openspec archive cobranzas-reverso` y verificar que los requirements sincronizados están en **HEAD**, no sólo en el árbol de trabajo (gotcha conocido del archive).
+- [x] 14.1 Suite completa: backend 1748 passed/3 skipped (coverage 97% global, 94-100% en archivos tocados), frontend 1809/1811 passed (1 archivo flaky bajo carga, confirmado 9/9 aislado — no relacionado), `tsc --noEmit` sin errores nuevos, 42/42 gates SQL (1 pre-existente ajeno, reportado).
+- [x] 14.2 Revisión adversarial: guard `<> 0` confirmado en las dos RPCs (grep dirigido); las 9 ramas contables preexistentes de `_journal_post_from_event` y los Consumers 1/2/4 de `rpc_process_outbox_dispatch` verificados **byte-a-byte idénticos** por comparación programática (no inspección visual); los dos filtros de `event_type` coinciden (gate propio, D13); las dos `REVOKE` tienen su `GRANT` correspondiente (grep dirigido, cero huérfanos).
+- [x] 14.3 PR **#487** contra `main`, rama `opsx/cobranzas-reverso-apply`, con descripción que enumera los cuatro libros afectados y el sign-off del PO. Commiteado por grupo (8 commits), nunca a `main` directo.
+- [ ] 14.4 **Fuera de alcance de esta sesión** (regla del orquestador: no esperar CI, el orquestador monitorea y mergea).
+- [ ] 14.5 **Fuera de alcance** — post-merge.
+- [ ] 14.6 **Fuera de alcance** — post-merge, humo real en prod.
+- [ ] 14.7 **Fuera de alcance** — post-merge.
+- [x] 14.8 `CHANGES.md`: entrada propia del change agregada (governance, checkpoint, decisiones D1-D13, hallazgos reales, verificación, specs pendientes de sync). El puntero "próximo change recomendado" vive en CLAUDE.md (no en CHANGES.md) y se actualiza tradicionalmente en el archive — no tocado acá, por diseño (archive es post-merge, fuera de esta sesión).
+- [x] 14.9 Hallazgos laterales anotados en `CHANGES.md` (fix pre-existente de `test_sales_order_payment_method_drop.sql`, candidato con chip) y en `tasks.md` §15.
+- [ ] 14.10 **Fuera de alcance** — `openspec archive` es post-merge; lo ejecuta una sesión futura del orquestador.
 
 ## 15. Hallazgos laterales a registrar (no se arreglan acá)
 
 - [ ] 15.1 **`transactional-outbox/spec.md` tiene dos requirements con el nombre malformado `### MODIFIED Requirement: ...`** — el prefijo del delta quedó horneado en el nombre durante un archive anterior. Además, su enumeración del Consumer 3 lista **7** tipos y quedó desactualizada cuando `delete-guard-ledgers` agregó `SaleOperationDeleted` y `PurchaseDeleted`: la spec afirma algo falso y **ningún gate lo detecta**. Este change lo neutraliza declarando el conjunto canónico en un requirement nuevo, pero no corrige los headers ni la enumeración vieja. Anotar como candidato barato.
 - [ ] 15.2 **`payment_method` es NULL en los 7 pagos históricos.** El historial de cuenta corriente lo resuelve por `LEFT JOIN`, así que ya lo muestra vacío para ellos, y tras una anulación lo mostrará vacío también para el cobro anulado (OQ-5). Cosmético; anotar.
 - [ ] 15.3 **`bank_movements` no tiene tipo de reversa para `card_settlement`** (D11): la reversa conserva el tipo con importe negativo. Es el comportamiento del molde, pero merece revisarse cuando la conciliación bancaria trate liquidaciones de tarjeta con más detalle.
-- [ ] 15.4 Registrar en engram (`topic_key: "opsx/cobranzas-reverso/apply"`) los hallazgos reales del apply, especialmente cualquier divergencia detectada en el checkpoint 1.2.
+- [x] 15.4 Registrado en engram (`topic_key: "opsx/cobranzas-reverso/apply"`): checkpoint 1.2 PASA 12/12 (cero divergencia), y los hallazgos reales del apply.
 - [x] 15.5 **`test_sales_order_payment_method_drop.sql` tiene un falso positivo pre-existente**, descubierto en el gate sweep completo (7.13) de este apply: su regex de exclusión (diseñada para `sales_orders.payment_method`, ya retirada) no contempla las columnas reales `payments_received.payment_method` / `payments_made.payment_method` que `caja-compras-cobranzas` (OQ-1, PR #485) agregó, y falla nombrando `rpc_register_payment_received`/`rpc_register_payment_made` — funciones que **cobranzas-reverso no toca**. Verificado independiente de esta migración (falla igual con `20261019000001` removido). El fix es acotado (sumar `payments_received`/`payments_made` a la lista de tablas con columna `payment_method` legítima en la exclusión de la regex) pero pertenece a la línea `caja-compras-cobranzas`/`limpiezas-pagos-admin`, no a este change. Candidato barato.

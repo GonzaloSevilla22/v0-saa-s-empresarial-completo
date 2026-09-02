@@ -231,6 +231,10 @@ export function useRegisterPayment(clientId: string) {
       // stale (gotcha registrado de compras-proveedor-cuenta-corriente:
       // invalidar en TODAS las mutaciones que postean, no sólo en el reverso).
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+      // cobranzas-panel (D8): el cobro baja el saldo del deudor — el panel
+      // /cobranzas y el KPI "Por cobrar" del Tablero se refrescan desde el
+      // HOOK, sea cual sea la pantalla desde la que se cobró.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 }
@@ -278,6 +282,9 @@ export function useReversePaymentReceived(clientId: string) {
       // stale. use-dashboard-kpi-summary.ts no pasa por queryKeys.ts (clave
       // literal): se invalida por el prefijo del array.
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
+      // cobranzas-panel (D8): la anulación repone la deuda — el deudor
+      // vuelve a aparecer en /cobranzas y el KPI del Tablero sube.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 }

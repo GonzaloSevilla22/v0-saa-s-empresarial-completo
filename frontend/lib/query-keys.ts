@@ -116,6 +116,15 @@ export const queryKeys = {
     byClient:  (clientId: string) => ["customerAccounts", "client", clientId] as const,
     movements: (accountId: string) => ["customerAccounts", "movements", accountId] as const,
   },
+  // cobranzas-panel: read-model agregado de deudores. Prefijo propio para
+  // que invalidateQueries({queryKey: receivables.all()}) alcance lista,
+  // resumen y KPI del Tablero de una sola vez (D8).
+  receivables: {
+    all: () => ["receivables"] as const,
+    list: (accountId: string, page: number, size: number, sort: string, sortDir: string) =>
+      ["receivables", "list", accountId, page, size, sort, sortDir] as const,
+    summary: (accountId: string) => ["receivables", "summary", accountId] as const,
+  },
   supplierAccounts: {
     all:         () => ["supplierAccounts"] as const,
     bySupplier:  (supplierId: string) => ["supplierAccounts", "supplier", supplierId] as const,

@@ -37,12 +37,12 @@
 
 ## 4. Frontend: capa canónica (mapper, tipos, claves, hooks)
 
-- [ ] 4.1 RED — `frontend/__tests__/lib/receivables.test.ts`: el mapper convierte la fila cruda (snake_case, dinero como string) al tipo del dominio; `null` en las antigüedades se preserva como `null` y NO degrada a `0`; el sumador de totales cierra.
-- [ ] 4.2 GREEN — `frontend/lib/receivables.ts`: `mapReceivableRow`, `sumReceivables`, tipos `ReceivableRow`/`ReceivablesSummary`. **Sin `any`** — tipos explícitos, molde de `lib/payment-method-report.ts`.
-- [ ] 4.3 GREEN — `frontend/lib/types.ts` y `frontend/lib/query-keys.ts`: tipos del dominio y claves `receivables.list(accountId, page, size, sort, sortDir)` / `receivables.summary(accountId)`.
-- [ ] 4.4 RED+GREEN — `frontend/hooks/data/use-receivables.ts`: `useReceivables()` y `useReceivablesSummary()` sobre `pythonClient` + `useQuery`, con sus tests.
-- [ ] 4.5 RED — Test de regresión de D8: registrar un cobro invalida **también** las claves de `receivables`. Debe fallar antes del cambio.
-- [ ] 4.6 GREEN — Agregar la invalidación de `receivables.*` dentro de `useRegisterPayment` y `useReversePayment` (`hooks/data/use-customer-account.ts`) y en las mutaciones que crean deuda a crédito (formulario de venta y POS). **En el hook, no en la pantalla** (D8).
+- [x] 4.1 RED — `frontend/__tests__/lib/receivables.test.ts`: el mapper convierte la fila cruda (snake_case, dinero como string) al tipo del dominio; `null` en las antigüedades se preserva como `null` y NO degrada a `0`; el sumador de totales cierra.
+- [x] 4.2 GREEN — `frontend/lib/receivables.ts`: `mapReceivableRow`, `sumReceivables`, tipos `ReceivableRow`/`ReceivablesSummary`. **Sin `any`** — tipos explícitos, molde de `lib/payment-method-report.ts`.
+- [x] 4.3 GREEN — `frontend/lib/types.ts` y `frontend/lib/query-keys.ts`: tipos del dominio y claves `receivables.list(accountId, page, size, sort, sortDir)` / `receivables.summary(accountId)`.
+- [x] 4.4 RED+GREEN — `frontend/hooks/data/use-receivables.ts`: `useReceivables()` y `useReceivablesSummary()` sobre `pythonClient` + `useQuery`, con sus tests.
+- [x] 4.5 RED — Test de regresión de D8: registrar un cobro invalida **también** las claves de `receivables`. Debe fallar antes del cambio.
+- [x] 4.6 GREEN — Agregar la invalidación de `receivables.*` dentro de `useRegisterPayment` y `useReversePayment` (`hooks/data/use-customer-account.ts`) y en las mutaciones que crean deuda a crédito (formulario de venta y POS). **En el hook, no en la pantalla** (D8).
 
 ## 5. Frontend: pantalla `/cobranzas`, sidebar y KPI
 

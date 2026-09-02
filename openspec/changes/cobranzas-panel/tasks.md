@@ -46,15 +46,15 @@
 
 ## 5. Frontend: pantalla `/cobranzas`, sidebar y KPI
 
-- [ ] 5.1 RED — Test de la pantalla: renderiza el total en cabecera, una fila por deudor con saldo y antigüedades, `EmptyState` sin deudores, y la antigüedad ausente se muestra como `—` y no como `0`.
-- [ ] 5.2 GREEN — `frontend/app/(dashboard)/cobranzas/page.tsx`: cabecera con el total (estructura de `CustomerAccountBalance` pero con **tokens semánticos**, D14 — nada de `text-yellow-400`), tabla en `Card` con `overflow-x-auto` + `min-w`, `min-w-0` en la cadena de flex, orden por columna delegado al servidor (D3), paginación estándar.
-- [ ] 5.3 GREEN — Acción por fila hacia `/clientes/[id]/cuenta` con nombre accesible, y botón **Cobrar** que abre un `Dialog` con el `RegisterPaymentForm` existente — sin prop nueva y sin formulario propio (D8).
-- [ ] 5.4 GREEN — Nota al pie y rótulos de columna conforme al requirement "El panel no promete mora": "Días desde el último cargo", nunca "mora"/"vencido"; aviso explícito de que el sistema aún no registra vencimientos.
-- [ ] 5.5 RED+GREEN — `frontend/components/app-sidebar.tsx`: entrada "Cobranzas" en el grupo **Operaciones** (D11), sin `pro`/`proOnly`. Actualizar `__tests__/components/app-sidebar-nav-groups.test.ts` (el test declara los grupos esperados — es el gate de esta task).
-- [ ] 5.6 GREEN — Nombre de `/cobranzas` en el mapa del breadcrumb de la barra superior.
-- [ ] 5.7 RED+GREEN — `frontend/components/dashboard/kpi-card.tsx`: prop `href` opcional que convierte la tarjeta en enlace con foco visible (D7), con test; sin romper las cuatro tarjetas existentes que no la pasan.
-- [ ] 5.8 GREEN — `frontend/app/(dashboard)/dashboard/page.tsx`: 5ª tarjeta "Por cobrar" alimentada por `useReceivablesSummary`, con `href="/cobranzas"`; grilla a `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5` (D6).
-- [ ] 5.9 TRIANGULATE — Test de que el `BranchFilter` del Tablero **no** altera el total por cobrar (OQ-3) y de que el bloque mensual `KpiSummaryBlock` conserva sus 5 tarjetas sin incorporar la nueva.
+- [x] 5.1 RED — Test de la pantalla: renderiza el total en cabecera, una fila por deudor con saldo y antigüedades, `EmptyState` sin deudores, y la antigüedad ausente se muestra como `—` y no como `0`.
+- [x] 5.2 GREEN — `frontend/app/(dashboard)/cobranzas/page.tsx`: cabecera con el total (estructura de `CustomerAccountBalance` pero con **tokens semánticos**, D14 — nada de `text-yellow-400`), tabla en `Card` con `overflow-x-auto` + `min-w`, `min-w-0` en la cadena de flex, orden por columna delegado al servidor (D3), paginación estándar.
+- [x] 5.3 GREEN — Acción por fila hacia `/clientes/[id]/cuenta` con nombre accesible, y botón **Cobrar** que abre un `Dialog` con el `RegisterPaymentForm` existente — sin prop nueva y sin formulario propio (D8).
+- [x] 5.4 GREEN — Nota al pie y rótulos de columna conforme al requirement "El panel no promete mora": "Días desde el último cargo", nunca "mora"/"vencido"; aviso explícito de que el sistema aún no registra vencimientos.
+- [x] 5.5 RED+GREEN — `frontend/components/app-sidebar.tsx`: entrada "Cobranzas" en el grupo **Operaciones** (D11), sin `pro`/`proOnly`. Actualizar `__tests__/components/app-sidebar-nav-groups.test.ts` (el test declara los grupos esperados — es el gate de esta task).
+- [x] 5.6 GREEN — Nombre de `/cobranzas` en el mapa del breadcrumb de la barra superior.
+- [x] 5.7 RED+GREEN — `frontend/components/dashboard/kpi-card.tsx`: prop `href` opcional que convierte la tarjeta en enlace con foco visible (D7), con test; sin romper las cuatro tarjetas existentes que no la pasan.
+- [x] 5.8 GREEN — `frontend/app/(dashboard)/dashboard/page.tsx`: 5ª tarjeta "Por cobrar" alimentada por `useReceivablesSummary`, con `href="/cobranzas"`; grilla a `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5` (D6).
+- [x] 5.9 TRIANGULATE — Test de que el `BranchFilter` del Tablero **no** altera el total por cobrar (OQ-3) y de que el bloque mensual `KpiSummaryBlock` conserva sus 5 tarjetas sin incorporar la nueva.
 
 ## 6. Frontend + Backend: saldo y acceso en `/clientes` (tramo sensible)
 

@@ -195,4 +195,14 @@ describe("KpiSummaryBlock", () => {
 
     expect(screen.getByText("Cobrado: $8.000")).toBeInTheDocument()
   })
+
+  // cobranzas-panel (task 5.9): "Por cobrar" es un stock al instante, no un
+  // flujo del período — el bloque mensual NO lo incorpora (D6). Sus 5
+  // tarjetas quedan como están; la tarjeta nueva vive en la grilla diaria.
+  it("no incorpora la tarjeta 'Por cobrar' (cobranzas-panel D6)", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({ data: fullData, isLoading: false })
+    render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
+
+    expect(screen.queryByText("Por cobrar")).not.toBeInTheDocument()
+  })
 })

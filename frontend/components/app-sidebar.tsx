@@ -11,7 +11,7 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck
+  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck, HandCoins
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -48,6 +48,10 @@ export const navGroups = [
       // Conciliación), ícono Landmark preservado.
       { title: "Caja", href: "/caja", icon: Banknote, pro: false, proOnly: false },
       { title: "Banco", href: "/banco", icon: Landmark, pro: false, proOnly: false },
+      // cobranzas-panel (D11): la cobranza es una tarea diaria del negocio
+      // (abrir, mirar, llamar, cobrar) — vive junto a Caja y Banco, no en
+      // Análisis. Sin gate de plan (D10).
+      { title: "Cobranzas", href: "/cobranzas", icon: HandCoins, pro: false, proOnly: false },
     ],
   },
   {

@@ -19,6 +19,8 @@ export interface SupplierAccountMovementApi {
   // cobranzas-reverso (D12): espejo exacto de CustomerAccountMovementApi.
   is_reversible?: boolean
   is_reversal_blocked?: boolean
+  has_cash_movement?: boolean
+  has_bank_movement?: boolean
 }
 
 export interface SupplierAccountApi {
@@ -68,6 +70,8 @@ export interface SupplierAccountMovement {
   createdAt: string
   isReversible: boolean
   isReversalBlocked: boolean
+  hasCashMovement: boolean
+  hasBankMovement: boolean
 }
 
 export interface SupplierAccount {
@@ -94,6 +98,8 @@ function mapMovement(r: SupplierAccountMovementApi): SupplierAccountMovement {
     createdAt:         r.created_at,
     isReversible:      r.is_reversible ?? false,
     isReversalBlocked: r.is_reversal_blocked ?? false,
+    hasCashMovement:   r.has_cash_movement ?? false,
+    hasBankMovement:   r.has_bank_movement ?? false,
   }
 }
 

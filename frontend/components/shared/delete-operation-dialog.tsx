@@ -98,6 +98,7 @@ export function DeleteOperationDialog({
           disabled={isDeleting}
           className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
           data-testid="delete-operation-trigger"
+          aria-label={`${actionVerb} ${label}`}
         >
           {triggerIcon}
         </Button>

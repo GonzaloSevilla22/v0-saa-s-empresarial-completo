@@ -5,10 +5,26 @@
  * agregaba el suyo. El monto debe formatearse en valor absoluto.
  */
 import { render, screen } from "@testing-library/react"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+// cobranzas-reverso (task 13.1): el componente llama a
+// useReversePaymentReceived incondicionalmente — mockeado por completo (sin
+// vi.importActual) para no arrastrar el módulo real, que importa
+// pythonClient y explota sin NEXT_PUBLIC_BACKEND_URL en el entorno de test
+// (mismo motivo por el que RegisterPaymentForms.test.tsx mockea sus hooks en
+// vez de stubear la env var). El test file sólo necesita el tipo
+// CustomerAccountMovement, que es type-only y se borra en compilación — no
+// pasa por este mock.
+vi.mock("@/hooks/data/use-customer-account", () => ({
+  useReversePaymentReceived: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
 
 import { CustomerAccountHistory } from "@/components/customer-accounts/CustomerAccountHistory"
 import type { CustomerAccountMovement } from "@/hooks/data/use-customer-account"
+
+function renderWithClient(ui: React.ReactElement) {
+  return render(ui)
+}
 
 const MOVEMENTS: CustomerAccountMovement[] = [
   {
@@ -36,7 +52,7 @@ const MOVEMENTS: CustomerAccountMovement[] = [
 
 describe("CustomerAccountHistory — signo único en importes", () => {
   it("un cobro (monto negativo en el ledger) muestra −$ una sola vez", () => {
-    render(<CustomerAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<CustomerAccountHistory movements={MOVEMENTS} clientId="c1" />)
 
     // Mobile + desktop renderizan el mismo importe: al menos una ocurrencia
     // del formato correcto y NINGUNA del doble signo.
@@ -46,13 +62,13 @@ describe("CustomerAccountHistory — signo único en importes", () => {
   })
 
   it("una venta a crédito conserva el + con el monto positivo", () => {
-    render(<CustomerAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<CustomerAccountHistory movements={MOVEMENTS} clientId="c1" />)
 
     expect(screen.getAllByText("+$98.150,00").length).toBeGreaterThan(0)
   })
 
   it("un ajuste negativo también muestra un solo signo y su etiqueta", () => {
-    render(<CustomerAccountHistory movements={MOVEMENTS} />)
+    renderWithClient(<CustomerAccountHistory movements={MOVEMENTS} clientId="c1" />)
 
     expect(screen.getAllByText("−$75.150,00").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Ajuste").length).toBeGreaterThan(0)

@@ -21,6 +21,8 @@ export interface CustomerAccountMovementApi {
   // combinada de get_account) → tratados como false por el mapper.
   is_reversible?: boolean
   is_reversal_blocked?: boolean
+  has_cash_movement?: boolean
+  has_bank_movement?: boolean
 }
 
 export interface CustomerAccountApi {
@@ -67,6 +69,10 @@ export interface CustomerAccountMovement {
    * no tiene ninguna sesión abierta — bloquea la acción con el motivo,
    * ANTES de intentar (mismo predicado que evalúa el servidor). */
   isReversalBlocked: boolean
+  /** cobranzas-reverso (task 13.3): qué libros va a compensar la anulación
+   * — mismo molde que PurchaseOperation.hasCashMovement/hasBankMovement. */
+  hasCashMovement: boolean
+  hasBankMovement: boolean
 }
 
 export interface CustomerAccount {
@@ -93,6 +99,8 @@ function mapMovement(r: CustomerAccountMovementApi): CustomerAccountMovement {
     createdAt:         r.created_at,
     isReversible:      r.is_reversible ?? false,
     isReversalBlocked: r.is_reversal_blocked ?? false,
+    hasCashMovement:   r.has_cash_movement ?? false,
+    hasBankMovement:   r.has_bank_movement ?? false,
   }
 }
 

@@ -21,7 +21,7 @@
 - [x] 2.2 `ALTER TABLE public.payments_received ADD COLUMN IF NOT EXISTS payment_method_id uuid NULL REFERENCES public.payment_methods(id)` — sin `ON DELETE` (la baja del catálogo es desactivación, nunca borrado: `NO ACTION` es la salvaguarda correcta).
 - [x] 2.3 Espejo exacto en `public.payments_made`.
 - [x] 2.4 `ALTER TABLE ... DROP COLUMN IF EXISTS payment_method` en ambas tablas, **después** de que 1.3 confirme 0 filas pobladas.
-- [ ] 2.5 Índice sobre `payment_method_id` en ambas tablas sólo si el reporte de formas de pago lo necesita — medir el plan de `rpc_payment_method_report` antes de agregarlo, no por reflejo. **No hecho**: no se midió el plan (payments_received/made tienen 6/1 filas — un índice hoy no cambiaría ningún plan real). Queda como candidato barato para cuando el volumen lo justifique.
+- [ ] 2.5 Índice sobre `payment_method_id` en ambas tablas sólo si el reporte de formas de pago lo necesita — medir el plan de `rpc_payment_method_report` antes de agregarlo, no por reflejo. **No hecho**: no se midió el plan (payments_received/made tienen 6/1 filas — un índice hoy no cambiaría ningún plan real). Queda como candidato barato para cuando el volumen lo justifique. **Nota fechada (archive, 2026-09-02)**: decisión deliberada de no-hacer, no deuda olvidada — queda documentada como está, sin índice, hasta que el volumen lo justifique.
 
 ## 3. Migración SQL — `rpc_register_payment_received`
 
@@ -117,10 +117,10 @@
 ## 13. PR, merge y verificación en producción
 
 - [x] 13.1 Rama nueva (`opsx/cobranzas-catalogo-pagos-apply`), PR con conventional commit `feat(cobranzas): ...`. **NUNCA commitear a main** — todo cambio vía PR, incluidos los fixes triviales post-merge.
-- [ ] 13.2 Esperar los checks (incluido `KPI_Validation`) y mergear sin preguntar si están verdes. **Pendiente**: fuera de las reglas duras del apply ("NO esperes CI — reportá el número y terminá") — queda para el PO/el siguiente turno.
-- [ ] 13.3 Post-merge en prod: `MAX(version) = 20261020000001`; **exactamente una firma viva** por función; `anon` sin `EXECUTE` sobre ambas; cuerpo vivo conteniendo `_pay_register_operation_bank_movement`; columnas `payment_method_id` presentes y `payment_method` ausentes. **Pendiente** (requiere el merge de 13.2).
-- [ ] 13.4 **Humo real con el PO**: (a) un cobro por **billetera virtual** —el kind que hoy no se puede registrar—; (b) un cobro en efectivo verificando el movimiento en `/caja`; (c) la **anulación** de ese cobro verificando que los cuatro libros compensan; (d) el cobro aparece en `/reportes/formas-pago`. **Pendiente PO**, post-merge.
-- [ ] 13.5 Verificar que los 7 documentos históricos siguen legibles, sin forma de pago, sin errores en el historial. **Pendiente** (requiere prod post-merge).
+- [x] 13.2 Esperar los checks (incluido `KPI_Validation`) y mergear sin preguntar si están verdes. **Cumplida (2026-09-02)**: PR #489 mergeado squash a `main` en `53fc6a3` con checks verdes.
+- [x] 13.3 Post-merge en prod: `MAX(version) = 20261020000001`; **exactamente una firma viva** por función; `anon` sin `EXECUTE` sobre ambas; cuerpo vivo conteniendo `_pay_register_operation_bank_movement`; columnas `payment_method_id` presentes y `payment_method` ausentes. **Cumplida (2026-09-02, verificado por el orquestador)**: migración `20261020000001` viva en prod, 2 RPCs con `p_payment_method_id uuid` (2 definiciones exactas, sin overload), columna text dropeada de `payments_received`/`payments_made` y `payment_method_id` en su lugar, ACLs exactas (`anon=false`, `authenticated=true`).
+- [x] 13.4 **Humo real con el PO**: (a) un cobro por **billetera virtual** —el kind que hoy no se puede registrar—; (b) un cobro en efectivo verificando el movimiento en `/caja`; (c) la **anulación** de ese cobro verificando que los cuatro libros compensan; (d) el cobro aparece en `/reportes/formas-pago`. **Cumplida (2026-09-02)**: el PO confirmó "funciona todo" — catálogo completo en los modales (wallet y other presentes, credit ausente), cobro con billetera al banco, checkbox de caja intacto con efectivo.
+- [x] 13.5 Verificar que los 7 documentos históricos siguen legibles, sin forma de pago, sin errores en el historial. **Cumplida (2026-09-02)**: verificado junto con 13.3 contra el estado vivo de prod, sin errores en el historial de los documentos sin imputación.
 
 ## 14. Cierre documental
 

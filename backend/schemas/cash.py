@@ -38,6 +38,14 @@ class MovementType(str, Enum):
     purchase_payment_reversal = "purchase_payment_reversal"
     payment_received          = "payment_received"
     payment_made              = "payment_made"
+    # cobranzas-reverso (D10): contra-movimiento AUTOMÁTICO de la anulación de
+    # un cobro/pago de cuenta corriente (rpc_reverse_payment_received/_made).
+    # Tipo propio, familia "Reversas" (ver cash-movement-meta.ts), pero los
+    # DOS tienen signo OPUESTO ENTRE SÍ (a diferencia de expense_reversal/
+    # purchase_payment_reversal, que comparten signo): anular un cobro SACA
+    # plata del cajón (egreso), anular un pago la REPONE (ingreso).
+    payment_received_reversal = "payment_received_reversal"
+    payment_made_reversal     = "payment_made_reversal"
 
 
 # Movement types that are expected to be income (positive amount).
@@ -58,6 +66,12 @@ _INCOME_TYPES = {
     # de cuenta corriente también ingresa.
     MovementType.purchase_payment_reversal,
     MovementType.payment_received,
+    # cobranzas-reverso (D10): anular un PAGO a proveedor repone la plata en
+    # el cajón — es ingreso, el OPUESTO de payment_made (que está en
+    # _EXPENSE_TYPES). Atención: no es "el mismo signo que su familia" —
+    # payment_received_reversal (egreso) y payment_made_reversal (ingreso)
+    # son opuestos entre sí pese a compartir familia de UI.
+    MovementType.payment_made_reversal,
 }
 # Movement types that are expected to be expenses (negative amount).
 # sale_reversal entra acá por pedido del PO (2026-08-22, sucesor de PR #442): la spec
@@ -72,6 +86,10 @@ _EXPENSE_TYPES = {
     MovementType.sale_reversal,
     # caja-compras-cobranzas (D1): el pago a proveedor egresa de la caja.
     MovementType.payment_made,
+    # cobranzas-reverso (D10): anular un COBRO saca la plata que había
+    # entrado — egreso, el OPUESTO de payment_received (que está en
+    # _INCOME_TYPES).
+    MovementType.payment_received_reversal,
 }
 # adjustment queda FUERA de ambos conjuntos a propósito: es signado
 # libremente (sobrante +/faltante -, D4 del design de

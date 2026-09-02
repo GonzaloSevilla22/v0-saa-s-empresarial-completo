@@ -144,6 +144,15 @@ _BUSINESS_ERRCODE_STATUS = {
     # rpc_close_branch. El mensaje del RAISE ya nombra la acción que destraba
     # (transferir el stock a otra sucursal / desactivar en vez de borrar).
     "P0428": 409,
+    # cobranzas-reverso: el asiento original de un cobro/pago anulado no se
+    # encontró todavía en el consumidor contable (el evento de reverso llegó
+    # antes que el del alta) — 409, misma familia P042x/P0450 (conflicto de
+    # ESTADO transitorio, se resuelve solo en el próximo tick del relay). No
+    # es un ERRCODE nuevo: ya existe desde journal-entry-outbox
+    # (CreditNoteIssued/SaleOperationAdjusted) — sólo faltaba mapearlo, porque
+    # hasta ahora sólo lo levantaba el consumidor async, nunca un camino
+    # síncrono expuesto por un endpoint.
+    "P0451": 409,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

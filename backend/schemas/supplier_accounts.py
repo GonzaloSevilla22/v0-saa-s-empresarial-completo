@@ -60,6 +60,10 @@ class SupplierMovementOut(BaseModel):
     # payments_made cuando movement_type='payment_made'. NULL para todo el
     # resto de los tipos y para los pagos históricos (sin backfill).
     payment_method:       str | None = None
+    # cobranzas-reverso (D12, task 8.3): espejo exacto de AccountMovementOut
+    # (customer_accounts.py) — derivados del servidor, nunca denormalizados.
+    is_reversible:        bool = False
+    is_reversal_blocked:  bool = False
 
 
 # v3-api-standards §2.8: envelope estándar {items,total,page,pages} para
@@ -126,6 +130,20 @@ class PaymentMadeOut(BaseModel):
     balance_after:        Decimal | None
     replayed:             bool
     operation_id:         uuid.UUID | None = None
+
+
+class PaymentReversalIn(BaseModel):
+    """cobranzas-reverso: espejo exacto de PaymentReversalIn (customer_accounts.py)."""
+    reason: str | None = None
+
+
+class PaymentReversalOut(BaseModel):
+    """Respuesta de rpc_reverse_payment_made (jsonb)."""
+    payment_id:           uuid.UUID
+    reversed:              bool
+    account_movement_id:  uuid.UUID
+    cash_reversal_id:      uuid.UUID | None = None
+    bank_reversals:        int = 0
 
 
 class SupplierChargeIn(BaseModel):

@@ -65,7 +65,7 @@ MIGRATION_FILE = MIGRATIONS_DIR / "20260718000001_c25_events_outbox_reconcile.sq
 # Que este puntero no vuelva a envejecer lo sostiene
 # TestDispatcherMigrationPointer, abajo: si alguien agrega una migración más
 # nueva que redefine la función y no mueve esta constante, falla.
-DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261005000001_delete_guard_ledgers.sql"
+DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261019000001_cobranzas_reverso.sql"
 
 _DISPATCH_DEF_RE = re.compile(
     r"CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.rpc_process_outbox_dispatch",

@@ -13,6 +13,7 @@ Toda lógica y guards de rol viven en services/supplier_accounts.py.
 from __future__ import annotations
 
 import uuid
+from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query, Request
@@ -26,6 +27,8 @@ from backend.schemas.supplier_accounts import (
     CreateSupplierAccountOut,
     PaymentMadeIn,
     PaymentMadeOut,
+    PaymentReversalIn,
+    PaymentReversalOut,
     SupplierAccountOut,
     SupplierChargeIn,
     SupplierChargeOut,
@@ -115,3 +118,18 @@ async def register_supplier_charge(
     """
     payload.idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
     return await supplier_account_service.register_supplier_charge(repo, auth, payload)
+
+
+@router.delete("/supplier-accounts/payments/{payment_id}", response_model=PaymentReversalOut)
+async def reverse_payment_made(
+    payment_id: uuid.UUID,
+    payload: Optional[PaymentReversalIn] = None,
+    auth: dict = Depends(get_current_user),
+    repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
+):
+    """cobranzas-reverso (task 10.4): anula un pago a proveedor. Espejo
+    exacto de customer_accounts.py::reverse_payment_received."""
+    reason_payload = payload if payload is not None else PaymentReversalIn()
+    return await supplier_account_service.reverse_payment_made(
+        repo, auth, str(payment_id), reason_payload
+    )

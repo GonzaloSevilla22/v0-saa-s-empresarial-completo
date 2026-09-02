@@ -96,10 +96,28 @@ class SupplierAccountRepository(BaseRepository):
 
         fix/tenancy-bank-accounts-leak: `account_id` obligatorio — mismo IDOR
         que list_movements (ver nota ahí). caja-compras-cobranzas (OQ-1):
-        mismo LEFT JOIN a payments_made que list_movements."""
+        mismo LEFT JOIN a payments_made que list_movements.
+
+        cobranzas-reverso (D12, task 9.3): espejo exacto de
+        CustomerAccountRepository.list_movements_page — is_reversible/
+        is_reversal_blocked con el mismo predicado que evalúa
+        rpc_reverse_payment_made."""
         return await self.paginate(
             """
-            SELECT sam.*, pmd.payment_method
+            SELECT sam.*, pmd.payment_method,
+              (sam.movement_type = 'payment_made' AND EXISTS (
+                SELECT 1 FROM public.payments_made pm2 WHERE pm2.id = sam.reference_id
+              )) AS is_reversible,
+              EXISTS (
+                SELECT 1
+                FROM public.cash_movements cm
+                JOIN public.cash_sessions cs ON cs.id = cm.session_id
+                WHERE cm.reference_id = sam.reference_id AND cm.movement_type = 'payment_made'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM public.cash_sessions cs_open
+                    WHERE cs_open.cashbox_id = cs.cashbox_id AND cs_open.status = 'open'
+                  )
+              ) AS is_reversal_blocked
             FROM public.supplier_account_movements sam
             LEFT JOIN public.payments_made pmd
               ON pmd.id = sam.reference_id AND sam.movement_type = 'payment_made'
@@ -116,6 +134,16 @@ class SupplierAccountRepository(BaseRepository):
             page=page,
             size=size,
         )
+
+    async def reverse_payment_made(self, payment_id: str, reason: str | None) -> dict:
+        """cobranzas-reverso (task 9.3): invoca rpc_reverse_payment_made.
+        Espejo exacto de CustomerAccountRepository.reverse_payment_received."""
+        row = await self.fetchrow(
+            "SELECT public.rpc_reverse_payment_made($1::uuid, $2::text) AS result",
+            payment_id,
+            reason,
+        )
+        return _jsonb(row["result"])
 
     async def register_payment_made(
         self,

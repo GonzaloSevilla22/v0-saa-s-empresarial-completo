@@ -87,27 +87,27 @@
 
 ## 8. Backend — schemas
 
-- [ ] 8.1 `backend/schemas/cash.py`: `MovementType` suma `payment_received_reversal` y `payment_made_reversal`; `_EXPENSE_TYPES` suma el primero, `_INCOME_TYPES` el segundo (D10 — atención: signos opuestos).
-- [ ] 8.2 `backend/schemas/customer_accounts.py`: `AccountMovementOut` gana `is_reversible: bool` e `is_reversal_blocked: bool`; nuevo `PaymentReversalOut` (`payment_id`, `reversed`, `account_movement_id`, `cash_reversal_id`, `bank_reversals`); nuevo `PaymentReversalIn` con `reason: str | None`.
-- [ ] 8.3 `backend/schemas/supplier_accounts.py`: espejo exacto.
-- [ ] 8.4 Tests de schema: los dos derivados default a `False`; el signo de los dos tipos nuevos se valida en el camino de la API.
+- [x] 8.1 `backend/schemas/cash.py`: `MovementType` suma `payment_received_reversal` y `payment_made_reversal`; `_EXPENSE_TYPES` suma el primero, `_INCOME_TYPES` el segundo (D10 — signos opuestos, verificado por test).
+- [x] 8.2 `backend/schemas/customer_accounts.py`: `AccountMovementOut` gana `is_reversible: bool = False` e `is_reversal_blocked: bool = False`; nuevo `PaymentReversalOut`; nuevo `PaymentReversalIn` con `reason: str | None = None`.
+- [x] 8.3 `backend/schemas/supplier_accounts.py`: espejo exacto.
+- [x] 8.4 Tests de schema en `test_cobranzas_reverso.py` (Sections 1-2): los dos derivados default a `False`; `RegisterMovementIn` valida el signo de los dos tipos nuevos (positivo/negativo rechazados donde corresponde).
 
 ## 9. Backend — repositories
 
-- [ ] 9.1 `customer_account_repository.py`: `reverse_payment_received(payment_id, reason)` → `SELECT public.rpc_reverse_payment_received($1, $2)`. Filtro explícito por `account_id` donde aplique (regla dura: RLS es red, no guard único).
-- [ ] 9.2 `customer_account_repository.py`: `list_movements_page` suma los dos `EXISTS` derivados —documento vivo, y caja-sin-sesión-abierta— con el **mismo predicado** que evalúa la RPC (D12). No columnas denormalizadas.
-- [ ] 9.3 `supplier_account_repository.py`: espejo de 9.1 y 9.2.
-- [ ] 9.4 Tests de repository con `asyncpg` mockeado, verificando la SQL emitida y los parámetros (incluido que `account_id` viaja explícito).
+- [x] 9.1 `customer_account_repository.py`: `reverse_payment_received(payment_id, reason)` → `SELECT public.rpc_reverse_payment_received($1::uuid, $2::text)`.
+- [x] 9.2 `customer_account_repository.py`: `list_movements_page` suma los dos `EXISTS` derivados con el **mismo predicado** que evalúa la RPC (D12). No columnas denormalizadas.
+- [x] 9.3 `supplier_account_repository.py`: espejo de 9.1 y 9.2.
+- [x] 9.4 Tests de repository con `asyncpg` mockeado (Sections 3-4 de `test_cobranzas_reverso.py`): SQL emitida, parámetros posicionales (`payment_id`, `reason`), y presencia de los `EXISTS` en `list_movements_page`.
 
 ## 10. Backend — services y routers
 
-- [ ] 10.1 `services/customer_accounts.py`: `reverse_payment_received(repo, auth, payment_id, reason)` con el guard de rol; **cero lógica en el router**.
-- [ ] 10.2 `services/supplier_accounts.py`: espejo.
-- [ ] 10.3 `routers/customer_accounts.py`: `DELETE /customer-accounts/payments/{payment_id}`, `response_model=PaymentReversalOut`, motivo por body opcional.
-- [ ] 10.4 `routers/supplier_accounts.py`: `DELETE /supplier-accounts/payments/{payment_id}`.
-- [ ] 10.5 `core/errors.py`: verificar que `P0451` está mapeado (409 o 422 según la familia); **no** agregar ERRCODEs nuevos — `P0401/P0404/P0409/P0426` ya existen.
-- [ ] 10.6 Tests de router/service: 404 por pago ajeno, 409 por `P0426`, 200 con el cuerpo esperado, y que el guard de rol se evalúa **antes** de llamar al repo.
-- [ ] 10.7 Coverage backend ≥ 87 % (umbral de CI) y suite completa en verde.
+- [x] 10.1 `services/customer_accounts.py`: `reverse_payment_received(repo, auth, payment_id, payload)` con `require_role(["user","admin"])`; cero lógica en el router.
+- [x] 10.2 `services/supplier_accounts.py`: espejo (`reverse_payment_made`).
+- [x] 10.3 `routers/customer_accounts.py`: `DELETE /customer-accounts/payments/{payment_id}`, `response_model=PaymentReversalOut`, `payload: PaymentReversalIn | None = None` (motivo opcional, cuerpo entero opcional).
+- [x] 10.4 `routers/supplier_accounts.py`: `DELETE /supplier-accounts/payments/{payment_id}`, espejo.
+- [x] 10.5 `core/errors.py`: `P0451` sumado al mapa global (409, misma familia P042x). Los mapas LOCALES de `services/customer_accounts.py` y `services/supplier_accounts.py` (usados por `_pg_to_http`, distintos del handler global) también ganaron `P0426`/`P0451` — sin ellos, esos dos ERRCODEs habrían caído en 500 para estos dos endpoints específicos (hallazgo del propio TDD: el service tiene su PROPIO mapa, no delega en `core/errors.py`). Cero ERRCODEs nuevos.
+- [x] 10.6 Tests de router/service (Sections 5-6): 403 sin rol + repo no invocado, 404 por `P0404`, 409 por `P0426` y por `P0451`, 200 con `reversed=true`, DELETE con y sin body.
+- [x] 10.7 Coverage: suite completa **1746 passed** (repo root), sin fallos nuevos. Cobertura de los archivos tocados: 94-100 % (todos ≥ umbral 87 % de CI). RED genuino verificado: se removió `P0426` del mapa local, el test `test_propagates_p0426_as_409` falló con 500 (no 409), confirmando que la aserción no es trivial.
 
 ## 11. Frontend — librerías compartidas
 

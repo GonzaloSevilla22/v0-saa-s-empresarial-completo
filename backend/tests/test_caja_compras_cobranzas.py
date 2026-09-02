@@ -16,17 +16,21 @@ from pydantic import ValidationError
 
 
 class TestMovementTypeVocabulary:
-    """task 2.4: MovementType tiene los 11 valores, _INCOME_TYPES/_EXPENSE_TYPES
-    son los conjuntos exactos que design.md D1 fija como normativos."""
+    """task 2.4: MovementType tiene los 13 valores, _INCOME_TYPES/_EXPENSE_TYPES
+    son los conjuntos exactos que design.md D1 fija como normativos.
+
+    cobranzas-reverso (2026-09-02): 11 → 13 — suma payment_received_reversal
+    (egreso) y payment_made_reversal (ingreso), D10 de ese change."""
 
     def test_movement_type_has_eleven_members(self):
         from backend.schemas.cash import MovementType
 
-        assert len(MovementType) == 11
+        assert len(MovementType) == 13
         assert {m.value for m in MovementType} == {
             "sale", "purchase_payment", "expense", "advance", "withdrawal",
             "sale_reversal", "expense_reversal",
             "purchase_payment_reversal", "payment_received", "payment_made",
+            "payment_received_reversal", "payment_made_reversal",
             "adjustment",
         }
 
@@ -39,6 +43,7 @@ class TestMovementTypeVocabulary:
             MovementType.expense_reversal,
             MovementType.purchase_payment_reversal,
             MovementType.payment_received,
+            MovementType.payment_made_reversal,
         }
 
     def test_expense_types_exact_set(self):
@@ -50,6 +55,7 @@ class TestMovementTypeVocabulary:
             MovementType.withdrawal,
             MovementType.sale_reversal,
             MovementType.payment_made,
+            MovementType.payment_received_reversal,
         }
 
     def test_adjustment_is_in_neither_set(self):

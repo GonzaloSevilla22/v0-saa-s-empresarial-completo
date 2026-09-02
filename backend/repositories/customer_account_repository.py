@@ -22,6 +22,71 @@ def _jsonb(value) -> dict:
 class CustomerAccountRepository(BaseRepository):
     """Repository para cuentas corrientes de clientes — JWT-passthrough via base.py."""
 
+    # cobranzas-panel (D3): traducción por diccionario a columna — el criterio
+    # de orden JAMÁS se interpola desde el input; un valor fuera del dominio
+    # (que Pydantic ya rechaza en el router vía Literal) cae al default.
+    _RECEIVABLES_SORT_COLUMNS: dict[str, str] = {
+        "balance": "balance",
+        "days_since_last_charge": "days_since_last_charge",
+        "days_since_last_payment": "days_since_last_payment",
+        "client_name": "client_name",
+    }
+
+    async def list_receivables_page(
+        self,
+        account_id: str,
+        *,
+        page: int,
+        size: int,
+        sort: str = "balance",
+        sort_dir: str = "desc",
+    ) -> dict:
+        """cobranzas-panel (tasks 3.2): listado paginado de deudores.
+
+        El predicado de "quién es deudor" (balance > 0, cliente no borrado,
+        tenant) vive UNA sola vez en rpc_receivables_report (D1/D2) — acá no
+        se re-declara nada: sólo orden + envelope estándar via paginate().
+        El guard de membresía es el P0401 del propio RPC.
+        """
+        sort_column = self._RECEIVABLES_SORT_COLUMNS.get(sort, "balance")
+        direction = "ASC" if sort_dir == "asc" else "DESC"
+        # Deudores sin cargo/cobro (OQ-4: deuda nacida de adjustment) van al
+        # final al ordenar por antigüedad — el NULL no es "0 días".
+        nulls = (
+            " NULLS LAST"
+            if sort_column in ("days_since_last_charge", "days_since_last_payment")
+            else ""
+        )
+        return await self.paginate(
+            f"""
+            SELECT *
+            FROM public.rpc_receivables_report($1::uuid)
+            ORDER BY {sort_column} {direction}{nulls}, client_id ASC
+            """,
+            """
+            SELECT COUNT(*)
+            FROM public.rpc_receivables_report($1::uuid)
+            """,
+            account_id,
+            page=page,
+            size=size,
+        )
+
+    async def get_receivables_summary(self, account_id: str) -> dict:
+        """cobranzas-panel (task 3.3, D2): el resumen agrega SOBRE el mismo
+        RPC del detalle — sin un segundo RPC ni un segundo predicado de
+        deudor, para que el total de la cabecera cierre SIEMPRE contra la
+        suma de la tabla."""
+        row = await self.fetchrow(
+            """
+            SELECT COALESCE(SUM(balance), 0) AS total_receivable,
+                   COUNT(*)::int             AS debtor_count
+            FROM public.rpc_receivables_report($1::uuid)
+            """,
+            account_id,
+        )
+        return dict(row)
+
     async def create_account(self, client_id: str) -> dict:
         """Invoca rpc_create_customer_account(p_client_id) → crea/retorna la cuenta."""
         row = await self.fetchrow(

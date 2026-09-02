@@ -1,7 +1,7 @@
 # expense-operation Specification
 
 ## Purpose
-TBD - created by archiving change gastos-forma-pago. Update Purpose after archive.
+Comportamiento operativo propio del gasto que no encaja en ninguna capability compartida: imputación opcional de una forma de pago del catálogo de la cuenta (persistencia de `payment_method_id` y de `branch_id`), descuento de caja en efectivo por opt-in explícito con las mismas tres condiciones verificadas en servidor que rigen para venta y compra, egreso bancario incondicional vía el helper compartido de operaciones, e inmutabilidad del gasto con dinero posteado. Nace de `gastos-forma-pago` (2026-08-30): el gasto era el único documento operativo que no decía con qué se pagó, y su alta y edición descartaban en silencio la sucursal y el centro de costo.
 ## Requirements
 ### Requirement: El gasto imputa una forma de pago del catálogo de su cuenta
 

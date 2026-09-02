@@ -1,7 +1,7 @@
 # party-account-charge Specification
 
 ## Purpose
-TBD - created by archiving change pagos-cableados-restantes. Update Purpose after archive.
+Helper transaccional único (`_pay_register_party_charge`) que concentra el cargo de una operación a crédito en la cuenta corriente de un tercero —cliente o proveedor— y su contraparte de reversión, para que ningún camino de alta o de borrado reimplemente la secuencia de resolver/crear la cuenta, registrar el movimiento y emitir el evento de dominio. Nace de `pagos-cableados-restantes` (2026-08-20) para que el formulario de venta a crédito y el mostrador produjeran el mismo cargo; extendido por `compras-proveedor-cuenta-corriente` para la compra a crédito. Es una función estrictamente interna: recibe la cuenta como parámetro (contrato deliberado, sus llamadores ya la resolvieron) y por eso no es ejecutable desde los roles de aplicación.
 ## Requirements
 ### Requirement: Autoría única del cargo en cuenta corriente
 

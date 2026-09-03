@@ -46,7 +46,7 @@
 - [ ] 5.3 RED: tests de lo nuevo — categoría desconocida se crea e imputa; categoría existente se reutiliza case-insensitive sin duplicar; fila sin categoría va a la default; fila con error fatal no crea su categoría; superar el tope rechaza la importación sin crear nada.
 - [ ] 5.4 GREEN: reescribir la RPC partiendo del cuerpo vivo de 1.1. Dos ejes y sólo dos: (a) `user_id` → `account_id` en las tres resoluciones (SKU existente, `sku_parent`, `parent_name`); (b) resolución/creación de categoría + seteo de `category_id`. Ni una línea del resto.
 - [ ] 5.5 GREEN: la firma `(p_rows jsonb, p_user_id uuid)` **no cambia** → `CREATE OR REPLACE` alcanza y no hay riesgo de overload `42725`. Re-declarar las ACLs exactas de 1.3 en el mismo archivo (el gate de ACLs del proyecto las verifica).
-- [ ] 5.6 GREEN: implementar el tope de categorías nuevas por importación (OQ-1, propuesta 50) como constante única, con error explicativo que sugiera revisar el mapeo de la columna.
+- [ ] 5.6 GREEN: implementar el tope de categorías nuevas por importación (**50**, confirmado por el PO en OQ-1) como constante única, con error explicativo que sugiera revisar el mapeo de la columna.
 - [ ] 5.7 TRIANGULATE: re-correr la matriz de 5.2 completa — la jerarquía y el stock deben quedar idénticos al baseline.
 - [ ] 5.8 REFACTOR: normalización del nombre de categoría (`trim` + colapso de espacios internos) en **un** helper, usado por el mismo camino que usa el resto del sistema.
 
@@ -85,6 +85,14 @@
 - [ ] 9.8 TRIANGULATE: alta sin SKU; alta con SKU; SKU sólo espacios → `NULL`; SKU duplicado → 409; borrar SKU; categoría de otra cuenta → rechazada; variante que contradice al padre → gana el padre.
 - [ ] 9.9 Verificar coverage ≥87% (umbral de CI) en los módulos tocados.
 
+### Recategorización en lote (D14)
+
+- [ ] 9.10 RED: tests del repository de lote — `UPDATE … WHERE id = ANY($1) AND account_id = $2 AND category_id IS DISTINCT FROM $3` actualiza sólo lo propio; ids ajenos quedan fuera sin error; repetir no reescribe filas.
+- [ ] 9.11 RED: tests de service — categoría destino inexistente / de otra cuenta / borrada / inactiva → **404** RFC 7807 con mensaje que no revela si existe en otra cuenta; ningún producto modificado.
+- [ ] 9.12 GREEN: implementar el método de lote en `ProductRepository` **como un solo `UPDATE`** (atómico por definición) con el filtro explícito por `account_id` — es el guard de tenencia, no la RLS sola (regla dura del proyecto). Expandir cada padre a sus variantes y normalizar un id de variante suelto a su padre, en la misma sentencia.
+- [ ] 9.13 GREEN: endpoint `PATCH /products/bulk-category` (schema Pydantic v2, tope de 500 ids por request) que devuelve `solicitados` y `actualizados`.
+- [ ] 9.14 TRIANGULATE: lote mixto propio/ajeno; padre con variantes propaga a todo el grupo; variante suelta recategoriza el grupo; idempotencia; tope excedido rechazado; el espejo `products.category` queda correcto en todas las filas tocadas (lo garantiza el trigger de 3.3 — verificarlo, no asumirlo).
+
 ## 10. Frontend — hook, selector y gestor del catálogo
 
 - [ ] 10.1 RED: tests de `use-product-categories` (React Query) — listado, `includeInactive`, mutaciones e invalidación de la query tras crear/renombrar/desactivar.
@@ -92,8 +100,9 @@
 - [ ] 10.3 RED: tests de `ProductCategorySelect` — ofrece sólo activas ordenadas por `sort_order`; alta inline crea, selecciona y conserva el formulario; cuenta sin categorías activas advierte y ofrece crear, sin bloquear.
 - [ ] 10.4 GREEN: `components/product-categories/ProductCategorySelect.tsx`. El alta inline intercambia el `<Select>` por un `<Input>` **en el lugar** (D9) — NO abre un diálogo anidado sobre el diálogo del formulario, que es el bug raíz que `qa-integral-modulos` (G1) tuvo que arreglar.
 - [ ] 10.5 RED: tests de `ProductCategoryManager` — lectura para todo miembro, acciones sólo para `isWriter`, desactivar, renombrar, reordenar.
-- [ ] 10.6 GREEN: `components/product-categories/ProductCategoryManager.tsx`, molde de `PaymentMethodManager` (incluidos los objetivos táctiles de 44px en móvil). Autónomo respecto de la página que lo monta, para que montarlo en `/configuracion` sea una línea si el PO decide lo contrario en OQ-2.
-- [ ] 10.7 GREEN: montar el gestor en `/productos` mediante acción propia en la cabecera que abre un `Dialog` (D8 — ruta y entrada de menú ya existentes; no se agrega una 10ª pestaña a `/configuracion`).
+- [ ] 10.6 GREEN: `components/product-categories/ProductCategoryManager.tsx`, molde de `PaymentMethodManager` (incluidos los objetivos táctiles de 44px en móvil).
+- [ ] 10.7 GREEN: montar el gestor como **décima pestaña "Categorías" de `/configuracion`** (D8, sign-off del PO en OQ-2), junto a Centros de costo y Formas de pago. La `TabsList` pasa de `lg:grid-cols-9` a `lg:grid-cols-10`; los breakpoints menores (`grid-cols-3 sm:grid-cols-5`) no cambian.
+- [ ] 10.8 Verificar en móvil y tablet que la décima pestaña no rompe el envoltorio de la `TabsList` — es la deuda que `qa-integral-modulos` arregló y sobre la que sigue abierto `tablet-filtros-cta`. Si se degrada, corregirlo acá y no dejarlo para después.
 
 ## 11. Frontend — formulario de producto
 
@@ -117,45 +126,62 @@
 - [ ] 13.3 GREEN: sumar el SKU a los predicados de búsqueda (que hoy cubren nombre y categoría) y mostrarlo cuando existe. No agregar una columna nueva a la tabla si desbalancea el layout responsive — `responsive-shell` es una capability viva y el residuo `tablet-filtros-cta` sigue abierto.
 - [ ] 13.4 TRIANGULATE: búsqueda que matchea sólo por SKU en una variante hija; búsqueda sin resultados; producto sin SKU.
 
-## 14. Frontend — pipeline del importador
+## 14. Frontend — recategorización en lote en `/productos`
 
-- [ ] 14.1 SAFETY NET: baseline de los tests de `lib/import/*`.
-- [ ] 14.2 RED: tests de `validator.ts` — una categoría desconocida **ya no** se reescribe a "Otros" con warning; se marca como "a crear"; una categoría existente se resuelve case-insensitive; una fila con error fatal no aporta categoría a crear.
-- [ ] 14.3 GREEN: retirar `VALID_CATEGORIES` de `lib/import/types.ts` y reescribir el bloque de categoría de `validator.ts:127-131`. El validador pasa a recibir el catálogo vivo de la cuenta en vez de un `Set` horneado.
-- [ ] 14.4 RED: test — dos filas del mismo archivo con el mismo SKU producen una advertencia (hoy la segunda pisa a la primera en silencio).
-- [ ] 14.5 GREEN: implementar esa advertencia en la validación.
-- [ ] 14.6 GREEN: exponer desde el validador el resumen de categorías a crear (nombre + cuántas filas la usan) que consume el paso 2.
-- [ ] 14.7 TRIANGULATE: archivo sin columna Categoría; archivo con categorías mezcladas nuevas y existentes; archivo que supera el tope; archivo con "ropa"/"Ropa "/"ROPA".
+> Alcance sumado por el PO el 2026-09-03 (D14). Es la herramienta que hace accionable el hallazgo de los 2.951 productos en "Otros".
 
-## 15. Frontend — diálogo de importación
+- [ ] 14.1 SAFETY NET: baseline de los tests de `product-catalog.tsx` (compartido con el grupo 13 — anotarlo una sola vez si se hacen seguidos).
+- [ ] 14.2 RED: tests de selección — seleccionar y deseleccionar productos; seleccionar todo lo filtrado; la selección se limpia al cambiar la búsqueda; el contador refleja lo seleccionado.
+- [ ] 14.3 GREEN: selección múltiple reutilizando el patrón que ya existe en el repo — `useState<Set<string>>` + `Checkbox` + helper `toggle`, tal como `ReconciliationBoard.tsx`; `product-catalog.tsx` ya usa `Set<string>` para `expandedIds`, así que no se introduce un idioma nuevo. `stopPropagation` en la casilla para no duplicar el toggle con el `onClick` de la fila (mismo detalle que resolvió el precedente).
+- [ ] 14.4 GREEN: las casillas se ofrecen sobre **padres y productos simples**; las variantes no se seleccionan por separado, porque su categoría es derivada (D11/D14). Verificar que funciona en las **dos** presentaciones del listado (tarjetas y tabla).
+- [ ] 14.5 RED: tests de la barra de acción — aparece sólo con selección activa; declara conteo y categoría destino; pide confirmación; al aplicar limpia la selección e invalida la query de productos.
+- [ ] 14.6 GREEN: barra de acción con el conteo, `ProductCategorySelect` como selector de destino (**el mismo componente**, nunca una lista paralela) y confirmación explícita antes de aplicar.
+- [ ] 14.7 GREEN: trocear la selección en requests de hasta 500 ids y agregar los resultados, de forma transparente para el usuario (D14).
+- [ ] 14.8 GREEN: informar el resultado real — si `actualizados < solicitados`, decirlo en vez de afirmar un éxito total.
+- [ ] 14.9 TRIANGULATE: recategorizar un grupo padre+variantes; recategorizar productos simples; selección mayor al tope (troceo); aplicar la categoría que los productos ya tienen (0 actualizados, sin error); cancelar la confirmación no cambia nada.
+- [ ] 14.10 Verificar accesibilidad de la selección: las casillas tienen nombre accesible, la barra de acción es alcanzable por teclado y anuncia el conteo.
 
-- [ ] 15.1 RED: tests de `product-import-dialog.tsx` — el paso 2 lista las categorías a crear antes de confirmar; superar el tope muestra el error explicativo; el template se genera con las categorías de la cuenta.
-- [ ] 15.2 GREEN: `TEMPLATE_CSV` deja de ser constante de módulo y pasa a generarse desde el catálogo de la cuenta, con las 7 legacy como respaldo si estuviera vacío (D10). Corregir de paso el espacio a la izquierda del SKU en la fila `Padre` (`;;;;;;; ZAP-NIKE`).
-- [ ] 15.3 GREEN: actualizar el panel "Columnas del CSV" — `Categoría`: opcional, se crea si no existe; `SKU`: opcional, y si coincide con uno existente **actualiza** ese producto (hoy dice sólo "opcional", que es lo que hace creer que un SKU repetido duplica).
-- [ ] 15.4 GREEN: bloque de anuncio en el paso 2 con las categorías a crear y su conteo de filas, con tokens semánticos y contraste AA.
-- [ ] 15.5 TRIANGULATE: import sin categorías nuevas → sin bloque de anuncio; con categorías nuevas → listadas; superando el tope → bloqueado con explicación.
+## 15. Frontend — pipeline del importador
 
-## 16. Verificación integral
+- [ ] 15.1 SAFETY NET: baseline de los tests de `lib/import/*`.
+- [ ] 15.2 RED: tests de `validator.ts` — una categoría desconocida **ya no** se reescribe a "Otros" con warning; se marca como "a crear"; una categoría existente se resuelve case-insensitive; una fila con error fatal no aporta categoría a crear.
+- [ ] 15.3 GREEN: retirar `VALID_CATEGORIES` de `lib/import/types.ts` y reescribir el bloque de categoría de `validator.ts:127-131`. El validador pasa a recibir el catálogo vivo de la cuenta en vez de un `Set` horneado.
+- [ ] 15.4 RED: test — dos filas del mismo archivo con el mismo SKU producen una advertencia (hoy la segunda pisa a la primera en silencio).
+- [ ] 15.5 GREEN: implementar esa advertencia en la validación.
+- [ ] 15.6 GREEN: exponer desde el validador el resumen de categorías a crear (nombre + cuántas filas la usan) que consume el paso 2.
+- [ ] 15.7 TRIANGULATE: archivo sin columna Categoría; archivo con categorías mezcladas nuevas y existentes; archivo que supera el tope; archivo con "ropa"/"Ropa "/"ROPA".
 
-- [ ] 16.1 Backend completo en verde y coverage ≥87%; anotar el delta contra el baseline de 9.1.
-- [ ] 16.2 Frontend completo en verde; anotar el delta contra los baselines de 11.1/12.1/13.1/14.1. Aislar cualquier flaky conocido antes de atribuirle el fallo a este change (`AdminSegurosPage.test.tsx` es flaky-preexistente bajo carga).
-- [ ] 16.3 `tsc` sin errores nuevos. **Cero `any`** en el código agregado.
-- [ ] 16.4 Migración limpia contra `supabase db reset` local y los gates de `KPI_Validation.yml` en el orden real del workflow.
-- [ ] 16.5 Pasada visual en las **4 combinaciones** (escritorio/móvil × claro/oscuro) sobre gestor, selector con alta inline, formulario de producto con SKU y paso 2 del importador. Verificar que ningún desplegable se sale del shard de scroll de su diálogo (regresión G1) y que no hay desborde horizontal (`responsive-shell`).
-- [ ] 16.6 Prueba manual de punta a punta: crear categoría propia → dar de alta un producto con ella y con SKU → importar un CSV con una categoría nueva y un SKU existente → verificar que la categoría se creó, el producto se actualizó y ninguno perdió su categoría.
+## 16. Frontend — diálogo de importación
 
-## 17. Verificación post-merge en producción
+- [ ] 16.1 RED: tests de `product-import-dialog.tsx` — el paso 2 lista las categorías a crear antes de confirmar; superar el tope muestra el error explicativo; el template se genera con las categorías de la cuenta.
+- [ ] 16.2 GREEN: `TEMPLATE_CSV` deja de ser constante de módulo y pasa a generarse desde el catálogo de la cuenta, con las 7 legacy como respaldo si estuviera vacío (D10). Corregir de paso el espacio a la izquierda del SKU en la fila `Padre` (`;;;;;;; ZAP-NIKE`).
+- [ ] 16.3 GREEN: actualizar el panel "Columnas del CSV" — `Categoría`: opcional, se crea si no existe; `SKU`: opcional, y si coincide con uno existente **actualiza** ese producto (hoy dice sólo "opcional", que es lo que hace creer que un SKU repetido duplica).
+- [ ] 16.4 GREEN: bloque de anuncio en el paso 2 con las categorías a crear y su conteo de filas, con tokens semánticos y contraste AA.
+- [ ] 16.5 TRIANGULATE: import sin categorías nuevas → sin bloque de anuncio; con categorías nuevas → listadas; superando el tope → bloqueado con explicación.
 
-- [ ] 17.1 `MAX(version)` = la migración de este change, y el conteo total de migraciones esperado.
-- [ ] 17.2 `product_categories` por cuenta = 7 en todas las cuentas existentes.
-- [ ] 17.3 `COUNT(*) FROM products WHERE category_id IS NULL` = **0**, y cero productos cuya `category` (TEXT) difiera del `name` de su categoría.
-- [ ] 17.4 Índices vivos de `products` sobre `sku`: sólo el alcanzado por `account_id`; el de `user_id` ausente.
-- [ ] 17.5 ACLs vivas de `rpc_bulk_upsert_products` idénticas a las de 1.3, sin `EXECUTE` para `anon`.
-- [ ] 17.6 Humo real del PO: crear una categoría propia, dar de alta un producto con SKU, y descargar el template para confirmar que trae sus categorías.
+## 17. Verificación integral
 
-## 18. Cierre documental
+- [ ] 17.1 Backend completo en verde y coverage ≥87%; anotar el delta contra el baseline de 9.1.
+- [ ] 17.2 Frontend completo en verde; anotar el delta contra los baselines de 11.1/12.1/13.1/14.1/15.1. Aislar cualquier flaky conocido antes de atribuirle el fallo a este change (`AdminSegurosPage.test.tsx` es flaky-preexistente bajo carga).
+- [ ] 17.3 `tsc` sin errores nuevos. **Cero `any`** en el código agregado.
+- [ ] 17.4 Migración limpia contra `supabase db reset` local y los gates de `KPI_Validation.yml` en el orden real del workflow.
+- [ ] 17.5 Pasada visual en las **4 combinaciones** (escritorio/móvil × claro/oscuro) sobre: pestaña Categorías de `/configuracion`, **la `TabsList` completa de `/configuracion` con sus 10 pestañas** (riesgo declarado en D8, aunque no sea pantalla nueva), selector con alta rápida inline, formulario de producto con SKU, selección múltiple y barra de acción en lote, y paso 2 del importador. Verificar que ningún desplegable se sale del shard de scroll de su diálogo (regresión G1) y que no hay desborde horizontal (`responsive-shell`).
+- [ ] 17.6 Prueba manual de punta a punta: crear categoría propia → dar de alta un producto con ella y con SKU → **seleccionar varios productos de "Otros" y recategorizarlos en lote** → importar un CSV con una categoría nueva y un SKU existente → verificar que la categoría se creó, los productos se movieron, el producto se actualizó y ninguno perdió su categoría.
 
-- [ ] 18.1 Registrar en `CHANGES.md` la entrada del change con las decisiones, las mediciones de prod y los candidatos que deja.
-- [ ] 18.2 Actualizar el puntero "próximo change" del `CLAUDE.md` y correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo PR** (gate `Docs Sync`). Nunca editar `AGENTS.md` a mano.
-- [ ] 18.3 Anotar los candidatos que este change deja abiertos: retiro de `products.category` TEXT (OQ-3), `idx_products_barcode_unique` con el mismo residuo `user_id` (4.5), reclasificación masiva de los 2.951 productos en "Otros" (OQ-5), y la migración del importador a FastAPI (D7).
-- [ ] 18.4 Confirmar que `estadisticas-ventas` (propose en paralelo) puede apoyarse en `products.category_id` como identidad estable de agrupación.
+## 18. Verificación post-merge en producción
+
+- [ ] 18.1 `MAX(version)` = la migración de este change, y el conteo total de migraciones esperado.
+- [ ] 18.2 `product_categories` por cuenta = 7 en todas las cuentas existentes.
+- [ ] 18.3 `COUNT(*) FROM products WHERE category_id IS NULL` = **0**, y cero productos cuya `category` (TEXT) difiera del `name` de su categoría.
+- [ ] 18.4 Índices vivos de `products` sobre `sku`: sólo el alcanzado por `account_id`; el de `user_id` ausente.
+- [ ] 18.5 ACLs vivas de `rpc_bulk_upsert_products` idénticas a las de 1.3, sin `EXECUTE` para `anon`.
+- [ ] 18.6 Humo real del PO: crear una categoría propia desde `/configuracion`, dar de alta un producto con SKU, **recategorizar en lote un puñado de productos de "Otros"**, y descargar el template para confirmar que trae sus categorías.
+- [ ] 18.7 Medir de nuevo el reparto por categoría en prod y anotarlo junto al baseline del 2026-09-03 (2.951 en "Otros" sobre 5.084). Es el número que dice si la herramienta se está usando; sin la re-medición no hay forma de saberlo.
+
+## 19. Cierre documental
+
+- [ ] 19.1 Registrar en `CHANGES.md` la entrada del change con las decisiones, las mediciones de prod y los candidatos que deja.
+- [ ] 19.2 Actualizar el puntero "próximo change" del `CLAUDE.md` y correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo PR** (gate `Docs Sync`). Nunca editar `AGENTS.md` a mano.
+- [ ] 19.3 Anotar los candidatos que este change deja abiertos: retiro de `products.category` TEXT (OQ-3), `idx_products_barcode_unique` con el mismo residuo `user_id` (4.5), y la migración del importador a FastAPI (D7). **OQ-5 ya no es candidato**: la herramienta de recategorización entró en alcance (D14); lo que sigue fuera es que el sistema reclasifique por su cuenta, que es decisión de negocio de cada tenant.
+- [ ] 19.4 Registrar en `CHANGES.md` las cinco OQs con su resolución por sign-off del PO del 2026-09-03, incluida **OQ-2 resuelta en contra de la recomendación del design** (el gestor va a `/configuracion`, no a `/productos`) — para que la próxima sesión no reabra la discusión.
+- [ ] 19.5 Confirmar que `estadisticas-ventas` (propose en paralelo) puede apoyarse en `products.category_id` como identidad estable de agrupación.

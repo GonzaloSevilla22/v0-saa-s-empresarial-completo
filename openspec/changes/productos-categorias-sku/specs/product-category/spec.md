@@ -160,11 +160,17 @@ El sistema SHALL tratar la baja de una categoría como desactivación (`is_activ
 
 ### Requirement: Superficies del catálogo de categorías
 
-El sistema SHALL exponer un gestor del catálogo de categorías alcanzable desde la pantalla de productos, sin requerir navegación nueva ni una entrada de menú adicional, y SHALL ofrecer el catálogo de la cuenta —ordenado por `sort_order`, sólo las activas— a través de un **mismo componente selector** en toda superficie que pida elegir una categoría de producto. Ninguna superficie SHALL declarar una lista de opciones propia.
+El sistema SHALL exponer el gestor del catálogo de categorías como una pestaña propia de la pantalla de configuración, junto a los demás catálogos de la cuenta (centros de costo y formas de pago), de modo que todos los catálogos se gestionen en un único lugar. El sistema SHALL ofrecer el catálogo de la cuenta —ordenado por `sort_order`, sólo las activas— a través de un **mismo componente selector** en toda superficie que pida elegir una categoría de producto. Ninguna superficie SHALL declarar una lista de opciones propia.
 
 Toda superficie que ofrezca el selector SHALL permitir **crear una categoría nueva en el lugar**, sin abandonar el formulario en curso ni perder lo ya cargado, y SHALL dejar la categoría recién creada seleccionada. La creación inline NO SHALL abrir un diálogo anidado sobre el formulario que ya está en un diálogo.
 
 Las superficies SHALL usar los tokens semánticos y los componentes base del design system, y SHALL ser legibles y operables en escritorio y en móvil, en tema claro y en tema oscuro.
+
+#### Scenario: El gestor vive junto a los demás catálogos de la cuenta
+
+- **WHEN** un usuario abre la pantalla de configuración
+- **THEN** encuentra la gestión de categorías de producto como una pestaña propia, junto a las de centros de costo y formas de pago
+- **AND** no necesita buscarla en otra pantalla
 
 #### Scenario: El formulario de producto ofrece el catálogo de la cuenta
 
@@ -255,3 +261,76 @@ Una fila sin categoría informada SHALL imputarse a la categoría por defecto de
 - **WHEN** un usuario descarga el template de ejemplo de la carga masiva
 - **THEN** las filas de ejemplo usan categorías reales de su cuenta
 - **AND** la referencia de columnas declara que una categoría inexistente se crea y que un SKU coincidente actualiza el producto existente
+
+### Requirement: Recategorización en lote de productos
+
+El sistema SHALL permitir asignar una categoría a **varios productos de una vez** desde el listado de productos, mediante selección múltiple y una acción de cambio de categoría. La operación SHALL aplicarse de forma atómica y SHALL ser idempotente: repetirla con la misma categoría destino SHALL dejar el mismo estado final sin reescribir filas que ya la tienen.
+
+La categoría destino SHALL validarse contra la cuenta del usuario y contra su estado vivo y activo **antes** de aplicar el cambio; una categoría inexistente, de otra cuenta, borrada o inactiva SHALL rechazarse con el error de recurso no encontrado, con un mensaje que no revele si el identificador existe en otra cuenta. Los identificadores de producto que no pertenezcan a la cuenta NO SHALL producir error ni ser modificados: SHALL quedar simplemente fuera del alcance de la escritura, de modo que la respuesta no revele su existencia.
+
+La operación SHALL informar cuántos productos se solicitaron y cuántos se actualizaron efectivamente, para que la interfaz pueda advertir que algo no se aplicó sin que el servidor explique por qué.
+
+Recategorizar un producto padre SHALL propagar la categoría a **todas sus variantes** en la misma operación, porque el invariante de herencia padre→variante no admite un estado intermedio en el que difieran. Un identificador de variante recibido de forma suelta SHALL resolverse a su producto padre y recategorizar el grupo completo, por la misma razón.
+
+La escritura SHALL filtrar explícitamente por la cuenta del usuario y NO SHALL depender únicamente de la RLS como control de tenencia.
+
+#### Scenario: Recategorizar varios productos a la vez
+
+- **GIVEN** un usuario con tres productos en "Otros"
+- **WHEN** los selecciona en el listado y aplica la categoría "Ferretería"
+- **THEN** los tres quedan imputados a "Ferretería"
+- **AND** la operación informa tres solicitados y tres actualizados
+
+#### Scenario: La operación es idempotente
+
+- **GIVEN** productos que ya están imputados a "Ferretería"
+- **WHEN** se vuelve a aplicar "Ferretería" sobre la misma selección
+- **THEN** el estado final es el mismo
+- **AND** la operación informa que no se actualizó ninguna fila
+
+#### Scenario: Recategorizar un padre propaga a sus variantes
+
+- **GIVEN** un producto padre con tres variantes, todos en "Ropa"
+- **WHEN** se recategoriza el padre a "Indumentaria"
+- **THEN** el padre y sus tres variantes quedan en "Indumentaria"
+- **AND** no queda ninguna variante con una categoría distinta a la de su padre
+
+#### Scenario: Una variante suelta recategoriza su grupo
+
+- **WHEN** la operación recibe el identificador de una variante sin el de su padre
+- **THEN** se recategoriza el grupo completo, padre incluido
+- **AND** no se produce un estado en el que la variante contradiga al padre
+
+#### Scenario: Categoría destino de otra cuenta es rechazada
+
+- **WHEN** se solicita recategorizar informando una categoría que pertenece a otra cuenta
+- **THEN** la operación falla con el error de recurso no encontrado
+- **AND** ningún producto es modificado
+
+#### Scenario: Categoría destino inactiva es rechazada
+
+- **WHEN** se solicita recategorizar hacia una categoría desactivada
+- **THEN** la operación es rechazada y ningún producto es modificado
+
+#### Scenario: Productos de otra cuenta quedan fuera del alcance
+
+- **GIVEN** una solicitud que mezcla identificadores de productos propios y de otra cuenta
+- **WHEN** se aplica la recategorización
+- **THEN** sólo se actualizan los productos de la cuenta del usuario
+- **AND** los ajenos no se modifican ni provocan un error que revele su existencia
+
+#### Scenario: La acción declara el alcance antes de aplicar
+
+- **WHEN** el usuario tiene productos seleccionados y elige una categoría destino
+- **THEN** la pantalla indica cuántos productos va a recategorizar y hacia qué categoría, y pide confirmación antes de aplicar
+
+#### Scenario: La selección no sobrevive a un cambio de contexto
+
+- **GIVEN** un usuario con productos seleccionados
+- **WHEN** cambia el criterio de búsqueda del listado
+- **THEN** la selección se limpia, de modo que no se aplique sobre un conjunto que ya no está viendo
+
+#### Scenario: La acción en lote reutiliza el selector de categorías
+
+- **WHEN** el usuario elige la categoría destino de la acción en lote
+- **THEN** lo hace con el mismo componente selector que el resto de las superficies, alimentado por el catálogo de su cuenta

@@ -217,6 +217,10 @@ export function useSales() {
       // crédito postea un cargo en customerAccounts — sin esto la cuenta
       // corriente del cliente queda stale (staleTime 30s en useCustomerAccount).
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 
@@ -234,6 +238,10 @@ export function useSales() {
       // fix-supplier-account-ui-post-delete (bug 1, lado ventas): ver
       // comentario arriba.
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 
@@ -247,6 +255,10 @@ export function useSales() {
       // venta a crédito revierte el cargo — sin esto la UI seguía mostrando
       // el saldo/movimiento ya reversado en DB.
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 
@@ -259,6 +271,10 @@ export function useSales() {
       // fix-supplier-account-ui-post-delete (bug 1, lado ventas): ver
       // comentario arriba.
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 
@@ -328,6 +344,10 @@ export function useSales() {
       // operación de venta puede reimputar/desimputar el cliente o cambiar
       // montos que ya postearon cargo — ver comentario arriba.
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 

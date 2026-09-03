@@ -135,3 +135,41 @@ async def reverse_payment_received(
         return await repo.reverse_payment_received(payment_id, payload.reason)
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc
+
+
+async def list_receivables(
+    repo: CustomerAccountRepository,
+    auth: dict,
+    account_id: str,
+    *,
+    page: int = 0,
+    size: int = 25,
+    sort: str = "balance",
+    sort_dir: str = "desc",
+) -> dict:
+    """cobranzas-panel (task 3.5): listado paginado de deudores.
+
+    Sin gate de plan (D10): la cuenta corriente está disponible en todos los
+    planes, gatear su único lector agregado dejaría al free registrando deuda
+    que no puede leer. Sin require_role: es lectura para todo miembro; la
+    autorización de tenant es el P0401 del propio RPC (D1)."""
+    try:
+        return await repo.list_receivables_page(
+            account_id, page=page, size=size, sort=sort, sort_dir=sort_dir
+        )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+
+async def get_receivables_summary(
+    repo: CustomerAccountRepository,
+    auth: dict,
+    account_id: str,
+) -> dict:
+    """cobranzas-panel (task 3.5, D2): total por cobrar + cantidad de
+    deudores, agregado sobre el MISMO RPC del listado. Sin gate de plan
+    (D10) y sin require_role — mismos criterios que list_receivables."""
+    try:
+        return await repo.get_receivables_summary(account_id)
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc

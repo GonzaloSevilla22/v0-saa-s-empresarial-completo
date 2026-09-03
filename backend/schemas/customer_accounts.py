@@ -95,6 +95,34 @@ class AccountMovementOut(BaseModel):
 AccountMovementPageOut = PageOut[AccountMovementOut]
 
 
+class ReceivableRowOut(BaseModel):
+    """cobranzas-panel (task 3.4): fila del read-model de cuentas por cobrar.
+
+    Las antigüedades son `int | None` — NULL cuando no existe ningún
+    movimiento del tipo (OQ-4: deuda nacida de adjustment), y la superficie
+    lo muestra como ausencia, nunca como 0."""
+
+    client_id:               uuid.UUID
+    client_name:             str
+    balance:                 Decimal
+    days_since_last_charge:  int | None = None
+    days_since_last_payment: int | None = None
+    last_payment_date:       datetime.date | None = None
+
+
+# Envelope estándar {items,total,page,pages} (api-standards §2).
+ReceivablePageOut = PageOut[ReceivableRowOut]
+
+
+class ReceivablesSummaryOut(BaseModel):
+    """cobranzas-panel (D2): total por cobrar + cantidad de deudores,
+    derivados del MISMO RPC que el listado. El importe NO viaja en el
+    envelope de paginación (cuyo `total` es cantidad de filas)."""
+
+    total_receivable: Decimal
+    debtor_count:     int
+
+
 class CreateCustomerAccountOut(BaseModel):
     customer_account_id: uuid.UUID
     client_id:           uuid.UUID

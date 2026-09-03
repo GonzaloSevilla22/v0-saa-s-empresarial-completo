@@ -912,3 +912,26 @@ export interface Notification {
   createdAt: string
   readAt: string | null
 }
+
+// ── cobranzas-panel: read-model agregado de cuentas por cobrar ───────────────
+
+/**
+ * Fila del panel de deudores (/cobranzas). Las antigüedades son `null`
+ * cuando no existe ningún movimiento del tipo (OQ-4: deuda nacida de un
+ * adjustment) — la superficie muestra "—", nunca 0.
+ */
+export interface ReceivableRow {
+  clientId: string
+  clientName: string
+  balance: number
+  daysSinceLastCharge: number | null
+  daysSinceLastPayment: number | null
+  /** Fecha ISO (día calendario argentino) del último cobro, o null. */
+  lastPaymentDate: string | null
+}
+
+/** Resumen agregado (D2): total por cobrar + cantidad de deudores. */
+export interface ReceivablesSummary {
+  totalReceivable: number
+  debtorCount: number
+}

@@ -12,7 +12,8 @@ import { SalesChart } from "@/components/dashboard/sales-chart"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
 import { RecentActivity } from "@/components/dashboard/recent-activity"
 import { AiAlerts } from "@/components/dashboard/ai-alerts"
-import { DollarSign, TrendingDown, TrendingUp, AlertTriangle } from "lucide-react"
+import { DollarSign, TrendingDown, TrendingUp, AlertTriangle, HandCoins } from "lucide-react"
+import { useReceivablesSummary } from "@/hooks/data/use-receivables"
 import { aiInsightService } from "@/lib/services/aiInsightService"
 import { createClient } from "@/lib/supabase/client"
 import { TrialBanner } from "@/components/dashboard/TrialBanner"
@@ -50,6 +51,11 @@ export default function DashboardPage() {
   // recalcula el predicado de criticidad sobre `products` en el cliente.
   // branchId = null ⇒ agregado consciente de sucursal (D2).
   const { data: criticalStockCount, isLoading: loadingCriticalStock } = useCriticalStock(branchId)
+  // cobranzas-panel (D6/OQ-3): total por cobrar de la CUENTA — un stock al
+  // instante, no un flujo del período. No recibe branchId: customer_accounts
+  // no referencia sucursal, y repartir el saldo entre las ventas que lo
+  // formaron es el aging de la Etapa B.
+  const { data: receivablesSummary, isLoading: loadingReceivables } = useReceivablesSummary()
   // Período del Bloque Resumen KPI (?period=YYYY-MM, mes en curso por defecto).
   const periodDate = parseMonthKey(searchParams.get("period"))
 
@@ -164,7 +170,10 @@ export default function DashboardPage() {
           existente (Consejos IA / AiSummaryCard quedan más abajo, sin moverse). */}
       <KpiSummaryBlock periodDate={periodDate} branchId={branchId} />
 
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      {/* cobranzas-panel (D6): 5 tarjetas — espejo del breakpoint del bloque
+          mensual (md:grid-cols-3 xl:grid-cols-5): 5 tarjetas a 1024px quedan
+          ilegibles. */}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <KpiCard
           title="Ventas hoy"
           value={loadingKpis ? "—" : `$${todaySales.toLocaleString()}`}
@@ -186,6 +195,19 @@ export default function DashboardPage() {
           value={loadingCriticalStock ? "—" : criticalStockCount.toString()}
           icon={AlertTriangle}
           iconColor="text-warning"
+        />
+        {/* cobranzas-panel: stock de la cuenta (no respeta BranchFilter, OQ-3)
+            enlazado al panel de deudores (D7). */}
+        <KpiCard
+          title="Por cobrar"
+          value={
+            loadingReceivables
+              ? "—"
+              : `$${(receivablesSummary?.totalReceivable ?? 0).toLocaleString("es-AR")}`
+          }
+          icon={HandCoins}
+          iconColor="text-warning"
+          href="/cobranzas"
         />
       </div>
 

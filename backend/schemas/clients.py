@@ -76,6 +76,10 @@ class ClientActivityOut(BaseModel):
     last_purchase_date: datetime.date | None = None
     days_since_last_purchase: int | None = None
     activity_status: ClientActivityStatus
+    # cobranzas-panel (D9): saldo materializado de la cuenta corriente.
+    # Default 0 y NUNCA None — "sin cuenta corriente" y "cuenta en cero" son
+    # lo mismo para el lector de la lista.
+    current_balance: Decimal = Decimal("0")
 
 
 class ClientPurchaseOut(BaseModel):

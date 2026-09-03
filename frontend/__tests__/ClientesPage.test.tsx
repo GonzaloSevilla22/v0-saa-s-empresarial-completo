@@ -51,6 +51,7 @@ const CLIENTS = [
     lastPurchaseDate: "2026-08-01",
     daysSinceLastPurchase: 13,
     activityStatus: "frecuente" as const,
+    currentBalance: 12000,
   },
   {
     id: "client-2",
@@ -63,6 +64,7 @@ const CLIENTS = [
     lastPurchaseDate: null,
     daysSinceLastPurchase: null,
     activityStatus: "sin_compras" as const,
+    currentBalance: 0,
   },
 ]
 
@@ -172,5 +174,28 @@ describe("ClientesPage (clientes-frecuentes-historial)", () => {
   it("shows last purchase and total spent aggregates in the row", () => {
     render(<ClientesPage />)
     expect(screen.getAllByText(/15\.?000/).length).toBeGreaterThan(0)
+  })
+
+
+  // ── cobranzas-panel (tasks 6.6 RED / 6.7 TRIANGULATE) ────────────────────
+  it("muestra la columna Saldo con el saldo de cuenta corriente (D9)", () => {
+    render(<ClientesPage />)
+    expect(screen.getByText("Saldo")).toBeInTheDocument()
+    expect(screen.getAllByText(/12\.000/).length).toBeGreaterThan(0)
+  })
+
+  it("cliente sin deuda muestra saldo cero y conserva el acceso a la cuenta", () => {
+    render(<ClientesPage />)
+    expect(screen.getAllByText(/\$\s?0/).length).toBeGreaterThan(0)
+    expect(screen.getAllByTestId("client-account-client-2").length).toBeGreaterThan(0)
+  })
+
+  it("el acceso a la cuenta navega a la cuenta corriente y NO al detalle (stopPropagation)", () => {
+    render(<ClientesPage />)
+    const btn = screen.getAllByTestId("client-account-client-1")[0]
+    expect(btn).toHaveAccessibleName(/Acme Corp/)
+    fireEvent.click(btn)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(pushMock).toHaveBeenCalledWith("/clientes/client-1/cuenta")
   })
 })

@@ -40,3 +40,28 @@ describe("app-sidebar navGroups — entrada Proveedores", () => {
     expect(item?.icon).toBe(Users)
   })
 })
+
+// cobranzas-panel (task 5.5, D11): la cobranza es una tarea diaria del
+// negocio — cuelga de Operaciones (junto a Caja y Banco), no de Análisis.
+describe("app-sidebar navGroups — entrada Cobranzas (cobranzas-panel)", () => {
+  const operaciones = navGroups.find((g) => g.label === "Operaciones")
+
+  it("el grupo Operaciones existe", () => {
+    expect(operaciones).toBeDefined()
+  })
+
+  it("existe una entrada 'Cobranzas' con href /cobranzas, sin gate de plan", () => {
+    const item = operaciones?.items.find((i) => i.title === "Cobranzas")
+    expect(item).toBeDefined()
+    expect(item?.href).toBe("/cobranzas")
+    expect(item?.pro).toBe(false)
+    expect(item?.proOnly).toBe(false)
+  })
+
+  it("convive con Caja y Banco dentro del mismo grupo (D11)", () => {
+    const titles = (operaciones?.items ?? []).map((i) => i.title)
+    expect(titles).toContain("Caja")
+    expect(titles).toContain("Banco")
+    expect(titles).toContain("Cobranzas")
+  })
+})

@@ -79,6 +79,35 @@ describe("useClientActivityList", () => {
     )
   })
 
+  // ── cobranzas-panel (task 6.5): saldo de cuenta corriente en la fila ─────
+  it("mapea current_balance (string) a currentBalance numérico (D9)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({
+      items: [{ ...ACTIVITY_ROW, current_balance: "12000.00" }],
+      total: 1,
+      page: 0,
+      pages: 1,
+    })
+
+    const { result } = renderHook(() => useClientActivityList(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.clients[0].currentBalance).toBe(12000)
+  })
+
+  it("sin current_balance en la respuesta degrada a 0, nunca undefined", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce({
+      items: [{ ...ACTIVITY_ROW }],
+      total: 1,
+      page: 0,
+      pages: 1,
+    })
+
+    const { result } = renderHook(() => useClientActivityList(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.clients[0].currentBalance).toBe(0)
+  })
+
   // ── 6.3 TRIANGULATE: respuesta vacía ─────────────────────────────────────
   it("returns empty array when there are no clients", async () => {
     vi.mocked(pythonClient.get).mockResolvedValueOnce({ items: [], total: 0, page: 0, pages: 0 })

@@ -13,7 +13,7 @@ Toda lógica y guards de rol viven en services/customer_accounts.py.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query, Request
@@ -31,10 +31,15 @@ from backend.schemas.customer_accounts import (
     PaymentReceivedOut,
     PaymentReversalIn,
     PaymentReversalOut,
+    ReceivablePageOut,
+    ReceivablesSummaryOut,
 )
 from backend.services import customer_accounts as customer_account_service
 
 router = APIRouter(tags=["customer-accounts"])
+# cobranzas-panel: read-model agregado de deudores — espejo estructural del
+# report_router de payment_methods (/reports/*).
+report_router = APIRouter(prefix="/reports/receivables", tags=["customer-accounts"])
 
 
 def get_customer_account_repo(
@@ -114,4 +119,44 @@ async def reverse_payment_received(
     reason_payload = payload if payload is not None else PaymentReversalIn()
     return await customer_account_service.reverse_payment_received(
         repo, auth, str(payment_id), reason_payload
+    )
+
+
+@report_router.get("", response_model=ReceivablePageOut)
+async def receivables_report(
+    page: int = Query(0, ge=0),
+    size: int = Query(25, ge=1, le=200),
+    sort: Literal[
+        "balance", "days_since_last_charge", "days_since_last_payment", "client_name"
+    ] = Query("balance"),
+    sort_dir: Literal["asc", "desc"] = Query("desc"),
+    auth: dict = Depends(get_current_user),
+    repo: CustomerAccountRepository = Depends(get_customer_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """cobranzas-panel: listado paginado de deudores (envelope estándar).
+
+    `sort`/`sort_dir` como Literal: un valor fuera del dominio devuelve 422
+    sin ejecutar ninguna consulta (D3 — mismo patrón que GET /clients/activity).
+    El orden se resuelve en el servidor sobre el conjunto completo; default
+    balance DESC. Sin gate de plan (D10).
+    """
+    return await customer_account_service.list_receivables(
+        repo, auth, str(account_id), page=page, size=size, sort=sort, sort_dir=sort_dir
+    )
+
+
+@report_router.get("/summary", response_model=ReceivablesSummaryOut)
+async def receivables_summary(
+    auth: dict = Depends(get_current_user),
+    repo: CustomerAccountRepository = Depends(get_customer_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """cobranzas-panel (D2): total por cobrar + cantidad de deudores.
+
+    Dos escalares y ninguna fila — es lo que consume el KPI del Tablero.
+    Derivado del MISMO RPC que el listado: el total cierra contra la tabla.
+    """
+    return await customer_account_service.get_receivables_summary(
+        repo, auth, str(account_id)
     )

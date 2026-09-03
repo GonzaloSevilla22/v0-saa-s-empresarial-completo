@@ -64,6 +64,12 @@ vi.mock("@/components/dashboard/TrialBanner", () => ({ TrialBanner: () => null }
 vi.mock("@/components/branches/BranchFilter", () => ({ BranchFilter: () => null }))
 vi.mock("@/components/dashboard/KpiSummaryBlock", () => ({ KpiSummaryBlock: () => null }))
 vi.mock("@/components/dashboard/PeriodFilter", () => ({ PeriodFilter: () => null }))
+// cobranzas-panel: la 5ta tarjeta consume useReceivablesSummary via
+// python-client, que lanza en import-time sin NEXT_PUBLIC_BACKEND_URL —
+// mockear el hook mantiene este test enfocado en la tarjeta de stock.
+vi.mock("@/hooks/data/use-receivables", () => ({
+  useReceivablesSummary: () => ({ data: null, isLoading: true, isError: false }),
+}))
 
 vi.mock("@/lib/services/aiInsightService", () => ({
   aiInsightService: { generateInsights: vi.fn().mockResolvedValue(undefined) },

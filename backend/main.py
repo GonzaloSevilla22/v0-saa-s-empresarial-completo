@@ -165,6 +165,8 @@ app.include_router(sales_orders.router)
 app.include_router(outbox.router)
 # C-30 v21-customer-supplier-accounts
 app.include_router(customer_accounts.router)
+# cobranzas-panel — read-model agregado de cuentas por cobrar (/reports/receivables)
+app.include_router(customer_accounts.report_router)
 app.include_router(supplier_accounts.router)
 # compras-proveedor-cuenta-corriente (task 7.5): ABM de proveedores, 3 capas
 app.include_router(suppliers.router)

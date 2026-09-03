@@ -45,6 +45,9 @@ const PAGE_NAMES: Record<string, string> = {
   "/ventas/pos":              "POS — Venta Rápida",
   "/caja":                    "Caja",
   "/banco":                   "Banco",
+  // cobranzas-panel (task 5.6): pantalla de uso diario — nombre propio en el
+  // mapa, no el derivado del último segmento.
+  "/cobranzas":               "Cobranzas",
   "/sucursales":              "Sucursales",
   "/rentabilidad":            "Rentabilidad",
   "/reportes/comparativo":    "Comparativo",

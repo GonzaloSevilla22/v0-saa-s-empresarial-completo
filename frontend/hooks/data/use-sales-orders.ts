@@ -223,6 +223,10 @@ export function useConfirmSalesOrder() {
       // customerAccounts — sin esto la cuenta corriente del cliente queda
       // stale (mismo bug que usePurchases/useSales, misma clase).
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 }
@@ -291,6 +295,10 @@ export function useQuickSale() {
       // fix-supplier-account-ui-post-delete (bug 1, camino quickSale/POS): ver
       // comentario en useConfirmSalesOrder — mismo camino de cargo a crédito.
       queryClient.invalidateQueries({ queryKey: queryKeys.customerAccounts.all() })
+      // cobranzas-panel (D8): el panel /cobranzas y el KPI del Tablero derivan
+      // del mismo saldo — toda mutación que lo altera los invalida acá, en el
+      // hook, nunca en la pantalla.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })
 }

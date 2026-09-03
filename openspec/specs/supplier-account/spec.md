@@ -28,11 +28,13 @@ El par `(account_id, supplier_id)` SHALL ser **coherente**: el `supplier_id` SHA
 - **THEN** no existe ninguna fila cuyo `suppliers.account_id` difiera del `supplier_accounts.account_id`
 
 ### Requirement: Ledger append-only de movimientos del proveedor con balance_after
-El sistema SHALL proveer un ledger `supplier_account_movements` (`id`, `supplier_account_id` FK→`supplier_accounts`, `account_id` desnormalizado para RLS, `amount numeric(15,2)`, `balance_after numeric(15,2)`, `movement_type` CHECK `purchase|payment_made|payment_made_reversal|debit_note|adjustment`, `reference_id uuid` nullable, `created_by`, `created_at`). El ledger SHALL ser **append-only** (RLS solo SELECT, sin UPDATE/DELETE). Cada movimiento SHALL persistir su `balance_after`, computado a partir del saldo materializado de la cabecera bajo `SELECT ... FOR UPDATE`, **nunca** sumando el ledger en el hot path.
+El sistema SHALL proveer un ledger `supplier_account_movements` (`id`, `supplier_account_id` FK→`supplier_accounts`, `account_id` desnormalizado para RLS, `amount numeric(15,2)`, `balance_after numeric(15,2)`, `movement_type` CHECK `purchase|payment_made|payment_made_reversal|debit_note|adjustment`, `reference_id uuid` nullable, **`due_date date` nullable**, `created_by`, `created_at`). El ledger SHALL ser **append-only** (RLS solo SELECT, sin UPDATE/DELETE). Cada movimiento SHALL persistir su `balance_after`, computado a partir del saldo materializado de la cabecera bajo `SELECT ... FOR UPDATE`, **nunca** sumando el ledger en el hot path.
 
 El tipo `payment_made_reversal` SHALL designar la anulación de un pago a proveedor y SHALL postearse con importe **positivo** (repone la deuda con el proveedor). SHALL ser un tipo propio y SHALL NOT reutilizarse `debit_note`, que designa la reversión de un **cargo** y se postea negativo, ni `adjustment`, reservado a la corrección manual.
 
-La ampliación del CHECK SHALL ser aditiva e idempotente: ninguna fila existente SHALL ser invalidada ni reescrita.
+`due_date` SHALL designar el **vencimiento del cargo** —la fecha en que corresponde pagarle al proveedor— y SHALL poblarse únicamente en los movimientos que constituyen un cargo; en los demás SHALL quedar nulo. SHALL escribirse en el mismo `INSERT` que crea el movimiento y NO SHALL actualizarse después. Su ausencia SHALL significar "cargo sin vencimiento", y los movimientos anteriores a la incorporación de la columna SHALL conservarla nula, sin backfill. Es el espejo exacto del lado cliente.
+
+La ampliación del CHECK SHALL ser aditiva e idempotente: ninguna fila existente SHALL ser invalidada ni reescrita. La incorporación de `due_date` SHALL ser igualmente aditiva y nullable.
 
 #### Scenario: movimiento persiste balance_after
 - **WHEN** se postea un movimiento de `amount = 1000` (purchase) sobre una cuenta con `balance = 0`
@@ -56,8 +58,19 @@ La ampliación del CHECK SHALL ser aditiva e idempotente: ninguna fila existente
 - **THEN** ninguna fila existente es invalidada ni reescrita
 - **AND** la ampliación es idempotente ante una reaplicación de la migración
 
+#### Scenario: El cargo de compra lleva su vencimiento y el pago no
+- **WHEN** se postea un cargo por una compra a crédito con vencimiento y luego un pago sobre la misma cuenta
+- **THEN** la fila del cargo lleva su `due_date` y la del pago lo tiene nulo
+
+#### Scenario: Los movimientos históricos de proveedor quedan sin vencimiento
+- **GIVEN** los movimientos existentes al momento de incorporar la columna
+- **WHEN** se aplica la migración, incluso dos veces
+- **THEN** todas esas filas quedan con vencimiento nulo y ninguna es reescrita
+
 ### Requirement: Helper intra-transacción c30_register_supplier_account_movement
-El sistema SHALL proveer `public.c30_register_supplier_account_movement(p_account_id uuid, p_amount numeric, p_type text, p_reference_id uuid DEFAULT NULL) RETURNS uuid` con `SET search_path = public`, **REVOKE de PUBLIC**, que **NO abre transacción propia**, espejo exacto de `c30_register_customer_account_movement`: lock de cabecera con `FOR UPDATE`, `balance_after = balance + p_amount`, INSERT append-only, UPDATE de la cabecera, RETURN id. La acumulación SHALL usar UPDATE-then-INSERT, nunca `ON CONFLICT DO UPDATE` con delta.
+El sistema SHALL proveer `public.c30_register_supplier_account_movement(p_account_id uuid, p_amount numeric, p_type text, p_reference_id uuid DEFAULT NULL, p_due_date date DEFAULT NULL) RETURNS uuid` con `SET search_path = public`, **REVOKE de PUBLIC**, que **NO abre transacción propia**, espejo exacto de `c30_register_customer_account_movement`: lock de cabecera con `FOR UPDATE`, `balance_after = balance + p_amount`, INSERT append-only con el vencimiento recibido, UPDATE de la cabecera, RETURN id. La acumulación SHALL usar UPDATE-then-INSERT, nunca `ON CONFLICT DO UPDATE` con delta.
+
+El parámetro de vencimiento SHALL ser **el último y opcional**, y la redefinición SHALL realizarse por baja y alta explícitas de la función —nunca por reemplazo en el lugar con un argumento nuevo con valor por omisión, que dejaría viva la definición anterior como sobrecarga—, reafirmando los permisos en el mismo archivo de migración.
 
 #### Scenario: el helper serializa con FOR UPDATE
 - **WHEN** dos movimientos concurrentes sobre la misma `SupplierAccount` se postean
@@ -66,6 +79,14 @@ El sistema SHALL proveer `public.c30_register_supplier_account_movement(p_accoun
 #### Scenario: el helper no es callable desde authenticated
 - **WHEN** el rol `authenticated` intenta invocar el helper directamente
 - **THEN** la llamada es denegada (REVOKE de PUBLIC)
+
+#### Scenario: El vencimiento llega a la fila del proveedor
+- **WHEN** se invoca el helper con un vencimiento
+- **THEN** la fila insertada en el ledger de proveedor lo lleva
+
+#### Scenario: No queda una definición anterior viva del helper de proveedor
+- **WHEN** se inspecciona el catálogo de funciones tras la migración
+- **THEN** existe exactamente una definición del helper, con el argumento de vencimiento
 
 ### Requirement: PaymentMade reduce el saldo en la misma transacción
 El sistema SHALL proveer `rpc_register_payment_made(p_idempotency_key text, p_supplier_id uuid, p_amount numeric, p_reference_purchase_id uuid DEFAULT NULL, p_payment_method_id uuid DEFAULT NULL, p_bank_account_id uuid DEFAULT NULL, p_cash_session_id uuid DEFAULT NULL) RETURNS jsonb` (`SECURITY DEFINER`) que, en una sola transacción: (a) valida `is_account_writer` (sino `P0401`) y `amount > 0` (sino `P0400`); (b) **resuelve el `kind` de la forma de pago** consultando el catálogo por `p_payment_method_id` **bajo el `account_id` del tenant**, rechazando con `P0404` la forma de pago inexistente o de otra cuenta, con un mensaje que no revela cuál de los dos casos ocurrió; (c) resuelve o crea la `SupplierAccount`; (d) aplica idempotencia DEC-06 con `operation_kind = 'payment_made'`; (e) invoca el helper con `amount` negativo (`payment_made` reduce lo que se debe); (f) inserta una fila en `payments_made` con `payment_method_id`; (g) **rutea el egreso de fondos por el `kind` derivado**: cuando el `kind` es bancario (`transfer` / `card` / `check` / `wallet`) SHALL delegar en el **helper compartido de movimiento bancario de operaciones** —el mismo que usan la venta, la compra y el gasto— con dirección de egreso, `source_doc_type = 'payment_made'` y `source_doc_ref` = id del pago, obteniendo de él el mapa `kind → movement_type` (`card_settlement` para `card`, `transfer_out` para el resto) y el guard de período conciliado (`P0424`); cuando es `cash` **y se informa `p_cash_session_id`** SHALL invocar el helper intra-transaccional de caja con `amount` negativo, `movement_type = 'payment_made'` y referencia al pago, sin tocar el ledger bancario; cuando es `cash` **sin** `p_cash_session_id`, o cuando el `kind` es `other`, o cuando no se informa forma de pago, SHALL registrar el pago sin efecto sobre ningún libro de dinero; (h) emite el evento `PaymentMade` al outbox con el `kind` derivado y `payment_method_id` (y `bank_account_id` cuando aplique) en el payload, para que el posteo contable async (`journal-entry`) rutee la contrapartida a `1110 Banco` vs `1100 Caja`.
@@ -396,6 +417,30 @@ Un movimiento cuyo pago no tenga forma de pago imputada SHALL exponer el dato va
 - **GIVEN** un pago anterior a este cambio, sin forma de pago imputada
 - **WHEN** se consulta el historial
 - **THEN** el movimiento expone el dato vacío y la superficie no muestra ninguna forma de pago
+
+### Requirement: El historial de cuenta corriente del proveedor expone el vencimiento y el saldo abierto de cada cargo
+
+El sistema SHALL exponer, para cada movimiento del historial de cuenta corriente de un proveedor, su **vencimiento**, si está **vencido**, cuántos **días de atraso** acumula y qué **importe permanece abierto** tras la imputación de pagos, con las mismas reglas de derivación que rigen para el lado cliente.
+
+Esos derivados SHALL calcularse en el servidor, dentro de la consulta que recupera los movimientos, SHALL viajar por **todas** las consultas que alimentan el historial —no sólo por la paginada—, y NO SHALL reimplementarse en la interfaz.
+
+Un movimiento que no es un cargo SHALL exponer sus derivados de vencimiento como ausentes, no como cero.
+
+#### Scenario: Un cargo de compra vencido en el historial
+
+- **GIVEN** un cargo de 8000 con vencimiento hace 10 días, cancelado parcialmente por un pago de 3000
+- **WHEN** el usuario abre el historial de cuenta corriente del proveedor
+- **THEN** esa fila muestra su vencimiento, que está vencida, 10 días de atraso y 5000 de importe abierto
+
+#### Scenario: Un pago no tiene vencimiento
+
+- **WHEN** el historial muestra un movimiento de pago a proveedor
+- **THEN** sus derivados de vencimiento se presentan como ausentes y no como cero
+
+#### Scenario: Todas las consultas del historial de proveedor traen los derivados
+
+- **WHEN** se recuperan los movimientos de una cuenta corriente de proveedor por cualquiera de las consultas que alimentan el historial
+- **THEN** todas devuelven el vencimiento, el estado de vencimiento, los días de atraso y el importe abierto
 
 ## Implementation Notes
 

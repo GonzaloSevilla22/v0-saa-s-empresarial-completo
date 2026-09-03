@@ -11,6 +11,13 @@ import type { Purchase } from "@/lib/types"
 
 const updatePurchaseOperationMock = vi.fn().mockResolvedValue(undefined)
 
+// productos-categorias-sku: purchase-form monta ProductCategorySelect en el alta
+// inline de producto → use-product-categories → python-client (explota sin
+// NEXT_PUBLIC_BACKEND_URL) y useOrgRole → react-query real (mockeado acá).
+vi.mock("@/hooks/data/use-product-categories", () => ({
+  useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn(), createProductCategoryMutation: { isPending: false } }),
+}))
+vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [], addProduct: vi.fn() }) }))
 vi.mock("@/hooks/data/use-purchases", () => ({
   usePurchases: () => ({ addPurchaseOperation: vi.fn(), updatePurchaseOperation: updatePurchaseOperationMock }),

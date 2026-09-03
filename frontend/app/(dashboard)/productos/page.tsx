@@ -15,7 +15,7 @@ import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
 
 export default function ProductosPage() {
-  const { products, deleteProduct } = useProducts()
+  const { products, deleteProduct, bulkSetCategory } = useProducts()
   const queryClient = useQueryClient()
   const refreshData = () => queryClient.invalidateQueries()
   const { user } = useAuth()
@@ -103,6 +103,9 @@ export default function ProductosPage() {
         isAtLimit={isAtLimit}
         onImportComplete={refreshData}
         onSuggestPrice={hasPriceSuggestionAccess ? setPriceSuggestionProduct : undefined}
+        // productos-categorias-sku (D14): recategorización en lote — el hook
+        // trocea en requests de 500 y agrega; la barra de acción vive en el catálogo.
+        onBulkRecategorize={(ids, categoryId) => bulkSetCategory({ productIds: ids, categoryId })}
       />
 
       <Dialog open={open} onOpenChange={(v) => { if (!v) handleClose() }}>

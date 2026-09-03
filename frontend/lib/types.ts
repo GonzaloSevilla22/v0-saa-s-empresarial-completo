@@ -848,14 +848,9 @@ export type ExpenseCategory =
   | "Impuestos"
   | "Otros"
 
-export type ProductCategory =
-  | "Electrónica"
-  | "Ropa"
-  | "Alimentos"
-  | "Hogar"
-  | "Salud"
-  | "Accesorios"
-  | "Otros"
+// productos-categorias-sku: el alias `ProductCategory` (unión de 7 literales,
+// sin consumidores) se retiró — la categoría es una fila del catálogo por
+// cuenta (interface ProductCategory, más arriba), no un vocabulario fijo.
 
 // ── Export module types (C-14 export-module) ──────────────────────────────────
 

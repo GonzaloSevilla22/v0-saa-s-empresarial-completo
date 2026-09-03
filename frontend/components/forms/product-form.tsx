@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useProducts } from "@/hooks/data/use-products"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
-import { PRODUCT_CATEGORIES } from "@/lib/constants"
+import { ProductCategorySelect } from "@/components/product-categories/ProductCategorySelect"
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
 import { generateEAN13 } from "@/lib/barcode-utils"
 import { cn } from "@/lib/utils"
@@ -29,12 +29,17 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   const { units } = useUnitsOfMeasure()
 
   const [name, setName] = useState(initialData?.name || "")
-  const [category, setCategory] = useState(initialData?.category || "")
+  // productos-categorias-sku (D1): la categoría se elige del catálogo de la
+  // cuenta por id — PRODUCT_CATEGORIES (lista fija) se retiró.
+  const [categoryId, setCategoryId] = useState<string | null>(initialData?.categoryId ?? null)
   const [cost, setCost] = useState(initialData?.cost || 0)
   const [price, setPrice] = useState(initialData?.price || 0)
   const [stock, setStock] = useState(initialData?.stock || 0)
   const [minStock, setMinStock] = useState(initialData?.minStock || 10)
   const [barcode, setBarcode] = useState(initialData?.barcode || "")
+  // productos-categorias-sku: SKU opcional, visible por primera vez en el
+  // formulario. Se recorta al enviar; vacío → undefined (NULL en la base).
+  const [sku, setSku] = useState(initialData?.sku || "")
   const [parentId, setParentId] = useState(initialData?.parentId || defaultParentId || "none")
 
   // ── Etapa 6 fields ──────────────────────────────────────────────────────────
@@ -84,23 +89,30 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!name || (!category && parentId === "none")) {
+    // Regla vigente (intacta): categoría obligatoria salvo variante — la
+    // variante hereda la del padre (D11), resuelta en el servidor.
+    if (!name || (!categoryId && parentId === "none")) {
       toast.error("Completá nombre y categoría")
       return
     }
 
     const resolvedParentId = parentId === "none" ? undefined : parentId
+    const parent = resolvedParentId ? products.find((p) => p.id === resolvedParentId) : undefined
     const productData = {
       name,
-      category: resolvedParentId
-        ? (products.find((p) => p.id === resolvedParentId)?.category || category)
-        : category,
+      // El TEXT `category` lo mantiene el trigger de espejo desde category_id;
+      // para la variante se acarrea el del padre (camino legacy de lectura).
+      category: parent?.category ?? "",
+      // Variante: NO se manda categoryId — el servidor la hereda del padre e
+      // ignora lo que mande el cliente (D11/9.7).
+      categoryId: resolvedParentId ? undefined : (categoryId ?? undefined),
       cost,
       price,
       margin,
       stock: stockControlType === "untracked" ? 0 : stock,
       minStock: stockControlType === "untracked" ? 0 : minStock,
       barcode,
+      sku: sku.trim() || undefined,
       parentId: resolvedParentId,
       // is_variant is derived from whether a parent is assigned
       isVariant: resolvedParentId !== undefined,
@@ -123,8 +135,11 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         toast.success("Producto creado")
       }
       onSuccess()
-    } catch (error) {
-      toast.error("Error al guardar producto")
+    } catch (error: unknown) {
+      // productos-categorias-sku (D5): el 409 de SKU (y cualquier detail del
+      // backend) se muestra tal cual; el formulario conserva lo cargado.
+      const msg = error instanceof Error && error.message ? error.message : "Error al guardar producto"
+      toast.error(msg)
     }
   }
 
@@ -191,21 +206,25 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
         </div>
       </div>
 
-      {parentId === "none" && (
+      {/* ── Categoría (sólo producto base) + SKU opcional ─────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {parentId === "none" && (
+          <ProductCategorySelect value={categoryId} onChange={setCategoryId} />
+        )}
         <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Categoría</Label>
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="bg-background border-border text-foreground">
-              <SelectValue placeholder="Seleccionar categoría" />
-            </SelectTrigger>
-            <SelectContent className="bg-popover border-border">
-              {PRODUCT_CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>{c}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="product-sku" className="text-foreground">
+            SKU <span className="text-muted-foreground font-normal">(opcional)</span>
+          </Label>
+          <Input
+            id="product-sku"
+            selectOnFocus
+            value={sku}
+            onChange={(e) => setSku(e.target.value)}
+            placeholder="Ej: REM-001"
+            className="bg-background border-border text-foreground"
+          />
         </div>
-      )}
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">

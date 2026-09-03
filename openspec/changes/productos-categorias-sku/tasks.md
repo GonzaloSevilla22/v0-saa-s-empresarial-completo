@@ -106,64 +106,64 @@
 
 ## 11. Frontend — formulario de producto
 
-- [ ] 11.1 SAFETY NET: baseline de los tests de `product-form.tsx`.
-- [ ] 11.2 RED: tests — el selector consume el catálogo (ya no `PRODUCT_CATEGORIES`); la variante no pide categoría y hereda la del padre; el campo SKU es opcional y se envía; el conflicto 409 se muestra sin perder lo cargado.
-- [ ] 11.3 GREEN: reemplazar el `<Select>` de categoría (L196-205) por `ProductCategorySelect`, conservando **intacta** la regla vigente de L87-97 (categoría obligatoria salvo variante).
-- [ ] 11.4 GREEN: agregar el campo SKU opcional, con la misma marcación y tokens que el campo de código de barras contiguo.
-- [ ] 11.5 TRIANGULATE: alta base con categoría; alta de variante sin categoría; edición que no toca el SKU lo conserva; edición que lo vacía lo borra.
+- [x] 11.1 SAFETY NET: baseline de los tests de `product-form.tsx`.
+- [x] 11.2 RED: tests — el selector consume el catálogo (ya no `PRODUCT_CATEGORIES`); la variante no pide categoría y hereda la del padre; el campo SKU es opcional y se envía; el conflicto 409 se muestra sin perder lo cargado.
+- [x] 11.3 GREEN: reemplazar el `<Select>` de categoría (L196-205) por `ProductCategorySelect`, conservando **intacta** la regla vigente de L87-97 (categoría obligatoria salvo variante).
+- [x] 11.4 GREEN: agregar el campo SKU opcional, con la misma marcación y tokens que el campo de código de barras contiguo.
+- [x] 11.5 TRIANGULATE: alta base con categoría; alta de variante sin categoría; edición que no toca el SKU lo conserva; edición que lo vacía lo borra.
 
 ## 12. Frontend — alta inline de producto desde compras
 
-- [ ] 12.1 SAFETY NET: baseline de los tests de `purchase-form.tsx`.
-- [ ] 12.2 RED: test — el alta inline de producto ofrece el mismo catálogo por el mismo componente selector.
-- [ ] 12.3 GREEN: reemplazar el `<Select>` de L950 por `ProductCategorySelect`. Verificar que el alta inline sigue funcionando dentro del contexto de diálogo del formulario de compra.
-- [ ] 12.4 Retirar `PRODUCT_CATEGORIES` de `frontend/lib/constants.ts` una vez que sus **dos** consumidores migraron, y confirmar por búsqueda que no queda ninguna referencia.
+- [x] 12.1 SAFETY NET: baseline de los tests de `purchase-form.tsx`.
+- [x] 12.2 RED: test — el alta inline de producto ofrece el mismo catálogo por el mismo componente selector.
+- [x] 12.3 GREEN: reemplazar el `<Select>` de L950 por `ProductCategorySelect`. Verificar que el alta inline sigue funcionando dentro del contexto de diálogo del formulario de compra.
+- [x] 12.4 Retirar `PRODUCT_CATEGORIES` de `frontend/lib/constants.ts` una vez que sus **dos** consumidores migraron, y confirmar por búsqueda que no queda ninguna referencia.
 
 ## 13. Frontend — listado de productos
 
-- [ ] 13.1 SAFETY NET: baseline de los tests de `product-catalog.tsx`.
-- [ ] 13.2 RED: tests — buscar por SKU encuentra el producto; la búsqueda es case-insensitive; un producto sin SKU no muestra un código de relleno.
-- [ ] 13.3 GREEN: sumar el SKU a los predicados de búsqueda (que hoy cubren nombre y categoría) y mostrarlo cuando existe. No agregar una columna nueva a la tabla si desbalancea el layout responsive — `responsive-shell` es una capability viva y el residuo `tablet-filtros-cta` sigue abierto.
-- [ ] 13.4 TRIANGULATE: búsqueda que matchea sólo por SKU en una variante hija; búsqueda sin resultados; producto sin SKU.
+- [x] 13.1 SAFETY NET: baseline de los tests de `product-catalog.tsx`.
+- [x] 13.2 RED: tests — buscar por SKU encuentra el producto; la búsqueda es case-insensitive; un producto sin SKU no muestra un código de relleno.
+- [x] 13.3 GREEN: sumar el SKU a los predicados de búsqueda (que hoy cubren nombre y categoría) y mostrarlo cuando existe. No agregar una columna nueva a la tabla si desbalancea el layout responsive — `responsive-shell` es una capability viva y el residuo `tablet-filtros-cta` sigue abierto.
+- [x] 13.4 TRIANGULATE: búsqueda que matchea sólo por SKU en una variante hija; búsqueda sin resultados; producto sin SKU.
 
 ## 14. Frontend — recategorización en lote en `/productos`
 
 > Alcance sumado por el PO el 2026-09-03 (D14). Es la herramienta que hace accionable el hallazgo de los 2.951 productos en "Otros".
 
-- [ ] 14.1 SAFETY NET: baseline de los tests de `product-catalog.tsx` (compartido con el grupo 13 — anotarlo una sola vez si se hacen seguidos).
-- [ ] 14.2 RED: tests de selección — seleccionar y deseleccionar productos; seleccionar todo lo filtrado; la selección se limpia al cambiar la búsqueda; el contador refleja lo seleccionado.
-- [ ] 14.3 GREEN: selección múltiple reutilizando el patrón que ya existe en el repo — `useState<Set<string>>` + `Checkbox` + helper `toggle`, tal como `ReconciliationBoard.tsx`; `product-catalog.tsx` ya usa `Set<string>` para `expandedIds`, así que no se introduce un idioma nuevo. `stopPropagation` en la casilla para no duplicar el toggle con el `onClick` de la fila (mismo detalle que resolvió el precedente).
-- [ ] 14.4 GREEN: las casillas se ofrecen sobre **padres y productos simples**; las variantes no se seleccionan por separado, porque su categoría es derivada (D11/D14). Verificar que funciona en las **dos** presentaciones del listado (tarjetas y tabla).
-- [ ] 14.5 RED: tests de la barra de acción — aparece sólo con selección activa; declara conteo y categoría destino; pide confirmación; al aplicar limpia la selección e invalida la query de productos.
-- [ ] 14.6 GREEN: barra de acción con el conteo, `ProductCategorySelect` como selector de destino (**el mismo componente**, nunca una lista paralela) y confirmación explícita antes de aplicar.
-- [ ] 14.7 GREEN: trocear la selección en requests de hasta 500 ids y agregar los resultados, de forma transparente para el usuario (D14).
-- [ ] 14.8 GREEN: informar el resultado real — si `actualizados < solicitados`, decirlo en vez de afirmar un éxito total.
-- [ ] 14.9 TRIANGULATE: recategorizar un grupo padre+variantes; recategorizar productos simples; selección mayor al tope (troceo); aplicar la categoría que los productos ya tienen (0 actualizados, sin error); cancelar la confirmación no cambia nada.
-- [ ] 14.10 Verificar accesibilidad de la selección: las casillas tienen nombre accesible, la barra de acción es alcanzable por teclado y anuncia el conteo.
+- [x] 14.1 SAFETY NET: baseline de los tests de `product-catalog.tsx` (compartido con el grupo 13 — anotarlo una sola vez si se hacen seguidos).
+- [x] 14.2 RED: tests de selección — seleccionar y deseleccionar productos; seleccionar todo lo filtrado; la selección se limpia al cambiar la búsqueda; el contador refleja lo seleccionado.
+- [x] 14.3 GREEN: selección múltiple reutilizando el patrón que ya existe en el repo — `useState<Set<string>>` + `Checkbox` + helper `toggle`, tal como `ReconciliationBoard.tsx`; `product-catalog.tsx` ya usa `Set<string>` para `expandedIds`, así que no se introduce un idioma nuevo. `stopPropagation` en la casilla para no duplicar el toggle con el `onClick` de la fila (mismo detalle que resolvió el precedente).
+- [x] 14.4 GREEN: las casillas se ofrecen sobre **padres y productos simples**; las variantes no se seleccionan por separado, porque su categoría es derivada (D11/D14). Verificar que funciona en las **dos** presentaciones del listado (tarjetas y tabla).
+- [x] 14.5 RED: tests de la barra de acción — aparece sólo con selección activa; declara conteo y categoría destino; pide confirmación; al aplicar limpia la selección e invalida la query de productos.
+- [x] 14.6 GREEN: barra de acción con el conteo, `ProductCategorySelect` como selector de destino (**el mismo componente**, nunca una lista paralela) y confirmación explícita antes de aplicar.
+- [x] 14.7 GREEN: trocear la selección en requests de hasta 500 ids y agregar los resultados, de forma transparente para el usuario (D14).
+- [x] 14.8 GREEN: informar el resultado real — si `actualizados < solicitados`, decirlo en vez de afirmar un éxito total.
+- [x] 14.9 TRIANGULATE: recategorizar un grupo padre+variantes; recategorizar productos simples; selección mayor al tope (troceo); aplicar la categoría que los productos ya tienen (0 actualizados, sin error); cancelar la confirmación no cambia nada.
+- [x] 14.10 Verificar accesibilidad de la selección: las casillas tienen nombre accesible, la barra de acción es alcanzable por teclado y anuncia el conteo.
 
 ## 15. Frontend — pipeline del importador
 
-- [ ] 15.1 SAFETY NET: baseline de los tests de `lib/import/*`.
-- [ ] 15.2 RED: tests de `validator.ts` — una categoría desconocida **ya no** se reescribe a "Otros" con warning; se marca como "a crear"; una categoría existente se resuelve case-insensitive; una fila con error fatal no aporta categoría a crear.
-- [ ] 15.3 GREEN: retirar `VALID_CATEGORIES` de `lib/import/types.ts` y reescribir el bloque de categoría de `validator.ts:127-131`. El validador pasa a recibir el catálogo vivo de la cuenta en vez de un `Set` horneado.
-- [ ] 15.4 RED: test — dos filas del mismo archivo con el mismo SKU producen una advertencia (hoy la segunda pisa a la primera en silencio).
-- [ ] 15.5 GREEN: implementar esa advertencia en la validación.
-- [ ] 15.6 GREEN: exponer desde el validador el resumen de categorías a crear (nombre + cuántas filas la usan) que consume el paso 2.
-- [ ] 15.7 TRIANGULATE: archivo sin columna Categoría; archivo con categorías mezcladas nuevas y existentes; archivo que supera el tope; archivo con "ropa"/"Ropa "/"ROPA".
+- [x] 15.1 SAFETY NET: baseline de los tests de `lib/import/*`.
+- [x] 15.2 RED: tests de `validator.ts` — una categoría desconocida **ya no** se reescribe a "Otros" con warning; se marca como "a crear"; una categoría existente se resuelve case-insensitive; una fila con error fatal no aporta categoría a crear.
+- [x] 15.3 GREEN: retirar `VALID_CATEGORIES` de `lib/import/types.ts` y reescribir el bloque de categoría de `validator.ts:127-131`. El validador pasa a recibir el catálogo vivo de la cuenta en vez de un `Set` horneado.
+- [x] 15.4 RED: test — dos filas del mismo archivo con el mismo SKU producen una advertencia (hoy la segunda pisa a la primera en silencio).
+- [x] 15.5 GREEN: implementar esa advertencia en la validación.
+- [x] 15.6 GREEN: exponer desde el validador el resumen de categorías a crear (nombre + cuántas filas la usan) que consume el paso 2.
+- [x] 15.7 TRIANGULATE: archivo sin columna Categoría; archivo con categorías mezcladas nuevas y existentes; archivo que supera el tope; archivo con "ropa"/"Ropa "/"ROPA".
 
 ## 16. Frontend — diálogo de importación
 
-- [ ] 16.1 RED: tests de `product-import-dialog.tsx` — el paso 2 lista las categorías a crear antes de confirmar; superar el tope muestra el error explicativo; el template se genera con las categorías de la cuenta.
-- [ ] 16.2 GREEN: `TEMPLATE_CSV` deja de ser constante de módulo y pasa a generarse desde el catálogo de la cuenta, con las 7 legacy como respaldo si estuviera vacío (D10). Corregir de paso el espacio a la izquierda del SKU en la fila `Padre` (`;;;;;;; ZAP-NIKE`).
-- [ ] 16.3 GREEN: actualizar el panel "Columnas del CSV" — `Categoría`: opcional, se crea si no existe; `SKU`: opcional, y si coincide con uno existente **actualiza** ese producto (hoy dice sólo "opcional", que es lo que hace creer que un SKU repetido duplica).
-- [ ] 16.4 GREEN: bloque de anuncio en el paso 2 con las categorías a crear y su conteo de filas, con tokens semánticos y contraste AA.
-- [ ] 16.5 TRIANGULATE: import sin categorías nuevas → sin bloque de anuncio; con categorías nuevas → listadas; superando el tope → bloqueado con explicación.
+- [x] 16.1 RED: tests de `product-import-dialog.tsx` — el paso 2 lista las categorías a crear antes de confirmar; superar el tope muestra el error explicativo; el template se genera con las categorías de la cuenta.
+- [x] 16.2 GREEN: `TEMPLATE_CSV` deja de ser constante de módulo y pasa a generarse desde el catálogo de la cuenta, con las 7 legacy como respaldo si estuviera vacío (D10). Corregir de paso el espacio a la izquierda del SKU en la fila `Padre` (`;;;;;;; ZAP-NIKE`).
+- [x] 16.3 GREEN: actualizar el panel "Columnas del CSV" — `Categoría`: opcional, se crea si no existe; `SKU`: opcional, y si coincide con uno existente **actualiza** ese producto (hoy dice sólo "opcional", que es lo que hace creer que un SKU repetido duplica).
+- [x] 16.4 GREEN: bloque de anuncio en el paso 2 con las categorías a crear y su conteo de filas, con tokens semánticos y contraste AA.
+- [x] 16.5 TRIANGULATE: import sin categorías nuevas → sin bloque de anuncio; con categorías nuevas → listadas; superando el tope → bloqueado con explicación.
 
 ## 17. Verificación integral
 
 - [ ] 17.1 Backend completo en verde y coverage ≥87%; anotar el delta contra el baseline de 9.1.
 - [ ] 17.2 Frontend completo en verde; anotar el delta contra los baselines de 11.1/12.1/13.1/14.1/15.1. Aislar cualquier flaky conocido antes de atribuirle el fallo a este change (`AdminSegurosPage.test.tsx` es flaky-preexistente bajo carga).
-- [ ] 17.3 `tsc` sin errores nuevos. **Cero `any`** en el código agregado.
+- [x] 17.3 `tsc` sin errores nuevos. **Cero `any`** en el código agregado.
 - [ ] 17.4 Migración limpia contra `supabase db reset` local y los gates de `KPI_Validation.yml` en el orden real del workflow.
 - [ ] 17.5 Pasada visual en las **4 combinaciones** (escritorio/móvil × claro/oscuro) sobre: pestaña Categorías de `/configuracion`, **la `TabsList` completa de `/configuracion` con sus 10 pestañas** (riesgo declarado en D8, aunque no sea pantalla nueva), selector con alta rápida inline, formulario de producto con SKU, selección múltiple y barra de acción en lote, y paso 2 del importador. Verificar que ningún desplegable se sale del shard de scroll de su diálogo (regresión G1) y que no hay desborde horizontal (`responsive-shell`).
 - [ ] 17.6 Prueba manual de punta a punta: crear categoría propia → dar de alta un producto con ella y con SKU → **seleccionar varios productos de "Otros" y recategorizarlos en lote** → importar un CSV con una categoría nueva y un SKU existente → verificar que la categoría se creó, los productos se movieron, el producto se actualizó y ninguno perdió su categoría.

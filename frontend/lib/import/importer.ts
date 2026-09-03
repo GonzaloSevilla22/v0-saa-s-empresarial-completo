@@ -6,16 +6,22 @@
  * SKU is optional throughout the pipeline.
  * Parent→Variant relationships are resolved by sequential grouping when
  * no explicit SKU Padre or Producto Padre is provided.
+ *
+ * productos-categorias-sku (D6/D7): el importador SIGUE por RPC (no FastAPI):
+ * la resolución/creación de la categoría ocurre en el servidor, dentro de la
+ * misma transacción por lote que inserta los productos. El cliente sólo
+ * valida contra el catálogo (para anunciar qué se va a crear) y rechaza el
+ * archivo que supera el tope ANTES de mandar nada.
  */
 
 import { createClient } from "@/lib/supabase/client"
 import { parseImportFile }    from "@/lib/import/parser"
-import { validateImportRows } from "@/lib/import/validator"
+import { validateImportRows, newCategoryLimitMessage } from "@/lib/import/validator"
 import { resolveHierarchy }   from "@/lib/import/resolver"
 import {
   IMPORT_BATCH_SIZE,
+  type ImportCategoryRef,
   type ImportResult,
-  type ImportRowError,
   type ProductUpsertPayload,
   type ResolvedImportRow,
 } from "@/lib/import/types"
@@ -29,12 +35,21 @@ export type ImportProgressCallback = (params: {
 export interface ImportProductsOptions {
   file:        File
   userId:      string
+  /** Catálogo de categorías de la cuenta (para resolver/anunciar; default vacío). */
+  categories?: readonly ImportCategoryRef[]
   onProgress?: ImportProgressCallback
+}
+
+interface BulkUpsertRpcResult {
+  inserted?: number
+  updated?:  number
+  errors?:   Array<{ sku?: string | null; name?: string; message?: string }>
 }
 
 export async function importProductsFromFile({
   file,
   userId,
+  categories = [],
   onProgress,
 }: ImportProductsOptions): Promise<ImportResult> {
   const result: ImportResult = {
@@ -51,7 +66,12 @@ export async function importProductsFromFile({
 
   // Phase 2: Validate
   onProgress?.({ phase: "validating", done: 0, total: parsed.rows.length })
-  const { rows: validatedRows } = validateImportRows(parsed.rows)
+  const { rows: validatedRows, newCategories, newCategoryLimitExceeded, maxNewCategories } =
+    validateImportRows(parsed.rows, categories)
+
+  if (newCategoryLimitExceeded) {
+    throw new Error(newCategoryLimitMessage(newCategories.length, maxNewCategories))
+  }
 
   const invalidRows = validatedRows.filter((r) => r.errors.length > 0)
   const validRows   = validatedRows.filter((r) => r.errors.length === 0)
@@ -100,7 +120,7 @@ export async function importProductsFromFile({
         })
       }
     } else {
-      const res = data as { inserted: number; updated: number; errors: any[] }
+      const res = (data ?? {}) as BulkUpsertRpcResult
       result.inserted += res.inserted ?? 0
       result.updated  += res.updated  ?? 0
       for (const e of res.errors ?? []) {
@@ -131,6 +151,7 @@ function toPayload(row: ResolvedImportRow): ProductUpsertPayload {
   const payload: ProductUpsertPayload = {
     name:               row.name,
     sku:                row.sku,
+    // "" → el servidor imputa la categoría por defecto de la cuenta (D6).
     category:           row.category,
     price:              row.rowType === "Padre" ? 0 : row.price,
     cost:               row.rowType === "Padre" ? 0 : row.cost,

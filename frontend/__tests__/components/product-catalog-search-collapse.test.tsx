@@ -13,6 +13,12 @@ import "@testing-library/jest-dom"
 import type { Product } from "@/lib/types"
 
 // ─── Mocks ─────────────────────────────────────────────────────────────────
+// productos-categorias-sku: product-catalog / product-import-dialog importan
+// use-product-categories → python-client (explota sin NEXT_PUBLIC_BACKEND_URL).
+vi.mock("@/hooks/data/use-product-categories", () => ({
+  useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn() }),
+}))
+vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({
   useUnitsOfMeasure: () => ({ unitsById: new Map() }),
 }))

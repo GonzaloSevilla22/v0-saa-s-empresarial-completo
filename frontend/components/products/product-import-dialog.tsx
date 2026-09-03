@@ -34,28 +34,24 @@ import {
   ChevronRight, Loader2, Download, RotateCcw,
 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
+import { useProductCategories } from "@/hooks/data/use-product-categories"
 import { parseImportFile }    from "@/lib/import/parser"
-import { validateImportRows } from "@/lib/import/validator"
+import { validateImportRows, newCategoryLimitMessage, type NewCategorySummary } from "@/lib/import/validator"
 import {
   importProductsFromFile,
   type ImportProgressCallback,
 } from "@/lib/import/importer"
+import { buildTemplateCsv } from "@/lib/import/template"
 import type { ValidatedImportRow, ImportResult } from "@/lib/import/types"
 import { cn } from "@/lib/utils"
 
 // ── CSV template ───────────────────────────────────────────────────────────────
 
-const TEMPLATE_CSV = [
-  "Tipo;Nombre;Precio;Costo;Categoría;Stock;Stock mínimo;Código;SKU",
-  "Producto;Remera básica;5000;2500;Ropa;50;10;;REM-001",
-  "Padre;Zapatillas Nike;;;;;;; ZAP-NIKE",
-  "Variante;Zapatillas Nike 41;18000;9000;Ropa;15;3;;ZAP-NIKE-41",
-  "Variante;Zapatillas Nike 42;18000;9000;Ropa;12;3;;ZAP-NIKE-42",
-  "Producto;Aceite de oliva 500ml;3200;1800;Alimentos;30;5;7790001234567;ACE-500",
-].join("\n")
+// productos-categorias-sku (D10): el template ya no es una constante de
+// módulo — se genera desde el catálogo real de la cuenta (lib/import/template.ts).
 
-function downloadTemplate() {
-  const blob = new Blob(["﻿" + TEMPLATE_CSV], { type: "text/csv;charset=utf-8;" })
+function downloadTemplate(csv: string) {
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" })
   const url  = URL.createObjectURL(blob)
   const a    = Object.assign(document.createElement("a"), {
     href: url, download: "template_productos.csv",
@@ -123,6 +119,10 @@ interface PreviewSummary {
   errors:     number
   warnings:   number
   rows:       ValidatedImportRow[]
+  /** productos-categorias-sku (D6): lo que el servidor va a crear, anunciado ANTES de confirmar. */
+  newCategories: NewCategorySummary[]
+  newCategoryLimitExceeded: boolean
+  maxNewCategories: number
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -133,6 +133,10 @@ export function ProductImportDialog({
   onComplete,
 }: ProductImportDialogProps) {
   const { user } = useAuth()
+  // productos-categorias-sku: el catálogo de la cuenta (con inactivas — una
+  // desactivada se reutiliza, no se duplica) para resolver la columna
+  // Categoría y generar el template.
+  const { productCategories } = useProductCategories(true)
 
   const [step,          setStep]         = useState<Step>(1)
   const [file,          setFile]         = useState<File | null>(null)
@@ -177,8 +181,10 @@ export function ProductImportDialog({
       return
     }
 
-    const { rows, invalidCount, warningCount, parentCount, variantCount, standaloneCount } =
-      validateImportRows(parsed.rows)
+    const {
+      rows, invalidCount, warningCount, parentCount, variantCount, standaloneCount,
+      newCategories, newCategoryLimitExceeded, maxNewCategories,
+    } = validateImportRows(parsed.rows, productCategories)
 
     setPreview({
       parents:    parentCount,
@@ -187,8 +193,11 @@ export function ProductImportDialog({
       errors:     invalidCount,
       warnings:   warningCount,
       rows,
+      newCategories,
+      newCategoryLimitExceeded,
+      maxNewCategories,
     })
-  }, [])
+  }, [productCategories])
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
@@ -219,7 +228,9 @@ export function ProductImportDialog({
     }
 
     try {
-      const importResult = await importProductsFromFile({ file, userId: user.id, onProgress })
+      const importResult = await importProductsFromFile({
+        file, userId: user.id, categories: productCategories, onProgress,
+      })
       setResult(importResult)
       setStep(3)
       onComplete()
@@ -228,12 +239,12 @@ export function ProductImportDialog({
       if (totalOk > 0) {
         toast.success(`${totalOk} producto${totalOk !== 1 ? "s" : ""} importado${totalOk !== 1 ? "s" : ""} correctamente`)
       }
-    } catch (err: any) {
-      toast.error(err?.message ?? "Error al importar.")
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error al importar.")
     } finally {
       setImporting(false)
     }
-  }, [file, user, onComplete])
+  }, [file, user, onComplete, productCategories])
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const validCount = preview?.rows.filter((r) => r.errors.length === 0).length ?? 0
@@ -303,10 +314,15 @@ export function ProductImportDialog({
                   <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-foreground">Template de ejemplo</p>
-                    <p className="text-xs text-muted-foreground">Incluye filas de Producto, Padre y Variante</p>
+                    <p className="text-xs text-muted-foreground">Incluye filas de Producto, Padre y Variante con tus categorías</p>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={downloadTemplate}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 shrink-0"
+                  onClick={() => downloadTemplate(buildTemplateCsv(productCategories))}
+                >
                   <Download className="h-3.5 w-3.5" />
                   Descargar
                 </Button>
@@ -321,11 +337,11 @@ export function ProductImportDialog({
                   <div><span className="font-medium text-foreground">Nombre</span> <span className="text-muted-foreground">(obligatorio)</span></div>
                   <div><span className="font-medium text-foreground">Precio</span> <span className="text-muted-foreground">(opcional)</span></div>
                   <div><span className="font-medium text-foreground">Costo</span> <span className="text-muted-foreground">(opcional)</span></div>
-                  <div><span className="font-medium text-foreground">Categoría</span> <span className="text-muted-foreground">(opcional)</span></div>
+                  <div><span className="font-medium text-foreground">Categoría</span> <span className="text-muted-foreground">(opcional — se crea si no existe en tu cuenta)</span></div>
                   <div><span className="font-medium text-foreground">Stock</span> <span className="text-muted-foreground">(opcional)</span></div>
                   <div><span className="font-medium text-foreground">Stock mínimo</span> <span className="text-muted-foreground">(opcional)</span></div>
                   <div><span className="font-medium text-foreground">Código</span> <span className="text-muted-foreground">(código de barras)</span></div>
-                  <div><span className="font-medium text-foreground">SKU</span> <span className="text-muted-foreground">(opcional)</span></div>
+                  <div><span className="font-medium text-foreground">SKU</span> <span className="text-muted-foreground">(opcional — si coincide con uno existente, actualiza ese producto)</span></div>
                 </div>
               </div>
 
@@ -369,6 +385,38 @@ export function ProductImportDialog({
                   </div>
                 )}
               </div>
+
+              {/* productos-categorias-sku (D6): anuncio previo obligatorio —
+                  nada se crea sin haber sido mostrado; el tope bloquea. */}
+              {preview && preview.newCategoryLimitExceeded && (
+                <div role="alert" className="px-6 py-2.5 border-b border-destructive/30 bg-destructive/5 shrink-0">
+                  <p className="text-xs text-destructive flex items-start gap-1.5">
+                    <XCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{newCategoryLimitMessage(preview.newCategories.length, preview.maxNewCategories)}</span>
+                  </p>
+                </div>
+              )}
+              {preview && !preview.newCategoryLimitExceeded && preview.newCategories.length > 0 && (
+                <section
+                  role="region"
+                  aria-label="Categorías nuevas"
+                  className="px-6 py-2.5 border-b border-border bg-primary/5 shrink-0"
+                >
+                  <p className="text-xs text-foreground">
+                    <span className="font-medium">
+                      Se {preview.newCategories.length === 1 ? "va a crear 1 categoría nueva" : `van a crear ${preview.newCategories.length} categorías nuevas`}
+                    </span>{" "}
+                    en tu cuenta al importar:
+                  </p>
+                  <ul className="mt-1 flex flex-wrap gap-1.5">
+                    {preview.newCategories.map((c) => (
+                      <li key={c.name} className="text-xs px-2 py-0.5 rounded bg-muted text-foreground">
+                        {c.name} <span className="text-muted-foreground">({c.rows} fila{c.rows !== 1 ? "s" : ""})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
 
               {/* Parsing spinner */}
               {!preview && (
@@ -547,7 +595,7 @@ export function ProductImportDialog({
               <Button
                 size="sm"
                 onClick={handleImport}
-                disabled={importing || validCount === 0}
+                disabled={importing || validCount === 0 || preview.newCategoryLimitExceeded}
                 className="gap-1.5"
               >
                 {importing ? (

@@ -159,6 +159,12 @@ export const queryKeys = {
     report: (accountId: string | null, start: string, end: string) =>
       ["paymentMethods", "report", accountId, start, end] as const,
   },
+  // productos-categorias-sku
+  productCategories: {
+    all:    () => ["productCategories"] as const,
+    lists:  () => ["productCategories", "list"] as const,
+    active: () => ["productCategories", "active"] as const,
+  },
   // bank-payment-routing C2 (V2.5 BankReconciliation)
   bankAccounts: {
     all:    () => ["bankAccounts"] as const,

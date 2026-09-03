@@ -3,11 +3,12 @@
 import { Fragment, useState, useMemo, useCallback, useRef, type ReactNode } from "react"
 import {
   ChevronRight, ChevronDown, Plus, Search, Download, Upload,
-  Pencil, Trash2, Package, GitBranch, Wrench, Sparkles,
+  Pencil, Trash2, Package, GitBranch, Wrench, Sparkles, Shapes,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -27,6 +28,9 @@ import type { Product } from "@/lib/types"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { ProductImportDialog } from "@/components/products/product-import-dialog"
+import { ProductCategorySelect } from "@/components/product-categories/ProductCategorySelect"
+import { useProductCategories } from "@/hooks/data/use-product-categories"
+import type { BulkCategoryResult } from "@/lib/product-bulk-category"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -51,6 +55,13 @@ interface ProductCatalogProps {
    * by the parent — the parent is responsible for plan gating.
    */
   onSuggestPrice?: (product: Product) => void
+  /**
+   * productos-categorias-sku (D14): recategorización en lote. Recibe los ids
+   * seleccionados (padres y simples) y la categoría destino; el padre propaga
+   * a sus variantes en el SERVIDOR. Sin este prop la selección se ofrece pero
+   * la acción queda deshabilitada.
+   */
+  onBulkRecategorize?: (productIds: string[], categoryId: string) => Promise<BulkCategoryResult>
 }
 
 // ─── Standalone sub-component (outside ProductCatalog to avoid re-mounts) ────
@@ -133,11 +144,21 @@ export function ProductCatalog({
   isAtLimit,
   onImportComplete,
   onSuggestPrice,
+  onBulkRecategorize,
 }: ProductCatalogProps) {
   const [search, setSearch] = useState("")
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)
+
+  // ── productos-categorias-sku (D14): selección múltiple + lote ─────────────
+  // Mismo idioma Set<string> que expandedIds (y ReconciliationBoard).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkCategoryId, setBulkCategoryId] = useState<string | null>(null)
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
+  const [bulkApplying, setBulkApplying] = useState(false)
+  const { productCategories } = useProductCategories(true)
+  const bulkTargetName = productCategories.find((c) => c.id === bulkCategoryId)?.name ?? null
 
   // ── Unit-of-measure resolution ─────────────────────────────────────────────
   // unitsById comes pre-built from the hook — no local useMemo needed
@@ -215,15 +236,18 @@ export function ProductCatalog({
 
     const filteredGroups = groups
       .map((g) => {
+        // productos-categorias-sku (13.3): el SKU entra a los predicados.
         const parentHit =
           g.parent.name.toLowerCase().includes(q) ||
           (g.parent.category ?? "").toLowerCase().includes(q) ||
-          (g.parent.barcode ?? "").toLowerCase().includes(q)
+          (g.parent.barcode ?? "").toLowerCase().includes(q) ||
+          (g.parent.sku ?? "").toLowerCase().includes(q)
 
         const matchingChildren = g.children.filter(
           (c) =>
             c.name.toLowerCase().includes(q) ||
-            (c.barcode ?? "").toLowerCase().includes(q),
+            (c.barcode ?? "").toLowerCase().includes(q) ||
+            (c.sku ?? "").toLowerCase().includes(q),
         )
 
         if (!parentHit && matchingChildren.length === 0) return null
@@ -236,7 +260,8 @@ export function ProductCatalog({
       (p) =>
         p.name.toLowerCase().includes(q) ||
         (p.category ?? "").toLowerCase().includes(q) ||
-        (p.barcode ?? "").toLowerCase().includes(q),
+        (p.barcode ?? "").toLowerCase().includes(q) ||
+        (p.sku ?? "").toLowerCase().includes(q),
     )
 
     return { filteredGroups, filteredStandalones }
@@ -253,6 +278,69 @@ export function ProductCatalog({
 
   function isExpanded(parentId: string) {
     return expandedIds.has(parentId)
+  }
+
+  // ── Selección (D14) ───────────────────────────────────────────────────────
+  // Sólo padres y productos simples son seleccionables: la categoría de una
+  // variante es derivada (D11) y el servidor expande el padre al grupo.
+  const visibleRootIds = useMemo(
+    () => [...filteredGroups.map((g) => g.parent.id), ...filteredStandalones.map((p) => p.id)],
+    [filteredGroups, filteredStandalones],
+  )
+  const allVisibleSelected = visibleRootIds.length > 0 && visibleRootIds.every((id) => selectedIds.has(id))
+  const someVisibleSelected = visibleRootIds.some((id) => selectedIds.has(id))
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(allVisibleSelected ? new Set() : new Set(visibleRootIds))
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+    setBulkCategoryId(null)
+  }
+
+  // La selección no sobrevive a un cambio de búsqueda: nadie recategoriza a
+  // ciegas un conjunto que ya no está viendo.
+  function handleSearchChange(value: string) {
+    setSearch(value)
+    setSelectedIds(new Set())
+  }
+
+  async function handleBulkApply() {
+    if (!onBulkRecategorize || !bulkCategoryId || selectedIds.size === 0) return
+    const ids = [...selectedIds]
+    setBulkApplying(true)
+    try {
+      const res = await onBulkRecategorize(ids, bulkCategoryId)
+      // Resultado REAL (14.8): 0 actualizados no es error; menos de lo
+      // solicitado se dice, no se afirma un éxito total.
+      if (res.updated === 0) {
+        toast.info("Los productos seleccionados ya tenían esa categoría — no hubo cambios.")
+      } else if (res.updated < res.requested) {
+        toast.warning(
+          `Se recategorizaron ${res.updated} de ${res.requested} productos — algunos no se pudieron actualizar.`,
+        )
+      } else {
+        toast.success(
+          `${res.updated} producto${res.updated !== 1 ? "s" : ""} recategorizado${res.updated !== 1 ? "s" : ""}${bulkTargetName ? ` a "${bulkTargetName}"` : ""}.`,
+        )
+      }
+      clearSelection()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al recategorizar"
+      toast.error(humanizeOperationError(msg).message)
+    } finally {
+      setBulkApplying(false)
+      setBulkConfirmOpen(false)
+    }
   }
 
   // ── Delete with loading guard ──────────────────────────────────────────────
@@ -354,7 +442,7 @@ export function ProductCatalog({
           <Input
             placeholder="Buscar productos…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-9 bg-background border-border text-foreground"
           />
         </div>
@@ -391,8 +479,56 @@ export function ProductCatalog({
         </div>
       </div>
 
+      {/* ── productos-categorias-sku (D14): barra de acción en lote ─────── */}
+      {selectedIds.size > 0 && (
+        <section
+          role="region"
+          aria-label="Acciones en lote"
+          aria-live="polite"
+          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2"
+        >
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <Shapes className="h-4 w-4 text-primary shrink-0" />
+            <span className="font-medium">
+              {selectedIds.size} seleccionado{selectedIds.size !== 1 ? "s" : ""}
+            </span>
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={clearSelection}>
+              Limpiar
+            </Button>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="w-full sm:w-56">
+              <ProductCategorySelect
+                value={bulkCategoryId}
+                onChange={setBulkCategoryId}
+                showLabel={false}
+                label="Categoría destino"
+                placeholder="Categoría destino"
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setBulkConfirmOpen(true)}
+              disabled={!bulkCategoryId || !onBulkRecategorize || bulkApplying}
+            >
+              Cambiar categoría
+            </Button>
+          </div>
+        </section>
+      )}
+
       {/* ── Mobile card list (sm:hidden) ─────────────────────────────────── */}
       <div className="sm:hidden flex flex-col gap-2">
+        {visibleRootIds.length > 0 && (
+          <label className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+            <Checkbox
+              aria-label="Seleccionar todos"
+              checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+              onCheckedChange={toggleSelectAll}
+            />
+            Seleccionar todos
+          </label>
+        )}
         {filteredGroups.length === 0 && filteredStandalones.length === 0 ? (
           <div className="rounded-lg border border-border bg-card h-24 flex items-center justify-center text-muted-foreground text-sm">
             {search ? "No se encontraron productos con ese criterio" : "No hay productos. Creá el primero."}
@@ -413,6 +549,11 @@ export function ProductCatalog({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
+                          <Checkbox
+                            aria-label={`Seleccionar ${g.parent.name}`}
+                            checked={selectedIds.has(g.parent.id)}
+                            onCheckedChange={() => toggleSelect(g.parent.id)}
+                          />
                           <button
                             onClick={() => toggleExpand(g.parent.id)}
                             aria-label={expanded ? "Colapsar variantes" : "Expandir variantes"}
@@ -488,6 +629,9 @@ export function ProductCatalog({
                           {child.barcode && (
                             <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{child.barcode}</code>
                           )}
+                          {child.sku && (
+                            <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground ml-1">SKU {child.sku}</code>
+                          )}
                         </div>
                         {child.stockControlType !== "untracked" && (
                           <StockSemaphore stock={child.stock} minStock={child.minStock} size="sm" />
@@ -541,11 +685,22 @@ export function ProductCatalog({
             {filteredStandalones.map((p) => (
               <div key={p.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex items-start gap-1.5">
+                    <Checkbox
+                      aria-label={`Seleccionar ${p.name}`}
+                      checked={selectedIds.has(p.id)}
+                      onCheckedChange={() => toggleSelect(p.id)}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0">
                     <span className="font-medium text-sm text-foreground truncate block">{p.name}</span>
                     {p.barcode && (
                       <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground">{p.barcode}</code>
                     )}
+                    {p.sku && (
+                      <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground ml-1">SKU {p.sku}</code>
+                    )}
+                    </div>
                   </div>
                   {p.stockControlType !== "untracked" && (
                     <StockSemaphore stock={p.stock} minStock={p.minStock} size="sm" />
@@ -615,7 +770,14 @@ export function ProductCatalog({
           <Table>
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="w-10" />
+                <TableHead className="w-14">
+                  <Checkbox
+                    aria-label="Seleccionar todos"
+                    checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleSelectAll}
+                    disabled={visibleRootIds.length === 0}
+                  />
+                </TableHead>
                 <TableHead className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
                   Producto
                 </TableHead>
@@ -667,8 +829,15 @@ export function ProductCatalog({
                       className="border-border hover:bg-accent/50 cursor-pointer"
                       onClick={() => toggleExpand(g.parent.id)}
                     >
-                      {/* Expand toggle */}
-                      <TableCell>
+                      {/* Selección (D14) + expand toggle — stopPropagation para no
+                          duplicar el toggle con el onClick de la fila. */}
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                        <Checkbox
+                          aria-label={`Seleccionar ${g.parent.name}`}
+                          checked={selectedIds.has(g.parent.id)}
+                          onCheckedChange={() => toggleSelect(g.parent.id)}
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
@@ -685,6 +854,7 @@ export function ProductCatalog({
                             <ChevronRight className="h-4 w-4" />
                           )}
                         </Button>
+                        </div>
                       </TableCell>
 
                       {/* Name + variant count */}
@@ -799,6 +969,11 @@ export function ProductCatalog({
                                       {child.barcode}
                                     </code>
                                   )}
+                                  {child.sku && (
+                                    <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground self-start">
+                                      SKU {child.sku}
+                                    </code>
+                                  )}
                                 </div>
                               </div>
                             </TableCell>
@@ -893,9 +1068,14 @@ export function ProductCatalog({
                   key={p.id}
                   className="border-border hover:bg-accent/50"
                 >
-                  {/* Package icon */}
+                  {/* Selección (D14) + Package icon */}
                   <TableCell>
-                    <div className="flex items-center justify-center">
+                    <div className="flex items-center gap-1">
+                      <Checkbox
+                        aria-label={`Seleccionar ${p.name}`}
+                        checked={selectedIds.has(p.id)}
+                        onCheckedChange={() => toggleSelect(p.id)}
+                      />
                       <Package className="h-4 w-4 text-muted-foreground/40" />
                     </div>
                   </TableCell>
@@ -907,6 +1087,11 @@ export function ProductCatalog({
                       {p.barcode && (
                         <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground self-start">
                           {p.barcode}
+                        </code>
+                      )}
+                      {p.sku && (
+                        <code className="text-[10px] bg-muted px-1 rounded text-muted-foreground self-start">
+                          SKU {p.sku}
                         </code>
                       )}
                     </div>
@@ -1021,6 +1206,29 @@ export function ProductCatalog({
             } de ${totalProducts} productos`
           : `${totalProducts} producto${totalProducts !== 1 ? "s" : ""} en catálogo`}
       </p>
+
+      {/* ── Confirmación del lote (D14): declara alcance y destino antes de aplicar */}
+      <AlertDialog open={bulkConfirmOpen} onOpenChange={(open) => { if (!bulkApplying) setBulkConfirmOpen(open) }}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-card-foreground">Cambiar categoría</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`Vas a asignar la categoría "${bulkTargetName ?? ""}" a ${selectedIds.size} producto${selectedIds.size !== 1 ? "s" : ""}. Las variantes de un producto padre heredan su categoría. Se puede volver a cambiar con esta misma herramienta.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-foreground" disabled={bulkApplying}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); void handleBulkApply() }}
+              disabled={bulkApplying}
+            >
+              {bulkApplying ? "Aplicando…" : "Recategorizar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Import dialog */}
       <ProductImportDialog

@@ -31,6 +31,7 @@ from backend.routers import (
     outbox,
     payment_methods,
     payments,
+    product_categories,
     products,
     purchases,
     quotes,
@@ -151,6 +152,9 @@ app.include_router(clients.router)
 # v3-catalog-masters (V3 §7.3) — direcciones operativas anidadas bajo cliente
 app.include_router(client_addresses.router)
 app.include_router(products.router)
+# productos-categorias-sku (D7): catálogo de categorías de producto por cuenta,
+# 3 capas, espejo de payment_methods.
+app.include_router(product_categories.router)
 app.include_router(branches.router)
 app.include_router(stock.router)
 app.include_router(sales.router)

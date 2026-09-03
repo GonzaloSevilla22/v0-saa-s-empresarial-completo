@@ -26,7 +26,7 @@ import {
   toBaseQuantity,
   resolveUnit,
 } from "@/lib/unit-utils"
-import { PRODUCT_CATEGORIES } from "@/lib/constants"
+import { ProductCategorySelect } from "@/components/product-categories/ProductCategorySelect"
 import {
   calcPurchaseSubtotal,
   calcCartTotal,
@@ -116,7 +116,8 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // ── Inline new product ──────────────────────────────────────────────────────
   const [showNewProduct, setShowNewProduct] = useState(false)
   const [newProductName, setNewProductName] = useState("")
-  const [newProductCategory, setNewProductCategory] = useState("")
+  // productos-categorias-sku: id de categoría del catálogo (ya no un texto de PRODUCT_CATEGORIES).
+  const [newProductCategoryId, setNewProductCategoryId] = useState<string | null>(null)
   const [newProductCost, setNewProductCost] = useState(0)
   const [newProductPrice, setNewProductPrice] = useState(0)
   const [newProductMinStock, setNewProductMinStock] = useState(10)
@@ -489,7 +490,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   }
 
   function handleCreateProduct() {
-    if (!newProductName.trim() || !newProductCategory) {
+    if (!newProductName.trim() || !newProductCategoryId) {
       toast.error("Nombre y categoría son obligatorios")
       return
     }
@@ -499,7 +500,9 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         : 0
     addProduct({
       name:             newProductName,
-      category:         newProductCategory,
+      // El TEXT lo mantiene el trigger de espejo desde category_id.
+      category:         "",
+      categoryId:       newProductCategoryId,
       cost:             newProductCost,
       price:            newProductPrice,
       margin,
@@ -512,7 +515,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
     setUnitCost(newProductCost)
     setShowNewProduct(false)
     setNewProductName("")
-    setNewProductCategory("")
+    setNewProductCategoryId(null)
     setNewProductCost(0)
     setNewProductPrice(0)
     setNewProductMinStock(10)
@@ -947,18 +950,16 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
                 placeholder="Nombre del producto"
                 className="bg-background border-border text-foreground text-sm"
               />
-              <Select value={newProductCategory} onValueChange={setNewProductCategory}>
-                <SelectTrigger className="bg-background border-border text-foreground text-sm">
-                  <SelectValue placeholder="Categoría" />
-                </SelectTrigger>
-                <SelectContent className="bg-popover border-border">
-                  {PRODUCT_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* productos-categorias-sku: el MISMO selector que el formulario de
+                  producto — catálogo de la cuenta + alta inline en el lugar (D9),
+                  sin diálogo anidado sobre el diálogo de compra. */}
+              <ProductCategorySelect
+                value={newProductCategoryId}
+                onChange={setNewProductCategoryId}
+                showLabel={false}
+                placeholder="Categoría"
+                className="bg-background border-border text-foreground text-sm"
+              />
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="flex flex-col gap-1">
                   <Label className="text-[10px] text-muted-foreground">Costo</Label>

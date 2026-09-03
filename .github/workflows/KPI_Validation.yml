@@ -1255,3 +1255,44 @@ jobs:
       # tipos de digest NO producen asiento).
       - name: Run receivables overdue digest gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receivables_overdue_digest.sql
+
+      # productos-categorias-sku (grupo 2): tabla product_categories — RLS
+      # activa, 8 columnas sin kind, índice por account_id, unique
+      # case-insensitive PARCIAL sobre filas vivas, 3 policies; duplicado
+      # rechazado, nombre reusable tras soft delete, mismo nombre en dos
+      # cuentas, aislamiento bajo RLS real. Degrade-don't-fail.
+      - name: Run productos-categorias-sku catalog gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_categories_catalog.sql
+
+      # productos-categorias-sku (grupo 3): el espejo products.category (TEXT)
+      # coincide SIEMPRE con el name de la categoría referenciada por los
+      # tres caminos (INSERT, UPDATE de category_id, renombre); renombre sin
+      # cambio = cero filas tocadas (xmin); un UPDATE legacy del TEXT no
+      # desincroniza (choke point); categoría ajena → P0404; FK RESTRICT; el
+      # guard de soft delete sigue vivo al lado del trigger nuevo (3.6).
+      - name: Run productos-categorias-sku category mirror gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_category_mirror.sql
+
+      # productos-categorias-sku (grupo 4): unicidad del SKU alcanzada por
+      # account_id (case-insensitive, filas vivas) y SIN residuo por user_id;
+      # mismo SKU en dos cuentas OK, distinta caja en la misma cuenta
+      # rechazado, recreable tras soft delete, dos miembros no repiten.
+      - name: Run productos-categorias-sku SKU uniqueness scope gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_sku_uniqueness_scope.sql
+
+      # productos-categorias-sku (grupo 5): rpc_bulk_upsert_products reescrita
+      # desde el cuerpo vivo — contrato intacto (3 estrategias de padre,
+      # branch_stock, product_attributes, reimportar = update) + lo nuevo
+      # (categoría creada/reutilizada case-insensitive, default, fila con
+      # error no crea, tope 50 con P0400 sin rastro, alcance de cuenta en el
+      # SKU, borrado no se resucita). Degrade-don't-fail.
+      - name: Run productos-categorias-sku bulk upsert gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_bulk_upsert_products_categories.sql
+
+      # productos-categorias-sku (grupo 6): seed de provisioning + backfill —
+      # toda cuenta con las 7 categorías, backfill idempotente (fingerprint
+      # de products intacto), signup nuevo con 7 y Otros al final, fallo
+      # forzado del seed no aborta el signup, y el criterio 6.6: cero
+      # productos resolubles sin category_id y cero cruces de cuenta.
+      - name: Run productos-categorias-sku seed and backfill gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_categories_seed.sql

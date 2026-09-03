@@ -11,6 +11,12 @@
  *   1. sku_padre   — explicit SKU reference (backward compatible)
  *   2. producto_padre — explicit parent name reference
  *   3. Sequential grouping — variant belongs to the nearest Padre row above it
+ *
+ * productos-categorias-sku (D6): la columna Categoría se resuelve contra el
+ * catálogo del tenant (case-insensitive, tolerante a espacios) y una
+ * desconocida SE CREA en el servidor, dentro de la misma transacción que
+ * inserta los productos. Ya no existe un vocabulario fijo propio del
+ * importador (VALID_CATEGORIES se retiró).
  */
 
 // ─── CSV column schema ────────────────────────────────────────────────────────
@@ -59,11 +65,18 @@ export interface ImportAttribute {
   sort_order: number
 }
 
+/** Lo mínimo que el validador necesita del catálogo de la cuenta. */
+export interface ImportCategoryRef {
+  id:       string
+  name:     string
+  isActive: boolean
+}
+
 export interface ValidatedImportRow {
   lineNumber:    number
   rowType:       ImportRowType
   name:          string
-  /** Optional — used as upsert key when present. */
+  /** Optional — used as upsert key when present (alcance de CUENTA, case-insensitive). */
   sku:           string | null
   /** Explicit parent reference by SKU (optional). */
   skuParent:     string | null
@@ -71,7 +84,14 @@ export interface ValidatedImportRow {
   nameParent:    string | null
   price:         number
   cost:          number
+  /**
+   * Nombre canónico del catálogo si la categoría existe; el nombre normalizado
+   * (trim + colapso de espacios) si es nueva; "" si la fila no trae categoría
+   * (el servidor imputa la categoría por defecto de la cuenta).
+   */
   category:      string
+  /** true = no existe en el catálogo del tenant y el servidor la va a crear. */
+  categoryIsNew: boolean
   stock:         number
   minStock:      number
   barcode:       string | null
@@ -130,9 +150,14 @@ export interface ImportResult {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export const VALID_CATEGORIES = new Set([
-  "Electrónica", "Ropa", "Alimentos", "Hogar", "Salud", "Accesorios", "Otros",
-])
+/**
+ * productos-categorias-sku (D6 / OQ-1, sign-off PO 2026-09-03): tope de
+ * categorías NUEVAS distintas por importación. Superarlo casi siempre es una
+ * columna mal mapeada (un código, una descripción, un precio), no un
+ * catálogo legítimo. El servidor (rpc_bulk_upsert_products) aplica el mismo
+ * valor por llamada como defensa en profundidad.
+ */
+export const MAX_NEW_CATEGORIES_PER_IMPORT = 50
 
 export const VALID_ROW_TYPES = new Set<string>(["Padre", "Variante", "Producto", ""])
 

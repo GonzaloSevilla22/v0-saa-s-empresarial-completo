@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock } from "lucide-react"
+import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock, Shapes } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
@@ -21,6 +21,7 @@ import { FiscalSettings } from "@/components/settings/FiscalSettings"
 import { CostCenterManager } from "@/components/cost-centers/CostCenterManager"
 import { CollectionSettingsForm } from "@/components/settings/CollectionSettingsForm"
 import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethodManager"
+import { ProductCategoryManager } from "@/components/product-categories/ProductCategoryManager"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
 const features = [
@@ -39,7 +40,7 @@ const features = [
 
 const TAB_VALUES = [
   "perfil", "cuenta", "fiscal", "sistema", "equipo",
-  "centros-costo", "formas-pago", "cobranzas", "plan",
+  "centros-costo", "formas-pago", "categorias", "cobranzas", "plan",
 ] as const
 
 export default function ConfiguracionPage() {
@@ -71,7 +72,15 @@ export default function ConfiguracionPage() {
         {/* cobranzas-vencimientos (D10): 9 tabs — lg pasa de 8 a 9 columnas
             (etiquetas ya en text-xs sm:text-sm); en sm quedan 5+4 y en
             mobile 3+3+3. */}
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 mb-6 h-auto">
+        {/* productos-categorias-sku (D8, sign-off PO OQ-2): 10 tabs — un solo
+            lugar para los catálogos de la cuenta. Task 10.8 (medido en el
+            apply, viewport 1280 / contenedor max-w-3xl = 768px): con
+            lg:grid-cols-10 cada pestaña queda en 76px y "Centros de costo"
+            (94px) / "Formas de pago" (92px) desbordan y se pisan con las
+            vecinas — con 9 (85px) ya desbordaban por poco. Se retira el
+            override de lg: desde sm son 5 columnas → 2 filas de 5 (153px por
+            pestaña); mobile sigue 3+3+3+1. */}
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
             <span>Perfil</span>
@@ -99,6 +108,10 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="formas-pago" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Wallet className="h-3.5 w-3.5" />
             <span>Formas de pago</span>
+          </TabsTrigger>
+          <TabsTrigger value="categorias" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <Shapes className="h-3.5 w-3.5" />
+            <span>Categorías</span>
           </TabsTrigger>
           <TabsTrigger value="cobranzas" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <CalendarClock className="h-3.5 w-3.5" />
@@ -172,6 +185,23 @@ export default function ConfiguracionPage() {
             </p>
           </div>
           <PaymentMethodManager />
+        </TabsContent>
+
+        {/* ── Categorías de producto (productos-categorias-sku D8) ────────────
+            Décima pestaña por sign-off del PO (OQ-2): los catálogos de la
+            cuenta viven todos acá. El alta al vuelo sigue en el selector del
+            formulario de producto (D9); esto es la GESTIÓN. */}
+        <TabsContent value="categorias">
+          <div className="flex flex-col gap-1 mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Categorías de producto</h2>
+            <p className="text-sm text-muted-foreground">
+              Tu propio catálogo para clasificar productos: renombrá las que vienen por
+              defecto, sumá las tuyas y desactivá las que no uses. Renombrar una categoría
+              se refleja en todos los productos que la tienen; desactivarla los conserva.
+              Para mover muchos productos de una vez, usá la selección múltiple en Productos.
+            </p>
+          </div>
+          <ProductCategoryManager />
         </TabsContent>
 
         {/* ── Cobranzas (cobranzas-vencimientos D10) ──────────────────────────

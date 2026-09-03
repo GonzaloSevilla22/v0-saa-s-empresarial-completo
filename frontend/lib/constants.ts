@@ -168,15 +168,10 @@ export const EXPENSE_CATEGORIES = [
   "Otros",
 ] as const
 
-export const PRODUCT_CATEGORIES = [
-  "Electrónica",
-  "Ropa",
-  "Alimentos",
-  "Hogar",
-  "Salud",
-  "Accesorios",
-  "Otros",
-] as const
+// productos-categorias-sku: PRODUCT_CATEGORIES se retiró — la categoría de
+// producto vive en el catálogo por cuenta (product_categories) y toda
+// superficie la obtiene de useProductCategories / ProductCategorySelect.
+// (EXPENSE_CATEGORIES, arriba, es otra familia: categorías de GASTO.)
 
 export const CLIENT_STATUSES = [
   { value: "activo", label: "Activo" },

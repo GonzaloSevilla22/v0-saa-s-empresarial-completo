@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import { bulkRecategorizeInChunks, type BulkCategoryResult } from "@/lib/product-bulk-category"
 import type { Product } from "@/lib/types"
 
 // ── Types for API responses ───────────────────────────────────────────────────
@@ -13,6 +14,9 @@ interface ProductApiRow {
   user_id?: string
   name: string
   category: string | null
+  // productos-categorias-sku (D1): fuente de verdad; ausente en una base sin
+  // la migración → null.
+  category_id?: string | null
   price: string | number | null
   cost: string | number | null
   stock: string | number
@@ -32,6 +36,7 @@ function mapProduct(p: ProductApiRow): Product {
     id:               p.id,
     name:             p.name,
     category:         p.category || "Otros",
+    categoryId:       p.category_id ?? null,
     cost,
     price,
     margin:           price > 0 ? Math.round(((price - cost) / price) * 100) : 0,
@@ -48,7 +53,7 @@ function mapProduct(p: ProductApiRow): Product {
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 /**
- * Returns products list + mutations (add, update, delete) via Python API.
+ * Returns products list + mutations (add, update, delete, bulkSetCategory) via Python API.
  */
 export function useProducts() {
   const queryClient = useQueryClient()
@@ -67,6 +72,9 @@ export function useProducts() {
       return pythonClient.post<ProductApiRow>("/products", {
         name:               product.name,
         category:           product.category   || null,
+        // productos-categorias-sku: la clave viaja SÓLO si el formulario la
+        // resolvió — una variante no la manda: el servidor hereda del padre (D11).
+        ...(product.categoryId !== undefined ? { category_id: product.categoryId } : {}),
         price:              product.price,
         cost:               product.cost,
         stock:              product.stock,
@@ -88,6 +96,11 @@ export function useProducts() {
       return pythonClient.put<ProductApiRow>(`/products/${product.id}`, {
         name:               product.name,
         category:           product.category   || null,
+        // productos-categorias-sku (D12): tri-estado por AUSENCIA de la clave
+        // (mismo contrato que bankAccountId en use-payment-methods): omitida
+        // conserva; uuid asigna; null desasigna. `sku: null` más abajo BORRA
+        // el SKU — el formulario manda siempre el estado vigente del campo.
+        ...(product.categoryId !== undefined ? { category_id: product.categoryId } : {}),
         price:              product.price,
         cost:               product.cost,
         stock:              product.stock,
@@ -114,6 +127,21 @@ export function useProducts() {
     },
   })
 
+  // productos-categorias-sku (D14): recategorización en lote, troceada en
+  // requests de hasta 500 ids (lib/product-bulk-category) y agregada.
+  const bulkSetCategoryMutation = useMutation({
+    mutationFn: async (params: { productIds: string[]; categoryId: string }): Promise<BulkCategoryResult> =>
+      bulkRecategorizeInChunks(params.productIds, params.categoryId, (chunk, categoryId) =>
+        pythonClient.patch<BulkCategoryResult>("/products/bulk-category", {
+          product_ids: chunk,
+          category_id: categoryId,
+        }),
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+    },
+  })
+
   return {
     products:      query.data ?? [],
     isLoading:     query.isLoading,
@@ -122,8 +150,10 @@ export function useProducts() {
     addProduct:    addProductMutation.mutateAsync,
     updateProduct: updateProductMutation.mutateAsync,
     deleteProduct: deleteProductMutation.mutateAsync,
+    bulkSetCategory: bulkSetCategoryMutation.mutateAsync,
     addProductMutation,
     updateProductMutation,
     deleteProductMutation,
+    bulkSetCategoryMutation,
   }
 }

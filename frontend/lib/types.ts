@@ -351,14 +351,20 @@ export interface ProductAttribute {
 export interface Product {
   id: string
   name: string
+  /** Espejo TEXT del nombre de la categoría (mantenido por trigger) — para mostrar/buscar. */
   category: string
+  /**
+   * productos-categorias-sku (D1): FK a product_categories — la fuente de
+   * verdad de la imputación. `null` = sin categoría (legacy no resuelto).
+   */
+  categoryId?: string | null
   cost: number
   price: number
   margin: number
   stock: number
   minStock: number
   barcode?: string
-  /** Human-readable SKU — unique per user. Used as stable key for CSV upserts. */
+  /** SKU opcional — único por CUENTA (case-insensitive, filas vivas). Clave de upsert del importador. */
   sku?: string
   /** FK to products.id — set when this product is a variant of a parent */
   parentId?: string
@@ -575,6 +581,23 @@ export function bankAccountForKind(
  * (metodos-pago-operaciones). Espejo de CostCenter + kind + sort_order.
  * RLS: SELECT = any account member; INSERT/UPDATE = owner/admin only.
  */
+// ── productos-categorias-sku: catálogo de categorías de producto por cuenta ──
+
+/**
+ * Categoría de producto del catálogo de la cuenta (product_categories).
+ * Espejo de PaymentMethod SIN `kind`: una categoría es puro rótulo del
+ * usuario. `isActive=false` = baja lógica reversible (sigue visible en los
+ * productos que la usan, no se ofrece para altas nuevas).
+ */
+export interface ProductCategory {
+  id: string
+  accountId: string
+  name: string
+  isActive: boolean
+  sortOrder: number
+  createdAt: string
+}
+
 export interface PaymentMethod {
   id: string
   accountId: string
@@ -825,14 +848,9 @@ export type ExpenseCategory =
   | "Impuestos"
   | "Otros"
 
-export type ProductCategory =
-  | "Electrónica"
-  | "Ropa"
-  | "Alimentos"
-  | "Hogar"
-  | "Salud"
-  | "Accesorios"
-  | "Otros"
+// productos-categorias-sku: el alias `ProductCategory` (unión de 7 literales,
+// sin consumidores) se retiró — la categoría es una fila del catálogo por
+// cuenta (interface ProductCategory, más arriba), no un vocabulario fijo.
 
 // ── Export module types (C-14 export-module) ──────────────────────────────────
 

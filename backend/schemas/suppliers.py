@@ -4,7 +4,7 @@ import datetime
 import uuid
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 # compras-proveedor-cuenta-corriente (D2/OQ-3 opción A): FiscalIdentity es un
 # Value Object COMPARTIDO entre Customer y Supplier (RN-96) — el Literal de
@@ -27,6 +27,10 @@ class SupplierCreate(BaseModel):
     legal_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    # cobranzas-vencimientos (D2): plazo de pago propio del proveedor —
+    # espejo exacto de clients.payment_terms_days. None = hereda / sin
+    # vencimiento; nunca cero. Negativo → 422.
+    payment_terms_days: Annotated[int, Field(ge=0)] | None = None
 
 
 class SupplierUpdate(BaseModel):
@@ -46,6 +50,9 @@ class SupplierUpdate(BaseModel):
     legal_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    # cobranzas-vencimientos (D14): tri-estado real via model_fields_set del
+    # service (BE-1) — ausente preserva, null limpia, valor setea.
+    payment_terms_days: Annotated[int, Field(ge=0)] | None = None
 
     @field_validator("name")
     @classmethod
@@ -68,4 +75,5 @@ class SupplierOut(BaseModel):
     legal_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    payment_terms_days: int | None = None
     created_at: datetime.datetime

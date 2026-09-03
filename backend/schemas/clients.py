@@ -5,7 +5,9 @@ import uuid
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.core.client_activity import ClientActivityStatus
 from backend.schemas.common import PageOut
@@ -28,6 +30,10 @@ class ClientCreate(BaseModel):
     tax_id: str | None = None
     iva_condition: IvaCondition | None = None
     legal_name: str | None = None
+    # cobranzas-vencimientos (D2): plazo de pago propio del cliente, en dias.
+    # None = hereda el default de la cuenta (y si tampoco hay, el cargo nace
+    # sin vencimiento) — NUNCA significa cero. Negativo → 422.
+    payment_terms_days: Annotated[int, Field(ge=0)] | None = None
 
 
 class ClientUpdate(BaseModel):
@@ -37,6 +43,10 @@ class ClientUpdate(BaseModel):
     tax_id: str | None = None
     iva_condition: IvaCondition | None = None
     legal_name: str | None = None
+    # cobranzas-vencimientos (D14): tri-estado — ausente preserva, null
+    # explicito limpia (vuelve a heredar), valor setea. La distincion la
+    # resuelve el service via model_fields_set.
+    payment_terms_days: Annotated[int, Field(ge=0)] | None = None
 
 
 class ClientOut(BaseModel):
@@ -50,6 +60,7 @@ class ClientOut(BaseModel):
     tax_id: str | None = None
     iva_condition: str | None = None
     legal_name: str | None = None
+    payment_terms_days: int | None = None
     created_at: datetime.datetime
 
 

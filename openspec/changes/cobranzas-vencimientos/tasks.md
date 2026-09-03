@@ -65,22 +65,22 @@
 
 ## 6. Edge Function: plantilla de correo
 
-- [ ] 6.1 RED — Test de la plantilla en `supabase/functions/send-email/`: el cuerpo del resumen renderiza cantidad de partes, importe vencido y el acceso a `/cobranzas`, tomados de `metadata`.
-- [ ] 6.2 GREEN — Dos ramas nuevas en `supabase/functions/send-email/index.ts` (`receivables_overdue_digest` y `payables_overdue_digest`), con el layout de marca existente y textos distintos por lado.
-- [ ] 6.3 TRIANGULATE — Un `event_type` desconocido sigue cayendo en el comportamiento genérico; las ~17 plantillas existentes conservan asunto y cuerpo.
+- [x] 6.1 RED — Test de la plantilla en `supabase/functions/send-email/`: el cuerpo del resumen renderiza cantidad de partes, importe vencido y el acceso a `/cobranzas`, tomados de `metadata`.
+- [x] 6.2 GREEN — Dos ramas nuevas en `supabase/functions/send-email/index.ts` (`receivables_overdue_digest` y `payables_overdue_digest`), con el layout de marca existente y textos distintos por lado.
+- [x] 6.3 TRIANGULATE — Un `event_type` desconocido sigue cayendo en el comportamiento genérico; las ~17 plantillas existentes conservan asunto y cuerpo.
 
 ## 7. Backend: read-models, historial y configuración
 
-- [ ] 7.1 RED — `backend/tests/test_receivables_aging.py`: el repository devuelve los tramos y el importe vencido en el envelope estándar; la suma de los cinco tramos de cada fila es igual a su saldo. Mocks de `asyncpg` con el patrón de los tests de `payment_method_repository`.
-- [ ] 7.2 GREEN — `customer_account_repository.py`: los campos de aging en `list_receivables_page`/`get_receivables_summary`, y el filtro por tramo resuelto **en el servidor**, traducido por diccionario a predicado y nunca por interpolación.
-- [ ] 7.3 RED — Test de regresión de D7: los derivados de vencimiento (`due_date`, `is_overdue`, `days_overdue`, `open_amount`) viajan por **`list_movements` Y `list_movements_page`**. El test debe fallar si sólo se agrega a una — es el defecto exacto que se comió `cobranzas-reverso`.
-- [ ] 7.4 GREEN — Derivados de vencimiento en las **dos** consultas de `customer_account_repository.py` y en las **dos** espejo de `supplier_account_repository.py`.
-- [ ] 7.5 GREEN — `supplier_account_repository.py` + service + router: `list_payables_page` / `get_payables_summary` y el `report_router` de `/reports/payables`, molde exacto del de la Etapa A. Registrar en `backend/main.py`.
-- [ ] 7.6 GREEN — Schemas Pydantic v2 (`Decimal` para dinero, `date | None` para vencimientos, `int | None` para días); `Literal` para el filtro de tramo en la firma del router, para que un valor fuera del dominio ni llegue al service.
-- [ ] 7.7 RED+GREEN — `payment_terms_days` en `ClientCreate`/`ClientUpdate`/`ClientOut` y sus espejos de proveedor, con `client_repository.py` y `supplier_repository.py`. **Test primero de D14**: un `PUT` que omite el plazo **no** lo pone en `NULL` (preservación por `model_fields_set`, mismo patrón que `metodos-pago-operaciones`).
-- [ ] 7.8 RED+GREEN — `GET`/`PATCH` del plazo por defecto de la cuenta sobre `rpc_set_default_payment_terms`, con su test de `P0401` traducido a RFC 7807.
-- [ ] 7.9 TRIANGULATE — Casos de router: filtro de tramo fuera del `Literal` → 422 sin ejecutar consulta; página fuera de rango → `items: []` con `total` correcto; `P0401` y `P0400` traducidos al problem+json correspondiente.
-- [ ] 7.10 REFACTOR — Cobertura del backend por encima del umbral de CI (≥87%), sin duplicar el predicado de deudor ni la clasificación de tramos en ningún lado.
+- [x] 7.1 RED — `backend/tests/test_receivables_aging.py`: el repository devuelve los tramos y el importe vencido en el envelope estándar; la suma de los cinco tramos de cada fila es igual a su saldo. Mocks de `asyncpg` con el patrón de los tests de `payment_method_repository`.
+- [x] 7.2 GREEN — `customer_account_repository.py`: los campos de aging en `list_receivables_page`/`get_receivables_summary`, y el filtro por tramo resuelto **en el servidor**, traducido por diccionario a predicado y nunca por interpolación.
+- [x] 7.3 RED — Test de regresión de D7: los derivados de vencimiento (`due_date`, `is_overdue`, `days_overdue`, `open_amount`) viajan por **`list_movements` Y `list_movements_page`**. El test debe fallar si sólo se agrega a una — es el defecto exacto que se comió `cobranzas-reverso`.
+- [x] 7.4 GREEN — Derivados de vencimiento en las **dos** consultas de `customer_account_repository.py` y en las **dos** espejo de `supplier_account_repository.py`.
+- [x] 7.5 GREEN — `supplier_account_repository.py` + service + router: `list_payables_page` / `get_payables_summary` y el `report_router` de `/reports/payables`, molde exacto del de la Etapa A. Registrar en `backend/main.py`.
+- [x] 7.6 GREEN — Schemas Pydantic v2 (`Decimal` para dinero, `date | None` para vencimientos, `int | None` para días); `Literal` para el filtro de tramo en la firma del router, para que un valor fuera del dominio ni llegue al service.
+- [x] 7.7 RED+GREEN — `payment_terms_days` en `ClientCreate`/`ClientUpdate`/`ClientOut` y sus espejos de proveedor, con `client_repository.py` y `supplier_repository.py`. **Test primero de D14**: un `PUT` que omite el plazo **no** lo pone en `NULL` (preservación por `model_fields_set`, mismo patrón que `metodos-pago-operaciones`).
+- [x] 7.8 RED+GREEN — `GET`/`PATCH` del plazo por defecto de la cuenta sobre `rpc_set_default_payment_terms`, con su test de `P0401` traducido a RFC 7807.
+- [x] 7.9 TRIANGULATE — Casos de router: filtro de tramo fuera del `Literal` → 422 sin ejecutar consulta; página fuera de rango → `items: []` con `total` correcto; `P0401` y `P0400` traducidos al problem+json correspondiente.
+- [x] 7.10 REFACTOR — Cobertura del backend por encima del umbral de CI (≥87%), sin duplicar el predicado de deudor ni la clasificación de tramos en ningún lado.
 
 ## 8. Frontend: capa canónica
 

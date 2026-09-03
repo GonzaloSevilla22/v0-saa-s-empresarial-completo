@@ -76,8 +76,8 @@ class SupplierRepository(BaseRepository):
         # migración — company_id queda sin proveer, igual que clients.
         return await self.fetchrow(
             """
-            INSERT INTO suppliers (account_id, name, tax_id, iva_condition, legal_name, email, phone)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            INSERT INTO suppliers (account_id, name, tax_id, iva_condition, legal_name, email, phone, payment_terms_days)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             """,
             account_id,
@@ -87,6 +87,7 @@ class SupplierRepository(BaseRepository):
             data.get("legal_name"),
             data.get("email"),
             data.get("phone"),
+            data.get("payment_terms_days"),
         )
 
     async def update(self, supplier_id: str, account_id: str, data: dict) -> asyncpg.Record | None:

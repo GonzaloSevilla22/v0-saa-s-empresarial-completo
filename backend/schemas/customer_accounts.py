@@ -82,6 +82,14 @@ class AccountMovementOut(BaseModel):
     # ofrece la acción por default.
     is_reversible:        bool = False
     is_reversal_blocked:  bool = False
+    # cobranzas-vencimientos (D7): derivados de vencimiento — calculados en
+    # el SERVIDOR (FIFO por linea de flotacion) en LAS DOS queries del
+    # historial. Ausentes (None) para todo movimiento que no es cargo — nunca
+    # degradados a 0/False: "no aplica" y "al dia" son cosas distintas.
+    due_date:             datetime.date | None = None
+    open_amount:          Decimal | None = None
+    is_overdue:           bool | None = None
+    days_overdue:         int | None = None
     # cobranzas-reverso (task 9.2): mismo molde que PurchaseOperationOut
     # (has_cash_movement/has_bank_movement) — el diálogo de anulación los
     # necesita para enumerar sólo las patas que aplican a ESTE pago.
@@ -108,6 +116,17 @@ class ReceivableRowOut(BaseModel):
     days_since_last_charge:  int | None = None
     days_since_last_payment: int | None = None
     last_payment_date:       datetime.date | None = None
+    # cobranzas-vencimientos (task 7.6): los cinco tramos + agregados de
+    # vencimiento, derivados FIFO en el RPC. Invariante de cierre: la suma de
+    # los 5 tramos es igual a balance (gate SQL test_receivables_aging_fifo).
+    overdue_total:           Decimal = Decimal("0")
+    amount_current:          Decimal = Decimal("0")
+    amount_overdue_1_30:     Decimal = Decimal("0")
+    amount_overdue_31_60:    Decimal = Decimal("0")
+    amount_overdue_60_plus:  Decimal = Decimal("0")
+    amount_no_due_date:      Decimal = Decimal("0")
+    oldest_due_date:         datetime.date | None = None
+    days_overdue_max:        int | None = None
 
 
 # Envelope estándar {items,total,page,pages} (api-standards §2).
@@ -120,6 +139,9 @@ class ReceivablesSummaryOut(BaseModel):
     envelope de paginación (cuyo `total` es cantidad de filas)."""
 
     total_receivable: Decimal
+    # cobranzas-vencimientos: total vencido — mismo RPC, la cabecera
+    # distingue la deuda que reclama accion de la que solo esta pendiente.
+    overdue_total:    Decimal = Decimal("0")
     debtor_count:     int
 
 
@@ -193,3 +215,26 @@ class PaymentReversalOut(BaseModel):
     account_movement_id:  uuid.UUID
     cash_reversal_id:      uuid.UUID | None = None
     bank_reversals:        int = 0
+
+
+class CollectionSettingsOut(BaseModel):
+    """cobranzas-vencimientos (task 7.8): plazo de pago por defecto de la
+    cuenta. None = "sin plazo definido" (los cargos nacen sin vencimiento) —
+    nunca significa cero."""
+
+    default_payment_terms_days: int | None = None
+
+
+class CollectionSettingsIn(BaseModel):
+    """PATCH del plazo por defecto. None explicito = limpiar el plazo.
+    Negativo rechazado en el schema (422) ANTES de tocar la DB — la RPC
+    igual lo rechaza con P0400 (defensa en profundidad)."""
+
+    default_payment_terms_days: int | None = None
+
+    @field_validator("default_payment_terms_days")
+    @classmethod
+    def _non_negative(cls, v: int | None) -> int | None:
+        if v is not None and v < 0:
+            raise ValueError("el plazo de pago no puede ser negativo")
+        return v

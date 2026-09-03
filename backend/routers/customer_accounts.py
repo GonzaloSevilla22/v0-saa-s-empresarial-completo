@@ -25,6 +25,8 @@ from backend.core.idempotency import require_idempotency_key
 from backend.repositories.customer_account_repository import CustomerAccountRepository
 from backend.schemas.customer_accounts import (
     AccountMovementPageOut,
+    CollectionSettingsIn,
+    CollectionSettingsOut,
     CreateCustomerAccountOut,
     CustomerAccountOut,
     PaymentReceivedIn,
@@ -40,6 +42,9 @@ router = APIRouter(tags=["customer-accounts"])
 # cobranzas-panel: read-model agregado de deudores — espejo estructural del
 # report_router de payment_methods (/reports/*).
 report_router = APIRouter(prefix="/reports/receivables", tags=["customer-accounts"])
+# cobranzas-vencimientos (task 7.8): plazo de pago por defecto de la cuenta —
+# politica comercial, hogar canonico en /settings/*.
+settings_router = APIRouter(prefix="/settings/collections", tags=["customer-accounts"])
 
 
 def get_customer_account_repo(
@@ -130,11 +135,19 @@ async def receivables_report(
         "balance", "days_since_last_charge", "days_since_last_payment", "client_name"
     ] = Query("balance"),
     sort_dir: Literal["asc", "desc"] = Query("desc"),
+    bucket: Literal[
+        "overdue", "current", "overdue_1_30", "overdue_31_60",
+        "overdue_60_plus", "no_due_date",
+    ] | None = Query(None),
     auth: dict = Depends(get_current_user),
     repo: CustomerAccountRepository = Depends(get_customer_account_repo),
     account_id: uuid.UUID = Depends(get_account_id),
 ):
     """cobranzas-panel: listado paginado de deudores (envelope estándar).
+
+    cobranzas-vencimientos (task 7.2): `bucket` filtra por tramo de
+    vencimiento — Literal (422 fuera del dominio, sin consulta), resuelto en
+    el servidor sobre el conjunto completo, nunca sobre la página visible.
 
     `sort`/`sort_dir` como Literal: un valor fuera del dominio devuelve 422
     sin ejecutar ninguna consulta (D3 — mismo patrón que GET /clients/activity).
@@ -142,7 +155,8 @@ async def receivables_report(
     balance DESC. Sin gate de plan (D10).
     """
     return await customer_account_service.list_receivables(
-        repo, auth, str(account_id), page=page, size=size, sort=sort, sort_dir=sort_dir
+        repo, auth, str(account_id),
+        page=page, size=size, sort=sort, sort_dir=sort_dir, bucket=bucket,
     )
 
 
@@ -159,4 +173,31 @@ async def receivables_summary(
     """
     return await customer_account_service.get_receivables_summary(
         repo, auth, str(account_id)
+    )
+
+
+@settings_router.get("", response_model=CollectionSettingsOut)
+async def get_collection_settings(
+    auth: dict = Depends(get_current_user),
+    repo: CustomerAccountRepository = Depends(get_customer_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """cobranzas-vencimientos (task 7.8): plazo de pago por defecto de la
+    cuenta. None = sin plazo definido (nunca significa 0)."""
+    return await customer_account_service.get_collection_settings(
+        repo, str(account_id)
+    )
+
+
+@settings_router.patch("", response_model=CollectionSettingsOut)
+async def set_collection_settings(
+    payload: CollectionSettingsIn,
+    auth: dict = Depends(get_current_user),
+    repo: CustomerAccountRepository = Depends(get_customer_account_repo),
+):
+    """cobranzas-vencimientos (task 7.8): fija (o limpia, con null) el plazo
+    por defecto vía rpc_set_default_payment_terms — guard is_account_writer
+    (P0401 → 403). Negativo → 422 en el schema, sin tocar la DB."""
+    return await customer_account_service.set_collection_settings(
+        repo, auth, payload.default_payment_terms_days
     )

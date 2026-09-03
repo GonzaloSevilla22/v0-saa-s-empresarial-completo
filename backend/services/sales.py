@@ -146,6 +146,7 @@ async def create_sale_operation(
         payment_method_id=payment_method_id,
         cash_session_id=cash_session_id,
         bank_account_id=bank_account_id,
+        due_date=payload.due_date,
     )
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la operación de venta")

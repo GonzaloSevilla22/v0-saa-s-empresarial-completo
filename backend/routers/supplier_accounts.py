@@ -13,7 +13,7 @@ Toda lógica y guards de rol viven en services/supplier_accounts.py.
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query, Request
@@ -24,6 +24,8 @@ from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
 from backend.repositories.supplier_account_repository import SupplierAccountRepository
 from backend.schemas.supplier_accounts import (
+    PayablePageOut,
+    PayablesSummaryOut,
     CreateSupplierAccountOut,
     PaymentMadeIn,
     PaymentMadeOut,
@@ -37,6 +39,9 @@ from backend.schemas.supplier_accounts import (
 from backend.services import supplier_accounts as supplier_account_service
 
 router = APIRouter(tags=["supplier-accounts"])
+# cobranzas-vencimientos (task 7.5): read-model agregado de acreedores —
+# espejo estructural del report_router de customer_accounts (/reports/*).
+report_router = APIRouter(prefix="/reports/payables", tags=["supplier-accounts"])
 
 
 def get_supplier_account_repo(
@@ -132,4 +137,42 @@ async def reverse_payment_made(
     reason_payload = payload if payload is not None else PaymentReversalIn()
     return await supplier_account_service.reverse_payment_made(
         repo, auth, str(payment_id), reason_payload
+    )
+
+
+@report_router.get("", response_model=PayablePageOut)
+async def payables_report(
+    page: int = Query(0, ge=0),
+    size: int = Query(25, ge=1, le=200),
+    sort: Literal[
+        "balance", "days_since_last_charge", "days_since_last_payment", "supplier_name"
+    ] = Query("balance"),
+    sort_dir: Literal["asc", "desc"] = Query("desc"),
+    bucket: Literal[
+        "overdue", "current", "overdue_1_30", "overdue_31_60",
+        "overdue_60_plus", "no_due_date",
+    ] | None = Query(None),
+    auth: dict = Depends(get_current_user),
+    repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """cobranzas-vencimientos (task 7.5): listado paginado de acreedores con
+    aging — espejo exacto de GET /reports/receivables. `bucket` como Literal:
+    un valor fuera del dominio devuelve 422 sin ejecutar ninguna consulta."""
+    return await supplier_account_service.list_payables(
+        repo, auth, str(account_id),
+        page=page, size=size, sort=sort, sort_dir=sort_dir, bucket=bucket,
+    )
+
+
+@report_router.get("/summary", response_model=PayablesSummaryOut)
+async def payables_summary(
+    auth: dict = Depends(get_current_user),
+    repo: SupplierAccountRepository = Depends(get_supplier_account_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """cobranzas-vencimientos (task 7.5): total por pagar + total vencido +
+    cantidad de acreedores — derivado del MISMO RPC que el listado."""
+    return await supplier_account_service.get_payables_summary(
+        repo, auth, str(account_id)
     )

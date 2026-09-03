@@ -61,7 +61,7 @@
 - [x] 5.6 TRIANGULATE — Casos SQL de los dos canales: el evento se crea **sólo** cuando el registro de correo fue insertado; los dos lados (por cobrar y por pagar) se deduplican de forma independiente.
 - [x] 5.7 TRIANGULATE — **Gate del invariante D13**: el conjunto canónico de `event_type` del Consumer 3 sigue teniendo **once** elementos y ninguno de los dos tipos nuevos aparece en él; el gate `test_journal_event_types_canonical` (o equivalente vigente) sigue verde. Un evento de digest procesado por el relay **no** produce asiento contable.
 - [x] 5.8 TRIANGULATE — Caso SQL del escenario que más importa hoy: con las 5 cuentas de producción **sin plazo configurado**, el barrido devuelve **0 filas** y no produce ningún aviso.
-- [ ] 5.9 REFACTOR — Verificar idempotencia de la migración completa (`supabase db reset` local dos veces) y que no rompa los gates existentes: `test_function_acl_gate.sql` (los 5 chequeos), el de ERRCODEs de 5 caracteres y el de integridad de función.
+- [x] 5.9 REFACTOR — Verificar idempotencia de la migración completa (`supabase db reset` local dos veces) y que no rompa los gates existentes: `test_function_acl_gate.sql` (los 5 chequeos), el de ERRCODEs de 5 caracteres y el de integridad de función.
 
 ## 6. Edge Function: plantilla de correo
 
@@ -94,24 +94,24 @@
 
 ## 9. Frontend: superficies
 
-- [ ] 9.1 RED — Test de `/cobranzas`: columna de importe vencido y tramo por fila **en texto**; el deudor sin vencimiento se presenta como tal y no como al día; la cabecera muestra total por cobrar **y** total vencido; el filtro de tramo se envía al servidor y no reordena en el cliente.
-- [ ] 9.2 GREEN — `/cobranzas`: columnas de vencimiento, filtro por tramo, y retiro de la nota al pie de la Etapa A que declaraba que el sistema no registra vencimientos (delta `REMOVED`), sustituida por el aviso de "sin plazos configurados" con acceso a Configuración cuando corresponda.
-- [ ] 9.3 RED+GREEN — Pestañas "Por cobrar" / "Por pagar" en la misma pantalla, con la tabla, los tramos y el filtro compartidos; acción de pago por fila abriendo el formulario de pago **existente**, sin formulario nuevo; `EmptyState` propio del lado proveedor.
-- [ ] 9.4 RED+GREEN — Botón de recordatorio por WhatsApp en la fila del deudor, con nombre accesible; caso del cliente sin teléfono utilizable (abre la mensajería sin destinatario resuelto, no queda inoperante).
-- [ ] 9.5 RED+GREEN — Campo de vencimiento en el **bloque de cuenta corriente que ya existe** del formulario de venta (el que muestra saldo actual y proyectado con `kind='credit'`), pre-cargado con el vencimiento resuelto y editable. **Ningún bloque nuevo, y el POS sin campo** (D11).
-- [ ] 9.6 RED+GREEN — Campo "Plazo de pago (días)" en `client-form.tsx` y `supplier-form.tsx`, con el vacío rotulado como "usa el plazo de la cuenta" y **no** como `0`.
-- [ ] 9.7 RED+GREEN — Pestaña "Cobranzas" en `/configuracion` (`TabsList` de `lg:grid-cols-8` a `lg:grid-cols-9`) con el formulario del plazo por defecto de la cuenta.
-- [ ] 9.8 RED+GREEN — Vencimiento, estado y saldo abierto por movimiento en el historial de cuenta corriente de cliente **y** de proveedor. Verificar sobre la **pantalla real**, no sólo sobre el test del endpoint paginado (D7).
-- [ ] 9.9 GREEN — Rótulos legibles de los dos tipos de notificación nuevos en el `TYPE_LABELS` de `NotificationBell.tsx`.
+- [x] 9.1 RED — Test de `/cobranzas`: columna de importe vencido y tramo por fila **en texto**; el deudor sin vencimiento se presenta como tal y no como al día; la cabecera muestra total por cobrar **y** total vencido; el filtro de tramo se envía al servidor y no reordena en el cliente.
+- [x] 9.2 GREEN — `/cobranzas`: columnas de vencimiento, filtro por tramo, y retiro de la nota al pie de la Etapa A que declaraba que el sistema no registra vencimientos (delta `REMOVED`), sustituida por el aviso de "sin plazos configurados" con acceso a Configuración cuando corresponda.
+- [x] 9.3 RED+GREEN — Pestañas "Por cobrar" / "Por pagar" en la misma pantalla, con la tabla, los tramos y el filtro compartidos; acción de pago por fila abriendo el formulario de pago **existente**, sin formulario nuevo; `EmptyState` propio del lado proveedor.
+- [x] 9.4 RED+GREEN — Botón de recordatorio por WhatsApp en la fila del deudor, con nombre accesible; caso del cliente sin teléfono utilizable (abre la mensajería sin destinatario resuelto, no queda inoperante).
+- [x] 9.5 RED+GREEN — Campo de vencimiento en el **bloque de cuenta corriente que ya existe** del formulario de venta (el que muestra saldo actual y proyectado con `kind='credit'`), pre-cargado con el vencimiento resuelto y editable. **Ningún bloque nuevo, y el POS sin campo** (D11).
+- [x] 9.6 RED+GREEN — Campo "Plazo de pago (días)" en `client-form.tsx` y `supplier-form.tsx`, con el vacío rotulado como "usa el plazo de la cuenta" y **no** como `0`.
+- [x] 9.7 RED+GREEN — Pestaña "Cobranzas" en `/configuracion` (`TabsList` de `lg:grid-cols-8` a `lg:grid-cols-9`) con el formulario del plazo por defecto de la cuenta.
+- [x] 9.8 RED+GREEN — Vencimiento, estado y saldo abierto por movimiento en el historial de cuenta corriente de cliente **y** de proveedor. Verificar sobre la **pantalla real**, no sólo sobre el test del endpoint paginado (D7).
+- [x] 9.9 GREEN — Rótulos legibles de los dos tipos de notificación nuevos en el `TYPE_LABELS` de `NotificationBell.tsx`.
 
 ## 10. Verificación
 
-- [ ] 10.1 Suite completa de backend en verde (`pytest`), con la cobertura por encima del umbral de CI.
-- [ ] 10.2 Suite completa de frontend en verde (`pnpm vitest run`) y `tsc` sin errores nuevos. **Cero `any`** en el código nuevo.
-- [ ] 10.3 `supabase db reset` local limpio con la migración nueva, aplicada **dos veces**, y los gates de `KPI_Validation.yml` corridos en el orden real del workflow. Anotar los fallos pre-existentes conocidos (`test_sales_order_payment_method_drop.sql`, el paso de reaplicación de idempotencia) en vez de "arreglarlos" en este PR.
+- [x] 10.1 Suite completa de backend en verde (`pytest`), con la cobertura por encima del umbral de CI.
+- [x] 10.2 Suite completa de frontend en verde (`pnpm vitest run`) y `tsc` sin errores nuevos. **Cero `any`** en el código nuevo.
+- [x] 10.3 `supabase db reset` local limpio con la migración nueva, aplicada **dos veces**, y los gates de `KPI_Validation.yml` corridos en el orden real del workflow. Anotar los fallos pre-existentes conocidos (`test_sales_order_payment_method_drop.sql`, el paso de reaplicación de idempotencia) en vez de "arreglarlos" en este PR.
 - [ ] 10.4 Verificación visual de `/cobranzas` (las dos pestañas), del formulario de venta a crédito, de los formularios de cliente y proveedor, de `/configuracion` y de los dos historiales de cuenta corriente, en las **cuatro** combinaciones (claro/oscuro × móvil/escritorio), con capturas. Confirmar que ninguna columna desaparece en móvil, que el documento no desborda horizontalmente y que la `TabsList` de 9 pestañas sigue siendo usable.
-- [ ] 10.5 Pasada de accesibilidad sobre la superficie nueva: nombre accesible del botón de recordatorio y de los accesos por fila, foco visible, contraste ≥4,5:1 en los importes y en los rótulos de tramo. **Tokens semánticos, cero colores hardcodeados** (D15).
-- [ ] 10.6 `openspec validate cobranzas-vencimientos --strict` en verde.
+- [x] 10.5 Pasada de accesibilidad sobre la superficie nueva: nombre accesible del botón de recordatorio y de los accesos por fila, foco visible, contraste ≥4,5:1 en los importes y en los rótulos de tramo. **Tokens semánticos, cero colores hardcodeados** (D15).
+- [x] 10.6 `openspec validate cobranzas-vencimientos --strict` en verde.
 
 ## 11. Post-merge (producción)
 
@@ -121,4 +121,4 @@
 - [ ] 11.4 Conteo de cargos con `due_date` no nulo: esperado **0** hasta que alguien configure un plazo. Conteo de movimientos históricos reescritos: esperado **0**.
 - [ ] 11.5 El total por cobrar del panel cierra contra la suma de los cinco tramos y contra el baseline de 1.6.
 - [ ] 11.6 Demo real al PO: configurar un plazo, registrar una venta a crédito, verificar el vencimiento en el historial, registrar un cobro parcial y ver la imputación FIFO, anular el cobro y ver los cargos reabrirse, y disparar el recordatorio por WhatsApp.
-- [ ] 11.7 Actualizar `CHANGES.md` y el puntero de `CLAUDE.md` (con `python scripts/ci/check_docs_sync.py --fix` en el mismo PR), registrando las OQs que queden abiertas.
+- [x] 11.7 Actualizar `CHANGES.md` y el puntero de `CLAUDE.md` (con `python scripts/ci/check_docs_sync.py --fix` en el mismo PR), registrando las OQs que queden abiertas.

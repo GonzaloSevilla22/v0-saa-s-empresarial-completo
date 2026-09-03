@@ -631,6 +631,10 @@ export interface Client {
   lastPurchase: string
   totalSpent: number
   category?: string
+  /** cobranzas-vencimientos (D2): plazo de pago propio en días. undefined =
+   * no informado (una edición lo PRESERVA); null = sin plazo propio (hereda
+   * el default de la cuenta); número = plazo pactado. Nunca significa 0. */
+  paymentTermsDays?: number | null
   taxId?: string
   ivaCondition?: IvaCondition
   legalName?: string
@@ -648,6 +652,8 @@ export interface Supplier {
   taxId?: string
   ivaCondition?: IvaCondition
   legalName?: string
+  /** cobranzas-vencimientos (D2): espejo de Client.paymentTermsDays. */
+  paymentTermsDays?: number | null
 }
 
 // ── Direcciones operativas del cliente (v3-catalog-masters, V3 §7.3) ─────────
@@ -892,6 +898,9 @@ export type NotificationType =
   // (PR3) y de vencimiento próximo de plan pago sin cobro confirmado (PR4).
   | "SubscriptionPaymentFailed"
   | "SubscriptionExpiringSoon"
+  // cobranzas-vencimientos (D8): resumen diario de deuda vencida, por lado.
+  | "ReceivablesOverdueDigest"
+  | "PayablesOverdueDigest"
 
 export type NotificationSeverity = "info" | "warning" | "urgent"
 

@@ -17,6 +17,7 @@ interface SupplierApiRow {
   account_id?: string
   name: string
   tax_id?: string | null
+  payment_terms_days?: number | null
   iva_condition?: IvaCondition | null
   legal_name?: string | null
   email?: string | null
@@ -33,6 +34,9 @@ function mapSupplier(s: SupplierApiRow): Supplier {
     taxId:        s.tax_id       || undefined,
     ivaCondition: s.iva_condition || undefined,
     legalName:    s.legal_name   || undefined,
+    // cobranzas-vencimientos: null = "usa el plazo de la cuenta" — se
+    // preserva, nunca degrada a 0 ni a undefined (D14).
+    paymentTermsDays: s.payment_terms_days ?? null,
   }
 }
 
@@ -78,6 +82,9 @@ export function useSuppliers() {
         email:         supplier.email        || null,
         phone:         supplier.phone        || null,
         tax_id:        supplier.taxId        || null,
+        ...(supplier.paymentTermsDays !== undefined
+          ? { payment_terms_days: supplier.paymentTermsDays }
+          : {}),
         iva_condition: supplier.ivaCondition || null,
         legal_name:    supplier.legalName    || null,
       })
@@ -94,6 +101,9 @@ export function useSuppliers() {
         email:         supplier.email        || null,
         phone:         supplier.phone        || null,
         tax_id:        supplier.taxId        || null,
+        ...(supplier.paymentTermsDays !== undefined
+          ? { payment_terms_days: supplier.paymentTermsDays }
+          : {}),
         iva_condition: supplier.ivaCondition || null,
         legal_name:    supplier.legalName    || null,
       })

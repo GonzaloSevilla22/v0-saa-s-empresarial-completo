@@ -17,6 +17,7 @@ interface ClientApiRow {
   tax_id?: string | null
   iva_condition?: IvaCondition | null
   legal_name?: string | null
+  payment_terms_days?: number | null
   created_at: string
 }
 
@@ -34,6 +35,10 @@ function mapClient(c: ClientApiRow): Client {
     taxId:        c.tax_id       || undefined,
     ivaCondition: c.iva_condition || undefined,
     legalName:    c.legal_name   || undefined,
+    // cobranzas-vencimientos: null explicito = "usa el plazo de la cuenta" —
+    // se PRESERVA (nunca degrada a 0 ni a undefined: el form necesita saber
+    // el valor vigente para no pisarlo, D14).
+    paymentTermsDays: c.payment_terms_days ?? null,
   }
 }
 
@@ -80,6 +85,11 @@ export function useClients() {
         tax_id:        client.taxId        || null,
         iva_condition: client.ivaCondition || null,
         legal_name:    client.legalName    || null,
+        // cobranzas-vencimientos (D14): solo viaja si el caller lo informo —
+        // undefined = omitido (el backend preserva/queda NULL en el alta).
+        ...(client.paymentTermsDays !== undefined
+          ? { payment_terms_days: client.paymentTermsDays }
+          : {}),
       })
     },
     onSuccess: () => {
@@ -96,6 +106,12 @@ export function useClients() {
         tax_id:        client.taxId        || null,
         iva_condition: client.ivaCondition || null,
         legal_name:    client.legalName    || null,
+        // cobranzas-vencimientos (D14): tri-estado — undefined = NO viaja
+        // (el backend PRESERVA el plazo configurado); null = limpiar (vuelve
+        // a heredar el default de la cuenta); numero = setear.
+        ...(client.paymentTermsDays !== undefined
+          ? { payment_terms_days: client.paymentTermsDays }
+          : {}),
       })
     },
     onSuccess: () => {

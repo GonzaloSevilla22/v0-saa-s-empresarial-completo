@@ -186,6 +186,12 @@ export function useSales() {
          * escribir nada si tampoco hay default) — la RPC resuelve y valida.
          */
         bankAccountId?: string | null
+        /**
+         * cobranzas-vencimientos (D3/D11): vencimiento explicito de la venta
+         * a credito. null/ausente = la cascada de plazos (cliente → cuenta)
+         * se resuelve en el helper del servidor, nunca aca.
+         */
+        dueDate?: string | null
       }
     }): Promise<SaleOperationResult> => {
       const payload = {
@@ -197,6 +203,7 @@ export function useSales() {
         payment_method_id: opMeta.paymentMethodId ?? null,
         cash_session_id: opMeta.cashSessionId ?? null,
         bank_account_id: opMeta.bankAccountId ?? null,
+        due_date:        opMeta.dueDate ?? null,
         items: items.map(item => ({
           product_id: item.productId,
           amount:     item.unitPrice * (1 - item.discount / 100),

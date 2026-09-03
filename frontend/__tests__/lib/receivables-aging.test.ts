@@ -18,6 +18,7 @@ import { mapReceivableRow, type ReceivableRawRow } from "@/lib/receivables"
 import {
   classifyWorstBucket,
   AGING_BUCKET_LABELS,
+  addDaysToIsoDate,
   formatDueStatus,
   formatMovementDueStatus,
 } from "@/lib/receivables-aging"
@@ -225,5 +226,19 @@ describe("buildDebtReminderMessage (task 8.3 — función pura)", () => {
     const noPhone = mapReceivableRow({ ...BASE_RAW, client_phone: null })
     const url = buildDebtReminderUrl(noPhone)
     expect(url).toMatch(/^https:\/\/wa\.me\/\?text=/)
+  })
+})
+
+describe("addDaysToIsoDate (task 9.5 — preview del vencimiento resuelto)", () => {
+  it("suma dias en calendario, sin efectos de huso", () => {
+    expect(addDaysToIsoDate("2026-09-02", 30)).toBe("2026-10-02")
+  })
+
+  it("cruza fin de mes y de anio", () => {
+    expect(addDaysToIsoDate("2026-12-20", 15)).toBe("2027-01-04")
+  })
+
+  it("0 dias = el mismo dia (contado a la vista)", () => {
+    expect(addDaysToIsoDate("2026-09-02", 0)).toBe("2026-09-02")
   })
 })

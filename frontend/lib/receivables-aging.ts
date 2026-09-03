@@ -76,6 +76,18 @@ export function formatDueStatus(row: AgingRow): string {
   return "Sin vencimiento"
 }
 
+/**
+ * Suma días calendario a una fecha ISO (yyyy-mm-dd) sin efectos de huso —
+ * preview del vencimiento resuelto en el formulario de venta (9.5). El
+ * cálculo AUTORITATIVO vive en el servidor (_pay_register_party_charge);
+ * esto es sólo lo que el usuario ve antes de enviar.
+ */
+export function addDaysToIsoDate(isoDate: string, days: number): string {
+  const [y, m, d] = isoDate.split("-").map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d + days))
+  return date.toISOString().slice(0, 10)
+}
+
 /** Derivados de vencimiento de UN movimiento del historial (D7). */
 export interface MovementDueInfo {
   isOverdue: boolean | null

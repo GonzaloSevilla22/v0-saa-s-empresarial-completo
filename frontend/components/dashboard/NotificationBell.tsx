@@ -33,6 +33,9 @@ const TYPE_LABELS: Record<Notification["type"], string> = {
   // mp-real-subscriptions (D11): dunning de suscripción.
   SubscriptionPaymentFailed: "Cobro de suscripción rechazado",
   SubscriptionExpiringSoon: "Suscripción por vencer",
+  // cobranzas-vencimientos (D8): resumen diario de deuda vencida, por lado.
+  ReceivablesOverdueDigest: "Deuda vencida por cobrar",
+  PayablesOverdueDigest: "Deuda vencida con proveedores",
 }
 
 /**

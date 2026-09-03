@@ -1,5 +1,6 @@
 "use client"
 
+import { useSearchParams } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { useProducts } from "@/hooks/data/use-products"
 import { useClients } from "@/hooks/data/use-clients"
@@ -10,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet } from "lucide-react"
+import { Crown, Check, X, Package, Users, Sparkles, User, Settings2, ShieldCheck, FileText, Tags, Wallet, CalendarClock } from "lucide-react"
 import { MAX_PRODUCTS_FREE, MAX_CLIENTS_FREE, MAX_INSIGHTS_FREE } from "@/lib/constants"
 import { ProfileForm } from "@/components/settings/ProfileForm"
 import { AccountForm } from "@/components/settings/AccountForm"
@@ -18,6 +19,7 @@ import { SystemForm } from "@/components/settings/SystemForm"
 import { TeamSection } from "@/components/settings/TeamSection"
 import { FiscalSettings } from "@/components/settings/FiscalSettings"
 import { CostCenterManager } from "@/components/cost-centers/CostCenterManager"
+import { CollectionSettingsForm } from "@/components/settings/CollectionSettingsForm"
 import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethodManager"
 
 // ── Plan comparison data (unchanged from original) ────────────────────────────
@@ -35,8 +37,20 @@ const features = [
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
+const TAB_VALUES = [
+  "perfil", "cuenta", "fiscal", "sistema", "equipo",
+  "centros-costo", "formas-pago", "cobranzas", "plan",
+] as const
+
 export default function ConfiguracionPage() {
   const { user, effectivePlan, upgradePlan, downgradePlan } = useAuth()
+  // cobranzas-vencimientos (task 9.7): /cobranzas enlaza directo a la pestaña
+  // Cobranzas con ?tab= — un valor fuera del dominio cae al default.
+  const searchParams = useSearchParams()
+  const requestedTab = searchParams.get("tab")
+  const initialTab = (TAB_VALUES as readonly string[]).includes(requestedTab ?? "")
+    ? (requestedTab as (typeof TAB_VALUES)[number])
+    : "perfil"
   const { products } = useProducts()
   const { clients }  = useClients()
   const { limits } = usePlanLimits()
@@ -50,11 +64,14 @@ export default function ConfiguracionPage() {
         <p className="text-sm text-muted-foreground mt-1">Gestioná tu perfil, cuenta y preferencias</p>
       </div>
 
-      <Tabs defaultValue="perfil" className="w-full">
+      <Tabs defaultValue={initialTab} className="w-full">
         {/* ── Tab navigation ─────────────────────────────────────────────────── */}
         {/* cost-center-surface: 7 tabs — la fila única se reserva para lg,
             donde hay ancho real; en sm quedan 4+3 y en mobile 3+3+1. */}
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-4 lg:grid-cols-8 mb-6 h-auto">
+        {/* cobranzas-vencimientos (D10): 9 tabs — lg pasa de 8 a 9 columnas
+            (etiquetas ya en text-xs sm:text-sm); en sm quedan 5+4 y en
+            mobile 3+3+3. */}
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
             <span>Perfil</span>
@@ -82,6 +99,10 @@ export default function ConfiguracionPage() {
           <TabsTrigger value="formas-pago" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Wallet className="h-3.5 w-3.5" />
             <span>Formas de pago</span>
+          </TabsTrigger>
+          <TabsTrigger value="cobranzas" className="flex items-center gap-1.5 text-xs sm:text-sm">
+            <CalendarClock className="h-3.5 w-3.5" />
+            <span>Cobranzas</span>
           </TabsTrigger>
           <TabsTrigger value="plan" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <Crown className="h-3.5 w-3.5" />
@@ -151,6 +172,21 @@ export default function ConfiguracionPage() {
             </p>
           </div>
           <PaymentMethodManager />
+        </TabsContent>
+
+        {/* ── Cobranzas (cobranzas-vencimientos D10) ──────────────────────────
+            El plazo por defecto de la cuenta — el nivel base de la cascada
+            que resuelve el vencimiento de cada venta/compra a crédito. */}
+        <TabsContent value="cobranzas">
+          <div className="flex flex-col gap-1 mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Cobranzas</h2>
+            <p className="text-sm text-muted-foreground">
+              Plazo de pago por defecto para las ventas y compras a cuenta corriente.
+              Cada cliente o proveedor puede tener un plazo propio que gana sobre este;
+              sin plazo en ningún lado, los cargos nacen sin vencimiento.
+            </p>
+          </div>
+          <CollectionSettingsForm />
         </TabsContent>
 
         {/* ── Plan (contenido original sin modificaciones) ───────────────────── */}

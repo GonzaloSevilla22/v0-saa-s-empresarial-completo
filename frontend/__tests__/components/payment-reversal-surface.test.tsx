@@ -48,6 +48,11 @@ function customerMovement(overrides: Partial<CustomerAccountMovement>): Customer
     hasCashMovement: false,
     hasBankMovement: false,
     paymentMethod: null,
+    // cobranzas-vencimientos (D7): derivados de vencimiento — null = no aplica.
+    dueDate: null,
+    openAmount: null,
+    isOverdue: null,
+    daysOverdue: null,
     ...overrides,
   }
 }
@@ -68,6 +73,11 @@ function supplierMovement(overrides: Partial<SupplierAccountMovement>): Supplier
     hasCashMovement: false,
     hasBankMovement: false,
     paymentMethod: null,
+    // cobranzas-vencimientos (D7): derivados de vencimiento — null = no aplica.
+    dueDate: null,
+    openAmount: null,
+    isOverdue: null,
+    daysOverdue: null,
     ...overrides,
   }
 }

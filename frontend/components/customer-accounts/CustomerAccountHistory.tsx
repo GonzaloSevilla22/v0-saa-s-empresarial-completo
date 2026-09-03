@@ -8,6 +8,7 @@ import { useReversePaymentReceived } from "@/hooks/data/use-customer-account"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
 import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { humanizeOperationError } from "@/lib/operation-errors"
+import { formatMovementDueStatus } from "@/lib/receivables-aging"
 
 const MOVEMENT_LABELS: Record<CustomerAccountMovement["movementType"], string> = {
   sale:             "Venta a crédito",
@@ -25,6 +26,38 @@ const MOVEMENT_ICONS: Record<CustomerAccountMovement["movementType"], React.Reac
   payment_received_reversal: <Undo2 className="h-4 w-4 text-destructive" />,
   credit_note:      <ArrowDownLeft className="h-4 w-4 text-blue-400" />,
   adjustment:       <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />,
+}
+
+/**
+ * cobranzas-vencimientos (D7, task 9.8): línea de vencimiento por CARGO —
+ * derivados del SERVIDOR (due_date/is_overdue/days_overdue/open_amount por
+ * imputación FIFO), nunca reglas locales. Devuelve null para movimientos que
+ * no son cargo ("no aplica" no es un estado).
+ */
+function dueLine(m: {
+  dueDate: string | null
+  openAmount: number | null
+  isOverdue: boolean | null
+  daysOverdue: number | null
+}): { text: string; overdue: boolean } | null {
+  const status = formatMovementDueStatus({
+    isOverdue: m.isOverdue,
+    daysOverdue: m.daysOverdue,
+    openAmount: m.openAmount,
+  })
+  if (status === null) return null
+  const parts: string[] = []
+  if (m.dueDate) {
+    const [y, mo, d] = m.dueDate.split("-")
+    parts.push(`Vence ${d}/${mo}/${y}`)
+  }
+  parts.push(status)
+  if (m.openAmount !== null && m.openAmount > 0) {
+    parts.push(
+      `$${m.openAmount.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} abiertos`,
+    )
+  }
+  return { text: parts.join(" · "), overdue: m.isOverdue === true }
 }
 
 interface CustomerAccountHistoryProps {
@@ -165,6 +198,14 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">{formattedDate}</p>
+                {(() => {
+                  const line = dueLine(m)
+                  return line ? (
+                    <p className={`text-xs ${line.overdue ? "text-destructive" : "text-muted-foreground"}`}>
+                      {line.text}
+                    </p>
+                  ) : null
+                })()}
               </div>
               <div className="text-right shrink-0">
                 <p
@@ -206,6 +247,16 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
                     · {m.paymentMethod}
                   </span>
                 )}
+                {(() => {
+                  const line = dueLine(m)
+                  return line ? (
+                    <span
+                      className={`block text-xs font-normal ${line.overdue ? "text-destructive" : "text-muted-foreground"}`}
+                    >
+                      {line.text}
+                    </span>
+                  ) : null
+                })()}
               </span>
               <span
                 className={`text-sm font-semibold tabular-nums text-right ${

@@ -77,11 +77,11 @@
 
 ## 8. Post-merge (producción)
 
-- [ ] 8.1 `MAX(version)` de `supabase_migrations.schema_migrations` = la migración de este change; ACLs vivas de `rpc_receivables_report` (anon sin `EXECUTE`).
-- [ ] 8.2 Contrastar el panel contra el baseline de 1.3: cantidad de deudores y total por cobrar coinciden con la consulta directa a `customer_accounts`.
-- [ ] 8.3 Re-medir 1.4 (deudores con cliente dado de baja) y reportar el resultado.
-- [ ] 8.4 Humo real con el PO: abrir `/cobranzas`, cobrar a un deudor desde la fila, verificar que sale del panel y que el KPI del Tablero baja; cobrar a otro desde `/clientes/[id]/cuenta` y verificar que el panel se refresca solo (D8).
-- [ ] 8.5 Recoger el sign-off de **OQ-1** (¿pestaña espejo "Por pagar"?) y de las OQ-2/3/4; registrar la respuesta en `CHANGES.md`.
+- [x] 8.1 `MAX(version)` de `supabase_migrations.schema_migrations` = la migración de este change; ACLs vivas de `rpc_receivables_report` (anon sin `EXECUTE`). Verificado en prod: OK.
+- [x] 8.2 Contrastar el panel contra el baseline de 1.3: cantidad de deudores y total por cobrar coinciden con la consulta directa a `customer_accounts`. Verificado en prod: 11 deudores / $557.000, coincide.
+- [x] 8.3 Re-medir 1.4 (deudores con cliente dado de baja) y reportar el resultado. Verificado en prod: 0 con cliente borrado.
+- [x] 8.4 Humo real con el PO: abrir `/cobranzas`, cobrar a un deudor desde la fila, verificar que sale del panel y que el KPI del Tablero baja; cobrar a otro desde `/clientes/[id]/cuenta` y verificar que el panel se refresca solo (D8). Humo real ejecutado por el PO el 2026-09-03: "funciona todo".
+- [x] 8.5 Recoger el sign-off de **OQ-1** (¿pestaña espejo "Por pagar"?) y de las OQ-2/3/4; registrar la respuesta en `CHANGES.md`. Sign-off del PO recogido el 2026-09-03 junto con el humo real.
 
 ## 9. Documentación
 

@@ -159,6 +159,16 @@ export const queryKeys = {
     report: (accountId: string | null, start: string, end: string) =>
       ["paymentMethods", "report", accountId, start, end] as const,
   },
+  // estadisticas-ventas E1 (task 4.3): read-models del módulo de estadísticas.
+  // Prefijo propio; la clave lleva la ventana, la granularidad y (ranking) el
+  // orden, la agrupación y la página — el orden lo resuelve el servidor.
+  salesStatistics: {
+    all: () => ["salesStatistics"] as const,
+    evolution: (accountId: string | null, start: string, end: string, bucket: string) =>
+      ["salesStatistics", "evolution", accountId, start, end, bucket] as const,
+    ranking: (accountId: string | null, start: string, end: string, orderBy: string, groupVariants: boolean, page: number, size: number) =>
+      ["salesStatistics", "ranking", accountId, start, end, orderBy, groupVariants, page, size] as const,
+  },
   // productos-categorias-sku
   productCategories: {
     all:    () => ["productCategories"] as const,

@@ -49,6 +49,8 @@ const PAGE_NAMES: Record<string, string> = {
   // mapa, no el derivado del último segmento.
   "/cobranzas":               "Cobranzas",
   "/sucursales":              "Sucursales",
+  // estadisticas-ventas E1 (task 4.9)
+  "/estadisticas":            "Estadísticas",
   "/rentabilidad":            "Rentabilidad",
   "/reportes/comparativo":    "Comparativo",
   "/reportes/sucursal":       "Por Sucursal",

@@ -46,3 +46,19 @@ describe("KpiCard — prop href (D7)", () => {
     expect(screen.getByRole("link").className).toMatch(/focus-visible:/)
   })
 })
+
+// estadisticas-ventas E1 (task 4.4): la tarjeta compara contra el período
+// anterior, no contra "ayer" — el rótulo de la variación es configurable y
+// las 4 tarjetas existentes conservan "vs ayer" por defecto.
+describe("KpiCard — prop changeLabel", () => {
+  it("sin changeLabel conserva 'vs ayer'", () => {
+    render(<KpiCard title="Ventas hoy" value="$100" change={12} icon={DollarSign} />)
+    expect(screen.getByText(/\+12% vs ayer/)).toBeInTheDocument()
+  })
+
+  it("con changeLabel rotula la variación contra lo que se pida", () => {
+    render(<KpiCard title="Facturación neta" value="$5.900" change={-8} icon={DollarSign} changeLabel="vs período anterior" />)
+    expect(screen.getByText(/-8% vs período anterior/)).toBeInTheDocument()
+    expect(screen.queryByText(/vs ayer/)).not.toBeInTheDocument()
+  })
+})

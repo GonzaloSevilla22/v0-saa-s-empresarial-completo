@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest"
 import { navGroups } from "@/components/app-sidebar"
-import { Truck, Users } from "lucide-react"
+import { BarChart3, Truck, Users } from "lucide-react"
 
 describe("app-sidebar navGroups — entrada Proveedores", () => {
   const catalogo = navGroups.find((g) => g.label === "Catálogo")
@@ -63,5 +63,29 @@ describe("app-sidebar navGroups — entrada Cobranzas (cobranzas-panel)", () => 
     expect(titles).toContain("Caja")
     expect(titles).toContain("Banco")
     expect(titles).toContain("Cobranzas")
+  })
+})
+
+// estadisticas-ventas E1 (task 4.9): el módulo de estadísticas cuelga de
+// Inteligencia, sin gate de plan — disponible en todos los planes; el
+// historial se recorta en el servidor (D8).
+describe("app-sidebar navGroups — entrada Estadísticas (estadisticas-ventas)", () => {
+  const inteligencia = navGroups.find((g) => g.label === "Inteligencia")
+
+  it("existe una entrada 'Estadísticas' con href /estadisticas e ícono BarChart3, sin gate", () => {
+    const item = inteligencia?.items.find((i) => i.title === "Estadísticas")
+    expect(item).toBeDefined()
+    expect(item?.href).toBe("/estadisticas")
+    expect(item?.icon).toBe(BarChart3)
+    expect(item?.pro).toBe(false)
+    expect(item?.proOnly).toBe(false)
+  })
+
+  it("aparece inmediatamente antes de 'Rentabilidad' (responde qué se vende; Rentabilidad, qué deja margen)", () => {
+    const items = inteligencia?.items ?? []
+    const estadisticasIdx = items.findIndex((i) => i.title === "Estadísticas")
+    const rentabilidadIdx = items.findIndex((i) => i.title === "Rentabilidad")
+    expect(estadisticasIdx).toBeGreaterThanOrEqual(0)
+    expect(rentabilidadIdx).toBe(estadisticasIdx + 1)
   })
 })

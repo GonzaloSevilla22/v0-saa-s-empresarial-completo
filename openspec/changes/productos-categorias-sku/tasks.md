@@ -66,32 +66,32 @@
 
 ## 8. Backend — catálogo de categorías (FastAPI, 3 capas)
 
-- [ ] 8.1 RED: tests de `ProductCategoryRepository` — listar por cuenta con/sin inactivas, crear, renombrar, reordenar, desactivar; aislamiento por cuenta.
-- [ ] 8.2 GREEN: `repositories/product_category_repository.py`, espejo de `payment_method_repository.py`.
-- [ ] 8.3 RED: tests de service — `require_role` en escritura, 403 para `member`, RFC 7807.
-- [ ] 8.4 GREEN: `services/product_categories.py` + `schemas/product_categories.py` (Pydantic v2, nada de payloads sin schema).
-- [ ] 8.5 GREEN: `routers/product_categories.py` con `GET ""` (`include_inactive`), `POST ""`, `PATCH /{id}`, `PATCH /{id}/deactivate`. Registrar el router en la app.
-- [ ] 8.6 TRIANGULATE: categoría de otra cuenta → 404/403 sin revelar existencia; nombre duplicado → 409 legible; `member` lee pero no escribe.
+- [x] 8.1 RED: tests de `ProductCategoryRepository` — listar por cuenta con/sin inactivas, crear, renombrar, reordenar, desactivar; aislamiento por cuenta.
+- [x] 8.2 GREEN: `repositories/product_category_repository.py`, espejo de `payment_method_repository.py`.
+- [x] 8.3 RED: tests de service — `require_role` en escritura, 403 para `member`, RFC 7807.
+- [x] 8.4 GREEN: `services/product_categories.py` + `schemas/product_categories.py` (Pydantic v2, nada de payloads sin schema).
+- [x] 8.5 GREEN: `routers/product_categories.py` con `GET ""` (`include_inactive`), `POST ""`, `PATCH /{id}`, `PATCH /{id}/deactivate`. Registrar el router en la app.
+- [x] 8.6 TRIANGULATE: categoría de otra cuenta → 404/403 sin revelar existencia; nombre duplicado → 409 legible; `member` lee pero no escribe.
 
 ## 9. Backend — producto: `category_id`, SKU y tri-estado
 
-- [ ] 9.1 SAFETY NET: baseline de los tests vivos de `products` (repository, service, router).
-- [ ] 9.2 RED: tests del contrato tri-estado (D12) — campo ausente conserva, con valor asigna, en nulo desasigna; para `sku` y `category_id`. Hoy imposible: `services/products.py` hace `model_dump(exclude_none=True)` y el repository vuelve a filtrar por `is not None` (**doble filtro**, hallazgo del propose).
-- [ ] 9.3 GREEN: `ProductCreate`/`ProductUpdate` incorporan `category_id`; el router distingue los tres estados con `model_fields_set` (precedente exacto: `bank_account_id` en `PaymentMethodUpdate`), NUNCA por `is None`.
-- [ ] 9.4 GREEN: retirar el doble filtro por `None` del camino de update **sólo** para `sku` y `category_id`; el resto de los campos conserva su comportamiento actual (no ampliar el alcance).
-- [ ] 9.5 GREEN: normalizar el SKU (`trim`, vacío → `NULL`) en el service y validar `category_id` contra la cuenta.
-- [ ] 9.6 GREEN: traducir la violación del índice único de SKU a **409** con mensaje legible que nombre el SKU en conflicto. La restricción de la base es la fuente de verdad; la comprobación previa sólo mejora el mensaje.
-- [ ] 9.7 GREEN: la variante hereda `category_id` del padre **resuelto en el servidor**, ignorando lo que mande el cliente.
-- [ ] 9.8 TRIANGULATE: alta sin SKU; alta con SKU; SKU sólo espacios → `NULL`; SKU duplicado → 409; borrar SKU; categoría de otra cuenta → rechazada; variante que contradice al padre → gana el padre.
+- [x] 9.1 SAFETY NET: baseline de los tests vivos de `products` (repository, service, router).
+- [x] 9.2 RED: tests del contrato tri-estado (D12) — campo ausente conserva, con valor asigna, en nulo desasigna; para `sku` y `category_id`. Hoy imposible: `services/products.py` hace `model_dump(exclude_none=True)` y el repository vuelve a filtrar por `is not None` (**doble filtro**, hallazgo del propose).
+- [x] 9.3 GREEN: `ProductCreate`/`ProductUpdate` incorporan `category_id`; el router distingue los tres estados con `model_fields_set` (precedente exacto: `bank_account_id` en `PaymentMethodUpdate`), NUNCA por `is None`.
+- [x] 9.4 GREEN: retirar el doble filtro por `None` del camino de update **sólo** para `sku` y `category_id`; el resto de los campos conserva su comportamiento actual (no ampliar el alcance).
+- [x] 9.5 GREEN: normalizar el SKU (`trim`, vacío → `NULL`) en el service y validar `category_id` contra la cuenta.
+- [x] 9.6 GREEN: traducir la violación del índice único de SKU a **409** con mensaje legible que nombre el SKU en conflicto. La restricción de la base es la fuente de verdad; la comprobación previa sólo mejora el mensaje.
+- [x] 9.7 GREEN: la variante hereda `category_id` del padre **resuelto en el servidor**, ignorando lo que mande el cliente.
+- [x] 9.8 TRIANGULATE: alta sin SKU; alta con SKU; SKU sólo espacios → `NULL`; SKU duplicado → 409; borrar SKU; categoría de otra cuenta → rechazada; variante que contradice al padre → gana el padre.
 - [ ] 9.9 Verificar coverage ≥87% (umbral de CI) en los módulos tocados.
 
 ### Recategorización en lote (D14)
 
-- [ ] 9.10 RED: tests del repository de lote — `UPDATE … WHERE id = ANY($1) AND account_id = $2 AND category_id IS DISTINCT FROM $3` actualiza sólo lo propio; ids ajenos quedan fuera sin error; repetir no reescribe filas.
-- [ ] 9.11 RED: tests de service — categoría destino inexistente / de otra cuenta / borrada / inactiva → **404** RFC 7807 con mensaje que no revela si existe en otra cuenta; ningún producto modificado.
-- [ ] 9.12 GREEN: implementar el método de lote en `ProductRepository` **como un solo `UPDATE`** (atómico por definición) con el filtro explícito por `account_id` — es el guard de tenencia, no la RLS sola (regla dura del proyecto). Expandir cada padre a sus variantes y normalizar un id de variante suelto a su padre, en la misma sentencia.
-- [ ] 9.13 GREEN: endpoint `PATCH /products/bulk-category` (schema Pydantic v2, tope de 500 ids por request) que devuelve `solicitados` y `actualizados`.
-- [ ] 9.14 TRIANGULATE: lote mixto propio/ajeno; padre con variantes propaga a todo el grupo; variante suelta recategoriza el grupo; idempotencia; tope excedido rechazado; el espejo `products.category` queda correcto en todas las filas tocadas (lo garantiza el trigger de 3.3 — verificarlo, no asumirlo).
+- [x] 9.10 RED: tests del repository de lote — `UPDATE … WHERE id = ANY($1) AND account_id = $2 AND category_id IS DISTINCT FROM $3` actualiza sólo lo propio; ids ajenos quedan fuera sin error; repetir no reescribe filas.
+- [x] 9.11 RED: tests de service — categoría destino inexistente / de otra cuenta / borrada / inactiva → **404** RFC 7807 con mensaje que no revela si existe en otra cuenta; ningún producto modificado.
+- [x] 9.12 GREEN: implementar el método de lote en `ProductRepository` **como un solo `UPDATE`** (atómico por definición) con el filtro explícito por `account_id` — es el guard de tenencia, no la RLS sola (regla dura del proyecto). Expandir cada padre a sus variantes y normalizar un id de variante suelto a su padre, en la misma sentencia.
+- [x] 9.13 GREEN: endpoint `PATCH /products/bulk-category` (schema Pydantic v2, tope de 500 ids por request) que devuelve `solicitados` y `actualizados`.
+- [x] 9.14 TRIANGULATE: lote mixto propio/ajeno; padre con variantes propaga a todo el grupo; variante suelta recategoriza el grupo; idempotencia; tope excedido rechazado; el espejo `products.category` queda correcto en todas las filas tocadas (lo garantiza el trigger de 3.3 — verificarlo, no asumirlo).
 
 ## 10. Frontend — hook, selector y gestor del catálogo
 

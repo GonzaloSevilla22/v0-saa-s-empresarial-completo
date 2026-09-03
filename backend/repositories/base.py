@@ -10,8 +10,20 @@ import asyncpg
 # CashboxRepository.soft_delete_cashbox() (OQ2 del design).
 # v3-catalog-masters: client_addresses tiene account_id DIRECTO (D2 del
 # design) — igual familia que clients/products, se agrega a la allowlist.
+# productos-categorias-sku (D3): product_categories entra a la enumeración de
+# maestros de soft-delete-policy — account_id directo, misma política que
+# cost_centers (la baja es desactivación o soft delete, nunca borrado físico
+# de una fila referenciada: la FK de products.category_id es RESTRICT).
 SOFT_DELETE_TABLES: frozenset[str] = frozenset(
-    {"clients", "products", "suppliers", "cost_centers", "bank_accounts", "client_addresses"}
+    {
+        "clients",
+        "products",
+        "suppliers",
+        "cost_centers",
+        "bank_accounts",
+        "client_addresses",
+        "product_categories",
+    }
 )
 
 

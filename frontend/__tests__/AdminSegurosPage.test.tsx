@@ -101,7 +101,15 @@ beforeEach(() => {
 })
 
 async function openCreateDialog() {
-  const user = userEvent.setup()
+  // delay: null: estos flujos tipean decenas de campos (identidad + matrícula
+  // + listas + zonas + 4 vías de contacto) con userEvent.type carácter por
+  // carácter; con el delay real por defecto, cada tecla espera un timer real
+  // y el test entero se acerca al testTimeout (20s) bajo contención de CPU
+  // (CI de 2 cores, o la suite completa corriendo en paralelo) — ahí es
+  // donde se vuelve flaky. Sin delay las mismas interacciones ocurren, solo
+  // que sin la espera artificial entre teclas (mismo patrón ya usado en
+  // LedgerMovementsPanel.test.tsx).
+  const user = userEvent.setup({ delay: null })
   render(<AdminSegurosPage />)
   await screen.findByText(/listado detallado/i)
   await user.click(screen.getByRole("button", { name: /crear seguro/i }))
@@ -113,6 +121,23 @@ async function selectEntryType(user: ReturnType<typeof userEvent.setup>, label: 
   await user.click(await screen.findByRole("option", { name: label }))
 }
 
+/**
+ * Carga el valor final de un campo con un único evento de "pegado" en vez de
+ * tipear carácter por carácter. `AdminSegurosPage` guarda `formData` en un
+ * solo estado a nivel de página (sin memoización), así que cada tecla de
+ * `user.type` vuelve a renderizar TODA la página (KPIs + tabla + gráfico +
+ * diálogo) — medido: ~48ms/render bajo carga. En el test de alta completa
+ * eso son ~200 caracteres → ~150 renders → el test se acerca al testTimeout
+ * de 20s bajo contención de CPU (CI de 2 cores, o la suite corriendo en
+ * paralelo). `paste` dispara el mismo onChange controlado con el valor
+ * final una sola vez por campo (13 renders en vez de ~150) — mismo payload
+ * final, mismas aserciones, sin la carrera contra el reloj.
+ */
+async function fastType(user: ReturnType<typeof userEvent.setup>, element: HTMLElement, text: string) {
+  await user.click(element)
+  await user.paste(text)
+}
+
 describe("AdminSegurosPage — alta completa de un asesor", () => {
   it("crea un asesor con identidad, matrícula, listas, zonas y las 4 vías de contacto", async () => {
     getAllInsurancesMock.mockResolvedValue([])
@@ -120,25 +145,25 @@ describe("AdminSegurosPage — alta completa de un asesor", () => {
 
     await selectEntryType(user, "Asesor")
 
-    await user.type(screen.getByLabelText(/título/i), "Julián Dupás — PAS")
-    await user.type(screen.getByLabelText(/nombre del asesor/i), "Julián Dupás")
-    await user.type(screen.getByLabelText(/^rol$/i), "Productor Asesor de Seguros")
-    await user.type(screen.getByLabelText(/^slug$/i), "julian-dupas")
-    await user.type(screen.getByLabelText(/matrícula/i), "98506")
-    await user.type(screen.getByLabelText(/whatsapp/i), "5492266474348")
-    await user.type(screen.getByLabelText(/^email$/i), "julian@argbroker.com.ar")
-    await user.type(screen.getByLabelText(/^teléfono$/i), "2266 474348")
-    await user.type(screen.getByLabelText(/sitio web/i), "https://www.argbroker.com.ar")
+    await fastType(user, screen.getByLabelText(/título/i), "Julián Dupás — PAS")
+    await fastType(user, screen.getByLabelText(/nombre del asesor/i), "Julián Dupás")
+    await fastType(user, screen.getByLabelText(/^rol$/i), "Productor Asesor de Seguros")
+    await fastType(user, screen.getByLabelText(/^slug$/i), "julian-dupas")
+    await fastType(user, screen.getByLabelText(/matrícula/i), "98506")
+    await fastType(user, screen.getByLabelText(/whatsapp/i), "5492266474348")
+    await fastType(user, screen.getByLabelText(/^email$/i), "julian@argbroker.com.ar")
+    await fastType(user, screen.getByLabelText(/^teléfono$/i), "2266 474348")
+    await fastType(user, screen.getByLabelText(/sitio web/i), "https://www.argbroker.com.ar")
 
     await user.click(screen.getByRole("button", { name: /agregar línea de servicio/i }))
-    await user.type(screen.getByLabelText(/título de línea de servicio 1/i), "Autos y motos")
-    await user.type(screen.getByLabelText(/descripción de línea de servicio 1/i), "Coberturas adaptadas.")
+    await fastType(user, screen.getByLabelText(/título de línea de servicio 1/i), "Autos y motos")
+    await fastType(user, screen.getByLabelText(/descripción de línea de servicio 1/i), "Coberturas adaptadas.")
 
     await user.click(screen.getByRole("button", { name: /agregar pilar/i }))
-    await user.type(screen.getByLabelText(/título de pilar 1/i), "Transparencia")
-    await user.type(screen.getByLabelText(/contenido de pilar 1/i), "Explico todo antes de firmar.")
+    await fastType(user, screen.getByLabelText(/título de pilar 1/i), "Transparencia")
+    await fastType(user, screen.getByLabelText(/contenido de pilar 1/i), "Explico todo antes de firmar.")
 
-    await user.type(screen.getByLabelText(/agregar zona de cobertura/i), "Mendoza")
+    await fastType(user, screen.getByLabelText(/agregar zona de cobertura/i), "Mendoza")
     await user.click(screen.getByRole("button", { name: /^agregar zona$/i }))
 
     await user.click(screen.getByRole("button", { name: /crear seguro/i }))
@@ -165,7 +190,7 @@ describe("AdminSegurosPage — la oferta legacy sigue operando", () => {
   it("edita una oferta sin exigir campos de asesor", async () => {
     const offer = makeOffer()
     getAllInsurancesMock.mockResolvedValue([offer])
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<AdminSegurosPage />)
 
     await user.click(await screen.findByRole("button", { name: /editar/i }))

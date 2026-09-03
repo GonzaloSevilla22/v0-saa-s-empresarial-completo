@@ -180,8 +180,8 @@
 
 ## 19. Cierre documental
 
-- [ ] 19.1 Registrar en `CHANGES.md` la entrada del change con las decisiones, las mediciones de prod y los candidatos que deja.
-- [ ] 19.2 Actualizar el puntero "próximo change" del `CLAUDE.md` y correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo PR** (gate `Docs Sync`). Nunca editar `AGENTS.md` a mano.
-- [ ] 19.3 Anotar los candidatos que este change deja abiertos: retiro de `products.category` TEXT (OQ-3), `idx_products_barcode_unique` con el mismo residuo `user_id` (4.5), y la migración del importador a FastAPI (D7). **OQ-5 ya no es candidato**: la herramienta de recategorización entró en alcance (D14); lo que sigue fuera es que el sistema reclasifique por su cuenta, que es decisión de negocio de cada tenant.
-- [ ] 19.4 Registrar en `CHANGES.md` las cinco OQs con su resolución por sign-off del PO del 2026-09-03, incluida **OQ-2 resuelta en contra de la recomendación del design** (el gestor va a `/configuracion`, no a `/productos`) — para que la próxima sesión no reabra la discusión.
-- [ ] 19.5 Confirmar que `estadisticas-ventas` (propose en paralelo) puede apoyarse en `products.category_id` como identidad estable de agrupación.
+- [x] 19.1 Registrar en `CHANGES.md` la entrada del change con las decisiones, las mediciones de prod y los candidatos que deja.
+- [x] 19.2 Actualizar el puntero "próximo change" del `CLAUDE.md` y correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo PR** (gate `Docs Sync`). Nunca editar `AGENTS.md` a mano.
+- [x] 19.3 Anotar los candidatos que este change deja abiertos: retiro de `products.category` TEXT (OQ-3), `idx_products_barcode_unique` con el mismo residuo `user_id` (4.5), y la migración del importador a FastAPI (D7). **OQ-5 ya no es candidato**: la herramienta de recategorización entró en alcance (D14); lo que sigue fuera es que el sistema reclasifique por su cuenta, que es decisión de negocio de cada tenant.
+- [x] 19.4 Registrar en `CHANGES.md` las cinco OQs con su resolución por sign-off del PO del 2026-09-03, incluida **OQ-2 resuelta en contra de la recomendación del design** (el gestor va a `/configuracion`, no a `/productos`) — para que la próxima sesión no reabra la discusión.
+- [x] 19.5 Confirmar que `estadisticas-ventas` (propose en paralelo) puede apoyarse en `products.category_id` como identidad estable de agrupación.

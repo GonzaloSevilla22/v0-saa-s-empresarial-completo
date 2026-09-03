@@ -13,11 +13,15 @@
 --       auto-fortalece con el mismo fix — este gate lo exige sin tolerancia.
 --
 --   (2) rpc_product_profitability ejecuta de verdad (el 42804 last_sale_date
---       date vs MAX(s.date) timestamptz está corregido) Y el cast es
---       consciente de zona: una venta a las 23:30 ART queda fechada en su día
---       LOCAL, no en el día UTC siguiente (RN-D5). Un fix regresivo con
---       ::date desnudo pasa el 42804 pero FALLA este assert — es el
---       discriminador anti-off-by-one.
+--       date vs MAX(s.date) timestamptz está corregido) Y last_sale_date es
+--       la FECHA DE NEGOCIO declarada, sin desplazamiento. estadisticas-ventas
+--       (D3 / OQ-3, reporting-invariants "fecha de negocio vs instante"):
+--       sales.date guarda el día calendario del formulario a 00:00 UTC (0 de
+--       643 líneas con hora en prod); el cast consciente de zona que este gate
+--       exigía antes corría CADA venta un día atrás (218/218 productos en
+--       /rentabilidad). Ahora el fixture es una fecha de negocio real y el
+--       assert exige igualdad exacta; el día anterior delata el AT TIME ZONE
+--       regresivo — es el discriminador anti-off-by-one, con el signo correcto.
 --
 -- ⚠️ REGLA: se asserta el EFECTO (filas, totales, la fecha exacta), nunca
 -- "no hubo error".
@@ -76,12 +80,12 @@ BEGIN
   VALUES (v_user, v_account, '__gate_qaint_producto__', 500, 100)
   RETURNING id INTO v_product;
 
-  -- Venta a las 23:30 ART de hace 5 días locales = 02:30 UTC del día
-  -- SIGUIENTE. El día local es la única respuesta correcta para
-  -- last_sale_date; el día UTC (v_local_day + 1) delata un ::date desnudo.
+  -- Venta con FECHA DE NEGOCIO de hace 5 días locales, persistida como la
+  -- guarda el formulario: día calendario a 00:00 UTC (estadisticas-ventas D3).
+  -- La única respuesta correcta para last_sale_date es ese mismo día; el día
+  -- anterior (v_local_day - 1) delata un AT TIME ZONE sobre la fecha de negocio.
   v_local_day := public.reporting_local_today() - 5;
-  v_sale_ts   := (v_local_day::timestamp + interval '23 hours 30 minutes')
-                   AT TIME ZONE 'America/Argentina/Mendoza';
+  v_sale_ts   := v_local_day::timestamp AT TIME ZONE 'UTC';
 
   INSERT INTO public.sales (user_id, account_id, branch_id, product_id, amount, total, quantity, date)
   VALUES (v_user, v_account, v_branch, v_product, 500, 500, 1, v_sale_ts);
@@ -125,10 +129,10 @@ BEGIN
     RAISE EXCEPTION 'GATE QA-INTEGRAL FAILED (2): total_revenue fue % y esperaba 500.', v_row.total_revenue;
   END IF;
   IF v_row.last_sale_date IS DISTINCT FROM v_local_day THEN
-    RAISE EXCEPTION 'GATE QA-INTEGRAL FAILED (2): last_sale_date fue % y esperaba % (día LOCAL de la venta de 23:30 ART) — un % delata el cast con la TimeZone de sesión (::date desnudo, off-by-one de RN-D5).',
-      v_row.last_sale_date, v_local_day, v_local_day + 1;
+    RAISE EXCEPTION 'GATE QA-INTEGRAL FAILED (2): last_sale_date fue % y esperaba % (fecha de negocio declarada) — un % delata un AT TIME ZONE sobre sales.date (off-by-one de estadisticas-ventas OQ-3, 218/218 en prod).',
+      v_row.last_sale_date, v_local_day, v_local_day - 1;
   END IF;
-  RAISE NOTICE 'PASS (2): rpc_product_profitability ejecuta y fecha la venta de 23:30 ART en su día local (%).', v_local_day;
+  RAISE NOTICE 'PASS (2): rpc_product_profitability ejecuta y fecha la venta en su fecha de negocio (%), sin corrimiento.', v_local_day;
 END $$;
 
 

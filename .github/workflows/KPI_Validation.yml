@@ -1296,3 +1296,19 @@ jobs:
       # productos resolubles sin category_id y cero cruces de cuenta.
       - name: Run productos-categorias-sku seed and backfill gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_categories_seed.sql
+
+      # estadisticas-ventas E1 (grupo 2 + 11.1/11.2/11.3): helper canónico
+      # reporting_sales_lines_in_window + clamp reporting_plan_window +
+      # rpc_sales_evolution + rpc_product_ranking + rpc_product_profitability
+      # de-duplicada sobre el helper. Introspección (ACLs exactas, helpers
+      # con p_account_id sin EXECUTE para authenticated, ningún cuerpo aplica
+      # AT TIME ZONE sobre sales.date — D3, índice idx_sales_account_date) y
+      # comportamiento con anchor sintético: revenue COALESCE(total, amount),
+      # bordes RN-D5, multi-línea cuenta 1, semana ISO, NC restada sólo en la
+      # evolución, servicio fuera del ranking con importe declarado, variantes
+      # bajo el padre (huérfana bajo sí misma), margen RN-D2 + cobertura,
+      # paginación sobre el conjunto completo, suma de buckets = total en las
+      # 3 granularidades, el neto del módulo = rpc_dashboard_kpi_summary
+      # (11.3), last_sale_date sin corrimiento (OQ-3) y clamp de plan D8.
+      - name: Run estadisticas-ventas gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_estadisticas_ventas.sql

@@ -139,6 +139,19 @@ async function fastType(user: ReturnType<typeof userEvent.setup>, element: HTMLE
 }
 
 describe("AdminSegurosPage — alta completa de un asesor", () => {
+  // Timeout propio de 45s (vs. el default de 20s de vitest.config.ts): este
+  // test completa 13 campos de un formulario grande cuyo `formData` vive en
+  // un solo useState sin memoizar en AdminSegurosPage — cada interacción
+  // re-renderiza la página entera (KPIs + tabla + gráfico + diálogo). Ya
+  // optimizado con fastType (paste en vez de tipear carácter por carácter,
+  // ver arriba): medido en caliente y sin contención, 7-11s. Pero en una
+  // corrida completa de la suite con 2 workers (el budget real de CI) SÍ se
+  // midió un timeout real a los 20000ms — confirmado con el detector de
+  // fallos 1/1857 de esa corrida, no una carrera: la causa es CPU-bound
+  // (re-render), determinista, sin cambiar ningún assert. 45s da margen real
+  // (~2-4x el peor caso medido) sin dejar de atrapar un hang genuino, y es
+  // un override LOCAL a este test — no toca el testTimeout global de 20s
+  // que protege al resto de la suite (comentario en vitest.config.ts).
   it("crea un asesor con identidad, matrícula, listas, zonas y las 4 vías de contacto", async () => {
     getAllInsurancesMock.mockResolvedValue([])
     const user = await openCreateDialog()
@@ -183,7 +196,7 @@ describe("AdminSegurosPage — alta completa de un asesor", () => {
     expect(payload.service_lines).toEqual([{ title: "Autos y motos", description: "Coberturas adaptadas." }])
     expect(payload.pillars).toEqual([{ title: "Transparencia", body: "Explico todo antes de firmar." }])
     expect(payload.coverage_areas).toEqual(["Mendoza"])
-  })
+  }, 45_000)
 })
 
 describe("AdminSegurosPage — la oferta legacy sigue operando", () => {

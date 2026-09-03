@@ -73,9 +73,14 @@ export default function ConfiguracionPage() {
             (etiquetas ya en text-xs sm:text-sm); en sm quedan 5+4 y en
             mobile 3+3+3. */}
         {/* productos-categorias-sku (D8, sign-off PO OQ-2): 10 tabs — un solo
-            lugar para los catálogos de la cuenta. lg pasa de 9 a 10 columnas;
-            sm 5+5 y mobile 3+3+3+1 no cambian (ya envuelven). */}
-        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 lg:grid-cols-10 mb-6 h-auto">
+            lugar para los catálogos de la cuenta. Task 10.8 (medido en el
+            apply, viewport 1280 / contenedor max-w-3xl = 768px): con
+            lg:grid-cols-10 cada pestaña queda en 76px y "Centros de costo"
+            (94px) / "Formas de pago" (92px) desbordan y se pisan con las
+            vecinas — con 9 (85px) ya desbordaban por poco. Se retira el
+            override de lg: desde sm son 5 columnas → 2 filas de 5 (153px por
+            pestaña); mobile sigue 3+3+3+1. */}
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 mb-6 h-auto">
           <TabsTrigger value="perfil" className="flex items-center gap-1.5 text-xs sm:text-sm">
             <User className="h-3.5 w-3.5" />
             <span>Perfil</span>

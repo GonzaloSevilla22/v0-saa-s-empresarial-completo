@@ -62,7 +62,7 @@
 ## 7. Gates SQL en CI
 
 - [x] 7.1 Cablear los gates nuevos (2.1, 3.1, 4.1, 6.1) a `KPI_Validation.yml`. **Verificar que efectivamente corren** — hay precedente de un gate escrito y nunca cableado (`test_cobranzas_reverso.sql`).
-- [ ] 7.2 Ejecutar la migración contra `supabase db reset` local y comprobar que ningún gate preexistente se rompe. Atención especial a los gates que limpian con `DELETE FROM` en cascada sobre tablas de catálogo.
+- [x] 7.2 Ejecutar la migración contra `supabase db reset` local y comprobar que ningún gate preexistente se rompe. Atención especial a los gates que limpian con `DELETE FROM` en cascada sobre tablas de catálogo.
 
 ## 8. Backend — catálogo de categorías (FastAPI, 3 capas)
 
@@ -83,7 +83,7 @@
 - [x] 9.6 GREEN: traducir la violación del índice único de SKU a **409** con mensaje legible que nombre el SKU en conflicto. La restricción de la base es la fuente de verdad; la comprobación previa sólo mejora el mensaje.
 - [x] 9.7 GREEN: la variante hereda `category_id` del padre **resuelto en el servidor**, ignorando lo que mande el cliente.
 - [x] 9.8 TRIANGULATE: alta sin SKU; alta con SKU; SKU sólo espacios → `NULL`; SKU duplicado → 409; borrar SKU; categoría de otra cuenta → rechazada; variante que contradice al padre → gana el padre.
-- [ ] 9.9 Verificar coverage ≥87% (umbral de CI) en los módulos tocados.
+- [x] 9.9 Verificar coverage ≥87% (umbral de CI) en los módulos tocados.
 
 ### Recategorización en lote (D14)
 
@@ -161,10 +161,10 @@
 
 ## 17. Verificación integral
 
-- [ ] 17.1 Backend completo en verde y coverage ≥87%; anotar el delta contra el baseline de 9.1.
-- [ ] 17.2 Frontend completo en verde; anotar el delta contra los baselines de 11.1/12.1/13.1/14.1/15.1. Aislar cualquier flaky conocido antes de atribuirle el fallo a este change (`AdminSegurosPage.test.tsx` es flaky-preexistente bajo carga).
+- [x] 17.1 Backend completo en verde y coverage ≥87%; anotar el delta contra el baseline de 9.1.
+- [x] 17.2 Frontend completo en verde; anotar el delta contra los baselines de 11.1/12.1/13.1/14.1/15.1. Aislar cualquier flaky conocido antes de atribuirle el fallo a este change (`AdminSegurosPage.test.tsx` es flaky-preexistente bajo carga).
 - [x] 17.3 `tsc` sin errores nuevos. **Cero `any`** en el código agregado.
-- [ ] 17.4 Migración limpia contra `supabase db reset` local y los gates de `KPI_Validation.yml` en el orden real del workflow.
+- [x] 17.4 Migración limpia contra `supabase db reset` local y los gates de `KPI_Validation.yml` en el orden real del workflow.
 - [ ] 17.5 Pasada visual en las **4 combinaciones** (escritorio/móvil × claro/oscuro) sobre: pestaña Categorías de `/configuracion`, **la `TabsList` completa de `/configuracion` con sus 10 pestañas** (riesgo declarado en D8, aunque no sea pantalla nueva), selector con alta rápida inline, formulario de producto con SKU, selección múltiple y barra de acción en lote, y paso 2 del importador. Verificar que ningún desplegable se sale del shard de scroll de su diálogo (regresión G1) y que no hay desborde horizontal (`responsive-shell`).
 - [ ] 17.6 Prueba manual de punta a punta: crear categoría propia → dar de alta un producto con ella y con SKU → **seleccionar varios productos de "Otros" y recategorizarlos en lote** → importar un CSV con una categoría nueva y un SKU existente → verificar que la categoría se creó, los productos se movieron, el producto se actualizó y ninguno perdió su categoría.
 

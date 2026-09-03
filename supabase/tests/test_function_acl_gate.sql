@@ -160,7 +160,8 @@ DECLARE
   v_internal_only_fns CONSTANT text[] := ARRAY[
     -- Helpers "solo-DEFINER" — NUNCA anon/authenticated (ver comentario de
     -- cabecera, hotfix 2026-08-23)
-    'public._pay_register_party_charge(uuid, text, uuid, numeric, uuid, uuid)',
+    -- cobranzas-vencimientos: firma con (p_charge_date, p_due_date) trailing.
+    'public._pay_register_party_charge(uuid, text, uuid, numeric, uuid, uuid, date, date)',
     'public._journal_post_from_event(events)',
     'public._pay_reverse_party_charge(uuid, text, uuid, numeric, uuid, uuid)'
   ];

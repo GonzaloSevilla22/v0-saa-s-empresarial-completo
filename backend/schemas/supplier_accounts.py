@@ -74,6 +74,14 @@ class SupplierMovementOut(BaseModel):
     is_reversal_blocked:  bool = False
     has_cash_movement:    bool = False
     has_bank_movement:    bool = False
+    # cobranzas-vencimientos (D7): derivados de vencimiento — espejo exacto
+    # de AccountMovementOut, calculados en el servidor (FIFO por línea de
+    # flotación) en LAS DOS queries del historial de proveedor. Ausentes
+    # (None) para todo movimiento que no es cargo — nunca degradados a 0.
+    due_date:             datetime.date | None = None
+    open_amount:          Decimal | None = None
+    is_overdue:           bool | None = None
+    days_overdue:         int | None = None
 
 
 # v3-api-standards §2.8: envelope estándar {items,total,page,pages} para
@@ -157,3 +165,35 @@ class SupplierChargeOut(BaseModel):
     balance_after:        Decimal | None
     replayed:             bool
     operation_id:         uuid.UUID | None = None
+
+
+class PayableRowOut(BaseModel):
+    """cobranzas-vencimientos (task 7.5): fila del read-model de cuentas por
+    pagar — espejo exacto de ReceivableRowOut sobre rpc_payables_report."""
+
+    supplier_id:             uuid.UUID
+    supplier_name:           str
+    balance:                 Decimal
+    days_since_last_charge:  int | None = None
+    days_since_last_payment: int | None = None
+    last_payment_date:       datetime.date | None = None
+    overdue_total:           Decimal = Decimal("0")
+    amount_current:          Decimal = Decimal("0")
+    amount_overdue_1_30:     Decimal = Decimal("0")
+    amount_overdue_31_60:    Decimal = Decimal("0")
+    amount_overdue_60_plus:  Decimal = Decimal("0")
+    amount_no_due_date:      Decimal = Decimal("0")
+    oldest_due_date:         datetime.date | None = None
+    days_overdue_max:        int | None = None
+
+
+PayablePageOut = PageOut[PayableRowOut]
+
+
+class PayablesSummaryOut(BaseModel):
+    """cobranzas-vencimientos (task 7.5): total por pagar + vencido +
+    cantidad de acreedores, del MISMO RPC que el listado."""
+
+    total_payable:  Decimal
+    overdue_total:  Decimal = Decimal("0")
+    creditor_count: int

@@ -143,3 +143,39 @@ async def reverse_payment_made(
         return await repo.reverse_payment_made(payment_id, payload.reason)
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc
+
+
+async def list_payables(
+    repo: SupplierAccountRepository,
+    auth: dict,
+    account_id: str,
+    *,
+    page: int = 0,
+    size: int = 25,
+    sort: str = "balance",
+    sort_dir: str = "desc",
+    bucket: str | None = None,
+) -> dict:
+    """cobranzas-vencimientos (task 7.5): listado paginado de acreedores —
+    molde exacto de list_receivables. Sin gate de plan y sin require_role
+    (lectura para todo miembro); la autorizacion de tenant es el P0401 del
+    propio rpc_payables_report."""
+    try:
+        return await repo.list_payables_page(
+            account_id, page=page, size=size, sort=sort, sort_dir=sort_dir, bucket=bucket
+        )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+
+async def get_payables_summary(
+    repo: SupplierAccountRepository,
+    auth: dict,
+    account_id: str,
+) -> dict:
+    """cobranzas-vencimientos (task 7.5): total por pagar + vencido +
+    cantidad de acreedores, agregado sobre el MISMO RPC del listado."""
+    try:
+        return await repo.get_payables_summary(account_id)
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc

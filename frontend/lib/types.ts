@@ -631,6 +631,10 @@ export interface Client {
   lastPurchase: string
   totalSpent: number
   category?: string
+  /** cobranzas-vencimientos (D2): plazo de pago propio en días. undefined =
+   * no informado (una edición lo PRESERVA); null = sin plazo propio (hereda
+   * el default de la cuenta); número = plazo pactado. Nunca significa 0. */
+  paymentTermsDays?: number | null
   taxId?: string
   ivaCondition?: IvaCondition
   legalName?: string
@@ -648,6 +652,8 @@ export interface Supplier {
   taxId?: string
   ivaCondition?: IvaCondition
   legalName?: string
+  /** cobranzas-vencimientos (D2): espejo de Client.paymentTermsDays. */
+  paymentTermsDays?: number | null
 }
 
 // ── Direcciones operativas del cliente (v3-catalog-masters, V3 §7.3) ─────────
@@ -892,6 +898,9 @@ export type NotificationType =
   // (PR3) y de vencimiento próximo de plan pago sin cobro confirmado (PR4).
   | "SubscriptionPaymentFailed"
   | "SubscriptionExpiringSoon"
+  // cobranzas-vencimientos (D8): resumen diario de deuda vencida, por lado.
+  | "ReceivablesOverdueDigest"
+  | "PayablesOverdueDigest"
 
 export type NotificationSeverity = "info" | "warning" | "urgent"
 
@@ -923,15 +932,56 @@ export interface Notification {
 export interface ReceivableRow {
   clientId: string
   clientName: string
+  /** Teléfono del deudor — para el recordatorio de WhatsApp (D12). */
+  clientPhone: string | null
   balance: number
   daysSinceLastCharge: number | null
   daysSinceLastPayment: number | null
   /** Fecha ISO (día calendario argentino) del último cobro, o null. */
   lastPaymentDate: string | null
+  // cobranzas-vencimientos: los cinco tramos (suman balance — invariante de
+  // cierre del RPC) + agregados de vencimiento.
+  overdueTotal: number
+  amountCurrent: number
+  amountOverdue1_30: number
+  amountOverdue31_60: number
+  amountOverdue60Plus: number
+  amountNoDueDate: number
+  /** Vencimiento más antiguo abierto (ISO), o null si no hay vencidos. */
+  oldestDueDate: string | null
+  /** Días de atraso del cargo abierto más vencido, o null. */
+  daysOverdueMax: number | null
 }
 
-/** Resumen agregado (D2): total por cobrar + cantidad de deudores. */
+/** Resumen agregado (D2): total por cobrar + vencido + cantidad de deudores. */
 export interface ReceivablesSummary {
   totalReceivable: number
+  overdueTotal: number
   debtorCount: number
+}
+
+/** cobranzas-vencimientos: fila del read-model de cuentas por pagar —
+ * espejo exacto de ReceivableRow sobre rpc_payables_report. */
+export interface PayableRow {
+  supplierId: string
+  supplierName: string
+  balance: number
+  daysSinceLastCharge: number | null
+  daysSinceLastPayment: number | null
+  lastPaymentDate: string | null
+  overdueTotal: number
+  amountCurrent: number
+  amountOverdue1_30: number
+  amountOverdue31_60: number
+  amountOverdue60Plus: number
+  amountNoDueDate: number
+  oldestDueDate: string | null
+  daysOverdueMax: number | null
+}
+
+/** cobranzas-vencimientos: total por pagar + vencido + acreedores. */
+export interface PayablesSummary {
+  totalPayable: number
+  overdueTotal: number
+  creditorCount: number
 }

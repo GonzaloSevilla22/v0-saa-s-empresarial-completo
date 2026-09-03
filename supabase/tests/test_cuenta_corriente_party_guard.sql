@@ -520,7 +520,8 @@ BEGIN
   -- quien cubre. Ahora es un assert de verdad sobre el cuerpo VIVO: si
   -- aparece una lectura de `clients` en el camino de venta, 2.5/2.6 podrían
   -- seguir verdes por el motivo equivocado y nadie se enteraría.
-  v_def := pg_get_functiondef('public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid)'::regprocedure);
+  -- cobranzas-vencimientos: la firma gana p_due_date trailing (11 args).
+  v_def := pg_get_functiondef('public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure);
   IF position('FROM public.clients' in v_def) <> 0 THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-v2): el choke point dejó de ser quien cubre — alguien agregó un guard propio (lectura de public.clients) dentro de rpc_create_sale_operation_v2. Revisar 3.8 y la decisión D1: 2.5 puede estar verde por el motivo equivocado.';
   END IF;
@@ -996,7 +997,7 @@ BEGIN
   END IF;
 
   IF has_function_privilege('authenticated',
-       'public._pay_register_party_charge(uuid,text,uuid,numeric,uuid,uuid)'::regprocedure, 'EXECUTE') THEN
+       'public._pay_register_party_charge(uuid,text,uuid,numeric,uuid,uuid,date,date)'::regprocedure, 'EXECUTE') THEN
     RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (5.1-acl): authenticated no debe tener EXECUTE sobre _pay_register_party_charge.';
   END IF;
 

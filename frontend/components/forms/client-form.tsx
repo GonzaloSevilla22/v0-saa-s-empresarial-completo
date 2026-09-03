@@ -28,6 +28,12 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
   const [phone,    setPhone]    = useState(initialData?.phone    || "")
   const [category, setCategory] = useState(initialData?.category || "")
 
+  // cobranzas-vencimientos (D2/D14): plazo de pago propio, en dias. Vacio =
+  // "usa el plazo de la cuenta" (null) — NUNCA cero.
+  const [paymentTerms, setPaymentTerms] = useState(
+    initialData?.paymentTermsDays != null ? String(initialData.paymentTermsDays) : "",
+  )
+
   // Datos fiscales (C-22) — opcionales
   const [taxId,        setTaxId]        = useState(initialData?.taxId        || "")
   const [ivaCondition, setIvaCondition] = useState<IvaCondition | "">(initialData?.ivaCondition || "")
@@ -55,6 +61,13 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       return
     }
 
+    const trimmedTerms = paymentTerms.trim()
+    const parsedTerms = trimmedTerms === "" ? null : Number(trimmedTerms)
+    if (parsedTerms !== null && (!Number.isInteger(parsedTerms) || parsedTerms < 0)) {
+      toast.error("El plazo de pago debe ser un número de días (0 o más)")
+      return
+    }
+
     const clientData = {
       name:     name.trim(),
       email:    email.trim()    || null,
@@ -63,6 +76,9 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
       taxId:        taxId.trim()     || undefined,
       ivaCondition: ivaCondition     || undefined,
       legalName:    legalName.trim() || undefined,
+      // cobranzas-vencimientos (D14): el form SIEMPRE lo informa (conoce el
+      // valor vigente) — vacio = null = "usa el plazo de la cuenta".
+      paymentTermsDays: parsedTerms,
     }
 
     try {
@@ -163,6 +179,31 @@ export function ClientForm({ onSuccess, initialData }: ClientFormProps) {
             Necesario para enviar comprobantes por WhatsApp
           </p>
         )}
+      </div>
+
+      {/* ── Plazo de pago (cobranzas-vencimientos D2) ─────────────────────── */}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="client-payment-terms" className="text-foreground">
+          Plazo de pago (días)
+        </Label>
+        <Input
+          id="client-payment-terms"
+          selectOnFocus
+          type="number"
+          min={0}
+          step={1}
+          value={paymentTerms}
+          onChange={(e) => setPaymentTerms(e.target.value)}
+          placeholder="Usa el plazo de la cuenta"
+          className="bg-background border-border text-foreground"
+        />
+        <p className="text-xs text-muted-foreground">
+          {paymentTerms.trim() === ""
+            ? "Vacío: usa el plazo de la cuenta (Configuración → Cobranzas). Sin plazo en ningún lado, las ventas a crédito nacen sin vencimiento."
+            : paymentTerms.trim() === "0"
+            ? "0 = contado a la vista: el cargo vence el mismo día de la venta."
+            : `Las ventas a crédito de este cliente vencen a los ${paymentTerms.trim()} días.`}
+        </p>
       </div>
 
       {/* ── Datos fiscales (C-22) ─────────────────────────────────────────── */}

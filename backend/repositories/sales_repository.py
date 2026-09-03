@@ -276,6 +276,7 @@ class SalesRepository(BaseRepository):
         payment_method_id: str | None = None,
         cash_session_id: str | None = None,
         bank_account_id: str | None = None,
+        due_date: datetime.date | None = None,
     ) -> dict | None:
         existing = await self.get_idempotency(account_id, idempotency_key)
         if existing is not None:
@@ -292,7 +293,7 @@ class SalesRepository(BaseRepository):
                 (rpc_create_sale_operation(
                     $1, $2::text::uuid, $3, $4, $5::jsonb,
                     p_canal => $6, p_payment_method_id => $7, p_cash_session_id => $8,
-                    p_bank_account_id => $9
+                    p_bank_account_id => $9, p_due_date => $10
                 )->>'operation_id')::uuid
                     AS operation_id,
                 'sale'::text AS operation_kind
@@ -306,5 +307,6 @@ class SalesRepository(BaseRepository):
             payment_method_id,
             cash_session_id,
             bank_account_id,
+            due_date,
         )
         return dict(row) if row else None

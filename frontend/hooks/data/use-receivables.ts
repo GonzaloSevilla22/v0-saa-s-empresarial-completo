@@ -19,6 +19,7 @@ import {
   type ReceivablePageRaw,
   type ReceivablesSummaryRaw,
 } from "@/lib/receivables"
+import type { AgingBucketFilter } from "@/lib/receivables-aging"
 import type { ReceivableRow, ReceivablesSummary } from "@/lib/types"
 
 /** Dominio cerrado de criterios de orden — espejo del Literal del backend. */
@@ -42,23 +43,27 @@ export interface UseReceivablesParams {
   size?: number
   sort?: ReceivablesSort
   sortDir?: ReceivablesSortDir
+  /** cobranzas-vencimientos (task 8.5): filtro por tramo — resuelto en el
+   * SERVIDOR sobre el conjunto completo, nunca sobre la página visible. */
+  bucket?: AgingBucketFilter | null
 }
 
 export function useReceivables(params: UseReceivablesParams = {}) {
   const { user } = useAuth()
   const accountId = user?.accountId ?? null
-  const { page = 0, size = 25, sort = "balance", sortDir = "desc" } = params
+  const { page = 0, size = 25, sort = "balance", sortDir = "desc", bucket = null } = params
 
   return useQuery<ReceivablesPage>({
-    queryKey: queryKeys.receivables.list(accountId ?? "", page, size, sort, sortDir),
+    queryKey: queryKeys.receivables.listFiltered(accountId ?? "", page, size, sort, sortDir, bucket),
     queryFn: async (): Promise<ReceivablesPage> => {
       const qs = new URLSearchParams({
         page: String(page),
         size: String(size),
         sort,
         sort_dir: sortDir,
-      }).toString()
-      const data = await pythonClient.get<ReceivablePageRaw>(`/reports/receivables?${qs}`)
+      })
+      if (bucket) qs.set("bucket", bucket)
+      const data = await pythonClient.get<ReceivablePageRaw>(`/reports/receivables?${qs.toString()}`)
       return {
         items: data.items.map(mapReceivableRow),
         total: data.total,

@@ -1230,3 +1230,28 @@ jobs:
       # calendario argentino (reporting_local_today). Degrade-don't-fail.
       - name: Run cobranzas-panel receivables report gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receivables_report.sql
+
+      # cobranzas-vencimientos (grupos 2-3): las 5 columnas de plazo/vencimiento
+      # (nullable, SIN default — D2), CHECK >= 0 en los tres niveles, UNA sola
+      # definición de cada función reescrita (42725) con p_due_date trailing,
+      # ACLs vivas replicadas (el helper de cargo SIGUE sin authenticated —
+      # hotfix #454), cascada parte→cuenta, override con P0400 atómico,
+      # simetría formulario/POS y lado proveedor. Degrade-don't-fail.
+      - name: Run cobranzas-vencimientos schema and cascade gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cobranzas_vencimientos_schema.sql
+
+      # cobranzas-vencimientos (grupo 4): derivación FIFO por línea de
+      # flotación — INVARIANTE DE CIERRE (Σ tramos = balance) en 7 escenarios,
+      # imputación al más viejo, anulación que reabre, fronteras 30/31 y
+      # 60/61, "sin vencimiento" nunca vencido, día argentino por
+      # introspección, espejo proveedor y rpc_set_default_payment_terms.
+      - name: Run receivables aging FIFO gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receivables_aging_fifo.sql
+
+      # cobranzas-vencimientos (grupo 5): barrido diario — un aviso por
+      # cuenta/lado/día argentino con dedup en dos capas (metadata->as_of),
+      # evento SOLO si el email se insertó, lados independientes, exclusión
+      # de partes dadas de baja (OQ-2), y el invariante D13 intacto (los
+      # tipos de digest NO producen asiento).
+      - name: Run receivables overdue digest gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receivables_overdue_digest.sql

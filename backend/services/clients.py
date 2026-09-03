@@ -53,7 +53,14 @@ async def update_client(
     repo: ClientRepository, auth: dict, account_id: str, client_id: str, payload: ClientUpdate
 ) -> dict:
     require_role(auth, ["user", "admin"])
-    record = await repo.update(client_id, account_id, payload.model_dump(exclude_none=True))
+    patch = payload.model_dump(exclude_none=True)
+    # cobranzas-vencimientos (D14): el plazo es tri-estado — solo viaja si el
+    # caller lo informo (model_fields_set), incluido el None explicito para
+    # limpiarlo (volver a heredar). Omitirlo en el PUT NUNCA lo borra: es el
+    # bug exacto de metodos-pago-operaciones/edicion-preserva-contexto.
+    if "payment_terms_days" in payload.model_fields_set:
+        patch["payment_terms_days"] = payload.payment_terms_days
+    record = await repo.update(client_id, account_id, patch)
     if record is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return dict(record)

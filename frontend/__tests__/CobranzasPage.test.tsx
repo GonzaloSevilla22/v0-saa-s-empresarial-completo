@@ -37,6 +37,21 @@ vi.mock("@/components/customer-accounts/RegisterPaymentForm", () => ({
   ),
 }))
 
+// cobranzas-vencimientos: la pantalla suma la pestaña Por pagar y el aviso de
+// plazos — se mockean para que este archivo siga cubriendo la Etapa A.
+vi.mock("@/hooks/data/use-payables", () => ({
+  usePayables: () => ({ data: { items: [], total: 0, page: 0, pages: 0 }, isLoading: false, isError: false }),
+  usePayablesSummary: () => ({ data: { totalPayable: 0, overdueTotal: 0, creditorCount: 0 }, isLoading: false }),
+}))
+vi.mock("@/hooks/data/use-collection-settings", () => ({
+  useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: 30 }, isLoading: false }),
+}))
+vi.mock("@/components/supplier-accounts/RegisterPaymentMadeForm", () => ({
+  RegisterPaymentMadeForm: ({ supplierId }: { supplierId: string }) => (
+    <div data-testid="register-payment-made-form-stub">{supplierId}</div>
+  ),
+}))
+
 import CobranzasPage from "@/app/(dashboard)/cobranzas/page"
 
 const ROWS = [
@@ -97,8 +112,10 @@ describe("CobranzasPage", () => {
     expect(screen.getByText("Deudor Grande")).toBeInTheDocument()
     expect(screen.getByText("Solo Ajuste")).toBeInTheDocument()
     expect(screen.getAllByText(/167\.800/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/12 días/)).toBeInTheDocument()
-    expect(screen.getByText(/30 días/)).toBeInTheDocument()
+    // getAllBy: la barra de filtros de la Etapa B también contiene "30 días"
+    // en sus rótulos de tramo ("Vencido 1-30 días").
+    expect(screen.getAllByText(/12 días/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/30 días/).length).toBeGreaterThan(0)
   })
 
   it("la antigüedad ausente se muestra como — y no como 0 (OQ-4)", () => {
@@ -134,12 +151,14 @@ describe("CobranzasPage", () => {
     expect(pushMock).toHaveBeenCalledWith("/clientes/client-1/cuenta")
   })
 
-  it("no promete mora: rótulo 'Último cargo', nota de vencimientos, sin 'mora'/'vencido'", () => {
-    const { container } = render(<CobranzasPage />)
+  // cobranzas-vencimientos: el requirement "El panel no promete mora" fue
+  // DEROGADO por el delta (el sistema ahora SÍ registra vencimientos) — el
+  // assert de "sin 'vencido'" y la nota vieja se retiran; la cobertura nueva
+  // vive en CobranzasVencimientosPage.test.tsx.
+  it("conserva el rótulo honesto 'Último cargo' de la Etapa A", () => {
+    render(<CobranzasPage />)
     expect(screen.getAllByText(/Último cargo/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/no registra vencimientos/i)).toBeInTheDocument()
-    expect(container.textContent).not.toMatch(/mora/i)
-    expect(container.textContent?.toLowerCase()).not.toContain("vencido")
+    expect(screen.queryByText(/no registra vencimientos/i)).not.toBeInTheDocument()
   })
 
   it("la tabla scrollea en su contenedor (overflow-x-auto + min-w)", () => {

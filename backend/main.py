@@ -167,7 +167,11 @@ app.include_router(outbox.router)
 app.include_router(customer_accounts.router)
 # cobranzas-panel — read-model agregado de cuentas por cobrar (/reports/receivables)
 app.include_router(customer_accounts.report_router)
+# cobranzas-vencimientos: plazo por defecto de la cuenta (task 7.8).
+app.include_router(customer_accounts.settings_router)
 app.include_router(supplier_accounts.router)
+# cobranzas-vencimientos: read-model de cuentas por pagar (task 7.5).
+app.include_router(supplier_accounts.report_router)
 # compras-proveedor-cuenta-corriente (task 7.5): ABM de proveedores, 3 capas
 app.include_router(suppliers.router)
 # journal-entry-outbox (V2.5 Finanzas — read-only; writes via relay SECURITY DEFINER)

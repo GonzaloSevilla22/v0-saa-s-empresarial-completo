@@ -21,6 +21,113 @@ def _jsonb(value) -> dict:
 class SupplierAccountRepository(BaseRepository):
     """Repository para cuentas corrientes de proveedores — JWT-passthrough via base.py."""
 
+    # cobranzas-vencimientos (task 7.5): espejo exacto del diccionario de
+    # tramos de CustomerAccountRepository — traducción por diccionario a
+    # predicado, jamás interpolación del input.
+    _PAYABLES_BUCKET_FILTERS: dict[str, str] = {
+        "overdue": "overdue_total > 0",
+        "current": "amount_current > 0",
+        "overdue_1_30": "amount_overdue_1_30 > 0",
+        "overdue_31_60": "amount_overdue_31_60 > 0",
+        "overdue_60_plus": "amount_overdue_60_plus > 0",
+        "no_due_date": "amount_no_due_date > 0",
+    }
+
+    _PAYABLES_SORT_COLUMNS: dict[str, str] = {
+        "balance": "balance",
+        "days_since_last_charge": "days_since_last_charge",
+        "days_since_last_payment": "days_since_last_payment",
+        "supplier_name": "supplier_name",
+    }
+
+    # cobranzas-vencimientos (D4/D7): espejo del bloque FIFO de
+    # CustomerAccountRepository — cargo = 'purchase' + adjustment positivo.
+    _MOVEMENT_OPEN_ITEMS_CTE = """
+            WITH pool AS (
+              SELECT COALESCE(SUM(-m.amount), 0) AS credit
+              FROM public.supplier_account_movements m
+              WHERE m.supplier_account_id = $1::uuid AND m.account_id = $2::uuid
+                AND NOT (m.movement_type = 'purchase' OR (m.movement_type = 'adjustment' AND m.amount > 0))
+            ),
+            open_items AS (
+              SELECT m.id,
+                     LEAST(m.amount, GREATEST(0::numeric,
+                       SUM(m.amount) OVER (
+                         ORDER BY COALESCE(m.due_date, (m.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                                  m.created_at, m.id
+                       ) - (SELECT credit FROM pool)
+                     )) AS open_amount
+              FROM public.supplier_account_movements m
+              WHERE m.supplier_account_id = $1::uuid AND m.account_id = $2::uuid
+                AND (m.movement_type = 'purchase' OR (m.movement_type = 'adjustment' AND m.amount > 0))
+            )
+    """
+
+    _MOVEMENT_DUE_DERIVATIVES = """
+              oi.open_amount,
+              CASE WHEN oi.id IS NOT NULL AND sam.due_date IS NOT NULL
+                   THEN (sam.due_date < public.reporting_local_today() AND oi.open_amount > 0)
+                   END AS is_overdue,
+              CASE WHEN oi.id IS NOT NULL AND sam.due_date IS NOT NULL
+                        AND sam.due_date < public.reporting_local_today() AND oi.open_amount > 0
+                   THEN (public.reporting_local_today() - sam.due_date)
+                   END AS days_overdue
+    """
+
+    async def list_payables_page(
+        self,
+        account_id: str,
+        *,
+        page: int,
+        size: int,
+        sort: str = "balance",
+        sort_dir: str = "desc",
+        bucket: str | None = None,
+    ) -> dict:
+        """cobranzas-vencimientos (task 7.5): listado paginado de acreedores —
+        molde exacto de list_receivables_page sobre rpc_payables_report. El
+        predicado de "quién es acreedor" vive UNA sola vez en el RPC; el
+        guard de membresía es su P0401."""
+        sort_column = self._PAYABLES_SORT_COLUMNS.get(sort, "balance")
+        direction = "ASC" if sort_dir == "asc" else "DESC"
+        nulls = (
+            " NULLS LAST"
+            if sort_column in ("days_since_last_charge", "days_since_last_payment")
+            else ""
+        )
+        bucket_predicate = self._PAYABLES_BUCKET_FILTERS.get(bucket or "")
+        where = f"WHERE {bucket_predicate}" if bucket_predicate else ""
+        return await self.paginate(
+            f"""
+            SELECT *
+            FROM public.rpc_payables_report($1::uuid)
+            {where}
+            ORDER BY {sort_column} {direction}{nulls}, supplier_id ASC
+            """,
+            f"""
+            SELECT COUNT(*)
+            FROM public.rpc_payables_report($1::uuid)
+            {where}
+            """,
+            account_id,
+            page=page,
+            size=size,
+        )
+
+    async def get_payables_summary(self, account_id: str) -> dict:
+        """cobranzas-vencimientos (task 7.5): total por pagar + vencido +
+        cantidad de acreedores, agregado sobre el MISMO RPC del listado."""
+        row = await self.fetchrow(
+            """
+            SELECT COALESCE(SUM(balance), 0)       AS total_payable,
+                   COALESCE(SUM(overdue_total), 0) AS overdue_total,
+                   COUNT(*)::int                   AS creditor_count
+            FROM public.rpc_payables_report($1::uuid)
+            """,
+            account_id,
+        )
+        return dict(row)
+
     async def create_account(self, supplier_id: str) -> dict:
         """Invoca rpc_create_supplier_account(p_supplier_id) → crea/retorna la cuenta."""
         row = await self.fetchrow(
@@ -71,8 +178,10 @@ class SupplierAccountRepository(BaseRepository):
         real), no list_movements_page.
         """
         return await self.fetch(
-            """
+            f"""
+            {self._MOVEMENT_OPEN_ITEMS_CTE}
             SELECT sam.*, pmethod.name AS payment_method,
+              {self._MOVEMENT_DUE_DERIVATIVES},
               (sam.movement_type = 'payment_made' AND EXISTS (
                 SELECT 1 FROM public.payments_made pm2 WHERE pm2.id = sam.reference_id
               )) AS is_reversible,
@@ -95,6 +204,7 @@ class SupplierAccountRepository(BaseRepository):
                 WHERE bm.source_doc_type = 'payment_made' AND bm.source_doc_ref = sam.reference_id
               ) AS has_bank_movement
             FROM public.supplier_account_movements sam
+            LEFT JOIN open_items oi ON oi.id = sam.id
             LEFT JOIN public.payments_made pm
               ON pm.id = sam.reference_id AND sam.movement_type = 'payment_made'
             LEFT JOIN public.payment_methods pmethod
@@ -131,8 +241,10 @@ class SupplierAccountRepository(BaseRepository):
         is_reversal_blocked/has_cash_movement/has_bank_movement con el mismo
         predicado que evalúa rpc_reverse_payment_made."""
         return await self.paginate(
-            """
+            f"""
+            {self._MOVEMENT_OPEN_ITEMS_CTE}
             SELECT sam.*, pmethod.name AS payment_method,
+              {self._MOVEMENT_DUE_DERIVATIVES},
               (sam.movement_type = 'payment_made' AND EXISTS (
                 SELECT 1 FROM public.payments_made pm2 WHERE pm2.id = sam.reference_id
               )) AS is_reversible,
@@ -155,6 +267,7 @@ class SupplierAccountRepository(BaseRepository):
                 WHERE bm.source_doc_type = 'payment_made' AND bm.source_doc_ref = sam.reference_id
               ) AS has_bank_movement
             FROM public.supplier_account_movements sam
+            LEFT JOIN open_items oi ON oi.id = sam.id
             LEFT JOIN public.payments_made pmd
               ON pmd.id = sam.reference_id AND sam.movement_type = 'payment_made'
             LEFT JOIN public.payment_methods pmethod

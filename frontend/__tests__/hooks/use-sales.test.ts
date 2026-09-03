@@ -157,6 +157,7 @@ describe("useSales", () => {
         payment_method_id: null, // metodos-pago-operaciones: sin forma de pago elegida → "Sin especificar"
         cash_session_id: null, // pagos-cableados-restantes (OQ-C): sin opt-in de caja → no-op (D5)
         bank_account_id: null, // pos-banco-movimientos (D2): sin override → default del método
+        due_date: null, // cobranzas-vencimientos (D3): sin override → cascada en el servidor
         items: [{
           product_id: "prod-1",
           amount:     1500,

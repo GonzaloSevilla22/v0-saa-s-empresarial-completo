@@ -119,10 +119,25 @@ export const queryKeys = {
   // cobranzas-panel: read-model agregado de deudores. Prefijo propio para
   // que invalidateQueries({queryKey: receivables.all()}) alcance lista,
   // resumen y KPI del Tablero de una sola vez (D8).
+  // cobranzas-vencimientos (task 8.4): espejo de receivables para el lado
+  // proveedor — la pestaña "Por pagar" de /cobranzas.
+  payables: {
+    all: () => ["payables"] as const,
+    list: (accountId: string, page: number, size: number, sort: string, sortDir: string, bucket: string | null) =>
+      ["payables", "list", accountId, page, size, sort, sortDir, bucket] as const,
+    summary: (accountId: string) => ["payables", "summary", accountId] as const,
+  },
+  // cobranzas-vencimientos (task 7.8): plazo de pago por defecto de la cuenta.
+  collectionSettings: {
+    all: () => ["collection-settings"] as const,
+    get: (accountId: string) => ["collection-settings", accountId] as const,
+  },
   receivables: {
     all: () => ["receivables"] as const,
     list: (accountId: string, page: number, size: number, sort: string, sortDir: string) =>
       ["receivables", "list", accountId, page, size, sort, sortDir] as const,
+    listFiltered: (accountId: string, page: number, size: number, sort: string, sortDir: string, bucket: string | null) =>
+      ["receivables", "list", accountId, page, size, sort, sortDir, bucket] as const,
     summary: (accountId: string) => ["receivables", "summary", accountId] as const,
   },
   supplierAccounts: {

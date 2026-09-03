@@ -74,8 +74,8 @@ class ClientRepository(BaseRepository):
     async def create(self, user_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
         return await self.fetchrow(
             """
-            INSERT INTO clients (user_id, account_id, name, email, phone, tax_id, iva_condition, legal_name)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO clients (user_id, account_id, name, email, phone, tax_id, iva_condition, legal_name, payment_terms_days)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
             """,
             user_id,
@@ -86,10 +86,21 @@ class ClientRepository(BaseRepository):
             data.get("tax_id"),
             data.get("iva_condition"),
             data.get("legal_name"),
+            data.get("payment_terms_days"),
         )
 
     async def update(self, client_id: str, account_id: str, data: dict) -> asyncpg.Record | None:
-        fields = {k: v for k, v in data.items() if v is not None}
+        # cobranzas-vencimientos (D14): payment_terms_days es tri-estado — el
+        # service solo lo incluye cuando el caller lo informo explicitamente
+        # (model_fields_set), y un None explicito LIMPIA la columna (vuelve a
+        # heredar el default de la cuenta). El filtro v is not None historico
+        # se conserva para el resto de los campos (BE-1 de suppliers quedo
+        # como candidato para clients; no se cambia la semantica acA).
+        fields = {
+            k: v
+            for k, v in data.items()
+            if v is not None or k == "payment_terms_days"
+        }
         if not fields:
             return await self.get_by_id(client_id, account_id)
         set_clauses = ", ".join(f"{k} = ${i + 3}" for i, k in enumerate(fields))

@@ -146,6 +146,7 @@ async def list_receivables(
     size: int = 25,
     sort: str = "balance",
     sort_dir: str = "desc",
+    bucket: str | None = None,
 ) -> dict:
     """cobranzas-panel (task 3.5): listado paginado de deudores.
 
@@ -155,7 +156,7 @@ async def list_receivables(
     autorización de tenant es el P0401 del propio RPC (D1)."""
     try:
         return await repo.list_receivables_page(
-            account_id, page=page, size=size, sort=sort, sort_dir=sort_dir
+            account_id, page=page, size=size, sort=sort, sort_dir=sort_dir, bucket=bucket
         )
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc
@@ -173,3 +174,30 @@ async def get_receivables_summary(
         return await repo.get_receivables_summary(account_id)
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc
+
+
+async def get_collection_settings(
+    repo: CustomerAccountRepository,
+    account_id: str,
+) -> dict:
+    """cobranzas-vencimientos (task 7.8): plazo de pago por defecto de la
+    cuenta. Lectura para todo miembro (RLS aplica en la conexion)."""
+    days = await repo.get_default_payment_terms(account_id)
+    return {"default_payment_terms_days": days}
+
+
+async def set_collection_settings(
+    repo: CustomerAccountRepository,
+    auth: dict,
+    days: int | None,
+) -> dict:
+    """cobranzas-vencimientos (task 7.8/D10): escribe el plazo por defecto
+    via rpc_set_default_payment_terms — el guard real es el
+    is_account_writer (P0401 → 403) de la RPC; el require_role es la primera
+    capa, mismo criterio que register_payment_received."""
+    require_role(auth, ["user", "admin"])
+    try:
+        await repo.set_default_payment_terms(days)
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+    return {"default_payment_terms_days": days}

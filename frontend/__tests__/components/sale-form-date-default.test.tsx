@@ -30,6 +30,13 @@ vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
 // — sin esto, el import real de use-payment-methods dispara python-client
 // (NEXT_PUBLIC_BACKEND_URL no definida en el entorno de test).
 vi.mock("@/hooks/data/use-payment-methods", () => ({ usePaymentMethods: () => ({ paymentMethods: [] }) }))
+// cobranzas-vencimientos: el form consulta el plazo por defecto de la cuenta
+// para pre-cargar el vencimiento — sin mock, el hook real importa
+// python-client, que tira al importar sin NEXT_PUBLIC_BACKEND_URL.
+vi.mock("@/hooks/data/use-collection-settings", () => ({
+  useCollectionSettings: () => ({ data: { defaultPaymentTermsDays: null }, isLoading: false }),
+}))
+
 vi.mock("@/hooks/data/use-customer-account", () => ({ useCustomerAccount: () => ({ data: null }) }))
 vi.mock("@/hooks/data/use-branches", () => ({ useBranches: () => ({ branches: [] }) }))
 vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [] }) }))

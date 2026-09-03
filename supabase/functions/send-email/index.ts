@@ -2,6 +2,7 @@ import { Resend } from "npm:resend";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { verifyWebhookSecret } from "../_shared/webhook-auth.ts";
 import { isAllUsersFanoutAllowed } from "../_shared/email-fanout-policy.ts";
+import { buildOverdueDigestContent } from "../_shared/overdue-digest-template.ts";
 
 const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -296,6 +297,25 @@ Deno.serve(async (req: Request) => {
         bodyHtml: `<p style="margin:0;">Si tu medio de pago sigue vigente, no necesitás hacer nada — MercadoPago va a seguir intentando. Si querés revisar o actualizar tu método de pago, podés hacerlo desde MercadoPago.</p>`,
         ctaText: "Ver mi facturación",
         ctaUrl: `${APP_URL}/facturacion`,
+      });
+    } else if (event_type === "receivables_overdue_digest" || event_type === "payables_overdue_digest") {
+      // cobranzas-vencimientos (grupo 6, D8) — resumen diario de deuda
+      // vencida (un aviso por cuenta, por lado y por día argentino). Las
+      // cifras viajan en metadata (party_count, overdue_total, as_of); el
+      // armado vive en el módulo puro _shared/overdue-digest-template.ts,
+      // testeado desde frontend/__tests__/send-email-overdue-digest.test.ts.
+      const digest = buildOverdueDigestContent(
+        event_type === "receivables_overdue_digest" ? "receivables" : "payables",
+        metadata ?? {},
+        APP_URL,
+      );
+      htmlContent = layout({
+        title: digest.title,
+        accent: digest.accent,
+        intro: digest.intro,
+        bodyHtml: digest.bodyHtml,
+        ctaText: digest.ctaText,
+        ctaUrl: digest.ctaUrl,
       });
     } else if (event_type === "subscription_cancelled") {
       // mp-real-subscriptions (task 7.2) — baja voluntaria o reportada por

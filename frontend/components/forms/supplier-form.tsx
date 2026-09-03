@@ -38,6 +38,10 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
   const [phone, setPhone] = useState(initialData?.phone || "")
 
   // Datos fiscales (D2/OQ-3 opción A) — opcionales
+  // cobranzas-vencimientos (D2/D14): plazo de pago propio del proveedor.
+  const [paymentTerms, setPaymentTerms] = useState(
+    initialData?.paymentTermsDays != null ? String(initialData.paymentTermsDays) : "",
+  )
   const [taxId,        setTaxId]        = useState(initialData?.taxId        || "")
   const [ivaCondition, setIvaCondition] = useState<IvaCondition | "">(initialData?.ivaCondition || "")
   const [legalName,    setLegalName]    = useState(initialData?.legalName    || "")
@@ -58,6 +62,13 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
       return
     }
 
+    const trimmedTerms = paymentTerms.trim()
+    const parsedTerms = trimmedTerms === "" ? null : Number(trimmedTerms)
+    if (parsedTerms !== null && (!Number.isInteger(parsedTerms) || parsedTerms < 0)) {
+      toast.error("El plazo de pago debe ser un número de días (0 o más)")
+      return
+    }
+
     const supplierData = {
       name:  name.trim(),
       email: email.trim() || "",
@@ -65,6 +76,9 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
       taxId:        taxId.trim()     || undefined,
       ivaCondition: ivaCondition     || undefined,
       legalName:    legalName.trim() || undefined,
+      // cobranzas-vencimientos (D14): el form SIEMPRE lo informa — vacío =
+      // null = "usa el plazo de la cuenta".
+      paymentTermsDays: parsedTerms,
     }
 
     try {
@@ -131,6 +145,31 @@ export function SupplierForm({ onSuccess, initialData }: SupplierFormProps) {
             className="bg-background border-border text-foreground"
           />
         </div>
+      </div>
+
+      {/* ── Plazo de pago (cobranzas-vencimientos D2) ─────────────────────── */}
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="supplier-payment-terms" className="text-foreground">
+          Plazo de pago (días)
+        </Label>
+        <Input
+          id="supplier-payment-terms"
+          selectOnFocus
+          type="number"
+          min={0}
+          step={1}
+          value={paymentTerms}
+          onChange={(e) => setPaymentTerms(e.target.value)}
+          placeholder="Usa el plazo de la cuenta"
+          className="bg-background border-border text-foreground"
+        />
+        <p className="text-xs text-muted-foreground">
+          {paymentTerms.trim() === ""
+            ? "Vacío: usa el plazo de la cuenta (Configuración → Cobranzas). Sin plazo en ningún lado, las compras a crédito nacen sin vencimiento."
+            : paymentTerms.trim() === "0"
+            ? "0 = contado a la vista: el cargo vence el mismo día de la compra."
+            : `Las compras a crédito a este proveedor vencen a los ${paymentTerms.trim()} días.`}
+        </p>
       </div>
 
       {/* ── Datos fiscales (D2/OQ-3 opción A — espejo de clients) ─────────── */}

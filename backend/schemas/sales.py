@@ -41,6 +41,11 @@ class SaleOperationIn(BaseModel):
     # escribir nada si tampoco hay default) — la RPC resuelve, valida y
     # aplica el guard de período conciliado (P0412/P0400/P0424), nunca acá.
     bank_account_id: uuid.UUID | None = None
+    # cobranzas-vencimientos (D3/D11): vencimiento explícito de la venta a
+    # crédito — None = la cascada de plazos (parte → cuenta) se resuelve en
+    # _pay_register_party_charge, NUNCA acá ni en el service. Un vencimiento
+    # anterior a la fecha de la operación aborta con P0400 en la RPC.
+    due_date: datetime.date | None = None
 
 
 class SaleOperationOut(BaseModel):

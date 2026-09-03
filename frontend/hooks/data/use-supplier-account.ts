@@ -24,6 +24,12 @@ export interface SupplierAccountMovementApi {
   // cobranzas-catalogo-pagos (D3, task 10.2): espejo exacto — nombre
   // configurado de la forma de pago del pago.
   payment_method?: string | null
+  // cobranzas-vencimientos (D7): derivados de vencimiento del SERVIDOR —
+  // ausentes para todo movimiento que no es cargo (nunca 0).
+  due_date?: string | null
+  open_amount?: string | number | null
+  is_overdue?: boolean | null
+  days_overdue?: number | null
 }
 
 export interface SupplierAccountApi {
@@ -77,6 +83,14 @@ export interface SupplierAccountMovement {
   hasBankMovement: boolean
   /** cobranzas-catalogo-pagos (D3, task 10.2): espejo exacto del cliente. */
   paymentMethod: string | null
+  /** cobranzas-vencimientos (D7): vencimiento del cargo (ISO), o null. */
+  dueDate: string | null
+  /** Importe que sigue abierto tras la imputación FIFO — null si no es cargo. */
+  openAmount: number | null
+  /** Vencido (abierto y con vencimiento cumplido) — null si no aplica. */
+  isOverdue: boolean | null
+  /** Días de atraso, o null. */
+  daysOverdue: number | null
 }
 
 export interface SupplierAccount {
@@ -106,6 +120,10 @@ function mapMovement(r: SupplierAccountMovementApi): SupplierAccountMovement {
     hasCashMovement:   r.has_cash_movement ?? false,
     hasBankMovement:   r.has_bank_movement ?? false,
     paymentMethod:     r.payment_method ?? null,
+    dueDate:           r.due_date ?? null,
+    openAmount:        r.open_amount != null ? Number(r.open_amount) : null,
+    isOverdue:         r.is_overdue ?? null,
+    daysOverdue:       r.days_overdue ?? null,
   }
 }
 
@@ -235,6 +253,9 @@ export function useRegisterPaymentMade(supplierId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
       // cobranzas-catalogo-pagos (task 9.7): espejo exacto del cobro.
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): el pago cancela deuda — la
+      // pestaña "Por pagar" de /cobranzas tiene que enterarse.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 }
@@ -271,6 +292,8 @@ export function useReversePaymentMade(supplierId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
+      // cobranzas-vencimientos (task 8.7): anular un pago repone la deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 }

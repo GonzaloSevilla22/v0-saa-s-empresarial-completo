@@ -32,6 +32,61 @@ class CustomerAccountRepository(BaseRepository):
         "client_name": "client_name",
     }
 
+    # cobranzas-vencimientos (task 7.2): filtro por tramo resuelto EN el
+    # servidor, traducido por diccionario a predicado — el input JAMÁS se
+    # interpola (el router ya lo acota con Literal; un valor fuera del
+    # diccionario cae a "sin filtro"). El predicado se aplica al listado Y al
+    # COUNT: el filtro es sobre el conjunto completo, no sobre la página.
+    _RECEIVABLES_BUCKET_FILTERS: dict[str, str] = {
+        "overdue": "overdue_total > 0",
+        "current": "amount_current > 0",
+        "overdue_1_30": "amount_overdue_1_30 > 0",
+        "overdue_31_60": "amount_overdue_31_60 > 0",
+        "overdue_60_plus": "amount_overdue_60_plus > 0",
+        "no_due_date": "amount_no_due_date > 0",
+    }
+
+    # cobranzas-vencimientos (D4/D7): derivación FIFO por línea de flotación
+    # para el importe abierto por movimiento — cargo = 'sale' + adjustment
+    # POSITIVO (nunca por signo: un payment_received_reversal es positivo y
+    # NO es cargo), crédito = suma negada del resto. Este bloque se comparte
+    # LITERAL entre list_movements y list_movements_page (D7: los derivados
+    # viajan por LAS DOS queries — deuda de duplicación declarada, ver
+    # design.md D7).
+    _MOVEMENT_OPEN_ITEMS_CTE = """
+            WITH pool AS (
+              SELECT COALESCE(SUM(-m.amount), 0) AS credit
+              FROM public.customer_account_movements m
+              WHERE m.customer_account_id = $1::uuid AND m.account_id = $2::uuid
+                AND NOT (m.movement_type = 'sale' OR (m.movement_type = 'adjustment' AND m.amount > 0))
+            ),
+            open_items AS (
+              SELECT m.id,
+                     LEAST(m.amount, GREATEST(0::numeric,
+                       SUM(m.amount) OVER (
+                         ORDER BY COALESCE(m.due_date, (m.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
+                                  m.created_at, m.id
+                       ) - (SELECT credit FROM pool)
+                     )) AS open_amount
+              FROM public.customer_account_movements m
+              WHERE m.customer_account_id = $1::uuid AND m.account_id = $2::uuid
+                AND (m.movement_type = 'sale' OR (m.movement_type = 'adjustment' AND m.amount > 0))
+            )
+    """
+
+    # Derivados de vencimiento por fila: ausentes (NULL) para todo movimiento
+    # que no es cargo; un cargo saldado (open 0) tampoco se presenta vencido.
+    _MOVEMENT_DUE_DERIVATIVES = """
+              oi.open_amount,
+              CASE WHEN oi.id IS NOT NULL AND cam.due_date IS NOT NULL
+                   THEN (cam.due_date < public.reporting_local_today() AND oi.open_amount > 0)
+                   END AS is_overdue,
+              CASE WHEN oi.id IS NOT NULL AND cam.due_date IS NOT NULL
+                        AND cam.due_date < public.reporting_local_today() AND oi.open_amount > 0
+                   THEN (public.reporting_local_today() - cam.due_date)
+                   END AS days_overdue
+    """
+
     async def list_receivables_page(
         self,
         account_id: str,
@@ -40,12 +95,14 @@ class CustomerAccountRepository(BaseRepository):
         size: int,
         sort: str = "balance",
         sort_dir: str = "desc",
+        bucket: str | None = None,
     ) -> dict:
-        """cobranzas-panel (tasks 3.2): listado paginado de deudores.
+        """cobranzas-panel (tasks 3.2) + cobranzas-vencimientos (task 7.2).
 
         El predicado de "quién es deudor" (balance > 0, cliente no borrado,
         tenant) vive UNA sola vez en rpc_receivables_report (D1/D2) — acá no
-        se re-declara nada: sólo orden + envelope estándar via paginate().
+        se re-declara nada: sólo orden + filtro por tramo (diccionario, nunca
+        interpolación) + envelope estándar via paginate().
         El guard de membresía es el P0401 del propio RPC.
         """
         sort_column = self._RECEIVABLES_SORT_COLUMNS.get(sort, "balance")
@@ -57,15 +114,19 @@ class CustomerAccountRepository(BaseRepository):
             if sort_column in ("days_since_last_charge", "days_since_last_payment")
             else ""
         )
+        bucket_predicate = self._RECEIVABLES_BUCKET_FILTERS.get(bucket or "")
+        where = f"WHERE {bucket_predicate}" if bucket_predicate else ""
         return await self.paginate(
             f"""
             SELECT *
             FROM public.rpc_receivables_report($1::uuid)
+            {where}
             ORDER BY {sort_column} {direction}{nulls}, client_id ASC
             """,
-            """
+            f"""
             SELECT COUNT(*)
             FROM public.rpc_receivables_report($1::uuid)
+            {where}
             """,
             account_id,
             page=page,
@@ -73,19 +134,38 @@ class CustomerAccountRepository(BaseRepository):
         )
 
     async def get_receivables_summary(self, account_id: str) -> dict:
-        """cobranzas-panel (task 3.3, D2): el resumen agrega SOBRE el mismo
-        RPC del detalle — sin un segundo RPC ni un segundo predicado de
-        deudor, para que el total de la cabecera cierre SIEMPRE contra la
-        suma de la tabla."""
+        """cobranzas-panel (task 3.3, D2) + cobranzas-vencimientos: el resumen
+        agrega SOBRE el mismo RPC del detalle — sin un segundo RPC ni un
+        segundo predicado de deudor, para que el total (y ahora el vencido)
+        de la cabecera cierre SIEMPRE contra la suma de la tabla."""
         row = await self.fetchrow(
             """
-            SELECT COALESCE(SUM(balance), 0) AS total_receivable,
-                   COUNT(*)::int             AS debtor_count
+            SELECT COALESCE(SUM(balance), 0)       AS total_receivable,
+                   COALESCE(SUM(overdue_total), 0) AS overdue_total,
+                   COUNT(*)::int                   AS debtor_count
             FROM public.rpc_receivables_report($1::uuid)
             """,
             account_id,
         )
         return dict(row)
+
+    async def get_default_payment_terms(self, account_id: str) -> int | None:
+        """cobranzas-vencimientos (task 7.8): lee el plazo por defecto de la
+        cuenta. Lectura directa (RLS aplica); la escritura va SIEMPRE por la
+        RPC con guard is_account_writer."""
+        return await self._conn.fetchval(
+            "SELECT default_payment_terms_days FROM public.accounts WHERE id = $1::uuid",
+            account_id,
+        )
+
+    async def set_default_payment_terms(self, days: int | None) -> None:
+        """cobranzas-vencimientos (task 7.8): escribe el plazo por defecto vía
+        rpc_set_default_payment_terms (SECURITY DEFINER, guard
+        is_account_writer → P0401; P0400 si negativo; NULL limpia)."""
+        await self._conn.fetchval(
+            "SELECT public.rpc_set_default_payment_terms($1::smallint)",
+            days,
+        )
 
     async def create_account(self, client_id: str) -> dict:
         """Invoca rpc_create_customer_account(p_client_id) → crea/retorna la cuenta."""
@@ -151,8 +231,10 @@ class CustomerAccountRepository(BaseRepository):
         False la habrían dejado siempre oculta.
         """
         return await self.fetch(
-            """
+            f"""
+            {self._MOVEMENT_OPEN_ITEMS_CTE}
             SELECT cam.*, pm.name AS payment_method,
+              {self._MOVEMENT_DUE_DERIVATIVES},
               (cam.movement_type = 'payment_received' AND EXISTS (
                 SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
               )) AS is_reversible,
@@ -175,6 +257,7 @@ class CustomerAccountRepository(BaseRepository):
                 WHERE bm.source_doc_type = 'payment_received' AND bm.source_doc_ref = cam.reference_id
               ) AS has_bank_movement
             FROM public.customer_account_movements cam
+            LEFT JOIN open_items oi ON oi.id = cam.id
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'
             LEFT JOIN public.payment_methods pm
@@ -218,8 +301,10 @@ class CustomerAccountRepository(BaseRepository):
         aplican; `payment_method` NO sirve para esto (NULL en el 100% de los
         pagos históricos, D3)."""
         return await self.paginate(
-            """
+            f"""
+            {self._MOVEMENT_OPEN_ITEMS_CTE}
             SELECT cam.*, pm.name AS payment_method,
+              {self._MOVEMENT_DUE_DERIVATIVES},
               (cam.movement_type = 'payment_received' AND EXISTS (
                 SELECT 1 FROM public.payments_received pr2 WHERE pr2.id = cam.reference_id
               )) AS is_reversible,
@@ -242,6 +327,7 @@ class CustomerAccountRepository(BaseRepository):
                 WHERE bm.source_doc_type = 'payment_received' AND bm.source_doc_ref = cam.reference_id
               ) AS has_bank_movement
             FROM public.customer_account_movements cam
+            LEFT JOIN open_items oi ON oi.id = cam.id
             LEFT JOIN public.payments_received pr
               ON pr.id = cam.reference_id AND cam.movement_type = 'payment_received'
             LEFT JOIN public.payment_methods pm

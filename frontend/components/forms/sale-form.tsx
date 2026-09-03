@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback, useRef } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NumericInput } from "@/components/ui/numeric-input"
@@ -11,11 +11,13 @@ import { CartItemList } from "@/components/shared/cart-item-list"
 import { BarcodeScannerInput } from "@/components/shared/barcode-scanner-input"
 import { useProducts } from "@/hooks/data/use-products"
 import { useClients } from "@/hooks/data/use-clients"
+import { useCollectionSettings } from "@/hooks/data/use-collection-settings"
 import { useSales } from "@/hooks/data/use-sales"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { useUnitsOfMeasure } from "@/hooks/use-units-of-measure"
 import { formatMoney, CURRENCIES, type Currency } from "@/lib/format"
+import { addDaysToIsoDate } from "@/lib/receivables-aging"
 import { SALE_CHANNELS } from "@/lib/kpi-format"
 import type { SaleOperation } from "@/lib/group-operations"
 import { formatStock } from "@/lib/format-unit"
@@ -174,6 +176,25 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   const isCreditSelected = resolvedKind === "credit"
   const { data: customerAccount } = useCustomerAccount(isCreditSelected ? (clientId || null) : null)
   const creditBlockedNoClient = isCreditSelected && !clientId
+
+  // ── cobranzas-vencimientos (D3/D11): vencimiento de la venta a crédito ──
+  // El campo se PRE-CARGA con el resuelto por la cascada (plazo del cliente →
+  // default de la cuenta) y es editable. Sólo viaja al servidor cuando el
+  // usuario lo TOCÓ — sin tocar, va null y la cascada AUTORITATIVA se
+  // resuelve en _pay_register_party_charge (nunca acá). El POS no tiene este
+  // campo: usa la cascada sin UI extra (D11).
+  const { data: collectionSettings } = useCollectionSettings()
+  const [dueDate, setDueDate] = useState("")
+  const [dueDateTouched, setDueDateTouched] = useState(false)
+  const effectiveTermsDays =
+    selectedClient?.paymentTermsDays ??
+    collectionSettings?.defaultPaymentTermsDays ??
+    null
+  const resolvedDueDate =
+    effectiveTermsDays !== null && date ? addDaysToIsoDate(date, effectiveTermsDays) : ""
+  useEffect(() => {
+    if (!dueDateTouched) setDueDate(resolvedDueDate)
+  }, [resolvedDueDate, dueDateTouched])
 
   // ── pagos-cableados-restantes (OQ-C): opt-in de caja ────────────────────────
   // La sucursal EFECTIVA es la elegida en el form, o la primera activa de la
@@ -555,6 +576,10 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           // tildó la casilla Y las tres condiciones de servidor se cumplen —
           // la RPC vuelve a validar todo (D4), esto es sólo la intención.
           cashSessionId:  cashOptinEligible && registerInCash ? (currentSession?.id ?? null) : null,
+          // cobranzas-vencimientos (D3): SOLO viaja el override que el
+          // usuario tocó — sin tocar, null y la cascada se resuelve en el
+          // servidor (una sola definición del vencimiento).
+          dueDate: isCreditSelected && dueDateTouched && dueDate ? dueDate : null,
           // pos-banco-movimientos (D2): override opcional del destino —
           // null cuando el selector no está montado (kind no bancario) o
           // el usuario dejó "usar el destino configurado".
@@ -833,12 +858,44 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
                   </span>
                 </div>
               ) : (
-                <div className="flex items-center justify-between gap-2 text-muted-foreground">
-                  <span>Saldo actual: {formatMoney(customerAccount?.balance ?? 0, "ARS")}</span>
-                  <span className="font-medium text-foreground">
-                    Después de esta venta: {formatMoney(projectedBalance, "ARS")}
-                  </span>
-                </div>
+                <>
+                  <div className="flex items-center justify-between gap-2 text-muted-foreground">
+                    <span>Saldo actual: {formatMoney(customerAccount?.balance ?? 0, "ARS")}</span>
+                    <span className="font-medium text-foreground">
+                      Después de esta venta: {formatMoney(projectedBalance, "ARS")}
+                    </span>
+                  </div>
+                  {/* cobranzas-vencimientos (D11): vencimiento resuelto y
+                      EDITABLE — el POS no tiene este campo (usa la cascada). */}
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/60">
+                    <Label
+                      htmlFor="sale-due-date"
+                      className="text-xs text-muted-foreground shrink-0"
+                    >
+                      Vencimiento
+                    </Label>
+                    <Input
+                      id="sale-due-date"
+                      type="date"
+                      value={dueDate}
+                      min={date}
+                      onChange={(e) => {
+                        setDueDate(e.target.value)
+                        setDueDateTouched(true)
+                      }}
+                      className="h-7 w-auto bg-background border-border text-foreground text-xs"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {dueDateTouched && dueDate
+                      ? "Vencimiento elegido para esta venta."
+                      : effectiveTermsDays !== null
+                      ? selectedClient?.paymentTermsDays != null
+                        ? `Resuelto por el plazo del cliente (${effectiveTermsDays} días).`
+                        : `Resuelto por el plazo de la cuenta (${effectiveTermsDays} días).`
+                      : "Sin plazo configurado: el cargo nace sin vencimiento (podés elegir una fecha)."}
+                  </p>
+                </>
               )}
             </div>
           )}

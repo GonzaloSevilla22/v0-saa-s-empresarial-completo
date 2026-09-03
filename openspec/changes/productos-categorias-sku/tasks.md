@@ -95,13 +95,13 @@
 
 ## 10. Frontend — hook, selector y gestor del catálogo
 
-- [ ] 10.1 RED: tests de `use-product-categories` (React Query) — listado, `includeInactive`, mutaciones e invalidación de la query tras crear/renombrar/desactivar.
-- [ ] 10.2 GREEN: `hooks/data/use-product-categories.ts`, espejo de `use-payment-methods.ts`. Tipos explícitos en `lib/types.ts`; **prohibido `any`**.
-- [ ] 10.3 RED: tests de `ProductCategorySelect` — ofrece sólo activas ordenadas por `sort_order`; alta inline crea, selecciona y conserva el formulario; cuenta sin categorías activas advierte y ofrece crear, sin bloquear.
-- [ ] 10.4 GREEN: `components/product-categories/ProductCategorySelect.tsx`. El alta inline intercambia el `<Select>` por un `<Input>` **en el lugar** (D9) — NO abre un diálogo anidado sobre el diálogo del formulario, que es el bug raíz que `qa-integral-modulos` (G1) tuvo que arreglar.
-- [ ] 10.5 RED: tests de `ProductCategoryManager` — lectura para todo miembro, acciones sólo para `isWriter`, desactivar, renombrar, reordenar.
-- [ ] 10.6 GREEN: `components/product-categories/ProductCategoryManager.tsx`, molde de `PaymentMethodManager` (incluidos los objetivos táctiles de 44px en móvil).
-- [ ] 10.7 GREEN: montar el gestor como **décima pestaña "Categorías" de `/configuracion`** (D8, sign-off del PO en OQ-2), junto a Centros de costo y Formas de pago. La `TabsList` pasa de `lg:grid-cols-9` a `lg:grid-cols-10`; los breakpoints menores (`grid-cols-3 sm:grid-cols-5`) no cambian.
+- [x] 10.1 RED: tests de `use-product-categories` (React Query) — listado, `includeInactive`, mutaciones e invalidación de la query tras crear/renombrar/desactivar.
+- [x] 10.2 GREEN: `hooks/data/use-product-categories.ts`, espejo de `use-payment-methods.ts`. Tipos explícitos en `lib/types.ts`; **prohibido `any`**.
+- [x] 10.3 RED: tests de `ProductCategorySelect` — ofrece sólo activas ordenadas por `sort_order`; alta inline crea, selecciona y conserva el formulario; cuenta sin categorías activas advierte y ofrece crear, sin bloquear.
+- [x] 10.4 GREEN: `components/product-categories/ProductCategorySelect.tsx`. El alta inline intercambia el `<Select>` por un `<Input>` **en el lugar** (D9) — NO abre un diálogo anidado sobre el diálogo del formulario, que es el bug raíz que `qa-integral-modulos` (G1) tuvo que arreglar.
+- [x] 10.5 RED: tests de `ProductCategoryManager` — lectura para todo miembro, acciones sólo para `isWriter`, desactivar, renombrar, reordenar.
+- [x] 10.6 GREEN: `components/product-categories/ProductCategoryManager.tsx`, molde de `PaymentMethodManager` (incluidos los objetivos táctiles de 44px en móvil).
+- [x] 10.7 GREEN: montar el gestor como **décima pestaña "Categorías" de `/configuracion`** (D8, sign-off del PO en OQ-2), junto a Centros de costo y Formas de pago. La `TabsList` pasa de `lg:grid-cols-9` a `lg:grid-cols-10`; los breakpoints menores (`grid-cols-3 sm:grid-cols-5`) no cambian.
 - [ ] 10.8 Verificar en móvil y tablet que la décima pestaña no rompe el envoltorio de la `TabsList` — es la deuda que `qa-integral-modulos` arregló y sobre la que sigue abierto `tablet-filtros-cta`. Si se degrada, corregirlo acá y no dejarlo para después.
 
 ## 11. Frontend — formulario de producto

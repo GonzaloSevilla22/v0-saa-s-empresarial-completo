@@ -37,6 +37,7 @@ from backend.routers import (
     quotes,
     sales,
     sales_orders,
+    statistics,
     stock,
     supplier_accounts,
     suppliers,
@@ -176,6 +177,8 @@ app.include_router(customer_accounts.settings_router)
 app.include_router(supplier_accounts.router)
 # cobranzas-vencimientos: read-model de cuentas por pagar (task 7.5).
 app.include_router(supplier_accounts.report_router)
+# estadisticas-ventas E1: read-models de estadísticas de ventas (/reports/statistics/*).
+app.include_router(statistics.report_router)
 # compras-proveedor-cuenta-corriente (task 7.5): ABM de proveedores, 3 capas
 app.include_router(suppliers.router)
 # journal-entry-outbox (V2.5 Finanzas — read-only; writes via relay SECURITY DEFINER)

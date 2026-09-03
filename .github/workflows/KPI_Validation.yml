@@ -1222,3 +1222,11 @@ jobs:
       # ledgers para el gasto). Sin sesión abierta, P0426 y todo-o-nada (5.3).
       - name: Run caja-compras-cobranzas purchase delete cash compensation gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_purchase_delete_cash_compensation.sql
+
+      # cobranzas-panel (tasks 2.1/2.4/2.5): rpc_receivables_report existe,
+      # SECURITY DEFINER + search_path + ACLs exactas (anon sin EXECUTE), y
+      # el comportamiento D4/D5/OQ-4: saldo 0/borrado/ajeno fuera; reversa no
+      # rejuvenece el cobro; credit_note/adjustment no son cargo; días en
+      # calendario argentino (reporting_local_today). Degrade-don't-fail.
+      - name: Run cobranzas-panel receivables report gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receivables_report.sql

@@ -68,12 +68,12 @@
 
 ## 7. Verificación
 
-- [ ] 7.1 Suite completa de backend en verde (`pytest`), con la cobertura por encima del umbral de CI.
-- [ ] 7.2 Suite completa de frontend en verde (`pnpm vitest run`) y `tsc` sin errores nuevos. **Cero `any`** en el código nuevo.
-- [ ] 7.3 `supabase db reset` local limpio con la migración nueva, y los gates de `KPI_Validation.yml` en el orden real del workflow (anotar los fallos pre-existentes conocidos en vez de "arreglarlos" en este PR).
-- [ ] 7.4 Verificación visual de `/cobranzas`, del Tablero y de `/clientes` en las **cuatro** combinaciones (claro/oscuro × móvil/escritorio), con capturas. Confirmar que ninguna columna desaparece en móvil y que el documento no desborda horizontalmente.
-- [ ] 7.5 Pasada de accesibilidad sobre la superficie nueva: nombre accesible de los accesos por fila, foco visible en la tarjeta enlazada del Tablero, contraste ≥4,5:1 en los importes.
-- [ ] 7.6 `openspec validate cobranzas-panel --strict` en verde.
+- [x] 7.1 Suite completa de backend en verde (`pytest`), con la cobertura por encima del umbral de CI.
+- [x] 7.2 Suite completa de frontend en verde (`pnpm vitest run`) y `tsc` sin errores nuevos. **Cero `any`** en el código nuevo.
+- [x] 7.3 `supabase db reset` local limpio con la migración nueva, y los gates de `KPI_Validation.yml` en el orden real del workflow (anotar los fallos pre-existentes conocidos en vez de "arreglarlos" en este PR).
+- [x] 7.4 Verificación visual de `/cobranzas`, del Tablero y de `/clientes` en las **cuatro** combinaciones (claro/oscuro × móvil/escritorio), con capturas. Confirmar que ninguna columna desaparece en móvil y que el documento no desborda horizontalmente.
+- [x] 7.5 Pasada de accesibilidad sobre la superficie nueva: nombre accesible de los accesos por fila, foco visible en la tarjeta enlazada del Tablero, contraste ≥4,5:1 en los importes.
+- [x] 7.6 `openspec validate cobranzas-panel --strict` en verde.
 
 ## 8. Post-merge (producción)
 
@@ -85,6 +85,6 @@
 
 ## 9. Documentación
 
-- [ ] 9.1 Entrada del change en `CHANGES.md` con las decisiones D1-D14, las OQs y su resolución, y los hallazgos de 1.4 / 8.3.
-- [ ] 9.2 Actualizar el puntero "próximo change recomendado" de `CLAUDE.md` y correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo PR** (gate `Docs Sync`).
-- [ ] 9.3 Anotar como candidatos, sin resolverlos: refactor de `CustomerAccountBalance` a tokens semánticos (D14) y la Etapa B del módulo de cobranzas (vencimientos, aging, avisos).
+- [x] 9.1 Entrada del change en `CHANGES.md` con las decisiones D1-D14, las OQs y su resolución, y los hallazgos de 1.4 / 8.3.
+- [x] 9.2 Actualizar el puntero "próximo change recomendado" de `CLAUDE.md` y correr `python scripts/ci/check_docs_sync.py --fix` en el **mismo PR** (gate `Docs Sync`).
+- [x] 9.3 Anotar como candidatos, sin resolverlos: refactor de `CustomerAccountBalance` a tokens semánticos (D14) y la Etapa B del módulo de cobranzas (vencimientos, aging, avisos).

@@ -84,13 +84,13 @@
 
 ## 8. Frontend: capa canónica
 
-- [ ] 8.1 RED — `frontend/__tests__/lib/receivables-aging.test.ts`: el mapper convierte la fila cruda (snake_case, dinero como string) al tipo del dominio; `null` en vencimientos y días se preserva y **no** degrada a `0`; el clasificador de tramo devuelve "sin vencimiento" para vencimiento ausente, nunca "al día".
-- [ ] 8.2 GREEN — `frontend/lib/receivables-aging.ts`: tipos, mapper, rótulos de tramo y el formateador de estado en texto. **Sin `any`**, tipos explícitos.
-- [ ] 8.3 RED+GREEN — `frontend/lib/debt-reminder.ts`: función **pura** que arma el texto del recordatorio de WhatsApp (nombre, saldo, importe vencido, tramo más viejo), con sus tests. Reutiliza `buildWhatsAppUrl` de `lib/phone-utils.ts` — **no** se escribe un normalizador nuevo.
-- [ ] 8.4 GREEN — `frontend/lib/types.ts` y `frontend/lib/query-keys.ts`: tipos del dominio y claves de `payables.*` y del filtro de tramo.
-- [ ] 8.5 RED+GREEN — `frontend/hooks/data/use-payables.ts` y la extensión de `use-receivables.ts`, con sus tests.
-- [ ] 8.6 RED — Test de regresión de invalidación: registrar/anular un **pago a proveedor** invalida también las claves de `payables`. Debe fallar antes del cambio (la Etapa A sólo cableó las de `receivables`).
-- [ ] 8.7 GREEN — Invalidación de `payables.*` dentro de `use-supplier-account.ts` (registro y anulación de pago) y en las mutaciones que crean deuda de compra a crédito. **En el hook, no en la pantalla.**
+- [x] 8.1 RED — `frontend/__tests__/lib/receivables-aging.test.ts`: el mapper convierte la fila cruda (snake_case, dinero como string) al tipo del dominio; `null` en vencimientos y días se preserva y **no** degrada a `0`; el clasificador de tramo devuelve "sin vencimiento" para vencimiento ausente, nunca "al día".
+- [x] 8.2 GREEN — `frontend/lib/receivables-aging.ts`: tipos, mapper, rótulos de tramo y el formateador de estado en texto. **Sin `any`**, tipos explícitos.
+- [x] 8.3 RED+GREEN — `frontend/lib/debt-reminder.ts`: función **pura** que arma el texto del recordatorio de WhatsApp (nombre, saldo, importe vencido, tramo más viejo), con sus tests. Reutiliza `buildWhatsAppUrl` de `lib/phone-utils.ts` — **no** se escribe un normalizador nuevo.
+- [x] 8.4 GREEN — `frontend/lib/types.ts` y `frontend/lib/query-keys.ts`: tipos del dominio y claves de `payables.*` y del filtro de tramo.
+- [x] 8.5 RED+GREEN — `frontend/hooks/data/use-payables.ts` y la extensión de `use-receivables.ts`, con sus tests.
+- [x] 8.6 RED — Test de regresión de invalidación: registrar/anular un **pago a proveedor** invalida también las claves de `payables`. Debe fallar antes del cambio (la Etapa A sólo cableó las de `receivables`).
+- [x] 8.7 GREEN — Invalidación de `payables.*` dentro de `use-supplier-account.ts` (registro y anulación de pago) y en las mutaciones que crean deuda de compra a crédito. **En el hook, no en la pantalla.**
 
 ## 9. Frontend: superficies
 

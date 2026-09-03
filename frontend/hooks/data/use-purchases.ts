@@ -242,6 +242,8 @@ export function usePurchases() {
       // postea un cargo en supplierAccounts — sin esto la cuenta corriente
       // del proveedor queda stale (staleTime 30s en useSupplierAccount).
       queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
       // caja-compras-cobranzas (task 10.5): la compra en efectivo puede
       // haber descontado de la caja — sin esto el arqueo y el historial de
       // /caja quedan stale. NO se bumpea el refreshToken de
@@ -264,6 +266,8 @@ export function usePurchases() {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
       // fix-supplier-account-ui-post-delete (bug 1): ver comentario arriba.
       queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 
@@ -277,6 +281,8 @@ export function usePurchases() {
       // crédito revierte el cargo (SupplierAccountChargeReversed) — sin
       // esto la UI seguía mostrando el saldo/movimiento ya reversado en DB.
       queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 
@@ -288,6 +294,8 @@ export function usePurchases() {
       queryClient.invalidateQueries({ queryKey: queryKeys.purchases.all() })
       // fix-supplier-account-ui-post-delete (bug 1): ver comentario arriba.
       queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 
@@ -375,6 +383,8 @@ export function usePurchases() {
       // compra puede reimputar/desimputar el proveedor o cambiar montos que
       // ya postearon cargo — ver comentario arriba.
       queryClient.invalidateQueries({ queryKey: queryKeys.supplierAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): la compra a crédito crea deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 

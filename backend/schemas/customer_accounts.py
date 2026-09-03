@@ -112,6 +112,9 @@ class ReceivableRowOut(BaseModel):
 
     client_id:               uuid.UUID
     client_name:             str
+    # cobranzas-vencimientos (D12): telefono del deudor para el recordatorio
+    # de WhatsApp — mismo dato que /clientes, resuelto en el RPC.
+    client_phone:            str | None = None
     balance:                 Decimal
     days_since_last_charge:  int | None = None
     days_since_last_payment: int | None = None

@@ -1557,6 +1557,7 @@ CREATE OR REPLACE FUNCTION public.rpc_receivables_report(p_account_id uuid)
 RETURNS TABLE(
     client_id               uuid,
     client_name             text,
+    client_phone            text,
     balance                 numeric,
     days_since_last_charge  integer,
     days_since_last_payment integer,
@@ -1656,6 +1657,9 @@ BEGIN
   SELECT
     c.id       AS client_id,
     c.name     AS client_name,
+    -- cobranzas-vencimientos (D12): el recordatorio de WhatsApp de /cobranzas
+    -- necesita el telefono del deudor — mismo dato que ya expone /clientes.
+    c.phone    AS client_phone,
     ca.balance AS balance,
     (t.d - (lm.last_charge_at  AT TIME ZONE 'America/Argentina/Mendoza')::date)::integer AS days_since_last_charge,
     (t.d - (lm.last_payment_at AT TIME ZONE 'America/Argentina/Mendoza')::date)::integer AS days_since_last_payment,

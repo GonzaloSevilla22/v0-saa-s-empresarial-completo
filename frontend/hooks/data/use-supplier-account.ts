@@ -235,6 +235,9 @@ export function useRegisterPaymentMade(supplierId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
       // cobranzas-catalogo-pagos (task 9.7): espejo exacto del cobro.
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
+      // cobranzas-vencimientos (task 8.7): el pago cancela deuda — la
+      // pestaña "Por pagar" de /cobranzas tiene que enterarse.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 }
@@ -271,6 +274,8 @@ export function useReversePaymentMade(supplierId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.cashMovements.all() })
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
+      // cobranzas-vencimientos (task 8.7): anular un pago repone la deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })
 }

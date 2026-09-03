@@ -18,9 +18,15 @@ interface KpiCardProps {
    * en <Link> ad-hoc desde las páginas.
    */
   href?: string
+  /**
+   * estadisticas-ventas E1 (task 4.4): rótulo de la variación. Las tarjetas
+   * del Tablero comparan contra ayer; las del módulo de estadísticas, contra
+   * el período anterior de igual longitud. Default = comportamiento previo.
+   */
+  changeLabel?: string
 }
 
-export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-primary", href }: KpiCardProps) {
+export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-primary", href, changeLabel = "vs ayer" }: KpiCardProps) {
   const card = (
     <Card
       className={cn(
@@ -45,7 +51,7 @@ export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-pr
                 )}
               >
                 {change >= 0 ? "+" : ""}
-                {change}% vs ayer
+                {change}% {changeLabel}
               </span>
             )}
           </div>

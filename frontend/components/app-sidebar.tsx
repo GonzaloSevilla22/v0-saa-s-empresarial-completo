@@ -71,6 +71,10 @@ export const navGroups = [
     items: [
       { title: "Copiloto IA", href: "/copiloto-ia", icon: Zap, pro: true, proOnly: false },
       { title: "Consejos AI", href: "/insights", icon: Sparkles, pro: false, proOnly: false },
+      // estadisticas-ventas E1 (task 4.9): "qué se vende y cuándo". Sin gate de
+      // plan — disponible en todos los planes; el historial consultable lo
+      // recorta el servidor (D8), no un candado de entrada.
+      { title: "Estadísticas", href: "/estadisticas", icon: BarChart3, pro: false, proOnly: false },
       { title: "Rentabilidad", href: "/rentabilidad", icon: TrendingUp, pro: true, proOnly: false },
       { title: "Comparativo", href: "/reportes/comparativo", icon: GitCompare, pro: true, proOnly: false },
       { title: "Por Sucursal", href: "/reportes/sucursal", icon: MapPin, pro: false, proOnly: true },

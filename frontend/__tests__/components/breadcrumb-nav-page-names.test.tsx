@@ -65,6 +65,8 @@ describe("BreadcrumbNav — nombres de página (H17)", () => {
     ["/reportes/formas-pago", "Formas de pago"],
     ["/reportes/centros-costo", "Centros de costo"],
     ["/rentabilidad", "Rentabilidad"],
+    // estadisticas-ventas E1 (task 4.9)
+    ["/estadisticas", "Estadísticas"],
     ["/planes", "Planes"],
     ["/facturacion", "Facturación"],
     ["/exportaciones", "Exportaciones"],

@@ -102,7 +102,7 @@
 - [x] 10.5 RED: tests de `ProductCategoryManager` — lectura para todo miembro, acciones sólo para `isWriter`, desactivar, renombrar, reordenar.
 - [x] 10.6 GREEN: `components/product-categories/ProductCategoryManager.tsx`, molde de `PaymentMethodManager` (incluidos los objetivos táctiles de 44px en móvil).
 - [x] 10.7 GREEN: montar el gestor como **décima pestaña "Categorías" de `/configuracion`** (D8, sign-off del PO en OQ-2), junto a Centros de costo y Formas de pago. La `TabsList` pasa de `lg:grid-cols-9` a `lg:grid-cols-10`; los breakpoints menores (`grid-cols-3 sm:grid-cols-5`) no cambian.
-- [ ] 10.8 Verificar en móvil y tablet que la décima pestaña no rompe el envoltorio de la `TabsList` — es la deuda que `qa-integral-modulos` arregló y sobre la que sigue abierto `tablet-filtros-cta`. Si se degrada, corregirlo acá y no dejarlo para después.
+- [x] 10.8 Verificar en móvil y tablet que la décima pestaña no rompe el envoltorio de la `TabsList` — es la deuda que `qa-integral-modulos` arregló y sobre la que sigue abierto `tablet-filtros-cta`. Si se degrada, corregirlo acá y no dejarlo para después.
 
 ## 11. Frontend — formulario de producto
 
@@ -165,8 +165,8 @@
 - [x] 17.2 Frontend completo en verde; anotar el delta contra los baselines de 11.1/12.1/13.1/14.1/15.1. Aislar cualquier flaky conocido antes de atribuirle el fallo a este change (`AdminSegurosPage.test.tsx` es flaky-preexistente bajo carga).
 - [x] 17.3 `tsc` sin errores nuevos. **Cero `any`** en el código agregado.
 - [x] 17.4 Migración limpia contra `supabase db reset` local y los gates de `KPI_Validation.yml` en el orden real del workflow.
-- [ ] 17.5 Pasada visual en las **4 combinaciones** (escritorio/móvil × claro/oscuro) sobre: pestaña Categorías de `/configuracion`, **la `TabsList` completa de `/configuracion` con sus 10 pestañas** (riesgo declarado en D8, aunque no sea pantalla nueva), selector con alta rápida inline, formulario de producto con SKU, selección múltiple y barra de acción en lote, y paso 2 del importador. Verificar que ningún desplegable se sale del shard de scroll de su diálogo (regresión G1) y que no hay desborde horizontal (`responsive-shell`).
-- [ ] 17.6 Prueba manual de punta a punta: crear categoría propia → dar de alta un producto con ella y con SKU → **seleccionar varios productos de "Otros" y recategorizarlos en lote** → importar un CSV con una categoría nueva y un SKU existente → verificar que la categoría se creó, los productos se movieron, el producto se actualizó y ninguno perdió su categoría.
+- [x] 17.5 Pasada visual en las **4 combinaciones** (escritorio/móvil × claro/oscuro) sobre: pestaña Categorías de `/configuracion`, **la `TabsList` completa de `/configuracion` con sus 10 pestañas** (riesgo declarado en D8, aunque no sea pantalla nueva), selector con alta rápida inline, formulario de producto con SKU, selección múltiple y barra de acción en lote, y paso 2 del importador. Verificar que ningún desplegable se sale del shard de scroll de su diálogo (regresión G1) y que no hay desborde horizontal (`responsive-shell`).
+- [x] 17.6 Prueba manual de punta a punta: crear categoría propia → dar de alta un producto con ella y con SKU → **seleccionar varios productos de "Otros" y recategorizarlos en lote** → importar un CSV con una categoría nueva y un SKU existente → verificar que la categoría se creó, los productos se movieron, el producto se actualizó y ninguno perdió su categoría.
 
 ## 18. Verificación post-merge en producción
 

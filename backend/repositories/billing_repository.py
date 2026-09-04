@@ -4,10 +4,21 @@ import asyncpg
 
 from backend.repositories.base import BaseRepository
 
-# Recibos = pagos aprobados (billing_events.event_type='plan_upgraded').
+# Recibos = pagos que el cliente puede ver/descargar: alta única legacy
+# ('plan_upgraded', C-17) + cobro recurrente de suscripción
+# ('subscription_payment_approved', mp-real-subscriptions). bugfix
+# 2026-09-04 (bugfix/receipts-subscription-charges): antes de esta
+# constante, el SELECT paginado y el count(*) filtraban 'plan_upgraded' por
+# separado y la primera suscripción real quedó invisible en "Recibos de
+# Pago" (0 receipt_number, 0 aparición en la lista) — regla del proyecto
+# "reutilización antes que repetición": UNA sola tupla, nunca dos listas de
+# literales que puedan divergir.
+RECEIPT_EVENT_TYPES: tuple[str, ...] = ("plan_upgraded", "subscription_payment_approved")
+_RECEIPT_EVENT_TYPES_SQL = ", ".join(f"'{t}'" for t in RECEIPT_EVENT_TYPES)
+
 # Se accede con una conexión service (BYPASSRLS) porque el admin lee pagos de
 # TODAS las cuentas; el gating de admin lo hace `require_admin` en el router.
-_RECEIPT_SELECT = """
+_RECEIPT_SELECT = f"""
     SELECT be.id,
            be.receipt_number,
            be.mercadopago_payment_id AS payment_id,
@@ -19,7 +30,7 @@ _RECEIPT_SELECT = """
     FROM billing_events be
     JOIN auth.users u ON u.id = be.user_id
     LEFT JOIN profiles p ON p.id = be.user_id
-    WHERE be.event_type = 'plan_upgraded'
+    WHERE be.event_type IN ({_RECEIPT_EVENT_TYPES_SQL})
 """
 
 
@@ -47,7 +58,7 @@ class BillingRepository(BaseRepository):
         self, limit: int, offset: int
     ) -> tuple[list[asyncpg.Record], int]:
         total: int = await self._conn.fetchval(
-            "SELECT count(*) FROM billing_events WHERE event_type = 'plan_upgraded'"
+            f"SELECT count(*) FROM billing_events WHERE event_type IN ({_RECEIPT_EVENT_TYPES_SQL})"
         ) or 0
         rows: list[asyncpg.Record] = await self._conn.fetch(
             _RECEIPT_SELECT + " ORDER BY be.created_at DESC LIMIT $1 OFFSET $2",

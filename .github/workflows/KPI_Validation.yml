@@ -1359,3 +1359,20 @@ jobs:
       # dos veces deja una sola constraint. -v ON_ERROR_STOP=1 obligatorio.
       - name: Run subscription-webhook-idempotency-contract gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_subscription_webhook_idempotency.sql
+
+      # BUGFIX receipts-subscription-charges (2026-09-04, governance CRÍTICO —
+      # billing, primera suscripción real de mp-real-subscriptions).
+      # "Recibos de Pago" y el numerador (assign_billing_receipt_number())
+      # sólo contemplaban event_type='plan_upgraded' (flujo legacy de pago
+      # único); los cobros de suscripción (event_type=
+      # 'subscription_payment_approved') nunca recibían receipt_number ni
+      # aparecían en la lista. Asserta: (1) introspección del trigger vivo
+      # con ambos event_type, (2) un subscription_payment_approved recibe
+      # receipt_number con formato RC-YYYY-NNNNNN, (3) plan_upgraded (legacy)
+      # sigue numerando igual, (4) un event_type ajeno sigue sin número, (5)
+      # rpc_emit_subscription_payment_cae (Factura C) también reconoce el
+      # evento nuevo, (6) el backfill es idempotente al reaplicarse, (7) el
+      # índice único de receipt_number sigue vivo sin duplicados entre
+      # flujos. -v ON_ERROR_STOP=1 obligatorio.
+      - name: Run receipts-subscription-charges gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receipts_subscription_charges.sql

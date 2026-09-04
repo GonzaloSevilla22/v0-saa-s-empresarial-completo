@@ -168,6 +168,129 @@ class TestUpdateSubscriptionStatus:
         sql = conn.execute.call_args.args[0]
         assert "WHERE preapproval_id = $1" in sql
 
+    # ── H3 hotfix (2026-09-04) — no perder el cobro cuando account_id es NULL ──
+    # Caso real: subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 cobró
+    # $24.900 mientras estaba 'ambiguous' y next_payment_date/last_payment_status/
+    # amount quedaron en NULL para siempre porque nada los persistía junto con
+    # el id del pago MP y de la cuota — sin eso, resolver la fila más tarde no
+    # tiene con qué replicar los efectos de dinero.
+
+    @pytest.mark.asyncio
+    async def test_update_status_persists_amount_and_pending_charge_ids(self, subs_repo):
+        """RED (H3): el UPDATE debe poder llevar amount +
+        pending_authorized_payment_id + pending_mercadopago_payment_id en la
+        MISMA sentencia que ya actualiza next_payment_date/retry_state/
+        last_payment_status — sin un segundo viaje a la DB."""
+        repo, conn = subs_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        await repo.update_subscription_status(
+            PREAPPROVAL_ID,
+            "authorized",
+            next_payment_date="2026-10-01T00:00:00Z",
+            retry_state="none",
+            last_payment_status="approved",
+            amount=24900,
+            pending_authorized_payment_id="7031580844",
+            pending_mercadopago_payment_id="176341057469",
+        )
+
+        sql, *args = conn.execute.call_args.args
+        assert "amount = COALESCE($6, amount)" in sql
+        assert "pending_authorized_payment_id = COALESCE($7, pending_authorized_payment_id)" in sql
+        assert "pending_mercadopago_payment_id = COALESCE($8, pending_mercadopago_payment_id)" in sql
+        assert args[5:8] == [24900, "7031580844", "176341057469"]
+
+    @pytest.mark.asyncio
+    async def test_update_status_without_pending_charge_args_does_not_clear_them(self, subs_repo):
+        """TRIANGULATE (H3): un UPDATE que NO menciona los campos nuevos
+        (p.ej. la baja voluntaria, cancel_subscription) usa COALESCE — no
+        debe poder pisar con NULL un cobro pendiente que otra notificación
+        ya haya dejado guardado."""
+        repo, conn = subs_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        await repo.update_subscription_status(PREAPPROVAL_ID, "cancelled")
+
+        sql, *args = conn.execute.call_args.args
+        assert "COALESCE($7, pending_authorized_payment_id)" in sql
+        assert "COALESCE($8, pending_mercadopago_payment_id)" in sql
+        assert args[5:8] == [None, None, None]
+
+
+class TestClearPendingCharge:
+    @pytest.mark.asyncio
+    async def test_clear_pending_charge_nulls_both_columns_by_preapproval_id(self, subs_repo):
+        """H3 hotfix: una vez que resolve_ambiguous_subscription ya replicó
+        el cobro pendiente, se limpian los marcadores — a diferencia de
+        update_subscription_status (COALESCE, no destructivo), acá el NULL
+        es la intención explícita."""
+        repo, conn = subs_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        await repo.clear_pending_charge(PREAPPROVAL_ID)
+
+        sql, *args = conn.execute.call_args.args
+        assert "pending_authorized_payment_id = NULL" in sql
+        assert "pending_mercadopago_payment_id = NULL" in sql
+        assert "WHERE preapproval_id = $1" in sql
+        assert args == [PREAPPROVAL_ID]
+
+
+class TestFindSubscriptionById:
+    @pytest.mark.asyncio
+    async def test_finds_regardless_of_status(self, subs_repo):
+        """H3 hotfix: a diferencia de find_ambiguous_subscription (WHERE
+        status='ambiguous'), el endpoint admin de replay-charges necesita
+        encontrar una suscripción YA resuelta (account_id asignado) — sin
+        filtro de status."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+                "plan": "inicial", "status": "authorized",
+                "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+            }
+        )
+
+        result = await repo.find_subscription_by_id(SUBSCRIPTION_ID)
+
+        assert result["account_id"] == ACCOUNT_ID
+        sql = conn.fetchrow.call_args.args[0]
+        assert "WHERE id = $1" in sql
+        assert "status" not in sql.split("WHERE")[1]  # sin filtro de status
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_missing(self, subs_repo):
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.find_subscription_by_id(SUBSCRIPTION_ID)
+
+        assert result is None
+
+
+class TestHasBillingEventForPayment:
+    @pytest.mark.asyncio
+    async def test_true_when_event_exists(self, subs_repo):
+        repo, conn = subs_repo
+        conn.fetchval = AsyncMock(return_value=1)
+
+        result = await repo.has_billing_event_for_payment("176341057469")
+
+        assert result is True
+        sql = conn.fetchval.call_args.args[0]
+        assert "mercadopago_payment_id = $1" in sql
+
+    @pytest.mark.asyncio
+    async def test_false_when_no_event(self, subs_repo):
+        repo, conn = subs_repo
+        conn.fetchval = AsyncMock(return_value=None)
+
+        result = await repo.has_billing_event_for_payment("no-existe")
+
+        assert result is False
+
 
 class TestAmbiguousQueue:
     @pytest.mark.asyncio
@@ -245,6 +368,23 @@ class TestFindAmbiguousSubscription:
         assert result["preapproval_plan_id"] == PLAN_ID
         sql = conn.fetchrow.call_args.args[0]
         assert "WHERE id = $1 AND status = 'ambiguous'" in sql
+
+    @pytest.mark.asyncio
+    async def test_selects_pending_charge_columns(self, subs_repo):
+        """H3 hotfix: resolve_ambiguous_subscription necesita
+        next_payment_date/amount/pending_authorized_payment_id/
+        pending_mercadopago_payment_id de ESTA misma lectura para poder
+        replicar el cobro pendiente al resolver, sin una segunda query."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        await repo.find_ambiguous_subscription(SUBSCRIPTION_ID)
+
+        sql = conn.fetchrow.call_args.args[0]
+        assert "next_payment_date" in sql
+        assert "amount" in sql
+        assert "pending_authorized_payment_id" in sql
+        assert "pending_mercadopago_payment_id" in sql
 
     @pytest.mark.asyncio
     async def test_returns_none_when_not_ambiguous_or_missing(self, subs_repo):

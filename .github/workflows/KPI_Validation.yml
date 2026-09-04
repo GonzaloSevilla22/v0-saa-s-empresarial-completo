@@ -1312,3 +1312,20 @@ jobs:
       # (11.3), last_sale_date sin corrimiento (OQ-3) y clamp de plan D8.
       - name: Run estadisticas-ventas gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_estadisticas_ventas.sql
+
+      # estadisticas-ventas E2 (grupo 5 + 11.2): rpc_sales_breakdown (canal /
+      # sucursal / día de la semana / hora de carga / categoría) +
+      # rpc_sales_top_clients, sobre el helper canónico y el clamp de E1.
+      # Introspección (SECURITY DEFINER, ACLs exactas, helper + clamp
+      # consumidos, ningún AT TIME ZONE salvo sobre created_at, cero lecturas
+      # directas de public.sales) y comportamiento con anchor sintético: tramo
+      # "Sin canal" / "Sin sucursal" / "Sin categoría" explícito, suma de
+      # tramos = revenue BRUTO de la evolución (no resta NC), filtro de
+      # sucursal fail-closed uniforme, la venta cargada a las 23:30 ART sigue
+      # siendo lunes (D3), hora desde created_at en Mendoza (no UTC, no fecha
+      # de negocio), 7 días y 24 horas siempre, categoría por category_id con
+      # el nombre del catálogo (renombrar cambia el rótulo) sin líneas de
+      # servicio, top clientes sin "sin cliente" y con su importe aparte
+      # (OQ-2), cliente de otra cuenta sin nombre ni id, clamp D8, P0400/P0401.
+      - name: Run estadisticas-ventas E2 gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_estadisticas_ventas_e2.sql

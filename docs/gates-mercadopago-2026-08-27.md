@@ -212,6 +212,52 @@ empíricamente que `subscription_preapproval` notifica también suscripciones cr
 plan (la tabla de la doc es ambigua); si no llegara, el síntoma es pago visible en MP sin fila
 en `subscriptions`.
 
+## Actualización 2026-09-04 — la condición D5-(a) sigue sin cumplirse (5.1 tildada ≠ canal probado)
+
+Re-medición en prod, read-only, sin herramientas de MercadoPago que muevan datos:
+
+- `subscriptions`: **0 filas** en toda su historia. `subscription_intents`: **0**.
+  `operation_idempotency` con `operation_kind='subscription_webhook'`: **0** — el código que
+  procesa una notificación real de suscripción **nunca corrió en producción**, ni en el
+  incidente del 29-08 ni después.
+- `billing_events` con `mercadopago_payment_id`: **1 sola fila**, del 2026-06-13, anterior al
+  deploy de este change (01-08) y reconciliada a mano. Cero `plan_upgraded` en 60 días.
+  `email_logs` con `payment_receipt`: 2 filas, ambas del mismo evento de junio.
+- La cuenta de Daniel (`0f627a85-7d01-4323-8b3f-122bd834a4ab`) tiene `billing_plan='pro'` y
+  `plan_expires_at='2026-10-09 13:45:19+00'` — coincide exacto con el `UPDATE` manual del
+  INCIDENTE GATE 3 de arriba, **no** con ningún webhook.
+- Lo único que llegó al canal fueron las **2 notificaciones del topic
+  `subscription_preapproval_plan`** (29-08, HTTP 200) ya documentadas en el INCIDENTE GATE 3 —
+  un topic que el código trata como no manejado y no escribe nada. Confirmado también por
+  `mcp__mercadopago__notifications_history` (app ALIADATA `5864120912417849`): **1**
+  notificación en el último mes, ese mismo topic, **0** fallidas.
+- Tráfico del relay legacy (`frontend/app/api/billing/webhook/route.ts`): **cero**, confirmado
+  por tres fuentes independientes (logs de Render en la ventana 28-08→04-09 sin ninguna línea
+  con `x-relay-source`; el registro de la task 5.4; el historial de MercadoPago). **34 días en
+  cero.**
+- Palanca `BILLING_SUBSCRIPTIONS_ENABLED` sigue ON (`GET /payments/subscriptions/status` →
+  401, no 503). Ruta legacy `/api/billing/webhook` sigue desplegada (`GET` → 405).
+
+**Conclusión**: lo que el 29-08 probó fue **alcance de red + firma HMAC válida sobre un topic
+que no escribe nada** — no una acreditación automática. La condición D5-(a) ("un pago real de
+verificación acreditó **solo**, sin intervención manual") sigue sin cumplirse. La task 5.1 de
+`v31-mp-upgrade-webhook-fix` está tildada `[x]` (documenta correctamente que el canal responde
+200 y valida firma) pero **no** debe leerse como "canal de acreditación de suscripciones
+probado" — ver la nota fechada 2026-09-04 en `openspec/changes/v31-mp-upgrade-webhook-fix/tasks.md`
+junto a esa task. La condición D5-(b) (cero reenvíos del legacy) sí está cumplida de hecho.
+
+**GATE 3 sigue abierto de fondo**: los checkboxes de la sección GATE 3 arriba (líneas
+"Camino preferido"/"Camino B"/"Daniel completa el checkout"/"PO revisa logs") reflejan el
+estado real — ninguno se tildó porque el checkout de Daniel del 29-08 quedó bajo la app vieja
+del panel (huérfana, nunca notifica) y la migración a la suscripción sana bajo ALIADATA sigue
+pendiente para `~29-09`, tal como ya documentaba este runbook.
+
+**Recomendación para GATE 5 / task 6.1**: no fijar todavía la ventana de convivencia del
+reenviador legacy. El contador de los 30 días recomendados debería arrancar el día que D5-(a)
+se cumpla de verdad (un pago de suscripción real con fila en `subscriptions` +
+`operation_idempotency`), no antes — retirar el reenviador ahora dejaría sin red de seguridad
+justo el único camino de acreditación que todavía no se ejercitó de punta a punta.
+
 ## GATE 5 — Cierre y limpieza (después de 3-4)
 
 - [ ] **PO decide OQ1** (webhook-fix 6.1): ventana de convivencia del relay legacy —

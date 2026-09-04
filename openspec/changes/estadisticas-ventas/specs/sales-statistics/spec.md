@@ -91,6 +91,30 @@ Las ventas sin canal o sin sucursal SHALL aparecer como un tramo propio y visibl
 - **THEN** la nota de crédito no se resta de ningún tramo
 - **AND** la superficie que lo muestra declara esa exclusión al usuario
 
+### Requirement: Desglose por categoría de producto con tramo explícito para lo no imputado
+
+El sistema SHALL exponer la facturación, las unidades y las operaciones del período desglosadas **por categoría de producto**, resuelta desde `products.category_id` del catálogo de la cuenta (capability `product-category`) y compartiendo la misma forma de salida que los desgloses por canal, sucursal, día de la semana y horario — es una dimensión más del mismo mecanismo, no una vista del ranking de productos.
+
+Los productos sin categoría asignada SHALL aparecer como un tramo propio y visible ("Sin categoría"), NUNCA omitidos. Las líneas de venta sin producto asociado (líneas de servicio) NO SHALL contarse en este desglose — no son productos y no tienen categoría — y su importe queda declarado por la evolución de ventas del módulo, no por este desglose.
+
+#### Scenario: Facturación por categoría
+
+- **GIVEN** un período con ventas de productos de varias categorías
+- **WHEN** se consulta el desglose por categoría
+- **THEN** se devuelve una fila por categoría con su facturación, sus unidades y sus operaciones
+
+#### Scenario: Los productos sin categoría aparecen en su propio tramo
+
+- **GIVEN** un período con ventas de productos sin categoría asignada
+- **WHEN** se consulta el desglose por categoría
+- **THEN** existe un tramo explícito "Sin categoría" con su importe
+
+#### Scenario: Las líneas de servicio quedan fuera del desglose por categoría
+
+- **GIVEN** un período con líneas de venta sin producto asociado
+- **WHEN** se consulta el desglose por categoría
+- **THEN** ninguna fila ni tramo del desglose las incluye
+
 ### Requirement: Patrones de venta por día de la semana
 
 El sistema SHALL exponer la facturación, las unidades y las operaciones del período agrupadas por **día de la semana** (lunes a domingo), derivadas de la **fecha de negocio declarada** de la venta.

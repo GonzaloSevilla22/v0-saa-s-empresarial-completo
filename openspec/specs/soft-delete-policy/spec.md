@@ -24,7 +24,9 @@ El sistema SHALL clasificar cada entidad en una de cinco categorías de borrado 
 
 ### Requirement: Soft delete de maestros registra autor y momento (RN-B1/RN-B2)
 
-El sistema SHALL implementar el borrado de todo maestro como un soft delete que setea `deleted_at` (momento del borrado, `TIMESTAMPTZ`) y `deleted_by` (identidad del usuario que lo borró, para auditoría ERP — RN-B2). Toda lectura de listado o por id de un maestro SHALL excluir las filas con `deleted_at IS NOT NULL` de forma centralizada (RN-B1), no repitiendo el filtro en cada query. Los maestros alcanzados por este change son: `clients`, `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts`.
+El sistema SHALL implementar el borrado de todo maestro como un soft delete que setea `deleted_at` (momento del borrado, `TIMESTAMPTZ`) y `deleted_by` (identidad del usuario que lo borró, para auditoría ERP — RN-B2). Toda lectura de listado o por id de un maestro SHALL excluir las filas con `deleted_at IS NOT NULL` de forma centralizada (RN-B1), no repitiendo el filtro en cada query. Los maestros alcanzados son: `clients`, `products`, `suppliers`, `cost_centers`, `cashboxes`, `bank_accounts` y `product_categories`.
+
+`product_categories` (catálogo de categorías de producto por cuenta, capability `product-category`) se incorpora a la enumeración con la misma política que el resto de los maestros de catálogo: la baja es desactivación o soft delete, nunca borrado físico de una fila referenciada por productos.
 
 #### Scenario: El soft delete registra deleted_at y deleted_by
 - **WHEN** se soft-deletea un maestro
@@ -37,6 +39,11 @@ El sistema SHALL implementar el borrado de todo maestro como un soft delete que 
 #### Scenario: La fila borrada persiste para integridad referencial histórica
 - **WHEN** un documento histórico (venta, compra, movimiento) referencia un maestro que luego fue soft-deleteado
 - **THEN** la referencia sigue siendo válida y el dato del maestro sigue siendo legible por JOIN; no queda huérfana
+
+#### Scenario: Una categoría de producto se da de baja como maestro
+- **WHEN** un `owner`/`admin` da de baja una categoría de producto
+- **THEN** la fila queda con `deleted_at` y `deleted_by`, deja de ofrecerse en los selectores de altas nuevas
+- **AND** los productos que la referencian conservan su imputación y su nombre de categoría sigue siendo legible
 
 ### Requirement: Unicidad conviviendo con soft delete vía índices únicos parciales (RN-B3)
 
@@ -73,3 +80,4 @@ El sistema SHALL tratar las entidades de plataforma con una política distinta a
 #### Scenario: Una Membership con historial no se borra físicamente
 - **WHEN** se da de baja la pertenencia de un usuario a una cuenta que tiene documentos generados por ese usuario
 - **THEN** la pertenencia se marca como revocada (estado) y no se elimina la fila
+

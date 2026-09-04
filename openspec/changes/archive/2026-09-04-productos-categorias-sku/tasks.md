@@ -170,13 +170,13 @@
 
 ## 18. Verificación post-merge en producción
 
-- [ ] 18.1 `MAX(version)` = la migración de este change, y el conteo total de migraciones esperado.
-- [ ] 18.2 `product_categories` por cuenta = 7 en todas las cuentas existentes.
-- [ ] 18.3 `COUNT(*) FROM products WHERE category_id IS NULL` = **0**, y cero productos cuya `category` (TEXT) difiera del `name` de su categoría.
-- [ ] 18.4 Índices vivos de `products` sobre `sku`: sólo el alcanzado por `account_id`; el de `user_id` ausente.
-- [ ] 18.5 ACLs vivas de `rpc_bulk_upsert_products` idénticas a las de 1.3, sin `EXECUTE` para `anon`.
-- [ ] 18.6 Humo real del PO: crear una categoría propia desde `/configuracion`, dar de alta un producto con SKU, **recategorizar en lote un puñado de productos de "Otros"**, y descargar el template para confirmar que trae sus categorías.
-- [ ] 18.7 Medir de nuevo el reparto por categoría en prod y anotarlo junto al baseline del 2026-09-03 (2.951 en "Otros" sobre 5.084). Es el número que dice si la herramienta se está usando; sin la re-medición no hay forma de saberlo.
+- [x] 18.1 `MAX(version)` = la migración de este change, y el conteo total de migraciones esperado. Re-verificado en el archive conjunto (2026-09-04): `20261023000001` está aplicada (confirmado en `supabase_migrations.schema_migrations`); ya NO es el `MAX(version)` global porque `estadisticas-ventas` E1/E2/E3 la siguieron — `MAX(version)` real hoy es `20261026000001` sobre 275 migraciones totales, consistente con el orden de merge.
+- [x] 18.2 `product_categories` por cuenta = 7 en todas las cuentas existentes. Re-medido: 36/38 cuentas con exactamente 7; **2 cuentas con 9 y 10** — por encima del seed, evidencia de uso real de "crear categoría" (ninguna cuenta por debajo de 7).
+- [x] 18.3 `COUNT(*) FROM products WHERE category_id IS NULL` = **0** (confirmado sobre 5.094 productos vivos), y `COUNT(*)` de productos cuya `category` (TEXT) difiere del `name` de su categoría referenciada = **0**.
+- [x] 18.4 Índices vivos de `products` sobre `sku`: `idx_products_sku_account_lower` (UNIQUE, `account_id, lower(sku)`, parcial sobre vivas) y `idx_products_sku` (no-unique, búsqueda) — ningún índice único alcanzado por `user_id` sobrevive.
+- [x] 18.5 ACLs vivas de `rpc_bulk_upsert_products(jsonb,uuid)`: una sola definición, `proacl = {postgres=X, authenticated=X, service_role=X}` — sin `EXECUTE` para `anon`, idénticas a las de 1.3.
+- [x] 18.6 Humo real del PO (2026-09-04): recorrió los 11 puntos del módulo conjunto productos+estadísticas e incluyó explícitamente categorías, SKU, recategorización en lote e importador — respondió "funciona todo bien". Confirmado además por el uso real medido en 18.2/18.7 (categorías nuevas creadas, productos movidos de "Otros").
+- [x] 18.7 Re-medido en prod (2026-09-04) contra el baseline del 2026-09-03 (Otros 2.951 / Ropa 1.803 / Alimentos 236 / Accesorios 58 / Salud 25 / Hogar 8 / Electrónica 3 = 5.084): **Otros 2.942 (-9) / Ropa 1.808 (+5) / Alimentos 236 / Accesorios 58 / Salud 25 / Hogar 8 / Electrónica 3 / + cuatro categorías nuevas creadas por el usuario: Biker 9, Remera 2, Short 2, Gaseosa 1, Agua 0 = 5.094 productos** (+10 sobre el baseline, consistente con altas nuevas). La herramienta de recategorización y de alta de categorías **sí se está usando**: no es sólo que "Otros" bajó, es que aparecieron categorías que no estaban en el seed de 7. Registrado en `CHANGES.md`.
 
 ## 19. Cierre documental
 

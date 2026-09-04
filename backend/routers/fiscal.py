@@ -112,7 +112,13 @@ def get_storage_service_client():
     from backend.core.config import settings as _settings
     try:
         from supabase import create_client  # type: ignore[import]
-        return create_client(_settings.supabase_url, _settings.supabase_service_role_key)
+        # fix/service-role-key-env-alias: `Settings` no declara
+        # `supabase_service_role_key` — el campo real es `service_role_key`
+        # (alias SUPABASE_SERVICE_ROLE_KEY/SERVICE_ROLE_KEY). El atributo
+        # viejo levantaba AttributeError en cualquier llamada real a este
+        # endpoint (deprecated, sin cobertura de test porque siempre se
+        # override vía app.dependency_overrides).
+        return create_client(_settings.supabase_url, _settings.service_role_key)
     except ImportError as exc:
         raise HTTPException(
             status_code=503,

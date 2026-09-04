@@ -539,6 +539,51 @@ class TestCertUploadEndpoints:
 
 
 # =============================================================================
+# §5bis — fix/service-role-key-env-alias: get_storage_service_client (dependency)
+# =============================================================================
+
+class TestGetStorageServiceClientFieldName:
+    """Bug de producción 2026-09-04 (bug hermano, mismo PR): esta dependency
+    referenciaba `_settings.supabase_service_role_key`, un atributo que
+    `Settings` NUNCA declaró (el campo real es `service_role_key`) —
+    AttributeError garantizado en cualquier llamada real. Invisible en el
+    resto de la suite porque TODOS los tests de §5 overridean esta
+    dependency vía `app.dependency_overrides` (ver `get_storage_service_client`
+    en las fixtures de arriba) — el cuerpo real de la función nunca se
+    ejercita a través del endpoint. Este test la llama directamente."""
+
+    def test_builds_client_with_configured_service_role_key(self, monkeypatch):
+        """RED (antes del fix): `AttributeError: 'Settings' object has no
+        attribute 'supabase_service_role_key'`. GREEN (después): construye
+        el cliente con `settings.service_role_key`.
+
+        Inyecta el módulo `supabase` fake vía `sys.modules` (en vez de
+        `patch("supabase.create_client")`) porque este repo tiene un
+        directorio `supabase/` (CLI de Supabase: migrations/, functions/)
+        en la raíz que, corriendo pytest desde ahí, sombrea como namespace
+        package al paquete pip `supabase-py` — `sys.modules` evita esa
+        ambigüedad de resolución por completo."""
+        import sys
+        import types
+
+        from backend.core.config import settings as real_settings
+
+        monkeypatch.setattr(real_settings, "supabase_url", "https://proj.supabase.co")
+        monkeypatch.setattr(real_settings, "service_role_key", "real-key")
+
+        fake_supabase_module = types.ModuleType("supabase")
+        mock_create = MagicMock()
+        fake_supabase_module.create_client = mock_create  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "supabase", fake_supabase_module)
+
+        from backend.routers.fiscal import get_storage_service_client
+
+        get_storage_service_client()
+
+        mock_create.assert_called_once_with("https://proj.supabase.co", "real-key")
+
+
+# =============================================================================
 # §6 — Factory build_cae_adapter (real vs stub)
 # =============================================================================
 

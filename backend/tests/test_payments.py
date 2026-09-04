@@ -777,3 +777,77 @@ async def test_list_payment_receipts_page_size_over_max_returns_422(async_client
     assert resp.status_code == 422
     assert resp.headers["content-type"].startswith("application/problem+json")
     conn.fetch.assert_not_awaited()
+
+
+# ── fix/service-role-key-env-alias — bug de producción 2026-09-04 ───────────
+# Síntoma: "Pasarme a Inicial" en /planes -> 502 "No se pudo resolver el
+# email del usuario" (logs de Render: 7x sin el warning
+# "[payments] Could not fetch user email for ..." que esta función emite
+# cuando la llamada HTTP responde != 200 — es decir, la llamada nunca se
+# hizo). Causa raíz: `settings.service_role_key` leía `SERVICE_ROLE_KEY`
+# (inexistente en Render) en vez de `SUPABASE_SERVICE_ROLE_KEY` (la real).
+# El test de Settings (test_config_service_role_key_alias.py) prueba el
+# campo aislado; este prueba el caso CENTRAL: con la variable configurada,
+# `_fetch_user_email` debe llegar a hacer la request HTTP — payments.py
+# importa el singleton `settings` una sola vez al cargar el módulo, así que
+# el fix a nivel Settings no alcanza por sí solo como evidencia end-to-end.
+class TestFetchUserEmailServiceRoleKeyAlias:
+    async def test_env_var_flows_through_to_http_call_end_to_end(self, monkeypatch):
+        """RED (antes del fix): reproduce el bug completo, de punta a punta
+        — variable de entorno `SUPABASE_SERVICE_ROLE_KEY` -> `Settings` ->
+        singleton `settings` importado por `payments.py` -> `_fetch_user_email`
+        hace la llamada HTTP. Antes del fix esto fallaba en silencio
+        (`mock_get` nunca invocado, `result is None`) porque el singleton
+        leía `SERVICE_ROLE_KEY` (inexistente en Render), no
+        `SUPABASE_SERVICE_ROLE_KEY` (la variable real)."""
+        from backend.core.config import Settings
+        from backend.services import payments as payments_module
+
+        monkeypatch.delenv("SERVICE_ROLE_KEY", raising=False)
+        monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "prod-key-e2e")
+        monkeypatch.setenv("SUPABASE_URL", "https://proj.supabase.co")
+
+        fresh_settings = Settings(_env_file=None)  # type: ignore[call-arg]
+        monkeypatch.setattr(payments_module, "settings", fresh_settings)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"email": "po@example.com"}
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            result = await payments_module._fetch_user_email("some-user-id")
+
+        mock_get.assert_awaited_once()
+        assert result == "po@example.com"
+
+    async def test_reaches_http_call_when_service_role_key_configured(self, monkeypatch):
+        from backend.services import payments as payments_module
+
+        monkeypatch.setattr(payments_module.settings, "supabase_url", "https://proj.supabase.co")
+        monkeypatch.setattr(payments_module.settings, "service_role_key", "real-key")
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"email": "po@example.com"}
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mock_response) as mock_get:
+            result = await payments_module._fetch_user_email("some-user-id")
+
+        mock_get.assert_awaited_once()
+        assert result == "po@example.com"
+
+    async def test_short_circuits_without_http_call_when_service_role_key_empty(self, monkeypatch):
+        """TRIANGULATE: sin la key configurada (estado de prod ANTES del
+        fix), la función sigue degradando a None sin llamar a la API — el
+        comportamiento de fallback no cambia, solo la condición que lo
+        dispara pasa a ser la real."""
+        from backend.services import payments as payments_module
+
+        monkeypatch.setattr(payments_module.settings, "supabase_url", "https://proj.supabase.co")
+        monkeypatch.setattr(payments_module.settings, "service_role_key", "")
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+            result = await payments_module._fetch_user_email("some-user-id")
+
+        mock_get.assert_not_awaited()
+        assert result is None

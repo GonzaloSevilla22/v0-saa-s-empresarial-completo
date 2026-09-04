@@ -1,4 +1,4 @@
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,7 +10,21 @@ class Settings(BaseSettings):
     backend_allowed_origin: str = "*"
     # Payments — webhook MercadoPago (server-to-server)
     supabase_url: str = ""           # https://<ref>.supabase.co
-    service_role_key: str = ""       # para Supabase Admin REST API
+    # fix/service-role-key-env-alias (bug de prod 2026-09-04): el nombre
+    # implícito del campo (`SERVICE_ROLE_KEY`) NO existe en Render — la
+    # variable real es `SUPABASE_SERVICE_ROLE_KEY`, consistente con
+    # `SUPABASE_URL`/`SUPABASE_JWT_SECRET`. Sin este alias, `_fetch_user_email`
+    # (backend/services/payments.py) hacía short-circuit ANTES de la llamada
+    # HTTP y devolvía None en silencio, causando: (1) 502 "No se pudo
+    # resolver el email del usuario" en el alta de suscripción
+    # (backend/services/subscriptions.py) y (2) el mail de recibo tras un
+    # pago acreditado nunca se enviaba, también en silencio. `SERVICE_ROLE_KEY`
+    # se conserva como segundo alias — no romper entornos locales/CI que ya
+    # lo usen. NO "limpiar" esto a un solo nombre sin verificar Render primero.
+    service_role_key: str = Field(
+        "",
+        validation_alias=AliasChoices("SUPABASE_SERVICE_ROLE_KEY", "SERVICE_ROLE_KEY"),
+    )  # para Supabase Admin REST API
     mercadopago_webhook_secret: str = ""
     mercadopago_access_token: str = ""
     # CAE relay trigger — shared secret for the machine endpoint POST /fiscal/documents/process-pending-cron

@@ -6,6 +6,7 @@ de mocking de httpx.AsyncClient que test_payments.py (process_payment).
 from __future__ import annotations
 
 import datetime
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from fastapi import HTTPException
 
 from backend.services.subscriptions import (
     GRACE_PERIOD,
+    _claim_subscription_webhook_idempotency,
     cancel_subscription,
     create_subscription_intent,
     process_subscription_authorized_payment_notification,
@@ -54,6 +56,52 @@ def _mock_conn():
     conn.execute = AsyncMock(return_value="INSERT 0 1")
     conn.fetchrow = AsyncMock(return_value=None)
     return conn
+
+
+# ── HOTFIX subscription-webhook-idempotency-contract (2026-09-04) ───────────
+# _claim_subscription_webhook_idempotency: la sentencia que moria con 23514
+# (-> 422) antes de 20261027000001 porque insertaba sin operation_id y el
+# CHECK operation_idempotency_operation_id_contract solo eximia a
+# 'event_consumer'. Este mock no puede reproducir el CHECK real de Postgres
+# (esa garantia es supabase/tests/test_subscription_webhook_idempotency.sql,
+# corrido contra una DB real) - lo que si fija aca es el CONTRATO del lado
+# Python: la sentencia se ejecuta, con que forma, y que hace con el resultado.
+
+class TestClaimSubscriptionWebhookIdempotency:
+    @pytest.mark.asyncio
+    async def test_claim_inserts_without_operation_id_for_operation_kind_subscription_webhook(self):
+        """La forma exacta que depende de la exencion de la migracion: sin
+        operation_id, operation_kind='subscription_webhook'. Si alguien
+        agrega operation_id aca sin necesidad, o cambia el kind, este test
+        lo marca (documenta la dependencia con el CHECK, no la reemplaza)."""
+        conn = _mock_conn()
+        conn.execute = AsyncMock(return_value="INSERT 0 1")
+
+        claimed = await _claim_subscription_webhook_idempotency(conn, "some-key")
+
+        assert claimed is True
+        conn.execute.assert_awaited_once()
+        sql, key = conn.execute.call_args.args
+        assert "INSERT INTO public.operation_idempotency" in sql
+        assert "operation_kind" in sql
+        assert "'subscription_webhook'" in sql
+        # \b evita el falso positivo de "operation_idempotency" (el nombre
+        # de la tabla contiene "operation_id" como substring literal).
+        # operation_id (la COLUMNA) nunca se setea — esa es justo la fila
+        # que el CHECK debe eximir.
+        assert not re.search(r"\boperation_id\b", sql)
+        assert key == "some-key"
+
+    @pytest.mark.asyncio
+    async def test_claim_returns_false_on_conflict_redelivery(self):
+        """ON CONFLICT DO NOTHING → 'INSERT 0 0' → redelivery, no procesar
+        de nuevo."""
+        conn = _mock_conn()
+        conn.execute = AsyncMock(return_value="INSERT 0 0")
+
+        claimed = await _claim_subscription_webhook_idempotency(conn, "some-key")
+
+        assert claimed is False
 
 
 # ── 6.3 RED / 6.4 GREEN — create_subscription_intent ────────────────────────

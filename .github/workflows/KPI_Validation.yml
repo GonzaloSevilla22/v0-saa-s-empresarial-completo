@@ -1346,3 +1346,16 @@ jobs:
       # clamp D8, P0400 / P0401 / P0404 (ajeno e inexistente, mismo código).
       - name: Run estadisticas-ventas E3 gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_estadisticas_ventas_e3.sql
+
+      # HOTFIX subscription-webhook-idempotency-contract (2026-09-04, dinero
+      # real): operation_idempotency_operation_id_contract sólo eximía a
+      # 'event_consumer'. TODA notificación de webhook de suscripción de
+      # MercadoPago (subscription_preapproval / subscription_authorized_
+      # payment) moría con 23514 → 422 en backend/core/errors.py, exactamente
+      # lo que MP recibía en prod. Asserta: (1) subscription_webhook con
+      # operation_id NULL se acepta, (2) sale con operation_id NULL sigue
+      # rechazado (el contrato no se debilitó para el resto), (3) el CHECK
+      # vivo exime ambos kinds por introspección, (4) reaplicar el DROP+ADD
+      # dos veces deja una sola constraint. -v ON_ERROR_STOP=1 obligatorio.
+      - name: Run subscription-webhook-idempotency-contract gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_subscription_webhook_idempotency.sql

@@ -142,10 +142,16 @@ async def cancel_subscription(
 
     await repo.update_subscription_status(preapproval_id, "cancelled")
 
+    # H1 hotfix (2026-09-04): public.accounts NO tiene columna updated_at
+    # (verificado en prod — columnas reales: id, billing_plan, billing_status,
+    # trial_plan, trial_started_at, trial_expires_at, owner_user_id,
+    # created_at, plan_expires_at, billing_exempt*, default_payment_terms_days).
+    # Setearla explota con 42703 (UndefinedColumn) → 500 sin transacción
+    # abierta (get_service_conn), dejando escrituras parciales.
     await conn.execute(
         """
         UPDATE public.accounts
-        SET billing_status = 'cancelling', plan_expires_at = $2, updated_at = now()
+        SET billing_status = 'cancelling', plan_expires_at = $2
         WHERE id = $1
         """,
         account_id,
@@ -204,10 +210,12 @@ async def resolve_ambiguous_subscription(
             status_code=404, detail="No hay una suscripción ambigua con ese id (o ya fue resuelta)"
         )
 
+    # H1 hotfix (2026-09-04): public.accounts no tiene updated_at (ver nota en
+    # cancel_subscription).
     await conn.execute(
         """
         UPDATE public.accounts
-        SET billing_plan = $2, billing_status = 'active', updated_at = now()
+        SET billing_plan = $2, billing_status = 'active'
         WHERE id = $1
         """,
         account_id,
@@ -277,10 +285,11 @@ async def process_subscription_preapproval_notification(
             if sub:
                 await repo.mark_intent_matched(intent["id"], sub["id"])
             if status == "authorized":
+                # H1 hotfix (2026-09-04): public.accounts no tiene updated_at.
                 await conn.execute(
                     """
                     UPDATE public.accounts
-                    SET billing_plan = $2, billing_status = 'active', updated_at = now()
+                    SET billing_plan = $2, billing_status = 'active'
                     WHERE id = $1
                     """,
                     intent["account_id"],
@@ -314,10 +323,11 @@ async def process_subscription_preapproval_notification(
         # reprocesar (y reenviar el correo) si la notificación se redelivery
         # con una idempotency key distinta por alguna razón.
         plan_expires_at = existing["next_payment_date"] or datetime.datetime.now(datetime.timezone.utc)
+        # H1 hotfix (2026-09-04): public.accounts no tiene updated_at.
         status_change = await conn.execute(
             """
             UPDATE public.accounts
-            SET billing_status = 'cancelling', plan_expires_at = $2, updated_at = now()
+            SET billing_status = 'cancelling', plan_expires_at = $2
             WHERE id = $1 AND billing_status <> 'cancelling'
             """,
             existing["account_id"],
@@ -419,10 +429,11 @@ async def process_subscription_authorized_payment_notification(
         )
 
         if subscription["account_id"] is not None:
+            # H1 hotfix (2026-09-04): public.accounts no tiene updated_at.
             await conn.execute(
                 """
                 UPDATE public.accounts
-                SET plan_expires_at = $2, billing_status = 'active', updated_at = now()
+                SET plan_expires_at = $2, billing_status = 'active'
                 WHERE id = $1
                 """,
                 subscription["account_id"],

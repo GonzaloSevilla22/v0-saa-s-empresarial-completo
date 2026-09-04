@@ -237,7 +237,7 @@ export default function ProductoEstadisticasPage() {
                               <td className="px-4 py-2 text-right tabular-nums">
                                 <div className="flex flex-col items-end">
                                   <span>{m.value}</span>
-                                  {m.coverage && <span className="text-xs text-muted-foreground">{m.coverage}</span>}
+                                  {m.coverage && <span className="text-xs text-muted-foreground whitespace-nowrap">{m.coverage}</span>}
                                 </div>
                               </td>
                             </tr>
@@ -303,7 +303,7 @@ export default function ProductoEstadisticasPage() {
                                 ) : (
                                   <Link
                                     href={productDetailHref(m.productId, branchId)}
-                                    className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:underline"
+                                    className="font-medium text-foreground underline-offset-4 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                                   >
                                     {m.productName}
                                   </Link>
@@ -318,7 +318,7 @@ export default function ProductoEstadisticasPage() {
                             <td className="px-4 py-2 text-right tabular-nums">
                               <div className="flex flex-col items-end">
                                 <span>{mm.value}</span>
-                                {mm.coverage && <span className="text-xs text-muted-foreground">{mm.coverage}</span>}
+                                {mm.coverage && <span className="text-xs text-muted-foreground whitespace-nowrap">{mm.coverage}</span>}
                               </div>
                             </td>
                             <td className="px-4 py-2 text-right tabular-nums">

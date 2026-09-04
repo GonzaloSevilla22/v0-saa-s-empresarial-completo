@@ -90,6 +90,30 @@ BEGIN
   RAISE NOTICE 'PASS (introspección E3): rpc_product_sales_evolution SECURITY DEFINER, ACLs exactas, helper + clamp consumidos, sin AT TIME ZONE, sin lectura directa de sales, P0404 declarado.';
 END $$;
 
+-- ── 1b. Export (grupo 8): la lista de tipos de exportación también vive en la
+--       base — CHECK export_logs_type_values (20260610000000). Sin el 6º tipo
+--       el archivo se genera y la cuota se cobra pero el historial de
+--       /exportaciones nunca lo lista (el INSERT falla "non-fatal" en la Edge
+--       Function). Hallazgo del run real de E3. ───────────────────────────────
+DO $$
+DECLARE
+  v_def text;
+BEGIN
+  SELECT pg_get_constraintdef(oid) INTO v_def
+  FROM pg_constraint WHERE conrelid = 'public.export_logs'::regclass AND conname = 'export_logs_type_values';
+  IF v_def IS NULL THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (export): falta el CHECK export_logs_type_values.';
+  END IF;
+  IF v_def !~ 'product_ranking_csv' THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (export): el CHECK export_logs_type_values no admite product_ranking_csv — el historial de exportaciones no listaría el ranking. Def: %', v_def;
+  END IF;
+  -- Los 5 tipos legacy siguen admitidos (nadie los sacó al ampliar).
+  IF v_def !~ 'sales_csv' OR v_def !~ 'purchases_csv' OR v_def !~ 'expenses_csv' OR v_def !~ 'stock_csv' OR v_def !~ 'full_report_xlsx' THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (export): el CHECK perdió un tipo legacy. Def: %', v_def;
+  END IF;
+  RAISE NOTICE 'PASS (export): export_logs_type_values admite los 5 tipos legacy + product_ranking_csv.';
+END $$;
+
 
 -- ── 2. Comportamiento con anchor sintético ──────────────────────────────────
 DO $$

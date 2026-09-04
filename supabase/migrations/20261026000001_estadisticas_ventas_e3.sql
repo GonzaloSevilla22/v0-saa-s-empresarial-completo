@@ -294,13 +294,37 @@ GRANT  EXECUTE ON FUNCTION public.rpc_product_sales_evolution(uuid, uuid, date, 
 
 
 -- =============================================================================
--- 2. Gate de introspección — aborta la migración si algo quedó a medias
+-- 2. Export del ranking (grupo 8): el 6º ExportType también en la base.
+--    La lista de tipos de exportación estaba TRES veces: la unión y el array de
+--    generate-export (unificados en _shared/export-ranking.ts) y este CHECK de
+--    20260610000000. Sin ampliarlo, el archivo se genera y la cuota se cobra
+--    pero el INSERT en export_logs falla ("non-fatal" en la Edge Function) y
+--    el historial de /exportaciones nunca lista el ranking — hallazgo del run
+--    real del apply (2026-09-04, stack local). Definición viva en prod
+--    verificada idéntica a la local: los 5 literales de 20260610000000.
+--    DROP IF EXISTS + ADD: idempotente y sin dejar dos CHECKs con el mismo
+--    nombre.
+-- =============================================================================
+ALTER TABLE public.export_logs DROP CONSTRAINT IF EXISTS export_logs_type_values;
+ALTER TABLE public.export_logs ADD CONSTRAINT export_logs_type_values CHECK (
+  export_type IN ('sales_csv', 'purchases_csv', 'expenses_csv', 'stock_csv', 'full_report_xlsx', 'product_ranking_csv')
+);
+
+
+-- =============================================================================
+-- 3. Gate de introspección — aborta la migración si algo quedó a medias
 -- =============================================================================
 DO $$
 DECLARE
   v_sig text := 'public.rpc_product_sales_evolution(uuid,uuid,date,date,text,uuid,text)';
   v_def text;
+  v_chk text;
 BEGIN
+  SELECT pg_get_constraintdef(oid) INTO v_chk
+  FROM pg_constraint WHERE conrelid = 'public.export_logs'::regclass AND conname = 'export_logs_type_values';
+  IF v_chk IS NULL OR v_chk !~ 'product_ranking_csv' OR v_chk !~ 'full_report_xlsx' THEN
+    RAISE EXCEPTION 'GATE INTROSPECCION FAILED: export_logs_type_values debe admitir los 5 tipos legacy + product_ranking_csv (def: %).', COALESCE(v_chk, 'NULL');
+  END IF;
   IF to_regprocedure(v_sig) IS NULL THEN
     RAISE EXCEPTION 'GATE INTROSPECCION FAILED: % no existe tras la migración.', v_sig;
   END IF;

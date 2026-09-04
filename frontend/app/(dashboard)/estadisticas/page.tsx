@@ -463,7 +463,7 @@ export default function EstadisticasPage() {
                               {/* E3 (D12): cada fila abre su detalle dentro del módulo. */}
                               <Link
                                 href={productDetailHref(row.productId, branchId)}
-                                className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:underline"
+                                className="font-medium text-foreground underline-offset-4 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                               >
                                 {row.productName}
                               </Link>

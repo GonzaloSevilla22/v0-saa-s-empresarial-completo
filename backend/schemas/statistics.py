@@ -110,3 +110,65 @@ class ProductRankingPageOut(BaseModel):
     page:   int
     pages:  int
     window: StatisticsWindowOut | None = None
+
+
+# ── E2 — desgloses por dimensión y top clientes (rpc_sales_breakdown /
+#         rpc_sales_top_clients, migración 20261025000001) ────────────────────
+
+BreakdownDimension = Literal["canal", "branch", "weekday", "hour", "category"]
+
+
+class SalesBreakdownRowOut(BaseModel):
+    """Un tramo del desglose. `key` es el valor crudo de la dimensión (canal,
+    uuid de sucursal / categoría, isodow 1..7, hora 0..23) y viaja como null
+    para el tramo "Sin canal" / "Sin sucursal" / "Sin categoría" — que NUNCA
+    se omite (en producción es la mayoría del dinero). `label` es el rótulo
+    resuelto por el read-model (nombre del catálogo, día en castellano,
+    "HH:00")."""
+
+    key:        str | None = None
+    label:      str
+    sort_order: int
+    revenue:    Decimal
+    units:      Decimal
+    operations: int
+
+
+class SalesBreakdownOut(BaseModel):
+    """`window` es None sólo cuando la dimensión no devolvió filas (canal /
+    sucursal / categoría sin ventas); día y hora viajan siempre completos."""
+
+    dimension: BreakdownDimension
+    window:    StatisticsWindowOut | None = None
+    rows:      list[SalesBreakdownRowOut]
+
+
+class TopClientRowOut(BaseModel):
+    """Fila del top. `client_id` es null cuando la venta referencia un cliente
+    que no pertenece a la cuenta: rankea por su importe con el nombre
+    "Cliente no disponible", sin exponer datos ajenos."""
+
+    rank:           int
+    client_id:      uuid.UUID | None = None
+    client_name:    str
+    revenue:        Decimal
+    units:          Decimal
+    operations:     int
+    last_sale_date: datetime.date | None = None
+
+
+class UnassignedSalesOut(BaseModel):
+    """OQ-2: las ventas sin cliente NO compiten en el ranking; su importe viaja
+    aparte para que la superficie lo declare."""
+
+    revenue:        Decimal
+    units:          Decimal
+    operations:     int
+    last_sale_date: datetime.date | None = None
+
+
+class TopClientsOut(BaseModel):
+    window:        StatisticsWindowOut
+    items:         list[TopClientRowOut]
+    unassigned:    UnassignedSalesOut
+    total_clients: int

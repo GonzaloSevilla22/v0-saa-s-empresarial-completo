@@ -65,9 +65,9 @@
 
 ## 6. E2 — Backend de dimensiones
 
-- [ ] 6.1 RED: tests del endpoint de desgloses y del top de clientes
-- [ ] 6.2 Añadir los endpoints de desglose y de top de clientes bajo `/reports/statistics`, con la dimensión como `Literal`
-- [ ] 6.3 GREEN + TRIANGULATE
+- [x] 6.1 RED: tests del endpoint de desgloses y del top de clientes
+- [x] 6.2 Añadir los endpoints de desglose y de top de clientes bajo `/reports/statistics`, con la dimensión como `Literal`
+- [x] 6.3 GREEN + TRIANGULATE
 
 ## 7. E2 — Frontend de dimensiones
 

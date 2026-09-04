@@ -43,6 +43,15 @@ class StatisticsRepository(BaseRepository):
         "$1::uuid, $2::date, $3::date, $4::text, $5::boolean, $6::uuid, $7::text, "
         "$8::integer, $9::integer)"
     )
+    # E2 (migración 20261025000001)
+    _BREAKDOWN_SQL = (
+        "SELECT * FROM public.rpc_sales_breakdown("
+        "$1::uuid, $2::date, $3::date, $4::text, $5::uuid, $6::text)"
+    )
+    _TOP_CLIENTS_SQL = (
+        "SELECT * FROM public.rpc_sales_top_clients("
+        "$1::uuid, $2::date, $3::date, $4::uuid, $5::integer)"
+    )
 
     async def fetch_sales_evolution(
         self,
@@ -100,3 +109,37 @@ class StatisticsRepository(BaseRepository):
             "pages":  pages,
             "window": window_from_row(meta_row) if meta_row else None,
         }
+
+    # ── E2 ──────────────────────────────────────────────────────────────────
+
+    async def fetch_sales_breakdown(
+        self,
+        account_id: str,
+        *,
+        start: datetime.date,
+        end: datetime.date,
+        dimension: str,
+        branch_id: str | None = None,
+        canal: str | None = None,
+    ) -> list[dict]:
+        """Filas crudas de rpc_sales_breakdown para una dimensión (canal /
+        branch / weekday / hour / category). El tramo "Sin …" viaja con
+        bucket_key NULL; día y hora vienen completos (7 / 24 filas)."""
+        return await self.fetch(
+            self._BREAKDOWN_SQL, account_id, start, end, dimension, branch_id, canal
+        )
+
+    async def fetch_top_clients(
+        self,
+        account_id: str,
+        *,
+        start: datetime.date,
+        end: datetime.date,
+        branch_id: str | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Filas crudas de rpc_sales_top_clients: row_kind ∈ {client,
+        unassigned}. La composición por clase de fila la hace el service."""
+        return await self.fetch(
+            self._TOP_CLIENTS_SQL, account_id, start, end, branch_id, limit
+        )

@@ -21,6 +21,42 @@ def make_token(extra: dict = {}) -> str:
     return jwt.encode(payload, TEST_SECRET, algorithm="HS256")
 
 
+class FakeAsyncpgRecord:
+    """Test double for `asyncpg.Record` (fix/ambiguous-subscriptions-record-
+    serialization, 2026-09-04): supports `__getitem__`/`keys()`/iteration
+    like a real Record, but — crucially — NO attribute access and no
+    `collections.abc.Mapping` registration.
+
+    Mocking a repo's return value with a plain `dict` (as most existing
+    tests do) does NOT reproduce the 500 seen in prod: pydantic's
+    `from_attributes=True` validates a real `dict` (or a
+    `collections.abc.Mapping`) via item access and succeeds, but falls back
+    to `getattr()` for anything else — which is exactly what a real
+    `asyncpg.Record` triggers, and exactly what silently passed every
+    existing test that mocked `conn.fetch`/`conn.fetchrow` with dicts.
+    `dict(FakeAsyncpgRecord(...))` round-trips correctly (Python's `dict()`
+    uses the `keys()` + `__getitem__` mapping protocol), matching
+    `dict(record)` on a real asyncpg.Record — so this is the right double
+    for asserting BOTH the RED (raw return → 500) and the GREEN (`dict(r)`
+    conversion → 200) shape of this bug class.
+    """
+
+    def __init__(self, data: dict):
+        self._data = data
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+    def keys(self):
+        return self._data.keys()
+
+
 @pytest.fixture
 def valid_token():
     return make_token()

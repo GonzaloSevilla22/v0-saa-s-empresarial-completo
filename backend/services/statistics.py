@@ -45,6 +45,14 @@ _EVOLUTION_BUCKET: dict[str, str] = {
     "week":  "week",
     "month": "month",
 }
+# E2: las cinco dimensiones de rpc_sales_breakdown.
+_BREAKDOWN_DIMENSION: dict[str, str] = {
+    "canal":    "canal",
+    "branch":   "branch",
+    "weekday":  "weekday",
+    "hour":     "hour",
+    "category": "category",
+}
 
 _METRIC_KEYS = (
     "revenue", "credit_notes", "net_revenue", "units", "operations", "service_revenue",
@@ -156,3 +164,98 @@ async def get_product_ranking(
         )
     except asyncpg.PostgresError as exc:
         raise _pg_to_http(exc) from exc
+
+
+# ── E2 — desgloses por dimensión y top clientes ──────────────────────────────
+
+def _breakdown_row(row: dict) -> dict:
+    # El tramo "Sin …" viene con bucket_key NULL y su rótulo ya resuelto por el
+    # read-model: acá no se filtra ni se renombra (spec: nunca omitido).
+    return {
+        "key":        row["bucket_key"],
+        "label":      row["bucket_label"],
+        "sort_order": row["sort_order"],
+        "revenue":    row["revenue"],
+        "units":      row["units"],
+        "operations": row["operations"],
+    }
+
+
+async def get_sales_breakdown(
+    repo: StatisticsRepository,
+    account_id: str,
+    *,
+    start: datetime.date,
+    end: datetime.date,
+    dimension: str,
+    branch_id: str | None,
+    canal: str | None,
+) -> dict:
+    """Desglose del período por una dimensión (canal / branch / weekday /
+    hour / category). Ningún tramo se re-agrega acá; la ventana aplicada
+    viaja desde la primera fila (None si la dimensión no devolvió filas)."""
+    _validate_range(start, end)
+    rpc_dimension = _BREAKDOWN_DIMENSION.get(dimension)
+    if rpc_dimension is None:
+        raise HTTPException(status_code=422, detail=f"Dimensión no admitida: {dimension}")
+
+    try:
+        rows = await repo.fetch_sales_breakdown(
+            account_id, start=start, end=end, dimension=rpc_dimension,
+            branch_id=branch_id, canal=canal,
+        )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+    return {
+        "dimension": dimension,
+        "window":    window_from_row(rows[0]) if rows else None,
+        "rows":      [_breakdown_row(r) for r in rows],
+    }
+
+
+_CLIENT_METRIC_KEYS = ("revenue", "units", "operations", "last_sale_date")
+
+
+async def get_top_clients(
+    repo: StatisticsRepository,
+    account_id: str,
+    *,
+    start: datetime.date,
+    end: datetime.date,
+    branch_id: str | None,
+    limit: int,
+) -> dict:
+    """Top clientes del período. Las filas row_kind='client' son los items;
+    la fila row_kind='unassigned' (siempre presente, OQ-2) es el importe de
+    las ventas sin cliente, declarado aparte — jamás un item del ranking."""
+    _validate_range(start, end)
+
+    try:
+        rows = await repo.fetch_top_clients(
+            account_id, start=start, end=end, branch_id=branch_id, limit=limit,
+        )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+    unassigned = next((r for r in rows if r["row_kind"] == "unassigned"), None)
+    if unassigned is None:
+        raise HTTPException(
+            status_code=500,
+            detail="El read-model de top clientes no devolvió la fila de ventas sin cliente",
+        )
+
+    return {
+        "window": window_from_row(unassigned),
+        "items": [
+            {
+                "rank":        r["rank"],
+                "client_id":   r["client_id"],
+                "client_name": r["client_name"],
+                **{k: r[k] for k in _CLIENT_METRIC_KEYS},
+            }
+            for r in rows if r["row_kind"] == "client"
+        ],
+        "unassigned":    {k: unassigned[k] for k in _CLIENT_METRIC_KEYS},
+        "total_clients": int(unassigned["total_clients"]),
+    }

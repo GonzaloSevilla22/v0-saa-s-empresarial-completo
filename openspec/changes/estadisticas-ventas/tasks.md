@@ -56,26 +56,26 @@
 
 ## 5. E2 — Dimensiones: canal, sucursal, día de semana, horario
 
-- [ ] 5.1 RED: casos del gate SQL para las cuatro dimensiones, incluido el tramo "Sin canal"/"Sin sucursal" y la identidad suma de tramos igual al total del período
-- [ ] 5.2 Crear `rpc_sales_breakdown(p_start, p_end, p_dimension, p_branch_id, p_canal)` — una sola RPC para las cuatro dimensiones, que comparten forma de salida (D1)
-- [ ] 5.3 Implementar la dimensión horaria sobre el **instante de registro** convertido a zona local, devolviendo la hora cruda 0-23 (D5) — **nunca** sobre la fecha de negocio
-- [ ] 5.4 Implementar día de la semana sobre la fecha de negocio casteada directamente (D3), devolviendo los siete días aunque alguno esté en cero
-- [ ] 5.5 Crear `rpc_sales_top_clients(p_start, p_end, p_branch_id, p_limit)` excluyendo del ranking las ventas sin cliente y devolviendo su importe aparte (OQ-2)
-- [ ] 5.6 GREEN + TRIANGULATE: gate ampliado, incluido el caso de una venta de lunes que debe informarse como lunes
+- [x] 5.1 RED: casos del gate SQL para las cuatro dimensiones, incluido el tramo "Sin canal"/"Sin sucursal" y la identidad suma de tramos igual al total del período
+- [x] 5.2 Crear `rpc_sales_breakdown(p_start, p_end, p_dimension, p_branch_id, p_canal)` — una sola RPC para las cuatro dimensiones, que comparten forma de salida (D1)
+- [x] 5.3 Implementar la dimensión horaria sobre el **instante de registro** convertido a zona local, devolviendo la hora cruda 0-23 (D5) — **nunca** sobre la fecha de negocio
+- [x] 5.4 Implementar día de la semana sobre la fecha de negocio casteada directamente (D3), devolviendo los siete días aunque alguno esté en cero
+- [x] 5.5 Crear `rpc_sales_top_clients(p_start, p_end, p_branch_id, p_limit)` excluyendo del ranking las ventas sin cliente y devolviendo su importe aparte (OQ-2)
+- [x] 5.6 GREEN + TRIANGULATE: gate ampliado, incluido el caso de una venta de lunes que debe informarse como lunes
 
 ## 6. E2 — Backend de dimensiones
 
-- [ ] 6.1 RED: tests del endpoint de desgloses y del top de clientes
-- [ ] 6.2 Añadir los endpoints de desglose y de top de clientes bajo `/reports/statistics`, con la dimensión como `Literal`
-- [ ] 6.3 GREEN + TRIANGULATE
+- [x] 6.1 RED: tests del endpoint de desgloses y del top de clientes
+- [x] 6.2 Añadir los endpoints de desglose y de top de clientes bajo `/reports/statistics`, con la dimensión como `Literal`
+- [x] 6.3 GREEN + TRIANGULATE
 
 ## 7. E2 — Frontend de dimensiones
 
-- [ ] 7.1 Añadir a `/estadisticas` los desgloses por canal y por sucursal, con su tramo "Sin canal"/"Sin sucursal" visible
-- [ ] 7.2 Añadir el patrón por día de la semana
-- [ ] 7.3 Añadir la vista de horarios, **rotulada como horario de carga de la operación**, con la salvedad visible (OQ-1) y la conmutación hora / franja resuelta en el cliente
-- [ ] 7.4 Añadir el top de clientes, declarando el importe de las ventas sin cliente
-- [ ] 7.5 Tests de las cuatro superficies, incluido que el rótulo de horarios no promete horario de venta
+- [x] 7.1 Añadir a `/estadisticas` los desgloses por canal y por sucursal, con su tramo "Sin canal"/"Sin sucursal" visible
+- [x] 7.2 Añadir el patrón por día de la semana
+- [x] 7.3 Añadir la vista de horarios, **rotulada como horario de carga de la operación**, con la salvedad visible (OQ-1) y la conmutación hora / franja resuelta en el cliente
+- [x] 7.4 Añadir el top de clientes, declarando el importe de las ventas sin cliente
+- [x] 7.5 Tests de las cuatro superficies, incluido que el rótulo de horarios no promete horario de venta
 
 ## 8. E3 — Exportación del ranking
 

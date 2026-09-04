@@ -4,6 +4,9 @@ Router de estadisticas-ventas E1 — read-models del módulo de estadísticas.
 Routes:
   GET /reports/statistics/evolution → evolución por día/semana/mes + comparación
   GET /reports/statistics/products  → ranking de productos, paginado
+  GET /reports/statistics/breakdown → desglose por canal / sucursal / día de la
+                                      semana / hora de carga / categoría (E2)
+  GET /reports/statistics/clients   → top clientes del período (E2, OQ-2)
 
 Arquitectura dura: routers = validación + DI únicamente. La lógica vive en
 services/statistics.py; el acceso a datos en repositories/statistics_repository.py.
@@ -25,7 +28,12 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.repositories.statistics_repository import StatisticsRepository
-from backend.schemas.statistics import ProductRankingPageOut, SalesEvolutionOut
+from backend.schemas.statistics import (
+    ProductRankingPageOut,
+    SalesBreakdownOut,
+    SalesEvolutionOut,
+    TopClientsOut,
+)
 from backend.services import statistics as statistics_service
 
 # Espejo estructural del report_router de customer_accounts (/reports/*).
@@ -87,4 +95,54 @@ async def product_ranking(
         page=page, size=size,
         branch_id=str(branch_id) if branch_id else None,
         canal=canal,
+    )
+
+
+@report_router.get("/breakdown", response_model=SalesBreakdownOut)
+async def sales_breakdown(
+    start: datetime.date = Query(...),
+    end: datetime.date = Query(...),
+    dimension: Literal["canal", "branch", "weekday", "hour", "category"] = Query(
+        ..., description="Dimensión del desglose"
+    ),
+    branch_id: uuid.UUID | None = Query(None),
+    canal: str | None = Query(None, max_length=80),
+    auth: dict = Depends(get_current_user),
+    repo: StatisticsRepository = Depends(get_statistics_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """Desglose del período por una dimensión (E2).
+
+    El tramo "Sin canal" / "Sin sucursal" / "Sin categoría" viaja con `key`
+    null y nunca se omite; día de la semana y hora vienen completos (7 / 24
+    filas). La hora es de CARGA de la operación (`created_at`), no de venta
+    (OQ-1). Ningún desglose resta notas de crédito (D7)."""
+    return await statistics_service.get_sales_breakdown(
+        repo, str(account_id),
+        start=start, end=end, dimension=dimension,
+        branch_id=str(branch_id) if branch_id else None,
+        canal=canal,
+    )
+
+
+@report_router.get("/clients", response_model=TopClientsOut)
+async def top_clients(
+    start: datetime.date = Query(...),
+    end: datetime.date = Query(...),
+    branch_id: uuid.UUID | None = Query(None),
+    limit: int = Query(10, ge=1, le=200),
+    auth: dict = Depends(get_current_user),
+    repo: StatisticsRepository = Depends(get_statistics_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """Top clientes del período por importe (E2, OQ-2).
+
+    Las ventas sin cliente no compiten: su importe viaja en `unassigned`
+    para que la superficie lo declare. El orden se resuelve en el servidor
+    sobre el conjunto completo; `limit` acota sólo las filas de cliente."""
+    return await statistics_service.get_top_clients(
+        repo, str(account_id),
+        start=start, end=end,
+        branch_id=str(branch_id) if branch_id else None,
+        limit=limit,
     )

@@ -17,9 +17,12 @@
  */
 
 import { formatMoney } from "@/lib/format"
+import { SALE_CHANNELS } from "@/lib/kpi-format"
 
 export type EvolutionBucket = "day" | "week" | "month"
 export type RankingOrder = "units" | "revenue" | "margin"
+/** E2: las cinco dimensiones de GET /reports/statistics/breakdown. */
+export type BreakdownDimension = "canal" | "branch" | "weekday" | "hour" | "category"
 
 export const EVOLUTION_BUCKET_LABELS: Record<EvolutionBucket, string> = {
   day:   "Día",
@@ -300,4 +303,235 @@ export function marginCell(row: ProductRankingRow): MarginCell {
 export function defaultStatisticsRange(today: Date = new Date()): { from: Date; to: Date } {
   const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29)
   return { from, to: today }
+}
+
+// ═══ E2 — desgloses por dimensión y top clientes ═════════════════════════════
+// GET /reports/statistics/breakdown (rpc_sales_breakdown) y
+// /reports/statistics/clients (rpc_sales_top_clients).
+
+/**
+ * Rótulos de las dimensiones. La horaria dice "de carga" A PROPÓSITO (OQ-1):
+ * deriva de `created_at` — cuándo se registró la operación — no de cuándo se
+ * vendió, porque la fecha de negocio no tiene hora. Nada en la UI promete
+ * "horario de venta".
+ */
+export const BREAKDOWN_DIMENSION_LABELS: Record<BreakdownDimension, string> = {
+  canal:    "Canal",
+  branch:   "Sucursal",
+  weekday:  "Día de la semana",
+  hour:     "Horario de carga",
+  category: "Categoría",
+}
+
+export interface SalesBreakdownRowRaw {
+  /** Valor crudo de la dimensión; null = tramo "Sin canal" / "Sin sucursal" /
+   *  "Sin categoría", que NUNCA se omite. */
+  key: string | null
+  label: string
+  sort_order: number
+  revenue: string | number | null
+  units: string | number | null
+  operations: number | string | null
+}
+
+export interface SalesBreakdownRaw {
+  dimension: BreakdownDimension
+  window: StatisticsWindowRaw | null
+  rows: SalesBreakdownRowRaw[]
+}
+
+export interface SalesBreakdownRow {
+  key: string | null
+  label: string
+  sortOrder: number
+  revenue: number
+  units: number
+  operations: number
+}
+
+export interface SalesBreakdown {
+  dimension: BreakdownDimension
+  window: StatisticsWindow | null
+  rows: SalesBreakdownRow[]
+}
+
+export function mapSalesBreakdown(raw: SalesBreakdownRaw): SalesBreakdown {
+  return {
+    dimension: raw.dimension,
+    window:    raw.window ? mapStatisticsWindow(raw.window) : null,
+    rows:      raw.rows.map((r) => ({
+      key:        r.key ?? null,
+      label:      r.label,
+      sortOrder:  toNumber(r.sort_order),
+      revenue:    toNumber(r.revenue),
+      units:      toNumber(r.units),
+      operations: toNumber(r.operations),
+    })),
+  }
+}
+
+const CHANNEL_FULL_LABEL: Record<string, string> = Object.fromEntries(
+  SALE_CHANNELS.map((c) => [c.value, c.label]),
+)
+
+/**
+ * Rótulo de presentación de un tramo. Para canal se usa la etiqueta completa
+ * del catálogo de canales del formulario de venta (SALE_CHANNELS — la misma
+ * fuente, no una segunda tabla), capitalizando los desconocidos; el tramo
+ * sin clave conserva su rótulo ("Sin canal"). Las demás dimensiones ya
+ * llegan rotuladas por el read-model (nombre del catálogo, día, "HH:00").
+ */
+export function breakdownRowLabel(row: SalesBreakdownRow, dimension: BreakdownDimension): string {
+  if (dimension !== "canal" || row.key === null) return row.label
+  return CHANNEL_FULL_LABEL[row.key] ?? row.key.charAt(0).toUpperCase() + row.key.slice(1)
+}
+
+export interface BreakdownTotals {
+  revenue: number
+  units: number
+  operations: number
+}
+
+export function sumBreakdown(rows: SalesBreakdownRow[]): BreakdownTotals {
+  return rows.reduce<BreakdownTotals>(
+    (acc, r) => ({
+      revenue:    acc.revenue + r.revenue,
+      units:      acc.units + r.units,
+      operations: acc.operations + r.operations,
+    }),
+    { revenue: 0, units: 0, operations: 0 },
+  )
+}
+
+/** Participación (%) de un tramo sobre el total, con un decimal; null sin
+ *  total (ni NaN ni un 0 que mentiría). */
+export function shareOf(value: number, total: number): number | null {
+  if (!total) return null
+  return Math.round((value / total) * 1000) / 10
+}
+
+export interface HourBand {
+  key: string
+  /** Rótulo completo (tabla). */
+  label: string
+  /** Rótulo corto para el eje del gráfico (móvil: cuatro rótulos con rango no
+   *  entran en 300 px sin solaparse). Prefijo del completo. */
+  shortLabel: string
+  /** Hora inicial incluida. */
+  from: number
+  /** Hora final excluida. */
+  to: number
+}
+
+/** D5: la franja es PRESENTACIÓN — el read-model devuelve la hora cruda 0-23
+ *  y los cortes viven acá; cambiarlos no toca la base. */
+export const HOUR_BANDS: readonly HourBand[] = [
+  { key: "madrugada", label: "Madrugada (0–6)", shortLabel: "Madrugada", from: 0,  to: 6 },
+  { key: "manana",    label: "Mañana (6–12)",   shortLabel: "Mañana",    from: 6,  to: 12 },
+  { key: "tarde",     label: "Tarde (12–19)",   shortLabel: "Tarde",     from: 12, to: 19 },
+  { key: "noche",     label: "Noche (19–24)",   shortLabel: "Noche",     from: 19, to: 24 },
+]
+
+/** Abreviaturas por isodow (1 = lunes … 7 = domingo) para el eje del gráfico. */
+export const WEEKDAY_SHORT_LABELS: readonly string[] = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+/**
+ * Rótulo del EJE del gráfico (orientación vertical: 7 días / 24 horas /
+ * 4 franjas en columnas). Las dimensiones temporales usan una forma corta —
+ * abreviatura del día, franja sin rango — porque en móvil los rótulos
+ * completos se solapan; la tabla que acompaña al gráfico conserva siempre
+ * el rótulo completo. Las categóricas usan el mismo rótulo que la tabla.
+ */
+export function breakdownChartLabel(row: SalesBreakdownRow, dimension: BreakdownDimension, bandView: boolean): string {
+  if (dimension === "weekday") {
+    return WEEKDAY_SHORT_LABELS[Number(row.key) - 1] ?? row.label
+  }
+  if (dimension === "hour" && bandView) {
+    return HOUR_BANDS.find((b) => b.key === row.key)?.shortLabel ?? row.label
+  }
+  return breakdownRowLabel(row, dimension)
+}
+
+/** Agrupa las filas de la dimensión horaria (key = hora 0-23) en las cuatro
+ *  franjas, sumando; una franja sin filas queda en cero, nunca se omite. */
+export function groupHoursIntoBands(rows: SalesBreakdownRow[]): SalesBreakdownRow[] {
+  return HOUR_BANDS.map((band, i) => {
+    const inBand = rows.filter((r) => {
+      const hour = Number(r.key)
+      return Number.isFinite(hour) && hour >= band.from && hour < band.to
+    })
+    return { key: band.key, label: band.label, sortOrder: i + 1, ...sumBreakdown(inBand) }
+  })
+}
+
+// ── Top clientes (OQ-2) ─────────────────────────────────────────────────────
+
+interface ClientMetricsRaw {
+  revenue: string | number | null
+  units: string | number | null
+  operations: number | string | null
+  last_sale_date?: string | null
+}
+
+export interface TopClientRowRaw extends ClientMetricsRaw {
+  rank: number
+  /** null cuando la venta referencia un cliente que no es de la cuenta: rankea
+   *  con el nombre de reemplazo, sin exponer datos ajenos. */
+  client_id: string | null
+  client_name: string
+}
+
+export type UnassignedSalesRaw = ClientMetricsRaw
+
+export interface TopClientsRaw {
+  window: StatisticsWindowRaw
+  items: TopClientRowRaw[]
+  unassigned: UnassignedSalesRaw
+  total_clients: number
+}
+
+interface ClientMetrics {
+  revenue: number
+  units: number
+  operations: number
+  lastSaleDate: string | null
+}
+
+export interface TopClientRow extends ClientMetrics {
+  rank: number
+  clientId: string | null
+  clientName: string
+}
+
+export type UnassignedSales = ClientMetrics
+
+export interface TopClients {
+  window: StatisticsWindow
+  items: TopClientRow[]
+  /** Importe de las ventas sin cliente: NO compite en el ranking, se declara. */
+  unassigned: UnassignedSales
+  totalClients: number
+}
+
+function mapClientMetrics(raw: ClientMetricsRaw): ClientMetrics {
+  return {
+    revenue:      toNumber(raw.revenue),
+    units:        toNumber(raw.units),
+    operations:   toNumber(raw.operations),
+    lastSaleDate: raw.last_sale_date ?? null,
+  }
+}
+
+export function mapTopClients(raw: TopClientsRaw): TopClients {
+  return {
+    window:       mapStatisticsWindow(raw.window),
+    items:        raw.items.map((i) => ({
+      rank:       toNumber(i.rank),
+      clientId:   i.client_id ?? null,
+      clientName: i.client_name,
+      ...mapClientMetrics(i),
+    })),
+    unassigned:   mapClientMetrics(raw.unassigned),
+    totalClients: toNumber(raw.total_clients),
+  }
 }

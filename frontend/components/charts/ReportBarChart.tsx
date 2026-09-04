@@ -16,8 +16,11 @@ import { REPORT_SERIES_COLORS } from "@/lib/report-chart-colors"
 import { formatNumber } from "@/lib/format"
 
 export interface ReportBarDatum {
+  /** Rótulo del eje (puede ser una forma corta). */
   name: string
   value: number
+  /** Rótulo completo para el tooltip cuando `name` es una forma corta. */
+  tooltipName?: string
 }
 
 export type ReportBarOrientation = "horizontal" | "vertical"
@@ -63,11 +66,11 @@ export function ReportBarChart({
   const chartData = data.map((d) => ({ ...d, label: orientation === "vertical" ? d.name : truncate(d.name) }))
   const tooltipLabel = (_label: string, payload: unknown) => {
     const first = Array.isArray(payload) && payload.length > 0 ? payload[0] : null
-    const original = first && typeof first === "object" && first !== null && "payload" in first
+    const datum = first && typeof first === "object" && first !== null && "payload" in first
       && typeof (first as { payload: unknown }).payload === "object" && (first as { payload: unknown }).payload !== null
-      ? ((first as { payload: ReportBarDatum }).payload).name
-      : String(_label)
-    return original
+      ? ((first as { payload: ReportBarDatum }).payload)
+      : null
+    return datum ? (datum.tooltipName ?? datum.name) : String(_label)
   }
 
   if (orientation === "vertical") {
@@ -75,7 +78,9 @@ export function ReportBarChart({
       <div role="img" aria-label={ariaLabel} className="min-w-0" style={{ height: resolvedHeight }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ left: 8, right: 16, top: 8, bottom: 4 }}>
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={data.length > 12 ? 1 : 0} />
+            {/* preserveStartEnd: Recharts mide cada rótulo y omite los que se
+                solaparían (24 horas en 300 px de móvil), conservando extremos. */}
+            <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={6} />
             <YAxis type="number" tickFormatter={(v: number) => formatValue(v)} tick={{ fontSize: 11 }} width={64} />
             <Tooltip formatter={(v: number) => [formatValue(v), valueName]} labelFormatter={tooltipLabel} />
             <Bar dataKey="value" name={valueName} fill={color} fillOpacity={0.85} radius={[4, 4, 0, 0]} isAnimationActive={false} />

@@ -16,6 +16,7 @@ import {
   mapSalesBreakdown,
   mapTopClients,
   breakdownRowLabel,
+  breakdownChartLabel,
   groupHoursIntoBands,
   sumBreakdown,
   shareOf,
@@ -317,5 +318,36 @@ describe("BREAKDOWN_DIMENSION_LABELS", () => {
     expect(BREAKDOWN_DIMENSION_LABELS.hour).toMatch(/horario de carga/i)
     expect(BREAKDOWN_DIMENSION_LABELS.hour).not.toMatch(/venta/i)
     expect(Object.keys(BREAKDOWN_DIMENSION_LABELS).sort()).toEqual(["branch", "canal", "category", "hour", "weekday"])
+  })
+})
+
+describe("breakdownChartLabel (rótulo corto del gráfico en orientación vertical)", () => {
+  const row = (key: string | null, label: string): SalesBreakdownRow => ({ key, label, sortOrder: 1, revenue: 0, units: 0, operations: 0 })
+
+  it("día de la semana → abreviatura de tres letras por isodow; la tabla conserva el nombre completo", () => {
+    expect(breakdownChartLabel(row("1", "Lunes"), "weekday", false)).toBe("Lun")
+    expect(breakdownChartLabel(row("3", "Miércoles"), "weekday", false)).toBe("Mié")
+    expect(breakdownChartLabel(row("6", "Sábado"), "weekday", false)).toBe("Sáb")
+    expect(breakdownChartLabel(row("7", "Domingo"), "weekday", false)).toBe("Dom")
+  })
+
+  it("franja horaria → nombre corto sin el rango; la hora cruda conserva HH:00", () => {
+    expect(breakdownChartLabel(row("madrugada", "Madrugada (0–6)"), "hour", true)).toBe("Madrugada")
+    expect(breakdownChartLabel(row("noche", "Noche (19–24)"), "hour", true)).toBe("Noche")
+    expect(breakdownChartLabel(row("23", "23:00"), "hour", false)).toBe("23:00")
+  })
+
+  it("las dimensiones categóricas usan el mismo rótulo que la tabla", () => {
+    expect(breakdownChartLabel(row("instagram", "instagram"), "canal", false)).toBe("Instagram")
+    expect(breakdownChartLabel(row(null, "Sin canal"), "canal", false)).toBe("Sin canal")
+    expect(breakdownChartLabel(row(null, "Sin categoría"), "category", false)).toBe("Sin categoría")
+  })
+
+  it("HOUR_BANDS: toda franja tiene rótulo corto, sin paréntesis, prefijo del completo", () => {
+    for (const b of HOUR_BANDS) {
+      expect(b.shortLabel).toBeTruthy()
+      expect(b.shortLabel).not.toMatch(/[()]/)
+      expect(b.label.startsWith(b.shortLabel)).toBe(true)
+    }
   })
 })

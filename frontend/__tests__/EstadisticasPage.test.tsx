@@ -389,6 +389,18 @@ describe("EstadisticasPage", () => {
     expect(screen.getByRole("table", { name: /día de la semana/i })).toBeInTheDocument()
   })
 
+  it("los gráficos de día de la semana y de franja usan rótulos cortos (móvil sin solapes); las tablas conservan los completos", () => {
+    render(<EstadisticasPage />)
+    expect(screen.getByText("Gráfico: Ventas por día de la semana:Lun,Mar,Mié,Jue,Vie,Sáb,Dom")).toBeInTheDocument()
+    const weekTable = screen.getByRole("table", { name: /día de la semana/i })
+    expect(within(weekTable).getByText("Miércoles")).toBeInTheDocument()
+    switchTab(/horario de carga/i)
+    fireEvent.click(screen.getByRole("radio", { name: /por franja/i }))
+    expect(screen.getByText("Gráfico: Ventas por horario de carga:Madrugada,Mañana,Tarde,Noche")).toBeInTheDocument()
+    const hourTable = screen.getByRole("table", { name: /horario de carga/i })
+    expect(within(hourTable).getByText("Madrugada (0–6)")).toBeInTheDocument()
+  })
+
   it("top clientes sin clientes identificados: vacío explícito que igual declara el importe sin cliente (OQ-2)", () => {
     useTopClientsMock.mockReturnValue({ data: { ...TOP_CLIENTS, items: [], totalClients: 0 }, isLoading: false, isError: false })
     render(<EstadisticasPage />)

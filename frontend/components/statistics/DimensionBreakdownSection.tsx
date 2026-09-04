@@ -21,6 +21,7 @@ import { useSalesBreakdown } from "@/hooks/data/use-sales-statistics"
 import { formatMoney, formatNumber } from "@/lib/format"
 import {
   BREAKDOWN_DIMENSION_LABELS,
+  breakdownChartLabel,
   breakdownRowLabel,
   groupHoursIntoBands,
   shareOf,
@@ -88,9 +89,12 @@ export function DimensionBreakdownSection({
     )
   }
 
+  // Eje con rótulo corto (día abreviado / franja sin rango) para que en móvil
+  // no se solape; el tooltip y la tabla conservan el rótulo completo.
   const chartData = rows.slice(0, orientation === "vertical" ? rows.length : chartRows).map((r) => ({
-    name: breakdownRowLabel(r, dimension),
-    value: r.revenue,
+    name:        breakdownChartLabel(r, dimension, bandView),
+    tooltipName: breakdownRowLabel(r, dimension),
+    value:       r.revenue,
   }))
 
   return (

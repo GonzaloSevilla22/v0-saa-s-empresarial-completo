@@ -412,7 +412,11 @@ export function shareOf(value: number, total: number): number | null {
 
 export interface HourBand {
   key: string
+  /** Rótulo completo (tabla). */
   label: string
+  /** Rótulo corto para el eje del gráfico (móvil: cuatro rótulos con rango no
+   *  entran en 300 px sin solaparse). Prefijo del completo. */
+  shortLabel: string
   /** Hora inicial incluida. */
   from: number
   /** Hora final excluida. */
@@ -422,11 +426,31 @@ export interface HourBand {
 /** D5: la franja es PRESENTACIÓN — el read-model devuelve la hora cruda 0-23
  *  y los cortes viven acá; cambiarlos no toca la base. */
 export const HOUR_BANDS: readonly HourBand[] = [
-  { key: "madrugada", label: "Madrugada (0–6)", from: 0,  to: 6 },
-  { key: "manana",    label: "Mañana (6–12)",   from: 6,  to: 12 },
-  { key: "tarde",     label: "Tarde (12–19)",   from: 12, to: 19 },
-  { key: "noche",     label: "Noche (19–24)",   from: 19, to: 24 },
+  { key: "madrugada", label: "Madrugada (0–6)", shortLabel: "Madrugada", from: 0,  to: 6 },
+  { key: "manana",    label: "Mañana (6–12)",   shortLabel: "Mañana",    from: 6,  to: 12 },
+  { key: "tarde",     label: "Tarde (12–19)",   shortLabel: "Tarde",     from: 12, to: 19 },
+  { key: "noche",     label: "Noche (19–24)",   shortLabel: "Noche",     from: 19, to: 24 },
 ]
+
+/** Abreviaturas por isodow (1 = lunes … 7 = domingo) para el eje del gráfico. */
+export const WEEKDAY_SHORT_LABELS: readonly string[] = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+/**
+ * Rótulo del EJE del gráfico (orientación vertical: 7 días / 24 horas /
+ * 4 franjas en columnas). Las dimensiones temporales usan una forma corta —
+ * abreviatura del día, franja sin rango — porque en móvil los rótulos
+ * completos se solapan; la tabla que acompaña al gráfico conserva siempre
+ * el rótulo completo. Las categóricas usan el mismo rótulo que la tabla.
+ */
+export function breakdownChartLabel(row: SalesBreakdownRow, dimension: BreakdownDimension, bandView: boolean): string {
+  if (dimension === "weekday") {
+    return WEEKDAY_SHORT_LABELS[Number(row.key) - 1] ?? row.label
+  }
+  if (dimension === "hour" && bandView) {
+    return HOUR_BANDS.find((b) => b.key === row.key)?.shortLabel ?? row.label
+  }
+  return breakdownRowLabel(row, dimension)
+}
 
 /** Agrupa las filas de la dimensión horaria (key = hora 0-23) en las cuatro
  *  franjas, sumando; una franja sin filas queda en cero, nunca se omite. */

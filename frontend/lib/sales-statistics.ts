@@ -291,8 +291,15 @@ export interface MarginCell {
   coverage: string | null
 }
 
-export function marginCell(row: ProductRankingRow): MarginCell {
-  if (row.grossMargin === null) return { value: "—", coverage: null }
+/** Cualquier agregado con margen y cobertura (fila del ranking, totales o
+ *  miembro del detalle por producto — E3). */
+export interface MarginSource {
+  grossMargin: number | null
+  costCoveragePct: number | null
+}
+
+export function marginCell(row: MarginSource): MarginCell {
+  if (row.grossMargin === null || row.costCoveragePct === null) return { value: "—", coverage: null }
   const coverage = row.costCoveragePct >= 100
     ? null
     : `${Math.round(row.costCoveragePct)}% con costo`
@@ -533,5 +540,185 @@ export function mapTopClients(raw: TopClientsRaw): TopClients {
     })),
     unassigned:   mapClientMetrics(raw.unassigned),
     totalClients: toNumber(raw.total_clients),
+  }
+}
+
+// ═══ E3 — export del ranking, detalle por producto, análisis IA ══════════════
+
+/** Tipo de insight con el que ai-estadisticas persiste en `insights`. Espejo
+ *  de ESTADISTICAS_INSIGHT_TYPE en supabase/functions/_shared/
+ *  ai-estadisticas-core.ts (atado por test de paridad). */
+export const STATISTICS_INSIGHT_TYPE = "estadisticas"
+
+/** Body que la Edge Function generate-export lee para `product_ranking_csv`:
+ *  los MISMOS parámetros que la pantalla del ranking muestra, en snake_case.
+ *  La sucursal null viaja explícita (= sin filtro). */
+// `type` y no `interface`: un alias de objeto literal SÍ es asignable al
+// Record<string, …> de ExportParams (una interface no lleva index signature
+// implícita y tsc lo rechaza).
+export type RankingExportBody = {
+  start: string
+  end: string
+  order_by: RankingOrder
+  group_variants: boolean
+  branch_id: string | null
+}
+
+export interface RankingScreenState {
+  start: string
+  end: string
+  orderBy: RankingOrder
+  groupVariants: boolean
+  branchId: string | null
+}
+
+export function rankingExportBody(state: RankingScreenState): RankingExportBody {
+  return {
+    start:          state.start,
+    end:            state.end,
+    order_by:       state.orderBy,
+    group_variants: state.groupVariants,
+    branch_id:      state.branchId,
+  }
+}
+
+/** D12: el detalle vive DENTRO del módulo de estadísticas —
+ *  /estadisticas/productos/[id], nunca /productos/[id] (que se leería como
+ *  "editar producto"). Conserva el filtro de sucursal de la URL. */
+export function productDetailHref(productId: string, branchId: string | null): string {
+  const base = `/estadisticas/productos/${productId}`
+  return branchId ? `${base}?branch=${encodeURIComponent(branchId)}` : base
+}
+
+// ── Detalle por producto (GET /reports/statistics/products/{id}) ────────────
+
+export interface ProductSalesHeaderRaw {
+  product_id: string
+  product_name: string
+  sku?: string | null
+  category?: string | null
+  parent_id?: string | null
+  parent_name?: string | null
+  is_group: boolean
+  variant_count: number
+}
+
+export interface ProductSalesMetricsRaw {
+  units: string | number | null
+  revenue: string | number | null
+  operations: number | string | null
+  total_cost?: string | number | null
+  gross_margin?: string | number | null
+  gross_margin_pct?: string | number | null
+  cost_coverage_pct?: string | number | null
+  last_sale_date?: string | null
+}
+
+export interface ProductSalesPointRaw extends ProductSalesMetricsRaw {
+  bucket_start: string
+  bucket_end: string
+}
+
+export interface ProductSalesMemberRaw extends ProductSalesMetricsRaw {
+  rank: number
+  product_id: string
+  product_name: string
+  sku?: string | null
+}
+
+export interface ProductSalesDetailRaw {
+  product: ProductSalesHeaderRaw
+  bucket: EvolutionBucket
+  window: StatisticsWindowRaw
+  totals: ProductSalesMetricsRaw
+  points: ProductSalesPointRaw[]
+  members: ProductSalesMemberRaw[]
+}
+
+export interface ProductSalesHeader {
+  productId: string
+  productName: string
+  sku: string | null
+  category: string | null
+  parentId: string | null
+  parentName: string | null
+  isGroup: boolean
+  variantCount: number
+}
+
+/** Métricas de un agregado del detalle. Costo / margen / cobertura ausentes
+ *  se PRESERVAN como null (un agregado sin líneas no tiene margen — D11). */
+export interface ProductSalesMetrics {
+  units: number
+  revenue: number
+  operations: number
+  totalCost: number | null
+  grossMargin: number | null
+  grossMarginPct: number | null
+  costCoveragePct: number | null
+  lastSaleDate: string | null
+}
+
+export interface ProductSalesPoint extends ProductSalesMetrics {
+  bucketStart: string
+  bucketEnd: string
+}
+
+export interface ProductSalesMember extends ProductSalesMetrics {
+  rank: number
+  productId: string
+  productName: string
+  sku: string | null
+}
+
+export interface ProductSalesDetail {
+  product: ProductSalesHeader
+  bucket: EvolutionBucket
+  window: StatisticsWindow
+  totals: ProductSalesMetrics
+  points: ProductSalesPoint[]
+  members: ProductSalesMember[]
+}
+
+function mapProductMetrics(raw: ProductSalesMetricsRaw): ProductSalesMetrics {
+  return {
+    units:           toNumber(raw.units),
+    revenue:         toNumber(raw.revenue),
+    operations:      toNumber(raw.operations),
+    totalCost:       toNullableNumber(raw.total_cost),
+    grossMargin:     toNullableNumber(raw.gross_margin),
+    grossMarginPct:  toNullableNumber(raw.gross_margin_pct),
+    costCoveragePct: toNullableNumber(raw.cost_coverage_pct),
+    lastSaleDate:    raw.last_sale_date ?? null,
+  }
+}
+
+export function mapProductSalesDetail(raw: ProductSalesDetailRaw): ProductSalesDetail {
+  return {
+    product: {
+      productId:    raw.product.product_id,
+      productName:  raw.product.product_name,
+      sku:          raw.product.sku ?? null,
+      category:     raw.product.category ?? null,
+      parentId:     raw.product.parent_id ?? null,
+      parentName:   raw.product.parent_name ?? null,
+      isGroup:      Boolean(raw.product.is_group),
+      variantCount: toNumber(raw.product.variant_count),
+    },
+    bucket:  raw.bucket,
+    window:  mapStatisticsWindow(raw.window),
+    totals:  mapProductMetrics(raw.totals),
+    points:  raw.points.map((p) => ({
+      bucketStart: p.bucket_start,
+      bucketEnd:   p.bucket_end,
+      ...mapProductMetrics(p),
+    })),
+    members: raw.members.map((m) => ({
+      rank:        toNumber(m.rank),
+      productId:   m.product_id,
+      productName: m.product_name,
+      sku:         m.sku ?? null,
+      ...mapProductMetrics(m),
+    })),
   }
 }

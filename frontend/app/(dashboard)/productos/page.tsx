@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useProducts } from "@/hooks/data/use-products"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
@@ -15,6 +16,7 @@ import { MAX_PRODUCTS_FREE } from "@/lib/constants"
 import type { Product } from "@/lib/types"
 
 export default function ProductosPage() {
+  const searchParams = useSearchParams()
   const { products, deleteProduct, bulkSetCategory } = useProducts()
   const queryClient = useQueryClient()
   const refreshData = () => queryClient.invalidateQueries()
@@ -96,6 +98,9 @@ export default function ProductosPage() {
       {/* task 3.2-3.3: onSuggestPrice only passed when user has avanzado/pro plan */}
       <ProductCatalog
         products={products}
+        // estadisticas-ventas E3: /productos?q=<sku|nombre> precarga el
+        // buscador (el detalle por producto enlaza al catálogo así).
+        initialSearch={searchParams.get("q") ?? ""}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onAddVariant={handleAddVariant}

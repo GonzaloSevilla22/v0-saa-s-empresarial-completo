@@ -173,6 +173,10 @@ export const queryKeys = {
       ["salesStatistics", "breakdown", accountId, start, end, dimension, branchId] as const,
     topClients: (accountId: string | null, start: string, end: string, branchId: string | null, limit: number) =>
       ["salesStatistics", "topClients", accountId, start, end, branchId, limit] as const,
+    // E3
+    productDetail: (accountId: string | null, productId: string, start: string, end: string, bucket: string, branchId: string | null) =>
+      ["salesStatistics", "productDetail", accountId, productId, start, end, bucket, branchId] as const,
+    aiInsight: (userId: string | null) => ["salesStatistics", "aiInsight", userId] as const,
   },
   // productos-categorias-sku
   productCategories: {

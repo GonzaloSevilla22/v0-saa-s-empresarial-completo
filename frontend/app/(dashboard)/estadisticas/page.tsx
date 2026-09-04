@@ -29,11 +29,14 @@
  */
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { subDays } from "date-fns"
 import { BarChart3, Hash, Package, TrendingUp } from "lucide-react"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useProductRanking, useSalesEvolution } from "@/hooks/data/use-sales-statistics"
+import { ExportButton } from "@/components/export/ExportButton"
+import { StatisticsAiPanel } from "@/components/statistics/StatisticsAiPanel"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -58,6 +61,8 @@ import {
   formatBusinessDate,
   marginCell,
   percentChange,
+  productDetailHref,
+  rankingExportBody,
   type EvolutionBucket,
   type ProductRankingRow,
   type RankingOrder,
@@ -211,6 +216,9 @@ export default function EstadisticasPage() {
           />
         </div>
       )}
+
+      {/* ── E3: análisis con IA (ai-estadisticas, cuota de consultas) ── */}
+      <StatisticsAiPanel start={startISO} end={endISO} branchId={branchId} />
 
       {/* ── Evolución ── */}
       <Card className="min-w-0">
@@ -403,6 +411,13 @@ export default function EstadisticasPage() {
               />
               <Label htmlFor="group-variants" className="text-xs">Agrupar variantes</Label>
             </div>
+            {/* E3 (grupo 8): el CSV sale del MISMO read-model con los MISMOS
+                parámetros que esta tarjeta muestra — período, orden,
+                agrupación y sucursal — fila a fila y en el mismo orden. */}
+            <ExportButton
+              exportType="product_ranking_csv"
+              params={rankingExportBody({ start: startISO, end: endISO, orderBy, groupVariants, branchId })}
+            />
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 p-0 min-w-0">
@@ -445,7 +460,13 @@ export default function EstadisticasPage() {
                           <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">{row.rank}</td>
                           <td className="px-4 py-2">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium">{row.productName}</span>
+                              {/* E3 (D12): cada fila abre su detalle dentro del módulo. */}
+                              <Link
+                                href={productDetailHref(row.productId, branchId)}
+                                className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:underline"
+                              >
+                                {row.productName}
+                              </Link>
                               {row.isGroup && (
                                 <Badge variant="secondary" className="text-xs">
                                   {row.variantCount} {row.variantCount === 1 ? "variante" : "variantes"}

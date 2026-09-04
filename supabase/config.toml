@@ -441,3 +441,12 @@ verify_jwt = false
 import_map = "./functions/send-email/deno.json"
 entrypoint = "./functions/send-email/index.ts"
 
+# estadisticas-ventas E3 (grupo 10): análisis IA del módulo de estadísticas.
+# Misma forma que las hermanas ai-*; el deploy automático (deploy.yml) la
+# sube junto con el resto al mergear.
+[functions.ai-estadisticas]
+enabled = true
+verify_jwt = true
+import_map = "./functions/ai-estadisticas/deno.json"
+entrypoint = "./functions/ai-estadisticas/index.ts"
+

@@ -4,7 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { Download, Crown, Loader2 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import { useExportUsage, triggerExport } from "@/hooks/auth/use-export-usage"
+import { useExportUsage, triggerExport, type ExportParams } from "@/hooks/auth/use-export-usage"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
@@ -16,15 +16,19 @@ import { toast } from "sonner"
 import type { ExportType } from "@/lib/types"
 
 const EXPORT_LABELS: Record<ExportType, string> = {
-  sales_csv:          "Exportar ventas CSV",
-  purchases_csv:      "Exportar compras CSV",
-  expenses_csv:       "Exportar gastos CSV",
-  stock_csv:          "Exportar inventario CSV",
-  full_report_xlsx:   "Exportar reporte completo XLSX",
+  sales_csv:           "Exportar ventas CSV",
+  purchases_csv:       "Exportar compras CSV",
+  expenses_csv:        "Exportar gastos CSV",
+  stock_csv:           "Exportar inventario CSV",
+  full_report_xlsx:    "Exportar reporte completo XLSX",
+  product_ranking_csv: "Exportar ranking CSV",
 }
 
 interface ExportButtonProps {
   exportType: ExportType
+  /** estadisticas-ventas E3: parámetros que viajan a la Edge Function junto
+   *  al tipo (el ranking manda los de la pantalla). */
+  params?: ExportParams
   variant?: "default" | "outline" | "ghost"
   size?: "default" | "sm" | "lg"
   className?: string
@@ -32,6 +36,7 @@ interface ExportButtonProps {
 
 export function ExportButton({
   exportType,
+  params,
   variant = "outline",
   size = "sm",
   className,
@@ -75,7 +80,7 @@ export function ExportButton({
         return
       }
 
-      const result = await triggerExport(exportType, token)
+      const result = await triggerExport(exportType, token, params)
 
       if (!result.ok) {
         if (result.error === "quota_exceeded") {
@@ -93,7 +98,7 @@ export function ExportButton({
       if (result.signedUrl) {
         const a = document.createElement("a")
         a.href = result.signedUrl
-        a.download = `${exportType.replace("_", "-")}-${new Date().toISOString().split("T")[0]}.${exportType.endsWith("xlsx") ? "xlsx" : "csv"}`
+        a.download = `${exportType.replace(/_/g, "-")}-${new Date().toISOString().split("T")[0]}.${exportType.endsWith("xlsx") ? "xlsx" : "csv"}`
         document.body.appendChild(a)
         a.click()
         document.body.removeChild(a)

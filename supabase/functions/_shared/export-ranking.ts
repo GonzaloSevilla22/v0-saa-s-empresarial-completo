@@ -140,6 +140,17 @@ function cell(value: number | string | null | undefined): string | number {
   return value === null || value === undefined ? "" : value
 }
 
+/** Hallazgo del PO (2026-09-04, humo real): los numerics de Postgres llegan
+ *  como string con PUNTO decimal ("1234.56"); Excel en español (Argentina)
+ *  usa COMA decimal y toma un punto como separador de miles o directamente
+ *  como texto — el PO no podía sumar la columna. Se convierte el punto a
+ *  coma SOLO acá (ranking): es un reporte de análisis que nadie re-importa.
+ *  D11 sigue vigente: una celda ausente sigue VACÍA, nunca "0". */
+function decimalCell(value: number | string | null | undefined): string {
+  if (value === null || value === undefined) return ""
+  return String(value).replace(".", ",")
+}
+
 export function rankingRowToCsvRow(row: ProductRankingRpcRow): RankingCsvRow {
   return {
     puesto:              row.rank,
@@ -148,30 +159,36 @@ export function rankingRowToCsvRow(row: ProductRankingRpcRow): RankingCsvRow {
     categoria:           cell(row.category),
     producto_padre:      cell(row.parent_name),
     variantes:           row.variant_count,
-    unidades:            cell(row.units),
-    importe:             cell(row.revenue),
+    unidades:            decimalCell(row.units),
+    importe:             decimalCell(row.revenue),
     operaciones:         cell(row.operations),
-    costo:               cell(row.total_cost),
-    margen:              cell(row.gross_margin),
-    margen_pct:          cell(row.gross_margin_pct),
-    cobertura_costo_pct: cell(row.cost_coverage_pct),
+    costo:               decimalCell(row.total_cost),
+    margen:              decimalCell(row.gross_margin),
+    margen_pct:          decimalCell(row.gross_margin_pct),
+    cobertura_costo_pct: decimalCell(row.cost_coverage_pct),
     ultima_venta:        cell(row.last_sale_date),
   }
 }
 
-/** Serialización CSV (RFC 4180: coma, CRLF, comillas dobladas). Movida acá
- *  desde generate-export/index.ts sin cambios de comportamiento para que sea
- *  testeable; el index sigue usándola para los otros cinco tipos. */
+/** Serialización CSV (RFC 4180 con separador `;`, CRLF, comillas dobladas).
+ *  Movida acá desde generate-export/index.ts; el index sigue usándola para
+ *  los otros cinco tipos. Separador `;` (no coma): hallazgo del PO
+ *  (2026-09-04) — Excel con configuración regional es-AR usa `;` como
+ *  separador de listas, la misma convención que ya usa el export local
+ *  `frontend/lib/excel.ts` (`exportToCSV`). Un CSV con comas se abre en
+ *  Excel es-AR con todo apilado en la columna A. La coma se conserva en la
+ *  lista de caracteres que fuerzan comillas (ya no es el separador, pero
+ *  sigue siendo más seguro entrecomillar un valor que la contenga). */
 export function rowsToCsv(headers: readonly string[], rows: Record<string, unknown>[]): string {
   const escape = (v: unknown) => {
     const s = v == null ? "" : String(v)
-    return s.includes(",") || s.includes('"') || s.includes("\n")
+    return s.includes(";") || s.includes(",") || s.includes('"') || s.includes("\n")
       ? `"${s.replace(/"/g, '""')}"`
       : s
   }
-  const lines = [headers.join(",")]
+  const lines = [headers.join(";")]
   for (const row of rows) {
-    lines.push(headers.map((h) => escape(row[h])).join(","))
+    lines.push(headers.map((h) => escape(row[h])).join(";"))
   }
   return lines.join("\r\n")
 }

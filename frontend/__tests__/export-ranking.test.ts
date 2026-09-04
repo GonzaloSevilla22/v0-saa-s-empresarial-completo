@@ -17,6 +17,13 @@
  *   agrupado), y rechazo de orden / fecha / rango / uuid inválidos ANTES de
  *   tocar la base.
  * - D11: un margen ausente viaja como celda vacía, nunca como 0.
+ * - Fix 2026-09-04 (humo real del PO, "se ve mal el excel"): el separador
+ *   pasa de coma a `;` (Excel es-AR usa coma decimal y `;` como separador de
+ *   listas — misma convención que `frontend/lib/excel.ts`), y las columnas
+ *   numéricas del ranking (unidades/importe/costo/margen/margen_pct/
+ *   cobertura_costo_pct) convierten el punto decimal de Postgres a coma. Los
+ *   otros 5 tipos de export comparten `rowsToCsv` (separador) pero NO tocan
+ *   sus decimales — alimentan el ida y vuelta exportar→editar→importar.
  *
  * Run: pnpm vitest run __tests__/export-ranking.test.ts
  */
@@ -142,8 +149,8 @@ describe("rankingRowToCsvRow / buildRankingCsv (8.4, D11)", () => {
       operaciones: 3,
       costo: "1500",
       margen: "850",
-      margen_pct: "36.17",
-      cobertura_costo_pct: "33.3",
+      margen_pct: "36,17",
+      cobertura_costo_pct: "33,3",
       ultima_venta: "2026-08-31",
     })
 
@@ -159,20 +166,65 @@ describe("rankingRowToCsvRow / buildRankingCsv (8.4, D11)", () => {
     expect(row.producto_padre).toBe("Remera")
   })
 
-  it("el CSV tiene una fila por fila del ranking, en el mismo orden, con las cabeceras declaradas", () => {
-    const csv = buildRankingCsv([rpcRow(1, { product_name: "Gorra" }), rpcRow(2, { product_name: "Remera, lisa" }), rpcRow(3, { product_name: "Bufanda" })])
-    const lines = csv.split("\r\n")
-    expect(lines[0]).toBe(RANKING_CSV_HEADERS.join(","))
-    expect(lines).toHaveLength(4)
-    expect(lines[1].startsWith("1,Gorra,")).toBe(true)
-    // La coma del nombre se escapa; el orden del ranking se respeta.
-    expect(lines[2].startsWith('2,"Remera, lisa",')).toBe(true)
-    expect(lines[3].startsWith("3,Bufanda,")).toBe(true)
+  it("decimales de unidades/importe/costo/margen/margen_pct/cobertura usan coma (Excel es-AR toma el punto como texto)", () => {
+    const row = rankingRowToCsvRow(rpcRow(4, {
+      units: "12.5",
+      revenue: "2350.75",
+      total_cost: "1500.3",
+      gross_margin: "850.45",
+      gross_margin_pct: "36.17",
+      cost_coverage_pct: "33.33",
+    }))
+    expect(row.unidades).toBe("12,5")
+    expect(row.importe).toBe("2350,75")
+    expect(row.costo).toBe("1500,3")
+    expect(row.margen).toBe("850,45")
+    expect(row.margen_pct).toBe("36,17")
+    expect(row.cobertura_costo_pct).toBe("33,33")
   })
 
-  it("rowsToCsv escapa comillas y saltos de línea, y deja vacías las celdas nulas", () => {
+  it("un margen negativo (pérdida) también convierte con coma, sin romper el signo", () => {
+    const row = rankingRowToCsvRow(rpcRow(5, { gross_margin: "-120.50", gross_margin_pct: "-5.1" }))
+    expect(row.margen).toBe("-120,50")
+    expect(row.margen_pct).toBe("-5,1")
+  })
+
+  it("puesto, variantes y operaciones son enteros: nunca llevan coma decimal", () => {
+    const row = rankingRowToCsvRow(rpcRow(6, { operations: 7, variant_count: 3, is_group: true }))
+    expect(row.puesto).toBe(6)
+    expect(row.variantes).toBe(3)
+    expect(row.operaciones).toBe(7)
+  })
+
+  it("el CSV tiene una fila por fila del ranking, en el mismo orden, con las cabeceras declaradas, separado por ;", () => {
+    const csv = buildRankingCsv([rpcRow(1, { product_name: "Gorra" }), rpcRow(2, { product_name: "Remera, lisa" }), rpcRow(3, { product_name: "Bufanda" })])
+    const lines = csv.split("\r\n")
+    expect(lines[0]).toBe(RANKING_CSV_HEADERS.join(";"))
+    expect(lines).toHaveLength(4)
+    expect(lines[1].startsWith("1;Gorra;")).toBe(true)
+    // La coma del nombre se escapa igual (defensivo); el separador real es ;
+    // así que la coma NO parte la fila en columnas de más.
+    expect(lines[2].startsWith('2;"Remera, lisa";')).toBe(true)
+    expect(lines[2].split(";")).toHaveLength(RANKING_CSV_HEADERS.length)
+    expect(lines[3].startsWith("3;Bufanda;")).toBe(true)
+  })
+
+  it("rowsToCsv separa por ;, escapa comillas y saltos de línea, y deja vacías las celdas nulas", () => {
     const csv = rowsToCsv(["a", "b"], [{ a: 'di "hola"', b: null }, { a: "x\ny", b: 1 }])
-    expect(csv).toBe('a,b\r\n"di ""hola""",\r\n"x\ny",1')
+    expect(csv).toBe('a;b\r\n"di ""hola""";\r\n"x\ny";1')
+  })
+
+  it("un campo con ; embebido queda entrecomillado", () => {
+    const csv = rowsToCsv(["a"], [{ a: "uno; dos" }])
+    expect(csv).toBe('a\r\n"uno; dos"')
+  })
+
+  it("un campo con coma (ya no es el separador) también queda entrecomillado, sin romper columnas", () => {
+    const csv = rowsToCsv(["ciudad", "cp"], [{ ciudad: "Godoy Cruz, Mendoza", cp: "5501" }])
+    expect(csv).toBe('ciudad;cp\r\n"Godoy Cruz, Mendoza";5501')
+    // Exactamente 2 columnas (un solo ; de dato): la coma no partió la fila.
+    const dataLine = csv.split("\r\n")[1]
+    expect(dataLine.split(";")).toHaveLength(2)
   })
 })
 

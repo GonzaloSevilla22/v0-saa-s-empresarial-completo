@@ -255,7 +255,8 @@ BEGIN
 
   -- ── 15. CHECK del contrato por-fila de operation_id (H-1, 20260906000001) ───
   -- El invariante que el assert 3 chequea sobre DATOS queda además garantizado
-  -- por la DB: operation_kind = 'event_consumer' OR operation_id IS NOT NULL.
+  -- por la DB: operation_kind IN ('event_consumer', 'subscription_webhook')
+  -- OR operation_id IS NOT NULL.
   SELECT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conrelid = 'public.operation_idempotency'::regclass
@@ -268,6 +269,24 @@ BEGIN
     RAISE EXCEPTION 'FAIL: CHECK operation_idempotency_operation_id_contract missing or NOT VALID — per-row contract only enforced by this test, not by the DB';
   END IF;
   RAISE NOTICE 'PASS: per-row operation_id contract enforced by validated CHECK constraint';
+
+  -- ── 15b. subscription_webhook exento del contrato por-fila (hotfix
+  --         20261027000001, incidente 2026-09-04) ───────────────────────────
+  -- Una notificación de webhook de suscripción no es una operación del
+  -- dominio con fila propia que referenciar — misma razón que event_consumer
+  -- ya estaba exento. Sin esto, TODA notificación de MercadoPago de
+  -- suscripción muere con 23514 → 422 (ver backend/core/errors.py).
+  SELECT pg_get_constraintdef(oid) LIKE '%subscription_webhook%'
+     AND pg_get_constraintdef(oid) LIKE '%event_consumer%'
+  INTO v_ok
+  FROM pg_constraint
+  WHERE conrelid = 'public.operation_idempotency'::regclass
+    AND conname  = 'operation_idempotency_operation_id_contract';
+
+  IF NOT COALESCE(v_ok, false) THEN
+    RAISE EXCEPTION 'FAIL: operation_idempotency_operation_id_contract does not exempt subscription_webhook (alongside event_consumer) — every MercadoPago subscription webhook notification dies with 23514/422 (incident 2026-09-04)';
+  END IF;
+  RAISE NOTICE 'PASS: per-row operation_id contract exempts subscription_webhook alongside event_consumer';
 
   -- ── 16. 'credit_note' presente en el CHECK de operation_kind ────────────────
   -- 20260803000003 creó rpc_issue_credit_note insertando kind 'credit_note'
@@ -301,7 +320,7 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS: rpc_issue_credit_note uses 3-column conflict target and kind-filtered replay';
 
-  RAISE NOTICE '=== All idempotency tests passed (17/17) ===';
+  RAISE NOTICE '=== All idempotency tests passed (18/18) ===';
 END;
 $$;
 

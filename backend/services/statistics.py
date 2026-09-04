@@ -259,3 +259,82 @@ async def get_top_clients(
         "unassigned":    {k: unassigned[k] for k in _CLIENT_METRIC_KEYS},
         "total_clients": int(unassigned["total_clients"]),
     }
+
+
+# ── E3 — detalle por producto ────────────────────────────────────────────────
+
+_PRODUCT_METRIC_KEYS = (
+    "units", "revenue", "operations", "total_cost", "gross_margin",
+    "gross_margin_pct", "cost_coverage_pct", "last_sale_date",
+)
+
+
+def _product_metrics(row: dict) -> dict:
+    # Un margen / costo / cobertura NULL se preserva como None — nunca 0 (D11).
+    return {k: row[k] for k in _PRODUCT_METRIC_KEYS}
+
+
+async def get_product_sales_evolution(
+    repo: StatisticsRepository,
+    account_id: str,
+    *,
+    product_id: str,
+    start: datetime.date,
+    end: datetime.date,
+    bucket: str,
+    branch_id: str | None,
+    canal: str | None,
+) -> dict:
+    """Detalle de un producto y su grupo de variantes: cabecera + totales
+    (fila row_kind='total'), puntos por intervalo (row_kind='bucket', en cero
+    los vacíos) y miembros del grupo con ventas (row_kind='member'). Nada se
+    re-agrega acá; la tenencia la resuelve la RPC (P0404 → 404)."""
+    _validate_range(start, end)
+    rpc_bucket = _EVOLUTION_BUCKET.get(bucket)
+    if rpc_bucket is None:
+        raise HTTPException(status_code=422, detail=f"Granularidad no admitida: {bucket}")
+
+    try:
+        rows = await repo.fetch_product_sales_evolution(
+            account_id, product_id, start=start, end=end, bucket=rpc_bucket,
+            branch_id=branch_id, canal=canal,
+        )
+    except asyncpg.PostgresError as exc:
+        raise _pg_to_http(exc) from exc
+
+    total = next((r for r in rows if r["row_kind"] == "total"), None)
+    if total is None:
+        raise HTTPException(
+            status_code=500,
+            detail="El read-model de detalle por producto no devolvió la fila de totales",
+        )
+
+    return {
+        "product": {
+            "product_id":    total["product_id"],
+            "product_name":  total["product_name"],
+            "sku":           total["product_sku"],
+            "category":      total["product_category"],
+            "parent_id":     total["parent_id"],
+            "parent_name":   total["parent_name"],
+            "is_group":      bool(total["is_group"]),
+            "variant_count": int(total["variant_count"]),
+        },
+        "bucket": bucket,
+        "window": window_from_row(total),
+        "totals": _product_metrics(total),
+        "points": [
+            {"bucket_start": r["bucket_start"], "bucket_end": r["bucket_end"], **_product_metrics(r)}
+            for r in rows if r["row_kind"] == "bucket"
+        ],
+        "members": [
+            {
+                "rank":         r["rank"],
+                "product_id":   r["variant_id"],
+                "product_name": r["variant_name"],
+                "sku":          r["variant_sku"],
+                **_product_metrics(r),
+            }
+            for r in rows if r["row_kind"] == "member"
+        ],
+    }

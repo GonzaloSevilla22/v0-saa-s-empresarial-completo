@@ -20,6 +20,7 @@ from backend.schemas.payments import (
     MpNotification,
     PaymentReceiptOut,
     PaymentReceiptsPageOut,
+    ReplaySubscriptionChargesOut,
     ResolveAmbiguousSubscriptionIn,
     SubscriptionCancelOut,
     SubscriptionCreateIn,
@@ -39,6 +40,7 @@ from backend.services.subscriptions import (
     create_subscription_intent,
     process_subscription_authorized_payment_notification,
     process_subscription_preapproval_notification,
+    replay_subscription_charges,
     resolve_ambiguous_subscription,
 )
 
@@ -253,6 +255,25 @@ async def resolve_ambiguous_subscription_endpoint(
     conn: asyncpg.Connection = Depends(get_service_conn),
 ) -> dict:
     return await resolve_ambiguous_subscription(str(subscription_id), str(body.account_id), repo, conn)
+
+
+@router.post(
+    "/subscriptions/{subscription_id}/replay-charges",
+    response_model=ReplaySubscriptionChargesOut,
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def replay_subscription_charges_endpoint(
+    subscription_id: uuid.UUID,
+    _admin: dict = Depends(require_admin),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> dict:
+    """H3 hotfix (2026-09-04): reparación puntual, admin-only — reconstruye
+    desde MercadoPago los efectos de dinero de una suscripción cuyas cuotas
+    se cobraron ANTES de este fix (caso real: subscriptions.id
+    fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1). Ver
+    `services.subscriptions.replay_subscription_charges`."""
+    return await replay_subscription_charges(str(subscription_id), repo, conn)
 
 
 @router.get(

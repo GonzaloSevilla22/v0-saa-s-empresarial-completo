@@ -142,7 +142,17 @@ class SubscriptionsRepository(BaseRepository):
         next_payment_date=None,
         retry_state: str | None = None,
         last_payment_status: str | None = None,
+        amount=None,
+        pending_authorized_payment_id: str | None = None,
+        pending_mercadopago_payment_id: str | None = None,
     ) -> bool:
+        """H3 hotfix (2026-09-04): suma `amount` +
+        `pending_authorized_payment_id`/`pending_mercadopago_payment_id` —
+        COALESCE, igual que el resto de los campos, así que un caller que no
+        los menciona (p.ej. `cancel_subscription`) nunca pisa con NULL un
+        cobro pendiente que otra notificación ya haya dejado guardado. Para
+        limpiarlos de verdad (una vez replicados), ver `clear_pending_charge`
+        — ahí el NULL sí es la intención explícita."""
         result = await self._conn.execute(
             """
             UPDATE public.subscriptions
@@ -150,6 +160,9 @@ class SubscriptionsRepository(BaseRepository):
                 next_payment_date = COALESCE($3, next_payment_date),
                 retry_state = COALESCE($4, retry_state),
                 last_payment_status = COALESCE($5, last_payment_status),
+                amount = COALESCE($6, amount),
+                pending_authorized_payment_id = COALESCE($7, pending_authorized_payment_id),
+                pending_mercadopago_payment_id = COALESCE($8, pending_mercadopago_payment_id),
                 updated_at = now()
             WHERE preapproval_id = $1
             """,
@@ -158,8 +171,58 @@ class SubscriptionsRepository(BaseRepository):
             next_payment_date,
             retry_state,
             last_payment_status,
+            amount,
+            pending_authorized_payment_id,
+            pending_mercadopago_payment_id,
         )
         return int(result.rsplit(" ", 1)[-1]) > 0
+
+    async def clear_pending_charge(self, preapproval_id: str) -> None:
+        """H3 hotfix (2026-09-04): limpia los marcadores de cobro pendiente
+        una vez que `resolve_ambiguous_subscription` (o el replay admin) ya
+        replicó sus efectos — a diferencia de `update_subscription_status`
+        (COALESCE, no destructivo), acá el NULL es la intención explícita:
+        "sin cuenta huérfana con dinero sin aplicar esperando"."""
+        await self._conn.execute(
+            """
+            UPDATE public.subscriptions
+            SET pending_authorized_payment_id = NULL,
+                pending_mercadopago_payment_id = NULL,
+                updated_at = now()
+            WHERE preapproval_id = $1
+            """,
+            preapproval_id,
+        )
+
+    async def find_subscription_by_id(self, subscription_id: str) -> asyncpg.Record | None:
+        """H3 hotfix (2026-09-04): a diferencia de `find_ambiguous_subscription`
+        (WHERE status='ambiguous'), el endpoint admin de reproceso histórico
+        (`replay_subscription_charges`) necesita encontrar una suscripción YA
+        RESUELTA (account_id asignado) — sin filtro de status."""
+        return await self._conn.fetchrow(
+            """
+            SELECT id, account_id, preapproval_id, preapproval_plan_id, plan, status,
+                   next_payment_date, amount, currency, retry_state, last_payment_status,
+                   pending_authorized_payment_id, pending_mercadopago_payment_id, created_at
+            FROM public.subscriptions
+            WHERE id = $1
+            """,
+            subscription_id,
+        )
+
+    async def has_billing_event_for_payment(self, mercadopago_payment_id: str) -> bool:
+        """H3 hotfix (2026-09-04): guard de idempotencia del replay admin —
+        `billing_events` tiene un índice único parcial sobre
+        `mercadopago_payment_id` (WHERE NOT NULL); esta lectura evita re-
+        aplicar (y volver a encolar el correo de) una cuota que el ON
+        CONFLICT DO NOTHING de `_apply_approved_charge` ya habría descartado
+        de todos modos, para poder reportarla como `skipped` en vez de
+        `applied`."""
+        row = await self._conn.fetchval(
+            "SELECT 1 FROM public.billing_events WHERE mercadopago_payment_id = $1",
+            mercadopago_payment_id,
+        )
+        return row is not None
 
     async def list_ambiguous_subscriptions(self) -> list[asyncpg.Record]:
         return await self._conn.fetch(
@@ -202,10 +265,18 @@ class SubscriptionsRepository(BaseRepository):
         resolver — permite derivar y validar el tier real (desde
         preapproval_plan_id) antes de tocar account_id/status, para no
         dejar la fila a medio resolver si el plan id no mapea a ningún
-        tier configurado."""
+        tier configurado.
+
+        H3 hotfix (2026-09-04): suma next_payment_date/amount/
+        pending_authorized_payment_id/pending_mercadopago_payment_id — el
+        caller (resolve_ambiguous_subscription) los necesita para replicar
+        un cobro que se acreditó mientras la fila no tenía dueño, en la
+        MISMA lectura (sin una segunda query)."""
         return await self._conn.fetchrow(
             """
-            SELECT id, preapproval_id, preapproval_plan_id, plan, status
+            SELECT id, preapproval_id, preapproval_plan_id, plan, status,
+                   next_payment_date, amount, pending_authorized_payment_id,
+                   pending_mercadopago_payment_id
             FROM public.subscriptions
             WHERE id = $1 AND status = 'ambiguous'
             """,

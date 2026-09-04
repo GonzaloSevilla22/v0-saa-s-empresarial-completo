@@ -424,6 +424,62 @@ class TestAmbiguousQueueListSerialization:
         assert body[1]["amount"] is None
 
 
+# ── H3 hotfix (2026-09-04) — POST /payments/subscriptions/{id}/replay-charges ──
+
+class TestReplayChargesEndpoint:
+    async def test_requires_admin(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="user")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/cccccccc-cccc-cccc-cccc-cccccccccccc/replay-charges",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 403
+
+    async def test_503_when_flag_off(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", False),
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/cccccccc-cccc-cccc-cccc-cccccccccccc/replay-charges",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 503
+
+    async def test_admin_ok_returns_applied_and_skipped(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.routers.payments.replay_subscription_charges",
+                new_callable=AsyncMock,
+                return_value={"ok": True, "applied": ["7031580844"], "skipped": []},
+            ) as mock_replay,
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/cccccccc-cccc-cccc-cccc-cccccccccccc/replay-charges",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["applied"] == ["7031580844"]
+        assert body["skipped"] == []
+        mock_replay.assert_awaited_once()
+        assert mock_replay.call_args.args[0] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+
 # ── task 8.8 — GET /payments/accounts/search (selector de la cola) ───────
 
 class TestAccountSearchEndpoint:

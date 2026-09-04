@@ -215,6 +215,85 @@ async def cancel_subscription(
     return SubscriptionCancelOut(ok=True, plan_expires_at=plan_expires_at)
 
 
+# ── Efecto compartido de una cuota approved (H3 hotfix 2026-09-04) ─────────
+
+async def _apply_approved_charge(
+    conn: asyncpg.Connection,
+    *,
+    account_id: str,
+    plan: str,
+    preapproval_id: str,
+    authorized_payment_id: str,
+    mercadopago_payment_id: str | None,
+    amount,
+    plan_expires_at,
+) -> None:
+    """ÚNICA definición de los 3 efectos de dinero de una cuota
+    `processed`/`approved` ya atribuida a una cuenta: extiende
+    `accounts.plan_expires_at`, audita el cobro en `billing_events` y
+    encola el correo de renovación. La usan tanto el camino normal
+    (`process_subscription_authorized_payment_notification` cuando
+    `account_id` ya se conoce de entrada) como el replay al resolver una
+    suscripción ambigua (`resolve_ambiguous_subscription`) y el endpoint
+    admin de reproceso histórico (`replay_subscription_charges`) — los tres
+    caminos deben producir EXACTAMENTE los mismos efectos (reutilización
+    antes que repetición, CLAUDE.md; nunca dos copias del mismo efecto de
+    dinero).
+
+    Idempotente: `billing_events` tiene un índice único parcial sobre
+    `mercadopago_payment_id` (WHERE NOT NULL) y `email_logs` sobre
+    `(user_id, event_type, metadata)` — ambos INSERT usan
+    `ON CONFLICT DO NOTHING`, así que aplicar la MISMA cuota dos veces
+    (p.ej. el endpoint de replay corriendo dos veces) no duplica nada."""
+    await conn.execute(
+        """
+        UPDATE public.accounts
+        SET plan_expires_at = $2, billing_status = 'active'
+        WHERE id = $1
+        """,
+        account_id,
+        plan_expires_at,
+    )
+    await conn.execute(
+        """
+        INSERT INTO public.billing_events
+            (user_id, event_type, to_plan, reason, metadata, mercadopago_payment_id, amount)
+        SELECT owner_user_id, 'subscription_payment_approved', $2, 'mp-real-subscriptions: cobro mensual',
+               jsonb_build_object('preapproval_id', $3::text, 'authorized_payment_id', $4::text),
+               $5, $6
+        FROM public.accounts WHERE id = $1
+        ON CONFLICT DO NOTHING
+        """,
+        account_id,
+        plan,
+        preapproval_id,
+        authorized_payment_id,
+        mercadopago_payment_id,
+        amount,
+    )
+    await conn.execute(
+        """
+        INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+        SELECT a.owner_user_id, 'subscription_payment_approved', u.email,
+               'Renovamos tu suscripción — ALIADATA',
+               jsonb_build_object(
+                   'preapproval_id', $2::text, 'authorized_payment_id', $3::text,
+                   'plan', $4::text, 'amount', $5, 'plan_expires_at', $6
+               )
+        FROM public.accounts a
+        JOIN auth.users u ON u.id = a.owner_user_id
+        WHERE a.id = $1
+        ON CONFLICT DO NOTHING
+        """,
+        account_id,
+        preapproval_id,
+        authorized_payment_id,
+        plan,
+        amount,
+        plan_expires_at,
+    )
+
+
 # ── Cola de ambiguos (D2bis, task 6.8bis) — resolución manual, admin-only ──
 
 async def resolve_ambiguous_subscription(
@@ -224,9 +303,22 @@ async def resolve_ambiguous_subscription(
     conn: asyncpg.Connection,
 ) -> dict:
     """Un admin asigna manualmente la cuenta correcta a una fila
-    `ambiguous` (email no matcheó ninguna intención, o matcheó varias). El
-    dinero YA se acreditó en billing_events cuando llegó el cobro — esto
-    solo corrige la atribución.
+    `ambiguous` (email no matcheó ninguna intención, o matcheó varias).
+
+    H3 hotfix (2026-09-04): el docstring anterior decía "el dinero YA se
+    acreditó en billing_events cuando llegó el cobro — esto solo corrige la
+    atribución". Eso es FALSO cuando una cuota `processed`/`approved` llega
+    ANTES de esta resolución manual — que es el caso NORMAL: MercadoPago
+    manda `subscription_preapproval` y `subscription_authorized_payment`
+    con segundos de diferencia, y la resolución del admin llega horas
+    después. Caso real: subscriptions.id
+    fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 cobró $24.900 mientras estaba
+    'ambiguous' y esos efectos (accounts.plan_expires_at, billing_events,
+    email_logs) se perdieron para siempre porque nada los replicaba al
+    resolver. Ahora, si `process_subscription_authorized_payment_notification`
+    dejó un cobro pendiente guardado en la fila (pending_authorized_payment_id
+    + pending_mercadopago_payment_id), se replica acá vía
+    `_apply_approved_charge` — la MISMA función que usa el camino normal.
 
     H2 hotfix (2026-09-04): el `plan` guardado en la fila puede ser
     incorrecto (bug del fallback hardcodeado a 'pro' en
@@ -294,6 +386,26 @@ async def resolve_ambiguous_subscription(
         subscription_id,
         resolved["preapproval_id"],
     )
+
+    # H3 hotfix (2026-09-04): replay del cobro pendiente (ver docstring de
+    # esta función). Si `process_subscription_authorized_payment_notification`
+    # guardó un authorized_payment_id mientras la fila no tenía dueño, se
+    # replican AHORA los mismos efectos que el camino normal aplica cuando
+    # account_id ya se conoce de entrada — vía la MISMA función compartida.
+    if pending["pending_authorized_payment_id"]:
+        next_payment_date = pending["next_payment_date"]
+        plan_expires_at = (next_payment_date + GRACE_PERIOD) if next_payment_date else None
+        await _apply_approved_charge(
+            conn,
+            account_id=account_id,
+            plan=tier,
+            preapproval_id=resolved["preapproval_id"],
+            authorized_payment_id=pending["pending_authorized_payment_id"],
+            mercadopago_payment_id=pending["pending_mercadopago_payment_id"],
+            amount=pending["amount"],
+            plan_expires_at=plan_expires_at,
+        )
+        await repo.clear_pending_charge(resolved["preapproval_id"])
 
     return {"ok": True}
 
@@ -505,70 +617,52 @@ async def process_subscription_authorized_payment_notification(
             parsed = datetime.datetime.fromisoformat(str(next_payment_date).replace("Z", "+00:00"))
             plan_expires_at = parsed + GRACE_PERIOD
 
+        mercadopago_payment_id = str(payment.get("id")) if payment.get("id") else None
+        amount = data.get("transaction_amount")
+        has_account = subscription["account_id"] is not None
+
+        # H3 hotfix (2026-09-04): persistir SIEMPRE next_payment_date/
+        # last_payment_status/amount — y, mientras la fila TODAVÍA no tiene
+        # cuenta asignada ('ambiguous'), también el id del pago MP y el de
+        # la cuota — para que resolve_ambiguous_subscription pueda replicar
+        # estos mismos efectos más tarde. Caso real: subscriptions.id
+        # fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 cobró $24.900 mientras
+        # ambigua y esos datos se perdieron para siempre porque nada los
+        # guardaba junto con el discriminador del pago.
         await repo.update_subscription_status(
             preapproval_id,
             "authorized",
             next_payment_date=next_payment_date,
             retry_state="none",
             last_payment_status="approved",
+            amount=amount,
+            pending_authorized_payment_id=None if has_account else authorized_payment_id,
+            pending_mercadopago_payment_id=None if has_account else mercadopago_payment_id,
         )
 
-        if subscription["account_id"] is not None:
-            # H1 hotfix (2026-09-04): public.accounts no tiene updated_at.
-            await conn.execute(
-                """
-                UPDATE public.accounts
-                SET plan_expires_at = $2, billing_status = 'active'
-                WHERE id = $1
-                """,
-                subscription["account_id"],
-                plan_expires_at,
-            )
-            await conn.execute(
-                """
-                INSERT INTO public.billing_events
-                    (user_id, event_type, to_plan, reason, metadata, mercadopago_payment_id, amount)
-                SELECT owner_user_id, 'subscription_payment_approved', $2, 'mp-real-subscriptions: cobro mensual',
-                       jsonb_build_object('preapproval_id', $3::text, 'authorized_payment_id', $4::text),
-                       $5, $6
-                FROM public.accounts WHERE id = $1
-                ON CONFLICT DO NOTHING
-                """,
-                subscription["account_id"],
-                subscription["plan"],
-                preapproval_id,
-                authorized_payment_id,
-                str(payment.get("id")) if payment.get("id") else None,
-                data.get("transaction_amount"),
-            )
-            # task 7.2: correo de renovación. Discriminador: authorized_payment_id
-            # (único por cuota — cada cobro mensual es un authorized_payment
-            # distinto, así que nunca colisiona con el mes anterior).
-            await conn.execute(
-                """
-                INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
-                SELECT a.owner_user_id, 'subscription_payment_approved', u.email,
-                       'Renovamos tu suscripción — ALIADATA',
-                       jsonb_build_object(
-                           'preapproval_id', $2::text, 'authorized_payment_id', $3::text,
-                           'plan', $4::text, 'amount', $5, 'plan_expires_at', $6
-                       )
-                FROM public.accounts a
-                JOIN auth.users u ON u.id = a.owner_user_id
-                WHERE a.id = $1
-                ON CONFLICT DO NOTHING
-                """,
-                subscription["account_id"],
-                preapproval_id,
-                authorized_payment_id,
-                subscription["plan"],
-                data.get("transaction_amount"),
-                plan_expires_at,
+        if has_account:
+            await _apply_approved_charge(
+                conn,
+                account_id=subscription["account_id"],
+                plan=subscription["plan"],
+                preapproval_id=preapproval_id,
+                authorized_payment_id=authorized_payment_id,
+                mercadopago_payment_id=mercadopago_payment_id,
+                amount=amount,
+                plan_expires_at=plan_expires_at,
             )
         return {"ok": True, "credited": True}
 
     # Cobro rechazado (o cualquier estado no-aprobado de una cuota resuelta):
     # avisar, NO tocar plan ni vencimiento (D7 — MercadoPago reintenta solo).
+    #
+    # H3 hotfix (2026-09-04): a diferencia de la rama approved, acá NO hace
+    # falta guardar un "pendiente de replicar" cuando account_id es None —
+    # un cobro rechazado no extiende ningún plan (nada que replicar en
+    # accounts.plan_expires_at) y el aviso por correo tampoco puede
+    # encolarse todavía sin cuenta (no hay a qué owner_user_id/email
+    # mandarlo) — resolver la ambigüedad más tarde no cambia eso, así que
+    # no hay ningún efecto perdido que un replay pudiera recuperar.
     await repo.update_subscription_status(
         preapproval_id,
         subscription["status"],
@@ -613,3 +707,138 @@ async def process_subscription_authorized_payment_notification(
         )
 
     return {"ok": True, "payment_failed": True}
+
+
+# ── Reproceso admin de cobros históricos (H3 hotfix 2026-09-04) ───────────
+
+def _parse_mp_datetime(value: str | None) -> datetime.datetime | None:
+    if not value:
+        return None
+    return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+async def replay_subscription_charges(
+    subscription_id: str,
+    repo: SubscriptionsRepository,
+    conn: asyncpg.Connection,
+) -> dict:
+    """POST /payments/subscriptions/{id}/replay-charges (admin-only).
+
+    Reparación puntual para suscripciones cuyas cuotas se cobraron ANTES de
+    este fix: cuando una fila nacía 'ambiguous', ninguna cuota
+    `processed`/`approved` quedaba registrada para poder reproducirla al
+    resolver (ver `_apply_approved_charge` / `resolve_ambiguous_subscription`).
+    Caso real: subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 ya fue
+    resuelta manualmente ANTES de que existiera este fix — no tiene nada
+    guardado en `pending_authorized_payment_id`/`pending_mercadopago_payment_id`
+    porque esas columnas no existían todavía cuando se procesó su cobro.
+
+    A diferencia del replay de `resolve_ambiguous_subscription` (que confía
+    en lo guardado localmente), este endpoint consulta la API REAL de
+    MercadoPago: `GET /preapproval/{id}` (para el estado/next_payment_date
+    vigente) y `GET /authorized_payments/search?preapproval_id={id}` (todas
+    las cuotas), y aplica `_apply_approved_charge` — la MISMA función que
+    usan los otros dos caminos — por cada cuota `processed`/`approved` que
+    todavía no tenga su `billing_event`. Sirve tanto para el caso histórico
+    (nada quedó guardado) como para cualquier cuota que este fix no haya
+    alcanzado a capturar por otra razón.
+
+    Idempotente: correrlo dos veces no duplica nada — `has_billing_event_
+    for_payment` salta las cuotas ya aplicadas (reportadas como `skipped`,
+    no `applied`), y `_apply_approved_charge` además tiene su propio
+    ON CONFLICT DO NOTHING como segunda red."""
+    subscription = await repo.find_subscription_by_id(subscription_id)
+    if subscription is None:
+        raise HTTPException(status_code=404, detail="No existe una suscripción con ese id")
+    if subscription["account_id"] is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta suscripción todavía no tiene una cuenta asignada — resolvela primero",
+        )
+
+    preapproval_id = subscription["preapproval_id"]
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        preapproval_resp = await client.get(
+            f"https://api.mercadopago.com/preapproval/{preapproval_id}",
+            headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
+        )
+        if preapproval_resp.status_code != 200:
+            logger.error(
+                "[subscriptions] replay-charges: MP API error %s al consultar preapproval %s",
+                preapproval_resp.status_code, preapproval_id,
+            )
+            raise HTTPException(status_code=502, detail="No se pudo consultar la suscripción en MercadoPago")
+        preapproval_data = preapproval_resp.json()
+
+        payments_resp = await client.get(
+            "https://api.mercadopago.com/authorized_payments/search",
+            params={"preapproval_id": preapproval_id},
+            headers={"Authorization": f"Bearer {settings.mercadopago_access_token}"},
+        )
+        if payments_resp.status_code != 200:
+            logger.error(
+                "[subscriptions] replay-charges: MP API error %s al buscar authorized_payments de %s",
+                payments_resp.status_code, preapproval_id,
+            )
+            raise HTTPException(status_code=502, detail="No se pudieron consultar las cuotas en MercadoPago")
+        payments_data = payments_resp.json()
+
+    # el shape documentado de /authorized_payments/search es
+    # {"paging": {...}, "results": [...]} — defensivo por si alguna vez
+    # llega como lista pelada.
+    cuotas = payments_data.get("results") if isinstance(payments_data, dict) else payments_data
+    cuotas = cuotas or []
+    # orden cronológico (id de MP monotónico) — importa porque
+    # accounts.plan_expires_at queda con el valor de la ÚLTIMA cuota
+    # aplicada; aplicar fuera de orden dejaría un vencimiento viejo pisando
+    # uno más nuevo.
+    try:
+        cuotas = sorted(cuotas, key=lambda c: int(c.get("id")))
+    except (TypeError, ValueError):
+        pass
+
+    applied: list[str] = []
+    skipped: list[str] = []
+
+    for cuota in cuotas:
+        authorized_payment_id = cuota.get("id")
+        payment = cuota.get("payment") or {}
+        if cuota.get("status") != "processed" or payment.get("status") != "approved":
+            continue
+        authorized_payment_id = str(authorized_payment_id)
+
+        mercadopago_payment_id = str(payment["id"]) if payment.get("id") else None
+        if mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id):
+            skipped.append(authorized_payment_id)
+            continue
+
+        next_payment_date = _parse_mp_datetime(cuota.get("next_retry_date") or cuota.get("debit_date"))
+        plan_expires_at = (next_payment_date + GRACE_PERIOD) if next_payment_date else None
+
+        await _apply_approved_charge(
+            conn,
+            account_id=subscription["account_id"],
+            plan=subscription["plan"],
+            preapproval_id=preapproval_id,
+            authorized_payment_id=authorized_payment_id,
+            mercadopago_payment_id=mercadopago_payment_id,
+            amount=cuota.get("transaction_amount"),
+            plan_expires_at=plan_expires_at,
+        )
+        applied.append(authorized_payment_id)
+
+    # trae el estado/vencimiento LOCAL de subscriptions al día con la verdad
+    # vigente de MP, independientemente de si hubo alguna cuota para replicar.
+    mp_status = preapproval_data.get("status") if isinstance(preapproval_data, dict) else None
+    if mp_status:
+        await repo.update_subscription_status(
+            preapproval_id,
+            mp_status,
+            next_payment_date=_parse_mp_datetime(preapproval_data.get("next_payment_date")),
+        )
+
+    if applied:
+        await repo.clear_pending_charge(preapproval_id)
+
+    return {"ok": True, "applied": applied, "skipped": skipped}

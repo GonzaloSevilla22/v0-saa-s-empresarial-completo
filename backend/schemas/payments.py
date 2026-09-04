@@ -106,6 +106,15 @@ class ResolveAmbiguousSubscriptionIn(BaseModel):
     account_id: uuid.UUID
 
 
+class ReplaySubscriptionChargesOut(BaseModel):
+    """H3 hotfix (2026-09-04): respuesta de POST /payments/subscriptions/
+    {id}/replay-charges — qué cuotas se aplicaron recién (nunca tenían
+    billing_event) y cuáles se saltearon por ya estar aplicadas."""
+    ok: bool
+    applied: list[str]
+    skipped: list[str]
+
+
 class AccountSearchResultOut(BaseModel):
     """Resultado de búsqueda de cuentas (mp-real-subscriptions follow-up,
     task 8.8): selector de cuenta destino en la pantalla admin de la cola de

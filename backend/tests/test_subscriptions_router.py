@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.schemas.payments import SubscriptionCancelOut, SubscriptionCreateOut
-from backend.tests.conftest import make_token
+from backend.tests.conftest import FakeAsyncpgRecord, make_token
 
 SECRET = "test-webhook-secret"
 REQUEST_ID = "req-sub-1"
@@ -322,6 +322,108 @@ class TestAmbiguousQueueEndpoints:
         assert resp.json()["ok"] is True
 
 
+# ── hotfix 2026-09-04 — 500 en prod: SubscriptionsRepository.
+#    list_ambiguous_subscriptions() devuelve list[asyncpg.Record] crudo y
+#    AmbiguousSubscriptionOut (from_attributes=True) lee por getattr(), que
+#    asyncpg.Record no soporta (solo __getitem__/keys()) → los 14 campos de
+#    las 2 filas reales salían "missing" y FastAPI respondía 500
+#    ResponseValidationError. Los tests de arriba (403/admin-gating) NUNCA
+#    ejercitaron el camino 200 con datos reales — de ahí que el bug haya
+#    llegado a prod sin que ningún test lo atrapara. FakeAsyncpgRecord
+#    (conftest) reproduce la forma exacta del bug: soporta item access pero
+#    no atributos, a diferencia de los dicts que el resto de la suite usa
+#    para mockear conn.fetch/fetchrow.
+_AMBIGUOUS_ROW_1 = {
+    "id": "fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1",
+    "preapproval_id": "50681db010a341968e53c3880d52c3e9",
+    "preapproval_plan_id": "plan-inicial-1",
+    "plan": "inicial",
+    "ambiguous_reason": "email_not_found",
+    "amount": "4999.00",
+    "currency": "ARS",
+    "created_at": "2026-09-04T22:10:00+00:00",
+}
+_AMBIGUOUS_ROW_2 = {
+    "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    "preapproval_id": "another-preapproval-id",
+    "preapproval_plan_id": "plan-pro-1",
+    "plan": "pro",
+    "ambiguous_reason": "multiple_matches",
+    "amount": None,
+    "currency": "ARS",
+    "created_at": "2026-09-04T21:00:00+00:00",
+}
+
+
+class TestAmbiguousQueueListSerialization:
+    async def test_empty_queue_returns_200_empty_list(self, async_client, mock_service_pool):
+        """TRIANGULATE (lista vacía): el caso trivial nunca dispara la
+        validación por campo — debe seguir devolviendo 200 con []."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(return_value=[])
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/ambiguous",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_one_row_as_record_returns_200_with_shape(self, async_client, mock_service_pool):
+        """RED con el código viejo (`return await repo.list_ambiguous_
+        subscriptions()`): FakeAsyncpgRecord no soporta getattr() → 500
+        ResponseValidationError, réplica exacta del traceback de prod (fila
+        fa624f9b-.../preapproval 50681db0...). GREEN con `dict(r) for r in
+        rows`."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(return_value=[FakeAsyncpgRecord(_AMBIGUOUS_ROW_1)])
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/ambiguous",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["id"] == _AMBIGUOUS_ROW_1["id"]
+        assert body[0]["preapproval_id"] == _AMBIGUOUS_ROW_1["preapproval_id"]
+        assert body[0]["ambiguous_reason"] == "email_not_found"
+
+    async def test_two_rows_as_records_returns_200_with_both(self, async_client, mock_service_pool):
+        """TRIANGULATE (segundo caso, dos filas — el shape real de hoy en
+        prod): confirma que no es un artefacto de una sola fila y que el
+        orden/contenido de ambas sobrevive la conversión."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(
+            return_value=[FakeAsyncpgRecord(_AMBIGUOUS_ROW_1), FakeAsyncpgRecord(_AMBIGUOUS_ROW_2)]
+        )
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/ambiguous",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 2
+        assert {row["id"] for row in body} == {_AMBIGUOUS_ROW_1["id"], _AMBIGUOUS_ROW_2["id"]}
+        assert body[1]["amount"] is None
+
+
 # ── task 8.8 — GET /payments/accounts/search (selector de la cola) ───────
 
 class TestAccountSearchEndpoint:
@@ -386,6 +488,48 @@ class TestAccountSearchEndpoint:
             )
         assert resp.status_code == 200
         assert resp.json() == []
+
+    async def test_matches_as_records_returns_200_with_shape(self, async_client, mock_service_pool):
+        """Regresión — mismo bug de payments.py::list_ambiguous_subscriptions
+        (hotfix 2026-09-04) era posible acá también: search_accounts
+        alimenta el MISMO selector de cuenta destino de la pantalla admin de
+        la cola de ambiguos. Ya convertía con `[dict(r) for r in rows]`
+        (router, L262) — este test lo deja bloqueado con el mismo doble
+        Record-like que atrapó el bug real, para que una futura reescritura
+        no lo reintroduzca en silencio."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(
+            return_value=[
+                FakeAsyncpgRecord(
+                    {
+                        "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        "owner_email": "buyer@example.com",
+                        "owner_name": "Buyer Test",
+                        "billing_plan": "pro",
+                    }
+                ),
+                FakeAsyncpgRecord(
+                    {
+                        "account_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                        "owner_email": "buyer2@example.com",
+                        "owner_name": None,
+                        "billing_plan": "inicial",
+                    }
+                ),
+            ]
+        )
+        token = make_token({"role": "user"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/payments/accounts/search?q=buyer",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 2
+        assert body[0]["owner_email"] == "buyer@example.com"
+        assert body[1]["owner_name"] is None
 
 
 # ── task 8.5 — GET /payments/subscriptions/status ────────────────────────

@@ -227,8 +227,18 @@ async def list_ambiguous_subscriptions(
 ) -> list:
     """Cola de conciliación manual (task 6.8bis, D2bis): suscripciones con
     `account_id NULL` que ningún intento automático pudo resolver. Solo
-    admin — el dinero ya se acreditó, esto corrige la atribución."""
-    return await repo.list_ambiguous_subscriptions()
+    admin — el dinero ya se acreditó, esto corrige la atribución.
+
+    hotfix 2026-09-04: `repo.list_ambiguous_subscriptions()` usa
+    `self._conn.fetch()` crudo (no el `self.fetch()` de BaseRepository, que
+    ya convierte a dict) y devuelve `list[asyncpg.Record]`.
+    `AmbiguousSubscriptionOut` valida con `from_attributes=True`, que lee
+    por `getattr()` — asyncpg.Record solo soporta `rec['campo']`, así que
+    los 14 campos de las 2 filas reales salían "missing" → 500
+    ResponseValidationError. Mismo patrón que `search_accounts` (L262) y
+    `BaseRepository.fetch()` — convertir acá, en el borde del router."""
+    rows = await repo.list_ambiguous_subscriptions()
+    return [dict(r) for r in rows]
 
 
 @router.post(

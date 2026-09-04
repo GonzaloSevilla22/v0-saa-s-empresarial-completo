@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from backend.services.subscriptions import (
     GRACE_PERIOD,
     _claim_subscription_webhook_idempotency,
+    _tier_for_plan_id,
     cancel_subscription,
     create_subscription_intent,
     process_subscription_authorized_payment_notification,
@@ -46,6 +47,8 @@ def _mock_repo(**overrides):
     repo.create_subscription = AsyncMock(return_value={"id": SUBSCRIPTION_ID})
     repo.mark_intent_matched = AsyncMock(return_value=True)
     repo.update_subscription_status = AsyncMock(return_value=True)
+    repo.find_ambiguous_subscription = AsyncMock(return_value=None)
+    repo.correct_subscription_plan = AsyncMock(return_value=True)
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -102,6 +105,34 @@ class TestClaimSubscriptionWebhookIdempotency:
         claimed = await _claim_subscription_webhook_idempotency(conn, "some-key")
 
         assert claimed is False
+
+
+# ── H2 hotfix (2026-09-04) RED/GREEN/TRIANGULATE — _tier_for_plan_id ────────
+# Bug real de prod: subscriptions.id = fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1
+# nació con plan='pro' (fallback hardcodeado) cuando su preapproval_plan_id
+# era el de Inicial ($24.900, MP_PLAN_ID_INICIAL). _tier_for_plan_id es la
+# inversa pura de _plan_id_for_tier — se testea directo, sin mocks de red.
+
+class TestTierForPlanId:
+    @pytest.mark.parametrize(
+        "setting_name,expected_tier",
+        [
+            ("mp_plan_id_inicial", "inicial"),
+            ("mp_plan_id_avanzado", "avanzado"),
+            ("mp_plan_id_pro", "pro"),
+        ],
+    )
+    def test_maps_each_configured_tier(self, setting_name, expected_tier):
+        with patch(f"backend.services.subscriptions.settings.{setting_name}", PLAN_ID):
+            assert _tier_for_plan_id(PLAN_ID) == expected_tier
+
+    def test_unrecognized_plan_id_returns_none(self):
+        """No debe inventar ningún tier — un id que no corresponde a
+        ninguno de los 3 configurados devuelve None, nunca 'pro'."""
+        assert _tier_for_plan_id("plan-id-que-no-existe") is None
+
+    def test_empty_plan_id_returns_none(self):
+        assert _tier_for_plan_id("") is None
 
 
 # ── 6.3 RED / 6.4 GREEN — create_subscription_intent ────────────────────────
@@ -287,11 +318,15 @@ class TestProcessSubscriptionPreapproval:
     @pytest.mark.asyncio
     async def test_zero_matches_creates_ambiguous_no_match(self):
         """RED (6.7/D2bis): 0 candidatas → subscriptions.account_id=NULL,
-        status='ambiguous', motivo no_match. El dinero no se pierde."""
+        status='ambiguous', motivo no_match. El dinero no se pierde. El tier
+        se deriva del preapproval_plan_id real (H2 hotfix 2026-09-04)."""
         repo = _mock_repo(find_pending_intents=AsyncMock(return_value=[]))
         conn = _mock_conn()
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=self._mp_get_response()):
+        with (
+            patch("backend.services.subscriptions.settings.mp_plan_id_pro", PLAN_ID),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=self._mp_get_response()),
+        ):
             result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
 
         assert result == {"ok": True, "ambiguous": "no_match"}
@@ -299,6 +334,54 @@ class TestProcessSubscriptionPreapproval:
         assert kwargs["account_id"] is None
         assert kwargs["status"] == "ambiguous"
         assert kwargs["ambiguous_reason"] == "no_match"
+        assert kwargs["plan"] == "pro"
+
+    # ── H2 hotfix (2026-09-04) ────────────────────────────────────────────
+    # Caso real de prod: subscriptions.id = fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1
+    # nació con plan='pro' (candidates[0]["plan"] if candidates else "pro",
+    # con 0 candidatas) cuando el preapproval_plan_id real era el de Inicial.
+    # El tier ahora se deriva SIEMPRE de preapproval_plan_id, nunca se
+    # inventa 'pro'.
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "setting_name,expected_tier",
+        [
+            ("mp_plan_id_inicial", "inicial"),
+            ("mp_plan_id_avanzado", "avanzado"),
+            ("mp_plan_id_pro", "pro"),
+        ],
+    )
+    async def test_zero_matches_derives_tier_from_preapproval_plan_id(self, setting_name, expected_tier):
+        """RED/TRIANGULATE (H2): 0 candidatas, cualquiera de los 3 tiers
+        configurados — la fila ambigua nace con el tier REAL del
+        preapproval_plan_id, no con un fallback hardcodeado."""
+        repo = _mock_repo(find_pending_intents=AsyncMock(return_value=[]))
+        conn = _mock_conn()
+
+        with (
+            patch(f"backend.services.subscriptions.settings.{setting_name}", PLAN_ID),
+            patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=self._mp_get_response()),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "ambiguous": "no_match"}
+        assert repo.create_subscription.call_args.kwargs["plan"] == expected_tier
+
+    @pytest.mark.asyncio
+    async def test_zero_matches_with_unrecognized_plan_id_does_not_guess(self):
+        """RED (H2): si preapproval_plan_id no corresponde a NINGÚN tier
+        configurado (los 3 MP_PLAN_ID_* quedan en su default "" de test) y
+        no hay candidatas que lo declaren, NO se crea la fila — nunca se
+        adivina 'pro'. Queda solo el log crítico para revisión manual."""
+        repo = _mock_repo(find_pending_intents=AsyncMock(return_value=[]))
+        conn = _mock_conn()
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=self._mp_get_response()):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "unrecognized_plan": True}
+        repo.create_subscription.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_multiple_matches_creates_ambiguous_multiple_match(self):
@@ -320,6 +403,11 @@ class TestProcessSubscriptionPreapproval:
         assert result == {"ok": True, "ambiguous": "multiple_match"}
         kwargs = repo.create_subscription.call_args.kwargs
         assert kwargs["ambiguous_reason"] == "multiple_match"
+        # H2 hotfix: preapproval_plan_id (PLAN_ID) no está configurado en
+        # ningún MP_PLAN_ID_* de test — sin evidencia propia, cae al plan
+        # declarado por la primera candidata (todas comparten
+        # preapproval_plan_id por construcción de find_pending_intents).
+        assert kwargs["plan"] == "pro"
 
     @pytest.mark.asyncio
     async def test_cancellation_of_known_subscription_triggers_downgrade_wiring(self):
@@ -527,33 +615,169 @@ class TestProcessAuthorizedPayment:
 class TestResolveAmbiguousSubscription:
     @pytest.mark.asyncio
     async def test_404_when_nothing_to_resolve(self):
-        repo = _mock_repo(resolve_ambiguous_subscription=AsyncMock(return_value=None))
+        """find_ambiguous_subscription no encuentra nada → 404 ANTES de
+        tocar account_id/status (default de _mock_repo: None)."""
+        repo = _mock_repo()
         conn = _mock_conn()
 
         with pytest.raises(HTTPException) as exc:
             await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
         assert exc.value.status_code == 404
+        repo.resolve_ambiguous_subscription.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_activates_plan_and_audits_billing_event(self):
         """GREEN: al resolver, activa el plan de la cuenta recién asignada
-        y audita en billing_events (distinguible de un match automático)."""
+        (derivado de preapproval_plan_id) y audita en billing_events
+        (distinguible de un match automático)."""
         repo = _mock_repo(
+            find_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "avanzado", "status": "ambiguous",
+                }
+            ),
             resolve_ambiguous_subscription=AsyncMock(
                 return_value={
                     "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID,
                     "preapproval_id": PREAPPROVAL_ID, "plan": "avanzado", "status": "authorized",
                 }
-            )
+            ),
         )
         conn = _mock_conn()
 
-        result = await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
+        with patch("backend.services.subscriptions.settings.mp_plan_id_avanzado", PLAN_ID):
+            result = await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
 
         assert result == {"ok": True}
         sqls = [c.args[0] for c in conn.execute.call_args_list]
         assert any("billing_plan = $2" in s for s in sqls)
         assert any("subscription_ambiguous_resolved" in s for s in sqls)
+        # el plan guardado ya coincidía con el derivado — sin corrección
+        repo.correct_subscription_plan.assert_not_awaited()
+
+    # ── H2 hotfix (2026-09-04) ────────────────────────────────────────────
+    # Caso real de prod: la fila fa624f9b nació con plan='pro' pero su
+    # preapproval_plan_id es el de Inicial. resolve_ambiguous_subscription
+    # NUNCA debe confiar en el `plan` guardado tal cual — deriva el tier
+    # real de preapproval_plan_id y corrige la fila si divergía.
+
+    @pytest.mark.asyncio
+    async def test_derives_tier_from_preapproval_plan_id_and_corrects_stale_plan(self):
+        """RED (H2): fila histórica nacida 'pro' por el bug del fallback,
+        cuyo preapproval_plan_id real es el de Inicial — resolver debe
+        activar 'inicial' en la cuenta y corregir subscriptions.plan."""
+        repo = _mock_repo(
+            find_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "status": "ambiguous",
+                }
+            ),
+            resolve_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID,
+                    "preapproval_id": PREAPPROVAL_ID, "plan": "pro", "status": "authorized",
+                }
+            ),
+        )
+        conn = _mock_conn()
+
+        with patch("backend.services.subscriptions.settings.mp_plan_id_inicial", PLAN_ID):
+            result = await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
+
+        assert result == {"ok": True}
+        repo.correct_subscription_plan.assert_awaited_once_with(SUBSCRIPTION_ID, "inicial")
+
+        update_call = next(c for c in conn.execute.call_args_list if "billing_plan = $2" in c.args[0])
+        assert update_call.args[1:] == (ACCOUNT_ID, "inicial")
+
+        billing_event_call = next(
+            c for c in conn.execute.call_args_list if "subscription_ambiguous_resolved" in c.args[0]
+        )
+        assert "inicial" in billing_event_call.args
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "setting_name,expected_tier",
+        [
+            ("mp_plan_id_inicial", "inicial"),
+            ("mp_plan_id_avanzado", "avanzado"),
+            ("mp_plan_id_pro", "pro"),
+        ],
+    )
+    async def test_resolves_each_configured_tier(self, setting_name, expected_tier):
+        """TRIANGULATE (H2): los 3 tiers configurados se derivan y activan
+        correctamente, no solo 'inicial'."""
+        repo = _mock_repo(
+            find_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "status": "ambiguous",
+                }
+            ),
+            resolve_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID,
+                    "preapproval_id": PREAPPROVAL_ID, "plan": "pro", "status": "authorized",
+                }
+            ),
+        )
+        conn = _mock_conn()
+
+        with patch(f"backend.services.subscriptions.settings.{setting_name}", PLAN_ID):
+            result = await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
+
+        assert result == {"ok": True}
+        update_call = next(c for c in conn.execute.call_args_list if "billing_plan = $2" in c.args[0])
+        assert update_call.args[1:] == (ACCOUNT_ID, expected_tier)
+
+    @pytest.mark.asyncio
+    async def test_rejects_when_plan_id_unrecognized(self):
+        """RED (H2): si preapproval_plan_id no mapea a ningún tier
+        configurado, no se resuelve — 409 explícito, sin tocar account_id
+        ni billing_plan (nunca se asigna un plan adivinado)."""
+        repo = _mock_repo(
+            find_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": "plan-id-que-no-existe", "plan": "pro", "status": "ambiguous",
+                }
+            )
+        )
+        conn = _mock_conn()
+
+        with pytest.raises(HTTPException) as exc:
+            await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
+
+        assert exc.value.status_code in (409, 422)
+        repo.resolve_ambiguous_subscription.assert_not_awaited()
+        conn.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_404_when_resolve_races_away_after_find(self):
+        """TRIANGULATE (H2): find_ambiguous_subscription encuentra la fila
+        y el tier deriva bien, pero otro admin la resuelve primero — el
+        UPDATE con WHERE status='ambiguous' no afecta filas y
+        resolve_ambiguous_subscription devuelve None. 404, sin tocar la
+        cuenta (no se corrige ni se activa nada sobre una carrera)."""
+        repo = _mock_repo(
+            find_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "status": "ambiguous",
+                }
+            ),
+            resolve_ambiguous_subscription=AsyncMock(return_value=None),
+        )
+        conn = _mock_conn()
+
+        with patch("backend.services.subscriptions.settings.mp_plan_id_pro", PLAN_ID):
+            with pytest.raises(HTTPException) as exc:
+                await resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID, repo, conn)
+
+        assert exc.value.status_code == 404
+        conn.execute.assert_not_awaited()
 
 
 # ── 7.2 RED / GREEN — correos encolados (renovación / baja) ──────────────

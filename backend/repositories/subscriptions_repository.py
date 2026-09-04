@@ -179,15 +179,51 @@ class SubscriptionsRepository(BaseRepository):
         ambigua. Solo afecta filas que sigan status='ambiguous' — no
         reasigna una que ya se resolvió (evita doble asignación). Devuelve
         la fila actualizada (para poder activar el plan de la cuenta) o
-        None si no había nada que resolver."""
+        None si no había nada que resolver.
+
+        H2 hotfix (2026-09-04): RETURNING suma preapproval_plan_id — el
+        caller lo necesita para derivar el tier REAL (nunca confiar en el
+        `plan` guardado tal cual: podía haber nacido con el fallback
+        hardcodeado a 'pro')."""
         return await self._conn.fetchrow(
             """
             UPDATE public.subscriptions
             SET account_id = $2, status = $3, ambiguous_reason = NULL, updated_at = now()
             WHERE id = $1 AND status = 'ambiguous'
-            RETURNING id, account_id, preapproval_id, plan, status
+            RETURNING id, account_id, preapproval_id, preapproval_plan_id, plan, status
             """,
             subscription_id,
             account_id,
             resolved_status,
         )
+
+    async def find_ambiguous_subscription(self, subscription_id: str) -> asyncpg.Record | None:
+        """H2 hotfix (2026-09-04): lookup de solo lectura, PREVIO a
+        resolver — permite derivar y validar el tier real (desde
+        preapproval_plan_id) antes de tocar account_id/status, para no
+        dejar la fila a medio resolver si el plan id no mapea a ningún
+        tier configurado."""
+        return await self._conn.fetchrow(
+            """
+            SELECT id, preapproval_id, preapproval_plan_id, plan, status
+            FROM public.subscriptions
+            WHERE id = $1 AND status = 'ambiguous'
+            """,
+            subscription_id,
+        )
+
+    async def correct_subscription_plan(self, subscription_id: str, plan: str) -> bool:
+        """H2 hotfix (2026-09-04): corrige subscriptions.plan de una fila
+        que había nacido con un tier equivocado (bug del fallback
+        hardcodeado a 'pro' en 0-candidatas) una vez que
+        resolve_ambiguous_subscription deriva el tier real."""
+        result = await self._conn.execute(
+            """
+            UPDATE public.subscriptions
+            SET plan = $2, updated_at = now()
+            WHERE id = $1
+            """,
+            subscription_id,
+            plan,
+        )
+        return int(result.rsplit(" ", 1)[-1]) > 0

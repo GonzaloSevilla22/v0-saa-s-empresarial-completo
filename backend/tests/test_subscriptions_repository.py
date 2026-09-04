@@ -204,3 +204,71 @@ class TestAmbiguousQueue:
         result = await repo.resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID)
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_resolve_ambiguous_returns_preapproval_plan_id(self, subs_repo):
+        """H2 hotfix (2026-09-04): el caller necesita preapproval_plan_id
+        de la fila resuelta para derivar el tier real (nunca confiar en el
+        `plan` guardado tal cual)."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID,
+                "preapproval_id": PREAPPROVAL_ID, "preapproval_plan_id": PLAN_ID,
+                "plan": "pro", "status": "authorized",
+            }
+        )
+
+        result = await repo.resolve_ambiguous_subscription(SUBSCRIPTION_ID, ACCOUNT_ID)
+
+        assert result["preapproval_plan_id"] == PLAN_ID
+        sql = conn.fetchrow.call_args.args[0]
+        assert "preapproval_plan_id" in sql
+
+
+class TestFindAmbiguousSubscription:
+    @pytest.mark.asyncio
+    async def test_finds_by_id_only_when_still_ambiguous(self, subs_repo):
+        """H2 hotfix: lookup PREVIO a resolver — permite derivar y validar
+        el tier ANTES de tocar account_id/status, para no dejar la fila a
+        medio resolver si el preapproval_plan_id no mapea a ningún tier."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                "preapproval_plan_id": PLAN_ID, "plan": "pro", "status": "ambiguous",
+            }
+        )
+
+        result = await repo.find_ambiguous_subscription(SUBSCRIPTION_ID)
+
+        assert result["preapproval_plan_id"] == PLAN_ID
+        sql = conn.fetchrow.call_args.args[0]
+        assert "WHERE id = $1 AND status = 'ambiguous'" in sql
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_not_ambiguous_or_missing(self, subs_repo):
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.find_ambiguous_subscription(SUBSCRIPTION_ID)
+
+        assert result is None
+
+
+class TestCorrectSubscriptionPlan:
+    @pytest.mark.asyncio
+    async def test_updates_plan_by_id(self, subs_repo):
+        """H2 hotfix: corrige subscriptions.plan de una fila que había
+        nacido con el tier equivocado (bug del fallback hardcodeado a
+        'pro') una vez que se deriva el tier real."""
+        repo, conn = subs_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        await repo.correct_subscription_plan(SUBSCRIPTION_ID, "inicial")
+
+        sql, *args = conn.execute.call_args.args
+        assert "UPDATE public.subscriptions" in sql
+        assert "SET plan = $2" in sql
+        assert "WHERE id = $1" in sql
+        assert args == [SUBSCRIPTION_ID, "inicial"]

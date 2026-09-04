@@ -118,7 +118,7 @@
 - [x] 12.3 `tsc` sin errores nuevos
 - [x] 12.4 Pasada visual real de `/estadisticas` y del detalle en las 4 combinaciones (claro/oscuro × escritorio/móvil), verificando que ninguna tabla desborda el shell
 - [x] 12.5 Revisión de accesibilidad de la superficie nueva: foco visible, rótulos de los controles de rango y de conmutación, y gráficos con alternativa textual en la tabla que los acompaña
-- [ ] 12.6 Verificar en producción, después del merge, que la última migración aplicada es la de este change y que las funciones nuevas tienen las ACLs esperadas
+- [x] 12.6 Verificado en producción (2026-09-04, re-confirmado en el archive conjunto): `MAX(version) = 20261026000001` sobre 275 migraciones; las cinco funciones del módulo (`rpc_sales_evolution`, `rpc_product_ranking`, `rpc_sales_breakdown`, `rpc_sales_top_clients`, `rpc_product_sales_evolution`) tienen una sola definición cada una, `SECURITY DEFINER`, `proacl = {postgres=X, authenticated=X, service_role=X}` — sin `EXECUTE` para `anon`. `CHECK export_logs_type_values` incluye `product_ranking_csv`. Edge Function `ai-estadisticas` ACTIVE v2, `generate-export` v64
 
 ## 13. Documentación y specs
 
@@ -129,6 +129,6 @@
 
 ## 14. Cierre con el PO
 
-- [ ] 14.1 Presentar OQ-1 (horario de carga vs. horario de venta) con la evidencia medida y aplicar la decisión del PO antes de dar por cerrada la vista de horarios
-- [ ] 14.2 Confirmar OQ-2 (ventas sin cliente fuera del ranking) y OQ-4 (margen con cobertura parcial) contra lo implementado
-- [ ] 14.3 Demo real en producción: ranking por unidades e importe, evolución con comparación, un desglose con su tramo "Sin canal", y el fix de la última venta visible en `/rentabilidad`
+- [x] 14.1 OQ-1 (horario de carga vs. horario de venta) resuelta durante el apply de E2 (migración `20261025000001`, D5): la vista rotula la métrica como **horario de carga de la operación** (derivada de `created_at` en Mendoza), con la salvedad explícita en la pantalla; el PO no pidió otra cosa en el humo del 2026-09-04.
+- [x] 14.2 OQ-2 (ventas sin cliente fuera del ranking) y OQ-4 (margen con cobertura parcial) confirmadas contra lo implementado: `rpc_sales_top_clients` excluye las ventas sin cliente del ranking y las devuelve en fila `unassigned` aparte (E2); `rpc_product_ranking` informa `cost_coverage_pct` y margen ausente (nunca cero) cuando ninguna línea tiene costo (E1, D11). Ambas verificadas en el gate SQL y en la pasada visual de 12.4.
+- [x] 14.3 Demo real en producción (2026-09-04): el PO recorrió los 11 puntos del módulo conjunto (categorías/SKU de `productos-categorias-sku` + evolución, ranking por unidades e importe, desgloses con tramo "Sin canal"/"Sin sucursal"/"Sin categoría", detalle por producto, export CSV, IA con clave real de OpenAI, y la fecha de última venta corregida en `/rentabilidad`) y respondió "funciona todo bien"; el único defecto real (CSV ilegible en Excel es-AR, punto 9) se corrigió en el PR #508 y el PO confirmó después "se ve bien el excel".

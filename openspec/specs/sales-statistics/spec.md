@@ -1,4 +1,9 @@
-## ADDED Requirements
+# sales-statistics Specification
+
+## Purpose
+Módulo de estadísticas de ventas (`/estadisticas`, sin gate de plan): evolución temporal con comparación de período, desgloses por canal, sucursal, día de la semana, horario de carga y categoría de producto (todos comparten la misma forma de salida — una RPC por forma, `rpc_sales_breakdown`), top de clientes, y análisis con IA. Define el **helper canónico compartido** (`reporting_sales_lines_in_window`) del que deriva su población de líneas todo agregado del módulo — y del que también depende `product-profitability` — de modo que ningún consumidor reimplemente el revenue de línea o los bordes del período por su cuenta. El límite de historial por plan se aplica en el read-model, nunca sólo en la interfaz.
+
+## Requirements
 
 ### Requirement: Definición única de "línea de venta del período"
 
@@ -90,6 +95,30 @@ Las ventas sin canal o sin sucursal SHALL aparecer como un tramo propio y visibl
 - **WHEN** se consulta el desglose por canal o por sucursal
 - **THEN** la nota de crédito no se resta de ningún tramo
 - **AND** la superficie que lo muestra declara esa exclusión al usuario
+
+### Requirement: Desglose por categoría de producto con tramo explícito para lo no imputado
+
+El sistema SHALL exponer la facturación, las unidades y las operaciones del período desglosadas **por categoría de producto**, resuelta desde `products.category_id` del catálogo de la cuenta (capability `product-category`) y compartiendo la misma forma de salida que los desgloses por canal, sucursal, día de la semana y horario — es una dimensión más del mismo mecanismo, no una vista del ranking de productos.
+
+Los productos sin categoría asignada SHALL aparecer como un tramo propio y visible ("Sin categoría"), NUNCA omitidos. Las líneas de venta sin producto asociado (líneas de servicio) NO SHALL contarse en este desglose — no son productos y no tienen categoría — y su importe queda declarado por la evolución de ventas del módulo, no por este desglose.
+
+#### Scenario: Facturación por categoría
+
+- **GIVEN** un período con ventas de productos de varias categorías
+- **WHEN** se consulta el desglose por categoría
+- **THEN** se devuelve una fila por categoría con su facturación, sus unidades y sus operaciones
+
+#### Scenario: Los productos sin categoría aparecen en su propio tramo
+
+- **GIVEN** un período con ventas de productos sin categoría asignada
+- **WHEN** se consulta el desglose por categoría
+- **THEN** existe un tramo explícito "Sin categoría" con su importe
+
+#### Scenario: Las líneas de servicio quedan fuera del desglose por categoría
+
+- **GIVEN** un período con líneas de venta sin producto asociado
+- **WHEN** se consulta el desglose por categoría
+- **THEN** ninguna fila ni tramo del desglose las incluye
 
 ### Requirement: Patrones de venta por día de la semana
 
@@ -245,3 +274,4 @@ La función SHALL verificar la cuota de IA del usuario antes de consultar al mod
 
 - **WHEN** la función construye el contexto que envía al modelo
 - **THEN** las cifras provienen de los read-models canónicos del módulo, no de una agregación propia
+

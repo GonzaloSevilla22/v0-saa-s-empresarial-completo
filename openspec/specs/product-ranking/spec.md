@@ -1,4 +1,9 @@
-## ADDED Requirements
+# product-ranking Specification
+
+## Purpose
+Da al módulo de estadísticas de ventas un ranking de productos por unidades vendidas y por importe facturado, con las variantes agrupadas bajo su producto padre y el margen por producto informado sólo donde el costo es derivable (con su cobertura declarada cuando es parcial). Provee además el detalle de evolución por producto (con desglose por variante) alcanzable desde una fila del ranking. Las líneas de servicio (sin producto asociado) quedan fuera del ranking y su importe se declara aparte. El agregado por categoría de producto NO vive en esta capability: es la 5ª dimensión de los desgloses que define `sales-statistics` (`rpc_sales_breakdown`), con la misma forma de salida que canal, sucursal, día de la semana y horario.
+
+## Requirements
 
 ### Requirement: Ranking de productos por unidades y por importe como vistas separadas
 
@@ -78,24 +83,6 @@ Un grupo con cobertura **parcial** de costo SHALL informar además qué proporci
 - **WHEN** se consulta el ranking
 - **THEN** la fila informa su proporción de cobertura de costo y la superficie la muestra junto al margen
 
-### Requirement: Ranking por categoría
-
-El sistema SHALL exponer la facturación y las unidades del período agrupadas por **categoría de producto**.
-
-La agrupación SHALL funcionar sobre la categoría tal como el catálogo la modela en cada momento; los productos sin categoría SHALL aparecer en un tramo propio y visible, nunca omitidos.
-
-#### Scenario: Facturación por categoría
-
-- **GIVEN** un período con ventas de productos de varias categorías
-- **WHEN** se consulta el agregado por categoría
-- **THEN** se devuelve una fila por categoría con su facturación y unidades
-
-#### Scenario: Productos sin categoría
-
-- **GIVEN** ventas de productos sin categoría asignada
-- **WHEN** se consulta el agregado por categoría
-- **THEN** existe un tramo propio para ellos con su importe
-
 ### Requirement: Las líneas de servicio quedan fuera del ranking y su importe se declara
 
 Las líneas de venta sin producto asociado (líneas de servicio) NO SHALL aparecer en el ranking de productos: no son productos y no tienen dónde rankear.
@@ -160,3 +147,4 @@ SHALL funcionar en tema claro y oscuro, en escritorio y móvil, usando tokens se
 - **GIVEN** un rango sin ventas
 - **WHEN** el usuario consulta el ranking
 - **THEN** ve un estado vacío explicativo, distinguible de un error
+

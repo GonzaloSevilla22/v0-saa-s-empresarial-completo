@@ -1,25 +1,35 @@
 "use client"
 
 /**
- * /estadisticas — estadisticas-ventas E1 (tasks 4.4-4.10).
+ * /estadisticas — estadisticas-ventas E1 (tasks 4.4-4.10) + E2 (tasks 7.1-7.5).
  *
- * Responde "qué se vende y cuándo": evolución de la facturación por
- * día/semana/mes con comparación contra el período anterior, y ranking de
- * productos por unidades / importe / margen con variantes agrupadas.
+ * Responde "qué se vende, cuándo, por dónde y a quién": evolución de la
+ * facturación por día/semana/mes con comparación contra el período anterior,
+ * desglose por canal y sucursal, patrón por día de la semana y horario de
+ * carga, ranking de productos por unidades / importe / margen con variantes
+ * agrupadas, ventas por categoría y top clientes.
  *
  * Molde de /reportes/formas-pago (DateButton, Card, tabla overflow-x-auto con
  * tfoot, EmptyState, nota al pie). Disponible en todos los planes: el
  * historial se recorta en el SERVIDOR y la ventana aplicada llega en la
- * respuesta (D8) — acá sólo se explica el recorte.
+ * respuesta (D8) — acá sólo se explica el recorte. El filtro de sucursal es
+ * el BranchFilter compartido (URL ?branch=, como el Tablero) y viaja a
+ * TODAS las consultas del módulo: lo aplica el helper canónico en la base,
+ * uniforme y fail-closed.
  *
  * Lo que la pantalla declara, porque callarlo sería mentir por omisión:
  * - las líneas de servicio facturan pero no rankean (D6) → importe al pie;
- * - la evolución descuenta notas de crédito (como el Tablero) y el ranking
- *   no puede (una NC no tiene producto) (D7) → nota al pie;
- * - un margen sin costo es "—", nunca 0, y la cobertura parcial se marca (D11).
+ * - la evolución descuenta notas de crédito (como el Tablero); el ranking,
+ *   los desgloses y el top de clientes no pueden (una NC no tiene producto,
+ *   canal, sucursal, hora ni cliente atribuible) (D7) → nota al pie;
+ * - un margen sin costo es "—", nunca 0, y la cobertura parcial se marca (D11);
+ * - el horario es de CARGA de la operación, no de venta (OQ-1) → rótulo y
+ *   salvedad visibles; las ventas sin cliente no compiten en el top y su
+ *   importe se declara (OQ-2).
  */
 
 import { useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { subDays } from "date-fns"
 import { BarChart3, Hash, Package, TrendingUp } from "lucide-react"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
@@ -29,13 +39,18 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
+import { BranchFilter } from "@/components/branches/BranchFilter"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { ReportTimeSeriesChart } from "@/components/charts/ReportTimeSeriesChart"
 import { ReportBarChart } from "@/components/charts/ReportBarChart"
+import { DimensionBreakdownSection } from "@/components/statistics/DimensionBreakdownSection"
+import { TopClientsSection } from "@/components/statistics/TopClientsSection"
 import { formatMoney, formatNumber } from "@/lib/format"
 import {
+  BREAKDOWN_DIMENSION_LABELS,
   EVOLUTION_BUCKET_LABELS,
   RANKING_ORDER_LABELS,
   defaultStatisticsRange,
@@ -54,6 +69,9 @@ const TOP_CHART_ROWS = 10
 const BUCKETS: EvolutionBucket[] = ["day", "week", "month"]
 const ORDERS: RankingOrder[] = ["units", "revenue", "margin"]
 
+type HourView = "hour" | "band"
+const HOUR_VIEW_LABELS: Record<HourView, string> = { hour: "Por hora", band: "Por franja" }
+
 function rankingMetric(row: ProductRankingRow, orderBy: RankingOrder): number {
   if (orderBy === "units") return row.units
   if (orderBy === "revenue") return row.revenue
@@ -71,6 +89,11 @@ export default function EstadisticasPage() {
   const [orderBy, setOrderBy] = useState<RankingOrder>("units")
   const [groupVariants, setGroupVariants] = useState(true)
   const [page, setPage] = useState(0)
+  const [hourView, setHourView] = useState<HourView>("hour")
+
+  // E2: filtro de sucursal compartido (URL ?branch=, como el Tablero).
+  const searchParams = useSearchParams()
+  const branchId = searchParams.get("branch") ?? null
 
   // Cota visual del calendario según el plan (como los otros reportes); la
   // cota REAL la aplica el read-model (D8) aunque el cliente no coopere.
@@ -78,9 +101,9 @@ export default function EstadisticasPage() {
   const startISO = toISODate(dateFrom)
   const endISO = toISODate(dateTo)
 
-  const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket })
+  const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket, branchId })
   const rankingQuery = useProductRanking({
-    start: startISO, end: endISO, orderBy, groupVariants, page, size: RANKING_PAGE_SIZE,
+    start: startISO, end: endISO, orderBy, groupVariants, page, size: RANKING_PAGE_SIZE, branchId,
   })
 
   const evolution = evolutionQuery.data
@@ -125,6 +148,7 @@ export default function EstadisticasPage() {
           <DateButton date={dateFrom} onSelect={changeOrigin} minDate={minDate} maxDate={dateTo} label="Fecha desde" />
           <span className="text-xs text-muted-foreground">→</span>
           <DateButton date={dateTo} onSelect={changeEnd} minDate={dateFrom} maxDate={today} label="Fecha hasta" />
+          <BranchFilter />
           <ToggleGroup
             type="single"
             size="sm"
@@ -260,6 +284,98 @@ export default function EstadisticasPage() {
         </CardContent>
       </Card>
 
+      {/* ── E2: por dónde se vende (canal / sucursal) ── */}
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Por dónde se vende</CardTitle>
+        </CardHeader>
+        <CardContent className="min-w-0">
+          <Tabs defaultValue="canal">
+            <TabsList aria-label="Dimensión del desglose">
+              <TabsTrigger value="canal">Por canal</TabsTrigger>
+              <TabsTrigger value="branch">Por sucursal</TabsTrigger>
+            </TabsList>
+            <TabsContent value="canal" className="mt-4">
+              <DimensionBreakdownSection
+                dimension="canal"
+                start={startISO}
+                end={endISO}
+                branchId={branchId}
+                ariaLabel="Desglose por canal"
+              />
+            </TabsContent>
+            <TabsContent value="branch" className="mt-4">
+              <DimensionBreakdownSection
+                dimension="branch"
+                start={startISO}
+                end={endISO}
+                branchId={branchId}
+                ariaLabel="Desglose por sucursal"
+                footnote={branchId ? "Con una sucursal filtrada, el desglose muestra sólo esa sucursal; las ventas sin sucursal asignada quedan fuera de todo el módulo mientras el filtro esté activo." : undefined}
+              />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* ── E2: cuándo se vende (día de la semana / horario de carga) ── */}
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Cuándo se vende</CardTitle>
+        </CardHeader>
+        <CardContent className="min-w-0">
+          <Tabs defaultValue="weekday">
+            <TabsList aria-label="Patrón temporal">
+              <TabsTrigger value="weekday">{BREAKDOWN_DIMENSION_LABELS.weekday}</TabsTrigger>
+              <TabsTrigger value="hour">{BREAKDOWN_DIMENSION_LABELS.hour}</TabsTrigger>
+            </TabsList>
+            <TabsContent value="weekday" className="mt-4">
+              <DimensionBreakdownSection
+                dimension="weekday"
+                start={startISO}
+                end={endISO}
+                branchId={branchId}
+                ariaLabel="Ventas por día de la semana"
+                orientation="vertical"
+                footnote="Día de la semana de la fecha de negocio declarada en cada venta (lunes a domingo)."
+              />
+            </TabsContent>
+            <TabsContent value="hour" className="mt-4 flex flex-col gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                {/* OQ-1: la salvedad va ANTES del gráfico, no en letra chica. */}
+                <p role="note" className="text-sm text-muted-foreground max-w-prose">
+                  <span className="font-medium text-foreground">Horario de carga de la operación, no es el horario de venta:</span>{" "}
+                  coincide con la venta cuando se registra en el momento (mostrador) y no cuando se carga después.
+                </p>
+                <ToggleGroup
+                  type="single"
+                  size="sm"
+                  variant="outline"
+                  value={hourView}
+                  onValueChange={(v) => { if (v) setHourView(v as HourView) }}
+                  aria-label="Vista del horario"
+                >
+                  {(Object.keys(HOUR_VIEW_LABELS) as HourView[]).map((v) => (
+                    <ToggleGroupItem key={v} value={v} aria-label={HOUR_VIEW_LABELS[v]} className="text-xs px-3">
+                      {HOUR_VIEW_LABELS[v]}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+              <DimensionBreakdownSection
+                dimension="hour"
+                start={startISO}
+                end={endISO}
+                branchId={branchId}
+                ariaLabel="Ventas por horario de carga"
+                orientation="vertical"
+                bandView={hourView === "band"}
+              />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
       {/* ── Ranking de productos ── */}
       <Card className="min-w-0">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -380,6 +496,36 @@ export default function EstadisticasPage() {
         </CardContent>
       </Card>
 
+      {/* ── E2: ventas por categoría (product-ranking "Ranking por categoría") ── */}
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Ventas por categoría</CardTitle>
+        </CardHeader>
+        <CardContent className="min-w-0">
+          <DimensionBreakdownSection
+            dimension="category"
+            start={startISO}
+            end={endISO}
+            branchId={branchId}
+            ariaLabel="Ventas por categoría"
+            operationsTotal={false}
+            footnote={evolution
+              ? `Categoría del catálogo de cada producto vendido; los productos sin categoría aparecen en su propio tramo. Las ventas sin producto asociado (${formatMoney(evolution.current.serviceRevenue)}) no tienen categoría y quedan fuera de este desglose; sí forman parte de la facturación del período.`
+              : "Categoría del catálogo de cada producto vendido; los productos sin categoría aparecen en su propio tramo."}
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── E2: top clientes (OQ-2) ── */}
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Top clientes del período</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0 min-w-0">
+          <TopClientsSection start={startISO} end={endISO} branchId={branchId} />
+        </CardContent>
+      </Card>
+
       {/* ── Lo que queda fuera, dicho en voz alta (D6 / D7) ── */}
       {evolution && (
         <p className="text-xs text-muted-foreground">
@@ -387,7 +533,7 @@ export default function EstadisticasPage() {
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        La evolución y los totales descuentan las notas de crédito del período, igual que el Tablero. El ranking no descuenta notas de crédito: una nota de crédito no tiene un producto atribuible. El margen usa el costo congelado en cada venta y, sólo cuando falta, el costo actual del catálogo; la marca "% con costo" indica qué proporción de las líneas tiene costo congelado.
+        La evolución y los totales descuentan las notas de crédito del período, igual que el Tablero. El ranking no descuenta notas de crédito: una nota de crédito no tiene un producto atribuible. Los desgloses por canal, sucursal, día de la semana, horario y categoría, y el top de clientes, tampoco descuentan notas de crédito (una nota de crédito no tiene canal, sucursal, hora ni cliente atribuible): la suma de sus tramos es la facturación bruta del período. El margen usa el costo congelado en cada venta y, sólo cuando falta, el costo actual del catálogo; la marca "% con costo" indica qué proporción de las líneas tiene costo congelado.
       </p>
     </div>
   )

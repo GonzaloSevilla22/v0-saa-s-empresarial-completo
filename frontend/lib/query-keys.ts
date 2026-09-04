@@ -162,12 +162,17 @@ export const queryKeys = {
   // estadisticas-ventas E1 (task 4.3): read-models del módulo de estadísticas.
   // Prefijo propio; la clave lleva la ventana, la granularidad y (ranking) el
   // orden, la agrupación y la página — el orden lo resuelve el servidor.
+  // E2: toda clave lleva además el filtro de sucursal (null = todas).
   salesStatistics: {
     all: () => ["salesStatistics"] as const,
-    evolution: (accountId: string | null, start: string, end: string, bucket: string) =>
-      ["salesStatistics", "evolution", accountId, start, end, bucket] as const,
-    ranking: (accountId: string | null, start: string, end: string, orderBy: string, groupVariants: boolean, page: number, size: number) =>
-      ["salesStatistics", "ranking", accountId, start, end, orderBy, groupVariants, page, size] as const,
+    evolution: (accountId: string | null, start: string, end: string, bucket: string, branchId: string | null = null) =>
+      ["salesStatistics", "evolution", accountId, start, end, bucket, branchId] as const,
+    ranking: (accountId: string | null, start: string, end: string, orderBy: string, groupVariants: boolean, page: number, size: number, branchId: string | null = null) =>
+      ["salesStatistics", "ranking", accountId, start, end, orderBy, groupVariants, page, size, branchId] as const,
+    breakdown: (accountId: string | null, start: string, end: string, dimension: string, branchId: string | null) =>
+      ["salesStatistics", "breakdown", accountId, start, end, dimension, branchId] as const,
+    topClients: (accountId: string | null, start: string, end: string, branchId: string | null, limit: number) =>
+      ["salesStatistics", "topClients", accountId, start, end, branchId, limit] as const,
   },
   // productos-categorias-sku
   productCategories: {

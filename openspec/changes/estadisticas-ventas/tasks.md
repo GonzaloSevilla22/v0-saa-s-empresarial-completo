@@ -71,11 +71,11 @@
 
 ## 7. E2 — Frontend de dimensiones
 
-- [ ] 7.1 Añadir a `/estadisticas` los desgloses por canal y por sucursal, con su tramo "Sin canal"/"Sin sucursal" visible
-- [ ] 7.2 Añadir el patrón por día de la semana
-- [ ] 7.3 Añadir la vista de horarios, **rotulada como horario de carga de la operación**, con la salvedad visible (OQ-1) y la conmutación hora / franja resuelta en el cliente
-- [ ] 7.4 Añadir el top de clientes, declarando el importe de las ventas sin cliente
-- [ ] 7.5 Tests de las cuatro superficies, incluido que el rótulo de horarios no promete horario de venta
+- [x] 7.1 Añadir a `/estadisticas` los desgloses por canal y por sucursal, con su tramo "Sin canal"/"Sin sucursal" visible
+- [x] 7.2 Añadir el patrón por día de la semana
+- [x] 7.3 Añadir la vista de horarios, **rotulada como horario de carga de la operación**, con la salvedad visible (OQ-1) y la conmutación hora / franja resuelta en el cliente
+- [x] 7.4 Añadir el top de clientes, declarando el importe de las ventas sin cliente
+- [x] 7.5 Tests de las cuatro superficies, incluido que el rótulo de horarios no promete horario de venta
 
 ## 8. E3 — Exportación del ranking
 

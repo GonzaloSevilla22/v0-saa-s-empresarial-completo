@@ -55,4 +55,19 @@ describe("ReportBarChart", () => {
     render(<ReportBarChart ariaLabel="Top" valueName="Unidades" data={[]} />)
     expect(screen.getByText("Sin datos para graficar")).toBeInTheDocument()
   })
+
+  it("la orientación vertical (E2, dimensiones temporales) conserva el contrato accesible", () => {
+    render(
+      <ReportBarChart
+        ariaLabel="Ventas por día de la semana"
+        valueName="Facturado"
+        orientation="vertical"
+        data={[
+          { name: "Lunes", value: 2500 },
+          { name: "Martes", value: 0 },
+        ]}
+      />,
+    )
+    expect(screen.getByRole("img", { name: "Ventas por día de la semana" })).toBeInTheDocument()
+  })
 })

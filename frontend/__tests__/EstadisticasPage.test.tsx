@@ -23,13 +23,28 @@ import "@testing-library/jest-dom"
 
 const useSalesEvolutionMock = vi.fn()
 const useProductRankingMock = vi.fn()
+const useSalesBreakdownMock = vi.fn()
+const useTopClientsMock = vi.fn()
 vi.mock("@/hooks/data/use-sales-statistics", () => ({
   useSalesEvolution: (params: unknown) => useSalesEvolutionMock(params),
   useProductRanking: (params: unknown) => useProductRankingMock(params),
+  useSalesBreakdown: (params: unknown) => useSalesBreakdownMock(params),
+  useTopClients: (params: unknown) => useTopClientsMock(params),
 }))
 
 vi.mock("@/hooks/auth/use-plan-limits", () => ({
   usePlanLimits: () => ({ limits: { historyDays: 365 }, isLoading: false }),
+}))
+
+// E2: el filtro de sucursal es el BranchFilter compartido (URL ?branch=),
+// como en el Tablero; acá se stubbea y se controla el search param.
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }))
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}))
+vi.mock("@/components/branches/BranchFilter", () => ({
+  BranchFilter: () => <div data-testid="branch-filter" />,
 }))
 
 // Los gráficos tienen sus propios tests (report-charts.test.tsx); acá se
@@ -80,12 +95,79 @@ function evolutionReturn(overrides: Record<string, unknown> = {}) {
   return { data: evolution(), isLoading: false, isError: false, ...overrides }
 }
 
+// ── E2 fixtures: desgloses por dimensión y top clientes ─────────────────────
+
+function bdRow(key: string | null, label: string, sortOrder: number, revenue: number, units: number, operations: number) {
+  return { key, label, sortOrder, revenue, units, operations }
+}
+
+const WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+const WEEKDAY_VALUES: Record<string, [number, number, number]> = {
+  Lunes: [2500, 3, 1], Viernes: [500, 2, 2], Sábado: [2100, 3, 1], Domingo: [500, 1, 1],
+}
+
+const BREAKDOWNS: Record<string, { dimension: string; window: typeof WINDOW | null; rows: ReturnType<typeof bdRow>[] }> = {
+  canal: {
+    dimension: "canal", window: WINDOW,
+    rows: [bdRow("local", "local", 1, 2900, 4, 2), bdRow("instagram", "instagram", 2, 2100, 3, 1), bdRow(null, "Sin canal", 3, 600, 2, 2)],
+  },
+  branch: {
+    dimension: "branch", window: WINDOW,
+    rows: [bdRow("b1", "Casa central", 1, 2900, 4, 2), bdRow("b2", "Showroom", 2, 2100, 3, 1), bdRow(null, "Sin sucursal", 3, 600, 2, 2)],
+  },
+  weekday: {
+    dimension: "weekday", window: WINDOW,
+    rows: WEEKDAYS.map((d, i) => bdRow(String(i + 1), d, i + 1, ...(WEEKDAY_VALUES[d] ?? [0, 0, 0]))),
+  },
+  hour: {
+    dimension: "hour", window: WINDOW,
+    rows: Array.from({ length: 24 }, (_, h) => {
+      const v: [number, number, number] = h === 9 ? [500, 2, 2] : h === 14 ? [2600, 4, 2] : h === 23 ? [2500, 3, 1] : [0, 0, 0]
+      return bdRow(String(h), `${String(h).padStart(2, "0")}:00`, h, ...v)
+    }),
+  },
+  category: {
+    dimension: "category", window: WINDOW,
+    rows: [bdRow(null, "Sin categoría", 1, 2100, 3, 1), bdRow("c1", "Ropa", 2, 2000, 2, 1), bdRow("c2", "Accesorios", 3, 1000, 2, 2)],
+  },
+}
+
+const TOP_CLIENTS = {
+  window: WINDOW,
+  items: [
+    { rank: 1, clientId: "c-a", clientName: "Ana Pérez", revenue: 2900, units: 4, operations: 2, lastSaleDate: "2026-08-31" },
+    { rank: 2, clientId: "c-b", clientName: "Beto Gómez", revenue: 2100, units: 3, operations: 1, lastSaleDate: "2026-08-30" },
+  ],
+  unassigned: { revenue: 500, units: 1, operations: 1, lastSaleDate: "2026-08-29" },
+  totalClients: 2,
+}
+
+function breakdownImpl(overrides: Partial<Record<string, Record<string, unknown>>> = {}) {
+  return ({ dimension }: { dimension: string }) => ({
+    data: BREAKDOWNS[dimension],
+    isLoading: false,
+    isError: false,
+    ...(overrides[dimension] ?? {}),
+  })
+}
+
+function switchTab(name: RegExp) {
+  const tab = screen.getByRole("tab", { name })
+  fireEvent.mouseDown(tab)
+  fireEvent.click(tab)
+}
+
 describe("EstadisticasPage", () => {
   beforeEach(() => {
     useSalesEvolutionMock.mockReset()
     useProductRankingMock.mockReset()
+    useSalesBreakdownMock.mockReset()
+    useTopClientsMock.mockReset()
+    nav.params = new URLSearchParams()
     useSalesEvolutionMock.mockReturnValue(evolutionReturn())
     useProductRankingMock.mockReturnValue(ranking())
+    useSalesBreakdownMock.mockImplementation(breakdownImpl())
+    useTopClientsMock.mockReturnValue({ data: TOP_CLIENTS, isLoading: false, isError: false })
   })
 
   it("muestra los KPIs del período con la variación contra el período anterior", () => {
@@ -188,5 +270,130 @@ describe("EstadisticasPage", () => {
     expect(screen.getByText(/Página 1 de 3/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: /siguiente/i }))
     expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }))
+  })
+
+  // ── E2 (tasks 7.1-7.5) ──────────────────────────────────────────────────
+
+  it("desglose por canal: el tramo 'Sin canal' es visible con su importe y los canales llevan su etiqueta completa", () => {
+    render(<EstadisticasPage />)
+    const table = screen.getByRole("table", { name: /desglose por canal/i })
+    const none = within(table).getByText("Sin canal").closest("tr")!
+    expect(within(none).getByText(/600/)).toBeInTheDocument()
+    expect(within(table).getByText("Instagram")).toBeInTheDocument()
+    expect(within(table).getByText("Local")).toBeInTheDocument()
+    // El total del desglose es la suma de los tramos (5.600), no el neto.
+    expect(within(table).getAllByText(/5\.600/).length).toBeGreaterThan(0)
+  })
+
+  it("cambiar a sucursal muestra el tramo 'Sin sucursal' con el nombre de cada sucursal", () => {
+    render(<EstadisticasPage />)
+    switchTab(/por sucursal/i)
+    const table = screen.getByRole("table", { name: /desglose por sucursal/i })
+    expect(within(table).getByText("Sin sucursal")).toBeInTheDocument()
+    expect(within(table).getByText("Casa central")).toBeInTheDocument()
+    expect(within(table).getByText("Showroom")).toBeInTheDocument()
+    expect(useSalesBreakdownMock).toHaveBeenCalledWith(expect.objectContaining({ dimension: "branch" }))
+  })
+
+  it("día de la semana: los siete días, con los vacíos en cero", () => {
+    render(<EstadisticasPage />)
+    const table = screen.getByRole("table", { name: /día de la semana/i })
+    for (const d of WEEKDAYS) expect(within(table).getByText(d)).toBeInTheDocument()
+    const wed = within(table).getByText("Miércoles").closest("tr")!
+    // formatMoney(0) = "$ 0" (es-AR, sin decimales forzados): el día vacío
+    // viaja y se muestra en cero, no se omite.
+    expect(within(wed).getAllByText(/^\$\s?0$/).length).toBeGreaterThan(0)
+    const mon = within(table).getByText("Lunes").closest("tr")!
+    expect(within(mon).getByText(/2\.500/)).toBeInTheDocument()
+  })
+
+  it("horarios: rotulados como horario de carga con la salvedad visible, y la franja se arma en el cliente", () => {
+    render(<EstadisticasPage />)
+    switchTab(/horario de carga/i)
+    const table = screen.getByRole("table", { name: /horario de carga/i })
+    expect(within(table).getByText("23:00")).toBeInTheDocument()
+    // OQ-1: la salvedad es visible y nada promete "horario de venta".
+    expect(screen.getByText(/no es el horario de venta/i)).toBeInTheDocument()
+    expect(screen.queryByRole("tab", { name: /horario de venta/i })).not.toBeInTheDocument()
+    expect(useSalesBreakdownMock).toHaveBeenCalledWith(expect.objectContaining({ dimension: "hour" }))
+    // Conmutación hora / franja resuelta en el cliente (D5): sin re-consulta.
+    // React Query sólo vuelve a consultar cuando cambia la clave, así que la
+    // prueba es que el conjunto de parámetros DISTINTOS pedidos al hook no
+    // crece al cambiar de vista (un re-render repite los mismos params).
+    const distinctParams = () => new Set(useSalesBreakdownMock.mock.calls.map(([p]) => JSON.stringify(p))).size
+    const before = distinctParams()
+    fireEvent.click(screen.getByRole("radio", { name: /por franja/i }))
+    const banded = screen.getByRole("table", { name: /horario de carga/i })
+    const night = within(banded).getByText("Noche (19–24)").closest("tr")!
+    expect(within(night).getByText(/2\.500/)).toBeInTheDocument()
+    const afternoon = within(banded).getByText("Tarde (12–19)").closest("tr")!
+    expect(within(afternoon).getByText(/2\.600/)).toBeInTheDocument()
+    expect(within(banded).queryByText("23:00")).not.toBeInTheDocument()
+    expect(distinctParams()).toBe(before)
+  })
+
+  it("top clientes: ordenados por importe, sin fila 'sin cliente', y con el importe sin cliente declarado al pie", () => {
+    render(<EstadisticasPage />)
+    const table = screen.getByRole("table", { name: /top clientes/i })
+    const rows = within(table).getAllByRole("row").slice(1)
+    expect(within(rows[0]).getByText("Ana Pérez")).toBeInTheDocument()
+    expect(within(rows[1]).getByText("Beto Gómez")).toBeInTheDocument()
+    expect(within(table).queryByText(/sin cliente/i)).not.toBeInTheDocument()
+    const note = screen.getByText(/sin cliente asignado/i)
+    expect(note).toHaveTextContent(/500/)
+    expect(note).toHaveTextContent(/no compiten/i)
+  })
+
+  it("ventas por categoría: tramo 'Sin categoría' visible y las ventas sin producto declaradas fuera", () => {
+    render(<EstadisticasPage />)
+    const table = screen.getByRole("table", { name: /ventas por categoría/i })
+    expect(within(table).getByText("Sin categoría")).toBeInTheDocument()
+    expect(within(table).getByText("Ropa")).toBeInTheDocument()
+    expect(screen.getByText(/no tienen categoría/i)).toHaveTextContent(/400/)
+  })
+
+  it("el filtro de sucursal de la URL viaja a todas las consultas del módulo", () => {
+    nav.params = new URLSearchParams("branch=b1")
+    render(<EstadisticasPage />)
+    expect(screen.getByTestId("branch-filter")).toBeInTheDocument()
+    expect(useSalesEvolutionMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: "b1" }))
+    expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: "b1" }))
+    expect(useSalesBreakdownMock).toHaveBeenCalledWith(expect.objectContaining({ dimension: "canal", branchId: "b1" }))
+    expect(useTopClientsMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: "b1" }))
+  })
+
+  it("sin filtro de sucursal las consultas viajan con branchId null", () => {
+    render(<EstadisticasPage />)
+    expect(useSalesEvolutionMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: null }))
+    expect(useTopClientsMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: null }))
+  })
+
+  it("el fallo de un desglose se muestra como error en su tarjeta, nunca como 'sin datos'", () => {
+    useSalesBreakdownMock.mockImplementation(breakdownImpl({ canal: { data: undefined, isError: true } }))
+    render(<EstadisticasPage />)
+    expect(screen.getByText(/no pudimos cargar el desglose/i)).toBeInTheDocument()
+    expect(screen.queryByRole("table", { name: /desglose por canal/i })).not.toBeInTheDocument()
+  })
+
+  it("el pie declara que los desgloses y el top de clientes no descuentan notas de crédito", () => {
+    render(<EstadisticasPage />)
+    expect(screen.getByText(/tampoco descuentan notas de crédito/i)).toBeInTheDocument()
+  })
+
+  it("un desglose sin tramos muestra el vacío explícito, no una tabla en cero", () => {
+    useSalesBreakdownMock.mockImplementation(breakdownImpl({ canal: { data: { dimension: "canal", window: null, rows: [] } } }))
+    render(<EstadisticasPage />)
+    expect(screen.getByText(/sin ventas en el período para este desglose/i)).toBeInTheDocument()
+    expect(screen.queryByRole("table", { name: /desglose por canal/i })).not.toBeInTheDocument()
+    // Las demás tarjetas no se contagian: el día de la semana sigue con su tabla.
+    expect(screen.getByRole("table", { name: /día de la semana/i })).toBeInTheDocument()
+  })
+
+  it("top clientes sin clientes identificados: vacío explícito que igual declara el importe sin cliente (OQ-2)", () => {
+    useTopClientsMock.mockReturnValue({ data: { ...TOP_CLIENTS, items: [], totalClients: 0 }, isLoading: false, isError: false })
+    render(<EstadisticasPage />)
+    expect(screen.getByText(/sin ventas a clientes identificados/i)).toBeInTheDocument()
+    expect(screen.getByText(/sin cliente asignado/i)).toHaveTextContent(/500/)
+    expect(screen.queryByRole("table", { name: /top clientes/i })).not.toBeInTheDocument()
   })
 })

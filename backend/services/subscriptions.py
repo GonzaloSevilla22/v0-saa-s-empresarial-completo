@@ -39,6 +39,29 @@ def _plan_id_for_tier(plan: str) -> str | None:
     }.get(plan) or None
 
 
+def _tier_for_plan_id(plan_id: str | None) -> str | None:
+    """Inversa de `_plan_id_for_tier` (H2 hotfix 2026-09-04): dado un
+    `preapproval_plan_id` real de MercadoPago, devuelve el tier configurado
+    que le corresponde, o None si no coincide con ninguno de los 3 tiers
+    pagos configurados (MP_PLAN_ID_INICIAL/AVANZADO/PRO desactualizada, o un
+    id de otra cuenta de MP).
+
+    Bug real de prod que esta función corrige: `subscriptions.id =
+    fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1` nació con `plan='pro'` porque el
+    código anterior usaba `candidates[0]["plan"] if candidates else "pro"`
+    — con 0 candidatas, inventaba 'pro' sin mirar el preapproval_plan_id
+    real (que era el de Inicial). Nunca se adivina: si el id no mapea a
+    ningún tier, el caller decide qué hacer (no crear la fila / rechazar la
+    resolución), pero esta función jamás devuelve un valor no verificado."""
+    if not plan_id:
+        return None
+    return {
+        settings.mp_plan_id_inicial: "inicial",
+        settings.mp_plan_id_avanzado: "avanzado",
+        settings.mp_plan_id_pro: "pro",
+    }.get(plan_id)
+
+
 async def _claim_subscription_webhook_idempotency(conn: asyncpg.Connection, key: str) -> bool:
     """Reclama un slot de idempotencia para el procesamiento de una
     notificación de suscripción (D5, kind 'subscription_webhook'). Devuelve
@@ -203,12 +226,49 @@ async def resolve_ambiguous_subscription(
     """Un admin asigna manualmente la cuenta correcta a una fila
     `ambiguous` (email no matcheó ninguna intención, o matcheó varias). El
     dinero YA se acreditó en billing_events cuando llegó el cobro — esto
-    solo corrige la atribución."""
+    solo corrige la atribución.
+
+    H2 hotfix (2026-09-04): el `plan` guardado en la fila puede ser
+    incorrecto (bug del fallback hardcodeado a 'pro' en
+    process_subscription_preapproval_notification con 0 candidatas — caso
+    real: subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1). El tier
+    que se activa en la cuenta SIEMPRE se deriva de `preapproval_plan_id`
+    (inverso de `_plan_id_for_tier`), nunca del campo `plan` tal cual. Si
+    no mapea a ningún tier configurado, se rechaza con 409 ANTES de tocar
+    account_id/status — nunca se asigna un plan adivinado."""
+    pending = await repo.find_ambiguous_subscription(subscription_id)
+    if pending is None:
+        raise HTTPException(
+            status_code=404, detail="No hay una suscripción ambigua con ese id (o ya fue resuelta)"
+        )
+
+    tier = _tier_for_plan_id(pending["preapproval_plan_id"])
+    if tier is None:
+        logger.critical(
+            "[subscriptions] resolve_ambiguous_subscription %s: preapproval_plan_id %s no "
+            "corresponde a ningún tier configurado (MP_PLAN_ID_INICIAL/AVANZADO/PRO) — no se "
+            "resuelve para no asignar un plan adivinado.",
+            subscription_id, pending["preapproval_plan_id"],
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "El preapproval_plan_id de esta suscripción no corresponde a ningún tier "
+                "configurado (MP_PLAN_ID_INICIAL/AVANZADO/PRO). Revisá la configuración antes de "
+                "resolver esta fila manualmente."
+            ),
+        )
+
     resolved = await repo.resolve_ambiguous_subscription(subscription_id, account_id)
     if resolved is None:
         raise HTTPException(
             status_code=404, detail="No hay una suscripción ambigua con ese id (o ya fue resuelta)"
         )
+
+    if resolved["plan"] != tier:
+        # la fila había nacido con un plan incorrecto (bug histórico del
+        # fallback hardcodeado a 'pro') — se corrige en el mismo movimiento.
+        await repo.correct_subscription_plan(subscription_id, tier)
 
     # H1 hotfix (2026-09-04): public.accounts no tiene updated_at (ver nota en
     # cancel_subscription).
@@ -219,7 +279,7 @@ async def resolve_ambiguous_subscription(
         WHERE id = $1
         """,
         account_id,
-        resolved["plan"],
+        tier,
     )
     await conn.execute(
         """
@@ -230,7 +290,7 @@ async def resolve_ambiguous_subscription(
         FROM public.accounts WHERE id = $1
         """,
         account_id,
-        resolved["plan"],
+        tier,
         subscription_id,
         resolved["preapproval_id"],
     )
@@ -302,11 +362,36 @@ async def process_subscription_preapproval_notification(
             "[subscriptions] preapproval %s sin match automático (%s, %d candidatas)",
             preapproval_id, reason, len(candidates),
         )
+
+        # H2 hotfix (2026-09-04): el tier de la fila ambigua se deriva del
+        # preapproval_plan_id REAL de este webhook (inverso de
+        # _plan_id_for_tier) — NUNCA se inventa 'pro' como hacía el código
+        # anterior con 0 candidatas (caso real: subscriptions.id
+        # fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 nació 'pro' siendo Inicial).
+        # Si el plan id no mapea a ningún tier configurado pero SÍ hay
+        # candidatas (multiple_match: todas comparten preapproval_plan_id
+        # por construcción de find_pending_intents), su `plan` declarado es
+        # la mejor evidencia disponible.
+        tier = _tier_for_plan_id(preapproval_plan_id)
+        if tier is None and candidates:
+            tier = candidates[0]["plan"]
+
+        if tier is None:
+            logger.critical(
+                "[subscriptions] preapproval %s: preapproval_plan_id %s no corresponde a ningún "
+                "tier configurado (MP_PLAN_ID_INICIAL/AVANZADO/PRO) y no hay ninguna intención "
+                "candidata que lo declare — NO se crea la fila en subscriptions para no asignar "
+                "un plan adivinado. El dinero ya está acreditado en MercadoPago; requiere "
+                "revisión manual de la configuración.",
+                preapproval_id, preapproval_plan_id,
+            )
+            return {"ok": True, "unrecognized_plan": True}
+
         await repo.create_subscription(
             account_id=None,
             preapproval_id=preapproval_id,
             preapproval_plan_id=preapproval_plan_id,
-            plan=candidates[0]["plan"] if candidates else "pro",
+            plan=tier,
             status="ambiguous",
             ambiguous_reason=reason,
         )

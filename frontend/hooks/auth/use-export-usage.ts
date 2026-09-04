@@ -63,10 +63,21 @@ export function useExportUsage(): ExportUsage {
   }
 }
 
+/**
+ * Parámetros adicionales del export, en la forma que la Edge Function los
+ * lee (snake_case). estadisticas-ventas E3: el ranking de productos viaja
+ * con el período, orden, agrupación y sucursal que la pantalla muestra —
+ * sin ellos generate-export aplicaría sus defaults y el archivo no
+ * coincidiría con lo que el usuario está viendo. Los tipos legacy no los
+ * usan (su body sigue siendo `{ export_type }`).
+ */
+export type ExportParams = Record<string, string | number | boolean | null>
+
 /** Calls the generate-export Edge Function and triggers a browser download. */
 export async function triggerExport(
   exportType: ExportType,
   accessToken: string,
+  params?: ExportParams,
 ): Promise<ExportResult> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!supabaseUrl) return { ok: false, error: "missing_supabase_url" }
@@ -77,7 +88,7 @@ export async function triggerExport(
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ export_type: exportType }),
+    body: JSON.stringify({ export_type: exportType, ...(params ?? {}) }),
   })
 
   const json = await res.json()

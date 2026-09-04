@@ -63,6 +63,18 @@ const PAGE_NAMES: Record<string, string> = {
 }
 
 /**
+ * Rutas dinámicas: el último segmento es un id (un uuid no es un nombre
+ * legible). estadisticas-ventas E3 (D12): /estadisticas/productos/[id].
+ */
+const PAGE_PREFIX_NAMES: Array<[prefix: string, name: string]> = [
+  ["/estadisticas/productos/", "Detalle de producto"],
+]
+
+function nameFromPrefix(pathname: string): string | undefined {
+  return PAGE_PREFIX_NAMES.find(([prefix]) => pathname.startsWith(prefix))?.[1]
+}
+
+/**
  * H17 (spec responsive-shell): una ruta sin nombre mapeado deriva un nombre
  * legible del último segmento ("/x/detalle-final" → "Detalle final") en lugar
  * de mostrar solo la marca. El literal queda únicamente para la raíz.
@@ -76,7 +88,7 @@ function nameFromLastSegment(pathname: string): string {
 
 export function BreadcrumbNav() {
   const pathname = usePathname()
-  const name = PAGE_NAMES[pathname] ?? nameFromLastSegment(pathname)
+  const name = PAGE_NAMES[pathname] ?? nameFromPrefix(pathname) ?? nameFromLastSegment(pathname)
   const [tutorialOpen, setTutorialOpen] = useState(false)
 
   const tutorialEntry = getTutorialByPathname(pathname)

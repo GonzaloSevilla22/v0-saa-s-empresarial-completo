@@ -854,12 +854,18 @@ export type ExpenseCategory =
 
 // ── Export module types (C-14 export-module) ──────────────────────────────────
 
+// estadisticas-ventas E3 (task 8.2): `product_ranking_csv` es el 6º tipo —
+// el ranking de productos vendidos, exportado desde el read-model canónico
+// con los mismos parámetros que la pantalla. La lista canónica vive en
+// supabase/functions/_shared/export-ranking.ts (EXPORT_TYPES); esta unión es
+// su espejo TypeScript del lado del cliente.
 export type ExportType =
   | "sales_csv"
   | "purchases_csv"
   | "expenses_csv"
   | "stock_csv"
   | "full_report_xlsx"
+  | "product_ranking_csv"
 
 export type ExportStatus = "generated" | "expired" | "error"
 

@@ -22,6 +22,10 @@ import {
   shareOf,
   HOUR_BANDS,
   BREAKDOWN_DIMENSION_LABELS,
+  rankingExportBody,
+  mapProductSalesDetail,
+  productDetailHref,
+  type ProductSalesDetailRaw,
   type SalesEvolutionRaw,
   type ProductRankingRowRaw,
   type SalesBreakdownRaw,
@@ -349,5 +353,67 @@ describe("breakdownChartLabel (rótulo corto del gráfico en orientación vertic
       expect(b.shortLabel).not.toMatch(/[()]/)
       expect(b.label.startsWith(b.shortLabel)).toBe(true)
     }
+  })
+})
+
+// ═══ E3 — export del ranking, detalle por producto ═══════════════════════════
+
+describe("rankingExportBody (E3, grupo 8)", () => {
+  it("traduce el estado de la pantalla al body de la Edge Function, en snake_case y con la sucursal null explícita", () => {
+    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "margin", groupVariants: false, branchId: null })).toEqual({
+      start: "2026-08-01", end: "2026-08-31", order_by: "margin", group_variants: false, branch_id: null,
+    })
+    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "units", groupVariants: true, branchId: "b1" }).branch_id).toBe("b1")
+  })
+})
+
+describe("productDetailHref (E3, D12)", () => {
+  it("apunta a /estadisticas/productos/[id], nunca a /productos/[id], y conserva el filtro de sucursal", () => {
+    expect(productDetailHref("p-1", null)).toBe("/estadisticas/productos/p-1")
+    expect(productDetailHref("p-1", "b-9")).toBe("/estadisticas/productos/p-1?branch=b-9")
+    expect(productDetailHref("p-1", null)).not.toMatch(/^\/productos\//)
+  })
+})
+
+describe("mapProductSalesDetail (E3, grupo 9)", () => {
+  const raw: ProductSalesDetailRaw = {
+    product: { product_id: "p-parent", product_name: "Remera", sku: "REM-001", category: "Ropa", parent_id: null, parent_name: null, is_group: true, variant_count: 2 },
+    bucket: "day",
+    window: { start: "2026-08-02", end: "2026-08-31", history_days: 30, clamped: true },
+    totals: { units: "5", revenue: "4300", operations: 4, total_cost: "750", gross_margin: "3550", gross_margin_pct: "82.56", cost_coverage_pct: "25.0", last_sale_date: "2026-08-31" },
+    points: [
+      { bucket_start: "2026-08-30", bucket_end: "2026-08-30", units: "1", revenue: "500", operations: 1, total_cost: "50", gross_margin: "450", gross_margin_pct: "90.00", cost_coverage_pct: "0.0", last_sale_date: "2026-08-30" },
+      { bucket_start: "2026-08-31", bucket_end: "2026-08-31", units: "0", revenue: "0", operations: 0, total_cost: null, gross_margin: null, gross_margin_pct: null, cost_coverage_pct: null, last_sale_date: null },
+    ],
+    members: [
+      { rank: 1, product_id: "p-v1", product_name: "Remera M", sku: "REM-001-M", units: "3", revenue: "3000", operations: 2, total_cost: "600", gross_margin: "2400", gross_margin_pct: "80.00", cost_coverage_pct: "50.0", last_sale_date: "2026-08-31" },
+    ],
+  }
+
+  it("normaliza importes a number, preserva el margen ausente como null (nunca 0) y conserva la cabecera", () => {
+    const d = mapProductSalesDetail(raw)
+    expect(d.product).toEqual({ productId: "p-parent", productName: "Remera", sku: "REM-001", category: "Ropa", parentId: null, parentName: null, isGroup: true, variantCount: 2 })
+    expect(d.bucket).toBe("day")
+    expect(d.window).toEqual({ start: "2026-08-02", end: "2026-08-31", historyDays: 30, clamped: true })
+    expect(d.totals.revenue).toBe(4300)
+    expect(d.totals.grossMargin).toBe(3550)
+    expect(d.totals.costCoveragePct).toBe(25)
+    expect(d.totals.lastSaleDate).toBe("2026-08-31")
+    expect(d.points[1].grossMargin).toBeNull()
+    expect(d.points[1].costCoveragePct).toBeNull()
+    expect(d.points[1].revenue).toBe(0)
+    expect(d.members[0]).toMatchObject({ rank: 1, productId: "p-v1", productName: "Remera M", sku: "REM-001-M", revenue: 3000, grossMargin: 2400 })
+  })
+
+  it("un detalle sin ventas mapea totales en cero, margen null y sin miembros — no explota", () => {
+    const d = mapProductSalesDetail({
+      ...raw,
+      product: { ...raw.product, sku: null, category: null, is_group: false, variant_count: 0 },
+      totals: { units: "0", revenue: "0", operations: 0, total_cost: null, gross_margin: null, gross_margin_pct: null, cost_coverage_pct: null, last_sale_date: null },
+      members: [],
+    })
+    expect(d.product.sku).toBeNull()
+    expect(d.totals).toEqual({ units: 0, revenue: 0, operations: 0, totalCost: null, grossMargin: null, grossMarginPct: null, costCoveragePct: null, lastSaleDate: null })
+    expect(d.members).toEqual([])
   })
 })

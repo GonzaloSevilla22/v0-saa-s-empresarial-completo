@@ -7,6 +7,9 @@ Routes:
   GET /reports/statistics/breakdown → desglose por canal / sucursal / día de la
                                       semana / hora de carga / categoría (E2)
   GET /reports/statistics/clients   → top clientes del período (E2, OQ-2)
+  GET /reports/statistics/products/{product_id}
+                                    → detalle de un producto y su grupo de
+                                      variantes por intervalo (E3, D12)
 
 Arquitectura dura: routers = validación + DI únicamente. La lógica vive en
 services/statistics.py; el acceso a datos en repositories/statistics_repository.py.
@@ -30,6 +33,7 @@ from backend.core.deps import get_account_id
 from backend.repositories.statistics_repository import StatisticsRepository
 from backend.schemas.statistics import (
     ProductRankingPageOut,
+    ProductSalesDetailOut,
     SalesBreakdownOut,
     SalesEvolutionOut,
     TopClientsOut,
@@ -145,4 +149,32 @@ async def top_clients(
         start=start, end=end,
         branch_id=str(branch_id) if branch_id else None,
         limit=limit,
+    )
+
+
+@report_router.get("/products/{product_id}", response_model=ProductSalesDetailOut)
+async def product_sales_detail(
+    product_id: uuid.UUID,
+    start: datetime.date = Query(...),
+    end: datetime.date = Query(...),
+    bucket: Literal["day", "week", "month"] = Query("day"),
+    branch_id: uuid.UUID | None = Query(None),
+    canal: str | None = Query(None, max_length=80),
+    auth: dict = Depends(get_current_user),
+    repo: StatisticsRepository = Depends(get_statistics_repo),
+    account_id: uuid.UUID = Depends(get_account_id),
+):
+    """Detalle de un producto (E3, D12): evolución por intervalo del producto
+    y su grupo de variantes, totales del período y desglose por miembro.
+
+    La tenencia la resuelve el read-model: un producto de otra cuenta o
+    inexistente responde 404 (RFC 7807), nunca un detalle vacío. Un producto
+    sin ventas en el período responde 200 con totales en cero y margen
+    null. No resta notas de crédito (una NC no tiene producto atribuible)."""
+    return await statistics_service.get_product_sales_evolution(
+        repo, str(account_id),
+        product_id=str(product_id),
+        start=start, end=end, bucket=bucket,
+        branch_id=str(branch_id) if branch_id else None,
+        canal=canal,
     )

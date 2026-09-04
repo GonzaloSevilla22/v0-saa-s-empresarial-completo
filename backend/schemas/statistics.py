@@ -172,3 +172,65 @@ class TopClientsOut(BaseModel):
     items:         list[TopClientRowOut]
     unassigned:    UnassignedSalesOut
     total_clients: int
+
+
+# ── E3 — detalle por producto (rpc_product_sales_evolution, migración
+#         20261026000001) ─────────────────────────────────────────────────────
+
+class ProductSalesHeaderOut(BaseModel):
+    """Cabecera del producto pedido. `is_group` + `variant_count` distinguen
+    un producto simple de un padre que agrupa variantes CON ventas en el
+    período (misma regla que el ranking); `parent_id`/`parent_name` dan
+    contexto a una variante pedida directamente."""
+
+    product_id:    uuid.UUID
+    product_name:  str
+    sku:           str | None = None
+    category:      str | None = None
+    parent_id:     uuid.UUID | None = None
+    parent_name:   str | None = None
+    is_group:      bool
+    variant_count: int
+
+
+class ProductSalesMetricsOut(BaseModel):
+    """Métricas de un agregado del detalle (total / intervalo / miembro). Un
+    margen ausente viaja como null — NUNCA como 0 (D11): un agregado sin
+    líneas no tiene costo ni margen. `cost_coverage_pct` es null por la misma
+    razón (no hay líneas sobre las que medir cobertura)."""
+
+    units:             Decimal
+    revenue:           Decimal
+    operations:        int
+    total_cost:        Decimal | None = None
+    gross_margin:      Decimal | None = None
+    gross_margin_pct:  Decimal | None = None
+    cost_coverage_pct: Decimal | None = None
+    last_sale_date:    datetime.date | None = None
+
+
+class ProductSalesPointOut(ProductSalesMetricsOut):
+    """Un intervalo (día / semana ISO / mes) de la ventana aplicada; los
+    intervalos sin ventas viajan en cero, no se omiten."""
+
+    bucket_start: datetime.date
+    bucket_end:   datetime.date
+
+
+class ProductSalesMemberOut(ProductSalesMetricsOut):
+    """Un producto del grupo con ventas en el período (una variante, o el
+    padre si vendió directo), con su puesto por importe dentro del grupo."""
+
+    rank:         int
+    product_id:   uuid.UUID
+    product_name: str
+    sku:          str | None = None
+
+
+class ProductSalesDetailOut(BaseModel):
+    product: ProductSalesHeaderOut
+    bucket:  EvolutionBucket
+    window:  StatisticsWindowOut
+    totals:  ProductSalesMetricsOut
+    points:  list[ProductSalesPointOut]
+    members: list[ProductSalesMemberOut]

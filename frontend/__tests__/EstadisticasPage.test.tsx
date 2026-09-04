@@ -47,6 +47,24 @@ vi.mock("@/components/branches/BranchFilter", () => ({
   BranchFilter: () => <div data-testid="branch-filter" />,
 }))
 
+// E3: el botón de export y el panel de IA tienen sus propios tests; acá se
+// stubbean capturando las props para fijar QUÉ parámetros les llegan desde
+// la pantalla (los mismos que el ranking muestra).
+const exportButtonMock = vi.fn()
+vi.mock("@/components/export/ExportButton", () => ({
+  ExportButton: (props: { exportType: string; params?: Record<string, unknown> }) => {
+    exportButtonMock(props)
+    return <button type="button" data-testid="export-button">{props.exportType}</button>
+  },
+}))
+const aiPanelMock = vi.fn()
+vi.mock("@/components/statistics/StatisticsAiPanel", () => ({
+  StatisticsAiPanel: (props: Record<string, unknown>) => {
+    aiPanelMock(props)
+    return <div data-testid="ai-panel" />
+  },
+}))
+
 // Los gráficos tienen sus propios tests (report-charts.test.tsx); acá se
 // stubbean para que Recharts no interfiera con la superficie bajo test.
 vi.mock("@/components/charts/ReportTimeSeriesChart", () => ({
@@ -407,5 +425,42 @@ describe("EstadisticasPage", () => {
     expect(screen.getByText(/sin ventas a clientes identificados/i)).toBeInTheDocument()
     expect(screen.getByText(/sin cliente asignado/i)).toHaveTextContent(/500/)
     expect(screen.queryByRole("table", { name: /top clientes/i })).not.toBeInTheDocument()
+  })
+
+  // ── E3 ────────────────────────────────────────────────────────────────────
+
+  it("el botón de export del ranking viaja con los MISMOS parámetros que la pantalla muestra (período, orden, agrupación, sucursal)", () => {
+    nav.params = new URLSearchParams("branch=b-9")
+    render(<EstadisticasPage />)
+    const last = () => exportButtonMock.mock.calls.at(-1)?.[0] as { exportType: string; params: Record<string, unknown> }
+    expect(last().exportType).toBe("product_ranking_csv")
+    expect(last().params).toEqual(expect.objectContaining({ order_by: "units", group_variants: true, branch_id: "b-9" }))
+    // Las fechas del body son las del selector de rango (las mismas que el hook recibe).
+    const hookParams = useProductRankingMock.mock.calls.at(-1)?.[0] as { start: string; end: string }
+    expect(last().params.start).toBe(hookParams.start)
+    expect(last().params.end).toBe(hookParams.end)
+    // Cambiar el orden y desagrupar cambia lo que se exporta, en el acto.
+    fireEvent.click(screen.getByRole("radio", { name: "Importe" }))
+    fireEvent.click(screen.getByRole("switch", { name: /agrupar variantes/i }))
+    expect(last().params).toEqual(expect.objectContaining({ order_by: "revenue", group_variants: false }))
+  })
+
+  it("cada fila del ranking enlaza al detalle en /estadisticas/productos/[id] (D12) conservando el filtro de sucursal", () => {
+    nav.params = new URLSearchParams("branch=b-9")
+    render(<EstadisticasPage />)
+    const table = screen.getByRole("table", { name: /ranking/i })
+    const link = within(table).getByRole("link", { name: /Remera/ })
+    expect(link).toHaveAttribute("href", "/estadisticas/productos/p-parent?branch=b-9")
+    expect(within(table).getByRole("link", { name: /Gorra/ })).toHaveAttribute("href", "/estadisticas/productos/p-simple?branch=b-9")
+  })
+
+  it("el panel de análisis con IA se monta con la ventana de la pantalla", () => {
+    render(<EstadisticasPage />)
+    expect(screen.getByTestId("ai-panel")).toBeInTheDocument()
+    const props = aiPanelMock.mock.calls.at(-1)?.[0] as { start: string; end: string; branchId: string | null }
+    const hookParams = useSalesEvolutionMock.mock.calls.at(-1)?.[0] as { start: string; end: string }
+    expect(props.start).toBe(hookParams.start)
+    expect(props.end).toBe(hookParams.end)
+    expect(props.branchId).toBeNull()
   })
 })

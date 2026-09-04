@@ -52,6 +52,11 @@ class StatisticsRepository(BaseRepository):
         "SELECT * FROM public.rpc_sales_top_clients("
         "$1::uuid, $2::date, $3::date, $4::uuid, $5::integer)"
     )
+    # E3 (migración 20261026000001)
+    _PRODUCT_DETAIL_SQL = (
+        "SELECT * FROM public.rpc_product_sales_evolution("
+        "$1::uuid, $2::uuid, $3::date, $4::date, $5::text, $6::uuid, $7::text)"
+    )
 
     async def fetch_sales_evolution(
         self,
@@ -142,4 +147,26 @@ class StatisticsRepository(BaseRepository):
         unassigned}. La composición por clase de fila la hace el service."""
         return await self.fetch(
             self._TOP_CLIENTS_SQL, account_id, start, end, branch_id, limit
+        )
+
+    # ── E3 ──────────────────────────────────────────────────────────────────
+
+    async def fetch_product_sales_evolution(
+        self,
+        account_id: str,
+        product_id: str,
+        *,
+        start: datetime.date,
+        end: datetime.date,
+        bucket: str,
+        branch_id: str | None = None,
+        canal: str | None = None,
+    ) -> list[dict]:
+        """Filas crudas de rpc_product_sales_evolution: row_kind ∈ {total,
+        bucket, member}. La tenencia del producto la resuelve la RPC (P0404
+        ajeno o inexistente); la composición por clase de fila la hace el
+        service."""
+        return await self.fetch(
+            self._PRODUCT_DETAIL_SQL,
+            account_id, product_id, start, end, bucket, branch_id, canal,
         )

@@ -100,4 +100,12 @@ describe("BreadcrumbNav — nombres de página (H17)", () => {
     renderAt("/ventas")
     expect(screen.getByText("Ventas")).toBeInTheDocument()
   })
+
+  // estadisticas-ventas E3 (D12): ruta dinámica — el uuid no es un nombre.
+  it("el detalle por producto de estadísticas muestra un nombre legible, no el uuid", () => {
+    renderAt("/estadisticas/productos/0b0c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b")
+    expect(screen.getByText("Detalle de producto")).toBeInTheDocument()
+    expect(screen.queryByText(/0b0c1a2b/)).not.toBeInTheDocument()
+    expect(screen.queryByText("ALIADATA")).not.toBeInTheDocument()
+  })
 })

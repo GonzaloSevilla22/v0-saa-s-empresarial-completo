@@ -4,13 +4,25 @@
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { resolveEffectivePlan } from '../_shared/effective-plan.ts'
+// estadisticas-ventas E3 (task 8.3): la unión de tipos y el array de tipos
+// válidos estaban duplicados en este archivo — cambiar uno solo lo dejaba
+// roto. Ahora hay UNA lista (EXPORT_TYPES) en _shared/export-ranking.ts, de
+// la que deriva el tipo; el ranking de productos es el 6º tipo y sus filas
+// salen del read-model canónico (rpc_product_ranking), nunca de una
+// agregación propia escrita acá.
+import {
+  buildRankingCsv,
+  fetchAllRankingRows,
+  isExportType,
+  parseRankingExportParams,
+  rowsToCsv,
+  type ExportType,
+} from '../_shared/export-ranking.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-
-type ExportType = 'sales_csv' | 'purchases_csv' | 'expenses_csv' | 'stock_csv' | 'full_report_xlsx'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,20 +45,8 @@ function historyDateFrom(historyDays: number): string {
 }
 
 // ─── CSV generators ───────────────────────────────────────────────────────────
-
-function rowsToCsv(headers: string[], rows: Record<string, unknown>[]): string {
-  const escape = (v: unknown) => {
-    const s = v == null ? '' : String(v)
-    return s.includes(',') || s.includes('"') || s.includes('\n')
-      ? `"${s.replace(/"/g, '""')}"`
-      : s
-  }
-  const lines = [headers.join(',')]
-  for (const row of rows) {
-    lines.push(headers.map(h => escape(row[h])).join(','))
-  }
-  return lines.join('\r\n')
-}
+// rowsToCsv vive en _shared/export-ranking.ts (sin cambios de comportamiento,
+// testeada desde vitest).
 
 // deno-lint-ignore no-explicit-any
 async function fetchSalesRows(supabase: any, dateFrom: string) {
@@ -166,11 +166,24 @@ Deno.serve(async (req) => {
     }
 
     // ── Parse body ────────────────────────────────────────────────────────────
-    const body = await req.json().catch(() => ({}))
-    const exportType: ExportType = body.export_type
-    const validTypes: ExportType[] = ['sales_csv', 'purchases_csv', 'expenses_csv', 'stock_csv', 'full_report_xlsx']
-    if (!validTypes.includes(exportType)) {
+    const body: Record<string, unknown> = await req.json().catch(() => ({}))
+    const rawType = body.export_type
+    // Un tipo desconocido se rechaza ANTES de leer cuota o plan: sin archivo,
+    // sin consumo de cuota (spec data-export).
+    if (!isExportType(rawType)) {
       return jsonResponse({ ok: false, error: 'invalid_export_type' }, 400)
+    }
+    const exportType: ExportType = rawType
+
+    // estadisticas-ventas E3: los parámetros del ranking (período, orden,
+    // agrupación, sucursal) son los de la pantalla; se validan acá y el
+    // clamp de historial lo aplica el read-model (D8) aunque el cliente pida
+    // más. Fuera de dominio → 400, también antes de tocar la cuota.
+    const rankingParams = exportType === 'product_ranking_csv'
+      ? parseRankingExportParams(body, new Date())
+      : null
+    if (rankingParams && !rankingParams.ok) {
+      return jsonResponse({ ok: false, error: 'invalid_export_params', message: rankingParams.error }, 400)
     }
 
     // ── Load exports_used counter ─────────────────────────────────────────────
@@ -262,6 +275,27 @@ Deno.serve(async (req) => {
       } else if (exportType === 'expenses_csv') {
         const rows = await fetchExpensesRows(supabase, dateFrom)
         csvText = rowsToCsv(['fecha', 'categoria', 'descripcion', 'forma_pago', 'monto', 'moneda', 'sucursal'], rows)
+      } else if (exportType === 'product_ranking_csv' && rankingParams?.ok) {
+        // La cuenta activa se resuelve con el MISMO criterio determinístico
+        // que backend/core/deps.py:get_account_id (membresía más antigua,
+        // desempatada por id) — rpc_product_ranking exige p_account_id y
+        // vuelve a verificar la membresía (P0401).
+        const { data: membership } = await supabase
+          .from('account_members')
+          .select('account_id')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(1)
+          .maybeSingle()
+        const accountId = (membership as { account_id?: string } | null)?.account_id
+        if (!accountId) {
+          return jsonResponse({ ok: false, error: 'no_active_account' }, 403)
+        }
+        // Mismo read-model, mismos parámetros, mismo orden que la pantalla:
+        // nada se re-agrega en Deno. El clamp de historial lo aplica la RPC.
+        const rows = await fetchAllRankingRows(supabase, accountId, rankingParams.value)
+        csvText = buildRankingCsv(rows)
       } else {
         // stock_csv
         const rows = await fetchStockRows(supabase)

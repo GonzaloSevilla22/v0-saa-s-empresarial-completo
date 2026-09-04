@@ -24,9 +24,15 @@ interface KpiCardProps {
    * el período anterior de igual longitud. Default = comportamiento previo.
    */
   changeLabel?: string
+  /**
+   * estadisticas-ventas E3 (task 9.4): nota breve bajo el valor cuando no
+   * hay variación que mostrar (p. ej. la marca de cobertura del margen,
+   * "25% con costo" — D11). Se ignora si `change` está definido.
+   */
+  caption?: string
 }
 
-export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-primary", href, changeLabel = "vs ayer" }: KpiCardProps) {
+export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-primary", href, changeLabel = "vs ayer", caption }: KpiCardProps) {
   const card = (
     <Card
       className={cn(
@@ -53,6 +59,9 @@ export function KpiCard({ title, value, change, icon: Icon, iconColor = "text-pr
                 {change >= 0 ? "+" : ""}
                 {change}% {changeLabel}
               </span>
+            )}
+            {change === undefined && caption && (
+              <span className="text-xs text-muted-foreground">{caption}</span>
             )}
           </div>
           <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10", iconColor)}>

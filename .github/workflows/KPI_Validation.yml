@@ -1329,3 +1329,20 @@ jobs:
       # (OQ-2), cliente de otra cuenta sin nombre ni id, clamp D8, P0400/P0401.
       - name: Run estadisticas-ventas E2 gates
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_estadisticas_ventas_e2.sql
+
+      # estadisticas-ventas E3 (grupo 9 + 11.2): rpc_product_sales_evolution —
+      # detalle de un producto y su grupo de variantes (filas total / bucket /
+      # member) sobre el helper canónico y el clamp de E1. Introspección
+      # (SECURITY DEFINER, ACLs exactas, helper + clamp consumidos, NINGÚN
+      # AT TIME ZONE — el detalle no deriva hora alguna —, cero lecturas
+      # directas de public.sales, P0404 declarado) y comportamiento con anchor
+      # sintético: el padre agrupa variantes + sus ventas directas (misma
+      # regla que el ranking), variant_count sin contar al padre, miembros
+      # por importe con suma = total, buckets en cero y suma = total en
+      # día/semana/mes con semana ISO, IDENTIDAD con la fila del ranking
+      # (agrupada para el padre, sin agrupar para la variante), variante con
+      # su padre de contexto, standalone sin grupo, producto sin ventas en
+      # cero (nunca error, margen NULL), filtro de sucursal fail-closed,
+      # clamp D8, P0400 / P0401 / P0404 (ajeno e inexistente, mismo código).
+      - name: Run estadisticas-ventas E3 gates
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_estadisticas_ventas_e3.sql

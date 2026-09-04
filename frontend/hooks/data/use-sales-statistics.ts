@@ -20,6 +20,7 @@ import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import {
   mapProductRankingPage,
+  mapProductSalesDetail,
   mapSalesBreakdown,
   mapSalesEvolution,
   mapTopClients,
@@ -27,6 +28,8 @@ import {
   type EvolutionBucket,
   type ProductRankingPage,
   type ProductRankingPageRaw,
+  type ProductSalesDetail,
+  type ProductSalesDetailRaw,
   type RankingOrder,
   type SalesBreakdown,
   type SalesBreakdownRaw,
@@ -149,5 +152,38 @@ export function useTopClients({ start, end, branchId = null, limit = 10 }: UseTo
     },
     enabled: !!accountId && !!start && !!end,
     placeholderData: keepPreviousData,
+  })
+}
+
+// ── E3 ──────────────────────────────────────────────────────────────────────
+
+export interface UseProductSalesEvolutionParams {
+  productId: string
+  start: string
+  end: string
+  bucket: EvolutionBucket
+  branchId?: string | null
+}
+
+/** Detalle de un producto y su grupo de variantes (D12). Un producto de
+ *  otra cuenta o inexistente responde 404 → estado de error de la pantalla,
+ *  nunca un detalle vacío. */
+export function useProductSalesEvolution({ productId, start, end, bucket, branchId = null }: UseProductSalesEvolutionParams) {
+  const { user } = useAuth()
+  const accountId = user?.accountId ?? null
+
+  return useQuery<ProductSalesDetail>({
+    queryKey: queryKeys.salesStatistics.productDetail(accountId, productId, start, end, bucket, branchId),
+    queryFn: async (): Promise<ProductSalesDetail> => {
+      const qs = withBranch({ start, end, bucket }, branchId).toString()
+      const raw = await pythonClient.get<ProductSalesDetailRaw>(
+        `/reports/statistics/products/${encodeURIComponent(productId)}?${qs}`,
+      )
+      return mapProductSalesDetail(raw)
+    },
+    enabled: !!accountId && !!productId && !!start && !!end,
+    placeholderData: keepPreviousData,
+    // Un 404 (producto ajeno / inexistente) no cambia reintentando.
+    retry: false,
   })
 }

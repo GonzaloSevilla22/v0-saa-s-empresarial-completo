@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
@@ -9,21 +10,25 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "@/hooks/use-toast"
-import { Download, RefreshCw, FileText, FileSpreadsheet, Clock } from "lucide-react"
+import { Download, RefreshCw, FileText, FileSpreadsheet, Clock, BarChart3 } from "lucide-react"
 import { formatDate } from "@/lib/format"
 import type { ExportLog, ExportType } from "@/lib/types"
 
 const EXPORT_LABELS: Record<ExportType, string> = {
-  sales_csv:        "Ventas CSV",
-  purchases_csv:    "Compras CSV",
-  expenses_csv:     "Gastos CSV",
-  stock_csv:        "Inventario CSV",
-  full_report_xlsx: "Reporte Completo XLSX",
+  sales_csv:           "Ventas CSV",
+  purchases_csv:       "Compras CSV",
+  expenses_csv:        "Gastos CSV",
+  stock_csv:           "Inventario CSV",
+  full_report_xlsx:    "Reporte Completo XLSX",
+  // estadisticas-ventas E3 (task 8.5)
+  product_ranking_csv: "Ranking de productos CSV",
 }
 
 function ExportIcon({ exportType }: { exportType: ExportType }) {
   if (exportType === "full_report_xlsx")
     return <FileSpreadsheet className="h-4 w-4 text-green-500" />
+  if (exportType === "product_ranking_csv")
+    return <BarChart3 className="h-4 w-4 text-primary" />
   return <FileText className="h-4 w-4 text-blue-500" />
 }
 
@@ -156,6 +161,20 @@ export default function ExportacionesPage() {
           <ExportButton exportType="purchases_csv" />
           <ExportButton exportType="expenses_csv" />
           <ExportButton exportType="stock_csv" />
+        </div>
+      </div>
+
+      {/* ── estadisticas-ventas E3: ranking de productos ─────────────────── */}
+      <div className="rounded-lg border border-border bg-card p-4 flex flex-col gap-3">
+        <p className="text-sm font-medium text-foreground">Ranking de productos vendidos</p>
+        <p className="text-xs text-muted-foreground">
+          Desde acá se exporta el ranking de los últimos 30 días por unidades, con las variantes agrupadas.
+          Para elegir otro período, orden o agrupación, exportalo desde{" "}
+          <Link href="/estadisticas" className="underline underline-offset-2 text-foreground">Estadísticas</Link>:
+          el archivo coincide fila a fila con lo que la pantalla muestra.
+        </p>
+        <div>
+          <ExportButton exportType="product_ranking_csv" />
         </div>
       </div>
 

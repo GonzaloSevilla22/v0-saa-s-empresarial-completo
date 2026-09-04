@@ -79,30 +79,30 @@
 
 ## 8. E3 — Exportación del ranking
 
-- [ ] 8.1 RED: test del tipo de exportación nuevo, incluido el rechazo de un tipo desconocido
-- [ ] 8.2 Añadir `product_ranking_csv` a `ExportType` en `frontend/lib/types.ts`
-- [ ] 8.3 Añadir el tipo a `supabase/functions/generate-export/index.ts` — la unión de tipos **y** el array de tipos válidos están duplicados en el archivo; cambiar uno solo lo deja roto
-- [ ] 8.4 Generar las filas del CSV desde `rpc_product_ranking`, con el mismo período, orden y agrupación que la pantalla — nunca reagregando en Deno
-- [ ] 8.5 Añadir la opción a `frontend/app/(dashboard)/exportaciones/page.tsx` y el botón de exportar en `/estadisticas`
-- [ ] 8.6 GREEN: verificar que el archivo generado coincide fila a fila con la pantalla de la que se exportó
+- [x] 8.1 RED: test del tipo de exportación nuevo, incluido el rechazo de un tipo desconocido
+- [x] 8.2 Añadir `product_ranking_csv` a `ExportType` en `frontend/lib/types.ts`
+- [x] 8.3 Añadir el tipo a `supabase/functions/generate-export/index.ts` — la unión de tipos **y** el array de tipos válidos están duplicados en el archivo; cambiar uno solo lo deja roto
+- [x] 8.4 Generar las filas del CSV desde `rpc_product_ranking`, con el mismo período, orden y agrupación que la pantalla — nunca reagregando en Deno
+- [x] 8.5 Añadir la opción a `frontend/app/(dashboard)/exportaciones/page.tsx` y el botón de exportar en `/estadisticas`
+- [x] 8.6 GREEN: verificar que el archivo generado coincide fila a fila con la pantalla de la que se exportó
 
 ## 9. E3 — Detalle por producto
 
-- [ ] 9.1 RED: tests del RPC de detalle y de la ruta
-- [ ] 9.2 Crear `rpc_product_sales_evolution(p_product_id, p_start, p_end, p_bucket)` con el desglose por variante cuando el producto agrupa
-- [ ] 9.3 Añadir el endpoint de detalle por producto al backend
-- [ ] 9.4 Crear `frontend/app/(dashboard)/estadisticas/productos/[id]/page.tsx` (D12 — **no** `/productos/[id]`), con enlace al producto en el catálogo
-- [ ] 9.5 Hacer navegable la fila del ranking hacia el detalle
-- [ ] 9.6 GREEN + TRIANGULATE, incluido el caso de producto con variantes y el de producto sin ventas en el período
+- [x] 9.1 RED: tests del RPC de detalle y de la ruta
+- [x] 9.2 Crear `rpc_product_sales_evolution(p_product_id, p_start, p_end, p_bucket)` con el desglose por variante cuando el producto agrupa
+- [x] 9.3 Añadir el endpoint de detalle por producto al backend
+- [x] 9.4 Crear `frontend/app/(dashboard)/estadisticas/productos/[id]/page.tsx` (D12 — **no** `/productos/[id]`), con enlace al producto en el catálogo
+- [x] 9.5 Hacer navegable la fila del ranking hacia el detalle
+- [x] 9.6 GREEN + TRIANGULATE, incluido el caso de producto con variantes y el de producto sin ventas en el período
 
 ## 10. E3 — Análisis con IA
 
-- [ ] 10.1 Crear `supabase/functions/ai-estadisticas/index.ts` con el molde de `ai-rentabilidad`: verificación de cuota con los helpers compartidos, `gpt-4o-mini`, timeout de 25 s con fallback
-- [ ] 10.2 Construir el contexto del prompt desde las RPCs del módulo — nunca agregando ventas en la Edge Function (invariante de consumo)
-- [ ] 10.3 Persistir el resultado en la tabla `insights` con tipo propio del módulo (la tabla canónica es `insights`, no `ai_insights`)
-- [ ] 10.4 Verificar que el contador de uso se incrementa **sólo** cuando el insight se generó, y no en el camino de fallback
-- [ ] 10.5 Añadir el botón "Analizar con IA" a `/estadisticas` con su estado de carga y el panel del último insight
-- [ ] 10.6 Tests: cuota disponible, cuota agotada, y timeout devolviendo fallback sin persistir ni incrementar
+- [x] 10.1 Crear `supabase/functions/ai-estadisticas/index.ts` con el molde de `ai-rentabilidad`: verificación de cuota con los helpers compartidos, `gpt-4o-mini`, timeout de 25 s con fallback
+- [x] 10.2 Construir el contexto del prompt desde las RPCs del módulo — nunca agregando ventas en la Edge Function (invariante de consumo)
+- [x] 10.3 Persistir el resultado en la tabla `insights` con tipo propio del módulo (la tabla canónica es `insights`, no `ai_insights`)
+- [x] 10.4 Verificar que el contador de uso se incrementa **sólo** cuando el insight se generó, y no en el camino de fallback
+- [x] 10.5 Añadir el botón "Analizar con IA" a `/estadisticas` con su estado de carga y el panel del último insight
+- [x] 10.6 Tests: cuota disponible, cuota agotada, y timeout devolviendo fallback sin persistir ni incrementar
 
 ## 11. Gates de CI
 

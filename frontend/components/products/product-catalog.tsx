@@ -62,6 +62,12 @@ interface ProductCatalogProps {
    * la acción queda deshabilitada.
    */
   onBulkRecategorize?: (productIds: string[], categoryId: string) => Promise<BulkCategoryResult>
+  /**
+   * estadisticas-ventas E3: texto inicial del buscador (el detalle por
+   * producto enlaza al catálogo con /productos?q=<sku|nombre>). Sólo valor
+   * inicial: el buscador sigue siendo estado local.
+   */
+  initialSearch?: string
 }
 
 // ─── Standalone sub-component (outside ProductCatalog to avoid re-mounts) ────
@@ -145,8 +151,11 @@ export function ProductCatalog({
   onImportComplete,
   onSuggestPrice,
   onBulkRecategorize,
+  initialSearch,
 }: ProductCatalogProps) {
-  const [search, setSearch] = useState("")
+  // estadisticas-ventas E3: el detalle por producto enlaza al catálogo con
+  // el SKU / nombre precargado en el buscador (/productos?q=…).
+  const [search, setSearch] = useState(initialSearch ?? "")
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [importDialogOpen, setImportDialogOpen] = useState(false)

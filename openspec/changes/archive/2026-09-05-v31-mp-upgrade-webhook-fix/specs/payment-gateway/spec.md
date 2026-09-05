@@ -1,10 +1,12 @@
 ## MODIFIED Requirements
 
-### Requirement: Crear preferencia de pago MercadoPago
+### Requirement: Crear preferencia de pago MercadoPago (fallback en retirada)
 
-El sistema SHALL crear una preferencia de pago en MercadoPago via API route server-side cuando el usuario inicia el flujo de upgrade, retornando una URL de Checkout Pro, y SHALL declarar como `notification_url` el webhook del backend FastAPI.
+El sistema SHALL crear una preferencia de pago en MercadoPago via API route server-side cuando el usuario inicia el flujo de upgrade por este camino de fallback, retornando una URL de Checkout Pro, y SHALL declarar como `notification_url` el webhook del backend FastAPI.
 
 La `notification_url` queda horneada dentro de la preferencia en el momento de crearla y no puede modificarse después: por eso el destino debe ser el endpoint que efectivamente acredita el pago. El valor se deriva de `NEXT_PUBLIC_BACKEND_URL` y la resolución es fail-closed — sin esa variable no se emite ninguna preferencia.
+
+> **Nota (archivado `mp-real-subscriptions`, 2026-09-02)**: la contratación de un plan pago dejó de crear preferencias de pago único — el camino primario es ahora la suscripción recurrente descrita en el requirement *"El upgrade a un tier pago crea una suscripción recurrente"*, más abajo. Este endpoint se mantiene deliberadamente **sin retirar** como fallback mientras la migración completa a suscripciones termina de verificarse en producción (tarea 9.6 del change archivado — MANUAL PO); retirarlo antes rompería el único camino de pago que existiera si la palanca de suscripciones se apagara. Los escenarios de este requirement documentan ese fallback, no el flujo por defecto.
 
 #### Scenario: Preferencia creada exitosamente
 - **WHEN** un usuario autenticado hace POST a `/api/billing/preferences` con `{ plan: 'avanzado' }`

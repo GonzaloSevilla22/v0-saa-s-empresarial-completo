@@ -125,6 +125,51 @@ Lo que sí se preserva es el **propósito** de la regla: no cortar a ciegas y po
 
 ## Open Questions
 
-- **OQ1 — Duración de la ventana de convivencia y destino final del reenviador.** ¿Cuántos días con cero reenvíos antes de retirarlo? ¿O se deja permanente como red de seguridad barata (unas 30 líneas sin estado)? *Opciones*: (a) 30 días y retirar; (b) 90 días y retirar; (c) dejarlo indefinidamente y solo documentarlo. **Recomendación**: (a) — es el orden de magnitud de un ciclo de facturación mensual, así que cualquier preferencia en vuelo razonable ya venció. **Decide el PO.**
+- **OQ1 — Duración de la ventana de convivencia y destino final del reenviador.** ¿Cuántos días con cero reenvíos antes de retirarlo? ¿O se deja permanente como red de seguridad barata (unas 30 líneas sin estado)? *Opciones*: (a) 30 días y retirar; (b) 90 días y retirar; (c) dejarlo indefinidamente y solo documentarlo. **Recomendación**: (a) — es el orden de magnitud de un ciclo de facturación mensual, así que cualquier preferencia en vuelo razonable ya venció. **Decide el PO.** Actualización 2026-09-05: la condición D5-(a) que gateaba el inicio del conteo se cumplió el 2026-09-04 (ver `tasks.md` 5.1/6.1) — el contador de los 30 días recomendados ya puede arrancar esa fecha; la decisión de fondo (fijarla, extenderla o dejar el reenviador indefinido) sigue pendiente del PO.
 
 - **OQ2 — ¿Hay una URL de webhook configurada a nivel de aplicación en el panel de MercadoPago**, además de la `notification_url` por preferencia? Si existe y apunta al frontend, hay que re-apuntarla al backend. **Requiere que el PO mire el panel** (el agente no tiene acceso). No bloquea las Fases 1-2; sí bloquea la Fase 4.
+
+## Candidatos identificados por la primera suscripción real (2026-09-04/05)
+
+La primera suscripción real acreditada de punta a punta (Daniel, plan Inicial, pago MP
+`176341057469` — ver `tasks.md` 5.1 y `docs/gates-mercadopago-2026-08-27.md`) destapó una
+cadena de 7 hotfixes (#511-#517) y dejó, sin implementar, los siguientes candidatos.
+Documentados acá para que no se pierdan; **ninguno se implementa en este change**.
+
+- **(a) `external_reference=<intent_id>` en el `init_point` del checkout** — causa raíz de
+  fondo de por qué la atribución de esta suscripción necesitó resolución manual: el
+  matcheo automático de `mp-real-subscriptions` (D2bis) depende de `payer_email`, y
+  MercadoPago devuelve el email de la cuenta de MP del pagador, no el login de la app —
+  no hay garantía de que coincidan (en este caso no coincidieron). La columna
+  `subscriptions.external_reference` ya existe en el schema pero nace `NULL` siempre
+  porque el alta actual (D2bis) nunca crea un `preapproval` propio, solo redirige al
+  `init_point` del plan. Pasar `external_reference=<intent_id>` en la URL del checkout y
+  matchear por eso (en vez de por email) resolvería la atribución sin depender de que dos
+  emails distintos coincidan. Requiere que el `init_point` acepte ese parámetro — a
+  verificar contra la documentación de MercadoPago antes de diseñarlo. Candidato ya
+  anotado en `CHANGES.md` (hallazgo del PR #513); repetido acá para que viva en el propio
+  change que lo hereda.
+
+- **(b) Acción "descartar" en la cola de ambiguas** (`/admin/pagos/ambiguas`) — hoy no
+  existe ninguna forma de sacar una fila de la cola salvo asignarla a una cuenta. La fila
+  `caeaa3a1-42b2-44bf-b938-ce20452160ff` (preapproval rechazado, `cancelled` en MP, sin
+  cobro) va a quedar visible en el panel de administración indefinidamente porque no tiene
+  ninguna cuenta legítima a la que asignarse y tampoco una salida limpia. Necesita un
+  estado terminal explícito (`discarded`/`dismissed`) distinto de "resuelta" para no
+  confundir al PO sobre cuántas ambiguas genuinamente esperan acción.
+
+- **(c) Botón en la UI de admin para `POST /payments/subscriptions/{id}/replay-charges`**
+  — el endpoint (sumado en #515) hoy solo se invoca a mano (curl/Postman) con el JWT de
+  admin del PO. Es la herramienta que corrigió la cuota que no se había replicado al
+  resolver la ambigua de Daniel; sin un botón en `/admin/pagos/ambiguas` (o donde
+  corresponda), cada resolución manual futura que arrastre cuotas ya cobradas depende de
+  que alguien recuerde el endpoint y sepa armar el request a mano.
+
+- **(d) El replay no sincroniza `last_payment_status`** — `POST
+  /payments/subscriptions/{id}/replay-charges` corrige `next_payment_date` y aplica los
+  efectos de las cuotas cobradas (recibo, asiento, `plan_expires_at`), pero deja
+  `subscriptions.last_payment_status` en `NULL` para las cuotas replicadas — ese campo
+  solo lo escribe el camino normal de webhook, no el replay. No rompe nada hoy (ningún
+  lector depende de `last_payment_status` para una suscripción `authorized` con
+  `next_payment_date` correcto), pero es un campo que miente por omisión si algo empieza a
+  leerlo — anotado para no descubrirlo en el próximo incidente.

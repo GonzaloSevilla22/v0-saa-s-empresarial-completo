@@ -258,6 +258,76 @@ se cumpla de verdad (un pago de suscripción real con fila en `subscriptions` +
 `operation_idempotency`), no antes — retirar el reenviador ahora dejaría sin red de seguridad
 justo el único camino de acreditación que todavía no se ejercitó de punta a punta.
 
+## Actualización 2026-09-04/05 — primera suscripción real acreditada de punta a punta (D5-a cumplida, con matiz)
+
+Lo que la sección anterior daba por pendiente ocurrió al día siguiente. Cronología:
+
+- **2026-09-04, 20:54 UTC** — Daniel (login app `tubecoventas6@gmail.com`, cuenta
+  `b6005a59-b996-4a3c-bafd-6b89ee714e00`) paga la suscripción al plan **Inicial** ($24.900).
+  Pago MP `176341057469` **aprobado**. Preapproval aprobado
+  `50681db010a341968e53c3880d52c3e9` → `subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1`.
+  Un primer intento (`177300693338`) fue rechazado sin cobro; un preapproval rechazado
+  (`7ccbebe460a24fbba077c2b22eaac5e3`) quedó `cancelled` en MP y como fila ambigua
+  `caeaa3a1-42b2-44bf-b938-ce20452160ff` en la cola, sin cobro asociado.
+- El pago real ejercitó, por primera vez en producción, el camino completo de
+  `process_subscription_preapproval_notification` / `resolve_ambiguous_subscription` —
+  destapando una **cadena de 7 hotfixes** (todos con OK del PO, mergeados y desplegados el
+  mismo día):
+  1. **#511** — `service_role_key` leía la env inexistente `SERVICE_ROLE_KEY` en vez de
+     `SUPABASE_SERVICE_ROLE_KEY` → 502 "No se pudo resolver el email" en TODA alta de
+     suscripción. Es la causa raíz de las 0 filas históricas medidas el 04-09 arriba.
+  2. **#512** — el webhook devolvía 500 por dos motivos: el CHECK
+     `operation_idempotency_operation_id_contract` no eximía
+     `operation_kind='subscription_webhook'` (23514 → 422 en toda notificación de
+     suscripción) y un `UPDATE accounts SET updated_at = now()` contra una columna
+     inexistente en esa tabla (migración `20261027000001`).
+  3. **#513** — la fila ambigua nacía y se resolvía con `plan='pro'` hardcodeado en vez de
+     derivarlo del `preapproval_plan_id` real del webhook.
+  4. **#514** — un `asyncpg.Record` crudo sin serializar producía 500 en el endpoint admin
+     de la cola de ambiguas.
+  5. **#515** — la cuota ya cobrada antes de resolver la ambigua no se replicaba a la
+     cuenta recién asignada; sumó el endpoint admin
+     `POST /payments/subscriptions/{id}/replay-charges` (migración `20261028000001`).
+  6. **#516** — Recibos de Pago / el numerador / `rpc_emit_subscription_payment_cae` solo
+     cubrían `plan_upgraded`; se extendieron a `subscription_payment_approved` + backfill
+     (migración `20261029000001`).
+  7. **#517** — 42P18 (parámetros sin cast en `jsonb_build_object`), `_apply_approved_charge`
+     sin transacción envolvente, el replay no completaba un estado parcial, y el handler
+     genérico de 500 de asyncpg no logueaba la causa real.
+
+**Estado final verificado (2026-09-04/05)**: cuenta de Daniel `inicial`/`active`,
+`plan_expires_at` **2026-10-14**; suscripción `authorized`, `next_payment_date` **2026-10-04**;
+recibo **RC-2026-000002** emitido; `email_logs` con `subscription_payment_approved` en `sent`.
+Reenviador legacy: **0 reenvíos, sin cambios** (34+ días en cero). Ambos replays de cuotas los
+ejecutó el PO con su propio JWT de admin.
+
+**Por qué "con matiz" y no "canal probado sin reservas"**: la recepción y el procesamiento de
+la notificación fueron automáticos — el bug no era del canal de webhooks en sí, sino de la
+cadena de código que el pago real ejercitó por primera vez. Pero la **atribución** a la cuenta
+de Daniel sí requirió resolución manual en `/admin/pagos/ambiguas`: el `payer_email` que
+devuelve MercadoPago es el de la cuenta de MP del pagador, no el login de la app, y no
+coincidieron. D5-(a) pedía "acreditó solo, sin intervención manual" — la intervención existió,
+acotada a la atribución, no al procesamiento del pago ni a la escritura contable. Se da por
+**cumplida con esa salvedad documentada**, no como falla del canal.
+
+**Candidatos nuevos que deja esta corrida** (ver `openspec/changes/v31-mp-upgrade-webhook-fix/design.md`
+§"Candidatos identificados por la primera suscripción real" para el detalle completo — ninguno
+implementado):
+- (a) `external_reference=<intent_id>` en el `init_point` del checkout, para matchear sin
+  depender de que dos emails distintos coincidan.
+- (b) Acción "descartar" en la cola de ambiguas — la fila `caeaa3a1…` (rechazada, sin cobro)
+  queda ahí sin ninguna salida limpia.
+- (c) Botón en la UI de admin para `POST /payments/subscriptions/{id}/replay-charges` — hoy
+  solo se invoca a mano con el JWT del PO.
+- (d) El replay sincroniza `next_payment_date` pero no `last_payment_status`, que queda `NULL`
+  para las cuotas replicadas.
+
+**Efecto sobre GATE 5 / task 6.1**: la recomendación de arriba queda **superada** — D5-(a) ya
+se cumplió el 2026-09-04, así que el contador de los 30 días recomendados para la ventana de
+convivencia puede arrancar esa fecha (cerraría el 2026-10-04 si el PO no indica lo contrario).
+D5-(b) sigue cumplida de hecho. **La decisión de fondo sobre OQ1/6.1 sigue pendiente del PO**
+— ver la nota fechada 2026-09-05 en `tasks.md` 6.1.
+
 ## GATE 5 — Cierre y limpieza (después de 3-4)
 
 - [ ] **PO decide OQ1** (webhook-fix 6.1): ventana de convivencia del relay legacy —

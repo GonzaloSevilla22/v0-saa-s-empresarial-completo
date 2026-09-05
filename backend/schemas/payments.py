@@ -108,11 +108,19 @@ class ResolveAmbiguousSubscriptionIn(BaseModel):
 
 class ReplaySubscriptionChargesOut(BaseModel):
     """H3 hotfix (2026-09-04): respuesta de POST /payments/subscriptions/
-    {id}/replay-charges — qué cuotas se aplicaron recién (nunca tenían
-    billing_event) y cuáles se saltearon por ya estar aplicadas."""
+    {id}/replay-charges.
+
+    H4 hotfix (2026-09-04): `skipped` se renombró a `already_applied` — el
+    replay ahora aplica SIEMPRE `_apply_approved_charge` sobre cada cuota
+    processed/approved (idempotente vía ON CONFLICT DO NOTHING), en vez de
+    saltear por completo las que ya tenían billing_event. `applied` lista
+    las cuotas que NO tenían billing_event antes de esta corrida;
+    `already_applied` las que sí lo tenían (la corrida las reaplicó de
+    todos modos, para completar cualquier escritura parcial pendiente —
+    p.ej. un email_logs faltante)."""
     ok: bool
     applied: list[str]
-    skipped: list[str]
+    already_applied: list[str]
 
 
 class AccountSearchResultOut(BaseModel):

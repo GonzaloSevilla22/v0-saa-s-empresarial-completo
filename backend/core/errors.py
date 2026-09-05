@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 import asyncpg
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # v3-api-standards §1 — RFC 7807 (application/problem+json)
 PROBLEM_JSON_MEDIA_TYPE = "application/problem+json"
@@ -253,6 +257,18 @@ async def asyncpg_error_handler(request: Request, exc: asyncpg.PostgresError) ->
             code=code,
             headers=headers,
         )
+    # H4 hotfix (2026-09-04): un sqlstate SIN mapear caía acá y degradaba a
+    # un 500 genérico SIN dejar rastro en los logs — costó media hora
+    # diagnosticar en producción el 42P18 de _apply_approved_charge (ningún
+    # traceback, nada en Render) porque este handler nunca loguea nada. Solo
+    # sqlstate + str(exc): el mensaje de un PostgresError es el texto del
+    # RPC/constraint o del propio motor (ya se trata como seguro más arriba,
+    # en el `detail=str(exc)` de `_BUSINESS_ERRCODE_STATUS`) — NUNCA se
+    # loguean los parámetros/valores del bind.
+    logger.error(
+        "[asyncpg_error_handler] sqlstate no mapeado -> 500 genérico: %s: %s",
+        code, exc,
+    )
     return problem_response(
         status=500,
         detail="Error interno de base de datos.",

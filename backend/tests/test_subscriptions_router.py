@@ -454,7 +454,12 @@ class TestReplayChargesEndpoint:
             )
         assert resp.status_code == 503
 
-    async def test_admin_ok_returns_applied_and_skipped(self, async_client, mock_service_pool):
+    async def test_admin_ok_returns_applied_and_already_applied(self, async_client, mock_service_pool):
+        """H4 hotfix (2026-09-04): el campo se renombró de `skipped` a
+        `already_applied` — el replay ya no salta por completo las cuotas
+        con billing_event previo, las reaplica (idempotente) para poder
+        completar cualquier escritura parcial pendiente (ver
+        ReplaySubscriptionChargesOut / replay_subscription_charges)."""
         pool, conn = mock_service_pool
         conn.fetchval = AsyncMock(return_value="admin")
         token = make_token({"role": "user"})
@@ -464,7 +469,7 @@ class TestReplayChargesEndpoint:
             patch(
                 "backend.routers.payments.replay_subscription_charges",
                 new_callable=AsyncMock,
-                return_value={"ok": True, "applied": ["7031580844"], "skipped": []},
+                return_value={"ok": True, "applied": ["7031580844"], "already_applied": []},
             ) as mock_replay,
         ):
             resp = await async_client.post(
@@ -475,7 +480,7 @@ class TestReplayChargesEndpoint:
         body = resp.json()
         assert body["ok"] is True
         assert body["applied"] == ["7031580844"]
-        assert body["skipped"] == []
+        assert body["already_applied"] == []
         mock_replay.assert_awaited_once()
         assert mock_replay.call_args.args[0] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
 

@@ -211,13 +211,14 @@ class SubscriptionsRepository(BaseRepository):
         )
 
     async def has_billing_event_for_payment(self, mercadopago_payment_id: str) -> bool:
-        """H3 hotfix (2026-09-04): guard de idempotencia del replay admin —
-        `billing_events` tiene un índice único parcial sobre
-        `mercadopago_payment_id` (WHERE NOT NULL); esta lectura evita re-
-        aplicar (y volver a encolar el correo de) una cuota que el ON
-        CONFLICT DO NOTHING de `_apply_approved_charge` ya habría descartado
-        de todos modos, para poder reportarla como `skipped` en vez de
-        `applied`."""
+        """H3 hotfix (2026-09-04): `billing_events` tiene un índice único
+        parcial sobre `mercadopago_payment_id` (WHERE NOT NULL). H4 hotfix
+        (2026-09-04): esta lectura YA NO decide si `replay_subscription_
+        charges` aplica la cuota (siempre la aplica, vía `_apply_approved_
+        charge` — ON CONFLICT DO NOTHING la hace segura) — solo decide con
+        qué ETIQUETA se reporta: `already_applied` si esta lectura da True
+        (el billing_event existía ANTES de esta corrida), `applied` si da
+        False."""
         row = await self._conn.fetchval(
             "SELECT 1 FROM public.billing_events WHERE mercadopago_payment_id = $1",
             mercadopago_payment_id,

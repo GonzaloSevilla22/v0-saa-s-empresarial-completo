@@ -6,6 +6,7 @@ de mocking de httpx.AsyncClient que test_payments.py (process_payment).
 from __future__ import annotations
 
 import datetime
+import decimal
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,6 +15,7 @@ from fastapi import HTTPException
 
 from backend.services.subscriptions import (
     GRACE_PERIOD,
+    _apply_approved_charge,
     _claim_subscription_webhook_idempotency,
     _tier_for_plan_id,
     cancel_subscription,
@@ -59,10 +61,26 @@ def _mock_repo(**overrides):
     return repo
 
 
+class _NullAsyncTransaction:
+    """H4 hotfix (2026-09-04): stub de `conn.transaction()` para los tests
+    con mocks — `_apply_approved_charge` ahora envuelve sus 3 escrituras en
+    `async with conn.transaction():` (el bug real: sin transacción, un 500 a
+    mitad de las 3 escrituras dejaba estado parcial en prod). Un `AsyncMock()`
+    plano no sirve acá: `conn.transaction()` en un AsyncMock devuelve un
+    coroutine, no un context manager async (`TypeError: 'coroutine' object
+    does not support the asynchronous context manager protocol`)."""
+    async def __aenter__(self):
+        return None
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
 def _mock_conn():
     conn = AsyncMock()
     conn.execute = AsyncMock(return_value="INSERT 0 1")
     conn.fetchrow = AsyncMock(return_value=None)
+    conn.transaction = MagicMock(return_value=_NullAsyncTransaction())
     return conn
 
 
@@ -762,6 +780,127 @@ class TestApplyApprovedChargeParity:
         repo2.clear_pending_charge.assert_awaited_once_with(PREAPPROVAL_ID)
 
 
+# ── H4 hotfix (2026-09-04) — atomicidad + normalización de `amount` ────────
+# Caso real: subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1, pago MP
+# 176341057469 ($24.900). `_apply_approved_charge` reventaba con sqlstate
+# 42P18 ("could not determine data type of parameter") en el INSERT de
+# email_logs — `amount`/`plan_expires_at` viajaban SIN cast dentro de
+# jsonb_build_object(VARIADIC "any"), el único lugar de la sentencia donde
+# aparecían. Sin transacción (get_service_conn entrega autocommit), eso dejó
+# accounts/billing_events escritos pero el correo de renovación nunca se
+# encoló — aplicación PARCIAL, verificada con SELECT contra prod.
+
+class TestApplyApprovedChargeAtomicityAndAmountNormalization:
+    @pytest.mark.asyncio
+    async def test_wraps_the_three_writes_in_a_transaction(self):
+        """GREEN: las 3 escrituras (UPDATE accounts, INSERT billing_events,
+        INSERT email_logs) corren dentro de `async with conn.transaction()`
+        — o las 3, o ninguna."""
+        conn = _mock_conn()
+        await _apply_approved_charge(
+            conn,
+            account_id=ACCOUNT_ID,
+            plan="inicial",
+            preapproval_id=PREAPPROVAL_ID,
+            authorized_payment_id="ap-1",
+            mercadopago_payment_id="mp-1",
+            amount=24900,
+            plan_expires_at=datetime.datetime(2026, 10, 1, tzinfo=datetime.timezone.utc),
+        )
+        conn.transaction.assert_called_once()
+        assert conn.execute.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_normalizes_float_amount_to_decimal_via_str(self):
+        """RED/GREEN: MercadoPago manda `transaction_amount` como número
+        JSON — si trae decimales, Python's json lo deserializa como
+        `float`. Se normaliza vía `Decimal(str(...))` (no `Decimal(float)`
+        directo, que arrastraría el ruido binario del float) antes de
+        bindearlo a una columna `numeric`."""
+        conn = _mock_conn()
+        await _apply_approved_charge(
+            conn,
+            account_id=ACCOUNT_ID,
+            plan="inicial",
+            preapproval_id=PREAPPROVAL_ID,
+            authorized_payment_id="ap-1",
+            mercadopago_payment_id="mp-1",
+            amount=24900.5,
+            plan_expires_at=None,
+        )
+        billing_event_call = next(
+            c for c in conn.execute.call_args_list if "subscription_payment_approved" in c.args[0]
+        )
+        amount_arg = billing_event_call.args[-1]
+        assert isinstance(amount_arg, decimal.Decimal)
+        assert amount_arg == decimal.Decimal("24900.5")
+
+    @pytest.mark.asyncio
+    async def test_normalizes_int_amount_to_decimal(self):
+        """TRIANGULATE: un `int` (caso real: 24900, sin decimales) también
+        se normaliza a Decimal — no solo el caso float."""
+        conn = _mock_conn()
+        await _apply_approved_charge(
+            conn,
+            account_id=ACCOUNT_ID,
+            plan="inicial",
+            preapproval_id=PREAPPROVAL_ID,
+            authorized_payment_id="ap-1",
+            mercadopago_payment_id="mp-1",
+            amount=24900,
+            plan_expires_at=None,
+        )
+        billing_event_call = next(
+            c for c in conn.execute.call_args_list if "subscription_payment_approved" in c.args[0]
+        )
+        amount_arg = billing_event_call.args[-1]
+        assert isinstance(amount_arg, decimal.Decimal)
+        assert amount_arg == decimal.Decimal("24900")
+
+    @pytest.mark.asyncio
+    async def test_none_amount_stays_none(self):
+        """TRIANGULATE: un amount ausente no explota (Decimal(str(None))
+        rompería) — se deja pasar tal cual."""
+        conn = _mock_conn()
+        await _apply_approved_charge(
+            conn,
+            account_id=ACCOUNT_ID,
+            plan="inicial",
+            preapproval_id=PREAPPROVAL_ID,
+            authorized_payment_id="ap-1",
+            mercadopago_payment_id="mp-1",
+            amount=None,
+            plan_expires_at=None,
+        )
+        billing_event_call = next(
+            c for c in conn.execute.call_args_list if "subscription_payment_approved" in c.args[0]
+        )
+        assert billing_event_call.args[-1] is None
+
+    @pytest.mark.asyncio
+    async def test_already_decimal_amount_is_left_untouched(self):
+        """TRIANGULATE: `resolve_ambiguous_subscription` pasa `pending["amount"]`,
+        que ya viene de una columna `numeric` leída por asyncpg (siempre
+        `Decimal`, nunca int/float) — no debe re-envolverse ni perder
+        precisión."""
+        conn = _mock_conn()
+        original = decimal.Decimal("24900.50")
+        await _apply_approved_charge(
+            conn,
+            account_id=ACCOUNT_ID,
+            plan="inicial",
+            preapproval_id=PREAPPROVAL_ID,
+            authorized_payment_id="ap-1",
+            mercadopago_payment_id="mp-1",
+            amount=original,
+            plan_expires_at=None,
+        )
+        billing_event_call = next(
+            c for c in conn.execute.call_args_list if "subscription_payment_approved" in c.args[0]
+        )
+        assert billing_event_call.args[-1] is original
+
+
 # ── 6.8bis — resolve_ambiguous_subscription (cola de conciliación manual) ──
 
 class TestResolveAmbiguousSubscription:
@@ -1109,17 +1248,25 @@ class TestReplaySubscriptionCharges:
             result = await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
 
         assert result["applied"] == ["7031580844"]
-        assert result["skipped"] == []
+        assert result["already_applied"] == []
         sqls = [c.args[0] for c in conn.execute.call_args_list]
         assert any("subscription_payment_approved" in s for s in sqls)
         billing_event_call = next(c for c in conn.execute.call_args_list if "subscription_payment_approved" in c.args[0])
         assert "176341057469" in billing_event_call.args
 
     @pytest.mark.asyncio
-    async def test_second_run_is_idempotent_skips_already_applied(self):
-        """RED (TDD c): correr el replay una segunda vez sobre la misma
-        cuota (ya con billing_event) no vuelve a aplicar nada — la reporta
-        como `skipped`, no como `applied`."""
+    async def test_second_run_completes_partial_state_reports_already_applied(self):
+        """H4 hotfix (2026-09-04) — RED (TDD b): antes de este fix, correr el
+        replay una segunda vez sobre una cuota que YA tiene billing_event la
+        reportaba como `skipped` y NUNCA volvía a llamar a
+        `_apply_approved_charge` — así que si la primera corrida había
+        quedado PARCIAL (el caso real: accounts/billing_events escritos,
+        pero el email_logs de renovación nunca se encoló porque
+        `_apply_approved_charge` reventaba con 42P18 a mitad de camino), una
+        segunda corrida NO podía completarla. Ahora SIEMPRE se reaplica
+        (idempotente vía ON CONFLICT DO NOTHING) y se reporta como
+        `already_applied`, no `applied` — pero SÍ vuelve a ejecutar las 3
+        escrituras, incluida la del email."""
         repo = _mock_repo(
             find_subscription_by_id=AsyncMock(
                 return_value={
@@ -1139,9 +1286,11 @@ class TestReplaySubscriptionCharges:
             result = await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
 
         assert result["applied"] == []
-        assert result["skipped"] == ["7031580844"]
+        assert result["already_applied"] == ["7031580844"]
         sqls = [c.args[0] for c in conn.execute.call_args_list]
-        assert not any("subscription_payment_approved" in s for s in sqls)
+        assert any("subscription_payment_approved" in s for s in sqls)
+        assert any("INSERT INTO public.email_logs" in s for s in sqls)
+        repo.clear_pending_charge.assert_awaited_once_with(PREAPPROVAL_ID)
 
     @pytest.mark.asyncio
     async def test_ignores_cuotas_that_are_not_processed_approved(self):
@@ -1167,7 +1316,7 @@ class TestReplaySubscriptionCharges:
             result = await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
 
         assert result["applied"] == []
-        assert result["skipped"] == []
+        assert result["already_applied"] == []
 
     @pytest.mark.asyncio
     async def test_mp_error_on_preapproval_lookup_raises_502(self):

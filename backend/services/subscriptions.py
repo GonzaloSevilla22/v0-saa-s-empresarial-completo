@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import decimal
 import logging
 
 import asyncpg
@@ -181,12 +182,15 @@ async def cancel_subscription(
         plan_expires_at,
     )
 
+    # H4 hotfix (2026-09-04): `$3` (plan_expires_at) casteado a ::timestamptz
+    # — vive solo dentro de jsonb_build_object(VARIADIC "any"), mismo patrón
+    # que sqlstate 42P18 en `_apply_approved_charge` (ver su docstring).
     await conn.execute(
         """
         INSERT INTO public.billing_events (user_id, event_type, from_plan, to_plan, reason, metadata)
         SELECT owner_user_id, 'subscription_cancelled', billing_plan, billing_plan,
                'mp-real-subscriptions: baja voluntaria del usuario',
-               jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3)
+               jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3::timestamptz)
         FROM public.accounts WHERE id = $1
         """,
         account_id,
@@ -201,7 +205,7 @@ async def cancel_subscription(
         INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
         SELECT a.owner_user_id, 'subscription_cancelled', u.email,
                'Tu suscripción fue cancelada — ALIADATA',
-               jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3, 'reason', 'user_requested')
+               jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3::timestamptz, 'reason', 'user_requested')
         FROM public.accounts a
         JOIN auth.users u ON u.id = a.owner_user_id
         WHERE a.id = $1
@@ -244,54 +248,85 @@ async def _apply_approved_charge(
     `mercadopago_payment_id` (WHERE NOT NULL) y `email_logs` sobre
     `(user_id, event_type, metadata)` — ambos INSERT usan
     `ON CONFLICT DO NOTHING`, así que aplicar la MISMA cuota dos veces
-    (p.ej. el endpoint de replay corriendo dos veces) no duplica nada."""
-    await conn.execute(
-        """
-        UPDATE public.accounts
-        SET plan_expires_at = $2, billing_status = 'active'
-        WHERE id = $1
-        """,
-        account_id,
-        plan_expires_at,
-    )
-    await conn.execute(
-        """
-        INSERT INTO public.billing_events
-            (user_id, event_type, to_plan, reason, metadata, mercadopago_payment_id, amount)
-        SELECT owner_user_id, 'subscription_payment_approved', $2, 'mp-real-subscriptions: cobro mensual',
-               jsonb_build_object('preapproval_id', $3::text, 'authorized_payment_id', $4::text),
-               $5, $6
-        FROM public.accounts WHERE id = $1
-        ON CONFLICT DO NOTHING
-        """,
-        account_id,
-        plan,
-        preapproval_id,
-        authorized_payment_id,
-        mercadopago_payment_id,
-        amount,
-    )
-    await conn.execute(
-        """
-        INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
-        SELECT a.owner_user_id, 'subscription_payment_approved', u.email,
-               'Renovamos tu suscripción — ALIADATA',
-               jsonb_build_object(
-                   'preapproval_id', $2::text, 'authorized_payment_id', $3::text,
-                   'plan', $4::text, 'amount', $5, 'plan_expires_at', $6
-               )
-        FROM public.accounts a
-        JOIN auth.users u ON u.id = a.owner_user_id
-        WHERE a.id = $1
-        ON CONFLICT DO NOTHING
-        """,
-        account_id,
-        preapproval_id,
-        authorized_payment_id,
-        plan,
-        amount,
-        plan_expires_at,
-    )
+    (p.ej. el endpoint de replay corriendo dos veces) no duplica nada.
+
+    H4 hotfix (2026-09-04): dos bugs de producción reales aislados con
+    subscriptions.id fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 / pago MP
+    176341057469 ($24.900):
+
+    1. El INSERT de `email_logs` de abajo pasaba `amount` (`$5`) y
+       `plan_expires_at` (`$6`) SIN cast dentro de
+       `jsonb_build_object(VARIADIC "any")` — el ÚNICO lugar donde esos
+       parámetros aparecían en toda la sentencia. Postgres no puede inferir
+       el tipo de un parámetro que solo se usa en un contexto polimórfico
+       ("any"): sqlstate **42P18** ("could not determine data type of
+       parameter"), reproducido contra la DB local. `asyncpg_error_handler`
+       no tiene ese sqlstate mapeado → 500 genérico sin traceback. Fix:
+       cast explícito (`$5::numeric`, `$6::timestamptz`).
+    2. Sin transacción: cuando el INSERT de `email_logs` reventaba, el
+       UPDATE de `accounts` y el INSERT de `billing_events` de ARRIBA ya
+       habían comiteado (autocommit de `get_service_conn`, que entrega una
+       conexión sin transacción abierta) — aplicación PARCIAL. Caso real
+       verificado: `accounts.plan_expires_at`/`billing_status` y la fila de
+       `billing_events` quedaron bien, pero NUNCA se encoló el correo de
+       renovación. Fix: las 3 escrituras corren dentro de
+       `conn.transaction()` — o las 3, o ninguna.
+
+    `amount` llega de la API de MercadoPago como número JSON (puede
+    deserializar como `int` o `float` según lleve decimales) — se normaliza
+    acá a `Decimal` (vía `str()`, para no arrastrar el ruido binario de un
+    float) antes de bindearlo a las columnas/parámetros `numeric`."""
+    if amount is not None and not isinstance(amount, decimal.Decimal):
+        amount = decimal.Decimal(str(amount))
+
+    async with conn.transaction():
+        await conn.execute(
+            """
+            UPDATE public.accounts
+            SET plan_expires_at = $2, billing_status = 'active'
+            WHERE id = $1
+            """,
+            account_id,
+            plan_expires_at,
+        )
+        await conn.execute(
+            """
+            INSERT INTO public.billing_events
+                (user_id, event_type, to_plan, reason, metadata, mercadopago_payment_id, amount)
+            SELECT owner_user_id, 'subscription_payment_approved', $2, 'mp-real-subscriptions: cobro mensual',
+                   jsonb_build_object('preapproval_id', $3::text, 'authorized_payment_id', $4::text),
+                   $5, $6
+            FROM public.accounts WHERE id = $1
+            ON CONFLICT DO NOTHING
+            """,
+            account_id,
+            plan,
+            preapproval_id,
+            authorized_payment_id,
+            mercadopago_payment_id,
+            amount,
+        )
+        await conn.execute(
+            """
+            INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
+            SELECT a.owner_user_id, 'subscription_payment_approved', u.email,
+                   'Renovamos tu suscripción — ALIADATA',
+                   jsonb_build_object(
+                       'preapproval_id', $2::text, 'authorized_payment_id', $3::text,
+                       'plan', $4::text, 'amount', $5::numeric, 'plan_expires_at', $6::timestamptz
+                   )
+            FROM public.accounts a
+            JOIN auth.users u ON u.id = a.owner_user_id
+            WHERE a.id = $1
+            ON CONFLICT DO NOTHING
+            """,
+            account_id,
+            preapproval_id,
+            authorized_payment_id,
+            plan,
+            amount,
+            plan_expires_at,
+        )
 
 
 # ── Cola de ambiguos (D2bis, task 6.8bis) — resolución manual, admin-only ──
@@ -547,12 +582,18 @@ async def process_subscription_preapproval_notification(
             # el propio panel de MP). Mismo event_type que la baja
             # voluntaria (cancel_subscription); el usuario recibe el mismo
             # aviso sin importar el origen.
+            # H4 hotfix (2026-09-04): `$3` (plan_expires_at) vive SOLO dentro
+            # de jsonb_build_object(VARIADIC "any") — mismo patrón que reventó
+            # con sqlstate 42P18 en `_apply_approved_charge` (ver su
+            # docstring). Nunca se ejercitó en prod (ninguna baja reportada
+            # por MP corrió todavía), pero es el mismo bug latente — casteado
+            # acá también.
             await conn.execute(
                 """
                 INSERT INTO public.email_logs (user_id, event_type, recipient, subject, metadata)
                 SELECT a.owner_user_id, 'subscription_cancelled', u.email,
                        'Tu suscripción fue cancelada — ALIADATA',
-                       jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3, 'reason', 'mercadopago')
+                       jsonb_build_object('preapproval_id', $2::text, 'plan_expires_at', $3::timestamptz, 'reason', 'mercadopago')
                 FROM public.accounts a
                 JOIN auth.users u ON u.id = a.owner_user_id
                 WHERE a.id = $1
@@ -738,15 +779,25 @@ async def replay_subscription_charges(
     MercadoPago: `GET /preapproval/{id}` (para el estado/next_payment_date
     vigente) y `GET /authorized_payments/search?preapproval_id={id}` (todas
     las cuotas), y aplica `_apply_approved_charge` — la MISMA función que
-    usan los otros dos caminos — por cada cuota `processed`/`approved` que
-    todavía no tenga su `billing_event`. Sirve tanto para el caso histórico
+    usan los otros dos caminos — por CADA cuota `processed`/`approved`,
+    tenga o no ya su `billing_event`. Sirve tanto para el caso histórico
     (nada quedó guardado) como para cualquier cuota que este fix no haya
     alcanzado a capturar por otra razón.
 
-    Idempotente: correrlo dos veces no duplica nada — `has_billing_event_
-    for_payment` salta las cuotas ya aplicadas (reportadas como `skipped`,
-    no `applied`), y `_apply_approved_charge` además tiene su propio
-    ON CONFLICT DO NOTHING como segunda red."""
+    H4 hotfix (2026-09-04): antes de este fix, una cuota con
+    `has_billing_event_for_payment` = True se reportaba como `skipped` y
+    NUNCA llegaba a llamar a `_apply_approved_charge` — así que una segunda
+    corrida del replay sobre la MISMA cuota no podía completar una
+    aplicación que había quedado PARCIAL (el caso real que motivó este
+    endpoint: `_apply_approved_charge` sin transacción dejó
+    `accounts`/`billing_events` escritos pero el `email_logs` de renovación
+    nunca se encoló). Ahora se aplica SIEMPRE — los 2 INSERT de
+    `_apply_approved_charge` son `ON CONFLICT DO NOTHING` y su UPDATE es
+    idempotente, así que reaplicar una cuota ya completa no duplica ni
+    corrompe nada — y solo cambia la ETIQUETA con la que se reporta:
+    `applied` si el `billing_event` NO existía antes de esta corrida,
+    `already_applied` si ya existía (la corrida igual completó cualquier
+    escritura que hubiera quedado pendiente, como el correo faltante)."""
     subscription = await repo.find_subscription_by_id(subscription_id)
     if subscription is None:
         raise HTTPException(status_code=404, detail="No existe una suscripción con ese id")
@@ -799,7 +850,7 @@ async def replay_subscription_charges(
         pass
 
     applied: list[str] = []
-    skipped: list[str] = []
+    already_applied: list[str] = []
 
     for cuota in cuotas:
         authorized_payment_id = cuota.get("id")
@@ -809,9 +860,14 @@ async def replay_subscription_charges(
         authorized_payment_id = str(authorized_payment_id)
 
         mercadopago_payment_id = str(payment["id"]) if payment.get("id") else None
-        if mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id):
-            skipped.append(authorized_payment_id)
-            continue
+        # H4 hotfix: la clasificación se decide ANTES de aplicar (el
+        # billing_event existía o no existía cuando arrancó esta corrida) —
+        # pero se aplica SIEMPRE, exista o no, para completar cualquier
+        # escritura parcial que hubiera quedado pendiente de una corrida
+        # anterior interrumpida a mitad (ver docstring de esta función).
+        billing_event_existed = bool(
+            mercadopago_payment_id and await repo.has_billing_event_for_payment(mercadopago_payment_id)
+        )
 
         next_payment_date = _parse_mp_datetime(cuota.get("next_retry_date") or cuota.get("debit_date"))
         plan_expires_at = (next_payment_date + GRACE_PERIOD) if next_payment_date else None
@@ -826,7 +882,10 @@ async def replay_subscription_charges(
             amount=cuota.get("transaction_amount"),
             plan_expires_at=plan_expires_at,
         )
-        applied.append(authorized_payment_id)
+        if billing_event_existed:
+            already_applied.append(authorized_payment_id)
+        else:
+            applied.append(authorized_payment_id)
 
     # trae el estado/vencimiento LOCAL de subscriptions al día con la verdad
     # vigente de MP, independientemente de si hubo alguna cuota para replicar.
@@ -838,7 +897,10 @@ async def replay_subscription_charges(
             next_payment_date=_parse_mp_datetime(preapproval_data.get("next_payment_date")),
         )
 
-    if applied:
+    # cualquier cuota processed/approved encontrada (nueva o ya aplicada)
+    # significa que este preapproval ya está cubierto — el marcador de
+    # "cobro pendiente de replicar" quedó obsoleto en cualquiera de los 2 casos.
+    if applied or already_applied:
         await repo.clear_pending_charge(preapproval_id)
 
-    return {"ok": True, "applied": applied, "skipped": skipped}
+    return {"ok": True, "applied": applied, "already_applied": already_applied}

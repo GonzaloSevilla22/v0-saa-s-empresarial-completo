@@ -189,12 +189,23 @@ export function parseCSV(
 
 // ─── Amount parsing helper (handles European and US formats) ─────────────────
 
+export interface ParseAmountOptions {
+  /**
+   * Una coma sin punto es SIEMPRE decimal ("1,250" → 1.25) y más de una coma
+   * sin punto es inválida (NaN). Sin la opción rige la heurística de importes:
+   * coma seguida de tres o más dígitos = separador de miles ("1,250" → 1250).
+   * Usarla para cantidades físicas (stock en kg, litros, metros), donde tres
+   * decimales son normales; los importes en pesos conservan el default.
+   */
+  loneCommaIsDecimal?: boolean
+}
+
 /**
  * Parses a monetary/numeric string into a float.
  * Supports: "1.234,56" (European/AR), "1,234.56" (US), "1234.56", "1234".
  * Returns NaN if the string cannot be parsed.
  */
-export function parseAmount(raw: string | undefined): number {
+export function parseAmount(raw: string | undefined, options: ParseAmountOptions = {}): number {
   if (!raw) return NaN
   const s = String(raw).trim()
 
@@ -220,6 +231,11 @@ export function parseAmount(raw: string | undefined): number {
   if (hasComma && !hasDot) {
     // Could be "1234,56" (decimal comma) or "1,234" (thousands separator)
     const parts = cleaned.split(",")
+    if (options.loneCommaIsDecimal) {
+      // Cantidad física: la coma es decimal sin mirar cuántos dígitos siguen
+      // ("1,250" → 1.25); dos o más comas no son un número ("1,5,2" → NaN).
+      return parts.length === 2 ? parseFloat(cleaned.replace(",", ".")) : NaN
+    }
     if (parts.length === 2 && parts[1].length <= 2) {
       // Treat as decimal comma: "1234,56"
       return parseFloat(cleaned.replace(",", "."))

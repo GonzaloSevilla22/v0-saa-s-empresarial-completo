@@ -23,8 +23,16 @@ export function formatMoney(value: number, currency: Currency = "ARS"): string {
   }).format(value)
 }
 
-export function formatNumber(value: number): string {
-  return new Intl.NumberFormat("es-AR").format(value)
+/**
+ * Número en es-AR ("1.234,56"). `maximumFractionDigits` opcional: el default
+ * de Intl es 3 — una cantidad de stock con 4 decimales (numeric(15,4)) se
+ * muestra sin redondear pasando 4.
+ */
+export function formatNumber(value: number, maximumFractionDigits?: number): string {
+  return new Intl.NumberFormat(
+    "es-AR",
+    maximumFractionDigits === undefined ? undefined : { maximumFractionDigits },
+  ).format(value)
 }
 
 export function formatDate(dateStr: string): string {

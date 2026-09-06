@@ -49,7 +49,7 @@ import {
 } from "lucide-react"
 import {
   TEMPLATE_CSV, UI_KEY_TO_DB, UI_KEY_LABEL, parseCSVText, parseAndValidate,
-  type ParsedImportRow, type RowStatus,
+  looksLikeThousandsGrouping, type ParsedImportRow, type RowStatus,
 } from "@/lib/stock-import-parser"
 import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -424,12 +424,13 @@ export function StockImportAdjustmentDialog({
                         {UI_KEY_LABEL[row.uiKey] ?? row.rawType}
                       </span>
 
-                      {/* Quantity — la interpretada (es la que viaja a la RPC); el
-                          texto del CSV al lado cuando difiere, como con el nombre */}
-                      <div className="text-xs tabular-nums font-medium text-foreground hidden sm:block pt-0.5">
-                        {row.quantityValid ? formatNumber(row.quantity) : row.rawQuantity}
-                        {row.quantityValid && formatNumber(row.quantity) !== row.rawQuantity.trim() && (
-                          <p className="text-[11px] font-normal text-muted-foreground">
+                      {/* Quantity — la interpretada, con los 4 decimales que admite la RPC
+                          (numeric(15,4)); el texto del CSV al lado sólo cuando podría
+                          haberse leído como miles, como con el nombre parcial */}
+                      <div className="min-w-0 text-xs tabular-nums font-medium text-foreground hidden sm:block pt-0.5">
+                        {row.quantityValid ? formatNumber(row.quantity, 4) : row.rawQuantity}
+                        {row.quantityValid && looksLikeThousandsGrouping(row.rawQuantity) && (
+                          <p className="text-[11px] font-normal text-muted-foreground truncate">
                             CSV: &ldquo;{row.rawQuantity}&rdquo;
                           </p>
                         )}

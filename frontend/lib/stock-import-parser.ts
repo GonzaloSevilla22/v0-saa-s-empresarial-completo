@@ -135,6 +135,17 @@ export function parseCSVText(text: string): string[][] {
   })
 }
 
+/**
+ * ¿El texto de la cantidad podría leerse también como miles ("1,250", "1.250",
+ * "12.345.678")? Sólo en ese caso la vista previa muestra el texto del CSV al
+ * lado de la cantidad interpretada: grupos de tres dígitos separados por un
+ * único tipo de separador. "2,50", "1,2345" o "1000" no tienen lectura
+ * alternativa y mostrarlos sería ruido.
+ */
+export function looksLikeThousandsGrouping(raw: string): boolean {
+  return /^-?\d{1,3}([.,])\d{3}(?:\1\d{3})*$/.test(raw.trim())
+}
+
 // ── Row types ──────────────────────────────────────────────────────────────────
 
 export type RowStatus = "ok" | "warning" | "error"

@@ -107,6 +107,26 @@ describe("StockImportAdjustmentDialog", () => {
     )
   })
 
+  it.each([
+    ["1000", "1.000"],
+    ["2,50", "2,5"],
+    ["1,2345", "1,2345"],
+  ])('"%s" se muestra como %s sin subtítulo CSV: no es un texto que pueda leerse como miles', async (raw, shown) => {
+    renderDialog()
+    await uploadCsv(`${HEADER}\nHarina 000;Ajuste entrada;${raw};Reposición`)
+
+    expect(await screen.findByText(shown)).toBeInTheDocument()
+    expect(screen.queryByText(/CSV:/)).not.toBeInTheDocument()
+  })
+
+  it('"1.250" (punto con tres dígitos) se muestra como 1,25 con el texto original al lado', async () => {
+    renderDialog()
+    await uploadCsv(`${HEADER}\nHarina 000;Ajuste entrada;1.250;Reposición`)
+
+    expect(await screen.findByText("1,25")).toBeInTheDocument()
+    expect(screen.getByText(/CSV:\s*“1\.250”/)).toBeInTheDocument()
+  })
+
   it('un conteo físico "12,25" viaja como p_target_quantity 12.25 y una pérdida "0,5" como delta -0.5', async () => {
     renderDialog()
     const user = await uploadCsv(

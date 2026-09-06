@@ -12,7 +12,9 @@
  */
 
 import { describe, it, expect } from "vitest"
-import { parseAndValidate, parseCSVText, TEMPLATE_CSV } from "@/lib/stock-import-parser"
+import {
+  parseAndValidate, parseCSVText, looksLikeThousandsGrouping, TEMPLATE_CSV,
+} from "@/lib/stock-import-parser"
 import type { Product } from "@/lib/types"
 
 function makeProduct(name: string, overrides: Partial<Product> = {}): Product {
@@ -208,6 +210,22 @@ describe("parseAndValidate — el resto de la fila no cambia con el parser nuevo
     expect(rows[2].status).toBe("error")
     expect(rows[2].errors).toContain('Producto "Inexistente" no encontrado')
   })
+})
+
+describe("looksLikeThousandsGrouping — cuándo el texto del CSV merece mostrarse al lado de la cantidad interpretada", () => {
+  it.each([["1,250"], ["1.250"], ["12.345.678"], ["0,750"], ["1,234,567"], [" 1,250 "]])(
+    '"%s" → true (grupos de tres dígitos: podría ser miles)',
+    (raw) => {
+      expect(looksLikeThousandsGrouping(raw)).toBe(true)
+    },
+  )
+
+  it.each([["1,5"], ["2,50"], ["1,2345"], ["1000"], ["1.234,56"], ["1,234.56"], [""], ["abc"], ["12"], ["1,25,0"]])(
+    '"%s" → false (no hay lectura alternativa como miles)',
+    (raw) => {
+      expect(looksLikeThousandsGrouping(raw)).toBe(false)
+    },
+  )
 })
 
 describe("TEMPLATE_CSV — la plantilla descargable es el contrato que copia el usuario", () => {

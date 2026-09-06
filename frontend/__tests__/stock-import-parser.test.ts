@@ -118,6 +118,22 @@ describe("parseAndValidate — CSV separado por coma con coma decimal sin comill
     expect(row.status).toBe("ok")
     expect(row.quantity).toBe(2)
   })
+
+  it("una columna vacía de más en el encabezado no le da lugar a la celda partida", () => {
+    // "Nombre,Tipo,Cantidad,Motivo," tiene 5 celdas de encabezado; la fila
+    // partida también tiene 5 → sin este caso el guard no la vería.
+    const [row] = parseRows("Nombre,Tipo,Cantidad,Motivo,\nHarina 000,Ajuste entrada,1,5,Reposición")
+    expect(row.status).toBe("error")
+    expect(row.errors.some((e) => /más columnas/.test(e))).toBe(true)
+  })
+
+  it("una coma sin comillas dentro del motivo también se rechaza, con un mensaje que no culpa sólo a la cantidad", () => {
+    const [row] = parseRows("Nombre,Tipo,Cantidad,Motivo\nHarina 000,Ajuste entrada,2,Reposición, urgente")
+    expect(row.status).toBe("error")
+    const msg = row.errors.find((e) => /más columnas/.test(e)) ?? ""
+    expect(msg).toMatch(/comillas/)
+    expect(msg).toMatch(/motivo/i)
+  })
 })
 
 describe("parseAndValidate — quantityValid distingue cantidad ilegible de cantidad cero", () => {

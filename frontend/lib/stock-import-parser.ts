@@ -202,7 +202,12 @@ export function parseAndValidate(cells: string[][], adjustableProducts: Product[
 
   if (colIdx.name < 0 || colIdx.quantity < 0) return []
 
-  const headerLen = cells[0].length
+  // Columnas reales del encabezado: hasta la última celda con nombre. Las
+  // vacías del final (columnas sobrantes que deja Excel) no cuentan — si
+  // contaran, una celda partida por una coma sin comillas encontraría lugar
+  // en ellas y pasaría desapercibida. Queda fuera, a sabiendas, el caso de una
+  // columna extra CON nombre que absorba la celda partida.
+  const headerLen = cells[0].reduce((last, h, idx) => (h !== "" ? idx + 1 : last), 0)
 
   return cells.slice(1).map((row, i) => {
     const rawName     = row[colIdx.name]     ?? ""
@@ -233,11 +238,11 @@ export function parseAndValidate(cells: string[][], adjustableProducts: Product[
 
     // Desborde de columnas: "1,5" sin comillas en un CSV separado por coma se
     // parte en dos celdas y la cantidad llegaría truncada a 1 (el mismo defecto
-    // que este parser corrige, por otro camino). Las celdas vacías sobrantes
-    // (columnas vacías que deja Excel al final) no cuentan.
+    // que este parser corrige, por otro camino); una coma suelta en el motivo
+    // desplaza igual. Las celdas vacías sobrantes al final no cuentan.
     if (row.slice(headerLen).some((c) => c !== "")) {
       errors.push(
-        `La fila tiene más columnas (${row.length}) que el encabezado (${headerLen}) — si usás coma decimal, guardá el CSV separado por punto y coma (;) o poné la cantidad entre comillas`,
+        `La fila tiene más columnas (${row.length}) que el encabezado (${headerLen}): una coma sin comillas dentro de una celda (cantidad decimal o motivo) la parte en dos — guardá el CSV separado por punto y coma (;) o entrecomillá esa celda`,
       )
     }
 

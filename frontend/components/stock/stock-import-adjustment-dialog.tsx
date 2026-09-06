@@ -13,7 +13,8 @@
  *   For each CSV row:
  *     - Resolve the product by name (exact → partial → not found).
  *     - Validate the type column (maps Spanish labels to DB types).
- *     - Validate the quantity (numeric, > 0 for non-physical_count).
+ *     - Validate the quantity (numeric, comma or dot decimals, > 0 for non-physical_count).
+ *       Pure parsing lives in `lib/stock-import-parser.ts` (uses the canonical `parseAmount`).
  *     - Check for variant_only / untracked products (blocked).
  *   Show a table with per-row status badges (OK / warning / error).
  *   Block confirm if there are any blocking errors.
@@ -46,18 +47,14 @@ import {
   CheckCircle2, AlertTriangle, XCircle, Upload, Download,
   FileText, Loader2, ChevronRight, RotateCcw,
 } from "lucide-react"
-import type { Product, MovementType } from "@/lib/types"
+import {
+  TEMPLATE_CSV, UI_KEY_TO_DB, UI_KEY_LABEL, parseCSVText, parseAndValidate,
+  type ParsedImportRow, type RowStatus,
+} from "@/lib/stock-import-parser"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-// ── CSV template ───────────────────────────────────────────────────────────────
-
-const TEMPLATE_CSV = [
-  "Nombre;Tipo;Cantidad;Motivo",
-  "Zapatillas Nike 42;Conteo físico;25;Inventario mensual",
-  "Remera básica XL;Ajuste entrada;10;Reposición de proveedor",
-  "Pantalón jean 32;Pérdida;3;Robo registrado",
-  "Camiseta polo M;Ajuste salida;5;Devolución a depósito",
-].join("\n")
+// ── CSV template (contenido en lib/stock-import-parser, testeado allí) ─────────
 
 function downloadTemplate() {
   const blob = new Blob(["﻿" + TEMPLATE_CSV], { type: "text/csv;charset=utf-8;" })
@@ -67,226 +64,6 @@ function downloadTemplate() {
   })
   a.click()
   URL.revokeObjectURL(url)
-}
-
-// ── Type aliases (Spanish → internal uiKey) ────────────────────────────────────
-
-const TYPE_ALIASES: Record<string, string> = {
-  // adjustment_in
-  "ajuste entrada":    "adjustment_in",
-  "ajuste de entrada": "adjustment_in",
-  "entrada":           "adjustment_in",
-  "ingreso":           "adjustment_in",
-  // adjustment_out
-  "ajuste salida":     "adjustment_out",
-  "ajuste de salida":  "adjustment_out",
-  "salida":            "adjustment_out",
-  "egreso":            "adjustment_out",
-  // physical_count
-  "conteo fisico":     "physical_count",
-  "conteo físico":     "physical_count",
-  "conteo":            "physical_count",
-  "inventario":        "physical_count",
-  // loss
-  "perdida":           "loss",
-  "pérdida":           "loss",
-  "robo":              "loss",
-  "extravío":          "loss",
-  "extravio":          "loss",
-  // damage
-  "daño":              "damage",
-  "dano":              "damage",
-  "merma":             "damage",
-  "deterioro":         "damage",
-  // expiry
-  "vencimiento":       "expiry",
-  "vencido":           "expiry",
-  // transfer_in
-  "transferencia entrada": "transfer_in",
-  "transfer entrada":      "transfer_in",
-  "recepcion":             "transfer_in",
-  "recepción":             "transfer_in",
-  // transfer_out
-  "transferencia salida":  "transfer_out",
-  "transfer salida":       "transfer_out",
-  "envio":                 "transfer_out",
-  "envío":                 "transfer_out",
-}
-
-const UI_KEY_TO_DB: Record<string, { type: MovementType; sign: 1 | -1 | 0 }> = {
-  adjustment_in:  { type: "adjustment",    sign:  1 },
-  adjustment_out: { type: "adjustment",    sign: -1 },
-  physical_count: { type: "physical_count", sign:  0 },
-  loss:           { type: "loss",           sign: -1 },
-  damage:         { type: "damage",         sign: -1 },
-  expiry:         { type: "expiry",         sign: -1 },
-  transfer_in:    { type: "transfer_in",    sign:  1 },
-  transfer_out:   { type: "transfer_out",   sign: -1 },
-}
-
-// Friendly label for display
-const UI_KEY_LABEL: Record<string, string> = {
-  adjustment_in:  "Ajuste entrada",
-  adjustment_out: "Ajuste salida",
-  physical_count: "Conteo físico",
-  loss:           "Pérdida / Robo",
-  damage:         "Daño / Merma",
-  expiry:         "Vencimiento",
-  transfer_in:    "Transferencia ent.",
-  transfer_out:   "Transferencia sal.",
-}
-
-function resolveType(raw: string): string | null {
-  const key = raw.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-  // Try normalised version too
-  for (const [alias, uiKey] of Object.entries(TYPE_ALIASES)) {
-    const normAlias = alias.normalize("NFD").replace(/[̀-ͯ]/g, "")
-    if (key === normAlias) return uiKey
-  }
-  // Direct match against uiKey (e.g. "adjustment_in")
-  if (key in UI_KEY_TO_DB) return key
-  return null
-}
-
-// ── CSV parser ─────────────────────────────────────────────────────────────────
-
-function parseCSVText(text: string): string[][] {
-  const clean = text.replace(/^﻿/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n")
-  const lines = clean.split("\n").filter((l) => l.trim() !== "")
-  if (lines.length === 0) return []
-
-  // Auto-detect delimiter: count `;` vs `,` in header row
-  const header  = lines[0]
-  const delim   = (header.split(";").length - 1) >= (header.split(",").length - 1) ? ";" : ","
-
-  return lines.map((line) => {
-    const cells: string[] = []
-    let current  = ""
-    let inQuotes = false
-    for (const ch of line) {
-      if      (ch === '"')    { inQuotes = !inQuotes }
-      else if (ch === delim && !inQuotes) { cells.push(current.trim()); current = "" }
-      else    { current += ch }
-    }
-    cells.push(current.trim())
-    return cells.map((c) => c.replace(/^"|"$/g, "").trim())
-  })
-}
-
-// ── Row types ──────────────────────────────────────────────────────────────────
-
-type RowStatus = "ok" | "warning" | "error"
-
-interface ParsedImportRow {
-  /** Original CSV row index (1-based, after header) */
-  rowNum:      number
-  /** Raw CSV values */
-  rawName:     string
-  rawType:     string
-  rawQuantity: string
-  rawMotivo:   string
-  /** Resolution results */
-  product:     Product | null
-  resolvedName: string | null   // actual product name found (if different from rawName)
-  uiKey:       string           // resolved movement uiKey
-  quantity:    number           // parsed quantity
-  // Validation
-  status:      RowStatus
-  errors:      string[]         // blocking errors
-  warnings:    string[]         // non-blocking warnings
-  // Applied result (step 3)
-  applied?:    boolean
-  applyError?: string
-}
-
-// ── Product resolution by name ─────────────────────────────────────────────────
-
-function resolveProductByName(
-  name: string,
-  candidates: Product[],
-): { product: Product | null; resolvedName: string | null; status: "exact" | "partial" | "ambiguous" | "not_found" } {
-  const q = name.trim().toLowerCase()
-  if (!q) return { product: null, resolvedName: null, status: "not_found" }
-
-  // Exact match (case-insensitive)
-  const exact = candidates.filter((p) => p.name.toLowerCase() === q)
-  if (exact.length === 1) return { product: exact[0], resolvedName: exact[0].name, status: "exact" }
-  if (exact.length > 1)   return { product: null, resolvedName: null, status: "ambiguous" }
-
-  // Partial match: product name contains query OR query contains product name
-  const partial = candidates.filter(
-    (p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()),
-  )
-  if (partial.length === 1) return { product: partial[0], resolvedName: partial[0].name, status: "partial" }
-  if (partial.length > 1)   return { product: null, resolvedName: null, status: "ambiguous" }
-
-  return { product: null, resolvedName: null, status: "not_found" }
-}
-
-// ── Parse & validate CSV rows ──────────────────────────────────────────────────
-
-function parseAndValidate(cells: string[][], adjustableProducts: Product[]): ParsedImportRow[] {
-  if (cells.length < 2) return []
-
-  // Normalize header keys
-  const header  = cells[0].map((h) => h.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, ""))
-  const colIdx  = {
-    name:     header.findIndex((h) => h === "nombre" || h === "producto" || h === "name"),
-    type:     header.findIndex((h) => h === "tipo"   || h === "type"     || h === "movimiento"),
-    quantity: header.findIndex((h) => h === "cantidad" || h === "qty"    || h === "quantity"),
-    motivo:   header.findIndex((h) => h === "motivo" || h === "razon"    || h === "razon" || h === "reason" || h === "nota"),
-  }
-
-  if (colIdx.name < 0 || colIdx.quantity < 0) return []
-
-  return cells.slice(1).map((row, i) => {
-    const rawName     = row[colIdx.name]     ?? ""
-    const rawType     = colIdx.type >= 0 ? (row[colIdx.type] ?? "") : ""
-    const rawQuantity = row[colIdx.quantity] ?? ""
-    const rawMotivo   = colIdx.motivo >= 0  ? (row[colIdx.motivo] ?? "") : ""
-
-    const errors:   string[] = []
-    const warnings: string[] = []
-
-    // Resolve product
-    const resolution   = resolveProductByName(rawName, adjustableProducts)
-    const product      = resolution.product
-    const resolvedName = resolution.resolvedName
-
-    if      (resolution.status === "not_found")  errors.push(`Producto "${rawName}" no encontrado`)
-    else if (resolution.status === "ambiguous")   errors.push(`El nombre "${rawName}" coincide con múltiples productos — usá el nombre exacto`)
-    else if (resolution.status === "partial")     warnings.push(`Coincidencia parcial → asignado a "${resolvedName}"`)
-
-    // Resolve type (default: adjustment_in)
-    const uiKey = rawType.trim() === "" ? "adjustment_in" : (resolveType(rawType) ?? "")
-    if (rawType.trim() !== "" && !uiKey) {
-      errors.push(`Tipo "${rawType}" no reconocido`)
-    }
-    if (rawType.trim() === "") {
-      warnings.push('Tipo no especificado — se usará "Ajuste entrada" por defecto')
-    }
-
-    // Resolve quantity
-    const quantity = parseFloat(rawQuantity)
-    if (rawQuantity.trim() === "" || isNaN(quantity)) {
-      errors.push("Cantidad inválida")
-    } else if (quantity < 0) {
-      errors.push("La cantidad no puede ser negativa")
-    } else if (uiKey !== "physical_count" && quantity === 0) {
-      errors.push("La cantidad debe ser mayor a cero para este tipo de movimiento")
-    }
-
-    const status: RowStatus = errors.length > 0 ? "error" : warnings.length > 0 ? "warning" : "ok"
-
-    return {
-      rowNum:      i + 2,
-      rawName, rawType, rawQuantity, rawMotivo,
-      product, resolvedName,
-      uiKey:    uiKey || "adjustment_in",
-      quantity: isNaN(quantity) ? 0 : quantity,
-      status, errors, warnings,
-    }
-  })
 }
 
 // ── Status badge ───────────────────────────────────────────────────────────────
@@ -543,7 +320,7 @@ export function StockImportAdjustmentDialog({
                 </p>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
                   <div><span className="font-medium text-foreground">Nombre</span> <span className="text-muted-foreground">(obligatorio)</span></div>
-                  <div><span className="font-medium text-foreground">Cantidad</span> <span className="text-muted-foreground">(obligatorio)</span></div>
+                  <div><span className="font-medium text-foreground">Cantidad</span> <span className="text-muted-foreground">(obligatorio — decimales con coma o punto)</span></div>
                   <div><span className="font-medium text-foreground">Tipo</span> <span className="text-muted-foreground">(opcional)</span></div>
                   <div><span className="font-medium text-foreground">Motivo</span> <span className="text-muted-foreground">(opcional)</span></div>
                 </div>
@@ -647,10 +424,16 @@ export function StockImportAdjustmentDialog({
                         {UI_KEY_LABEL[row.uiKey] ?? row.rawType}
                       </span>
 
-                      {/* Quantity */}
-                      <span className="text-xs tabular-nums font-medium text-foreground hidden sm:block pt-0.5">
-                        {row.rawQuantity}
-                      </span>
+                      {/* Quantity — la interpretada (es la que viaja a la RPC); el
+                          texto del CSV al lado cuando difiere, como con el nombre */}
+                      <div className="text-xs tabular-nums font-medium text-foreground hidden sm:block pt-0.5">
+                        {row.quantityValid ? formatNumber(row.quantity) : row.rawQuantity}
+                        {row.quantityValid && formatNumber(row.quantity) !== row.rawQuantity.trim() && (
+                          <p className="text-[11px] font-normal text-muted-foreground">
+                            CSV: &ldquo;{row.rawQuantity}&rdquo;
+                          </p>
+                        )}
+                      </div>
 
                       {/* Status */}
                       <div className="hidden sm:block pt-0.5">

@@ -252,6 +252,11 @@ Heredado de `v31-mp-upgrade-webhook-fix` (H-02, ✅ archivada 2026-09-05 en `ope
 - **Retiro del reenviador legacy** (`frontend/app/api/billing/webhook/route.ts`) — la ventana de convivencia de 30 días corre desde el 2026-09-04 (fecha en que se cumplió D5-a) y vence el **2026-10-04**. Ese día: tasks 6.2 (verificar cero reenvíos — logs de Render `x-relay-source` + `notifications_history` de MP; 35+ días en cero al 2026-09-05) y, si da cero, 6.3 (eliminar el archivo y sus tests). Ver `CHANGES.md` §"Pendientes externos del PO".
 - Los candidatos de código que la primera suscripción real dejó (matcheo por `payer_email` sin `external_reference`, cola de ambiguas sin "descartar", replay sin botón de UI, `last_payment_status` no sincronizado) **no viven acá** — quedaron documentados en la ficha archivada de `mp-real-subscriptions` (`CHANGES.md`), que es el change que los originó.
 
+Heredado del fix ad-hoc `stock-import-decimal-comma` (PR #522, 2026-09-05, ver `CHANGES.md`):
+
+- **`lib/import/validator.ts` parsea las cantidades de stock del importador de productos con `parseInt`** — `"1,5"` → 1 y `"1.234"` → 1, en silencio (el mismo defecto que cerró el PR #522 en el importador de ajustes, en el otro importador). La opción `loneCommaIsDecimal` de `parseAmount` es el fix de una línea por sitio; hay que decidir si el catálogo exige enteros (entonces rechazar con error de fila en vez de truncar) y cubrirlo con sus propios tests.
+- **Fundamento envejecido de la spec `data-export`** — justifica no emitir coma decimal en los CSV de exportación porque "un importador con `parseFloat` truncaría"; tras el PR #522 ningún importador CSV del frontend usa `parseFloat`, sólo lo sostiene el `parseInt` de arriba. Reformular cuando se cierre ése.
+
 Ninguno de los candidatos heredados es urgente por sí solo; quedan para que el PO decida si ameritan un change propio (posiblemente combinados, como se hizo con h1+h2 en `tenancy-guard-caja-outbox`). La excepción es el residuo de `v31-mp-upgrade-webhook-fix` de arriba, que no espera decisión — ya tiene fecha fija (2026-10-04).
 
 ### Camino crítico (Fases 6-7)

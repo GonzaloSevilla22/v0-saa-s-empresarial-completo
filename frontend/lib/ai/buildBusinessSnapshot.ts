@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { lineRevenue, sumLineRevenue, netMarginPct, previousWindow } from '@/lib/reporting/revenue-canon'
 import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
+import { fetchCriticalStockCount } from '@/lib/reporting/critical-stock'
 import { argentinaToday, argentinaDaysAgo } from '@/lib/date-range'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -40,12 +41,9 @@ export interface BusinessSnapshot {
       dias_sin_vender: number
       valor_inmovilizado: number  // stock * costo
     }>
-    stock_critico: Array<{
-      nombre: string
-      stock: number
-      minimo: number
-      dias_restantes_estimados: number
-    }>
+    /** Conteo canónico sobre branch_stock. `null` si la RPC no respondió;
+     * nunca se reconstruye sobre el stock agregado del catálogo. */
+    stock_critico_total: number | null
     margen_bajo: Array<{
       nombre: string
       margen_pct: number
@@ -95,6 +93,7 @@ export async function buildBusinessSnapshot(
     { data: expenses },
     { data: newClients },
     { data: recentSalesForRotation },
+    criticalStockCount,
   ] = await Promise.all([
     // Ventas período actual — incluye join a products para margen. `total`
     // se agrega para poder degradar sin subcontar ventas multi-unidad si el
@@ -108,7 +107,7 @@ export async function buildBusinessSnapshot(
     // C-21: lee de v_products_with_stock — stock = COALESCE(Σ branch_stock, 0)
     supabase
       .from('v_products_with_stock')
-      .select('id, name, price, cost, stock, min_stock')
+      .select('id, name, price, cost, stock')
       .order('price', { ascending: false })
       .limit(50),
 
@@ -130,6 +129,11 @@ export async function buildBusinessSnapshot(
       .select('product_id, date')
       .gte('date', d60Str)
       .order('date', { ascending: false }),
+
+    fetchCriticalStockCount(supabase, null).catch(err => {
+      console.error('[Copilot] get_dashboard_critical_stock falló, dato omitido:', err)
+      return null
+    }),
   ])
 
   const sales  = currentSales ?? []
@@ -232,12 +236,6 @@ export async function buildBusinessSnapshot(
     }
   }
 
-  // Promedio diario de ventas por producto (para días restantes)
-  const avgDailyUnits = new Map<string, number>()
-  for (const [pid, data] of salesByProduct) {
-    avgDailyUnits.set(pid, data.units / 30)
-  }
-
   // Sin rotación: tiene stock pero no se vendió en ≥30 días
   const sinRotacion = prods
     .filter(p => Number(p.stock) > 0)
@@ -257,21 +255,6 @@ export async function buildBusinessSnapshot(
       dias_sin_vender:    dias,
       valor_inmovilizado: Math.round(Number(p.stock) * Number(p.cost)),
     }))
-
-  // Stock crítico: stock ≤ min_stock
-  const stockCritico = prods
-    .filter(p => Number(p.stock) <= Number(p.min_stock ?? 5))
-    .slice(0, 5)
-    .map(p => {
-      const avg  = avgDailyUnits.get(p.id as string) ?? 0
-      const dias = avg > 0 ? Math.round(Number(p.stock) / avg) : 99
-      return {
-        nombre:                   p.name as string,
-        stock:                    Number(p.stock),
-        minimo:                   Number(p.min_stock ?? 5),
-        dias_restantes_estimados: dias,
-      }
-    })
 
   // Margen bajo: < 20%
   const margenBajo = prods
@@ -332,7 +315,7 @@ export async function buildBusinessSnapshot(
     productos: {
       top_rentables: topRentables,
       sin_rotacion:  sinRotacion,
-      stock_critico: stockCritico,
+      stock_critico_total: criticalStockCount,
       margen_bajo:   margenBajo,
     },
     clientes: {
@@ -386,11 +369,8 @@ export function snapshotToText(s: BusinessSnapshot): string {
     }
   }
 
-  if (s.productos.stock_critico.length > 0) {
-    lines.push('STOCK CRÍTICO:')
-    for (const p of s.productos.stock_critico) {
-      lines.push(`  • ${p.nombre}: ${p.stock} uds (mín ${p.minimo}), ~${p.dias_restantes_estimados} días restantes`)
-    }
+  if (s.productos.stock_critico_total != null && s.productos.stock_critico_total > 0) {
+    lines.push(`STOCK CRÍTICO: ${s.productos.stock_critico_total} productos`)
   }
 
   if (s.productos.margen_bajo.length > 0) {
@@ -418,12 +398,8 @@ export function buildAdaptiveContext(s: BusinessSnapshot, question: string): str
   )
 
   if (/stock|producto|inventar|repon|mercader|unidad/.test(q)) {
-    if (s.productos.stock_critico.length > 0) {
-      blocks.push('STOCK CRÍTICO: ' +
-        s.productos.stock_critico.map(p =>
-          `${p.nombre}(${p.stock}uds,~${p.dias_restantes_estimados}d)`
-        ).join(', ')
-      )
+    if (s.productos.stock_critico_total != null && s.productos.stock_critico_total > 0) {
+      blocks.push(`STOCK CRÍTICO: ${s.productos.stock_critico_total} productos`)
     }
     if (s.productos.sin_rotacion.length > 0) {
       blocks.push('SIN ROTACIÓN: ' +

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   mapKpiHeaderMetrics,
   selectLatestMatureCohort,
+  selectMatureCohorts,
   shouldShowDataCoverageWarning,
   DATA_COVERAGE_STALE_THRESHOLD_DAYS,
   type AdminKpiOverview,
@@ -106,6 +107,19 @@ describe("selectLatestMatureCohort", () => {
 
   it("devuelve null con lista vacía", () => {
     expect(selectLatestMatureCohort([])).toBeNull()
+  })
+})
+
+describe("selectMatureCohorts", () => {
+  it("excluye del gráfico las cohortes que no completaron el horizonte", () => {
+    const cohorts: AdminRetentionCohort[] = [
+      makeCohort({ cohort_start: "2026-06-01T00:00:00.000Z", is_mature: true }),
+      makeCohort({ cohort_start: "2026-08-01T00:00:00.000Z", is_mature: false }),
+    ]
+
+    expect(selectMatureCohorts(cohorts).map((cohort) => cohort.cohort_start)).toEqual([
+      "2026-06-01T00:00:00.000Z",
+    ])
   })
 })
 

@@ -5,6 +5,8 @@
  * escalar a `number`, patrón de `lib/reporting/kpi-summary.ts`.
  */
 
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, it, expect, vi } from "vitest"
 import { fetchCriticalStockCount } from "@/lib/reporting/critical-stock"
 
@@ -50,5 +52,34 @@ describe("fetchCriticalStockCount (5.2/5.4)", () => {
     const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchCriticalStockCount>[0]
 
     await expect(fetchCriticalStockCount(client, null)).rejects.toEqual({ message: "boom" })
+  })
+})
+
+describe("consumidores del KPI canónico de stock crítico", () => {
+  it("el resumen secundario del Tablero usa el hook canónico con la sucursal activa", () => {
+    const source = readFileSync(
+      join(process.cwd(), "components/dashboard/ai-summary-card.tsx"),
+      "utf8",
+    )
+
+    expect(source).toContain("useCriticalStock(branchId)")
+    expect(source).not.toContain("useProducts")
+    expect(source).not.toMatch(/stock\s*<=\s*min/i)
+  })
+
+  it("Copilot e ai-insights no reconstruyen criticidad desde v_products_with_stock", () => {
+    const copilotSource = readFileSync(
+      join(process.cwd(), "lib/ai/buildBusinessSnapshot.ts"),
+      "utf8",
+    )
+    const insightsSource = readFileSync(
+      join(process.cwd(), "../supabase/functions/ai-insights/index.ts"),
+      "utf8",
+    )
+
+    for (const source of [copilotSource, insightsSource]) {
+      expect(source).toContain("fetchCriticalStockCount")
+      expect(source).not.toMatch(/Number\(p\.stock\)\s*<=\s*Number\(p\.min_stock/)
+    }
   })
 })

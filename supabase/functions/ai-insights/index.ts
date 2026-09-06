@@ -2,6 +2,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
 import {
   fetchKpiSummary,
+  fetchCriticalStockCount,
   lineRevenue,
   sumLineRevenue,
   netMarginPct,
@@ -115,12 +116,16 @@ Deno.serve(async (req) => {
 
     // C-20: leer desde v_sales_flat (columnas planas desde sale_items) en lugar de sales.
     // `total` se agrega para poder degradar sin subcontar multi-unidad si el canon falla (D4).
-    const [salesRes, productsRes, expensesRes, rotationRes] = await Promise.all([
+    const [salesRes, productsRes, expensesRes, rotationRes, criticalStockCount] = await Promise.all([
       supabase.from('v_sales_flat').select('amount, quantity, total, date, product_id').gte('date', d30Str),
       // C-21 checkpoint #2: stock vive en branch_stock — la vista expone stock = Σ branch_stock
-      supabase.from('v_products_with_stock').select('id, name, price, cost, stock, min_stock').limit(50),
+      supabase.from('v_products_with_stock').select('id, name, price, cost, stock').limit(50),
       supabase.from('expenses').select('amount, category').gte('date', d30Str),
       supabase.from('v_sales_flat').select('product_id, date').gte('date', d60Str).order('date', { ascending: false }),
+      fetchCriticalStockCount(supabase, null).catch(err => {
+        console.error('[ai-insights] get_dashboard_critical_stock falló, dato omitido:', err)
+        return null
+      }),
     ])
 
     const sales    = salesRes.data    ?? []
@@ -185,9 +190,6 @@ Deno.serve(async (req) => {
     for (const s of rotationRes.data ?? []) {
       if (s.product_id && !lastSaleDate.has(s.product_id)) lastSaleDate.set(s.product_id, s.date)
     }
-    const avgDailyUnits = new Map<string, number>()
-    for (const [pid, d] of salesByProduct) avgDailyUnits.set(pid, d.units / 30)
-
     const sinRotacion = products
       .filter((p: any) => Number(p.stock) > 0)
       .map((p: any) => {
@@ -201,16 +203,6 @@ Deno.serve(async (req) => {
       .map(({ p, dias }: any) =>
         `${p.name}: ${p.stock} uds, ${dias} días sin vender, $${Math.round(p.stock * Number(p.cost)).toLocaleString()} inmovilizado`
       )
-
-    // Stock crítico
-    const stockCritico = products
-      .filter((p: any) => Number(p.stock) <= Number(p.min_stock ?? 5))
-      .slice(0, 4)
-      .map((p: any) => {
-        const avg  = avgDailyUnits.get(p.id) ?? 0
-        const dias = avg > 0 ? Math.round(Number(p.stock) / avg) : 99
-        return `${p.name}: ${p.stock} uds (mín ${p.min_stock ?? 5}), ~${dias} días restantes`
-      })
 
     // Margen bajo
     const margenBajo = products
@@ -245,7 +237,9 @@ Deno.serve(async (req) => {
       '',
       topProducts.length > 0 ? `TOP PRODUCTOS:\n${topProducts.map(p => `  • ${p}`).join('\n')}` : '',
       sinRotacion.length > 0 ? `SIN ROTACIÓN (≥30 días sin vender):\n${sinRotacion.map((p: string) => `  • ${p}`).join('\n')}` : '',
-      stockCritico.length > 0 ? `STOCK CRÍTICO:\n${stockCritico.map((p: string) => `  • ${p}`).join('\n')}` : '',
+      criticalStockCount != null && criticalStockCount > 0
+        ? `STOCK CRÍTICO: ${criticalStockCount} productos`
+        : '',
       margenBajo.length > 0 ? `MARGEN BAJO (<20%):\n${margenBajo.map((p: string) => `  • ${p}`).join('\n')}` : '',
     ].filter(Boolean).join('\n')
 

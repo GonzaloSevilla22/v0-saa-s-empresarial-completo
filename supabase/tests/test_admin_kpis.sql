@@ -528,6 +528,149 @@ EXCEPTION
     RAISE;
 END $$;
 
+-- =============================================================================
+-- KPI canonical audit — una operación multilínea cuenta una vez en el detalle
+-- admin. Rango sintético 2099 para aislar el fixture de cualquier dato local.
+-- =============================================================================
+DO $$
+DECLARE
+  v_admin_id       uuid := gen_random_uuid();
+  v_admin_email    text := 'admin-module-operation-count@test.local';
+  v_account_id     uuid;
+  v_branch_id      uuid;
+  v_sale_op        uuid := gen_random_uuid();
+  v_purchase_op    uuid := gen_random_uuid();
+  v_from           timestamptz := '2099-01-01 00:00:00+00';
+  v_to             timestamptz := '2099-01-02 00:00:00+00';
+  v_stats          jsonb;
+BEGIN
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (
+    v_admin_id,
+    'authenticated',
+    'authenticated',
+    v_admin_email,
+    now(),
+    now(),
+    jsonb_build_object('name', 'Gate Admin Module Operations', 'phone', '', 'locality', '', 'province', '')
+  );
+
+  ALTER TABLE public.profiles DISABLE TRIGGER trg_prevent_profile_escalation;
+  UPDATE public.profiles SET role = 'admin' WHERE id = v_admin_id;
+  ALTER TABLE public.profiles ENABLE TRIGGER trg_prevent_profile_escalation;
+
+  SELECT account_id INTO v_account_id
+  FROM public.account_members
+  WHERE user_id = v_admin_id
+  ORDER BY created_at
+  LIMIT 1;
+
+  SELECT id INTO v_branch_id
+  FROM public.branches
+  WHERE account_id = v_account_id
+  ORDER BY created_at
+  LIMIT 1;
+
+  IF v_account_id IS NULL OR v_branch_id IS NULL THEN
+    RAISE EXCEPTION 'KPI ADMIN MODULE GATE: handle_new_user no aprovisionó account/branch';
+  END IF;
+
+  -- Tres filas: dos pertenecen a la misma operación y una es legacy sin
+  -- operation_id. El total canónico es 2, no 3.
+  INSERT INTO public.sales
+    (user_id, account_id, branch_id, amount, quantity, total, date, operation_id)
+  VALUES
+    (v_admin_id, v_account_id, v_branch_id, 100, 1, 100, v_from + interval '12 hours', v_sale_op),
+    (v_admin_id, v_account_id, v_branch_id, 200, 1, 200, v_from + interval '12 hours', v_sale_op),
+    (v_admin_id, v_account_id, v_branch_id, 300, 1, 300, v_from + interval '13 hours', NULL);
+
+  INSERT INTO public.purchases
+    (user_id, account_id, branch_id, amount, quantity, total, date, operation_id)
+  VALUES
+    (v_admin_id, v_account_id, v_branch_id, 40, 1, 40, v_from + interval '12 hours', v_purchase_op),
+    (v_admin_id, v_account_id, v_branch_id, 50, 1, 50, v_from + interval '12 hours', v_purchase_op),
+    (v_admin_id, v_account_id, v_branch_id, 60, 1, 60, v_from + interval '13 hours', NULL);
+
+  BEGIN
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', v_admin_id::text, 'role', 'authenticated')::text,
+      true
+    );
+    EXECUTE 'SET LOCAL ROLE authenticated';
+
+    SELECT public.rpc_admin_module_stats('ventas', v_from, v_to) INTO v_stats;
+    IF (v_stats->'summary'->>'count')::int IS DISTINCT FROM 2
+       OR (v_stats->'summary'->>'avg_per_user')::numeric IS DISTINCT FROM 2.0 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: ventas esperaba count=2/avg=2.0, obtuvo %', v_stats->'summary';
+    END IF;
+    IF (v_stats->'time_series'->0->>'count')::int IS DISTINCT FROM 2 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de ventas esperaba 2 operaciones, obtuvo %', v_stats->'time_series';
+    END IF;
+
+    SELECT public.rpc_admin_module_stats('compras', v_from, v_to) INTO v_stats;
+    IF (v_stats->'summary'->>'count')::int IS DISTINCT FROM 2
+       OR (v_stats->'summary'->>'avg_per_user')::numeric IS DISTINCT FROM 2.0 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: compras esperaba count=2/avg=2.0, obtuvo %', v_stats->'summary';
+    END IF;
+    IF (v_stats->'time_series'->0->>'count')::int IS DISTINCT FROM 2 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de compras esperaba 2 operaciones, obtuvo %', v_stats->'time_series';
+    END IF;
+
+    EXECUTE 'RESET ROLE';
+    PERFORM set_config('request.jwt.claims', '', true);
+  EXCEPTION
+    WHEN OTHERS THEN
+      EXECUTE 'RESET ROLE';
+      PERFORM set_config('request.jwt.claims', '', true);
+      RAISE;
+  END;
+
+  DELETE FROM public.sales WHERE user_id = v_admin_id;
+  DELETE FROM public.purchases WHERE user_id = v_admin_id;
+  DELETE FROM public.analytics_events WHERE user_id = v_admin_id;
+  DELETE FROM public.cashboxes WHERE branch_id = v_branch_id;
+  SET session_replication_role = replica;
+  DELETE FROM public.branches WHERE account_id = v_account_id;
+  SET session_replication_role = DEFAULT;
+  DELETE FROM public.account_members WHERE user_id = v_admin_id;
+  SET session_replication_role = replica;
+  DELETE FROM public.accounts WHERE id = v_account_id;
+  SET session_replication_role = DEFAULT;
+  DELETE FROM public.profiles WHERE id = v_admin_id;
+  DELETE FROM public.email_logs WHERE user_id = v_admin_id;
+  DELETE FROM public.operation_idempotency WHERE user_id = v_admin_id;
+  DELETE FROM auth.users WHERE id = v_admin_id;
+
+  RAISE NOTICE 'PASS KPI ADMIN MODULE: ventas/compras multilínea cuentan 2 operaciones, no 3 filas.';
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      EXECUTE 'RESET ROLE';
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    PERFORM set_config('request.jwt.claims', '', true);
+    BEGIN
+      DELETE FROM public.sales WHERE user_id = v_admin_id;
+      DELETE FROM public.purchases WHERE user_id = v_admin_id;
+      DELETE FROM public.analytics_events WHERE user_id = v_admin_id;
+      DELETE FROM public.cashboxes WHERE branch_id = v_branch_id;
+      SET session_replication_role = replica;
+      DELETE FROM public.branches WHERE account_id = v_account_id;
+      SET session_replication_role = DEFAULT;
+      DELETE FROM public.account_members WHERE user_id = v_admin_id;
+      SET session_replication_role = replica;
+      DELETE FROM public.accounts WHERE id = v_account_id;
+      SET session_replication_role = DEFAULT;
+      DELETE FROM public.profiles WHERE id = v_admin_id;
+      DELETE FROM public.email_logs WHERE user_id = v_admin_id;
+      DELETE FROM public.operation_idempotency WHERE user_id = v_admin_id;
+      DELETE FROM auth.users WHERE id = v_admin_id;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;
+
 
 -- =============================================================================
 -- GATE ADMIN-KPI-REFRESH — M2 (grupos 8 y 9): MRR real (OQ-4) y retención

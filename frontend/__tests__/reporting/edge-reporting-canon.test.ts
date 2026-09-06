@@ -10,6 +10,8 @@
  * los casos de `fetchKpiSummary` con un doble del cliente inyectado.
  */
 
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import { describe, it, expect, vi } from "vitest"
 import {
   lineRevenue,
@@ -17,12 +19,13 @@ import {
   netMarginPct,
   previousWindow,
   fetchKpiSummary,
+  fetchCriticalStockCount,
   type SaleRevenueRow,
 } from "../../../supabase/functions/_shared/reporting-canon"
 
 describe("lineRevenue (Deno)", () => {
   it("caso testigo: multi-unidad aporta el total de línea", () => {
-    const row: SaleRevenueRow = { amount: 1000, quantity: 3, total: 3000 }
+    const row: SaleRevenueRow = { amount: 1000, total: 3000 }
     expect(lineRevenue(row)).toBe(3000)
   })
 
@@ -140,5 +143,39 @@ describe("fetchKpiSummary (Deno, cliente inyectado)", () => {
       p_prev_from: window.prevFrom,
       p_prev_to: window.prevTo,
     })
+  })
+})
+
+describe("fetchCriticalStockCount (Deno, cliente inyectado)", () => {
+  it("consulta la RPC canónica con el filtro de sucursal y mapea el escalar", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: "3", error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchCriticalStockCount>[0]
+
+    expect(await fetchCriticalStockCount(client, "branch-9")).toBe(3)
+    expect(rpcMock).toHaveBeenCalledWith("get_dashboard_critical_stock", {
+      p_branch_id: "branch-9",
+    })
+  })
+
+  it("propaga el error para que el consumidor degrade explícitamente", async () => {
+    const error = { message: "stock rpc down" }
+    const client = {
+      rpc: vi.fn().mockResolvedValue({ data: null, error }),
+    } as unknown as Parameters<typeof fetchCriticalStockCount>[0]
+
+    await expect(fetchCriticalStockCount(client, null)).rejects.toEqual(error)
+  })
+})
+
+describe("ai-resumen — facturación canónica", () => {
+  it("prioriza invoicedRevenue del RPC y deja las filas sólo como fallback", () => {
+    const source = readFileSync(
+      join(process.cwd(), "../supabase/functions/ai-resumen/index.ts"),
+      "utf8",
+    )
+
+    expect(source).toContain("invoicedRevenue = summary.invoicedRevenue")
+    expect(source).toMatch(/const totalSales = invoicedRevenue\s*\?\? sumLineRevenue/)
+    expect(source).not.toMatch(/const totalSales = .*\.reduce/)
   })
 })

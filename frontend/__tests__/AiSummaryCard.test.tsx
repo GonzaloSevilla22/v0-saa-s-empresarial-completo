@@ -14,12 +14,15 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({ functions: { invoke: invokeMock } }),
 }))
 
-vi.mock("@/hooks/data/use-products", () => ({
-  useProducts: () => ({ products: [] }),
+const useCriticalStockMock = vi.fn()
+vi.mock("@/hooks/data/use-critical-stock", () => ({
+  useCriticalStock: (...args: unknown[]) => useCriticalStockMock(...args),
 }))
 
 beforeEach(() => {
   invokeMock.mockReset()
+  useCriticalStockMock.mockReset()
+  useCriticalStockMock.mockReturnValue({ data: 2, isLoading: false })
 })
 
 describe("AiSummaryCard — errores", () => {
@@ -62,5 +65,15 @@ describe("AiSummaryCard — errores", () => {
     await waitFor(() => {
       expect(screen.getByText("Buen día: ventas estables.")).toBeInTheDocument()
     })
+  })
+
+  it("usa el KPI canónico de stock y respeta la sucursal activa", async () => {
+    invokeMock.mockResolvedValue({ data: { ok: true, data: "Resumen" }, error: null })
+    useCriticalStockMock.mockReturnValue({ data: 1, isLoading: false })
+
+    render(<AiSummaryCard todaySales={1000} branchId="branch-9" />)
+
+    expect(useCriticalStockMock).toHaveBeenCalledWith("branch-9")
+    expect(screen.getByText("1 productos")).toBeInTheDocument()
   })
 })

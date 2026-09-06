@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useState } from 'react'
-import { fetchModuleStats } from '@/lib/adminAnalytics'
+import { fetchModuleStats, type AdminModuleStats } from '@/lib/adminAnalytics'
 import { ModuleAnalytics } from '@/components/admin/ModuleAnalytics'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AlertCircle } from 'lucide-react'
@@ -14,7 +14,7 @@ interface ModuleMetricsWrapperProps {
 }
 
 export function ModuleMetricsWrapper({ moduleType, title, subtitle }: ModuleMetricsWrapperProps) {
-    const [stats, setStats] = useState<any>(null)
+    const [stats, setStats] = useState<AdminModuleStats | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 

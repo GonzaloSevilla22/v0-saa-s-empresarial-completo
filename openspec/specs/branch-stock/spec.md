@@ -230,6 +230,29 @@ El Tablero deja de derivar el conteo del catálogo agregado (`v_products_with_st
 - **WHEN** la consulta del KPI falla
 - **THEN** la tarjeta muestra 0, el error queda registrado en consola y el resto del Tablero sigue funcionando
 
+### Requirement: Todos los consumidores de stock crítico reutilizan la RPC canónica
+
+Todo módulo, resumen secundario y contexto de IA que presente un conteo de stock crítico o bajo SHALL obtenerlo de `get_dashboard_critical_stock(p_branch_id)`. Ningún consumidor SHALL inferir criticidad desde `products.stock`, `v_products_with_stock.stock` ni un umbral por defecto local, porque esos valores agregados ocultan faltantes por sucursal y alteran la semántica de `min_stock = 0`.
+
+Cuando un consumidor sólo recibe el conteo canónico, SHALL comunicar únicamente ese conteo. No puede atribuir nombres, cantidades o días restantes a productos concretos reconstruyéndolos desde el catálogo agregado.
+
+#### Scenario: El resumen IA del Tablero respeta la sucursal activa
+- **WHEN** el resumen secundario del Tablero muestra "Stock bajo" con una sucursal seleccionada
+- **THEN** obtiene el conteo mediante la RPC canónica usando esa sucursal, igual que la tarjeta principal
+
+#### Scenario: Copilot e Insights consumen el agregado consciente de sucursal
+- **WHEN** Copilot o `ai-insights` construyen su contexto sin un filtro de sucursal
+- **THEN** consultan la RPC con `p_branch_id = null` y reciben el conteo de productos críticos en alguna sucursal
+
+#### Scenario: La IA no inventa detalle de productos desde stock agregado
+- **GIVEN** que un producto está crítico en una sucursal pero su stock total agregado supera el mínimo
+- **WHEN** se construye un contexto de IA
+- **THEN** el contexto informa el conteo canónico y no deriva nombres ni días restantes mediante `v_products_with_stock`
+
+#### Scenario: Fallo aislado del KPI en un contexto de IA
+- **WHEN** la RPC de stock crítico falla mientras se construye un resumen o contexto de IA
+- **THEN** el consumidor omite el dato, registra el error y no reemplaza la definición con un cálculo local divergente
+
 ### Requirement: Firma única y ACLs explícitas de la RPC de stock crítico
 
 La RPC `get_dashboard_critical_stock` SHALL existir con exactamente una firma en la base de datos, y ninguna variante puede recibir la identidad del usuario como parámetro.

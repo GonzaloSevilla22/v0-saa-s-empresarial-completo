@@ -25,6 +25,23 @@ Toda agregación en el cliente es una segunda definición de la métrica: no la 
 - **THEN** los datos provienen de la RPC que ya produce esa serie
 - **AND** ninguna otra RPC duplica esa misma serie en su respuesta
 
+#### Scenario: La presentación conserva la unidad declarada por la RPC
+- **WHEN** `rpc_admin_module_stats` devuelve `count` y `avg_per_user` como cantidades de operaciones
+- **THEN** los paneles de ventas, compras y gastos presentan esos valores como números
+- **AND** no les aplican formato monetario ni los rotulan como importes
+
+#### Scenario: Una operación multilínea cuenta una vez en admin
+- **WHEN** una venta o compra contiene varias filas con el mismo `operation_id`
+- **THEN** el detalle admin la cuenta como una operación mediante `COUNT(DISTINCT COALESCE(operation_id, id))`
+
+#### Scenario: El módulo de stock conserva la unidad producto
+- **WHEN** el detalle admin de stock presenta el campo `count`
+- **THEN** lo rotula como productos, no como operaciones ni como dinero
+
+#### Scenario: Los maestros borrados no inflan métricas vigentes
+- **WHEN** un producto o cliente tiene `deleted_at` no nulo
+- **THEN** no suma al resumen ni a la serie vigente de su módulo admin
+
 ### Requirement: Los conteos de personas cuentan personas
 El sistema SHALL calcular todo KPI cuyo nombre refiera a usuarios como `COUNT(DISTINCT user_id)` sobre el rango completo consultado, y no como suma de conteos parciales por período, por tipo de evento ni por ninguna otra dimensión de agrupación.
 

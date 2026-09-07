@@ -1,6 +1,11 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
-import { fetchKpiSummary, previousWindow } from '../_shared/reporting-canon.ts'
+import {
+  fetchKpiSummary,
+  previousWindow,
+  sumLineRevenue,
+  type SaleRevenueRow,
+} from '../_shared/reporting-canon.ts'
 import { argentinaDaysAgoIso, argentinaMonthsAgoIso } from '../_shared/argentina-time.ts'
 
 const corsHeaders = {
@@ -102,10 +107,9 @@ Deno.serve(async (req) => {
       else startIso = argentinaDaysAgoIso(1, now) // daily default
     }
 
-    // `total` is the line total (amount * quantity); `amount` is the unit price.
-    // Sum `total` and fall back to `amount` for any legacy row without a total.
-    // kpi-ia-canonical-revenue: este cálculo YA era correcto (el único de los
-    // 5 consumidores de IA que lo era) — no se toca.
+    // Las filas se conservan como fallback degradado si el read-model canónico
+    // no responde. En el camino normal, el importe sale del RPC y por lo tanto
+    // incluye notas de crédito y todos los invariantes RN-D.
     let salesQuery = supabaseClient.from('sales').select('amount, total').gte('date', startIso)
     let expensesQuery = supabaseClient.from('expenses').select('amount').gte('date', startIso)
     if (endIso) {
@@ -115,7 +119,6 @@ Deno.serve(async (req) => {
 
     const [salesResult, expensesResult] = await Promise.all([salesQuery, expensesQuery])
 
-    const totalSales = (salesResult.data || []).reduce((acc: number, s: any) => acc + Number(s.total ?? s.amount), 0)
     const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
 
     // kpi-ia-canonical-revenue (D1/D4): el balance pasa a ser la ganancia
@@ -126,6 +129,7 @@ Deno.serve(async (req) => {
     const effectiveEndIso = endIso ?? now.toISOString()
     const { from: prevFromIso, to: prevToIso } = previousWindow(startIso, effectiveEndIso)
 
+    let invoicedRevenue: number | null = null
     let netProfit: number | null = null
     try {
       const summary = await fetchKpiSummary(supabaseClient, {
@@ -134,10 +138,16 @@ Deno.serve(async (req) => {
         prevFrom: prevFromIso,
         prevTo: prevToIso,
       })
-      if (summary) netProfit = summary.netProfit
+      if (summary) {
+        invoicedRevenue = summary.invoicedRevenue
+        netProfit = summary.netProfit
+      }
     } catch (err) {
-      console.error('[ai-resumen] rpc_dashboard_kpi_summary falló, balance omitido:', err)
+      console.error('[ai-resumen] rpc_dashboard_kpi_summary falló, KPIs canónicos degradados:', err)
     }
+
+    const totalSales = invoicedRevenue
+      ?? sumLineRevenue((salesResult.data ?? []) as SaleRevenueRow[])
 
     const balanceLinea = netProfit != null
       ? ` Balance neto $${Math.round(netProfit).toLocaleString()}.`

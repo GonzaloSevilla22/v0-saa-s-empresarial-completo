@@ -25,6 +25,8 @@ import {
     fetchWeeklyUsageDistribution,
     mapKpiHeaderMetrics,
     selectLatestMatureCohort,
+    selectMatureCohorts,
+    buildCohortEmptyMessage,
     shouldShowDataCoverageWarning,
     type AdminKpiOverview,
     type AdminRetentionCohort,
@@ -119,6 +121,8 @@ export default function AdminAnalyticsPage() {
     // aritmética de fechas del lado del cliente (frontend/lib/adminAnalytics.ts).
     const header = mapKpiHeaderMetrics(kpiOverview)
     const latestMatureCohort = selectLatestMatureCohort(retentionData)
+    const matureRetentionData = selectMatureCohorts(retentionData)
+    const cohortEmptyMessage = buildCohortEmptyMessage(retentionData.length)
     const showCoverageWarning = shouldShowDataCoverageWarning(kpiOverview.summary.data_coverage)
     const staleDays = kpiOverview.summary.data_coverage.operation_events_stale_days
 
@@ -168,7 +172,7 @@ export default function AdminAnalyticsPage() {
                     <Users className="w-5 h-5 text-blue-500" />
                     <h2 className="text-xl font-bold">30-Day Cohort Retention</h2>
                 </div>
-                <CohortRetentionChart data={retentionData} width={1000} height={350} />
+                <CohortRetentionChart data={matureRetentionData} width={1000} height={350} emptyMessage={cohortEmptyMessage} />
             </section>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 mb-12">

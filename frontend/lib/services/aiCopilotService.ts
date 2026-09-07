@@ -1,6 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { pricingService } from './pricingService'
-import { argentinaDaysAgo } from '@/lib/date-range'
 
 export const aiCopilotService = {
   /**
@@ -26,116 +25,6 @@ export const aiCopilotService = {
     }
 
     return { isPricingQuery: true }
-  },
-
-  /**
-   * Fetches relevant business data to provide rich context for the AI.
-   *
-   * Fixes vs. original:
-   *  - Products are ordered by price DESC (revenue proxy) not stock ASC (was backwards)
-   *  - Top products are ranked by sales VOLUME from recent sales, not by arbitrary slice
-   *  - Purchases (compras) are now included in context
-   *  - Actual revenue totals are computed, not just row counts
-   *  - Expense breakdown by category is included
-   */
-  async getBusinessDataContext(supabase: SupabaseClient) {
-    // app-timezone-argentina (task 3.2): cota de "últimos 30 días" anclada al
-    // día argentino — a las 22:00 ART el día UTC ya rolleó a mañana.
-    const thirtyDaysAgoStr = argentinaDaysAgo(30)
-
-    const [
-      { data: products },
-      { data: recentSales },
-      { data: recentExpenses },
-      { data: recentPurchases },
-    ] = await Promise.all([
-      // C-21: lee de v_products_with_stock — stock = COALESCE(Σ branch_stock, 0)
-      supabase
-        .from('v_products_with_stock')
-        .select('id, name, price, cost, stock, min_stock')
-        .order('price', { ascending: false })     // High-value products first
-        .limit(30),                               // cap to avoid bloating context
-      supabase
-        .from('sales')
-        .select('amount, quantity, date, product_id, products(name)')
-        .gte('date', thirtyDaysAgoStr)
-        .order('date', { ascending: false })
-        .limit(100),                               // 30-day window, not just last 20
-      supabase
-        .from('expenses')
-        .select('amount, category, date')
-        .gte('date', thirtyDaysAgoStr)
-        .order('date', { ascending: false }),
-      supabase
-        .from('purchases')
-        .select('amount, quantity, date, product_id, products(name)')
-        .gte('date', thirtyDaysAgoStr)
-        .order('date', { ascending: false })
-        .limit(50),
-    ])
-
-    // ── Top products by sales volume in the period ───────────────────────────
-    const salesByProduct = new Map<string, { name: string; units: number; revenue: number }>()
-    for (const s of recentSales ?? []) {
-      const pid = s.product_id
-      const name = (s.products as any)?.name ?? 'Desconocido'
-      const existing = salesByProduct.get(pid) ?? { name, units: 0, revenue: 0 }
-      salesByProduct.set(pid, {
-        name,
-        units: existing.units + Number(s.quantity),
-        revenue: existing.revenue + Number(s.amount),
-      })
-    }
-    const topProducts = [...salesByProduct.values()]
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5)
-
-    // ── Revenue & expense totals ─────────────────────────────────────────────
-    const totalRevenue = (recentSales ?? []).reduce((s, r) => s + Number(r.amount), 0)
-    const totalExpenses = (recentExpenses ?? []).reduce((s, r) => s + Number(r.amount), 0)
-    const totalPurchases = (recentPurchases ?? []).reduce((s, r) => s + Number(r.amount), 0)
-    const netProfit = totalRevenue - totalExpenses
-
-    // ── Expense breakdown by category ────────────────────────────────────────
-    const expenseByCategory = new Map<string, number>()
-    for (const e of recentExpenses ?? []) {
-      const cat = e.category ?? 'Sin categoría'
-      expenseByCategory.set(cat, (expenseByCategory.get(cat) ?? 0) + Number(e.amount))
-    }
-    const topExpenseCategories = [...expenseByCategory.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 4)
-      .map(([cat, amt]) => `${cat}: $${amt.toLocaleString()}`)
-
-    // ── Stock alerts ─────────────────────────────────────────────────────────
-    const lowStockProducts = (products ?? [])
-      .filter(p => Number(p.stock) <= Number(p.min_stock ?? 5))
-      .slice(0, 5)
-      .map(p => `${p.name} (${p.stock} uds)`)
-
-    // ── High-margin products (potential upsell) ──────────────────────────────
-    const highMarginProducts = (products ?? [])
-      .map(p => ({
-        name: p.name,
-        price: p.price,
-        margin: p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0,
-      }))
-      .filter(p => p.margin >= 50)
-      .slice(0, 3)
-      .map(p => `${p.name} (${p.margin.toFixed(0)}% margen)`)
-
-    return {
-      period: 'últimos 30 días',
-      totalRevenue,
-      totalExpenses,
-      totalPurchases,
-      netProfit,
-      topProducts,
-      topExpenseCategories,
-      lowStockProducts,
-      highMarginProducts,
-      totalProductCount: (products ?? []).length,
-    }
   },
 
   /**

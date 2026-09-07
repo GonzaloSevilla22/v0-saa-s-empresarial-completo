@@ -62,6 +62,16 @@ export interface ReportingCanonClient {
   ): Promise<{ data: RpcRow[] | null; error: { message: string } | null }>
 }
 
+/** Forma estructural mínima del cliente para el KPI canónico de stock
+ * crítico. La RPC evalúa el ledger por sucursal y cuenta productos distintos;
+ * ningún consumidor de IA debe reconstruir ese predicado sobre el stock total. */
+export interface CriticalStockClient {
+  rpc(
+    fn: "get_dashboard_critical_stock",
+    args: { p_branch_id: string | null },
+  ): Promise<{ data: number | string | null; error: { message: string } | null }>
+}
+
 // ─── Pure helpers (gemelas de frontend/lib/reporting/revenue-canon.ts) ────────
 
 const toNumber = (v: number | string | null | undefined): number => {
@@ -143,4 +153,19 @@ export async function fetchKpiSummary(
     invoicedRevenue: num(row.invoiced_revenue),
     prevInvoicedRevenue: num(row.prev_invoiced_revenue),
   }
+}
+
+/** Devuelve el conteo canónico de productos críticos para una sucursal o,
+ * con `null`, el agregado consciente de sucursal. Propaga el error para que
+ * cada consumidor decida si omite el dato o degrada a cero. */
+export async function fetchCriticalStockCount(
+  client: CriticalStockClient,
+  branchId: string | null = null,
+): Promise<number> {
+  const { data, error } = await client.rpc("get_dashboard_critical_stock", {
+    p_branch_id: branchId,
+  })
+  if (error) throw error
+
+  return data == null ? 0 : Number(data)
 }

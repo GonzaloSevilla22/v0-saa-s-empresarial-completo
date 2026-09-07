@@ -124,8 +124,17 @@ function makeSupabaseDouble(cfg: {
   newClients?: ClientFixture[]
   rotation?: RotationFixture[]
   rpc?: FakeResult<RpcSummaryRow>
+  criticalStock?: {
+    data: number | string | null
+    error: { message: string } | null
+  }
 }): SupabaseClient {
-  const rpcMock = vi.fn().mockResolvedValue(cfg.rpc ?? { data: [fullRpcRow({})], error: null })
+  const rpcMock = vi.fn((fn: string) => {
+    if (fn === "get_dashboard_critical_stock") {
+      return Promise.resolve(cfg.criticalStock ?? { data: 0, error: null })
+    }
+    return Promise.resolve(cfg.rpc ?? { data: [fullRpcRow({})], error: null })
+  })
 
   const fromMock = vi.fn((table: string) => ({
     select: (columns: string) => {
@@ -287,8 +296,8 @@ describe("buildBusinessSnapshot — clamp del top cliente (D6)", () => {
 
 // ─── 4.8: regresión — lo que NO cambia ──────────────────────────────────────────
 
-describe("buildBusinessSnapshot — regresión de productos no tocados por el refactor", () => {
-  it("stock_critico, sin_rotacion y margen_bajo conservan su comportamiento actual", async () => {
+describe("buildBusinessSnapshot — KPIs de productos", () => {
+  it("usa el conteo canónico de stock crítico y conserva sin_rotacion/margen_bajo", async () => {
     const supabase = makeSupabaseDouble({
       products: [
         { id: "p1", name: "Bajo stock", price: 100, cost: 90, stock: 2, min_stock: 5 },
@@ -297,12 +306,26 @@ describe("buildBusinessSnapshot — regresión de productos no tocados por el re
       sales: [],
       rotation: [],
       rpc: { data: [fullRpcRow({ invoiced_revenue: 0, net_profit: 0 })], error: null },
+      criticalStock: { data: 1, error: null },
     })
 
     const snapshot = await buildBusinessSnapshot(supabase)
-    expect(snapshot.productos.stock_critico.map((p) => p.nombre)).toContain("Bajo stock")
+    expect(snapshot.productos.stock_critico_total).toBe(1)
     expect(snapshot.productos.margen_bajo.map((p) => p.nombre)).toContain("Bajo stock")
     expect(snapshot.productos.sin_rotacion.map((p) => p.nombre)).toContain("Sin rotacion")
+  })
+
+  it("no infiere criticidad desde el stock agregado del catálogo", async () => {
+    const supabase = makeSupabaseDouble({
+      products: [
+        { id: "p1", name: "Agregado sano", price: 100, cost: 50, stock: 50, min_stock: 5 },
+      ],
+      criticalStock: { data: "2", error: null },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.stock_critico_total).toBe(2)
+    expect(snapshotToText(snapshot)).toContain("STOCK CRÍTICO: 2 productos")
   })
 })
 

@@ -4,8 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
-import { useProducts } from "@/hooks/data/use-products"
-import { holdsOwnStock, isBelowThreshold } from "@/lib/product-stock"
+import { useCriticalStock } from "@/hooks/data/use-critical-stock"
 import { createClient } from "@/lib/supabase/client"
 import { utcDayRange } from "@/lib/date-range"
 
@@ -15,13 +14,15 @@ interface AiSummaryCardProps {
   /** Today's total sales income — supplied by the parent dashboard page
    *  (fetched via get_dashboard_financials RPC). Defaults to 0. */
   todaySales?: number
+  /** Sucursal activa del Tablero; `null` usa el agregado consciente de
+   * sucursal del KPI canónico. */
+  branchId?: string | null
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
-  const { products } = useProducts()
-  const lowStock = products.filter(p => holdsOwnStock(p) && isBelowThreshold(p.stock, p.minStock))
+export function AiSummaryCard({ todaySales = 0, branchId = null }: AiSummaryCardProps) {
+  const { data: criticalStockCount } = useCriticalStock(branchId)
 
   const [summary, setSummary] = useState("Cargando resumen inteligente...")
   const [isLoading, setIsLoading] = useState(false)
@@ -95,7 +96,7 @@ export function AiSummaryCard({ todaySales = 0 }: AiSummaryCardProps) {
         </p>
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground/70">
           <span>Ventas hoy: <span className="text-primary font-medium">${todaySales.toLocaleString()}</span></span>
-          <span>Stock bajo: <span className={`font-medium ${lowStock.length > 0 ? "text-destructive" : "text-success"}`}>{lowStock.length} productos</span></span>
+          <span>Stock bajo: <span className={`font-medium ${criticalStockCount > 0 ? "text-destructive" : "text-success"}`}>{criticalStockCount} productos</span></span>
         </div>
       </CardContent>
     </Card>

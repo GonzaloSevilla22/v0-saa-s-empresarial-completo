@@ -4,35 +4,29 @@ import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
     TrendingUp,
-    TrendingDown,
-    DollarSign,
-    Package,
     Users,
-    ShoppingBag,
-    ArrowRight
 } from "lucide-react"
-import { formatMoney } from "@/lib/format"
+import type { AdminModuleStats } from "@/lib/adminAnalytics"
 import ModuleSeriesChart from "./charts/ModuleSeriesChart"
 
 interface ModuleAnalyticsProps {
     title: string
     subtitle: string
-    stats: {
-        summary: {
-            users_count?: number
-            count?: number
-            avg_per_user?: number
-        }
-        time_series: any[]
-    }
+    stats: AdminModuleStats
     moduleType: 'ventas' | 'compras' | 'stock' | 'clientes' | 'gastos' | 'ai' | 'simulador' | 'comunidad' | 'cursos'
 }
 
 export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAnalyticsProps) {
     const summary = stats?.summary || {}
     const time_series = stats?.time_series || []
-
-    const isFinancial = ['ventas', 'compras', 'gastos'].includes(moduleType)
+    const countTitle = moduleType === 'clientes'
+        ? "Clientes Nuevos"
+        : moduleType === 'stock'
+            ? "Productos"
+            : "Operaciones Totales"
+    const averageTitle = moduleType === 'stock'
+        ? "Productos x Usuario"
+        : "Promedio x Usuario"
 
     const renderKPIs = () => {
         return (
@@ -44,14 +38,14 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
                     color="text-emerald-500"
                 />
                 <KpiCard
-                    title={moduleType === 'clientes' ? "Clientes Nuevos" : "Operaciones Totales"}
-                    value={isFinancial ? formatMoney(summary?.count || 0) : (summary?.count || 0)}
+                    title={countTitle}
+                    value={summary?.count || 0}
                     icon={ActivityIcon}
                     color="text-blue-500"
                 />
                 <KpiCard
-                    title="Promedio x Usuario"
-                    value={isFinancial ? formatMoney(summary?.avg_per_user || 0) : (summary?.avg_per_user || 0)}
+                    title={averageTitle}
+                    value={summary?.avg_per_user || 0}
                     icon={TrendingUp}
                     color="text-purple-500"
                 />
@@ -98,7 +92,14 @@ export function ModuleAnalytics({ title, subtitle, stats, moduleType }: ModuleAn
     )
 }
 
-function KpiCard({ title, value, icon: Icon, color }: any) {
+interface KpiCardProps {
+    title: string
+    value: string | number
+    icon: React.ComponentType<{ className?: string }>
+    color: string
+}
+
+function KpiCard({ title, value, icon: Icon, color }: KpiCardProps) {
     return (
         <Card className="bg-slate-900/40 border-slate-800 backdrop-blur-md overflow-hidden relative group">
             <CardHeader className="pb-2">

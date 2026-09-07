@@ -2,14 +2,16 @@
 
 import React, { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
+import { Users } from 'lucide-react'
 
 interface CohortRetentionChartProps {
     data: { cohort_start: string; cohort_size: number; retained_30d: number; retention_rate: number }[]
     width?: number
     height?: number
+    emptyMessage?: string
 }
 
-export default function CohortRetentionChart({ data, width = 600, height = 300 }: CohortRetentionChartProps) {
+export default function CohortRetentionChart({ data, width = 600, height = 300, emptyMessage = "Sin cohortes para el período" }: CohortRetentionChartProps) {
     const svgRef = useRef<SVGSVGElement>(null)
 
     useEffect(() => {
@@ -98,9 +100,23 @@ export default function CohortRetentionChart({ data, width = 600, height = 300 }
         }
     }, [data, width, height])
 
+    // Mismo estado vacío que TimeSeriesLinesChart (gráfico hermano de la misma
+    // página, que es dark-hardcoded): caja punteada + ícono + texto tenue.
+    if (!data || data.length === 0) {
+        return (
+            <div
+                role="status"
+                className="w-full flex flex-col items-center justify-center text-slate-500 gap-2 py-8 border border-dashed border-slate-800 rounded-xl bg-slate-900/20"
+            >
+                <Users className="w-8 h-8 opacity-20" />
+                <p className="text-xs">{emptyMessage}</p>
+            </div>
+        )
+    }
+
     return (
         <div className="w-full overflow-x-auto">
-            <svg ref={svgRef} width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="mx-auto" />
+            <svg ref={svgRef} data-testid="cohort-retention-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="mx-auto" />
         </div>
     )
 }

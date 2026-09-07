@@ -67,6 +67,22 @@ export interface AdminWeeklyUsageBucket {
   users_count: number
 }
 
+/** Unidades de `rpc_admin_module_stats`: personas y operaciones, nunca dinero. */
+export interface AdminModuleStats {
+  summary: {
+    users_count?: number
+    count?: number
+    avg_per_user?: number
+  }
+  time_series: AdminModuleSeriesPoint[]
+}
+
+export interface AdminModuleSeriesPoint {
+  period: string
+  users_count: number
+  count: number
+}
+
 /**
  * Bloque `freemium` de `rpc_admin_business_kpis` (OQ-4, design.md D6, M2
  * admin-kpi-refresh): plan efectivo (`get_effective_plan`) × tarifa de lista
@@ -184,7 +200,7 @@ export const fetchModuleStats = async (
   dateFrom: string,
   dateTo: string,
   client?: AnyClient,
-): Promise<{ summary: Record<string, unknown>; time_series: unknown[] }> => {
+): Promise<AdminModuleStats> => {
   const supabase = client || createClient()
 
   const { data, error } = await supabase.rpc('rpc_admin_module_stats', {
@@ -197,7 +213,7 @@ export const fetchModuleStats = async (
     throw error
   }
 
-  return data as { summary: Record<string, unknown>; time_series: unknown[] }
+  return data as AdminModuleStats
 }
 
 // ─── New KPI Engine RPCs (secured — guarded by is_admin() server-side) ───────
@@ -276,6 +292,24 @@ export function selectLatestMatureCohort(
       ? cohort
       : latest
   )
+}
+
+/** Cohortes comparables: la RPC declara su madurez según el horizonte
+ * canónico. El gráfico no debe mezclar cohortes censuradas con maduras. */
+export function selectMatureCohorts(
+  cohorts: AdminRetentionCohort[],
+): AdminRetentionCohort[] {
+  return cohorts.filter((cohort) => cohort.is_mature)
+}
+
+/** Texto del estado vacío del gráfico de retención. Sólo se muestra cuando
+ * `selectMatureCohorts` devuelve [], así que `totalCohorts` (las recibidas de
+ * la RPC) es exactamente el número de cohortes que aún no maduraron. */
+export function buildCohortEmptyMessage(totalCohorts: number): string {
+  if (totalCohorts <= 0) return "Sin cohortes en el período seleccionado"
+  return totalCohorts === 1
+    ? "1 cohorte todavía no completó el horizonte de 30 días"
+    : `${totalCohorts} cohortes todavía no completaron el horizonte de 30 días`
 }
 
 /** Umbral (días) sobre el que la telemetría de operación se considera estancada (D3). */

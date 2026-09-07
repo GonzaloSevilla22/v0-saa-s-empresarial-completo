@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 263 migraciones; última `20261014000001_sucursal_guard_vaciado_auditoria` |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 279 migraciones; última `20261030000001_admin_module_operation_counts` (verificado en prod 2026-09-07) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 11 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
@@ -256,6 +256,13 @@ Heredado del fix ad-hoc `stock-import-decimal-comma` (PR #522, 2026-09-05, ver `
 
 - **`lib/import/validator.ts` parsea las cantidades de stock del importador de productos con `parseInt`** — `"1,5"` → 1 y `"1.234"` → 1, en silencio (el mismo defecto que cerró el PR #522 en el importador de ajustes, en el otro importador). La opción `loneCommaIsDecimal` de `parseAmount` es el fix de una línea por sitio; hay que decidir si el catálogo exige enteros (entonces rechazar con error de fila en vez de truncar) y cubrirlo con sus propios tests.
 - **Fundamento envejecido de la spec `data-export`** — justifica no emitir coma decimal en los CSV de exportación porque "un importador con `parseFloat` truncaría"; tras el PR #522 ningún importador CSV del frontend usa `parseFloat`, sólo lo sostiene el `parseInt` de arriba. Reformular cuando se cierre ése.
+
+Heredado del fix externo `kpi-canonicalization` (PR #521, 2026-09-07, ver `CHANGES.md`):
+
+- **RPC canónica de productos críticos por sucursal** — `get_dashboard_critical_stock` devuelve `bigint`; desde #521 el Copilot y `ai-insights` sólo informan "N productos críticos" y no pueden decir qué reponer. Si el PO quiere recuperar el detalle, la fuente debe ser una hermana que devuelva filas desde `branch_stock` con el mismo predicado (p.ej. `get_dashboard_critical_stock_items(p_branch_id)`), nunca reconstruirlo desde `v_products_with_stock`. Decisión pendiente del PO.
+- **Huérfanos de fixtures viejos en `test_admin_kpis.sql`** — el cleanup con `session_replication_role = replica` no cascadea; el bloque de #521 limpia lo suyo y lo asserta, pero los otros ~8 bloques del archivo dejan +56 filas por corrida en `payment_methods`/`product_categories`.
+- **`deno check` rojo en `main`** — 8 errores TS2345/TS2589 en `ai-insights`, `ai-resumen` y `_shared` (interfaces `Promise<>` vs builders thenables de supabase-js); el deploy de Supabase no tipa, así que nadie lo ve. Correrlo desde una copia fuera del monorepo con `DENO_NO_PACKAGE_JSON=1` (dentro, Deno escribe `workspaces` en `package.json`).
+- **Balance de `ai-resumen`** — el prompt expone ventas y gastos, pero `net_profit` de `rpc_dashboard_kpi_summary` resta también compras, que no aparecen en el contexto; preexistente al PR.
 
 Ninguno de los candidatos heredados es urgente por sí solo; quedan para que el PO decida si ameritan un change propio (posiblemente combinados, como se hizo con h1+h2 en `tenancy-guard-caja-outbox`). La excepción es el residuo de `v31-mp-upgrade-webhook-fix` de arriba, que no espera decisión — ya tiene fecha fija (2026-10-04).
 

@@ -232,7 +232,7 @@ El Tablero deja de derivar el conteo del catálogo agregado (`v_products_with_st
 
 ### Requirement: Todos los consumidores de stock crítico reutilizan la RPC canónica
 
-Todo módulo, resumen secundario y contexto de IA que presente un conteo de stock crítico o bajo SHALL obtenerlo de `get_dashboard_critical_stock(p_branch_id)`. Ningún consumidor SHALL inferir criticidad desde `products.stock`, `v_products_with_stock.stock` ni un umbral por defecto local, porque esos valores agregados ocultan faltantes por sucursal y alteran la semántica de `min_stock = 0`.
+Todo resumen secundario y todo contexto de IA que presente un conteo de stock crítico o bajo comparable con el KPI del Tablero SHALL obtenerlo de `get_dashboard_critical_stock(p_branch_id)`. Ningún consumidor de esa clase SHALL inferir criticidad desde `products.stock`, `v_products_with_stock.stock` ni un umbral por defecto local, porque esos valores agregados ocultan faltantes por sucursal y alteran la semántica de `min_stock = 0`. Queda fuera de este requirement la pantalla `/stock`: su panel de reposición deriva su conteo del catálogo agregado, y alinearlo por sucursal es deuda conocida (OQ-5 de `sucursal-guard-vaciado-auditoria`, ver CHANGES.md), no una obligación de este requirement.
 
 Cuando un consumidor sólo recibe el conteo canónico, SHALL comunicar únicamente ese conteo. No puede atribuir nombres, cantidades o días restantes a productos concretos reconstruyéndolos desde el catálogo agregado.
 

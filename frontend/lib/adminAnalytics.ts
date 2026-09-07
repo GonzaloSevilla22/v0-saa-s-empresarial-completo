@@ -302,6 +302,16 @@ export function selectMatureCohorts(
   return cohorts.filter((cohort) => cohort.is_mature)
 }
 
+/** Texto del estado vacío del gráfico de retención. Sólo se muestra cuando
+ * `selectMatureCohorts` devuelve [], así que `totalCohorts` (las recibidas de
+ * la RPC) es exactamente el número de cohortes que aún no maduraron. */
+export function buildCohortEmptyMessage(totalCohorts: number): string {
+  if (totalCohorts <= 0) return "Sin cohortes en el período seleccionado"
+  return totalCohorts === 1
+    ? "1 cohorte todavía no completó el horizonte de 30 días"
+    : `${totalCohorts} cohortes todavía no completaron el horizonte de 30 días`
+}
+
 /** Umbral (días) sobre el que la telemetría de operación se considera estancada (D3). */
 export const DATA_COVERAGE_STALE_THRESHOLD_DAYS = 7
 

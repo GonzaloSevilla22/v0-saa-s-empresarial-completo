@@ -3,6 +3,7 @@ import {
   mapKpiHeaderMetrics,
   selectLatestMatureCohort,
   selectMatureCohorts,
+  buildCohortEmptyMessage,
   shouldShowDataCoverageWarning,
   DATA_COVERAGE_STALE_THRESHOLD_DAYS,
   type AdminKpiOverview,
@@ -120,6 +121,40 @@ describe("selectMatureCohorts", () => {
     expect(selectMatureCohorts(cohorts).map((cohort) => cohort.cohort_start)).toEqual([
       "2026-06-01T00:00:00.000Z",
     ])
+  })
+
+  it("devuelve [] con lista vacía", () => {
+    expect(selectMatureCohorts([])).toEqual([])
+  })
+
+  it("devuelve [] cuando ninguna cohorte maduró", () => {
+    const cohorts: AdminRetentionCohort[] = [
+      makeCohort({ cohort_start: "2026-08-05T00:00:00.000Z", is_mature: false }),
+      makeCohort({ cohort_start: "2026-08-10T00:00:00.000Z", is_mature: false }),
+    ]
+    expect(selectMatureCohorts(cohorts)).toEqual([])
+  })
+})
+
+// ─── buildCohortEmptyMessage — texto del estado vacío del gráfico de       ──
+// retención: sólo se muestra cuando NINGUNA cohorte maduró, así que el     ──
+// total recibido es exactamente el número de cohortes inmaduras.            ──
+
+describe("buildCohortEmptyMessage", () => {
+  it("sin cohortes en el período", () => {
+    expect(buildCohortEmptyMessage(0)).toBe("Sin cohortes en el período seleccionado")
+  })
+
+  it("una sola cohorte inmadura, en singular", () => {
+    expect(buildCohortEmptyMessage(1)).toBe(
+      "1 cohorte todavía no completó el horizonte de 30 días",
+    )
+  })
+
+  it("varias cohortes inmaduras, en plural", () => {
+    expect(buildCohortEmptyMessage(3)).toBe(
+      "3 cohortes todavía no completaron el horizonte de 30 días",
+    )
   })
 })
 

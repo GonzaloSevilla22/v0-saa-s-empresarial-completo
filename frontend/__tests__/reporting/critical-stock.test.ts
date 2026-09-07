@@ -64,7 +64,8 @@ describe("consumidores del KPI canónico de stock crítico", () => {
 
     expect(source).toContain("useCriticalStock(branchId)")
     expect(source).not.toContain("useProducts")
-    expect(source).not.toMatch(/stock\s*<=\s*min/i)
+    expect(source).not.toContain("isBelowThreshold")
+    expect(source).not.toContain("@/lib/product-stock")
   })
 
   it("Copilot e ai-insights no reconstruyen criticidad desde v_products_with_stock", () => {

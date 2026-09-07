@@ -213,9 +213,17 @@ BEGIN
   IF position('COUNT(DISTINCT COALESCE(p.operation_id, p.id))' IN v_def) = 0 THEN
     RAISE EXCEPTION 'KPI GATE: rpc_admin_module_stats no cuenta operaciones de compra de forma canónica';
   END IF;
-  IF position('FROM public.products' IN v_def) = 0
-     OR position('deleted_at IS NULL' IN v_def) = 0 THEN
-    RAISE EXCEPTION 'KPI GATE: rpc_admin_module_stats no excluye maestros soft-deleted';
+  -- Soft delete: cada filtro se ancla al FROM de su propia rama (no a cualquier
+  -- ocurrencia del literal en el cuerpo). \s+ tolera LF/CRLF e indentación.
+  IF v_def !~ 'FROM public\.products\s+WHERE deleted_at IS NULL' THEN
+    RAISE EXCEPTION 'KPI GATE: rpc_admin_module_stats no excluye productos soft-deleted';
+  END IF;
+  -- La rama 'clientes' filtra en DOS consultas (resumen y serie): exigir ambas.
+  IF (SELECT count(*) FROM regexp_matches(
+        v_def,
+        'FROM public\.clients\s+WHERE created_at BETWEEN p_date_from AND p_date_to\s+AND deleted_at IS NULL',
+        'g')) < 2 THEN
+    RAISE EXCEPTION 'KPI GATE: rpc_admin_module_stats no excluye clientes soft-deleted';
   END IF;
 END;
 $$;

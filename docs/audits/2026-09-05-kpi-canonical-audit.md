@@ -54,8 +54,8 @@ tablas transaccionales + RLS/account scope
 | Stock crítico | `get_dashboard_critical_stock(p_branch_id)` | `branch_stock`, producto distinto, `min_stock > 0`, criticidad por sucursal, soft-delete y tipo de control | tarjeta del Tablero, resumen IA, Copilot, `ai-insights` |
 | Rentabilidad por producto | `rpc_product_profitability` | ventas por línea, costo canónico y notas de crédito según contrato | pantalla/hook de rentabilidad, `ai-rentabilidad` |
 | Reporte por sucursal | `rpc_branch_report` | scope de cuenta, período y sucursal; facturación y operaciones comparables | `/reportes/sucursal` |
-| Estadísticas de ventas | `get_sales_evolution`, `get_product_sales_ranking` | agregación SQL única; service/repository no recalculan | FastAPI `statistics`, pantallas de estadísticas |
-| KPIs admin | `rpc_admin_kpi_overview`, `rpc_admin_retention_30d`, `rpc_admin_module_stats`, `rpc_admin_business_kpis` | guard admin, usuarios distintos, cobertura, cohortes censuradas, unidad declarada | `/admin/analytics`, `/admin/metricas/*` |
+| Estadísticas de ventas | `rpc_sales_evolution`, `rpc_product_ranking`, `rpc_sales_breakdown` (sobre el helper `reporting_sales_lines_in_window`) | agregación SQL única; service/repository no recalculan | FastAPI `statistics` (`get_sales_evolution` es el método del service, no la fuente), pantallas de estadísticas |
+| KPIs admin | `rpc_admin_kpi_overview`, `rpc_admin_retention_30d`, `rpc_admin_module_stats`, `rpc_admin_business_kpis` | guard admin, usuarios distintos, cobertura, cohortes censuradas, unidad declarada | `/admin/analytics`, `/admin/metricas/*` y, bajo `isAdmin`, el panel `ModuleMetricsWrapper` montado en `/ventas`, `/compras`, `/gastos`, `/clientes`, `/productos` y `/stock` |
 | Plan efectivo / MRR | `get_effective_plan` + motor de billing dentro de `rpc_admin_business_kpis` | cuenta paga, trial y exención separados; ARS explícito | panel estratégico admin |
 
 ## Matriz de invariantes
@@ -189,3 +189,16 @@ No se incluyeron cambios de RLS, deploy, merge ni acceso a datos reales. La migr
 - **Con este PR:** los consumidores activos inspeccionados quedan alineados con los read-models canónicos versionados.
 - **Condición para cierre total:** validar en QA que las migraciones desplegadas, firmas y ACLs coinciden con Git.
 - **Condición preventiva:** cualquier nuevo contexto de IA debe reutilizar `buildBusinessSnapshot` o los adaptadores canónicos, no reconstruir estas métricas.
+
+## Addendum — revisión independiente 2026-09-06
+
+- La migración `20261030000001` se aplicó dos veces en una base local reseteada (idempotente).
+- Los 6 gates SQL pasaron: `test_admin_kpis`, `test_function_acl_gate`, `test_kpis`, `test_kpis_edge_cases`, `test_errcode_5char_gate`, `test_analytics_events`.
+- ACL final idéntica a prod (`{postgres,authenticated,service_role}`), sin overload.
+- El cuerpo pre-PR de `rpc_admin_module_stats` coincide con el vivo de prod (md5 `71c0abc7fc5396e3d1a48417a08eb95f`).
+- Las 4 RPC no tocadas (`get_dashboard_critical_stock`, `get_dashboard_financials`, `rpc_dashboard_kpi_summary`, `rpc_admin_retention_30d`) coinciden con Git línea por línea salvo el encabezado normalizado y los `USING ERRCODE` inyectados por `20261003000001`.
+- `supabase migration list --linked`: 278/278.
+- Vitest: 39/39 en los tres archivos de test que toca el PR (`ai/buildBusinessSnapshot`, `reporting/critical-stock`, `reporting/edge-reporting-canon`) y 26/26 en los tres que toca esta revisión (`adminAnalytics`, `components/CohortRetentionChart`, `reporting/critical-stock`).
+- `tsc`: sin errores nuevos.
+- `deno check` de `ai-insights`/`ai-resumen`/`_shared`: 7 errores preexistentes en `main` y 8 en el PR; el nuevo es `CriticalStockClient` en `ai-insights/index.ts:125`, mismo patrón que los 7 (interfaces `Promise<>` vs. builders thenables de `supabase-js`; el deploy de Supabase no tipa). Candidato: declarar esas interfaces con `PromiseLike<>`.
+- KPI-07 queda cerrado por esta verificación; la migración se aplicó en QA local, no en producción.

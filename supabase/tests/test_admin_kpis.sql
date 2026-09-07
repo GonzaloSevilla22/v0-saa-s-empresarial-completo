@@ -539,10 +539,13 @@ DECLARE
   v_account_id     uuid;
   v_branch_id      uuid;
   v_sale_op        uuid := gen_random_uuid();
+  v_sale_op2       uuid := gen_random_uuid();
   v_purchase_op    uuid := gen_random_uuid();
   v_from           timestamptz := '2099-01-01 00:00:00+00';
-  v_to             timestamptz := '2099-01-02 00:00:00+00';
+  v_to             timestamptz := '2099-01-03 00:00:00+00';
   v_stats          jsonb;
+  v_stock_before   int;
+  v_orphans        int;
 BEGIN
   INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
   VALUES (
@@ -575,14 +578,38 @@ BEGIN
     RAISE EXCEPTION 'KPI ADMIN MODULE GATE: handle_new_user no aprovisionó account/branch';
   END IF;
 
+  -- Baseline de stock ANTES de sembrar nada: la rama 'stock' es GLOBAL (sin
+  -- ventana ni cuenta), así que el gate no puede afirmar un total absoluto —
+  -- sólo el delta que produce este fixture.
+  BEGIN
+    PERFORM set_config(
+      'request.jwt.claims',
+      json_build_object('sub', v_admin_id::text, 'role', 'authenticated')::text,
+      true
+    );
+    EXECUTE 'SET LOCAL ROLE authenticated';
+    SELECT public.rpc_admin_module_stats('stock', v_from, v_to) INTO v_stats;
+    v_stock_before := (v_stats->'summary'->>'count')::int;
+    EXECUTE 'RESET ROLE';
+    PERFORM set_config('request.jwt.claims', '', true);
+  EXCEPTION
+    WHEN OTHERS THEN
+      EXECUTE 'RESET ROLE';
+      PERFORM set_config('request.jwt.claims', '', true);
+      RAISE;
+  END;
+
   -- Tres filas: dos pertenecen a la misma operación y una es legacy sin
-  -- operation_id. El total canónico es 2, no 3.
+  -- operation_id. El total canónico del día 1 es 2, no 3. Se suma una
+  -- segunda operación en el día 2 para ejercitar la serie multi-día.
   INSERT INTO public.sales
     (user_id, account_id, branch_id, amount, quantity, total, date, operation_id)
   VALUES
     (v_admin_id, v_account_id, v_branch_id, 100, 1, 100, v_from + interval '12 hours', v_sale_op),
     (v_admin_id, v_account_id, v_branch_id, 200, 1, 200, v_from + interval '12 hours', v_sale_op),
-    (v_admin_id, v_account_id, v_branch_id, 300, 1, 300, v_from + interval '13 hours', NULL);
+    (v_admin_id, v_account_id, v_branch_id, 300, 1, 300, v_from + interval '13 hours', NULL),
+    (v_admin_id, v_account_id, v_branch_id, 400, 1, 400, v_from + interval '36 hours', v_sale_op2),
+    (v_admin_id, v_account_id, v_branch_id, 500, 1, 500, v_from + interval '36 hours', v_sale_op2);
 
   INSERT INTO public.purchases
     (user_id, account_id, branch_id, amount, quantity, total, date, operation_id)
@@ -590,6 +617,24 @@ BEGIN
     (v_admin_id, v_account_id, v_branch_id, 40, 1, 40, v_from + interval '12 hours', v_purchase_op),
     (v_admin_id, v_account_id, v_branch_id, 50, 1, 50, v_from + interval '12 hours', v_purchase_op),
     (v_admin_id, v_account_id, v_branch_id, 60, 1, 60, v_from + interval '13 hours', NULL);
+
+  -- Soft delete 'stock': un producto vivo y uno borrado (deleted_at seteado
+  -- directamente en el INSERT — trg_guard_product_soft_delete es BEFORE
+  -- UPDATE y sólo se dispara al pasar de NULL a no NULL, no al insertar ya
+  -- borrado).
+  INSERT INTO public.products (user_id, account_id, name)
+  VALUES (v_admin_id, v_account_id, 'Gate Stock Vivo');
+
+  INSERT INTO public.products (user_id, account_id, name, deleted_at, deleted_by)
+  VALUES (v_admin_id, v_account_id, 'Gate Stock Borrado', now(), v_admin_id);
+
+  -- Soft delete 'clientes': un cliente vivo y uno borrado, ambos dentro de
+  -- la ventana [v_from, v_to] (created_at BETWEEN).
+  INSERT INTO public.clients (user_id, account_id, name, created_at)
+  VALUES (v_admin_id, v_account_id, 'Gate Cliente Vivo', v_from + interval '12 hours');
+
+  INSERT INTO public.clients (user_id, account_id, name, created_at, deleted_at, deleted_by)
+  VALUES (v_admin_id, v_account_id, 'Gate Cliente Borrado', v_from + interval '12 hours', now(), v_admin_id);
 
   BEGIN
     PERFORM set_config(
@@ -600,12 +645,18 @@ BEGIN
     EXECUTE 'SET LOCAL ROLE authenticated';
 
     SELECT public.rpc_admin_module_stats('ventas', v_from, v_to) INTO v_stats;
-    IF (v_stats->'summary'->>'count')::int IS DISTINCT FROM 2
-       OR (v_stats->'summary'->>'avg_per_user')::numeric IS DISTINCT FROM 2.0 THEN
-      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: ventas esperaba count=2/avg=2.0, obtuvo %', v_stats->'summary';
+    IF (v_stats->'summary'->>'count')::int IS DISTINCT FROM 3
+       OR (v_stats->'summary'->>'avg_per_user')::numeric IS DISTINCT FROM 3.0 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: ventas esperaba count=3/avg=3.0, obtuvo %', v_stats->'summary';
+    END IF;
+    IF jsonb_array_length(v_stats->'time_series') IS DISTINCT FROM 2 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de ventas esperaba 2 días, obtuvo %', v_stats->'time_series';
     END IF;
     IF (v_stats->'time_series'->0->>'count')::int IS DISTINCT FROM 2 THEN
-      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de ventas esperaba 2 operaciones, obtuvo %', v_stats->'time_series';
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de ventas (día 1) esperaba 2 operaciones, obtuvo %', v_stats->'time_series';
+    END IF;
+    IF (v_stats->'time_series'->1->>'count')::int IS DISTINCT FROM 1 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de ventas (día 2) esperaba 1 operación, obtuvo %', v_stats->'time_series';
     END IF;
 
     SELECT public.rpc_admin_module_stats('compras', v_from, v_to) INTO v_stats;
@@ -615,6 +666,19 @@ BEGIN
     END IF;
     IF (v_stats->'time_series'->0->>'count')::int IS DISTINCT FROM 2 THEN
       RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de compras esperaba 2 operaciones, obtuvo %', v_stats->'time_series';
+    END IF;
+
+    SELECT public.rpc_admin_module_stats('stock', v_from, v_to) INTO v_stats;
+    IF (v_stats->'summary'->>'count')::int IS DISTINCT FROM v_stock_before + 1 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: stock esperaba count=% (baseline % + 1 vivo, excluyendo el borrado), obtuvo %', v_stock_before + 1, v_stock_before, v_stats->'summary';
+    END IF;
+
+    SELECT public.rpc_admin_module_stats('clientes', v_from, v_to) INTO v_stats;
+    IF (v_stats->'summary'->>'count')::int IS DISTINCT FROM 1 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: clientes esperaba count=1 (excluye el borrado), obtuvo %', v_stats->'summary';
+    END IF;
+    IF (v_stats->'time_series'->0->>'count')::int IS DISTINCT FROM 1 THEN
+      RAISE EXCEPTION 'KPI ADMIN MODULE GATE: serie de clientes esperaba 1, obtuvo %', v_stats->'time_series';
     END IF;
 
     EXECUTE 'RESET ROLE';
@@ -628,8 +692,16 @@ BEGIN
 
   DELETE FROM public.sales WHERE user_id = v_admin_id;
   DELETE FROM public.purchases WHERE user_id = v_admin_id;
+  DELETE FROM public.products WHERE account_id = v_account_id;
+  DELETE FROM public.clients WHERE account_id = v_account_id;
   DELETE FROM public.analytics_events WHERE user_id = v_admin_id;
   DELETE FROM public.cashboxes WHERE branch_id = v_branch_id;
+  -- Huérfanos: handle_new_user siembra 7 payment_methods + 7 product_categories
+  -- por cuenta; el borrado de accounts más abajo corre con FKs desactivados
+  -- (session_replication_role=replica), así que el ON DELETE CASCADE no
+  -- dispara y estas filas quedarían colgadas sin este DELETE explícito.
+  DELETE FROM public.payment_methods WHERE account_id = v_account_id;
+  DELETE FROM public.product_categories WHERE account_id = v_account_id;
   SET session_replication_role = replica;
   DELETE FROM public.branches WHERE account_id = v_account_id;
   SET session_replication_role = DEFAULT;
@@ -642,7 +714,20 @@ BEGIN
   DELETE FROM public.operation_idempotency WHERE user_id = v_admin_id;
   DELETE FROM auth.users WHERE id = v_admin_id;
 
-  RAISE NOTICE 'PASS KPI ADMIN MODULE: ventas/compras multilínea cuentan 2 operaciones, no 3 filas.';
+  SELECT COUNT(*) INTO v_orphans FROM (
+    SELECT account_id FROM public.products WHERE account_id = v_account_id
+    UNION ALL
+    SELECT account_id FROM public.clients WHERE account_id = v_account_id
+    UNION ALL
+    SELECT account_id FROM public.payment_methods WHERE account_id = v_account_id
+    UNION ALL
+    SELECT account_id FROM public.product_categories WHERE account_id = v_account_id
+  ) orphans;
+  IF v_orphans <> 0 THEN
+    RAISE EXCEPTION 'KPI ADMIN MODULE GATE: quedaron % filas huérfanas tras el cleanup (products/clients/payment_methods/product_categories)', v_orphans;
+  END IF;
+
+  RAISE NOTICE 'PASS KPI ADMIN MODULE: ventas/compras multilínea cuentan operaciones distintas (no filas), serie multi-día correcta, stock/clientes excluyen soft-deleted, y el cleanup no deja huérfanos.';
 EXCEPTION
   WHEN OTHERS THEN
     BEGIN
@@ -653,8 +738,12 @@ EXCEPTION
     BEGIN
       DELETE FROM public.sales WHERE user_id = v_admin_id;
       DELETE FROM public.purchases WHERE user_id = v_admin_id;
+      DELETE FROM public.products WHERE account_id = v_account_id;
+      DELETE FROM public.clients WHERE account_id = v_account_id;
       DELETE FROM public.analytics_events WHERE user_id = v_admin_id;
       DELETE FROM public.cashboxes WHERE branch_id = v_branch_id;
+      DELETE FROM public.payment_methods WHERE account_id = v_account_id;
+      DELETE FROM public.product_categories WHERE account_id = v_account_id;
       SET session_replication_role = replica;
       DELETE FROM public.branches WHERE account_id = v_account_id;
       SET session_replication_role = DEFAULT;

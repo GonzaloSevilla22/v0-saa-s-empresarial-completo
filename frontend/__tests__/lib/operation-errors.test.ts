@@ -36,6 +36,39 @@ describe("humanizeOperationError — stock por sucursal", () => {
     expect(out.message).toContain("Principal")
   })
 
+  // candidato "POS sin wirear a operation-errors" (origen: sucursal-guard-
+  // vaciado-auditoria G3): el quick-sale del POS (rpc_quick_sale →
+  // _c29_confirm_order_core) usa un vocabulario de error DISTINTO al de
+  // sale-form (rpc_create_sale_operation_v2) para el mismo caso — español,
+  // con "para producto" en vez de "for product", y detalles de cantidad que
+  // el usuario no necesita ver.
+  it("reconoce también la variante en español del quick-sale del POS", () => {
+    const out = humanizeOperationError(
+      `stock_insuficiente para producto ${PRODUCT_ID}: disponible 0, solicitado 3`,
+      lookup,
+      "Showroom",
+    )
+
+    expect(out.message).toContain("Top Pupera Liso Talle 1 Violeta")
+    expect(out.message).toContain("Showroom")
+    expect(out.message).toContain("otra sucursal")
+    expect(out.message).not.toContain(PRODUCT_ID)
+    expect(out.message).not.toContain("disponible 0")
+    expect(out.action).toEqual({
+      label: "Transferir stock",
+      href: `/stock?product=${PRODUCT_ID}`,
+    })
+  })
+
+  it("la variante en español sin nombre resoluble tampoco inventa un nombre", () => {
+    const out = humanizeOperationError(
+      `stock_insuficiente para producto ${PRODUCT_ID}: disponible 0, solicitado 1`,
+      () => undefined,
+    )
+
+    expect(out.message).toContain("uno de los productos")
+  })
+
   it("sin nombre resoluble, no inventa: habla de 'uno de los productos'", () => {
     const out = humanizeOperationError(`Insufficient stock for product ${PRODUCT_ID}`, () => undefined)
 

@@ -139,7 +139,13 @@ function translateEmitInvoiceError(message: string): string {
 }
 
 function translateSalesOrderError(message: string): string {
-  if (message.includes("stock_insuficiente"))   return "Stock insuficiente para completar la venta."
+  // POS sin wirear a operation-errors (candidato, origen sucursal-guard-
+  // vaciado-auditoria G3): este mensaje se aplanaba ACÁ a un genérico sin el
+  // uuid del producto, así que humanizeOperationError (lib/operation-errors)
+  // nunca lo veía en /ventas/pos y jamás mostraba ni el nombre del producto
+  // ni la acción "Transferir stock" que sale-form.tsx sí tiene. Se deja
+  // pasar intacto: la humanización (con nombre de producto y acción) vive
+  // en un solo lugar — el consumidor la resuelve, este hook no la duplica.
   if (message.includes("no_open_session"))       return "No hay sesión de caja abierta. Abrí una sesión antes de cobrar en efectivo."
   if (message.includes("cash_requires_session")) return "Ingresá la sesión de caja para cobrar en efectivo."
   if (message.includes("branch_closed"))         return "La sucursal está cerrada."

@@ -5,9 +5,9 @@ Define el contrato estructural del shell del dashboard (sidebar + contenedor de 
 ## Requirements
 ### Requirement: El shell del dashboard nunca desborda horizontalmente el viewport
 
-El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del viewport en cualquier ancho desde 390 px: el `<main>` del shell (`SidebarInset`) y el contenedor de contenido del layout SHALL romper la cadena `min-width:auto` de flexbox (`min-w-0`), de modo que ningún contenido de pantalla pueda estirar el documento más allá del viewport. El contenido que exceda el ancho disponible SHALL scrollear dentro de su propio contenedor con `overflow-x-auto`, nunca desbordando la página. **En viewport móvil (≤ 430 px)** los controles primarios de cada pantalla (CTAs, acciones de fila, paginación) SHALL además ser visibles y operables sin desplazamiento horizontal alguno.
+El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del viewport en cualquier ancho desde 390 px: el `<main>` del shell (`SidebarInset`) y el contenedor de contenido del layout SHALL romper la cadena `min-width:auto` de flexbox (`min-w-0`), de modo que ningún contenido de pantalla pueda estirar el documento más allá del viewport. El contenido que exceda el ancho disponible SHALL scrollear dentro de su propio contenedor con `overflow-x-auto`, nunca desbordando la página. **En viewport móvil (≤ 430 px) y en tablet con el riel expandido (768–1024 px)** los controles primarios de cada pantalla (CTAs, acciones de fila, paginación) SHALL además ser visibles y operables sin desplazamiento horizontal alguno: la barra de **filtros** de cada pantalla SHALL wrappear (nunca comprimir ni empujar la barra de acciones) para que el CTA primario quede dentro del viewport inicial.
 
-> **Alcance deliberado de la última cláusula**: se acota a móvil porque la pasada responsive de tablet (768–1024 px) es un Non-Goal declarado de este change (`design.md` §Non-Goals). A 1024 px con el riel expandido, las barras de **filtros** de `/ventas`, `/gastos`, `/compras` y `/clientes` no wrappean y su CTA queda fuera del viewport inicial — alcanzable con el scroll propio del contenedor, con barra visible, y sin estirar el documento (medido en la task 2.8). Es una mejora medida contra el estado previo (documento estirado hasta 1372 px y CTA inalcanzable), pero **no** cumple "visible al abrir": queda como candidato para la pasada de tablet, no como promesa de esta capability.
+> **Historia de la cláusula de tablet**: `qa-integral-modulos` había acotado esta cláusula a móvil porque la pasada responsive de tablet (768–1024 px) era su Non-Goal declarado. `tablet-filtros-cta` cerró el hueco que esa acotación dejaba: a 1024 px con el riel expandido, las barras de **filtros** de `/ventas`, `/gastos`, `/compras` y `/clientes` no wrappeaban y su CTA quedaba fuera del viewport inicial. Con `flex-wrap` en el contenedor de controles y en el grupo de filtros de las cuatro pantallas, el CTA ahora entra en el viewport inicial sin scroll — la cláusula deja de acotarse a móvil.
 
 #### Scenario: Pantalla con tabla ancha en móvil
 
@@ -26,6 +26,13 @@ El sistema SHALL contener el ancho de todo el contenido del dashboard dentro del
 - **WHEN** se abren `/ventas`, `/gastos`, `/compras`, `/clientes` o `/productos` en 768 px y en 1024 px
 - **THEN** `document.documentElement.scrollWidth` no supera el ancho del viewport
 - **AND** lo que no entra scrollea dentro del contenedor de contenido, con barra visible
+
+#### Scenario: El CTA de filtros entra en el viewport inicial en tablet
+
+- **GIVEN** el riel del sidebar expandido
+- **WHEN** se abren `/ventas`, `/gastos`, `/compras` o `/clientes` en 1024 px de ancho
+- **THEN** la barra de filtros de la pantalla wrappea en vez de comprimir la barra de acciones
+- **AND** el CTA primario (`Nueva venta`/`Nuevo gasto`/`Nueva compra`/`Nuevo cliente`) cae dentro del viewport inicial (0..1024 x 0..768) sin necesidad de scroll
 
 #### Scenario: El desktop no cambia
 

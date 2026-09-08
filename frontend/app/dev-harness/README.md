@@ -15,3 +15,7 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   ancho, trigger del menú y drawer móvil.
 - `/dev-harness/bell` — G5: campana de notificaciones (`NotificationBellView`)
   con 15 notificaciones sintéticas + control sano de 3.
+- `/dev-harness/tablet-filters?route=ventas|gastos|compras|clientes` —
+  tablet-filtros-cta: barra de controles (filtros + acciones) de `/ventas`,
+  `/gastos`, `/compras` y `/clientes`, con el mismo contenedor y las mismas
+  clases de wrap que las páginas reales.

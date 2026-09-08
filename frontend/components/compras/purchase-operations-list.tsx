@@ -153,8 +153,13 @@ export function PurchaseOperationsList({
   return (
     <div className="flex flex-col gap-4">
       {/* Controls Bar */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      {/* tablet-filtros-cta: lg:flex-wrap en el contenedor + flex-wrap en el
+          grupo de filtros — a 1024px con el riel del sidebar expandido, los
+          4 filtros no entran en una sola fila y empujaban el CTA fuera del
+          viewport (la barra de ACCIONES ya wrappeaba desde qa-integral-modulos
+          G2, la de FILTROS no). */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input

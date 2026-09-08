@@ -6,9 +6,7 @@ import { startOfMonth, subDays } from "date-fns"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { createClient } from "@/lib/supabase/client"
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
-} from "recharts"
+import { ReportBarChart, type ReportBarMultiDatum } from "@/components/charts/ReportBarChart"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
@@ -55,11 +53,18 @@ export default function CentrosCostoReportPage() {
 
   const totals = sumCostCenterReport(rows)
 
-  const chartData = rows.map((r) => ({
-    name:    r.name.length > 14 ? `${r.name.slice(0, 12)}…` : r.name,
+  const chartData: ReportBarMultiDatum[] = rows.map((r) => ({
+    name:    r.name,
     Gastos:  Math.round(r.totalExpenses),
     Compras: Math.round(r.totalPurchases),
   }))
+
+  // Gasto en rojo y compra en azul: el mismo significado que en
+  // /reportes/formas-pago y /reportes/sucursal (REPORT_SERIES_COLORS).
+  const chartSeries = [
+    { key: "Gastos", name: "Gastos", color: REPORT_SERIES_COLORS.spent },
+    { key: "Compras", name: "Compras", color: REPORT_SERIES_COLORS.purchased },
+  ]
 
   return (
     // min-w-0 en toda la cadena de flex items (raíz de la página y los Card):
@@ -114,18 +119,15 @@ export default function CentrosCostoReportPage() {
           ) : rows.length === 0 ? (
             <EmptyState />
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16, top: 4 }}>
-                <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: number, name: string) => [formatMoney(v), name]} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                {/* Gasto en rojo y compra en azul: el mismo significado que
-                    en /reportes/formas-pago y /reportes/sucursal. */}
-                <Bar dataKey="Gastos" fill={REPORT_SERIES_COLORS.spent} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-                <Bar dataKey="Compras" fill={REPORT_SERIES_COLORS.purchased} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <ReportBarChart
+              data={chartData}
+              series={chartSeries}
+              ariaLabel="Gastos vs Compras por centro de costo"
+              formatValue={formatMoney}
+              formatAxisValue={(v) => `$${Math.round(v / 1000)}K`}
+              labelWidth={110}
+              height={220}
+            />
           )}
         </CardContent>
       </Card>

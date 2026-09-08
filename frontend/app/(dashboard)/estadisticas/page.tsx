@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
 import { BranchFilter } from "@/components/branches/BranchFilter"
+import { ChannelFilter } from "@/components/statistics/ChannelFilter"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { ReportTimeSeriesChart } from "@/components/charts/ReportTimeSeriesChart"
 import { ReportBarChart } from "@/components/charts/ReportBarChart"
@@ -99,6 +100,10 @@ export default function EstadisticasPage() {
   // E2: filtro de sucursal compartido (URL ?branch=, como el Tablero).
   const searchParams = useSearchParams()
   const branchId = searchParams.get("branch") ?? null
+  // filtro-canal-estadisticas: filtro de canal propio del módulo (URL
+  // ?canal=). Viaja a evolución, ranking, desglose y detalle de producto;
+  // top clientes lo ignora porque la API no lo acepta (ver use-sales-statistics.ts).
+  const canal = searchParams.get("canal") ?? null
 
   // Cota visual del calendario según el plan (como los otros reportes); la
   // cota REAL la aplica el read-model (D8) aunque el cliente no coopere.
@@ -106,9 +111,9 @@ export default function EstadisticasPage() {
   const startISO = toISODate(dateFrom)
   const endISO = toISODate(dateTo)
 
-  const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket, branchId })
+  const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket, branchId, canal })
   const rankingQuery = useProductRanking({
-    start: startISO, end: endISO, orderBy, groupVariants, page, size: RANKING_PAGE_SIZE, branchId,
+    start: startISO, end: endISO, orderBy, groupVariants, page, size: RANKING_PAGE_SIZE, branchId, canal,
   })
 
   const evolution = evolutionQuery.data
@@ -154,6 +159,7 @@ export default function EstadisticasPage() {
           <span className="text-xs text-muted-foreground">→</span>
           <DateButton date={dateTo} onSelect={changeEnd} minDate={dateFrom} maxDate={today} label="Fecha hasta" />
           <BranchFilter />
+          <ChannelFilter />
           <ToggleGroup
             type="single"
             size="sm"
@@ -309,6 +315,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Desglose por canal"
               />
             </TabsContent>
@@ -318,6 +325,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Desglose por sucursal"
                 footnote={branchId ? "Con una sucursal filtrada, el desglose muestra sólo esa sucursal; las ventas sin sucursal asignada quedan fuera de todo el módulo mientras el filtro esté activo." : undefined}
               />
@@ -343,6 +351,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Ventas por día de la semana"
                 orientation="vertical"
                 footnote="Día de la semana de la fecha de negocio declarada en cada venta (lunes a domingo)."
@@ -375,6 +384,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Ventas por horario de carga"
                 orientation="vertical"
                 bandView={hourView === "band"}
@@ -528,6 +538,7 @@ export default function EstadisticasPage() {
             start={startISO}
             end={endISO}
             branchId={branchId}
+            canal={canal}
             ariaLabel="Ventas por categoría"
             operationsTotal={false}
             footnote={evolution

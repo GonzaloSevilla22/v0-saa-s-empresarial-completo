@@ -6,9 +6,7 @@ import { startOfMonth, subDays } from "date-fns"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { useAuth } from "@/contexts/auth-context"
 import { createClient } from "@/lib/supabase/client"
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
-} from "recharts"
+import { ReportBarChart, type ReportBarMultiDatum } from "@/components/charts/ReportBarChart"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
@@ -108,11 +106,16 @@ export default function SucursalReportPage() {
     { sales: 0, expenses: 0, operations: 0 }
   )
 
-  const chartData = rows.map(r => ({
-    name:    r.branch_name.length > 14 ? `${r.branch_name.slice(0, 12)}…` : r.branch_name,
+  const chartData: ReportBarMultiDatum[] = rows.map(r => ({
+    name:    r.branch_name,
     Ventas:  Math.round(r.total_sales),
     Gastos:  Math.round(r.total_expenses),
   }))
+
+  const chartSeries = [
+    { key: "Ventas", name: "Ventas", color: REPORT_SERIES_COLORS.sold },
+    { key: "Gastos", name: "Gastos", color: REPORT_SERIES_COLORS.spent },
+  ]
 
   return (
     <div className="flex flex-col gap-6">
@@ -155,16 +158,15 @@ export default function SucursalReportPage() {
               Sin datos para el período seleccionado
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16, top: 4 }}>
-                <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: number, name: string) => [fmtARS(v), name]} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Ventas" fill={REPORT_SERIES_COLORS.sold} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-                <Bar dataKey="Gastos" fill={REPORT_SERIES_COLORS.spent} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <ReportBarChart
+              data={chartData}
+              series={chartSeries}
+              ariaLabel="Ventas vs Gastos por sucursal"
+              formatValue={fmtARS}
+              formatAxisValue={(v) => `$${Math.round(v / 1000)}K`}
+              labelWidth={90}
+              height={220}
+            />
           )}
         </CardContent>
       </Card>

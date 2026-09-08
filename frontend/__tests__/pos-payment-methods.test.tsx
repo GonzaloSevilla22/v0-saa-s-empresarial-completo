@@ -32,6 +32,11 @@ let currentSessionMockValue: { data: { id: string } | null; isLoading: boolean }
   isLoading: false,
 }
 
+// candidato "POS sin wirear a operation-errors": el POS ahora usa
+// useRouter() para el botón "Transferir stock" del toast de error de stock
+// (mismo patrón que sale-form.tsx).
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }))
+
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true }) }))
 vi.mock("@/hooks/data/use-products", () => ({ useProducts: () => ({ products: [] }) }))
 vi.mock("@/hooks/data/use-clients", () => ({

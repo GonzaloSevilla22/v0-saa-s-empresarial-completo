@@ -246,6 +246,33 @@ La superficie SHALL funcionar en tema claro y oscuro, en escritorio y móvil, us
 - **WHEN** se muestra una tabla de varias columnas
 - **THEN** la tabla se desplaza horizontalmente dentro de su contenedor y el documento no desborda
 
+### Requirement: Filtro de canal en la superficie del módulo
+
+El sistema SHALL exponer en `/estadisticas` un selector de canal de venta, junto al filtro de sucursal, sobre el mismo catálogo de canales que usa el formulario de venta. El filtro SHALL sincronizarse con la URL (`?canal=`), del mismo modo que el filtro de sucursal.
+
+El canal elegido SHALL viajar a la evolución de ventas, al ranking de productos y a los desgloses por dimensión, filtrando sus resultados al canal seleccionado. El top de clientes NO SHALL recibir el filtro de canal: su endpoint no lo acepta.
+
+Sin canal seleccionado ("Todos los canales") las consultas SHALL viajar sin el parámetro, mostrando el total del período sin filtrar por canal.
+
+#### Scenario: Filtrar por un canal actualiza evolución, ranking y desgloses
+
+- **GIVEN** un período con ventas de varios canales
+- **WHEN** el usuario elige un canal en el selector de canal
+- **THEN** la URL refleja el canal elegido (`?canal=`)
+- **AND** la evolución, el ranking de productos y los desgloses por dimensión se re-consultan filtrados a ese canal
+
+#### Scenario: El top de clientes ignora el filtro de canal
+
+- **GIVEN** un canal seleccionado en el filtro
+- **WHEN** se consulta el top de clientes del período
+- **THEN** la consulta viaja sin el parámetro de canal, porque su endpoint no lo admite
+
+#### Scenario: Sin canal seleccionado se consulta el total del período
+
+- **GIVEN** el filtro de canal en su opción "Todos los canales"
+- **WHEN** se cargan la evolución, el ranking y los desgloses
+- **THEN** las consultas viajan sin el parámetro de canal
+
 ### Requirement: Análisis IA del módulo de estadísticas
 
 El sistema SHALL proveer una Edge Function `ai-estadisticas` que genere un análisis en lenguaje natural de las estadísticas del período.

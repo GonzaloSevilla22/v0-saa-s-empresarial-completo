@@ -47,6 +47,13 @@ vi.mock("@/components/branches/BranchFilter", () => ({
   BranchFilter: () => <div data-testid="branch-filter" />,
 }))
 
+// filtro-canal-estadisticas: el filtro de canal es propio de la pantalla —
+// se stubbea acá igual que BranchFilter y se controla vía el search param
+// ?canal= (nav.params), como el resto de la URL del módulo.
+vi.mock("@/components/statistics/ChannelFilter", () => ({
+  ChannelFilter: () => <div data-testid="channel-filter" />,
+}))
+
 // E3: el botón de export y el panel de IA tienen sus propios tests; acá se
 // stubbean capturando las props para fijar QUÉ parámetros les llegan desde
 // la pantalla (los mismos que el ranking muestra).
@@ -384,6 +391,23 @@ describe("EstadisticasPage", () => {
     render(<EstadisticasPage />)
     expect(useSalesEvolutionMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: null }))
     expect(useTopClientsMock).toHaveBeenLastCalledWith(expect.objectContaining({ branchId: null }))
+  })
+
+  it("el filtro de canal de la URL viaja a evolución, ranking y desglose (no a top clientes, que la API no acepta)", () => {
+    nav.params = new URLSearchParams("canal=whatsapp")
+    render(<EstadisticasPage />)
+    expect(screen.getByTestId("channel-filter")).toBeInTheDocument()
+    expect(useSalesEvolutionMock).toHaveBeenLastCalledWith(expect.objectContaining({ canal: "whatsapp" }))
+    expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ canal: "whatsapp" }))
+    expect(useSalesBreakdownMock).toHaveBeenCalledWith(expect.objectContaining({ dimension: "canal", canal: "whatsapp" }))
+    const topClientsParams = useTopClientsMock.mock.calls.at(-1)?.[0] as Record<string, unknown>
+    expect(topClientsParams).not.toHaveProperty("canal")
+  })
+
+  it("sin filtro de canal las consultas viajan con canal null", () => {
+    render(<EstadisticasPage />)
+    expect(useSalesEvolutionMock).toHaveBeenLastCalledWith(expect.objectContaining({ canal: null }))
+    expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ canal: null }))
   })
 
   it("el fallo de un desglose se muestra como error en su tarjeta, nunca como 'sin datos'", () => {

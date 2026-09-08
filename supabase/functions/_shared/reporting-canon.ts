@@ -59,7 +59,7 @@ export interface ReportingCanonClient {
   rpc(
     fn: "rpc_dashboard_kpi_summary",
     args: Record<string, string>,
-  ): Promise<{ data: RpcRow[] | null; error: { message: string } | null }>
+  ): PromiseLike<{ data: RpcRow[] | null; error: { message: string } | null }>
 }
 
 /** Forma estructural mínima del cliente para el KPI canónico de stock
@@ -69,7 +69,7 @@ export interface CriticalStockClient {
   rpc(
     fn: "get_dashboard_critical_stock",
     args: { p_branch_id: string | null },
-  ): Promise<{ data: number | string | null; error: { message: string } | null }>
+  ): PromiseLike<{ data: number | string | null; error: { message: string } | null }>
 }
 
 // ─── Pure helpers (gemelas de frontend/lib/reporting/revenue-canon.ts) ────────

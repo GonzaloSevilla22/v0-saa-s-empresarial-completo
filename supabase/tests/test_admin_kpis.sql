@@ -102,6 +102,7 @@ DECLARE
   v_rejected            boolean;
   v_failures_before_28  int;
   v_secondary_accounts  uuid[];
+  v_orphans             int;
   v_fns_5               CONSTANT text[] := ARRAY[
     'public.rpc_admin_kpi_overview(timestamptz, timestamptz, text)',
     -- grupo 9 (OQ-5, M2): firma nueva con p_horizon_days — la de 3 args ya
@@ -458,6 +459,13 @@ BEGIN
   DELETE FROM public.account_members WHERE user_id IN (
     v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
   );
+  -- Huérfanos: handle_new_user siembra 7 payment_methods + 7 product_categories
+  -- por cuenta; el borrado de accounts más abajo corre con FKs desactivados
+  -- (session_replication_role=replica), así que el ON DELETE CASCADE no
+  -- dispara y estas filas quedarían colgadas sin este DELETE explícito
+  -- (mismo patrón que el gate de #521 más abajo en este archivo).
+  DELETE FROM public.payment_methods WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts);
+  DELETE FROM public.product_categories WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts);
   -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
   SET session_replication_role = replica;
   DELETE FROM public.accounts WHERE id = v_admin_account OR id = ANY(v_secondary_accounts);
@@ -474,6 +482,15 @@ BEGIN
   DELETE FROM auth.users WHERE id IN (
     v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
   );
+
+  SELECT COUNT(*) INTO v_orphans FROM (
+    SELECT account_id FROM public.payment_methods WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts)
+    UNION ALL
+    SELECT account_id FROM public.product_categories WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts)
+  ) orphans;
+  IF v_orphans <> 0 THEN
+    RAISE EXCEPTION 'GATE ADMIN-KPI-REFRESH: quedaron % filas huérfanas tras el cleanup (payment_methods/product_categories)', v_orphans;
+  END IF;
 
 EXCEPTION
   WHEN OTHERS THEN
@@ -507,6 +524,8 @@ EXCEPTION
       DELETE FROM public.account_members WHERE user_id IN (
         v_admin_id, v_user_a_id, v_user_b_id, v_user_c_id, v_act1_id, v_act2_id, v_mature_id, v_immature_id
       );
+      DELETE FROM public.payment_methods WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts);
+      DELETE FROM public.product_categories WHERE account_id = v_admin_account OR account_id = ANY(v_secondary_accounts);
       -- sucursal-guard-vaciado-auditoria: DELETE FROM accounts cascadea a branches (ON DELETE CASCADE) y el trigger trg_guard_branch_decommission prohibe TODO borrado fisico de una sucursal (P0428) -- bypass explicito para el cleanup del fixture sintetico. session_replication_role solo lo puede fijar un rol con privilegio de superusuario (postgres en CI); no abre ningun camino para authenticated/anon via PostgREST.
       SET session_replication_role = replica;
       DELETE FROM public.accounts WHERE id = v_admin_account OR id = ANY(v_secondary_accounts);

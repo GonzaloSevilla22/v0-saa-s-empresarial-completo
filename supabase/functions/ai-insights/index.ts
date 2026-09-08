@@ -1,5 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 import {
   fetchKpiSummary,
   fetchCriticalStockCount,
@@ -91,7 +91,20 @@ Deno.serve(async (req) => {
     }
 
     // ── Plan quota check (C-02) — reject before any OpenAI cost ───────────────
-    const quota = await checkAiQuota(supabase, user.id, 'queries')
+    // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members
+    // (2 `from` + 3 `rpc`, el máximo entre los tres clientes estructurales de
+    // `_shared/`) y comparar su estructura contra `SupabaseClient<any,...>`
+    // dispara TS2589 ("Type instantiation is excessively deep") en `deno
+    // check` — ver deno-check-ts2589 en CLAUDE.md/CHANGES.md. Las otras
+    // interfaces estructurales (`ReportingCanonClient`, `CriticalStockClient`,
+    // `EffectivePlanClient` — usadas por `fetchCriticalStockCount`,
+    // `fetchKpiSummary` y `resolveEffectivePlan`) son asignables sin cast
+    // porque, tras el cambio a `PromiseLike` en sus firmas, un solo overload
+    // no dispara la comparación profunda; `AiQuotaClient` sí la dispara por
+    // sus 5 miembros overloaded, así que TODA llamada a `checkAiQuota`/
+    // `incrementAiUsage` (acá y en `ai-resumen/index.ts`) necesita el mismo
+    // cast.
+    const quota = await checkAiQuota(supabase as unknown as AiQuotaClient, user.id, 'queries')
     if (!quota.allowed) {
       console.warn('[ai-insights] Quota exceeded for user', user.id)
       return jsonResponse(quota.body, 429)
@@ -332,7 +345,8 @@ REGLAS:
     }
 
     // ── Consume one AI query from the monthly quota (C-02) ────────────────────
-    await incrementAiUsage(supabase, user.id, 'queries')
+    // Mismo cast acotado que en el chequeo de cuota arriba (ver ese comentario).
+    await incrementAiUsage(supabase as unknown as AiQuotaClient, user.id, 'queries')
 
     console.log('[ai-insights] Success, count:', insightsData.length)
     return jsonResponse({ ok: true, count: insightsData.length, data: insightsData })

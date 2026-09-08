@@ -583,6 +583,82 @@ jobs:
           # ANTI-OVERLOAD (sección 7 — la numeración del archivo salta la 4).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261016000001_qa_integral_fixes.sql
 
+          # extender-cadena-reapply-2026-09 (candidato CLAUDE.md "KPI_Validation
+          # roto/desactualizado"): la cadena de arriba se había detenido en
+          # 20261016000001 mientras `supabase/migrations` ya llevaba 14
+          # migraciones más (hasta 20261030000001, ~3 semanas de changes reales
+          # incluyendo varias que reescriben RPCs de dinero). El paso seguía
+          # en VERDE en CI (no "roto" como decía el candidato) precisamente
+          # PORQUE nunca tocaba esas 14 — cobertura silenciosamente angosta,
+          # no una regresión roja. Se suman acá siguiendo el mismo patrón:
+          # reaplicar en orden cronológico real y tolerar SOLO el marcador
+          # literal de un gate/error esperado. Confirmado localmente (Postgres
+          # 17.6 en Docker, DB ya migrada hasta 20261030000001) para las 14:
+          # 12 reaplican limpio, 2 disparan un conflicto real (abajo). No hace
+          # falta limpieza quirúrgica propia para ninguna: el `supabase db
+          # reset` + diff de schema_snapshot() de la sección "capa 2" de más
+          # abajo ya reconverge y ASERTA el estado final, cualquiera sea el
+          # residuo (mismo mecanismo que ya cubre las secciones anteriores).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261017000001_seguros_perfil_asesor.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261018000001_caja_compras_cobranzas.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261019000001_cobranzas_reverso.sql
+          # cobranzas-catalogo-pagos: cambia el 5º arg de
+          # rpc_register_payment_received/made de text a uuid vía DROP
+          # FUNCTION IF EXISTS (firma VIEJA, con text) + CREATE FUNCTION liso
+          # (sin OR REPLACE) de la firma NUEVA (uuid). Reaplicada en soledad
+          # (nada del resto de la cadena la precede tocando estas dos RPCs),
+          # su propio DROP ya no matchea nada (la firma viva es la NUEVA, no
+          # la vieja) y el CREATE choca con "already exists" contra la firma
+          # que ya está viva — error crudo de Postgres, no un gate propio del
+          # archivo, pero con un mensaje estable para tolerar. Verificado
+          # localmente: el script aborta a mitad (ON_ERROR_STOP) dejando
+          # `received` ya reconciliada (su DROP sí alcanzó a correr antes del
+          # error) y `made` con un overload fantasma sin tocar — ambos casos
+          # los limpia igual el `supabase db reset` de más abajo.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261020000001_cobranzas_catalogo_pagos.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'function "rpc_register_payment_received" already exists with same argument types'; then
+              echo "20261020000001 reapply chocó con su propia firma ya vigente (CREATE sin OR REPLACE sobre una firma que ya está viva) — reconverge con el 'supabase db reset' de más abajo"
+            else
+              echo "ERROR: el reapply de 20261020000001 falló por un motivo DISTINTO del esperado."
+              exit 1
+            fi
+          fi
+          # receivables-report: la migración original de rpc_receivables_report
+          # (firma con RETURNS TABLE/OUT params de esa fecha) quedó obsoleta:
+          # cobranzas-vencimientos (20261022000001, más abajo) le cambia el
+          # tipo de retorno. Reaplicada acá, en su posición cronológica real,
+          # Postgres rechaza el CREATE OR REPLACE con el error nativo de tipo
+          # de retorno distinto (no hay DROP FUNCTION en este archivo) — falla
+          # en la primera sentencia, sin dejar nada a medio aplicar; la
+          # definición vigente (la de 20261022000001) queda intacta.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261021000001_receivables_report.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'Use DROP FUNCTION rpc_receivables_report(uuid) first'; then
+              echo "20261021000001 reapply chocó con el tipo de retorno ya vigente (20261022000001 lo cambió después) — reconverge con el 'supabase db reset' de más abajo"
+            else
+              echo "ERROR: el reapply de 20261021000001 falló por un motivo DISTINTO del esperado."
+              exit 1
+            fi
+          fi
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261022000001_cobranzas_vencimientos.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261023000001_productos_categorias_sku.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261024000001_estadisticas_ventas_e1.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261025000001_estadisticas_ventas_e2.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261026000001_estadisticas_ventas_e3.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261027000001_subscription_webhook_idempotency_contract.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261028000001_subscription_charge_replay_on_resolve.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261029000001_receipts_for_subscription_charges.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261030000001_admin_module_operation_counts.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar

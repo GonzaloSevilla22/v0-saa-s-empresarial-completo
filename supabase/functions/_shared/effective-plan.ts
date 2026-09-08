@@ -29,7 +29,7 @@ function isKnownPlan(value: string): value is EffectivePlan {
 export interface EffectivePlanClient {
   rpc(
     fn: "rpc_my_effective_plan",
-  ): Promise<{ data: string | null; error: { message: string } | null }>
+  ): PromiseLike<{ data: string | null; error: { message: string } | null }>
 }
 
 /**

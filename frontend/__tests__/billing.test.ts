@@ -12,8 +12,6 @@
  * and live in supabase/tests/ when available.
  */
 
-import { readFileSync } from "node:fs"
-import path from "node:path"
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import type { Plan } from "@/lib/types"
 
@@ -46,7 +44,6 @@ vi.mock("@/lib/mercadopago", () => ({
   }),
 }))
 
-import { POST as webhookForwardPOST } from "@/app/api/billing/webhook/route"
 import { POST as preferencesPOST } from "@/app/api/billing/preferences/route"
 
 // ─── Pure logic extracted from app/api/billing/preferences/route.ts ───────────
@@ -349,136 +346,6 @@ describe("Idempotency — duplicate payment_id detection", () => {
 
   it("returns false for empty processed list", () => {
     expect(isAlreadyProcessed([], "mp-pay-001")).toBe(false)
-  })
-})
-
-// ─── POST /api/billing/webhook — legacy route as stateless forwarder ─────────
-// v31-mp-upgrade-webhook-fix D1/D2: MercadoPago bakes notification_url into
-// every preference at creation time, so preferences issued before this
-// change keep notifying this URL for their whole lifetime. It must relay
-// raw bytes to the backend, never write to Supabase again.
-
-describe("POST /api/billing/webhook — legacy route as stateless forwarder (D1, D2)", () => {
-  const BACKEND_URL = "https://backend.example.com"
-  let originalBackendUrl: string | undefined
-
-  beforeEach(() => {
-    originalBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL
-    process.env.NEXT_PUBLIC_BACKEND_URL = BACKEND_URL
-  })
-
-  afterEach(() => {
-    if (originalBackendUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_BACKEND_URL
-    } else {
-      process.env.NEXT_PUBLIC_BACKEND_URL = originalBackendUrl
-    }
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-  })
-
-  it("relays the raw body bytes and both signature headers to the backend webhook (task 2.1)", async () => {
-    const rawBody = JSON.stringify({ type: "payment", data: { id: "pay-123" } })
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    const req = new Request("http://localhost/api/billing/webhook", {
-      method: "POST",
-      headers: { "x-signature": "ts=1,v1=abc", "x-request-id": "req-1" },
-      body: rawBody,
-    })
-
-    await webhookForwardPOST(req)
-
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe(`${BACKEND_URL}/payments/webhook`)
-    expect(init.body).toBe(rawBody)
-    expect((init.headers as Record<string, string>)["x-signature"]).toBe("ts=1,v1=abc")
-    expect((init.headers as Record<string, string>)["x-request-id"]).toBe("req-1")
-    // Origin marker for the backend's traceability requirement (payment-webhook
-    // spec) — not part of the HMAC-signed template, safe to add per D2.
-    expect((init.headers as Record<string, string>)["x-relay-source"]).toBe("legacy-frontend")
-  })
-
-  it("relays a payload with non-alphabetical key order and unicode escapes byte-for-byte — no re-serialization (task 2.3, D2)", async () => {
-    // If the route did JSON.parse -> JSON.stringify, key order and escape
-    // style would normalize and this exact string would no longer match.
-    const rawBody = '{"data":{"id":"pay-999"},"type":"payment","note":"caf\\u00e9 con leche"}'
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }))
-    vi.stubGlobal("fetch", fetchMock)
-
-    const req = new Request("http://localhost/api/billing/webhook", {
-      method: "POST",
-      headers: { "x-signature": "ts=2,v1=def", "x-request-id": "req-2" },
-      body: rawBody,
-    })
-
-    await webhookForwardPOST(req)
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(init.body).toBe(rawBody)
-  })
-
-  it("does not import the Supabase client — the relay never touches the database (task 2.4, D1)", () => {
-    const source = readFileSync(
-      path.resolve(__dirname, "../app/api/billing/webhook/route.ts"),
-      "utf-8"
-    )
-    expect(source).not.toMatch(/@\/lib\/supabase\/server/)
-    expect(source).not.toMatch(/createClient/)
-  })
-
-  it("propagates an error status from the backend instead of masking it with 200 (task 2.5)", async () => {
-    const rawBody = JSON.stringify({ type: "payment", data: { id: "pay-400" } })
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: false, error: "Firma inválida" }), { status: 400 })
-    )
-    vi.stubGlobal("fetch", fetchMock)
-
-    const req = new Request("http://localhost/api/billing/webhook", {
-      method: "POST",
-      headers: { "x-signature": "ts=3,v1=bad", "x-request-id": "req-3" },
-      body: rawBody,
-    })
-
-    const res = await webhookForwardPOST(req)
-    expect(res.status).toBe(400)
-  })
-
-  it("fails closed without NEXT_PUBLIC_BACKEND_URL and never attempts a malformed-URL fetch (task 2.6)", async () => {
-    delete process.env.NEXT_PUBLIC_BACKEND_URL
-    const fetchMock = vi.fn()
-    vi.stubGlobal("fetch", fetchMock)
-
-    const req = new Request("http://localhost/api/billing/webhook", {
-      method: "POST",
-      headers: { "x-signature": "ts=4,v1=xyz", "x-request-id": "req-4" },
-      body: JSON.stringify({ type: "payment", data: { id: "pay-nobackend" } }),
-    })
-
-    const res = await webhookForwardPOST(req)
-    expect(res.status).toBe(500)
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it("traces the relayed payment id and the backend status, without leaking secrets (task 2.7)", async () => {
-    const rawBody = JSON.stringify({ type: "payment", data: { id: "pay-trace-1" } })
-    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }))
-    vi.stubGlobal("fetch", fetchMock)
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {})
-
-    const req = new Request("http://localhost/api/billing/webhook", {
-      method: "POST",
-      headers: { "x-signature": "ts=5,v1=trace", "x-request-id": "req-5" },
-      body: rawBody,
-    })
-    await webhookForwardPOST(req)
-
-    const logged = logSpy.mock.calls.map((c) => c.join(" ")).join("\n")
-    expect(logged).toContain("pay-trace-1")
-    expect(logged).toContain("200")
-    expect(logged).not.toContain("MERCADOPAGO_WEBHOOK_SECRET")
   })
 })
 

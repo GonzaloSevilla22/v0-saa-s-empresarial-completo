@@ -37,7 +37,7 @@ import {
   FileText, Loader2, ChevronRight, RotateCcw,
 } from "lucide-react"
 import { EXPENSE_CATEGORIES } from "@/lib/constants"
-import { parseAmount, parseDate } from "@/lib/excel"
+import { amountAmbiguityWarning, parseAmount, parseDate } from "@/lib/excel"
 import { argentinaToday } from "@/lib/date-range"
 import { cn } from "@/lib/utils"
 
@@ -153,6 +153,9 @@ export function parseAndValidate(cells: string[][]): ParsedRow[] {
       errors.push("Monto inválido — debe ser un número")
     } else if (resolvedAmount <= 0) {
       errors.push("El monto debe ser mayor a cero")
+    } else {
+      const ambiguity = amountAmbiguityWarning("Monto", rawAmount, resolvedAmount)
+      if (ambiguity) warnings.push(ambiguity)
     }
 
     // Validate category

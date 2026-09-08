@@ -107,6 +107,22 @@ describe("parseAndValidate — coma sin punto es SIEMPRE decimal en una cantidad
   })
 })
 
+describe("parseAndValidate — 2+ puntos sin coma es inválido (antes: lectura parcial de parseFloat)", () => {
+  it('"1.000.000" (2+ puntos, sin coma) → quantityValid false + "Cantidad inválida" (antes del refactor, parseFloat leía 1 en silencio)', () => {
+    const row = parseOne("1.000.000")
+    expect(row.quantityValid).toBe(false)
+    expect(row.errors).toContain("Cantidad inválida")
+    expect(row.quantity).toBe(0)
+  })
+
+  it('"1.234,56" (control: ambos separadores, sin ambigüedad) sigue leyéndose como 1234.56 válida', () => {
+    const row = parseOne("1.234,56")
+    expect(row.quantityValid).toBe(true)
+    expect(row.quantity).toBe(1234.56)
+    expect(row.status).toBe("ok")
+  })
+})
+
 describe("parseAndValidate — CSV separado por coma con coma decimal sin comillas", () => {
   it("la fila con más columnas que el encabezado se rechaza en vez de truncar la cantidad", () => {
     // "1,5" sin comillas se parte en dos celdas: cantidad "1" y motivo "5".

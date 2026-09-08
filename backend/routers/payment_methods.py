@@ -108,6 +108,24 @@ async def deactivate_payment_method(
     )
 
 
+@router.patch("/{payment_method_id}/reactivate", response_model=PaymentMethodOut)
+async def reactivate_payment_method(
+    payment_method_id: str,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: PaymentMethodRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Undo a soft-delete (sets is_active=true). Requires TENANT role owner or admin.
+
+    Espejo exacto de deactivate_payment_method.
+    """
+    return await pm_service.reactivate_payment_method(
+        repo, auth, str(account_id), payment_method_id,
+        conn=conn,
+    )
+
+
 @report_router.get("", response_model=list[PaymentMethodReportRow])
 async def payment_method_report(
     start: datetime.date = Query(..., description="Fecha desde (inclusive)"),

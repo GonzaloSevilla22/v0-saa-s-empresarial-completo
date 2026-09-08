@@ -203,6 +203,28 @@ class PaymentMethodRepository(BaseRepository):
             account_id,
         )
 
+    async def reactivate(
+        self,
+        payment_method_id: str,
+        account_id: str,
+    ) -> asyncpg.Record | None:
+        """Undo a soft-delete: set is_active=true. Espejo exacto de deactivate.
+
+        Historical sales/purchases keep their payment_method_id reference
+        regardless — reactivating only changes future selector visibility.
+        """
+        return await self.fetchrow(
+            f"""
+            UPDATE payment_methods
+            SET    is_active = TRUE
+            WHERE  id = $1 AND account_id = $2
+              AND  deleted_at IS NULL
+            RETURNING {self._COLUMNS}
+            """,
+            payment_method_id,
+            account_id,
+        )
+
     async def get_report(
         self,
         account_id: str,

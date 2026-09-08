@@ -308,6 +308,39 @@ class TestPaymentMethodDeactivateEndpoint:
         assert resp.status_code == 403
 
 
+# ── B1 RED: PATCH /payment-methods/{id}/reactivate ──────────────────────────
+
+class TestPaymentMethodReactivateEndpoint:
+    @pytest.mark.asyncio
+    async def test_reactivate_owner_ok(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        # Parte del estado desactivado: la observación es el flip a True.
+        conn.fetchrow = AsyncMock(return_value={**PM_ROW_DEACTIVATED, "is_active": True})
+        owner_token = _account_role_token("owner")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/payment-methods/{PM_ID}/reactivate",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["is_active"] is True
+
+    @pytest.mark.asyncio
+    async def test_reactivate_member_returns_403(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        member_token = _account_role_token("member")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/payment-methods/{PM_ID}/reactivate",
+                headers={"Authorization": f"Bearer {member_token}"},
+            )
+
+        assert resp.status_code == 403
+
+
 # ── 4.6 RED: GET /reports/payment-methods ────────────────────────────────────
 
 class TestPaymentMethodReportEndpoint:

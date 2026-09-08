@@ -104,7 +104,7 @@ El sistema SHALL permitir a cualquier miembro de la cuenta **leer** el catálogo
 
 ### Requirement: La baja es desactivación y preserva la imputación histórica
 
-El sistema SHALL tratar la baja de una forma de pago como desactivación (`is_active = false`) o soft delete (`deleted_at`/`deleted_by`), y NO SHALL borrar físicamente una fila referenciada por operaciones. Las operaciones ya imputadas SHALL conservar su `payment_method_id` y su nombre histórico. Una forma de pago dada de baja NO SHALL aparecer en los selectores de altas nuevas, pero SÍ SHALL seguir apareciendo en los listados y en el reporte de los períodos en que se usó.
+El sistema SHALL tratar la baja de una forma de pago como desactivación (`is_active = false`) o soft delete (`deleted_at`/`deleted_by`), y NO SHALL borrar físicamente una fila referenciada por operaciones. La desactivación SHALL ser reversible por un `owner`/`admin` de la cuenta (`PATCH /payment-methods/{id}/reactivate`); el soft delete NO SHALL revertirse por esa vía. Las operaciones ya imputadas SHALL conservar su `payment_method_id` y su nombre histórico. Una forma de pago dada de baja NO SHALL aparecer en los selectores de altas nuevas, pero SÍ SHALL seguir apareciendo en los listados y en el reporte de los períodos en que se usó.
 
 #### Scenario: Desactivar una forma de pago en uso
 
@@ -118,6 +118,14 @@ El sistema SHALL tratar la baja de una forma de pago como desactivación (`is_ac
 - **GIVEN** la forma de pago "Cheque" desactivada, con $8.000 de ventas imputadas dentro del rango consultado
 - **WHEN** se ejecuta el reporte de distribución por forma de pago sobre ese rango
 - **THEN** la fila "Cheque" aparece con su total y su nombre histórico
+
+#### Scenario: Reactivar una forma de pago desactivada
+
+- **GIVEN** una forma de pago desactivada
+- **WHEN** un `owner`/`admin` la reactiva
+- **THEN** `is_active` vuelve a `true`, y vuelve a ofrecerse en los selectores de altas nuevas
+- **AND** las imputaciones históricas no cambian
+- **AND** un `member` que intenta reactivarla recibe 403
 
 ### Requirement: Imputación opcional de la forma de pago en ventas
 

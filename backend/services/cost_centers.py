@@ -83,3 +83,23 @@ async def deactivate_cost_center(
     if record is None:
         raise HTTPException(status_code=404, detail="Centro de costo no encontrado")
     return dict(record)
+
+
+async def reactivate_cost_center(
+    repo: CostCenterRepository,
+    auth: dict,
+    account_id: str,
+    cost_center_id: str,
+    *,
+    conn,
+) -> dict:
+    """Undo a soft-delete (is_active=true). Requires TENANT role owner or admin (D9).
+
+    Espejo exacto de deactivate_cost_center. Historical expenses/purchases
+    are unaffected either way — reactivating only restores selector visibility.
+    """
+    await require_account_role(conn, auth, ["owner", "admin"])
+    record = await repo.reactivate(cost_center_id, account_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Centro de costo no encontrado")
+    return dict(record)

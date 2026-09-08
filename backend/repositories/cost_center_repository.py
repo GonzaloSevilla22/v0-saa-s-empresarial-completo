@@ -136,3 +136,29 @@ class CostCenterRepository(BaseRepository):
             cost_center_id,
             account_id,
         )
+
+    async def reactivate(
+        self,
+        cost_center_id: str,
+        account_id: str,
+    ) -> asyncpg.Record | None:
+        """Undo a soft-delete: set is_active=true. Espejo exacto de deactivate.
+
+        Historical expenses/purchases keep their cost_center_id reference
+        regardless — reactivating only changes future selector visibility.
+
+        A diferencia de deactivate, exige `deleted_at IS NULL`: un centro con
+        soft delete (v3-soft-delete-policy) no vuelve a ser imputable por esta
+        vía — las RPCs que validan la imputación sólo miran `is_active`.
+        """
+        return await self.fetchrow(
+            """
+            UPDATE cost_centers
+            SET    is_active = TRUE
+            WHERE  id = $1 AND account_id = $2
+              AND  deleted_at IS NULL
+            RETURNING id, account_id, name, code, is_active, created_at
+            """,
+            cost_center_id,
+            account_id,
+        )

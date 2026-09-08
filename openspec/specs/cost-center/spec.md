@@ -52,7 +52,7 @@ El sistema SHALL permitir **leer** los centros de costo a cualquier miembro de l
 
 ### Requirement: La baja es desactivación y preserva la imputación histórica
 
-El sistema SHALL dar de baja un centro de costo mediante **desactivación** (`is_active = false`), NO mediante borrado físico. Un centro de costo desactivado NO SHALL ofrecerse para imputar gastos o compras nuevos, pero los gastos y compras ya imputados a él SHALL conservar la referencia (el nombre histórico no se pierde). Un centro desactivado SHALL seguir siendo legible en las superficies de lectura: SHALL aparecer en el reporte por centro de costo con su nombre histórico cuando tenga costos en el rango consultado, y SHALL poder seleccionarse como filtro de los listados de gastos y compras.
+El sistema SHALL dar de baja un centro de costo mediante **desactivación** (`is_active = false`), NO mediante borrado físico. La desactivación SHALL ser reversible por un `owner`/`admin` de la cuenta (`PATCH /cost-centers/{id}/reactivate`); un centro con soft delete (`deleted_at`) NO SHALL revertirse por esa vía. Un centro de costo desactivado NO SHALL ofrecerse para imputar gastos o compras nuevos, pero los gastos y compras ya imputados a él SHALL conservar la referencia (el nombre histórico no se pierde). Un centro desactivado SHALL seguir siendo legible en las superficies de lectura: SHALL aparecer en el reporte por centro de costo con su nombre histórico cuando tenga costos en el rango consultado, y SHALL poder seleccionarse como filtro de los listados de gastos y compras.
 
 #### Scenario: Desactivar un centro de costo en uso
 
@@ -66,6 +66,14 @@ El sistema SHALL dar de baja un centro de costo mediante **desactivación** (`is
 - **GIVEN** un centro "Marketing" desactivado, con $8.000 de gastos imputados dentro del rango consultado
 - **WHEN** se ejecuta el reporte por centro de costo sobre ese rango
 - **THEN** la fila "Marketing" aparece con `total_cost = 8000` y su nombre histórico
+
+#### Scenario: Reactivar un centro de costo desactivado
+
+- **GIVEN** un centro de costo desactivado
+- **WHEN** un `owner`/`admin` lo reactiva
+- **THEN** `is_active` vuelve a `true`, y vuelve a ofrecerse en el selector de altas nuevas
+- **AND** las imputaciones históricas no cambian
+- **AND** un `member` que intenta reactivarlo recibe 403
 
 ---
 

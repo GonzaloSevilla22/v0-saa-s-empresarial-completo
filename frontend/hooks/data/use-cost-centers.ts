@@ -90,6 +90,15 @@ export function useCostCenters(includeInactive = false) {
     },
   })
 
+  const reactivateCostCenterMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return pythonClient.patch<CostCenterApiRow>(`/cost-centers/${id}/reactivate`, {})
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.costCenters.all() })
+    },
+  })
+
   return {
     costCenters:    query.data ?? [],
     isLoading:      query.isLoading,
@@ -98,9 +107,11 @@ export function useCostCenters(includeInactive = false) {
     createCostCenter:    createCostCenterMutation.mutateAsync,
     updateCostCenter:    updateCostCenterMutation.mutateAsync,
     deactivateCostCenter: deactivateCostCenterMutation.mutateAsync,
+    reactivateCostCenter: reactivateCostCenterMutation.mutateAsync,
     // Individual mutation states for UI feedback
     createCostCenterMutation,
     updateCostCenterMutation,
     deactivateCostCenterMutation,
+    reactivateCostCenterMutation,
   }
 }

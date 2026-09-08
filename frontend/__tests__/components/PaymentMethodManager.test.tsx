@@ -5,8 +5,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { PaymentMethodManager } from "@/components/payment-methods/PaymentMethodManager"
+import { toast } from "sonner"
 import type { PaymentMethod } from "@/lib/types"
+
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}))
 
 const METHODS: PaymentMethod[] = [
   { id: "pm-cash", accountId: "a", name: "Efectivo", kind: "cash", isActive: true, sortOrder: 1, createdAt: "2026-08-19T00:00:00Z", bankAccountId: null },
@@ -43,9 +49,11 @@ function defaultHookReturn() {
     createPaymentMethod: vi.fn(),
     updatePaymentMethod: vi.fn(),
     deactivatePaymentMethod: vi.fn(),
+    reactivatePaymentMethod: vi.fn().mockResolvedValue(undefined),
     createPaymentMethodMutation: { isPending: false },
     updatePaymentMethodMutation: { isPending: false },
     deactivatePaymentMethodMutation: { isPending: false },
+    reactivatePaymentMethodMutation: { isPending: false },
   }
 }
 
@@ -113,6 +121,75 @@ describe("PaymentMethodManager — gating por rol (D9-espejo)", () => {
 
     expect(screen.getByText(/No hay formas de pago definidas\./)).toBeInTheDocument()
     expect(screen.queryByText(/Creá la primera/)).not.toBeInTheDocument()
+  })
+})
+
+// ── fix/payment-method-reactivate: reactivar una forma de pago inactiva ──
+
+describe("PaymentMethodManager — reactivar (fix/payment-method-reactivate)", () => {
+  beforeEach(() => {
+    useBankAccountsMock.mockReturnValue({ data: [], isLoading: false, isError: false, error: null })
+  })
+
+  it("owner: una fila inactiva muestra el botón 'Reactivar' y NO los de Editar/Desactivar", () => {
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn())
+    useOrgRoleMock.mockReturnValue({ isWriter: true, role: "owner", isLoading: false })
+
+    render(<PaymentMethodManager />)
+
+    expect(screen.getByRole("button", { name: "Reactivar Cheque" })).toBeInTheDocument()
+    // Precondición sin la cual el botón nunca se vería: el gestor pide la
+    // lista CON inactivas (el selector operativo pide sólo activas).
+    expect(usePaymentMethodsMock).toHaveBeenCalledWith(true)
+    // La fila inactiva ("Cheque") no tiene Editar/Desactivar propios: solo
+    // existen los de la fila activa ("Efectivo"), 1 de cada uno.
+    expect(screen.getAllByTitle("Editar")).toHaveLength(1)
+    expect(screen.getAllByTitle("Desactivar")).toHaveLength(1)
+  })
+
+  it("owner: click en 'Reactivar' llama a reactivatePaymentMethod con el id y muestra el toast de éxito", async () => {
+    const reactivatePaymentMethod = vi.fn().mockResolvedValue(undefined)
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn({ reactivatePaymentMethod }))
+    useOrgRoleMock.mockReturnValue({ isWriter: true, role: "owner", isLoading: false })
+
+    const user = userEvent.setup()
+    render(<PaymentMethodManager />)
+
+    await user.click(screen.getByRole("button", { name: "Reactivar Cheque" }))
+
+    expect(reactivatePaymentMethod).toHaveBeenCalledWith("pm-check")
+    expect(toast.success).toHaveBeenCalledWith('"Cheque" reactivada')
+  })
+
+  it("owner: si reactivar falla, muestra toast de error", async () => {
+    const reactivatePaymentMethod = vi.fn().mockRejectedValue(new Error("boom"))
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn({ reactivatePaymentMethod }))
+    useOrgRoleMock.mockReturnValue({ isWriter: true, role: "owner", isLoading: false })
+
+    const user = userEvent.setup()
+    render(<PaymentMethodManager />)
+
+    await user.click(screen.getByRole("button", { name: "Reactivar Cheque" }))
+
+    expect(toast.error).toHaveBeenCalledWith("Error al reactivar: boom")
+  })
+
+  it("una fila activa NO muestra el botón 'Reactivar'", () => {
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn())
+    useOrgRoleMock.mockReturnValue({ isWriter: true, role: "owner", isLoading: false })
+
+    render(<PaymentMethodManager />)
+
+    expect(screen.queryByRole("button", { name: "Reactivar Efectivo" })).not.toBeInTheDocument()
+  })
+
+  it("member: no ve el botón 'Reactivar' en una fila inactiva", () => {
+    usePaymentMethodsMock.mockReturnValue(baseHookReturn())
+    useOrgRoleMock.mockReturnValue({ isWriter: false, role: "member", isLoading: false })
+
+    render(<PaymentMethodManager />)
+
+    expect(screen.queryByRole("button", { name: "Reactivar Cheque" })).not.toBeInTheDocument()
   })
 })
 

@@ -338,8 +338,8 @@ export function ProductImportDialog({
                   <div><span className="font-medium text-foreground">Precio</span> <span className="text-muted-foreground">(opcional)</span></div>
                   <div><span className="font-medium text-foreground">Costo</span> <span className="text-muted-foreground">(opcional)</span></div>
                   <div><span className="font-medium text-foreground">Categoría</span> <span className="text-muted-foreground">(opcional — se crea si no existe en tu cuenta)</span></div>
-                  <div><span className="font-medium text-foreground">Stock</span> <span className="text-muted-foreground">(opcional)</span></div>
-                  <div><span className="font-medium text-foreground">Stock mínimo</span> <span className="text-muted-foreground">(opcional)</span></div>
+                  <div><span className="font-medium text-foreground">Stock</span> <span className="text-muted-foreground">(opcional — admite decimales, p.ej. 2,5)</span></div>
+                  <div><span className="font-medium text-foreground">Stock mínimo</span> <span className="text-muted-foreground">(opcional — número entero)</span></div>
                   <div><span className="font-medium text-foreground">Código</span> <span className="text-muted-foreground">(código de barras)</span></div>
                   <div><span className="font-medium text-foreground">SKU</span> <span className="text-muted-foreground">(opcional — si coincide con uno existente, actualiza ese producto)</span></div>
                 </div>

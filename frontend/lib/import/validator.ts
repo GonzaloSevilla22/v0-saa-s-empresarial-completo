@@ -27,10 +27,16 @@
  * Warnings (row imported with caveats):
  *   - precio missing on Variante / Producto → defaults to 0
  *   - costo / stock invalid → defaults to 0
+ *   - stock ambiguo (punto único con grupos de 3 dígitos, p.ej. "1.500") →
+ *     se interpreta como decimal pero se avisa que también podría ser miles
+ *   - stock con más de 4 decimales → se redondea (numeric(15,4))
+ *   - stock_minimo no entero (≥ 0) → se redondea hacia arriba (Math.ceil)
+ *   - stock_minimo inválido (NaN / negativo) → 0, "sin umbral de alerta"
  *   - SKU repeated within the file
  */
 
-import { parseAmount } from "@/lib/excel"
+import { parseAmount, looksLikeThousandsGrouping } from "@/lib/excel"
+import { formatNumber } from "@/lib/format"
 import {
   MAX_NEW_CATEGORIES_PER_IMPORT,
   VALID_ROW_TYPES,
@@ -152,21 +158,83 @@ function validateRow(raw: RawImportRow, canonicalByKey: Map<string, string>): Va
   }
 
   // ── Stock ──────────────────────────────────────────────────────────────────
+  // Cantidad física (branch_stock.quantity es numeric(15,4)): admite decimales.
+  // Con loneCommaIsDecimal, una coma sin punto es SIEMPRE decimal ("1,5" → 1.5);
+  // un punto solo se lee como decimal (mismo contrato que precio/costo), y
+  // "1.234,56" (con ambos separadores) sigue la heurística europea de parseAmount.
+  // Dos o más puntos sin coma ("1.234.567") no tienen lectura válida y se
+  // rechazan en vez de leerse parcialmente (parseFloat pararía en el 2do
+  // punto). Una agrupación de tres dígitos con un solo separador ("1.500",
+  // "1,500") se lee como decimal pero avisa la ambigüedad (también podría ser
+  // miles — mismo detector que el importador de ajustes de stock). Más de 4
+  // decimales se redondea (branch_stock.quantity es numeric(15,4)).
   let stock = 0
   if (rowType !== "Padre" && raw.stock.trim()) {
-    const parsed = parseInt(raw.stock, 10)
-    if (isNaN(parsed) || parsed < 0) {
-      warnings.push(`Stock inválido: "${raw.stock}" — se usará 0.`)
+    const rawStock = raw.stock.trim()
+    // Mismo texto que ve parseAmount (descarta ruido como "kg" o "$"): así el
+    // pre-chequeo y el detector de ambigüedad no se evaden con un sufijo.
+    const cleanedStock = rawStock.replace(/[^\d.,-]/g, "")
+    const dotCount = (cleanedStock.match(/\./g) ?? []).length
+    if (!cleanedStock.includes(",") && dotCount >= 2) {
+      warnings.push(`Stock inválido: "${rawStock}" — se usará 0.`)
     } else {
-      stock = parsed
+      const parsed = parseAmount(rawStock, { loneCommaIsDecimal: true })
+      if (isNaN(parsed) || parsed < 0) {
+        warnings.push(`Stock inválido: "${rawStock}" — se usará 0.`)
+      } else {
+        let value = parsed
+        if (looksLikeThousandsGrouping(cleanedStock)) {
+          warnings.push(
+            `Stock ambiguo: "${rawStock}" — se interpretó como ${formatNumber(value, 4)}. ` +
+              `Usá coma para decimales y ningún separador para miles.`,
+          )
+        }
+        const rounded = Math.round(value * 1e4) / 1e4
+        if (Math.abs(rounded - value) > 1e-9) {
+          warnings.push(`Stock "${rawStock}" se redondeó a ${formatNumber(rounded, 4)} (máximo 4 decimales).`)
+          value = rounded
+        }
+        stock = value
+      }
     }
   }
 
   // ── Min stock ──────────────────────────────────────────────────────────────
+  // products.min_stock / branch_stock.min_stock son integer en DB — la RPC
+  // castea el TEXTO del JSON con `::integer`, así que un valor no entero no
+  // se redondea en silencio: lanza 22P02 y aborta el lote completo. Por eso
+  // acá SIEMPRE se entrega un entero: un no entero ≥ 0 se redondea hacia
+  // arriba (Math.ceil) con aviso; NaN o negativo caen a 0 ("sin umbral de
+  // alerta" — min_stock = 0 es el predicado canónico que desactiva la alerta
+  // de reposición, `lib/product-stock.ts`). Mismo tratamiento de ambigüedad
+  // de agrupación de miles que el stock.
   let minStock = 0
   if (raw.stock_minimo.trim()) {
-    const parsed = parseInt(raw.stock_minimo, 10)
-    if (!isNaN(parsed) && parsed >= 0) minStock = parsed
+    const rawMin = raw.stock_minimo.trim()
+    const cleanedMin = rawMin.replace(/[^\d.,-]/g, "")
+    const dotCount = (cleanedMin.match(/\./g) ?? []).length
+    if (!cleanedMin.includes(",") && dotCount >= 2) {
+      warnings.push(`Stock mínimo inválido: "${rawMin}" — debe ser un entero ≥ 0, se usará 0 (sin umbral de alerta).`)
+    } else {
+      const parsed = parseAmount(rawMin, { loneCommaIsDecimal: true })
+      if (isNaN(parsed) || parsed < 0) {
+        warnings.push(`Stock mínimo inválido: "${rawMin}" — debe ser un entero ≥ 0, se usará 0 (sin umbral de alerta).`)
+      } else {
+        let value = parsed
+        if (looksLikeThousandsGrouping(cleanedMin)) {
+          warnings.push(
+            `Stock mínimo ambiguo: "${rawMin}" — se interpretó como ${formatNumber(value, 4)}. ` +
+              `Usá coma para decimales y ningún separador para miles.`,
+          )
+        }
+        if (!Number.isInteger(value)) {
+          const ceiled = Math.ceil(value)
+          warnings.push(`Stock mínimo "${rawMin}" no admite decimales: se usará ${ceiled}.`)
+          value = ceiled
+        }
+        minStock = value
+      }
+    }
   }
 
   // ── Category — contra el catálogo del tenant (productos-categorias-sku D6) ─

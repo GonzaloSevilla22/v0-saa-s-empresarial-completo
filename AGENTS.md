@@ -254,8 +254,12 @@ Heredado de `v31-mp-upgrade-webhook-fix` (H-02, ✅ archivada 2026-09-05 en `ope
 
 Heredado del fix ad-hoc `stock-import-decimal-comma` (PR #522, 2026-09-05, ver `CHANGES.md`):
 
-- **`lib/import/validator.ts` parsea las cantidades de stock del importador de productos con `parseInt`** — `"1,5"` → 1 y `"1.234"` → 1, en silencio (el mismo defecto que cerró el PR #522 en el importador de ajustes, en el otro importador). La opción `loneCommaIsDecimal` de `parseAmount` es el fix de una línea por sitio; hay que decidir si el catálogo exige enteros (entonces rechazar con error de fila en vez de truncar) y cubrirlo con sus propios tests.
-- **Fundamento envejecido de la spec `data-export`** — justifica no emitir coma decimal en los CSV de exportación porque "un importador con `parseFloat` truncaría"; tras el PR #522 ningún importador CSV del frontend usa `parseFloat`, sólo lo sostiene el `parseInt` de arriba. Reformular cuando se cierre ése.
+- ~~`lib/import/validator.ts` parsea las cantidades de stock con `parseInt`~~ y ~~fundamento envejecido de la spec `data-export`~~ — **ambos cerrados por el fix ad-hoc `product-import-decimal-stock` (PR #524, 2026-09-07, ver `CHANGES.md`)**: el stock se lee como cantidad decimal (`branch_stock.quantity` es `numeric(15,4)`) y el mínimo como entero con aviso (`Math.ceil`, nunca 0 silencioso: `min_stock = 0` apaga la alerta); la spec ya no invoca un `parseFloat` inexistente.
+
+Heredado del fix ad-hoc `product-import-decimal-stock` (PR #524, 2026-09-07, ver `CHANGES.md`):
+
+- **Precio y costo tienen la misma ambigüedad de miles con punto** — `"1.500"` se importa como $1,5 en silencio (contrato por defecto de `parseAmount`: un punto suelto es decimal) y, a diferencia del stock desde este fix, sin ningún aviso. Preexistente; el mismo detector `looksLikeThousandsGrouping` de `lib/excel.ts` sirve para avisar sin cambiar el contrato.
+- **Unificar el parseo de cantidades entre los dos importadores** — `lib/stock-import-parser.ts` (ajustes) y `lib/import/validator.ts` (productos) aplican reglas coordinadas pero en dos implementaciones (decimal con coma, agrupación de miles, 4 decimales); Regla de Tres todavía no alcanzada, pero un tercer sitio debe nacer en `lib/`.
 
 Heredado del fix externo `kpi-canonicalization` (PR #521, 2026-09-07, ver `CHANGES.md`):
 

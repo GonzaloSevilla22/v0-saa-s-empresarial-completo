@@ -7,6 +7,12 @@
  * categorías ACTIVAS del catálogo; con el catálogo vacío se cae a las legacy.
  * De paso se corrige el espacio a la izquierda del SKU en la fila Padre
  * (`;;;;;;; ZAP-NIKE`), hoy inofensivo sólo porque el validador hace trim.
+ *
+ * La fila de "Yerba suelta (kg)" (a granel, al final) documenta el stock
+ * decimal ("2,5") y que el mínimo es siempre entero — el validador admite
+ * decimales en el stock (branch_stock.quantity es numeric(15,4)) pero exige
+ * entero en el mínimo (products.min_stock / branch_stock.min_stock). Aceite
+ * de oliva vuelve a stock 30: una botella no se fracciona.
  */
 
 export const TEMPLATE_HEADER = "Tipo;Nombre;Precio;Costo;Categoría;Stock;Stock mínimo;Código;SKU"
@@ -29,5 +35,6 @@ export function buildTemplateCsv(
     `Variante;Zapatillas Nike 41;18000;9000;${first};15;3;;ZAP-NIKE-41`,
     `Variante;Zapatillas Nike 42;18000;9000;${first};12;3;;ZAP-NIKE-42`,
     `Producto;Aceite de oliva 500ml;3200;1800;${second};30;5;7790001234567;ACE-500`,
+    `Producto;Yerba suelta (kg);4500;3000;${second};2,5;1;;YER-KG`,
   ].join("\n")
 }

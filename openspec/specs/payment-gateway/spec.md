@@ -1,7 +1,7 @@
 # payment-gateway Specification
 
 ## Purpose
-Integración con MercadoPago Checkout Pro para el flujo de upgrade de plan — creación de preferencias, verificación de webhooks HMAC-SHA256 con idempotencia, y cancelación con degradación diferida. Implementado en C-10.
+Integración con MercadoPago Checkout Pro para el flujo de upgrade de plan — creación de preferencias, verificación de webhooks HMAC-SHA256 con idempotencia, y cancelación con degradación diferida. Implementado en C-10. El reenviador legacy `/api/billing/webhook` del frontend (`v31-mp-upgrade-webhook-fix`, H-02) fue retirado el 2026-09-08 tras verificar cero reenvíos durante los 35+ días de la ventana de convivencia acordada: `POST /payments/webhook` del backend es hoy la única entrada de notificaciones de MercadoPago, sin ninguna ruta bajo `/api/billing/` del frontend en el camino.
 
 ## Requirements
 
@@ -69,24 +69,12 @@ La creación SHALL ocurrir en el backend, porque requiere persistir el identific
 
 El sistema SHALL procesar toda notificación de pago de MercadoPago en el webhook del backend FastAPI, que es el único componente autorizado a modificar el plan de una cuenta.
 
-La ruta `/api/billing/webhook` del frontend SHALL persistir únicamente como reenviador sin estado, porque las preferencias emitidas antes de este change llevan esa URL horneada de forma permanente. El reenviador NO accede a la base de datos: reenvía los bytes crudos del cuerpo junto con los headers `x-signature` y `x-request-id`, sin re-serializar ni normalizar el payload, y propaga la respuesta del backend. La verificación de firma y la idempotencia ocurren una sola vez, en el backend.
+La ruta `/api/billing/webhook` del frontend existió como reenviador sin estado mientras las preferencias emitidas antes de `v31-mp-upgrade-webhook-fix` llevaban esa URL horneada de forma permanente en su `notification_url`; se retiró el 2026-09-08 al verificarse cero reenvíos durante la ventana de convivencia acordada (ver nota en el Purpose). Toda notificación de MercadoPago llega hoy directamente a `POST /payments/webhook`; ninguna ruta bajo `/api/billing/` del frontend lee ni escribe en la base de datos, y la verificación de firma y la idempotencia ocurren una sola vez, en el backend.
 
 #### Scenario: Pago aprobado actualiza el plan
 - **GIVEN** un webhook de MP con `status: 'approved'` y firma válida
 - **WHEN** llega al webhook del backend
 - **THEN** se actualiza `accounts.billing_plan` al plan comprado, se inserta en `billing_events` con `event_type='plan_upgraded'` y `mercadopago_payment_id`, y se retorna HTTP 200
-
-#### Scenario: Notificación reenviada por el legacy acredita igual
-- **GIVEN** una preferencia creada antes de este change, cuya `notification_url` apunta a `/api/billing/webhook`
-- **WHEN** MercadoPago notifica un pago aprobado a esa URL
-- **THEN** la ruta de Next.js reenvía el cuerpo crudo y los headers de firma al webhook del backend
-- **AND** el resultado en base de datos es idéntico al de una notificación recibida directamente
-- **AND** la ruta de Next.js retorna el mismo código de estado que devolvió el backend
-
-#### Scenario: El reenviador no escribe en la base de datos
-- **WHEN** llega cualquier notificación a `/api/billing/webhook`
-- **THEN** la ruta no ejecuta ninguna lectura ni escritura contra Supabase
-- **AND** la acreditación del plan ocurre exclusivamente en el backend
 
 #### Scenario: Firma inválida rechazada
 - **GIVEN** un webhook con header `x-signature` que no coincide con `MERCADOPAGO_WEBHOOK_SECRET`
@@ -95,7 +83,7 @@ La ruta `/api/billing/webhook` del frontend SHALL persistir únicamente como ree
 
 #### Scenario: Pago duplicado ignorado (idempotencia)
 - **GIVEN** un `mercadopago_payment_id` que ya existe en `billing_events`
-- **WHEN** llega el mismo webhook por segunda vez, sin importar si vino directo o reenviado
+- **WHEN** llega el mismo webhook por segunda vez
 - **THEN** el servidor retorna HTTP 200 sin modificar datos (idempotente)
 
 #### Scenario: Pago rechazado o pendiente no cambia el plan
@@ -153,23 +141,3 @@ Cada correo encolado SHALL incluir en su metadata un dato que lo haga único fre
 #### Scenario: Los tipos nuevos tienen plantilla propia
 - **WHEN** se envía un correo de cualquiera de los tipos nuevos del ciclo de suscripción
 - **THEN** el contenido corresponde a ese hito y no al texto genérico de respaldo
-
-### Requirement: Convivencia observable entre la ruta legacy y la directa
-
-El sistema SHALL permitir observar, durante la ventana de convivencia, qué proporción de las notificaciones de MercadoPago llega por la ruta reenviada y cuál directamente, para que el retiro del reenviador se decida con evidencia y no por calendario.
-
-Cada reenvío SHALL quedar registrado con el identificador de la notificación y el código de estado devuelto por el backend. El backend SHALL poder distinguir el origen de cada notificación procesada.
-
-#### Scenario: Cada reenvío queda trazado
-- **WHEN** la ruta legacy reenvía una notificación al backend
-- **THEN** registra el identificador del pago y el código de estado que devolvió el backend
-
-#### Scenario: El origen de la notificación es distinguible en el backend
-- **WHEN** el backend procesa una notificación
-- **THEN** la traza permite determinar si llegó directa de MercadoPago o reenviada por la ruta legacy
-
-#### Scenario: Retiro del reenviador condicionado a evidencia
-- **GIVEN** que el reenviador registró cero reenvíos durante la ventana de convivencia acordada
-- **AND** que un pago real de verificación acreditó el plan sin intervención manual
-- **THEN** la ruta legacy puede eliminarse
-- **AND** mientras cualquiera de las dos condiciones no se cumpla, el reenviador permanece activo

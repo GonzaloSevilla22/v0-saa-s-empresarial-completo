@@ -137,7 +137,7 @@ El sistema SHALL rechazar la edición de una operación de venta o de compra que
 - **WHEN** el usuario abre el listado de operaciones y una de ellas tiene cargo, movimiento de caja o movimiento bancario posteado
 - **THEN** la acción de editar aparece deshabilitada con la razón visible, en vez de fallar recién al confirmar
 
-### ADDED Requirement: Editar una venta con asiento contable emitido no la bloquea (override del PO, 2026-08-20)
+### Requirement: Editar una venta con asiento contable emitido no la bloquea (override del PO, 2026-08-20)
 
 A diferencia de los otros tres ledgers (cuenta corriente, caja, banco), el asiento contable del libro diario de partida doble NO es causa de bloqueo de la edición. Una operación de venta del formulario que haya emitido un evento `SaleOperationCreated` (ya sea aún pendiente de procesamiento en el relay, o ya posteado como asiento en el libro diario) SHALL seguir siendo editable. La corrección del asiento contable ante una edición se resuelve ajustándolo en vez de bloqueando la operación: ver la capability `journal-entry`, requirement "SaleOperationAdjusted posts a contra-entry and a new entry", para el mecanismo (reemplazo del evento pendiente in-place, o contra-entry más entry nuevo si el asiento ya procesó). Este requirement documenta la decisión explícita porque el diseño original de este mismo change había recomendado lo contrario (extender el guard de este requirement al asiento contable) antes del override del PO.
 

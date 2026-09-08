@@ -163,7 +163,7 @@ The system SHALL expose a minimal read path to list an account's journal entries
 - **WHEN** a caller requests the list of journal entries
 - **THEN** the result contains only entries for the caller's account, ordered by `posted_at` descending, each with its debit/credit lines
 
-### ADDED Requirement: SaleOperationCreated posts a form-sale entry
+### Requirement: SaleOperationCreated posts a form-sale entry
 
 On a `SaleOperationCreated` event the system SHALL post one entry whose `source_doc_type` is `'SaleOperation'` and whose `source_doc_ref` is the sale `operation_id`, mirroring the operation-level shape already used by `PurchaseCreated` and deliberately distinct from the `'SalesOrder'` key space so the two sale populations stay separable. The debit side SHALL be routed by the `payment_method` carried in the payload, using the same vocabulary as `SaleConfirmed`: `1300 Deudores por Ventas` for the total when the method is `credit`; `1110 Banco` for the total when the method is bank-settled (`transfer`, `card`, `check`, `wallet`); `1100 Caja` for the total when the method is `cash` or `other`. When **no payment method is imputed** the debit side SHALL be `1100 Caja`, and SHALL NOT be `1300 Deudores por Ventas`: with no imputed method the creating transaction posts no `customer_account_movements` charge, so debiting receivables would create a balance that no subledger backs and that the customer-account surface would immediately contradict. This is the one point where the sale branch deliberately diverges from the `PurchaseCreated` default of `credit`, because a purchase with no imputed method still names an identifiable creditor (`purchases.supplier_id`) while a sale with no imputed method has no matching party charge. The credit side SHALL be a single `4100 Ventas` line for the total, without discriminating IVA, because a sale born in the sale form has no `sales_order` and therefore can have no `fiscal_document_id` to read `neto`/`iva_amount` from — this is the same treatment the consumer already applies to a sale without a fiscal document and to every purchase posted to date. All lines SHALL carry `cost_center_id = NULL`, because `sales` has no cost-center column.
 
@@ -192,7 +192,7 @@ On a `SaleOperationCreated` event the system SHALL post one entry whose `source_
 - **WHEN** a `SaleOperationCreated` event is posted for an account that issues Factura A
 - **THEN** the credit side is still a single `4100 Ventas` line for the total and no `4200 IVA Débito Fiscal` line is created, because the operation carries no fiscal document from which a discriminated IVA amount could be read
 
-### ADDED Requirement: The form-sale entry is dated by the sale, not by the relay run
+### Requirement: The form-sale entry is dated by the sale, not by the relay run
 
 The `SaleOperationCreated` branch SHALL set `posted_at` from the sale's own date carried in the event payload, resolved in the project's reporting timezone, and SHALL fall back to the processing instant only when the payload carries no date. The date SHALL be anchored to midday of the local day before conversion, so that no offset shift can move the entry to an adjacent day, and the timezone SHALL be taken from the same definition that `public.reporting_local_today()` uses rather than from a second hardcoded literal. This SHALL apply to the `SaleOperationCreated` branch only; the five pre-existing branches keep posting at the relay instant and SHALL NOT be changed by this requirement.
 
@@ -211,7 +211,7 @@ The `SaleOperationCreated` branch SHALL set `posted_at` from the sale's own date
 - **WHEN** a `SaleConfirmed`, `PurchaseCreated`, `PaymentReceived`, `PaymentMade` or `CreditNoteIssued` event is processed
 - **THEN** its entry is still posted at the relay run instant, unchanged by this requirement
 
-### ADDED Requirement: SaleOperationAdjusted posts a contra-entry and a new entry
+### Requirement: SaleOperationAdjusted posts a contra-entry and a new entry
 
 On a `SaleOperationAdjusted` event the system SHALL post two `journal_entries` rows: a contra-entry that exactly reverses the currently-valid entry identified by `source_doc_type='SaleOperation'`, `source_doc_ref = payload.old_operation_id` and `status='posted'` (mirroring the copy-with-flipped-sides technique the `CreditNoteIssued` branch already uses), and a new entry computed from `payload.new_operation_id` and the edited values using the same account routing as `SaleOperationCreated` (the debit-account decision SHALL be read from one shared mapping so the two branches cannot diverge). The system SHALL mark the reversed entry's `status` as `'reversed'`. Because the partial unique index on `journal_entries.source_event_id` allows at most one entry per source event, the system SHALL stamp `source_event_id` on the new entry only, leaving the contra-entry's `source_event_id` null. The contra-entry SHALL carry `reversal_of` pointing at the entry it reverses and `posted_at` at the processing instant, following the same dating convention `CreditNoteIssued` already uses for its own reversal. If no currently-valid entry is found for `payload.old_operation_id`, the system SHALL raise for retry using the same `P0451` code `CreditNoteIssued` already uses for a missing original entry, rather than introducing a new error code. Each of the two entries SHALL independently satisfy the Σdébito=Σcrédito balance assertion.
 
@@ -235,7 +235,7 @@ On a `SaleOperationAdjusted` event the system SHALL post two `journal_entries` r
 - **WHEN** a `SaleOperationAdjusted` event is processed and no `posted` entry exists for its `old_operation_id`
 - **THEN** the branch raises with `P0451`, `processed_at` stays `NULL` for retry, and the relay continues with the rest of the batch
 
-### ADDED Requirement: Historical operations are regularised through the real consumer
+### Requirement: Historical operations are regularised through the real consumer
 
 Backfilling accounting entries for operations that predate their producer SHALL be done by emitting the corresponding domain events into `public.events` and letting the production relay consumer post them, and SHALL NOT be done by inserting into `journal_entries`/`journal_lines` directly, so that a single definition of how an operation is posted exists. Backfill events SHALL carry `source = 'backfill'` in their payload so the batch is identifiable and reversible, SHALL carry the operation's own date as the accounting date, and SHALL be emitted only for operations that have no event of that type yet, so re-running the backfill is a no-op. The backfill SHALL be gated on explicit product-owner sign-off with the expected counts stated in advance, because it writes accounting records against live user data; the backfilled operations remain editable exactly like any other operation with a posted entry (override of 2026-08-20 — see the `operation-edit-context` capability), an edit after backfill simply produces a `SaleOperationAdjusted` contra-entry/new-entry pair like any other post-processed edit.
 
@@ -254,9 +254,9 @@ Backfilling accounting entries for operations that predate their producer SHALL 
 - **WHEN** the purchase backfill is run for operations created before the `PurchaseCreated` producer existed
 - **THEN** one `PurchaseCreated` event per operation is emitted and the existing purchase branch posts the entries, with no new consumer code involved
 
-### MODIFIED Requirement: Out-of-scope events do not post entries
+### Requirement: Out-of-scope events do not post entries
 
-The JournalEntry posting SHALL run only for the event types `SaleConfirmed`, `PurchaseCreated`, `SaleOperationCreated`, `SaleOperationAdjusted`, `PaymentReceived`, `PaymentMade`, and `CreditNoteIssued`. Events of other types (`ExpenseRegistered`, `CashSessionClosed`, `StockAdjusted`, `SupplierAccountCharged`, `CustomerAccountCharged`, and any other) SHALL NOT produce a journal entry in this version.
+The JournalEntry posting SHALL run only for the event types `SaleConfirmed`, `PurchaseCreated`, `SaleOperationCreated`, `SaleOperationAdjusted`, `PaymentReceived`, `PaymentMade`, `CreditNoteIssued`, `SaleOperationDeleted`, `PurchaseDeleted`, `PaymentReceivedReversed`, and `PaymentMadeReversed` — the eleven canonical types (see `transactional-outbox`, "El conjunto de eventos en alcance del consumidor contable es único y está verificado por un gate"). Events of other types (`ExpenseRegistered`, `CashSessionClosed`, `StockAdjusted`, `SupplierAccountCharged`, `CustomerAccountCharged`, and any other) SHALL NOT produce a journal entry in this version.
 
 #### Scenario: Deferred event type is ignored
 

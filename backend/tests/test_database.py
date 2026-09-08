@@ -563,6 +563,7 @@ async def test_get_service_conn_step2_never_adopts_role_even_with_both_flags_on(
 
             conn_mock.transaction.assert_not_called()
             conn_mock.execute.assert_not_called()
+            conn_mock.fetchval.assert_not_awaited()
             assert conn is conn_mock
     finally:
         db_module.pool = None
@@ -706,6 +707,66 @@ async def test_get_db_conn_step2_fails_closed_when_role_did_not_take(mock_pool):
             # Falla cerrado de verdad: el detalle no filtra el rol efectivo
             # ni ningún interno de la sesión.
             assert "postgres" not in str(exc_info.value.detail).lower()
+    finally:
+        db_module.pool = None
+
+
+@pytest.mark.asyncio
+async def test_get_db_conn_step2_rejection_logs_critical_with_role_and_sub(
+    mock_pool, caplog
+):
+    """v31-tenancy-role-assertion, andamiaje (a): el rechazo del SET LOCAL
+    ROLE SHALL quedar registrado con nivel CRITICAL e incluir el rol
+    efectivo observado (no 'authenticated') y el `sub` del request que lo
+    disparó — es la única evidencia operativa de un modo 'omisión' o
+    'inefectividad' de la adopción de rol (D6/D6 bis). Contra un logger
+    degradado a WARNING (o un payload que omita rol/sub) este test falla:
+    caplog sólo captura por encima del nivel configurado, y las
+    aserciones de contenido exigen ambos valores en el mensaje formateado."""
+    pool_mock, conn_mock = mock_pool
+    # Centinela distintivo (no 'postgres'): el mensaje de rechazo también
+    # contiene el texto "current_user" y "authenticated" en su parte fija, así
+    # que un rol mockeado plausible podría coincidir por casualidad con el
+    # propio mensaje en vez de con el valor que el código realmente interpola.
+    sentinel_role = "rol_centinela_no_authenticated"
+    conn_mock.fetchval = AsyncMock(return_value=sentinel_role)
+
+    import logging
+
+    import backend.core.database as db_module
+    from fastapi import HTTPException
+
+    db_module.pool = pool_mock
+
+    try:
+        with patch("backend.core.database.settings") as mock_settings:
+            mock_settings.tenancy_tx_scope_enabled = True
+            mock_settings.tenancy_tx_idle_timeout = "30s"
+            mock_settings.tenancy_rls_role_enabled = True
+
+            from backend.core.database import get_db_conn
+
+            with caplog.at_level(logging.CRITICAL, logger="backend.core.database"):
+                gen = get_db_conn(TEST_USER)
+                with pytest.raises(HTTPException):
+                    await gen.__anext__()
+
+            critical_records = [
+                r for r in caplog.records if r.levelno == logging.CRITICAL
+            ]
+            assert critical_records, (
+                "el rechazo de la adopción de rol SHALL registrarse con "
+                "nivel CRITICAL"
+            )
+            message = critical_records[0].getMessage()
+            assert sentinel_role in message, (
+                "el registro SHALL incluir el rol efectivo observado, "
+                f"dio: {message!r}"
+            )
+            assert TEST_USER["user_id"] in message, (
+                "el registro SHALL incluir el sub del request que disparó "
+                f"el rechazo, dio: {message!r}"
+            )
     finally:
         db_module.pool = None
 

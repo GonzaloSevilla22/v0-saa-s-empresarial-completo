@@ -37,7 +37,7 @@ interface AiPlanLimits {
 }
 
 interface SingleRowQuery<T> {
-  eq(column: string, value: string): { single(): Promise<QueryResult<T>> }
+  eq(column: string, value: string): { single(): PromiseLike<QueryResult<T>> }
 }
 
 interface SelectableTable<T> {
@@ -57,11 +57,11 @@ interface SelectableTable<T> {
 export interface AiQuotaClient extends EffectivePlanClient {
   from(table: "profiles"): SelectableTable<AiUsageCounters>
   from(table: "plan_limits"): SelectableTable<AiPlanLimits>
-  rpc(fn: "rpc_my_effective_plan"): Promise<{ data: string | null; error: { message: string } | null }>
+  rpc(fn: "rpc_my_effective_plan"): PromiseLike<{ data: string | null; error: { message: string } | null }>
   rpc(
     fn: "rpc_increment_ai_usage",
     args: { p_user_id: string; p_counter: Counter },
-  ): Promise<{ data: unknown; error: unknown }>
+  ): PromiseLike<{ data: unknown; error: unknown }>
 }
 
 interface QuotaResult {

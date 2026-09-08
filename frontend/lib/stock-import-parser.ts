@@ -16,7 +16,7 @@
  * `columnMap` de `excel.parseCSV` no modela.
  */
 
-import { parseAmount, looksLikeThousandsGrouping as looksLikeThousandsGroupingBase } from "@/lib/excel"
+import { parseQuantity, looksLikeThousandsGrouping as looksLikeThousandsGroupingBase } from "@/lib/excel"
 import type { Product, MovementType } from "@/lib/types"
 
 // ── CSV template ───────────────────────────────────────────────────────────────
@@ -257,13 +257,23 @@ export function parseAndValidate(cells: string[][], adjustableProducts: Product[
       )
     }
 
-    // Resolve quantity — helper canónico compartido con los importadores de
-    // productos y gastos: "1,5" → 1.5, "1.234,56" → 1234.56, "1.5" → 1.5.
-    // `loneCommaIsDecimal`: en una cantidad física "1,250" es 1,25 (kg), no
-    // 1250 como leería el default pensado para importes en pesos.
-    // (`parseFloat("1,5")` devolvía 1 y el ajuste llegaba truncado al servidor.)
-    const quantity      = parseAmount(rawQuantity, { loneCommaIsDecimal: true })
-    const quantityValid = rawQuantity.trim() !== "" && !isNaN(quantity)
+    // Resolve quantity — helper canónico compartido con el importador de
+    // productos (`lib/import/validator.ts`): "1,5" → 1.5, "1.234,56" →
+    // 1234.56, "1.5" → 1.5, coma sin punto SIEMPRE decimal ("1,250" = 1,25
+    // kg, nunca miles). `allowNegative`: acá la fila arma su propio error
+    // "no puede ser negativa" en vez de reemplazar el valor por 0 en
+    // silencio (el negativo real se ve en la vista previa). `silent`: este
+    // parser ya tiene su propio canal de errores/warnings por fila — la
+    // ambigüedad de miles se muestra aparte en la UI (`looksLikeThousandsGrouping`).
+    // Sin `maxDecimals` a propósito: la cantidad de un ajuste no se redondea
+    // acá en el cliente — Postgres redondea al guardar (branch_stock.quantity
+    // es numeric(15,4)) y la vista previa ya muestra 4 decimales con
+    // `formatNumber(q, 4)`, así que redondear antes sería trabajo redundante
+    // (y potencialmente inconsistente si el redondeo del cliente difiriera
+    // del de la columna).
+    const parsedQuantity = parseQuantity(rawQuantity, { label: "Cantidad", allowNegative: true, silent: true })
+    const quantity        = parsedQuantity.value ?? 0
+    const quantityValid   = rawQuantity.trim() !== "" && !parsedQuantity.invalid
     if (!quantityValid) {
       errors.push("Cantidad inválida")
     } else if (quantity < 0) {

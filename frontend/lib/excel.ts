@@ -9,6 +9,7 @@
  */
 
 import { argentinaToday } from "@/lib/date-range"
+import { formatNumber } from "@/lib/format"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -201,6 +202,16 @@ export interface ParseAmountOptions {
 }
 
 /**
+ * Descarta todo lo que no sea dígito, punto, coma o signo menos — el mismo
+ * texto que ven `parseAmount`, `parseQuantity` y `amountAmbiguityWarning`
+ * antes de leer el número o detectar ambigüedad de miles, así un sufijo de
+ * ruido ("kg", "$") no evade ninguno de los tres chequeos.
+ */
+function cleanNumericText(raw: string): string {
+  return raw.replace(/[^\d.,-]/g, "")
+}
+
+/**
  * Parses a monetary/numeric string into a float.
  * Supports: "1.234,56" (European/AR), "1,234.56" (US), "1234.56", "1234".
  * Returns NaN if the string cannot be parsed.
@@ -210,7 +221,7 @@ export function parseAmount(raw: string | undefined, options: ParseAmountOptions
   const s = String(raw).trim()
 
   // Strip currency symbols, spaces, $, etc. — keep digits, dots, commas, minus
-  const cleaned = s.replace(/[^\d.,-]/g, "")
+  const cleaned = cleanNumericText(s)
   if (!cleaned) return NaN
 
   const hasComma = cleaned.includes(",")
@@ -264,6 +275,177 @@ export function looksLikeThousandsGrouping(raw: string, separator?: "." | ","): 
     return new RegExp(`^-?\\d{1,3}(?:${esc}\\d{3})+$`).test(s)
   }
   return /^-?\d{1,3}([.,])\d{3}(?:\1\d{3})*$/.test(s)
+}
+
+/** Rótulos en uso por los dos callers del helper — cierra el union para poder derivar la concordancia de género (ver `QUANTITY_ADJECTIVES`) sin `any`. */
+export type QuantityLabel = "Stock" | "Stock mínimo" | "Cantidad"
+
+/**
+ * Concordancia de género por rótulo: "Stock"/"Stock mínimo" son masculinos
+ * ("el stock inválido"); "Cantidad" es femenino ("la cantidad inválida") —
+ * sin esto, `quantityInvalidMessage`/`quantityAmbiguousMessage` hardcodeaban
+ * el masculino y "Cantidad inválido"/"Cantidad ambiguo" quedaba mal.
+ */
+const QUANTITY_ADJECTIVES: Record<QuantityLabel, { invalid: string; ambiguous: string }> = {
+  Stock: { invalid: "inválido", ambiguous: "ambiguo" },
+  "Stock mínimo": { invalid: "inválido", ambiguous: "ambiguo" },
+  Cantidad: { invalid: "inválida", ambiguous: "ambigua" },
+}
+
+export interface ParseQuantityOptions {
+  /** Rótulo usado en los textos de warning — fija la concordancia de género (ver `QuantityLabel`). */
+  label: QuantityLabel
+  /**
+   * Redondea hacia arriba (Math.ceil) cuando el valor no es entero, con
+   * warning (columnas `integer` en DB, p.ej. `min_stock`). Tiene prioridad
+   * sobre `maxDecimals` si ambos se pasan.
+   */
+  integer?: boolean
+  /** Redondea a este número de decimales cuando el texto trae más, con warning. */
+  maxDecimals?: number
+  /**
+   * Un valor negativo es inválido por defecto (mismo criterio que un
+   * importe/cantidad física: no hay lectura negativa razonable). Pasar
+   * `true` para dejarlo pasar tal cual — lo usa el importador de ajustes de
+   * stock, que arma su propio mensaje ("no puede ser negativa") en vez de
+   * reemplazarlo por 0 en silencio.
+   */
+  allowNegative?: boolean
+  /**
+   * Suprime todo texto de warning — para un caller con su propio canal de
+   * errores/warnings por fila (el importador de ajustes de stock).
+   */
+  silent?: boolean
+}
+
+export interface ParsedQuantity {
+  value: number | null
+  warnings: string[]
+  invalid: boolean
+}
+
+function quantityInvalidMessage(label: QuantityLabel, raw: string, integer?: boolean): string {
+  const adj = QUANTITY_ADJECTIVES[label].invalid
+  return integer
+    ? `${label} ${adj}: "${raw}" — debe ser un entero ≥ 0, se usará 0 (sin umbral de alerta).`
+    : `${label} ${adj}: "${raw}" — se usará 0.`
+}
+
+function quantityAmbiguousMessage(label: QuantityLabel, raw: string, value: number): string {
+  const adj = QUANTITY_ADJECTIVES[label].ambiguous
+  return (
+    `${label} ${adj}: "${raw}" — se interpretó como ${formatNumber(value, 4)}. ` +
+    `Usá coma para decimales y ningún separador para miles.`
+  )
+}
+
+function quantityRoundedMessage(label: string, raw: string, rounded: number, maxDecimals: number): string {
+  return `${label} "${raw}" se redondeó a ${formatNumber(rounded, maxDecimals)} (máximo ${maxDecimals} decimales).`
+}
+
+function quantityCeiledMessage(label: string, raw: string, ceiled: number): string {
+  return `${label} "${raw}" no admite decimales: se usará ${ceiled}.`
+}
+
+/**
+ * Helper canónico de cantidades — reglas compartidas por el importador de
+ * productos (stock / stock_minimo, `lib/import/validator.ts`) y el
+ * importador de ajustes de stock (cantidad, `lib/stock-import-parser.ts`).
+ * Sobre `parseAmount` con `loneCommaIsDecimal` (una coma sin punto SIEMPRE
+ * es decimal en una cantidad física, nunca miles):
+ *   - 2+ puntos sin coma ("1.234.567") → inválido, en vez de leerse parcial
+ *     hasta el 2do punto (lo que hacía `parseFloat` en silencio);
+ *   - un punto único con grupos de tres dígitos ("1.500") o una coma con el
+ *     mismo patrón ("1,500") se leen como decimal pero avisan la ambigüedad
+ *     (también podrían ser miles);
+ *   - `integer` redondea hacia arriba (Math.ceil) con aviso; `maxDecimals`
+ *     redondea con aviso cuando el texto trae más decimales de los que la
+ *     columna admite;
+ *   - un valor negativo es inválido salvo `allowNegative`;
+ *   - `silent` suprime todo texto (el caller tiene su propio canal);
+ *   - una celda vacía (o sólo espacios) SIEMPRE devuelve
+ *     `{ value: null, invalid: true, warnings: [] }`, sin importar `silent`
+ *     ni `integer`: una celda no cargada no es lo mismo que un texto
+ *     ilegible, y el warning de "inválido" citando una cadena vacía
+ *     (`${label} inválido: "" — …`) no le sirve a nadie. Los callers que
+ *     quieren un default silencioso ya evitan llegar acá con texto vacío
+ *     (`raw.stock.trim()` en `lib/import/validator.ts`); el que no guarda
+ *     (`lib/stock-import-parser.ts`) llama con `silent: true`, así que el
+ *     resultado no cambia para el usuario en ningún caso.
+ */
+export function parseQuantity(raw: string, opts: ParseQuantityOptions): ParsedQuantity {
+  const { label, integer, maxDecimals, allowNegative = false, silent = false } = opts
+  const trimmed = raw.trim()
+  if (trimmed === "") {
+    return { value: null, invalid: true, warnings: [] }
+  }
+  // Mismo texto que ve parseAmount (descarta ruido como "kg" o "$"): así el
+  // pre-chequeo de puntos y el detector de ambigüedad no se evaden con un sufijo.
+  const cleaned = cleanNumericText(trimmed)
+  const dotCount = (cleaned.match(/\./g) ?? []).length
+  const tooManyDots = !cleaned.includes(",") && dotCount >= 2
+
+  const parsed = tooManyDots ? NaN : parseAmount(trimmed, { loneCommaIsDecimal: true })
+  const isNegative = !isNaN(parsed) && parsed < 0
+  const invalid = isNaN(parsed) || (isNegative && !allowNegative)
+
+  if (invalid) {
+    return {
+      value: null,
+      invalid: true,
+      warnings: silent ? [] : [quantityInvalidMessage(label, trimmed, integer)],
+    }
+  }
+
+  const warnings: string[] = []
+  let value = parsed
+
+  if (!silent && looksLikeThousandsGrouping(cleaned)) {
+    warnings.push(quantityAmbiguousMessage(label, trimmed, value))
+  }
+
+  if (integer) {
+    if (!Number.isInteger(value)) {
+      const ceiled = Math.ceil(value)
+      if (!silent) warnings.push(quantityCeiledMessage(label, trimmed, ceiled))
+      value = ceiled
+    }
+  } else if (maxDecimals !== undefined) {
+    const factor = 10 ** maxDecimals
+    const rounded = Math.round(value * factor) / factor
+    if (Math.abs(rounded - value) > 1e-9) {
+      if (!silent) warnings.push(quantityRoundedMessage(label, trimmed, rounded, maxDecimals))
+      value = rounded
+    }
+  }
+
+  return { value, warnings, invalid: false }
+}
+
+/**
+ * Warning NO bloqueante para un importe (precio, costo, monto de gasto)
+ * leído con `parseAmount` default (default, no `loneCommaIsDecimal`): un
+ * punto único con grupos de tres dígitos ("1.500") se interpreta como
+ * decimal ($1,5) pero también podría ser miles ($1500) — mismo detector que
+ * `parseQuantity` usa para stock, aplicado sólo al punto porque en un
+ * importe la coma ya tiene lectura fija (decimal con ≤2 dígitos, si no
+ * miles — `parseAmount`, sin `loneCommaIsDecimal`). El contrato de lectura
+ * NO cambia: sigue devolviendo lo mismo que hoy, esto sólo agrega el aviso.
+ * El valor mostrado usa `formatNumber(value, 4)`, no `formatMoney` (2
+ * decimales fijos): un texto como "12.345.678" se lee hoy como 12.345 (2+
+ * puntos, `parseFloat` se detiene en el 2do) y `formatMoney` lo redondearía
+ * a $12,35 — un número que no es el que se importa. `formatNumber` muestra
+ * la precisión real, sin mentir por el redondeo del formato monetario.
+ * Devuelve `null` cuando el texto no es ambiguo (no hace falta avisar).
+ */
+export function amountAmbiguityWarning(label: string, raw: string, value: number): string | null {
+  const trimmed = raw.trim()
+  const cleaned = cleanNumericText(trimmed)
+  if (!looksLikeThousandsGrouping(cleaned, ".")) return null
+  return (
+    `${label} ambiguo: "${trimmed}" — se interpretó como $ ${formatNumber(value, 4)}. ` +
+    `Usá coma para decimales y ningún separador para miles.`
+  )
 }
 
 /**

@@ -55,6 +55,7 @@ def _make_repo(
     create_result=_SENTINEL,
     update_result=_SENTINEL,
     deactivate_result=_SENTINEL,
+    reactivate_result=_SENTINEL,
     report_result=_SENTINEL,
     get_by_id_result=_SENTINEL,
     bank_account_result=_SENTINEL,
@@ -65,6 +66,9 @@ def _make_repo(
     repo.update = AsyncMock(return_value=PM_ROW if update_result is _SENTINEL else update_result)
     repo.deactivate = AsyncMock(
         return_value={**PM_ROW, "is_active": False} if deactivate_result is _SENTINEL else deactivate_result
+    )
+    repo.reactivate = AsyncMock(
+        return_value={**PM_ROW, "is_active": True} if reactivate_result is _SENTINEL else reactivate_result
     )
     repo.get_report = AsyncMock(return_value=[] if report_result is _SENTINEL else report_result)
     # pos-banco-movimientos (D7): usados sólo cuando bank_account_provided=True
@@ -263,6 +267,45 @@ class TestPaymentMethodServiceDeactivate:
 
         with pytest.raises(HTTPException) as exc_info:
             await deactivate_payment_method(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
+
+        assert exc_info.value.status_code == 404
+
+
+# ── B1 RED: reactivate requires account_role owner/admin ────────────────────
+
+class TestPaymentMethodServiceReactivate:
+    @pytest.mark.asyncio
+    async def test_reactivate_member_raises_403(self):
+        from backend.services.payment_methods import reactivate_payment_method
+
+        repo = _make_repo()
+        auth = _make_auth("member")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await reactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_reactivate_owner_ok(self):
+        from backend.services.payment_methods import reactivate_payment_method
+
+        repo = _make_repo(reactivate_result={**PM_ROW, "is_active": True})
+        auth = _make_auth("owner")
+
+        result = await reactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+
+        assert result["is_active"] is True
+
+    @pytest.mark.asyncio
+    async def test_reactivate_not_found_raises_404(self):
+        from backend.services.payment_methods import reactivate_payment_method
+
+        repo = _make_repo(reactivate_result=None)
+        auth = _make_auth("admin")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await reactivate_payment_method(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
 
         assert exc_info.value.status_code == 404
 

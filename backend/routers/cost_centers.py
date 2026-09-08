@@ -87,3 +87,21 @@ async def deactivate_cost_center(
         repo, auth, str(account_id), cost_center_id,
         conn=conn,
     )
+
+
+@router.patch("/{cost_center_id}/reactivate", response_model=CostCenterOut)
+async def reactivate_cost_center(
+    cost_center_id: str,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: CostCenterRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Undo a soft-delete (sets is_active=true). Requires TENANT role owner or admin (D9).
+
+    Espejo exacto de deactivate_cost_center.
+    """
+    return await cc_service.reactivate_cost_center(
+        repo, auth, str(account_id), cost_center_id,
+        conn=conn,
+    )

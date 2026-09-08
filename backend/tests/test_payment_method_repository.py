@@ -264,6 +264,37 @@ class TestPaymentMethodRepositoryDeactivate:
         assert result is None
 
 
+# ── B1 RED: reactivate ──────────────────────────────────────────────────────
+
+class TestPaymentMethodRepositoryReactivate:
+    @pytest.mark.asyncio
+    async def test_reactivate_sets_is_active_true(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        reactivated = {**PM_ROW_INACTIVE, "is_active": True}
+        conn.fetchrow = AsyncMock(return_value=reactivated)
+
+        result = await repo.reactivate(PM_ID, ACCOUNT_ID)
+
+        assert result is not None
+        assert result["is_active"] is True
+        sql = conn.fetchrow.call_args[0][0]
+        assert "is_active = TRUE" in sql
+        assert "DELETE FROM" not in sql.upper()
+        # Tenencia: nunca sólo por id — el account_id viaja ligado y filtra.
+        assert "account_id = $2" in sql
+        assert "deleted_at IS NULL" in sql
+        assert conn.fetchrow.call_args[0][1:] == (PM_ID, ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_reactivate_returns_none_if_not_found(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.reactivate("nonexistent", ACCOUNT_ID)
+
+        assert result is None
+
+
 # ── 4.6 RED: get_report ────────────────────────────────────────────────────────
 
 class TestPaymentMethodRepositoryReport:

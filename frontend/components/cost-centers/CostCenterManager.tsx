@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useCostCenters } from "@/hooks/data/use-cost-centers"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { Plus, Pencil, PowerOff, Loader2 } from "lucide-react"
+import { Plus, Pencil, Power, PowerOff, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import type { CostCenter } from "@/lib/types"
 
@@ -30,9 +30,11 @@ export function CostCenterManager() {
     createCostCenter,
     updateCostCenter,
     deactivateCostCenter,
+    reactivateCostCenter,
     createCostCenterMutation,
     updateCostCenterMutation,
     deactivateCostCenterMutation,
+    reactivateCostCenterMutation,
   } = useCostCenters(true) // includeInactive=true for management view
 
   const [addOpen, setAddOpen] = useState(false)
@@ -91,6 +93,16 @@ export function CostCenterManager() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error desconocido"
       toast.error(`Error al desactivar: ${msg}`)
+    }
+  }
+
+  async function handleReactivate(cc: CostCenter) {
+    try {
+      await reactivateCostCenter(cc.id)
+      toast.success(`"${cc.name}" reactivado`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error desconocido"
+      toast.error(`Error al reactivar: ${msg}`)
     }
   }
 
@@ -160,6 +172,22 @@ export function CostCenterManager() {
                     title="Desactivar"
                   >
                     <PowerOff className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              {isWriter && !cc.isActive && (
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-11 w-11 md:h-7 md:w-7"
+                    onClick={() => void handleReactivate(cc)}
+                    disabled={reactivateCostCenterMutation.isPending}
+                    aria-label={`Reactivar ${cc.name}`}
+                    title="Reactivar"
+                  >
+                    <Power className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               )}

@@ -296,6 +296,41 @@ class TestCostCenterDeactivateEndpoint:
         assert resp.status_code == 403
 
 
+# ── B2 RED (D9): PATCH /cost-centers/{id}/reactivate gatea contra account_role ─
+
+class TestCostCenterReactivateEndpoint:
+    @pytest.mark.asyncio
+    async def test_reactivate_owner_ok(self, async_client, mock_pool):
+        """PATCH /cost-centers/{id}/reactivate sets is_active=true."""
+        pool, conn = mock_pool
+        # Parte del estado desactivado: la observación es el flip a True.
+        conn.fetchrow = AsyncMock(return_value={**CC_ROW_DEACTIVATED, "is_active": True})
+        owner_token = _account_role_token("owner")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/cost-centers/{CC_ID}/reactivate",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["is_active"] is True
+
+    @pytest.mark.asyncio
+    async def test_reactivate_member_returns_403(self, async_client, mock_pool):
+        """PATCH /cost-centers/{id}/reactivate returns 403 for member (account_role)."""
+        pool, conn = mock_pool
+        member_token = _account_role_token("member")
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                f"/cost-centers/{CC_ID}/reactivate",
+                headers={"Authorization": f"Bearer {member_token}"},
+            )
+
+        assert resp.status_code == 403
+
+
 # ── 4.3/6.3 TRIANGULATE ──────────────────────────────────────────────────────
 
 class TestCostCenterRouterTriangulate:

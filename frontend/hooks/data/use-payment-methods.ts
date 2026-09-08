@@ -113,6 +113,15 @@ export function usePaymentMethods(includeInactive = false) {
     },
   })
 
+  const reactivatePaymentMethodMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return pythonClient.patch<PaymentMethodApiRow>(`/payment-methods/${id}/reactivate`, {})
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.paymentMethods.all() })
+    },
+  })
+
   return {
     paymentMethods: query.data ?? [],
     isLoading:      query.isLoading,
@@ -121,8 +130,10 @@ export function usePaymentMethods(includeInactive = false) {
     createPaymentMethod:    createPaymentMethodMutation.mutateAsync,
     updatePaymentMethod:    updatePaymentMethodMutation.mutateAsync,
     deactivatePaymentMethod: deactivatePaymentMethodMutation.mutateAsync,
+    reactivatePaymentMethod: reactivatePaymentMethodMutation.mutateAsync,
     createPaymentMethodMutation,
     updatePaymentMethodMutation,
     deactivatePaymentMethodMutation,
+    reactivatePaymentMethodMutation,
   }
 }

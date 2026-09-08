@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { useBankAccounts } from "@/hooks/data/use-bank-accounts"
 import { useOrgRole } from "@/hooks/useOrgRole"
-import { Plus, Pencil, PowerOff, Loader2 } from "lucide-react"
+import { Plus, Pencil, Power, PowerOff, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { isBankPaymentKind, type PaymentMethod, type PaymentMethodKind } from "@/lib/types"
 import { getAccountKindIcon } from "@/lib/bank-account-kind"
@@ -40,9 +40,11 @@ export function PaymentMethodManager() {
     createPaymentMethod,
     updatePaymentMethod,
     deactivatePaymentMethod,
+    reactivatePaymentMethod,
     createPaymentMethodMutation,
     updatePaymentMethodMutation,
     deactivatePaymentMethodMutation,
+    reactivatePaymentMethodMutation,
   } = usePaymentMethods(true) // includeInactive=true for management view
   // pos-banco-movimientos (D7, task 9.3): cuentas para resolver el nombre
   // (columna) y poblar el selector (dialog de edición) — reusa el hook ya
@@ -124,6 +126,16 @@ export function PaymentMethodManager() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error desconocido"
       toast.error(`Error al desactivar: ${msg}`)
+    }
+  }
+
+  async function handleReactivate(pm: PaymentMethod) {
+    try {
+      await reactivatePaymentMethod(pm.id)
+      toast.success(`"${pm.name}" reactivada`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error desconocido"
+      toast.error(`Error al reactivar: ${msg}`)
     }
   }
 
@@ -209,6 +221,22 @@ export function PaymentMethodManager() {
                       title="Desactivar"
                     >
                       <PowerOff className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+
+                {isWriter && !pm.isActive && (
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-11 w-11 md:h-7 md:w-7"
+                      onClick={() => void handleReactivate(pm)}
+                      disabled={reactivatePaymentMethodMutation.isPending}
+                      aria-label={`Reactivar ${pm.name}`}
+                      title="Reactivar"
+                    >
+                      <Power className="h-3.5 w-3.5" />
                     </Button>
                   </div>
                 )}

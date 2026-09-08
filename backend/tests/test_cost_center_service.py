@@ -59,6 +59,7 @@ def _make_repo(
     create_result=_SENTINEL,
     update_result=_SENTINEL,
     deactivate_result=_SENTINEL,
+    reactivate_result=_SENTINEL,
     get_result=None,
 ):
     repo = AsyncMock()
@@ -67,6 +68,9 @@ def _make_repo(
     repo.update = AsyncMock(return_value=CC_ROW if update_result is _SENTINEL else update_result)
     repo.deactivate = AsyncMock(
         return_value={**CC_ROW, "is_active": False} if deactivate_result is _SENTINEL else deactivate_result
+    )
+    repo.reactivate = AsyncMock(
+        return_value={**CC_ROW, "is_active": True} if reactivate_result is _SENTINEL else reactivate_result
     )
     repo.get_by_id = AsyncMock(return_value=get_result)
     return repo
@@ -274,6 +278,49 @@ class TestCostCenterServiceDeactivate:
 
         with pytest.raises(HTTPException) as exc_info:
             await deactivate_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
+
+        assert exc_info.value.status_code == 404
+
+
+# ── B2 RED: reactivate requires account_role owner/admin (tenant) ──────────
+
+
+class TestCostCenterServiceReactivate:
+    @pytest.mark.asyncio
+    async def test_reactivate_member_raises_403(self):
+        """member cannot reactivate a cost center."""
+        from backend.services.cost_centers import reactivate_cost_center
+
+        repo = _make_repo()
+        auth = _make_auth("member")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await reactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_reactivate_owner_ok(self):
+        """owner can reactivate a cost center."""
+        from backend.services.cost_centers import reactivate_cost_center
+
+        repo = _make_repo(reactivate_result={**CC_ROW, "is_active": True})
+        auth = _make_auth("owner")
+
+        result = await reactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+
+        assert result["is_active"] is True
+
+    @pytest.mark.asyncio
+    async def test_reactivate_not_found_raises_404(self):
+        """reactivate raises 404 when cost center not found."""
+        from backend.services.cost_centers import reactivate_cost_center
+
+        repo = _make_repo(reactivate_result=None)
+        auth = _make_auth("admin")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await reactivate_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
 
         assert exc_info.value.status_code == 404
 

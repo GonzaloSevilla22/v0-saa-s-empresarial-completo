@@ -136,6 +136,26 @@ async def deactivate_payment_method(
     return dict(record)
 
 
+async def reactivate_payment_method(
+    repo: PaymentMethodRepository,
+    auth: dict,
+    account_id: str,
+    payment_method_id: str,
+    *,
+    conn,
+) -> dict:
+    """Undo a soft-delete (is_active=true). Requires TENANT role owner or admin.
+
+    Espejo exacto de deactivate_payment_method. Historical imputations are
+    unaffected either way — reactivating only restores selector visibility.
+    """
+    await require_account_role(conn, auth, ["owner", "admin"])
+    record = await repo.reactivate(payment_method_id, account_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Forma de pago no encontrada")
+    return dict(record)
+
+
 async def get_payment_method_report(
     repo: PaymentMethodRepository,
     auth: dict,

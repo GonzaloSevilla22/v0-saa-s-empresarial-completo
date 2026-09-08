@@ -170,6 +170,41 @@ class TestCostCenterRepositoryDeactivate:
         assert result is None
 
 
+# ── B2 RED: reactivate ──────────────────────────────────────────────────────
+
+class TestCostCenterRepositoryReactivate:
+    @pytest.mark.asyncio
+    async def test_reactivate_sets_is_active_true(self, cost_center_repo):
+        """reactivate marks is_active=true and returns updated row."""
+        repo, conn = cost_center_repo
+        reactivated = {**CC_ROW_INACTIVE, "is_active": True}
+        conn.fetchrow = AsyncMock(return_value=reactivated)
+
+        result = await repo.reactivate(CC_ID, ACCOUNT_ID)
+
+        assert result is not None
+        assert result["is_active"] is True
+        sql = conn.fetchrow.call_args[0][0]
+        assert "is_active = TRUE" in sql
+        # "DELETE FROM" y no "DELETE": el WHERE lleva deleted_at IS NULL.
+        assert "DELETE FROM" not in sql.upper()
+        # Tenencia + soft delete: nunca sólo por id, y un centro borrado
+        # lógicamente no vuelve a ser imputable por esta vía.
+        assert "account_id = $2" in sql
+        assert "deleted_at IS NULL" in sql
+        assert conn.fetchrow.call_args[0][1:] == (CC_ID, ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_reactivate_returns_none_if_not_found(self, cost_center_repo):
+        """reactivate returns None when cost center does not exist."""
+        repo, conn = cost_center_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.reactivate("nonexistent", ACCOUNT_ID)
+
+        assert result is None
+
+
 # ── 2.3 TRIANGULATE ────────────────────────────────────────────────────────────
 
 class TestCostCenterRepositoryTriangulate:

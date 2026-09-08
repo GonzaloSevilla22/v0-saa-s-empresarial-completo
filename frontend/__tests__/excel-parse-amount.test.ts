@@ -11,7 +11,7 @@
  * importadores de productos (precio/costo) y gastos (monto).
  */
 import { describe, it, expect } from "vitest"
-import { parseAmount } from "@/lib/excel"
+import { parseAmount, looksLikeThousandsGrouping } from "@/lib/excel"
 
 describe("parseAmount — comportamiento por defecto (importes)", () => {
   it.each([
@@ -67,5 +67,19 @@ describe("parseAmount — loneCommaIsDecimal (cantidades físicas)", () => {
 
   it("con la opción en false conserva la heurística de miles", () => {
     expect(parseAmount("1,250", { loneCommaIsDecimal: false })).toBe(1250)
+  })
+})
+
+describe("looksLikeThousandsGrouping — separator opcional (R1, importador de productos)", () => {
+  it('"1.500" con separator "." → true', () => {
+    expect(looksLikeThousandsGrouping("1.500", ".")).toBe(true)
+  })
+
+  it('"1,500" con separator "." → false (separador distinto al pedido)', () => {
+    expect(looksLikeThousandsGrouping("1,500", ".")).toBe(false)
+  })
+
+  it('"1.234.567" con separator "." → true (varios grupos)', () => {
+    expect(looksLikeThousandsGrouping("1.234.567", ".")).toBe(true)
   })
 })

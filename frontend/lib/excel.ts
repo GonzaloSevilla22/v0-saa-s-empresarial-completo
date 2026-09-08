@@ -248,6 +248,25 @@ export function parseAmount(raw: string | undefined, options: ParseAmountOptions
 }
 
 /**
+ * ¿El texto de un número podría leerse también como agrupación de miles
+ * ("1,250", "1.250", "12.345.678")? Grupos de tres dígitos separados por un
+ * único tipo de separador. Sin `separator`, cualquiera de los dos separadores
+ * cuenta (consistente en todo el número, como ya usaba el importador de
+ * ajustes de stock); con `separator`, sólo ese separador — usarlo cuando el
+ * otro separador ya tiene un significado fijo en el contrato (p.ej. la coma
+ * es siempre decimal con `loneCommaIsDecimal`, así que sólo el punto puede
+ * ser una agrupación de miles ambigua).
+ */
+export function looksLikeThousandsGrouping(raw: string, separator?: "." | ","): boolean {
+  const s = raw.trim()
+  if (separator) {
+    const esc = separator === "." ? "\\." : ","
+    return new RegExp(`^-?\\d{1,3}(?:${esc}\\d{3})+$`).test(s)
+  }
+  return /^-?\d{1,3}([.,])\d{3}(?:\1\d{3})*$/.test(s)
+}
+
+/**
  * Parses a date string into YYYY-MM-DD format.
  * Handles: "YYYY-MM-DD", "DD/MM/YYYY", "D/M/YYYY".
  * Returns today's date if the string is unrecognizable.

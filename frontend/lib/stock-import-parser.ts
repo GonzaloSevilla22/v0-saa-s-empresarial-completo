@@ -16,7 +16,7 @@
  * `columnMap` de `excel.parseCSV` no modela.
  */
 
-import { parseAmount } from "@/lib/excel"
+import { parseAmount, looksLikeThousandsGrouping as looksLikeThousandsGroupingBase } from "@/lib/excel"
 import type { Product, MovementType } from "@/lib/types"
 
 // ── CSV template ───────────────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ export function parseCSVText(text: string): string[][] {
  * alternativa y mostrarlos sería ruido.
  */
 export function looksLikeThousandsGrouping(raw: string): boolean {
-  return /^-?\d{1,3}([.,])\d{3}(?:\1\d{3})*$/.test(raw.trim())
+  return looksLikeThousandsGroupingBase(raw)
 }
 
 // ── Row types ──────────────────────────────────────────────────────────────────

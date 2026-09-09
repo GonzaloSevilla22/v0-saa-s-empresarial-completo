@@ -22,7 +22,9 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
+from backend.repositories.account_charge_repository import AccountChargeRepository
 from backend.repositories.supplier_account_repository import SupplierAccountRepository
+from backend.schemas.customer_accounts import ChargeDueDateIn, ChargeDueDateOut
 from backend.schemas.supplier_accounts import (
     PayablePageOut,
     PayablesSummaryOut,
@@ -36,6 +38,7 @@ from backend.schemas.supplier_accounts import (
     SupplierChargeOut,
     SupplierMovementPageOut,
 )
+from backend.services import account_charges as account_charge_service
 from backend.services import supplier_accounts as supplier_account_service
 
 router = APIRouter(tags=["supplier-accounts"])
@@ -175,4 +178,32 @@ async def payables_summary(
     cantidad de acreedores — derivado del MISMO RPC que el listado."""
     return await supplier_account_service.get_payables_summary(
         repo, auth, str(account_id)
+    )
+
+
+@router.patch(
+    "/supplier-accounts/{supplier_id}/movements/{movement_id}/due-date",
+    response_model=ChargeDueDateOut,
+)
+async def update_supplier_charge_due_date(
+    supplier_id: uuid.UUID,
+    movement_id: uuid.UUID,
+    payload: ChargeDueDateIn,
+    auth: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """cobranzas-vencimientos OQ-1: espejo exacto de
+    customer_accounts.py::update_customer_charge_due_date — corrige el
+    vencimiento de un cargo (compra a crédito) abierto de un proveedor.
+    Requiere rol de TENANT owner o admin. `supplier_id` identifica el
+    recurso en la ruta; la RPC resuelve tenencia por movement_id + account_id
+    de la sesión.
+    """
+    repo = AccountChargeRepository(conn)
+    return await account_charge_service.update_supplier_charge_due_date(
+        repo, auth,
+        movement_id=str(movement_id),
+        due_date=payload.due_date,
+        reason=payload.reason,
+        conn=conn,
     )

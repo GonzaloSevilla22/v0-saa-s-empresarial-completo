@@ -53,7 +53,29 @@ async def create_payment_method(
     record = await repo.create(account_id, name=normalised_name, kind=kind, sort_order=sort_order)
     if record is None:
         raise HTTPException(status_code=500, detail="Error al crear la forma de pago")
-    return dict(record)
+    record = dict(record)
+
+    # bank-default-destination (cobranzas-catalogo-pagos OQ-5): si la cuenta
+    # tiene EXACTAMENTE una cuenta bancaria activa, se asigna automáticamente
+    # como destino de una forma de pago bancaria recién creada sin destino.
+    # Con 0 o 2+ bancos activos no se toca (no adivina) — misma condición
+    # que el helper SQL `_pay_assign_default_bank_destination` (backfill +
+    # alta de banco); acá cubre el otro origen posible: alta de la forma de
+    # pago cuando el banco ya existía.
+    if kind in BANK_KINDS and record.get("bank_account_id") is None:
+        sole_bank_account_id = await repo.get_sole_active_bank_account(account_id)
+        if sole_bank_account_id is not None:
+            updated = await repo.update(
+                record["id"],
+                account_id,
+                name=record["name"],
+                sort_order=record["sort_order"],
+                bank_account_id=sole_bank_account_id,
+                bank_account_provided=True,
+            )
+            if updated is not None:
+                record = dict(updated)
+    return record
 
 
 async def update_payment_method(

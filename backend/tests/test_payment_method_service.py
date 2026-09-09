@@ -59,6 +59,7 @@ def _make_repo(
     report_result=_SENTINEL,
     get_by_id_result=_SENTINEL,
     bank_account_result=_SENTINEL,
+    sole_active_bank_account_result=_SENTINEL,
 ):
     repo = AsyncMock()
     repo.list_by_account = AsyncMock(return_value=[PM_ROW] if list_result is _SENTINEL else list_result)
@@ -76,6 +77,12 @@ def _make_repo(
     repo.get_by_id = AsyncMock(return_value=PM_ROW if get_by_id_result is _SENTINEL else get_by_id_result)
     repo.get_bank_account_for_validation = AsyncMock(
         return_value={"id": BANK_ACCOUNT_ID} if bank_account_result is _SENTINEL else bank_account_result
+    )
+    # bank-default-destination (cobranzas-catalogo-pagos OQ-5): por defecto
+    # ningún banco resuelto (None) — los tests de create existentes con
+    # kind="cash" ni lo consultan (BANK_KINDS no incluye "cash").
+    repo.get_sole_active_bank_account = AsyncMock(
+        return_value=None if sole_active_bank_account_result is _SENTINEL else sole_active_bank_account_result
     )
     return repo
 
@@ -185,6 +192,103 @@ class TestPaymentMethodServiceCreate:
         )
 
         conn.fetchval.assert_not_awaited()
+
+
+# ── bank-default-destination (cobranzas-catalogo-pagos OQ-5): RED ────────────
+# Con exactamente UNA cuenta bancaria activa, crear una forma de pago
+# bancaria (kind ∈ BANK_KINDS) sin destino la asigna automáticamente. Con 0
+# o 2+ bancos, o kind no bancario (p.ej. "cash"), no se toca.
+
+BANK_PM_ROW_NO_DEST = {
+    "id": PM_ID,
+    "account_id": ACCOUNT_ID,
+    "name": "Transferencia",
+    "kind": "transfer",
+    "is_active": True,
+    "sort_order": 0,
+    "created_at": "2026-09-08T10:00:00+00:00",
+    "bank_account_id": None,
+}
+
+
+class TestPaymentMethodServiceCreateBankDefaultDestination:
+    @pytest.mark.asyncio
+    async def test_create_bank_kind_with_sole_active_bank_assigns_it(self):
+        from backend.services.payment_methods import create_payment_method
+
+        repo = _make_repo(
+            create_result=BANK_PM_ROW_NO_DEST,
+            sole_active_bank_account_result=BANK_ACCOUNT_ID,
+            update_result={**BANK_PM_ROW_NO_DEST, "bank_account_id": BANK_ACCOUNT_ID},
+        )
+        auth = _make_auth("owner")
+
+        result = await create_payment_method(
+            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn()
+        )
+
+        assert result["bank_account_id"] == BANK_ACCOUNT_ID
+        repo.get_sole_active_bank_account.assert_awaited_once_with(ACCOUNT_ID)
+        repo.update.assert_awaited_once()
+        update_kwargs = repo.update.call_args
+        assert update_kwargs[1].get("bank_account_id") == BANK_ACCOUNT_ID
+        assert update_kwargs[1].get("bank_account_provided") is True
+
+    @pytest.mark.asyncio
+    async def test_create_bank_kind_with_multiple_active_banks_does_not_assign(self):
+        """Triangulate: con 2+ bancos activos, get_sole_active_bank_account
+        devuelve None y create_payment_method no llama a update."""
+        from backend.services.payment_methods import create_payment_method
+
+        repo = _make_repo(
+            create_result=BANK_PM_ROW_NO_DEST,
+            sole_active_bank_account_result=None,
+        )
+        auth = _make_auth("owner")
+
+        result = await create_payment_method(
+            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn()
+        )
+
+        assert result["bank_account_id"] is None
+        repo.update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_non_bank_kind_never_consults_sole_bank_account(self):
+        """kind='cash' no es bancario (BANK_KINDS) — ni siquiera consulta
+        get_sole_active_bank_account."""
+        from backend.services.payment_methods import create_payment_method
+
+        repo = _make_repo(create_result=PM_ROW, sole_active_bank_account_result=BANK_ACCOUNT_ID)
+        auth = _make_auth("owner")
+
+        await create_payment_method(
+            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=_make_conn()
+        )
+
+        repo.get_sole_active_bank_account.assert_not_awaited()
+        repo.update.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_create_bank_kind_already_with_destination_is_not_overwritten(self):
+        """Defensa: si create ya devolviera un bank_account_id (no debería
+        pasar hoy — D7 fuerza NULL en el alta — pero el guard evita pisarlo
+        si el contrato del repo cambiara)."""
+        from backend.services.payment_methods import create_payment_method
+
+        repo = _make_repo(
+            create_result={**BANK_PM_ROW_NO_DEST, "bank_account_id": BANK_ACCOUNT_ID},
+            sole_active_bank_account_result="another-bank-id",
+        )
+        auth = _make_auth("owner")
+
+        result = await create_payment_method(
+            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn()
+        )
+
+        assert result["bank_account_id"] == BANK_ACCOUNT_ID
+        repo.get_sole_active_bank_account.assert_not_awaited()
+        repo.update.assert_not_awaited()
 
 
 # ── 4.1 RED: update requires account_role owner/admin ───────────────────────

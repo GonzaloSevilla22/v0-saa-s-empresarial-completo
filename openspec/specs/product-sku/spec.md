@@ -1,7 +1,7 @@
 # product-sku Specification
 
 ## Purpose
-Da a `products.sku` un contrato completo: campo opcional y borrable con contrato tri-estado (ausente conserva, con valor asigna, en nulo desasigna), unicidad case-insensitive alcanzada por **cuenta** (no por usuario, corrigiendo el alcance heredado `user_id`), comunicación legible del conflicto de unicidad, inclusión en la búsqueda del listado de productos, y uso como clave de upsert de la carga masiva (una fila cuyo SKU coincide con un producto vivo de la cuenta actualiza ese producto en vez de duplicarlo).
+Da a `products.sku` un contrato completo: campo opcional y borrable con contrato tri-estado (ausente conserva, con valor asigna, en nulo desasigna), unicidad case-insensitive alcanzada por **cuenta** (no por usuario, corrigiendo el alcance heredado `user_id`), comunicación legible del conflicto de unicidad, inclusión en la búsqueda del listado de productos, y uso como clave de upsert de la carga masiva (una fila cuyo SKU coincide con un producto vivo de la cuenta actualiza ese producto en vez de duplicarlo). También fija el alcance de unicidad de `products.barcode`, corrigiendo el mismo residuo heredado de `user_id` que tenía el SKU.
 
 ## Requirements
 
@@ -133,4 +133,53 @@ El sistema SHALL advertir en el paso de revisión cuando dos filas del **mismo a
 - **GIVEN** un producto con SKU "REM-001" creado por otro miembro de la misma cuenta
 - **WHEN** un miembro importa un archivo con una fila de SKU "REM-001"
 - **THEN** la fila actualiza ese producto existente en lugar de crear un duplicado en la misma cuenta
+
+### Requirement: El código de barras es único por cuenta, sobre las filas vivas
+
+El sistema SHALL garantizar que un código de barras identifique como máximo un producto vivo dentro de una cuenta, mediante un índice único parcial sobre `(account_id, barcode)` restringido a las filas con código de barras no vacío y `deleted_at IS NULL`. El alcance de la unicidad SHALL ser la **cuenta** y no el usuario: el catálogo de productos pertenece a la organización, de modo que dos miembros de la misma cuenta NO SHALL poder crear dos productos vivos con el mismo código de barras, y el índice anterior alcanzado por `user_id` SHALL retirarse para que no convivan dos reglas de unicidad discrepantes.
+
+A diferencia del SKU, la comparación de código de barras NO SHALL ser case-insensitive (no lo era antes de este requirement, y este requirement no cambia ese eje).
+
+#### Scenario: Código de barras duplicado dentro de la cuenta es rechazado
+
+- **GIVEN** una cuenta con un producto vivo de código de barras "7791234567890"
+- **WHEN** se intenta crear otro producto con el mismo código de barras en la misma cuenta
+- **THEN** la operación es rechazada por el índice único y el segundo producto no se persiste
+
+#### Scenario: Dos cuentas pueden usar el mismo código de barras
+
+- **GIVEN** la cuenta A con un producto de código de barras "7791234567890"
+- **WHEN** la cuenta B crea un producto con el mismo código de barras
+- **THEN** ambos coexisten, cada uno en su cuenta
+
+#### Scenario: Dos miembros de la misma cuenta no pueden repetir el código de barras
+
+- **GIVEN** una cuenta con dos miembros y un producto de código de barras "7791234567890" creado por el primero
+- **WHEN** el segundo miembro intenta crear un producto con el mismo código de barras en esa misma cuenta
+- **THEN** la operación es rechazada
+
+#### Scenario: Se puede recrear el código de barras de un producto borrado
+
+- **GIVEN** un producto de código de barras "7791234567890" que fue soft-deleteado
+- **WHEN** se crea un producto nuevo con ese mismo código de barras en la misma cuenta
+- **THEN** la operación es permitida, porque el índice único sólo alcanza a las filas vivas
+
+#### Scenario: No conviven dos reglas de unicidad de código de barras
+
+- **WHEN** se inspeccionan los índices únicos de `products` sobre la columna `barcode`
+- **THEN** existe únicamente el índice alcanzado por `account_id`, y no queda ninguno alcanzado por `user_id`
+
+### Requirement: El conflicto de código de barras se comunica como un error legible
+
+El sistema SHALL traducir la violación del índice único de código de barras a un error de conflicto legible en la superficie de alta y edición de producto. La fuente de verdad del rechazo SHALL ser la restricción de la base de datos y no una comprobación previa.
+
+#### Scenario: El formulario informa el conflicto
+
+- **WHEN** el usuario intenta guardar un producto con un código de barras que ya pertenece a otro producto vivo de su cuenta
+- **THEN** la pantalla muestra un mensaje que identifica el conflicto de código de barras
+
+#### Scenario: El rechazo se sostiene aunque se evada la comprobación previa
+
+- **WHEN** una solicitud llega directamente a la API con un código de barras en conflicto
+- **THEN** la escritura es rechazada por la restricción de la base de datos y el producto no se persiste
 

@@ -213,6 +213,52 @@ Las superficies SHALL usar los tokens semánticos y los componentes base del des
 - **WHEN** el gestor y el selector se muestran en escritorio o en móvil, en tema claro u oscuro
 - **THEN** usan los tokens semánticos del design system y son legibles y operables en las cuatro combinaciones
 
+### Requirement: Categoría por defecto de la cuenta
+
+El sistema SHALL permitir a la cuenta configurar explícitamente **cuál** de sus categorías activas es la categoría por defecto (`accounts.default_product_category_id`), usada para imputar las filas sin categoría de la carga masiva. Fijar o limpiar el default SHALL restringirse a los roles `owner` y `admin`; cualquier miembro SHALL poder leer cuál es el default vigente. Una categoría inexistente, de otra cuenta, desactivada o borrada SHALL rechazarse al intentar fijarla como default, con el error de recurso no encontrado.
+
+Cuando el default configurado deje de estar vivo y activo (se desactivó o se borró) sin que la cuenta haya vuelto a fijar uno nuevo, el sistema NO SHALL fallar: SHALL recaer en la heurística existente ("Otros" si sigue viva y activa; si no, la última categoría activa por `sort_order`). El default configurado, cuando está vivo y activo, SHALL tener prioridad sobre esa heurística.
+
+#### Scenario: Configurar el default de la cuenta
+
+- **GIVEN** un usuario `owner`/`admin` con la categoría activa "Ferretería" en su cuenta
+- **WHEN** la fija como categoría por defecto
+- **THEN** la cuenta queda con "Ferretería" como default
+- **AND** cualquier miembro de la cuenta puede leer que ese es el default vigente
+
+#### Scenario: Limpiar el default vuelve a la heurística
+
+- **GIVEN** una cuenta con un default configurado
+- **WHEN** un `owner`/`admin` lo limpia (informando `null`)
+- **THEN** la cuenta queda sin default configurado
+- **AND** la carga masiva vuelve a usar la heurística existente para las filas sin categoría
+
+#### Scenario: Default de otra cuenta o inexistente es rechazado
+
+- **WHEN** se intenta fijar como default una categoría que no existe o que pertenece a otra cuenta
+- **THEN** la operación es rechazada con el error de recurso no encontrado
+- **AND** el default de la cuenta no cambia
+
+#### Scenario: Member no puede fijar el default
+
+- **GIVEN** un usuario con rol `member`
+- **WHEN** intenta fijar o limpiar el default de su cuenta
+- **THEN** la operación es rechazada con 403, sin tocar la base
+
+#### Scenario: La carga masiva usa el default configurado en vez de "Otros"
+
+- **GIVEN** una cuenta con "Ferretería" fijada como default y su catálogo sembrado (incluida "Otros")
+- **WHEN** se importa un archivo con filas cuya columna de categoría está vacía
+- **THEN** esas filas quedan imputadas a "Ferretería"
+- **AND** ninguna queda imputada a "Otros"
+
+#### Scenario: Default desactivado degrada a la heurística sin fallar
+
+- **GIVEN** una cuenta cuyo default configurado apunta a una categoría que luego fue desactivada, sin haber fijado un default nuevo
+- **WHEN** se importa un archivo con filas sin categoría
+- **THEN** la importación no falla
+- **AND** esas filas quedan imputadas según la heurística existente ("Otros" si vive y activa, si no la última activa por `sort_order`)
+
 ### Requirement: La carga masiva resuelve la categoría contra el catálogo del tenant y crea las que faltan
 
 El sistema SHALL resolver la columna `Categoría` de la carga masiva contra el catálogo de la cuenta importadora de forma case-insensitive y tolerante a espacios, y SHALL **crear** la categoría cuando no exista, imputando el producto a ella. El sistema NO SHALL reemplazar por una categoría por defecto una categoría informada por el usuario.

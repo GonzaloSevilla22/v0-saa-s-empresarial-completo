@@ -26,6 +26,26 @@
 --
 -- Degrade-don't-fail: si el anchor sintético no resuelve cuenta (mismo patrón
 -- que los demás gates de este archivo de tests), se emite NOTICE y no aborta.
+--
+-- ⚠️ Fase 0b/4b — captura y restauración del cuerpo VIVO de
+-- rpc_create_bank_account: reaplicar 20261007000001 hace CREATE OR REPLACE
+-- de la MISMA firma de 8 args (sin DROP, porque el 8º parámetro ya existe
+-- desde esa misma migración) con el cuerpo TAL COMO estaba en 20261007000001
+-- — es decir, SIN la llamada a `_pay_assign_default_bank_destination` que
+-- agregó después 20261034000001_bank_default_destination.sql. Reaplicar acá
+-- una migración vieja que hace DROP+CREATE (o, como en este caso, un CREATE
+-- OR REPLACE de la misma firma) de una función que una migración POSTERIOR
+-- redefinió deja el cuerpo viejo vivo para TODOS los gates que corren
+-- DESPUÉS de este archivo en el mismo job — caso real: CI 2026-09-09,
+-- test_bank_default_destination.sql fallaba en (1-card) porque este gate
+-- corría antes y dejaba pisado el cuerpo de 20261034. Es exactamente el
+-- whack-a-mole que describe la "capa 2" de KPI_Validation.yml (migraciones
+-- viejas reaplicadas por sus propios gates de idempotencia, sin que nada
+-- restituya lo que una migración posterior ya había redefinido). La
+-- solución genérica: capturar el `pg_get_functiondef` vivo ANTES del primer
+-- \i (Fase 0b) y restaurarlo con EXECUTE después del último \i (Fase 4b),
+-- re-emitiendo las ACLs explícitas — no depender de que ningún \i futuro dé
+-- por sentado cuál es "la versión correcta" del cuerpo.
 -- =============================================================================
 
 CREATE TEMP TABLE IF NOT EXISTS _cbt_fixture (k text PRIMARY KEY, v uuid);
@@ -147,6 +167,40 @@ BEGIN
   RAISE NOTICE 'FIXTURE (3): % filas sintéticas creadas para el backfill.', 13;
 END $$;
 
+-- ── Fase 0b: capturar el cuerpo VIVO de rpc_create_bank_account(8 args) ANTES
+-- de reaplicar el archivo de migración — ver "⚠️ Fase 0b/4b" en la cabecera.
+-- Independiente de si la Fase 0 degradó (el \i de las Fases 1/4 corre igual,
+-- pise o no pise cuenta sintética alguna) — por eso esta captura no depende
+-- de _cbt_fixture.
+CREATE TEMP TABLE IF NOT EXISTS _cbt_saved_def (k text PRIMARY KEY, v text);
+TRUNCATE _cbt_saved_def;
+
+DO $$
+DECLARE
+  v_def text;
+BEGIN
+  -- Filtra por proname solamente (sin matchear tipos de argumentos): la
+  -- Fase 7 de este mismo archivo ya assertea que existe EXACTAMENTE una
+  -- firma de rpc_create_bank_account, así que no hace falta desambiguar acá
+  -- — y pg_get_function_identity_arguments() devuelve los NOMBRES de los
+  -- parámetros además de los tipos (p.ej. "p_name text, ..."), no solo los
+  -- tipos, así que un literal con solo tipos nunca matchea.
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_create_bank_account'
+  LIMIT 1;
+
+  IF v_def IS NULL THEN
+    RAISE NOTICE 'GATE CUENTAS-BILLETERA-TIPO: no se encontró rpc_create_bank_account vivo antes de reaplicar la migración — se omite la captura/restauración del cuerpo (Fase 4b degradará también, sin abortar).';
+    RETURN;
+  END IF;
+
+  INSERT INTO _cbt_saved_def(k, v) VALUES ('def', v_def), ('md5', md5(v_def))
+    ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v;
+
+  RAISE NOTICE 'FASE 0b: cuerpo vivo de rpc_create_bank_account capturado (md5=%) para restaurar en la Fase 4b.', md5(v_def);
+END $$;
+
 -- ── Fase 1: primer reapply — ejercita el backfill sobre el fixture ──────────
 \i supabase/migrations/20261007000001_cuentas_billetera_tipo.sql
 
@@ -202,6 +256,46 @@ END $$;
 
 -- ── Fase 4: segundo reapply — idempotencia real del archivo completo ────────
 \i supabase/migrations/20261007000001_cuentas_billetera_tipo.sql
+
+-- ── Fase 4b: restaurar el cuerpo VIVO capturado en la Fase 0b ────────────────
+-- Los dos \i de arriba dejaron rpc_create_bank_account(8 args) con el cuerpo
+-- de 20261007000001 (sin el helper de bank-default-destination si la base ya
+-- tenía 20261034000001 aplicada) — se restaura acá, DESPUÉS del último \i,
+-- para que los gates que corren después de este archivo en el mismo job
+-- (p.ej. test_bank_default_destination.sql) vean el cuerpo real. CREATE OR
+-- REPLACE con la MISMA firma no resetea las ACLs (eso sólo lo hace
+-- DROP+CREATE), pero se re-emiten explícitas de todos modos, sin depender de
+-- eso. Assertea al final que el md5 del cuerpo vivo quedó igual al capturado.
+DO $$
+DECLARE
+  v_saved_def text;
+  v_saved_md5 text;
+  v_live_md5  text;
+BEGIN
+  SELECT v INTO v_saved_def FROM _cbt_saved_def WHERE k = 'def';
+  SELECT v INTO v_saved_md5 FROM _cbt_saved_def WHERE k = 'md5';
+
+  IF v_saved_def IS NULL THEN
+    RAISE NOTICE 'GATE CUENTAS-BILLETERA-TIPO: la Fase 0b había degradado (nada capturado) — se omite la restauración del cuerpo.';
+    RETURN;
+  END IF;
+
+  EXECUTE v_saved_def;
+
+  EXECUTE 'REVOKE ALL ON FUNCTION public.rpc_create_bank_account(text, text, text, text, text, numeric, date, text) FROM PUBLIC, anon';
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.rpc_create_bank_account(text, text, text, text, text, numeric, date, text) TO authenticated';
+
+  SELECT md5(pg_get_functiondef(p.oid)) INTO v_live_md5
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_create_bank_account'
+  LIMIT 1;
+
+  IF v_live_md5 IS DISTINCT FROM v_saved_md5 THEN
+    RAISE EXCEPTION 'GATE CBT FAILED (4b): el cuerpo restaurado de rpc_create_bank_account no coincide con el capturado antes de reaplicar la migración vieja (guardado=%, vivo=%).', v_saved_md5, v_live_md5;
+  END IF;
+
+  RAISE NOTICE 'PASS (4b): el cuerpo vivo de rpc_create_bank_account fue restaurado tras reaplicar 20261007000001 dos veces (md5=%).', v_live_md5;
+END $$;
 
 -- ── Fase 5: assert idempotencia ──────────────────────────────────────────────
 DO $$
@@ -367,3 +461,4 @@ BEGIN
 END $$;
 
 DROP TABLE IF EXISTS _cbt_fixture;
+DROP TABLE IF EXISTS _cbt_saved_def;

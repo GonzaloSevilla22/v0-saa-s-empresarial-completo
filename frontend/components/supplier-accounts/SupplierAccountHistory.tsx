@@ -4,11 +4,22 @@ import { useState } from "react"
 import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import type { SupplierAccountMovement } from "@/hooks/data/use-supplier-account"
-import { useReversePaymentMade } from "@/hooks/data/use-supplier-account"
+import { useReversePaymentMade, useUpdateSupplierChargeDueDate } from "@/hooks/data/use-supplier-account"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
+import { EditChargeDueDateDialog } from "@/components/shared/edit-charge-due-date-dialog"
 import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { formatMovementDueStatus } from "@/lib/receivables-aging"
 import { humanizeOperationError } from "@/lib/operation-errors"
+import { useOrgRole } from "@/hooks/useOrgRole"
+
+/**
+ * cobranzas-vencimientos OQ-1: espejo exacto de isEditableCharge de
+ * CustomerAccountHistory — purchase/adjustment>0 con saldo abierto.
+ */
+function isEditableCharge(m: SupplierAccountMovement): boolean {
+  const isCharge = m.movementType === "purchase" || (m.movementType === "adjustment" && m.amount > 0)
+  return isCharge && (m.openAmount ?? 0) > 0
+}
 
 const MOVEMENT_LABELS: Record<SupplierAccountMovement["movementType"], string> = {
   purchase:     "Compra / cargo",
@@ -63,6 +74,8 @@ interface SupplierAccountHistoryProps {
 export function SupplierAccountHistory({ movements, loading, supplierId }: SupplierAccountHistoryProps) {
   const [reason, setReason] = useState("")
   const reverseMutation = useReversePaymentMade(supplierId)
+  const updateDueDateMutation = useUpdateSupplierChargeDueDate(supplierId)
+  const { isWriter } = useOrgRole()
 
   async function handleReverse(movement: SupplierAccountMovement) {
     try {
@@ -73,6 +86,18 @@ export function SupplierAccountHistory({ movements, loading, supplierId }: Suppl
       const { message } = humanizeOperationError((err as Error).message)
       toast.error(message)
     }
+  }
+
+  async function handleUpdateDueDate(
+    movement: SupplierAccountMovement,
+    values: { dueDate: string | null; reason?: string },
+  ) {
+    // Toast + reintento en error viven en EditChargeDueDateDialog.
+    await updateDueDateMutation.mutateAsync({
+      movementId: movement.id,
+      dueDate: values.dueDate,
+      reason: values.reason,
+    })
   }
 
   if (loading) {
@@ -235,6 +260,12 @@ export function SupplierAccountHistory({ movements, loading, supplierId }: Suppl
                   reasonField={{ value: reason, onChange: setReason }}
                 />
               )}
+              {isWriter && isEditableCharge(m) && (
+                <EditChargeDueDateDialog
+                  currentDueDate={m.dueDate}
+                  onConfirm={(values) => handleUpdateDueDate(m, values)}
+                />
+              )}
             </div>
 
             {/* Desktop */}
@@ -284,6 +315,12 @@ export function SupplierAccountHistory({ movements, loading, supplierId }: Suppl
                     actionVerbGerund="Anulando"
                     icon={<Undo2 className="h-3.5 w-3.5" />}
                     reasonField={{ value: reason, onChange: setReason }}
+                  />
+                )}
+                {isWriter && isEditableCharge(m) && (
+                  <EditChargeDueDateDialog
+                    currentDueDate={m.dueDate}
+                    onConfirm={(values) => handleUpdateDueDate(m, values)}
                   />
                 )}
               </div>

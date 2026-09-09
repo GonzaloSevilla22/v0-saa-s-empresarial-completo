@@ -341,3 +341,26 @@ El sistema SHALL rechazar ventas, compras, ajustes y transferencias que referenc
 - **WHEN** la página carga
 - **THEN** ve el badge de estado (`Activa`/`Cerrada`), el botón Abrir/Cerrar con confirmación, y el listado de transferencias de la sucursal
 
+### Requirement: El usuario es avisado cuando cambia su sucursal por defecto
+
+El sistema SHALL avisar al usuario, mediante una notificación no bloqueante, cuando la sucursal por defecto de su cuenta cambió respecto de la última vez que la vio en esa pestaña.
+
+`c26_default_branch(p_account_id)` resuelve la sucursal por defecto como la primera sucursal activa por `created_at ASC` (con fallback a la más antigua si ninguna quedó activa). Desactivar la sucursal que hoy ocupa ese lugar hace que el sistema empiece a resolver otra por defecto de forma silenciosa — sin este aviso, el usuario no tiene manera de enterarse de que las operaciones sin sucursal explícita empezaron a caer en un lugar distinto. Este requirement no reemplaza al guard de `branch-decommission-guard` (que impide desactivar una sucursal con contenido operativo): cubre el caso — legítimo — en que la sucursal por defecto cambia sin ningún contenido bloqueante de por medio.
+
+El aviso SHALL persistirse por pestaña (no por dispositivo ni de forma permanente): lo que importa es el cambio ocurrido dentro de la sesión activa, no reabrir en cada pestaña nueva un cambio que ya pasó.
+
+#### Scenario: Primera carga de la pestaña, sin aviso previo
+- **GIVEN** un usuario que abre la aplicación en una pestaña nueva
+- **WHEN** el sistema resuelve la sucursal por defecto de su cuenta por primera vez en esa pestaña
+- **THEN** no se muestra ningún aviso, y la sucursal resuelta queda registrada para comparaciones futuras en esa pestaña
+
+#### Scenario: La sucursal por defecto no cambió
+- **GIVEN** un usuario cuya pestaña ya registró la sucursal por defecto actual de su cuenta
+- **WHEN** el sistema vuelve a resolverla y es la misma
+- **THEN** no se muestra ningún aviso
+
+#### Scenario: La sucursal por defecto cambió
+- **GIVEN** un usuario cuya pestaña registró una sucursal por defecto, y esa sucursal dejó de serlo (por ejemplo, se desactivó)
+- **WHEN** el sistema resuelve la nueva sucursal por defecto
+- **THEN** se muestra un aviso no bloqueante que nombra la nueva sucursal por defecto, y la pestaña actualiza su registro a la nueva sucursal
+

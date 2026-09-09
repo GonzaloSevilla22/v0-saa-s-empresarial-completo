@@ -99,6 +99,44 @@ async def update_product_category(
     return dict(record)
 
 
+async def get_default_product_category(
+    repo: ProductCategoryRepository,
+    account_id: str,
+) -> dict:
+    """categoria-default-configurable: default de la cuenta para las filas
+    sin categoría de la carga masiva. Lectura para todo miembro (espejo de
+    get_collection_settings) — RLS aplica en la conexión."""
+    category_id = await repo.get_default_category_id(account_id)
+    return {"default_category_id": category_id}
+
+
+async def set_default_product_category(
+    repo: ProductCategoryRepository,
+    auth: dict,
+    account_id: str,
+    category_id: str | None,
+    *,
+    conn,
+) -> dict:
+    """categoria-default-configurable: fija (o limpia, con null) el default
+    vía rpc_set_default_product_category. require_account_role es la
+    primera capa; el guard real es is_account_writer de la RPC (P0401 → 403)
+    — mismo criterio que set_collection_settings. Categoría inexistente/de
+    otra cuenta/inactiva/soft-deleted → P0404 (traducidos por el
+    asyncpg_error_handler global, igual que set_collection_settings).
+
+    La RPC resuelve SU destino con current_account_ids() LIMIT 1, que puede
+    no coincidir con el account_id de la dependencia de lectura (usuario
+    miembro de más de una cuenta) — releer con
+    repo.get_default_category_id(account_id) evita devolver optimistamente
+    un category_id que el GET siguiente no confirmaría (hallazgo F5 del
+    revisor adversarial, tanda candidatos-db-backend, 2026-09-08)."""
+    await require_account_role(conn, auth, ["owner", "admin"])
+    await repo.set_default_category_id(category_id)
+    resolved = await repo.get_default_category_id(account_id)
+    return {"default_category_id": resolved}
+
+
 async def deactivate_product_category(
     repo: ProductCategoryRepository,
     auth: dict,

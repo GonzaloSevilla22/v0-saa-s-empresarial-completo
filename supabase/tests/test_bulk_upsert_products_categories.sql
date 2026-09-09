@@ -186,6 +186,35 @@ BEGIN
       END IF;
       RAISE NOTICE 'PASS (7): fila sin categoría va a la categoría por defecto sin crear nada.';
 
+      -- ── (7c): categoría por defecto CONFIGURABLE por cuenta ─────────────────
+      -- candidato "categoría por defecto configurable" (CLAUDE.md). Con un
+      -- default explícito (accounts.default_product_category_id → Ropa), la
+      -- fila sin categoría cae en la configurada, NO en "Otros". Si el
+      -- default apunta a una categoría DESACTIVADA, cae en la heurística de
+      -- siempre (Otros) — nunca falla.
+      PERFORM public.rpc_set_default_product_category(v_ropa_id);
+      v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
+        jsonb_build_object('name','Gate Sin cat Default','sku','GSIN-DEF','category','','price',10,'cost',5,'stock',0,'min_stock',0,'barcode',NULL,'parent_id',NULL,'is_variant',false,'stock_control_type','tracked','attributes','[]'::jsonb)
+      ), v_user_a);
+      SELECT category_id INTO v_cat_id FROM public.products WHERE account_id = v_account_a AND sku = 'GSIN-DEF';
+      IF v_cat_id IS DISTINCT FROM v_ropa_id THEN
+        RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (7c-1): con default configurado (Ropa=%) la fila sin categoría esperaba caer ahí, dio %.', v_ropa_id, v_cat_id;
+      END IF;
+      RAISE NOTICE 'PASS (7c-1): con default configurado, la fila sin categoría cae en la configurada (no en "Otros").';
+
+      UPDATE public.product_categories SET is_active = FALSE WHERE id = v_ropa_id;
+      v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
+        jsonb_build_object('name','Gate Sin cat Default 2','sku','GSIN-DEF2','category','','price',10,'cost',5,'stock',0,'min_stock',0,'barcode',NULL,'parent_id',NULL,'is_variant',false,'stock_control_type','tracked','attributes','[]'::jsonb)
+      ), v_user_a);
+      SELECT category_id INTO v_cat_id FROM public.products WHERE account_id = v_account_a AND sku = 'GSIN-DEF2';
+      IF v_cat_id IS DISTINCT FROM v_otros_id THEN
+        RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (7c-2): con el default apuntando a una categoría desactivada esperaba la heurística (Otros=%), dio %.', v_otros_id, v_cat_id;
+      END IF;
+      RAISE NOTICE 'PASS (7c-2): default apuntando a una categoría desactivada cae en la heurística, sin fallar.';
+
+      UPDATE public.product_categories SET is_active = TRUE WHERE id = v_ropa_id;
+      PERFORM public.rpc_set_default_product_category(NULL);
+
       -- ── (8): fila con error fatal no crea su categoría ─────────────────────
       v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
         jsonb_build_object('name','Gate Fantasma','sku','GFAN','sku_parent','NO-EXISTE','category','Fantasma','price',10,'cost',5,'stock',0,'min_stock',0,'barcode',NULL,'parent_id',NULL,'is_variant',true,'stock_control_type','tracked','attributes','[]'::jsonb)

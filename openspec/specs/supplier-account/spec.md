@@ -32,7 +32,7 @@ El sistema SHALL proveer un ledger `supplier_account_movements` (`id`, `supplier
 
 El tipo `payment_made_reversal` SHALL designar la anulación de un pago a proveedor y SHALL postearse con importe **positivo** (repone la deuda con el proveedor). SHALL ser un tipo propio y SHALL NOT reutilizarse `debit_note`, que designa la reversión de un **cargo** y se postea negativo, ni `adjustment`, reservado a la corrección manual.
 
-`due_date` SHALL designar el **vencimiento del cargo** —la fecha en que corresponde pagarle al proveedor— y SHALL poblarse únicamente en los movimientos que constituyen un cargo; en los demás SHALL quedar nulo. SHALL escribirse en el mismo `INSERT` que crea el movimiento y NO SHALL actualizarse después. Su ausencia SHALL significar "cargo sin vencimiento", y los movimientos anteriores a la incorporación de la columna SHALL conservarla nula, sin backfill. Es el espejo exacto del lado cliente.
+`due_date` SHALL designar el **vencimiento del cargo** —la fecha en que corresponde pagarle al proveedor— y SHALL poblarse únicamente en los movimientos que constituyen un cargo; en los demás SHALL quedar nulo. SHALL escribirse en el mismo `INSERT` que crea el movimiento y NO SHALL actualizarse después salvo por la corrección puntual y auditada que describe la capability `receivables-aging` ("Cambiar el vencimiento de un cargo abierto") — la única excepción a la inmutabilidad del ledger, y sólo sobre esta columna. Su ausencia SHALL significar "cargo sin vencimiento", y los movimientos anteriores a la incorporación de la columna SHALL conservarla nula, sin backfill. Es el espejo exacto del lado cliente.
 
 La ampliación del CHECK SHALL ser aditiva e idempotente: ninguna fila existente SHALL ser invalidada ni reescrita. La incorporación de `due_date` SHALL ser igualmente aditiva y nullable.
 
@@ -66,6 +66,11 @@ La ampliación del CHECK SHALL ser aditiva e idempotente: ninguna fila existente
 - **GIVEN** los movimientos existentes al momento de incorporar la columna
 - **WHEN** se aplica la migración, incluso dos veces
 - **THEN** todas esas filas quedan con vencimiento nulo y ninguna es reescrita
+
+#### Scenario: La única corrección posible sobre un movimiento persistido es su vencimiento
+
+- **WHEN** quien puede escribir en la cuenta corrige el `due_date` de un cargo de compra abierto vía la RPC dedicada (`receivables-aging`)
+- **THEN** esa fila cambia únicamente su `due_date`; ningún otro campo del movimiento se modifica jamás por ningún camino
 
 ### Requirement: Helper intra-transacción c30_register_supplier_account_movement
 El sistema SHALL proveer `public.c30_register_supplier_account_movement(p_account_id uuid, p_amount numeric, p_type text, p_reference_id uuid DEFAULT NULL, p_due_date date DEFAULT NULL) RETURNS uuid` con `SET search_path = public`, **REVOKE de PUBLIC**, que **NO abre transacción propia**, espejo exacto de `c30_register_customer_account_movement`: lock de cabecera con `FOR UPDATE`, `balance_after = balance + p_amount`, INSERT append-only con el vencimiento recibido, UPDATE de la cabecera, RETURN id. La acumulación SHALL usar UPDATE-then-INSERT, nunca `ON CONFLICT DO UPDATE` con delta.

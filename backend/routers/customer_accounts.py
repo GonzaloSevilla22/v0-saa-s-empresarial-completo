@@ -22,9 +22,12 @@ from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
 from backend.core.idempotency import require_idempotency_key
+from backend.repositories.account_charge_repository import AccountChargeRepository
 from backend.repositories.customer_account_repository import CustomerAccountRepository
 from backend.schemas.customer_accounts import (
     AccountMovementPageOut,
+    ChargeDueDateIn,
+    ChargeDueDateOut,
     CollectionSettingsIn,
     CollectionSettingsOut,
     CreateCustomerAccountOut,
@@ -36,6 +39,7 @@ from backend.schemas.customer_accounts import (
     ReceivablePageOut,
     ReceivablesSummaryOut,
 )
+from backend.services import account_charges as account_charge_service
 from backend.services import customer_accounts as customer_account_service
 
 router = APIRouter(tags=["customer-accounts"])
@@ -200,4 +204,32 @@ async def set_collection_settings(
     (P0401 → 403). Negativo → 422 en el schema, sin tocar la DB."""
     return await customer_account_service.set_collection_settings(
         repo, auth, payload.default_payment_terms_days
+    )
+
+
+@router.patch(
+    "/customer-accounts/{client_id}/movements/{movement_id}/due-date",
+    response_model=ChargeDueDateOut,
+)
+async def update_customer_charge_due_date(
+    client_id: uuid.UUID,
+    movement_id: uuid.UUID,
+    payload: ChargeDueDateIn,
+    auth: dict = Depends(get_current_user),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """cobranzas-vencimientos OQ-1: corrige el vencimiento de un cargo (venta
+    a crédito) abierto — la única salida para un vencimiento mal cargado sin
+    tener que borrar y rehacer la venta (P0423 la vuelve inmutable). Requiere
+    rol de TENANT owner o admin. `client_id` identifica el recurso en la ruta
+    (REST anidado bajo /clientes); la RPC resuelve tenencia por
+    movement_id + account_id de la sesión, no por client_id.
+    """
+    repo = AccountChargeRepository(conn)
+    return await account_charge_service.update_customer_charge_due_date(
+        repo, auth,
+        movement_id=str(movement_id),
+        due_date=payload.due_date,
+        reason=payload.reason,
+        conn=conn,
     )

@@ -12,10 +12,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { useProductCategories } from "@/hooks/data/use-product-categories"
+import { useProductCategories, useDefaultProductCategory } from "@/hooks/data/use-product-categories"
 import { useOrgRole } from "@/hooks/useOrgRole"
 import { normalizeCategoryName } from "@/components/product-categories/ProductCategorySelect"
-import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, Loader2, Pencil, Plus, Power, PowerOff, Star, StarOff, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import type { ProductCategory } from "@/lib/types"
 
@@ -43,6 +43,11 @@ export function ProductCategoryManager() {
     deactivateProductCategoryMutation,
     deleteProductCategoryMutation,
   } = useProductCategories(true)
+  const {
+    defaultCategoryId,
+    setDefaultProductCategory,
+    setDefaultProductCategoryMutation,
+  } = useDefaultProductCategory()
 
   const sorted = [...productCategories].sort(
     (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
@@ -123,6 +128,26 @@ export function ProductCategoryManager() {
     }
   }
 
+  async function handleSetDefault(c: ProductCategory) {
+    try {
+      await setDefaultProductCategory(c.id)
+      toast.success(`"${c.name}" es ahora la categoría por defecto`)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error desconocido"
+      toast.error(`Error al fijar el default: ${msg}`)
+    }
+  }
+
+  async function handleClearDefault() {
+    try {
+      await setDefaultProductCategory(null)
+      toast.success("Se quitó la categoría por defecto — vuelve a usarse la heurística")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error desconocido"
+      toast.error(`Error al quitar el default: ${msg}`)
+    }
+  }
+
   /**
    * Reordenar = intercambiar sort_order con el vecino (dos PATCH). Si los dos
    * comparten el mismo valor (sólo posible vía API), el movido toma el valor
@@ -163,6 +188,10 @@ export function ProductCategoryManager() {
         )}
       </div>
 
+      <p className="text-xs text-muted-foreground -mt-2">
+        La categoría por defecto se usa en la carga masiva para las filas sin categoría informada.
+      </p>
+
       {isLoading ? (
         <div className="flex justify-center py-4">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -188,10 +217,40 @@ export function ProductCategoryManager() {
                     Inactiva
                   </Badge>
                 )}
+                {c.id === defaultCategoryId && (
+                  <Badge variant="outline" className="text-xs shrink-0 border-primary text-primary">
+                    Por defecto
+                  </Badge>
+                )}
               </div>
 
               {isWriter && c.isActive && (
                 <div className="flex items-center gap-1 shrink-0 ml-2">
+                  {c.id === defaultCategoryId ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={iconBtn}
+                      onClick={() => void handleClearDefault()}
+                      disabled={setDefaultProductCategoryMutation.isPending}
+                      aria-label={`Quitar ${c.name} como categoría por defecto`}
+                      title="Quitar por defecto"
+                    >
+                      <StarOff className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={iconBtn}
+                      onClick={() => void handleSetDefault(c)}
+                      disabled={setDefaultProductCategoryMutation.isPending}
+                      aria-label={`Usar ${c.name} como categoría por defecto`}
+                      title="Usar por defecto"
+                    >
+                      <Star className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   <Button
                     size="icon"
                     variant="ghost"
@@ -240,6 +299,19 @@ export function ProductCategoryManager() {
 
               {isWriter && !c.isActive && (
                 <div className="flex items-center gap-1 shrink-0 ml-2">
+                  {c.id === defaultCategoryId && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className={iconBtn}
+                      onClick={() => void handleClearDefault()}
+                      disabled={setDefaultProductCategoryMutation.isPending}
+                      aria-label={`Quitar ${c.name} como categoría por defecto`}
+                      title="Quitar por defecto"
+                    >
+                      <StarOff className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   <Button
                     size="icon"
                     variant="ghost"

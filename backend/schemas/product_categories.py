@@ -33,6 +33,22 @@ class ProductCategoryUpdate(BaseModel):
     is_active: bool | None = Field(None, description="Reactivar (true) / desactivar (false)")
 
 
+class ProductCategoryDefaultOut(BaseModel):
+    """categoria-default-configurable: default de la cuenta para las filas
+    sin categoría de la carga masiva. None = "sin configurar" (heurística:
+    'Otros' si vive y activa, si no la última activa por sort_order)."""
+
+    default_category_id: uuid.UUID | None = None
+
+
+class ProductCategoryDefaultIn(BaseModel):
+    """PATCH del default de la cuenta. None explícito = volver a la
+    heurística. La RPC valida que la categoría exista, sea de la cuenta,
+    esté activa y no esté borrada (P0404 si no)."""
+
+    default_category_id: uuid.UUID | None = None
+
+
 class ProductCategoryOut(BaseModel):
     """Response schema for product category endpoints."""
 

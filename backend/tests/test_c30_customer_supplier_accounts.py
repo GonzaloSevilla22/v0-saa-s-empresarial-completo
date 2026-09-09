@@ -76,6 +76,13 @@ MOVEMENT_ID           = "22222222-2222-2222-2222-222222222222"
 OPERATION_ID          = "33333333-3333-3333-3333-333333333333"
 IDEMPOTENCY_KEY       = "test-idempotency-key-c30-001"
 
+
+def _normalize_sql(sql: str) -> str:
+    """cobranzas-vencimientos D7 (refactor): compara SQL ignorando whitespace
+    — el bloque de aging se re-indenta al moverse a _account_aging_sql.py,
+    el contenido debe seguir siendo equivalente."""
+    return " ".join(sql.split())
+
 CUSTOMER_ACCOUNT_ROW = {
     "id":         CUSTOMER_ACCOUNT_ID,
     "account_id": ACCOUNT_ID,
@@ -279,6 +286,57 @@ class TestCustomerAccountRepository:
         assert ACCOUNT_ID in select_params
         assert ACCOUNT_ID in count_params
 
+    @pytest.mark.asyncio
+    async def test_list_movements_page_uses_shared_aging_cte(self, mock_conn):
+        """cobranzas-vencimientos D7 (refactor): el bloque FIFO (pool +
+        open_items) + derivados de vencimiento (open_amount/is_overdue/
+        days_overdue) ya NO vive escrito a mano en el repository — lo arma
+        build_aging_cte() de _account_aging_sql.py, la MISMA función que
+        consume SupplierAccountRepository. RED (antes del refactor): el
+        módulo no existe → ImportError."""
+        from backend.repositories._account_aging_sql import build_aging_cte
+        from backend.repositories.customer_account_repository import CustomerAccountRepository
+
+        expected_open_items, expected_due = build_aging_cte(
+            account_column="customer_account_id",
+            movements_table="customer_account_movements",
+            charge_type="sale",
+            outer_alias="cam",
+        )
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+
+        repo = CustomerAccountRepository(mock_conn)
+        await repo.list_movements_page(CUSTOMER_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=50)
+
+        select_sql = _normalize_sql(mock_conn.fetch.call_args[0][0])
+        assert _normalize_sql(expected_open_items) in select_sql
+        assert _normalize_sql(expected_due) in select_sql
+
+    @pytest.mark.asyncio
+    async def test_list_movements_and_list_movements_page_share_aging_fragment(self, mock_conn):
+        """Los DOS sitios de CustomerAccountRepository (list_movements y
+        list_movements_page) emiten el MISMO fragmento de aging — no hay una
+        segunda copia divergente."""
+        from backend.repositories.customer_account_repository import CustomerAccountRepository
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+
+        repo = CustomerAccountRepository(mock_conn)
+        await repo.list_movements(CUSTOMER_ACCOUNT_ID, ACCOUNT_ID)
+        sql_a = mock_conn.fetch.call_args[0][0]
+
+        mock_conn.fetch.reset_mock()
+        await repo.list_movements_page(CUSTOMER_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=50)
+        sql_b = mock_conn.fetch.call_args[0][0]
+
+        def _aging_block(sql: str) -> str:
+            # el WITH ... open_items AS (...) hasta el SELECT externo — ambos
+            # sitios arrancan su SELECT externo con el mismo literal.
+            return _normalize_sql(sql).split("SELECT cam.*")[0]
+
+        assert _aging_block(sql_a) == _aging_block(sql_b)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section 2: Repository — SupplierAccountRepository
@@ -406,6 +464,88 @@ class TestSupplierAccountRepository:
         assert "account_id" in count_sql
         assert ACCOUNT_ID in select_params
         assert ACCOUNT_ID in count_params
+
+    @pytest.mark.asyncio
+    async def test_list_movements_page_uses_shared_aging_cte(self, mock_conn):
+        """cobranzas-vencimientos D7 (refactor): espejo exacto del test de
+        customer — SupplierAccountRepository consume la MISMA build_aging_cte,
+        parametrizada por 'purchase' (cargo de proveedor) en vez de 'sale'."""
+        from backend.repositories._account_aging_sql import build_aging_cte
+        from backend.repositories.supplier_account_repository import SupplierAccountRepository
+
+        expected_open_items, expected_due = build_aging_cte(
+            account_column="supplier_account_id",
+            movements_table="supplier_account_movements",
+            charge_type="purchase",
+            outer_alias="sam",
+        )
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+
+        repo = SupplierAccountRepository(mock_conn)
+        await repo.list_movements_page(SUPPLIER_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=50)
+
+        select_sql = _normalize_sql(mock_conn.fetch.call_args[0][0])
+        assert _normalize_sql(expected_open_items) in select_sql
+        assert _normalize_sql(expected_due) in select_sql
+
+    @pytest.mark.asyncio
+    async def test_list_movements_and_list_movements_page_share_aging_fragment(self, mock_conn):
+        """Los DOS sitios de SupplierAccountRepository comparten el MISMO
+        fragmento de aging."""
+        from backend.repositories.supplier_account_repository import SupplierAccountRepository
+        mock_conn.fetch.return_value = []
+        mock_conn.fetchval.return_value = 0
+
+        repo = SupplierAccountRepository(mock_conn)
+        await repo.list_movements(SUPPLIER_ACCOUNT_ID, ACCOUNT_ID)
+        sql_a = mock_conn.fetch.call_args[0][0]
+
+        mock_conn.fetch.reset_mock()
+        await repo.list_movements_page(SUPPLIER_ACCOUNT_ID, account_id=ACCOUNT_ID, page=0, size=50)
+        sql_b = mock_conn.fetch.call_args[0][0]
+
+        def _aging_block(sql: str) -> str:
+            return _normalize_sql(sql).split("SELECT sam.*")[0]
+
+        assert _aging_block(sql_a) == _aging_block(sql_b)
+
+    @pytest.mark.asyncio
+    async def test_customer_and_supplier_aging_differ_only_by_party(self, mock_conn):
+        """cobranzas-vencimientos D7: el fragmento de aging de proveedor NO
+        es una copia manual divergente — build_aging_cte con los mismos
+        parámetros salvo el 'party' produce el MISMO SQL salvo los tokens
+        que identifican la parte (tabla/columna/movement_type/alias)."""
+        from backend.repositories._account_aging_sql import build_aging_cte
+
+        customer_open, customer_due = build_aging_cte(
+            account_column="customer_account_id",
+            movements_table="customer_account_movements",
+            charge_type="sale",
+            outer_alias="cam",
+        )
+        supplier_open, supplier_due = build_aging_cte(
+            account_column="supplier_account_id",
+            movements_table="supplier_account_movements",
+            charge_type="purchase",
+            outer_alias="sam",
+        )
+
+        def _party_normalized(sql: str) -> str:
+            return (
+                _normalize_sql(sql)
+                .replace("customer_account_id", "ACCOUNT_COL")
+                .replace("supplier_account_id", "ACCOUNT_COL")
+                .replace("customer_account_movements", "MOVEMENTS_TABLE")
+                .replace("supplier_account_movements", "MOVEMENTS_TABLE")
+                .replace("'sale'", "'CHARGE_TYPE'")
+                .replace("'purchase'", "'CHARGE_TYPE'")
+                .replace("cam.", "ALIAS.")
+                .replace("sam.", "ALIAS.")
+            )
+
+        assert _party_normalized(customer_open) == _party_normalized(supplier_open)
+        assert _party_normalized(customer_due) == _party_normalized(supplier_due)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

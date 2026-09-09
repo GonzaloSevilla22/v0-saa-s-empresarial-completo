@@ -514,6 +514,28 @@ El sistema SHALL permitir asociar a cada forma de pago del catálogo una cuenta 
 - **WHEN** esa cuenta bancaria se elimina
 - **THEN** la forma de pago queda sin destino y sigue siendo usable, sin registrar movimiento bancario
 
+### Requirement: Destino bancario por defecto con una sola cuenta bancaria
+
+Cuando una cuenta tiene **exactamente una** cuenta bancaria activa, el sistema SHALL asignarla automáticamente como destino de las formas de pago bancarias (`kind IN transfer, card, wallet, check`) que todavía no tengan destino configurado, sin intervención manual. La asignación NO SHALL ocurrir cuando la cuenta tiene cero o dos o más cuentas bancarias activas — con más de una, el sistema NO SHALL adivinar cuál es la correcta. Una forma de pago que YA tiene un destino configurado (aunque apunte a una cuenta bancaria hoy inactiva) NO SHALL reasignarse por este mecanismo. La asignación SHALL dispararse tanto al crear la primera cuenta bancaria de una cuenta que ya tenía formas de pago sin destino, como al crear una forma de pago bancaria sin destino cuando la cuenta ya tenía su única cuenta bancaria activa.
+
+#### Scenario: Crear la única cuenta bancaria asigna el destino a las formas de pago pendientes
+
+- **GIVEN** una cuenta con las formas de pago bancarias sembradas sin destino y ninguna cuenta bancaria
+- **WHEN** el `owner` crea la primera cuenta bancaria de la cuenta
+- **THEN** transferencia, tarjeta, billetera y cheque quedan con esa cuenta bancaria como destino, y efectivo/crédito/otro permanecen sin destino
+
+#### Scenario: Con dos o más cuentas bancarias activas no se adivina
+
+- **GIVEN** una cuenta con dos cuentas bancarias activas
+- **WHEN** se crea una forma de pago bancaria sin destino, o se crea una tercera cuenta bancaria
+- **THEN** ninguna forma de pago recibe un destino automático
+
+#### Scenario: Un destino ya configurado no se reemplaza
+
+- **GIVEN** una forma de pago con un destino ya asignado (aunque esa cuenta bancaria haya quedado inactiva)
+- **WHEN** la cuenta pasa a tener exactamente una cuenta bancaria activa
+- **THEN** el destino ya configurado se conserva sin cambios
+
 ### Requirement: Imputación opcional de la forma de pago en gastos
 
 El sistema SHALL permitir imputar opcionalmente una forma de pago del catálogo a un gasto, mediante una columna nullable `payment_method_id` en `public.expenses`, con el mismo contrato que ya rige para ventas y compras: la forma de pago SHALL pertenecer a la cuenta del gasto y estar activa, el `kind` SHALL derivarse en el servidor desde el catálogo, y un gasto sin forma de pago SHALL ser válido.

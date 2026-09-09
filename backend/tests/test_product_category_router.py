@@ -236,3 +236,119 @@ class TestProductCategoryDeactivateDeleteEndpoints:
             )
 
         assert resp.status_code == 404
+
+
+class TestProductCategoryDefaultEndpoints:
+    @pytest.mark.asyncio
+    async def test_get_default_ok_for_member(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=CAT_ID)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/product-categories/default",
+                headers={"Authorization": f"Bearer {_account_role_token('member')}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["default_category_id"] == CAT_ID
+
+    @pytest.mark.asyncio
+    async def test_get_default_null_when_unconfigured(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=None)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                "/product-categories/default",
+                headers={"Authorization": f"Bearer {_account_role_token('owner')}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["default_category_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_patch_default_owner_ok(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        # F5 (revisor adversarial): el service escribe (rpc_set_default_product_category,
+        # 1er fetchval, resultado descartado) y RELEE (get_default_category_id, 2do
+        # fetchval) — el 2do call es el que decide la respuesta del PATCH.
+        conn.fetchval = AsyncMock(side_effect=[None, CAT_ID])
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                "/product-categories/default",
+                json={"default_category_id": CAT_ID},
+                headers={"Authorization": f"Bearer {_account_role_token('owner')}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["default_category_id"] == CAT_ID
+        assert conn.fetchval.await_count == 2
+        write_sql = conn.fetchval.call_args_list[0][0][0].lower()
+        assert "rpc_set_default_product_category" in write_sql
+
+    @pytest.mark.asyncio
+    async def test_patch_default_null_clears(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=None)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                "/product-categories/default",
+                json={"default_category_id": None},
+                headers={"Authorization": f"Bearer {_account_role_token('admin')}"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["default_category_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_patch_default_member_returns_403_rfc7807(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                "/product-categories/default",
+                json={"default_category_id": CAT_ID},
+                headers={"Authorization": f"Bearer {_account_role_token('member')}"},
+            )
+
+        assert resp.status_code == 403
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        conn.fetchval.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_patch_default_p0404_maps_to_404(self, async_client, mock_pool):
+        import asyncpg as _asyncpg
+
+        pool, conn = mock_pool
+        err = _asyncpg.exceptions.RaiseError("product_category_not_found")
+        err.sqlstate = "P0404"
+        conn.fetchval = AsyncMock(side_effect=err)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                "/product-categories/default",
+                json={"default_category_id": CAT_ID},
+                headers={"Authorization": f"Bearer {_account_role_token('owner')}"},
+            )
+
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_patch_default_p0401_maps_to_403(self, async_client, mock_pool):
+        import asyncpg as _asyncpg
+
+        pool, conn = mock_pool
+        err = _asyncpg.exceptions.RaiseError("unauthorized")
+        err.sqlstate = "P0401"
+        conn.fetchval = AsyncMock(side_effect=err)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.patch(
+                "/product-categories/default",
+                json={"default_category_id": CAT_ID},
+                headers={"Authorization": f"Bearer {_account_role_token('owner')}"},
+            )
+
+        assert resp.status_code == 403

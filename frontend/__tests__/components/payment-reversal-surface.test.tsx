@@ -18,11 +18,19 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 const mutateAsyncCustomer = vi.fn()
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useReversePaymentReceived: () => ({ mutateAsync: mutateAsyncCustomer, isPending: false }),
+  // cobranzas-vencimientos OQ-1: mockeado por completo — este archivo no
+  // ejercita "Editar vencimiento", sólo "Anular".
+  useUpdateCustomerChargeDueDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }))
 
 const mutateAsyncSupplier = vi.fn()
 vi.mock("@/hooks/data/use-supplier-account", () => ({
   useReversePaymentMade: () => ({ mutateAsync: mutateAsyncSupplier, isPending: false }),
+  useUpdateSupplierChargeDueDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
+
+vi.mock("@/hooks/useOrgRole", () => ({
+  useOrgRole: () => ({ role: "member", isWriter: false, isLoading: false }),
 }))
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))

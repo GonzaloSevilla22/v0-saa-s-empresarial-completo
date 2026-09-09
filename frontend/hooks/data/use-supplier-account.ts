@@ -65,6 +65,13 @@ export interface PaymentReversalResult {
   bank_reversals: number
 }
 
+/** cobranzas-vencimientos OQ-1: espejo exacto de ChargeDueDateResult (cliente). */
+export interface ChargeDueDateResult {
+  movement_id: string
+  due_date: string | null
+  previous_due_date: string | null
+}
+
 // ── Domain types ──────────────────────────────────────────────────────────────
 
 export interface SupplierAccountMovement {
@@ -293,6 +300,38 @@ export function useReversePaymentMade(supplierId: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts.all() })
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
       // cobranzas-vencimientos (task 8.7): anular un pago repone la deuda.
+      queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
+    },
+  })
+}
+
+/**
+ * cobranzas-vencimientos OQ-1: espejo exacto de
+ * useUpdateCustomerChargeDueDate — cambia el vencimiento de un cargo
+ * abierto de proveedor. PATCH /supplier-accounts/{supplierId}/movements/{movementId}/due-date
+ */
+export function useUpdateSupplierChargeDueDate(supplierId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      movementId,
+      dueDate,
+      reason,
+    }: {
+      movementId: string
+      dueDate: string | null
+      reason?: string
+    }): Promise<ChargeDueDateResult> => {
+      return await pythonClient.patch<ChargeDueDateResult>(
+        `/supplier-accounts/${supplierId}/movements/${movementId}/due-date`,
+        { due_date: dueDate, reason: reason ?? null },
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.supplierAccounts.bySupplier(supplierId),
+      })
       queryClient.invalidateQueries({ queryKey: queryKeys.payables.all() })
     },
   })

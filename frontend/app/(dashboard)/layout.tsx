@@ -3,6 +3,7 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { BreadcrumbNav } from "@/components/dashboard/breadcrumb-nav"
 import { IdleTimeoutProvider } from "@/components/auth/IdleTimeoutProvider"
+import { DefaultBranchNotice } from "@/components/branches/DefaultBranchNotice"
 
 export default async function DashboardLayout({
   children,
@@ -22,6 +23,9 @@ export default async function DashboardLayout({
           authenticated dashboard layout so idle tracking never runs on
           public/auth pages (design.md §Decision 8). */}
       <IdleTimeoutProvider />
+      {/* sucursal-guard-vaciado-auditoria (OQ-6): sin UI propia, avisa por
+          toast cuando la sucursal por defecto de la cuenta cambió. */}
+      <DefaultBranchNotice />
       <AppSidebar />
       <SidebarInset>
         <BreadcrumbNav />

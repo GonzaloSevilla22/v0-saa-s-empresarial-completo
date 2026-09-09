@@ -182,9 +182,12 @@ export const queryKeys = {
   },
   // productos-categorias-sku
   productCategories: {
-    all:    () => ["productCategories"] as const,
-    lists:  () => ["productCategories", "list"] as const,
-    active: () => ["productCategories", "active"] as const,
+    all:     () => ["productCategories"] as const,
+    lists:   () => ["productCategories", "list"] as const,
+    active:  () => ["productCategories", "active"] as const,
+    // categoria-default-configurable: default de la cuenta para las filas
+    // sin categoría de la carga masiva.
+    default: () => ["productCategories", "default"] as const,
   },
   // bank-payment-routing C2 (V2.5 BankReconciliation)
   bankAccounts: {

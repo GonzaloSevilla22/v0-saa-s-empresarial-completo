@@ -16,6 +16,10 @@ interface ProductCategoryApiRow {
   created_at: string
 }
 
+interface ProductCategoryDefaultApiRow {
+  default_category_id: string | null
+}
+
 export function mapProductCategory(r: ProductCategoryApiRow): ProductCategory {
   return {
     id:        r.id,
@@ -116,5 +120,44 @@ export function useProductCategories(includeInactive = false) {
     updateProductCategoryMutation,
     deactivateProductCategoryMutation,
     deleteProductCategoryMutation,
+  }
+}
+
+/**
+ * categoria-default-configurable: categoría por defecto de la cuenta para
+ * las filas sin categoría de la carga masiva (GET/PATCH
+ * /product-categories/default, rpc_set_default_product_category detrás,
+ * guard is_account_writer). null = "sin configurar" (heurística: "Otros" si
+ * vive y activa, si no la última activa por sort_order).
+ */
+export function useDefaultProductCategory() {
+  const queryClient = useQueryClient()
+
+  const query = useQuery({
+    queryKey: queryKeys.productCategories.default(),
+    queryFn: async (): Promise<string | null> => {
+      const row = await pythonClient.get<ProductCategoryDefaultApiRow>("/product-categories/default")
+      return row.default_category_id
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const setDefaultProductCategoryMutation = useMutation({
+    mutationFn: async (categoryId: string | null): Promise<string | null> => {
+      const row = await pythonClient.patch<ProductCategoryDefaultApiRow>("/product-categories/default", {
+        default_category_id: categoryId,
+      })
+      return row.default_category_id
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.productCategories.default() })
+    },
+  })
+
+  return {
+    defaultCategoryId: query.data ?? null,
+    isLoading:         query.isLoading,
+    setDefaultProductCategory: setDefaultProductCategoryMutation.mutateAsync,
+    setDefaultProductCategoryMutation,
   }
 }

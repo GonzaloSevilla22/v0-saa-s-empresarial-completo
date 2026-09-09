@@ -19,6 +19,11 @@ import { describe, expect, it, vi } from "vitest"
 // arrastrar pythonClient real.
 vi.mock("@/hooks/data/use-supplier-account", () => ({
   useReversePaymentMade: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // cobranzas-vencimientos OQ-1: espejo exacto del mock del lado cliente.
+  useUpdateSupplierChargeDueDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
+vi.mock("@/hooks/useOrgRole", () => ({
+  useOrgRole: () => ({ role: "member", isWriter: false, isLoading: false }),
 }))
 
 import { SupplierAccountHistory } from "@/components/supplier-accounts/SupplierAccountHistory"

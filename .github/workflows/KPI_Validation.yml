@@ -659,6 +659,15 @@ jobs:
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261029000001_receipts_for_subscription_charges.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261030000001_admin_module_operation_counts.sql
 
+          # candidatos-db-backend (2026-09-08, programa "cero candidatos" tanda
+          # 5): las 4 migraciones de la tanda, en orden. Todas idempotentes por
+          # construcción (IF NOT EXISTS / CREATE OR REPLACE / DO $$ con chequeo)
+          # y reaplicadas localmente por su implementador y por el revisor.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261031000001_products_barcode_account_scope.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261032000001_default_product_category.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261033000001_charge_due_date_update.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261034000001_bank_default_destination.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1452,3 +1461,35 @@ jobs:
       # flujos. -v ON_ERROR_STOP=1 obligatorio.
       - name: Run receipts-subscription-charges gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_receipts_subscription_charges.sql
+
+      # candidatos-db-backend (2026-09-08, tanda 5 del programa "cero
+      # candidatos"). Barcode único POR CUENTA (productos-categorias-sku 4.5):
+      # el índice viejo idx_products_barcode_unique(user_id, barcode) se
+      # reemplaza por idx_products_barcode_account_unique(account_id, barcode)
+      # con el mismo predicado parcial. Asserta: índice nuevo presente y viejo
+      # ausente, mismo barcode en dos cuentas distintas permitido, mismo
+      # barcode dos veces en la misma cuenta (dos user_id) → unique_violation,
+      # producto soft-deleted no bloquea.
+      - name: Run products barcode account-scope gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_products_barcode_account_scope.sql
+
+      # candidatos-db-backend: vencimiento editable de un cargo abierto
+      # (cobranzas-vencimientos OQ-1). Dos RPCs SECURITY DEFINER nuevas
+      # (rpc_update_customer_charge_due_date / rpc_update_supplier_charge_
+      # due_date): guards de tenencia (P0401/P0404), sólo cargos con saldo
+      # abierto por la misma regla FIFO del reporte (P0400 si está saldado o
+      # no es cargo), NULL quita el vencimiento, fila de audit_logs con
+      # before/after, y el aging del reporte cambia de tramo. Cleanup propio.
+      - name: Run charge due-date update gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_charge_due_date.sql
+
+      # candidatos-db-backend: destino bancario por defecto con una sola
+      # cuenta bancaria (cobranzas-catalogo-pagos OQ-5). Helper interno
+      # _pay_assign_default_bank_destination (revocado a los roles de
+      # aplicación) + rpc_create_bank_account reescrita desde el cuerpo vivo
+      # + backfill acotado. Asserta: el 1º banco asigna los 4 kinds bancarios
+      # sin destino y no toca cash/credit/other ni los que ya tenían destino;
+      # el 2º banco no cambia nada; con 2+ bancos el helper devuelve 0;
+      # reaplicar no duplica ni pisa. Cleanup propio (re-ejecutable).
+      - name: Run bank default destination gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_bank_default_destination.sql

@@ -10,6 +10,7 @@ import json
 
 import asyncpg
 
+from backend.repositories._account_aging_sql import build_aging_cte
 from backend.repositories.base import BaseRepository
 
 
@@ -42,37 +43,15 @@ class SupplierAccountRepository(BaseRepository):
 
     # cobranzas-vencimientos (D4/D7): espejo del bloque FIFO de
     # CustomerAccountRepository — cargo = 'purchase' + adjustment positivo.
-    _MOVEMENT_OPEN_ITEMS_CTE = """
-            WITH pool AS (
-              SELECT COALESCE(SUM(-m.amount), 0) AS credit
-              FROM public.supplier_account_movements m
-              WHERE m.supplier_account_id = $1::uuid AND m.account_id = $2::uuid
-                AND NOT (m.movement_type = 'purchase' OR (m.movement_type = 'adjustment' AND m.amount > 0))
-            ),
-            open_items AS (
-              SELECT m.id,
-                     LEAST(m.amount, GREATEST(0::numeric,
-                       SUM(m.amount) OVER (
-                         ORDER BY COALESCE(m.due_date, (m.created_at AT TIME ZONE 'America/Argentina/Mendoza')::date),
-                                  m.created_at, m.id
-                       ) - (SELECT credit FROM pool)
-                     )) AS open_amount
-              FROM public.supplier_account_movements m
-              WHERE m.supplier_account_id = $1::uuid AND m.account_id = $2::uuid
-                AND (m.movement_type = 'purchase' OR (m.movement_type = 'adjustment' AND m.amount > 0))
-            )
-    """
-
-    _MOVEMENT_DUE_DERIVATIVES = """
-              oi.open_amount,
-              CASE WHEN oi.id IS NOT NULL AND sam.due_date IS NOT NULL
-                   THEN (sam.due_date < public.reporting_local_today() AND oi.open_amount > 0)
-                   END AS is_overdue,
-              CASE WHEN oi.id IS NOT NULL AND sam.due_date IS NOT NULL
-                        AND sam.due_date < public.reporting_local_today() AND oi.open_amount > 0
-                   THEN (public.reporting_local_today() - sam.due_date)
-                   END AS days_overdue
-    """
+    # build_aging_cte() (_account_aging_sql.py) es la ÚNICA definición (D7
+    # refactor: antes vivía copiado 2x2 entre cliente/proveedor ×
+    # list_movements/list_movements_page).
+    _MOVEMENT_OPEN_ITEMS_CTE, _MOVEMENT_DUE_DERIVATIVES = build_aging_cte(
+        account_column="supplier_account_id",
+        movements_table="supplier_account_movements",
+        charge_type="purchase",
+        outer_alias="sam",
+    )
 
     async def list_payables_page(
         self,

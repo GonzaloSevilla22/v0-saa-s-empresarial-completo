@@ -274,6 +274,29 @@ class TestCustomerAccountRepositoryReversal:
         assert "payments_received" in select_sql
         assert "cash_sessions" in select_sql
 
+    def test_repository_module_reuses_shared_aging_cte(self):
+        """cobranzas-vencimientos D7 (refactor): grep de código — el bloque
+        FIFO ('WITH pool AS ...') ya NO vive escrito a mano en NINGUNO de los
+        dos repositories (customer/supplier); ambos consumen build_aging_cte
+        de _account_aging_sql.py. Esta prueba cubre los 4 sitios de una sola
+        vez: si cualquiera de los dos repos reescribiera el SQL localmente en
+        vez de llamar a la función compartida, el grep lo detecta."""
+        import inspect
+
+        from backend.repositories import customer_account_repository as car
+        from backend.repositories import supplier_account_repository as sar
+        from backend.repositories._account_aging_sql import build_aging_cte
+
+        car_source = inspect.getsource(car)
+        sar_source = inspect.getsource(sar)
+
+        assert "build_aging_cte" in car_source
+        assert "build_aging_cte" in sar_source
+        assert "WITH pool AS" not in car_source
+        assert "WITH pool AS" not in sar_source
+        # build_aging_cte en sí SÍ debe tener el bloque — vive únicamente ahí.
+        assert "WITH pool AS" in inspect.getsource(build_aging_cte)
+
     @pytest.mark.asyncio
     async def test_list_movements_selects_derived_columns(self, mock_conn):
         """D12 (hallazgo TDD, task 13.1): list_movements — NO

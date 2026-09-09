@@ -17,6 +17,17 @@ import { describe, expect, it, vi } from "vitest"
 // pasa por este mock.
 vi.mock("@/hooks/data/use-customer-account", () => ({
   useReversePaymentReceived: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  // cobranzas-vencimientos OQ-1: el componente ahora también llama a
+  // useUpdateCustomerChargeDueDate incondicionalmente — mismo criterio de
+  // mock completo que useReversePaymentReceived arriba.
+  useUpdateCustomerChargeDueDate: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
+// useOrgRole llama a useQuery/useAuth (necesita providers ausentes en este
+// render simple) — mockeado para que el componente no explote al montarse.
+// Ninguno de los movimientos de este test tiene openAmount > 0, así que el
+// valor de isWriter no cambia lo que se assertea acá.
+vi.mock("@/hooks/useOrgRole", () => ({
+  useOrgRole: () => ({ role: "member", isWriter: false, isLoading: false }),
 }))
 
 import { CustomerAccountHistory } from "@/components/customer-accounts/CustomerAccountHistory"

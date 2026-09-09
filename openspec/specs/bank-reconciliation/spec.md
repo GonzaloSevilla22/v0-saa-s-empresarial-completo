@@ -151,3 +151,38 @@ El sistema SHALL mantener la separación entre el ledger bancario y el libro dia
 - **WHEN** se cierra una sesión de conciliación que incluye ajustes manuales conciliados
 - **THEN** el cierre registra la diferencia de la sesión como hasta ahora y no postea nada al libro diario
 
+### Requirement: El importador de extractos avisa ambigüedades de importe y descarta filas ilegibles (importe o fecha)
+El parseo de extracto en el cliente (`parseBankStatementText`) SHALL leer importe y saldo con el helper canónico de importes (`parseAmountString`/`amountAmbiguityWarning`, mismo usado por los importadores de productos y gastos — RN reutilización antes que repetición), preservando el valor como STRING decimal sin pasar por float (RN-D4). Una línea con importe vacío o ilegible, o con fecha inválida, SHALL descartarse individualmente por el mismo canal (razón registrada, sin abortar el resto del archivo); si el importe o el saldo admiten una lectura alternativa por punto de miles o de comas (p.ej. "1.500", "1,500"), la línea SHALL llevar un aviso no bloqueante. Un saldo ilegible (campo opcional) SHALL avisar y quedar `null`, sin descartar la línea ni bloquear el importe ya válido. La pantalla de importación (`/banco`, tab Conciliación) SHALL mostrar el conteo y el detalle de advertencias y de filas descartadas antes de confirmar el import.
+
+#### Scenario: Importe con punto de miles ambiguo avisa sin bloquear
+- **WHEN** una línea trae importe "1.500"
+- **THEN** el importe se interpreta como 1,5 (string preservado, sin redondeo de float) y la línea lleva un aviso de ambigüedad ("también podría ser miles")
+
+#### Scenario: Importe con coma decimal explícita no avisa
+- **WHEN** una línea trae importe "1.500,00"
+- **THEN** el importe se interpreta como 1500,00 sin ningún aviso (la coma decimal ya resuelve la ambigüedad)
+
+#### Scenario: Importe ilegible descarta solo esa línea
+- **WHEN** el archivo trae una fila con importe "abc" y otra fila válida
+- **THEN** la fila con importe ilegible se omite del resultado con su motivo en el canal de filas descartadas, y la fila válida se importa igual
+
+#### Scenario: Importe vacío también descarta la línea
+- **WHEN** una fila trae fecha pero el campo de importe está vacío
+- **THEN** la fila se descarta con un motivo explícito, sin convertirse en 0 ni en un valor silencioso
+
+#### Scenario: Saldo ilegible no bloquea la línea
+- **WHEN** una línea con importe válido trae un saldo que no se puede parsear
+- **THEN** la línea se importa igual, con `balance = null` y un aviso explícito de saldo ilegible
+
+#### Scenario: Fecha inválida descarta solo esa línea
+- **WHEN** el archivo trae una fila con fecha inválida (p.ej. "99/99/2026") y otra fila válida
+- **THEN** la fila con fecha inválida se omite del resultado con su motivo en el canal de filas descartadas, y la fila válida se importa igual
+
+#### Scenario: Todas las filas ilegibles rechazan el archivo completo
+- **WHEN** ninguna fila del archivo tiene un importe o una fecha legibles
+- **THEN** el resultado es `ok: false` con el mismo mensaje de "sin filas de movimientos válidas" que ya existía, agregando el conteo y el motivo de las primeras filas descartadas
+
+#### Scenario: La pantalla de importación muestra avisos y descartes
+- **WHEN** el usuario selecciona un archivo cuyo parseo produce advertencias o filas descartadas
+- **THEN** `/banco` (tab Conciliación) muestra el conteo de cada categoría y el detalle por línea junto al botón de confirmación (Importar), antes de que el usuario confirme el import
+

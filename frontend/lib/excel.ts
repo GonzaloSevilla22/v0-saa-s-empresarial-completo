@@ -199,6 +199,64 @@ export interface ParseAmountOptions {
    * decimales son normales; los importes en pesos conservan el default.
    */
   loneCommaIsDecimal?: boolean
+  /**
+   * Convención contable de paréntesis para negativos ("(1.234,56)" → -1234,56).
+   * Ningún caller de importe/costo/precio la necesitaba hasta ahora (por eso
+   * default `false`, sin cambiar su contrato); la agrega
+   * `bank-statement-parser.ts` (candidatos-importadores, 2026-09-09), que ya
+   * soportaba paréntesis en su copia local antes de reusar este helper.
+   */
+  parenthesesNegative?: boolean
+}
+
+/**
+ * Envuelve un texto entre paréntesis en `-texto` cuando `enabled` — la única
+ * pieza de `parseAmount`/`parseAmountString` que toca el SIGNO por fuera del
+ * propio texto numérico (un "-" adelante o atrás lo interpreta cada función
+ * más abajo, vía `cleanNumericText` + `parseFloat` o el regex final).
+ */
+function stripParenthesesNegative(
+  s: string,
+  enabled: boolean | undefined,
+): { negative: boolean; body: string } {
+  if (enabled && s.length > 1 && s.startsWith("(") && s.endsWith(")")) {
+    return { negative: true, body: s.slice(1, -1) }
+  }
+  return { negative: false, body: s }
+}
+
+/**
+ * Heurística coma/punto compartida por `parseAmount` y `parseAmountString`
+ * sobre un texto ya limpiado (`cleanNumericText`, sin signo) — decide cuál de
+ * los dos es el separador decimal y devuelve el resultado como STRING con
+ * "." decimal, SIN convertir a float: cada caller decide qué tan estricto
+ * validar el resultado (`parseAmount` tolera basura residual vía el
+ * `parseFloat` parcial de siempre; `parseAmountString` exige el string
+ * completo válido — RN-D4, nunca redondear un importe en silencio). Devuelve
+ * `null` sólo cuando la propia heurística de coma es inválida (2+ comas sin
+ * punto bajo `loneCommaIsDecimal`).
+ */
+function resolveDecimalSeparator(cleaned: string, loneCommaIsDecimal: boolean | undefined): string | null {
+  const hasComma = cleaned.includes(",")
+  const hasDot = cleaned.includes(".")
+
+  if (hasComma && hasDot) {
+    const lastComma = cleaned.lastIndexOf(",")
+    const lastDot = cleaned.lastIndexOf(".")
+    return lastComma > lastDot
+      ? cleaned.replace(/\./g, "").replace(",", ".") // AR: 1.234,56
+      : cleaned.replace(/,/g, "") // US: 1,234.56
+  }
+  if (hasComma && !hasDot) {
+    const parts = cleaned.split(",")
+    if (loneCommaIsDecimal) {
+      return parts.length === 2 ? cleaned.replace(",", ".") : null
+    }
+    return parts.length === 2 && parts[1].length <= 2
+      ? cleaned.replace(",", ".") // decimal comma: "1234,56"
+      : cleaned.replace(/,/g, "") // thousands separator: "1,234"
+  }
+  return cleaned
 }
 
 /**
@@ -213,49 +271,80 @@ function cleanNumericText(raw: string): string {
 
 /**
  * Parses a monetary/numeric string into a float.
- * Supports: "1.234,56" (European/AR), "1,234.56" (US), "1234.56", "1234".
+ * Supports: "1.234,56" (European/AR), "1,234.56" (US), "1234.56", "1234",
+ * and — con `parenthesesNegative` — "(1.234,56)".
  * Returns NaN if the string cannot be parsed.
+ *
+ * Nota de precisión: devuelve un `number` (float) — para un importe que el
+ * backend debe tomar como NUMERIC sin redondeo de float, usar
+ * `parseAmountString` (mismo contrato de lectura, resultado como string).
  */
 export function parseAmount(raw: string | undefined, options: ParseAmountOptions = {}): number {
   if (!raw) return NaN
-  const s = String(raw).trim()
+  const { negative, body } = stripParenthesesNegative(String(raw).trim(), options.parenthesesNegative)
 
   // Strip currency symbols, spaces, $, etc. — keep digits, dots, commas, minus
-  const cleaned = cleanNumericText(s)
+  const cleaned = cleanNumericText(body)
   if (!cleaned) return NaN
 
-  const hasComma = cleaned.includes(",")
-  const hasDot = cleaned.includes(".")
+  const digits = resolveDecimalSeparator(cleaned, options.loneCommaIsDecimal)
+  if (digits === null) return NaN
 
-  if (hasComma && hasDot) {
-    const lastComma = cleaned.lastIndexOf(",")
-    const lastDot = cleaned.lastIndexOf(".")
-    if (lastComma > lastDot) {
-      // European: "1.234,56" → remove dots, replace comma with dot
-      return parseFloat(cleaned.replace(/\./g, "").replace(",", "."))
-    } else {
-      // US: "1,234.56" → remove commas
-      return parseFloat(cleaned.replace(/,/g, ""))
-    }
+  // Un "-" propio del texto (p.ej. "-1.234,56") ya viaja dentro de `digits` y
+  // lo resuelve `parseFloat` solo. `negative` (paréntesis) es un signo
+  // ADICIONAL — si `digits` ya trae su propio "-" (p.ej. paréntesis
+  // envolviendo "-100"), aplicar `-value` sobre un `value` ya negativo lo
+  // volvería positivo (F7, revisor adversarial: "(-100)" daba 100 en vez de
+  // -100). `-Math.abs(value)` colapsa ambas fuentes de signo a una sola vez,
+  // igual que ya hacía `parseAmountString` más abajo.
+  const value = parseFloat(digits)
+  return negative ? -Math.abs(value) : value
+}
+
+/**
+ * Como `parseAmount`, pero devuelve el resultado como STRING decimal
+ * (`"1234.56"`, con signo) en vez de float — para un importe que el backend
+ * toma como NUMERIC y no debe perder precisión ni pasar por redondeo de
+ * punto flotante (RN-D4, `bank-statement-parser.ts`). A diferencia de
+ * `parseAmount` (que tolera basura residual porque delega en el `parseFloat`
+ * de siempre, parcial), acá el texto completo tiene que ser un número válido
+ * — devuelve `null` ante cualquier resto no numérico (p.ej. "1.2.3" o "12x"),
+ * nunca un valor truncado en silencio.
+ *
+ * F1+F2 (revisor adversarial, candidatos-importadores): "$" y espacios son el
+ * ÚNICO ruido admitido — cualquier otro carácter (letras, "ARS", "kg", etc.)
+ * descarta el valor entero en vez de leerlo parcialmente en silencio. Este
+ * guard corre ANTES de testear paréntesis: si se aplicara `cleanNumericText`
+ * (o se testeara el paréntesis) sobre el texto crudo con el "$" todavía
+ * pegado, "$ (1.234,56)" no arranca con "(" y el signo negativo del
+ * paréntesis se perdía en silencio — la regresión del blocker F1.
+ */
+export function parseAmountString(
+  raw: string | undefined,
+  options: ParseAmountOptions = {},
+): string | null {
+  if (!raw) return null
+  const trimmed = String(raw).trim()
+  if (trimmed === "") return null
+
+  const compact = trimmed.replace(/[$\s]/g, "")
+  if (compact === "" || /[^\d.,()-]/.test(compact)) return null
+
+  const { negative: parensNegative, body } = stripParenthesesNegative(compact, options.parenthesesNegative)
+  let cleaned = cleanNumericText(body)
+  if (cleaned === "") return null
+
+  let negative = parensNegative
+  if (cleaned.startsWith("-")) {
+    negative = true
+    cleaned = cleaned.slice(1)
   }
 
-  if (hasComma && !hasDot) {
-    // Could be "1234,56" (decimal comma) or "1,234" (thousands separator)
-    const parts = cleaned.split(",")
-    if (options.loneCommaIsDecimal) {
-      // Cantidad física: la coma es decimal sin mirar cuántos dígitos siguen
-      // ("1,250" → 1.25); dos o más comas no son un número ("1,5,2" → NaN).
-      return parts.length === 2 ? parseFloat(cleaned.replace(",", ".")) : NaN
-    }
-    if (parts.length === 2 && parts[1].length <= 2) {
-      // Treat as decimal comma: "1234,56"
-      return parseFloat(cleaned.replace(",", "."))
-    }
-    // Treat as thousands separator: "1,234" → 1234
-    return parseFloat(cleaned.replace(/,/g, ""))
-  }
+  const digits = resolveDecimalSeparator(cleaned, options.loneCommaIsDecimal)
+  if (digits === null) return null
+  if (!/^\d+(\.\d+)?$/.test(digits)) return null
 
-  return parseFloat(cleaned)
+  return negative ? `-${digits}` : digits
 }
 
 /**
@@ -437,11 +526,29 @@ export function parseQuantity(raw: string, opts: ParseQuantityOptions): ParsedQu
  * a $12,35 — un número que no es el que se importa. `formatNumber` muestra
  * la precisión real, sin mentir por el redondeo del formato monetario.
  * Devuelve `null` cuando el texto no es ambiguo (no hace falta avisar).
+ *
+ * `separator` (F6, revisor adversarial): por default sólo el PUNTO es
+ * ambiguo ("1.500") porque en un importe leído con `parseAmount` default la
+ * coma ya tiene lectura fija (decimal con ≤2 dígitos, si no miles) — así
+ * quedan intactos los importadores de productos/gastos (precio, costo,
+ * monto), que llaman sin este argumento. El dominio bancario lee con
+ * `loneCommaIsDecimal:true` (la coma SIEMPRE es decimal ahí), así que una
+ * coma con grupos de tres dígitos ("1,500") es igual de ambigua que un punto
+ * — pasar `"any"` ahí activa el detector genérico (cualquiera de los dos
+ * separadores) en vez de mirar sólo el punto. (No se usa `undefined` para
+ * esto: un parámetro con default de JS trata un `undefined` explícito igual
+ * que omitir el argumento, así que no serviría para distinguir "sin pedir
+ * nada especial" de "pedí el genérico".)
  */
-export function amountAmbiguityWarning(label: string, raw: string, value: number): string | null {
+export function amountAmbiguityWarning(
+  label: string,
+  raw: string,
+  value: number,
+  separator: "." | "," | "any" = ".",
+): string | null {
   const trimmed = raw.trim()
   const cleaned = cleanNumericText(trimmed)
-  if (!looksLikeThousandsGrouping(cleaned, ".")) return null
+  if (!looksLikeThousandsGrouping(cleaned, separator === "any" ? undefined : separator)) return null
   return (
     `${label} ambiguo: "${trimmed}" — se interpretó como $ ${formatNumber(value, 4)}. ` +
     `Usá coma para decimales y ningún separador para miles.`

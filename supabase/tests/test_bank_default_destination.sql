@@ -48,7 +48,37 @@ DECLARE
   v_bank_account_id uuid;
   v_diag           text;   -- diagnóstico ampliado si (1) falla (CI falló donde local pasa)
   v_helper_rc      integer;
+
+  v_check0_has_helper boolean;  -- (0): introspección del cuerpo vivo
+  v_check0_md5         text;
 BEGIN
+  -- ── (0) Introspección: el cuerpo vivo de rpc_create_bank_account debe
+  -- contener la llamada al helper `_pay_assign_default_bank_destination`.
+  -- Corre ANTES de resolver el anchor/la cuenta — es una defensa contra otro
+  -- gate (o una migración vieja reaplicada por SU propio check de
+  -- idempotencia, p.ej. test_cuentas_billetera_tipo.sql) que haya corrido
+  -- ANTES de este archivo en el mismo job y haya dejado pisado el cuerpo de
+  -- 20261034000001_bank_default_destination.sql con una versión anterior de
+  -- rpc_create_bank_account. `position(... IN prosrc) > 0` en vez de LIKE
+  -- con '_' — '_' es comodín de un carácter en LIKE y el nombre del helper
+  -- empieza con '_'. Filtra por proname solamente: pg_get_function_identity_
+  -- arguments() devuelve también los NOMBRES de los parámetros (p.ej.
+  -- "p_name text, ..."), no solo los tipos, y la Fase 7 de
+  -- test_cuentas_billetera_tipo.sql ya assertea que existe exactamente una
+  -- firma de esta función.
+  SELECT position('_pay_assign_default_bank_destination' IN p.prosrc) > 0,
+         md5(pg_get_functiondef(p.oid))
+    INTO v_check0_has_helper, v_check0_md5
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_create_bank_account'
+  LIMIT 1;
+
+  IF NOT COALESCE(v_check0_has_helper, false) THEN
+    RAISE EXCEPTION 'GATE BANK-DEFAULT-DESTINATION FAILED (0): rpc_create_bank_account NO contiene la llamada a _pay_assign_default_bank_destination — otro gate o migración reaplicada pisó el cuerpo de 20261034 (md5 vivo=%).', v_check0_md5;
+  END IF;
+
+  RAISE NOTICE 'PASS (0): rpc_create_bank_account contiene la llamada al helper _pay_assign_default_bank_destination (md5=%).', v_check0_md5;
+
   -- ── Anchor sintético (resuelto por email primero — un gen_random_uuid()
   -- nuevo en cada corrida rompía el índice único de email si el cleanup de
   -- una corrida previa no había llegado a correr) ────────────────────────

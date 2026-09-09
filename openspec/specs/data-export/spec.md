@@ -10,7 +10,7 @@ Exportación de datos del usuario en formatos CSV y XLSX, con gating de cuota po
 
 El sistema SHALL permitir al usuario exportar sus datos en formato CSV (una entidad a la vez: ventas, compras, gastos, inventario o **ranking de productos vendidos**) siempre que tenga cuota disponible en su plan.
 
-La exportación del ranking de productos SHALL derivar sus filas del **read-model canónico del ranking**, con el mismo período, orden y agrupación de variantes que la pantalla presenta — NUNCA de una agregación propia escrita en la capa de exportación. Un archivo que no coincide con la pantalla de la que se exportó es indistinguible de un archivo corrupto para quien lo recibe.
+La exportación del ranking de productos SHALL derivar sus filas del **read-model canónico del ranking**, con el mismo período, orden, agrupación de variantes, sucursal y canal que la pantalla presenta — NUNCA de una agregación propia escrita en la capa de exportación. Un archivo que no coincide con la pantalla de la que se exportó es indistinguible de un archivo corrupto para quien lo recibe.
 
 Todo CSV generado por `generate-export` SHALL usar `;` (punto y coma) como separador de columnas, no coma — la misma convención que ya usa el export local `frontend/lib/excel.ts` (`exportToCSV`). Excel con configuración regional en español (Argentina) usa `;` como separador de listas; un CSV separado por comas se abre con todas las columnas apiladas en A. El archivo SHALL llevar BOM UTF-8 al inicio para que Excel detecte la codificación. Un campo que contenga `;`, `"` o un salto de línea SHALL ir entre comillas dobles, con las comillas internas dobladas (RFC 4180); un campo con coma también SHALL entrecomillarse aunque la coma ya no sea el separador (más seguro, y Excel evalúa el tipo del contenido igual esté o no entrecomillado).
 
@@ -37,6 +37,12 @@ Las columnas numéricas del **ranking de productos** (unidades, importe, costo, 
 - **GIVEN** un ranking mostrado para un período, un ordenamiento y una agrupación de variantes determinados
 - **WHEN** el usuario lo exporta
 - **THEN** las filas del archivo son las mismas que la pantalla informa, en el mismo orden
+
+#### Scenario: El export del ranking respeta el filtro de canal de la pantalla
+- **GIVEN** un ranking mostrado con un canal seleccionado (p.ej. "whatsapp")
+- **WHEN** el usuario lo exporta
+- **THEN** las filas del archivo respetan el mismo filtro de canal — ningún producto vendido por otro canal aparece
+- **AND** sin canal seleccionado (todos los canales) el archivo incluye las ventas de todos los canales, igual que la pantalla
 
 #### Scenario: El CSV se abre correctamente en Excel con configuración regional es-AR
 - **GIVEN** cualquiera de los seis tipos de exportación CSV (ventas, compras, gastos, inventario o ranking de productos)

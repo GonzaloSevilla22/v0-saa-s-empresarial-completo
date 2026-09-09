@@ -437,16 +437,6 @@ export default function EstadisticasPage() {
             />
           </div>
         </CardHeader>
-        {/* filtro-canal-estadisticas (majors 1a): el body de export YA lleva
-            canal (lib/sales-statistics.ts, rankingExportBody), pero
-            generate-export todavía no lo lee — se suma en un paso posterior
-            tras un rebase. Hasta entonces, con un canal filtrado, el CSV
-            trae todos los canales: se lo decimos acá en vez de callarlo. */}
-        {canal && (
-          <p className="px-6 text-xs text-muted-foreground">
-            El CSV incluye todos los canales: el filtro de canal todavía no se aplica a la exportación.
-          </p>
-        )}
         <CardContent className="flex flex-col gap-4 p-0 min-w-0">
           {rankingQuery.isError ? (
             <div role="alert" className="m-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">

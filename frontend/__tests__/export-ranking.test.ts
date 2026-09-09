@@ -100,11 +100,11 @@ describe("EXPORT_TYPES / isExportType (8.1, 8.3)", () => {
 // ─── parámetros del ranking ──────────────────────────────────────────────────
 
 describe("parseRankingExportParams", () => {
-  it("sin body aplica los defaults de la pantalla: últimos 30 días (hoy incluido), unidades, agrupado, sin sucursal", () => {
+  it("sin body aplica los defaults de la pantalla: últimos 30 días (hoy incluido), unidades, agrupado, sin sucursal, sin canal", () => {
     const r = parseRankingExportParams({}, TODAY)
     expect(r.ok).toBe(true)
     if (!r.ok) return
-    expect(r.value).toEqual({ start: "2026-08-06", end: "2026-09-04", orderBy: "units", groupVariants: true, branchId: null })
+    expect(r.value).toEqual({ start: "2026-08-06", end: "2026-09-04", orderBy: "units", groupVariants: true, branchId: null, canal: null })
   })
 
   it("toma período, orden, agrupación y sucursal del body tal cual la pantalla los manda", () => {
@@ -112,7 +112,7 @@ describe("parseRankingExportParams", () => {
       { start: "2026-08-01", end: "2026-08-31", order_by: "revenue", group_variants: false, branch_id: BRANCH },
       TODAY,
     )
-    expect(r).toEqual({ ok: true, value: { start: "2026-08-01", end: "2026-08-31", orderBy: "revenue", groupVariants: false, branchId: BRANCH } })
+    expect(r).toEqual({ ok: true, value: { start: "2026-08-01", end: "2026-08-31", orderBy: "revenue", groupVariants: false, branchId: BRANCH, canal: null } })
   })
 
   it("rechaza un orden fuera de dominio", () => {
@@ -134,6 +134,50 @@ describe("parseRankingExportParams", () => {
     // null explícito de sucursal = sin filtro.
     const r = parseRankingExportParams({ branch_id: null }, TODAY)
     expect(r.ok && r.value.branchId).toBe(null)
+  })
+
+  // ─── filtro-canal-estadisticas: cierre del paso pendiente ──────────────────
+  //
+  // El frontend (frontend/lib/sales-statistics.ts, rankingExportBody) ya
+  // manda `canal` en el body; hasta este cierre generate-export lo ignoraba
+  // (siempre exportaba todos los canales). Mismo contrato que el backend
+  // FastAPI: `canal: str | None = Query(None, max_length=80)`
+  // (backend/routers/statistics.py) — texto no vacío tras trim, máx 80.
+
+  it("toma el canal del body tal cual la pantalla lo manda", () => {
+    const r = parseRankingExportParams({ canal: "whatsapp" }, TODAY)
+    expect(r.ok && r.value.canal).toBe("whatsapp")
+  })
+
+  it("ausente o null = sin filtro (todos los canales)", () => {
+    const withoutBody = parseRankingExportParams({}, TODAY)
+    expect(withoutBody.ok && withoutBody.value.canal).toBe(null)
+    const r = parseRankingExportParams({ canal: null }, TODAY)
+    expect(r.ok && r.value.canal).toBe(null)
+  })
+
+  it("recorta espacios alrededor del canal", () => {
+    const r = parseRankingExportParams({ canal: "  whatsapp  " }, TODAY)
+    expect(r.ok && r.value.canal).toBe("whatsapp")
+  })
+
+  it("rechaza un canal vacío (tras trim) o no textual — nunca lo trata como 'todos'", () => {
+    expect(parseRankingExportParams({ canal: "" }, TODAY).ok).toBe(false)
+    expect(parseRankingExportParams({ canal: "   " }, TODAY).ok).toBe(false)
+    expect(parseRankingExportParams({ canal: 42 }, TODAY).ok).toBe(false)
+    expect(parseRankingExportParams({ canal: true }, TODAY).ok).toBe(false)
+  })
+
+  it("rechaza un canal de más de 80 caracteres (mismo contrato que el backend FastAPI)", () => {
+    const r = parseRankingExportParams({ canal: "x".repeat(81) }, TODAY)
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.error).toMatch(/canal/)
+  })
+
+  it("acepta un canal de exactamente 80 caracteres", () => {
+    const r = parseRankingExportParams({ canal: "x".repeat(80) }, TODAY)
+    expect(r.ok && r.value.canal).toBe("x".repeat(80))
   })
 })
 
@@ -247,9 +291,9 @@ function makeClient(pages: ProductRankingRpcRow[][], error: { message: string } 
 }
 
 describe("fetchAllRankingRows (8.4 — nunca re-agrega, pagina la RPC de a 500)", () => {
-  const params = { start: "2026-08-01", end: "2026-08-31", orderBy: "revenue" as const, groupVariants: false, branchId: BRANCH }
+  const params = { start: "2026-08-01", end: "2026-08-31", orderBy: "revenue" as const, groupVariants: false, branchId: BRANCH, canal: null }
 
-  it("pasa a la RPC exactamente los parámetros de la pantalla (cuenta, período, orden, agrupación, sucursal) y pagina de a 500", async () => {
+  it("pasa a la RPC exactamente los parámetros de la pantalla (cuenta, período, orden, agrupación, sucursal, canal) y pagina de a 500", async () => {
     const first = Array.from({ length: RANKING_PAGE_SIZE }, (_, i) => rpcRow(i + 1, { total_count: RANKING_PAGE_SIZE + 1 }))
     const second = [rpcRow(RANKING_PAGE_SIZE + 1, { total_count: RANKING_PAGE_SIZE + 1 })]
     const { client, calls } = makeClient([first, second])
@@ -264,6 +308,20 @@ describe("fetchAllRankingRows (8.4 — nunca re-agrega, pagina la RPC de a 500)"
       p_group_variants: false, p_branch_id: BRANCH, p_canal: null, p_limit: RANKING_PAGE_SIZE, p_offset: 0,
     })
     expect(calls[1].p_offset).toBe(RANKING_PAGE_SIZE)
+  })
+
+  // filtro-canal-estadisticas: cierre del paso pendiente — antes `p_canal`
+  // era el literal `null` (nunca viajaba lo que pidiera la pantalla); ahora
+  // refleja el canal de los parámetros, con los mismos period/orden/sucursal.
+  it("cierra el paso pendiente del filtro de canal: p_canal viaja con el canal de la pantalla, no hardcodeado a null", async () => {
+    const { client, calls } = makeClient([[rpcRow(1, { total_count: 1 })]])
+
+    await fetchAllRankingRows(client, ACCOUNT, { ...params, canal: "whatsapp" })
+
+    expect(calls[0]).toEqual({
+      p_account_id: ACCOUNT, p_start: "2026-08-01", p_end: "2026-08-31", p_order_by: "revenue",
+      p_group_variants: false, p_branch_id: BRANCH, p_canal: "whatsapp", p_limit: RANKING_PAGE_SIZE, p_offset: 0,
+    })
   })
 
   it("una sola página corta (menos de 500) termina sin pedir otra", async () => {
@@ -369,9 +427,9 @@ describe("rankingRowToXlsxRow / buildRankingXlsxRows (hoja Ranking del reporte c
 // no improvisado en el índice de la función.
 
 describe("defaultFullReportRankingParams", () => {
-  it("usa el dateFrom del reporte como inicio, hoy como fin, unidades/agrupado/sin sucursal", () => {
+  it("usa el dateFrom del reporte como inicio, hoy como fin, unidades/agrupado/sin sucursal/sin canal", () => {
     const params = defaultFullReportRankingParams("2026-08-06", TODAY)
-    expect(params).toEqual({ start: "2026-08-06", end: "2026-09-04", orderBy: "units", groupVariants: true, branchId: null })
+    expect(params).toEqual({ start: "2026-08-06", end: "2026-09-04", orderBy: "units", groupVariants: true, branchId: null, canal: null })
   })
 
   it("el fin de ventana usa el día de negocio ARGENTINO, no el día UTC (revisión adversarial, fix 4): 23:00 ART del 04-09 sigue siendo 04-09, no 05-09", () => {

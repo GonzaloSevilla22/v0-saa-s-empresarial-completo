@@ -555,10 +555,8 @@ export const STATISTICS_INSIGHT_TYPE = "estadisticas"
  *  La sucursal null viaja explícita (= sin filtro).
  *
  *  filtro-canal-estadisticas (majors 1a): `canal` viaja también, explícito
- *  (null = sin filtro) — pero `generate-export` TODAVÍA NO lo lee (se suma
- *  en un paso posterior tras un rebase); hasta entonces el CSV exportado
- *  incluye todos los canales aunque la pantalla tenga uno filtrado. La
- *  pantalla declara ese desvío junto al botón mientras dure. */
+ *  (null = sin filtro) — `generate-export` lo lee (`_shared/export-ranking.ts`,
+ *  `parseRankingExportParams`) y lo aplica al mismo read-model. */
 // `type` y no `interface`: un alias de objeto literal SÍ es asignable al
 // Record<string, …> de ExportParams (una interface no lleva index signature
 // implícita y tsc lo rechaza).

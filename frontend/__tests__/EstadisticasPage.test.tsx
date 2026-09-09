@@ -480,16 +480,18 @@ describe("EstadisticasPage", () => {
 
   // filtro-canal-estadisticas (majors 1a/1b/1c): el canal viaja al export, al
   // detalle de producto y al panel de IA — las tres superficies que el
-  // candidato original dejó sin cablear.
-  it("el filtro de canal viaja también al body de export del ranking, con el aviso discreto mientras la Edge no lo lee", () => {
+  // candidato original dejó sin cablear. Cierre del paso pendiente: la Edge
+  // Function ya lo lee (`_shared/export-ranking.ts`), así que el aviso
+  // provisorio de la pantalla se retira — nunca debe reaparecer.
+  it("el filtro de canal viaja también al body de export del ranking, sin ningún aviso (la Edge ya lo aplica)", () => {
     nav.params = new URLSearchParams("branch=b-9&canal=whatsapp")
     render(<EstadisticasPage />)
     const last = () => exportButtonMock.mock.calls.at(-1)?.[0] as { exportType: string; params: Record<string, unknown> }
     expect(last().params).toEqual(expect.objectContaining({ canal: "whatsapp", branch_id: "b-9" }))
-    expect(screen.getByText(/el csv incluye todos los canales/i)).toBeInTheDocument()
+    expect(screen.queryByText(/el csv incluye todos los canales/i)).not.toBeInTheDocument()
   })
 
-  it("sin filtro de canal el body de export lleva canal null y no muestra el aviso", () => {
+  it("sin filtro de canal el body de export lleva canal null y tampoco muestra ningún aviso", () => {
     render(<EstadisticasPage />)
     const last = () => exportButtonMock.mock.calls.at(-1)?.[0] as { exportType: string; params: Record<string, unknown> }
     expect(last().params).toEqual(expect.objectContaining({ canal: null }))

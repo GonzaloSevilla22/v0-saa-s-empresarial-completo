@@ -34,7 +34,7 @@ vi.mock("sonner", () => ({ toast: toastMock }))
 
 import { StatisticsAiPanel } from "@/components/statistics/StatisticsAiPanel"
 
-const PROPS = { start: "2026-08-01", end: "2026-08-31", branchId: "b-9" as string | null }
+const PROPS = { start: "2026-08-01", end: "2026-08-31", branchId: "b-9" as string | null, canal: null as string | null }
 
 describe("StatisticsAiPanel", () => {
   beforeEach(() => {
@@ -67,10 +67,18 @@ describe("StatisticsAiPanel", () => {
     mutateAsyncMock.mockResolvedValue({ status: "ok", insight: "Nuevo insight", recommendations: ["Reponé Remera M", "Promocioná los martes", "Revisá el canal Instagram"] })
     render(<StatisticsAiPanel {...PROPS} />)
     fireEvent.click(screen.getByRole("button", { name: /analizar con ia/i }))
-    expect(mutateAsyncMock).toHaveBeenCalledWith({ start: "2026-08-01", end: "2026-08-31", branchId: "b-9" })
+    expect(mutateAsyncMock).toHaveBeenCalledWith({ start: "2026-08-01", end: "2026-08-31", branchId: "b-9", canal: null })
     await waitFor(() => expect(screen.getByText("Reponé Remera M")).toBeInTheDocument())
     expect(screen.getByRole("list", { name: /recomendaciones/i }).children).toHaveLength(3)
     expect(toastMock.success).toHaveBeenCalled()
+  })
+
+  // filtro-canal-estadisticas (majors 1c): el prop viaja al hook — la Edge
+  // Function todavía no lo consume, pero el panel no lo pisa con null.
+  it("manda también el canal de la pantalla cuando está filtrado", () => {
+    render(<StatisticsAiPanel {...PROPS} canal="whatsapp" />)
+    fireEvent.click(screen.getByRole("button", { name: /analizar con ia/i }))
+    expect(mutateAsyncMock).toHaveBeenCalledWith(expect.objectContaining({ canal: "whatsapp" }))
   })
 
   it("cuota agotada en el servidor → aviso, sin recomendaciones", async () => {

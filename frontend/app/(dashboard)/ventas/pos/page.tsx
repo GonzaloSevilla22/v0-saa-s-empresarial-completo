@@ -102,6 +102,11 @@ function friendlyError(message: string): string {
     return "Esa forma de pago está desactivada. Elegí otra o reactivala en Configuración."
   if (message.includes("payment_method_mismatch"))
     return "La forma de pago no coincide con lo esperado. Volvé a elegirla e intentá de nuevo."
+  // minors (5): ÚLTIMO recurso, después de humanizeOperationError — una
+  // redacción de stock que STOCK_ERROR no reconoce (sin "para producto
+  // <uuid>") no debe filtrar el texto crudo de la RPC al usuario.
+  if (message.includes("stock_insuficiente"))
+    return "Stock insuficiente para completar la venta."
   return message || "Ocurrió un error inesperado."
 }
 

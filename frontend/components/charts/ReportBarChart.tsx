@@ -44,16 +44,12 @@ export interface ReportBarSeries {
 /** Fila de un gráfico multi-serie: el rótulo de categoría + un valor por serie. */
 export type ReportBarMultiDatum = { name: string; tooltipName?: string } & Record<string, number | string | undefined>
 
-export interface ReportBarChartProps {
+interface ReportBarChartBaseProps {
   /** Multi-serie: filas con una clave por `series[].key`. Una serie: `ReportBarDatum[]`. */
   data: ReportBarDatum[] | ReportBarMultiDatum[]
-  /** Requerido cuando no se pasa `series` (una sola serie, sin leyenda). */
-  valueName?: string
   ariaLabel: string
   /** Color de la serie única — por defecto la serie "vendido" del sistema. Ignorado si se pasa `series`. */
   color?: string
-  /** Varias series por barra (Vendido/Comprado/Gastado, Gastos/Compras, …) — agrega leyenda. */
-  series?: ReportBarSeries[]
   height?: number
   formatValue?: (value: number) => string
   /**
@@ -65,7 +61,25 @@ export interface ReportBarChartProps {
   /** Ancho reservado a los rótulos de categoría (orientación horizontal). */
   labelWidth?: number
   orientation?: ReportBarOrientation
+  /**
+   * minors (6, migrar-reportes-a-charts-canonicos): largo máximo de un
+   * rótulo horizontal antes de truncarlo con "…" — ver `truncate` más abajo.
+   * Default 18 (el que ya tenían los consumidores de estadisticas-ventas);
+   * los 3 reportes legacy migrados lo fijan en 13 para conservar el render
+   * que tenían con su propio truncado inline (`length > 14 → slice(0,12)+"…"`).
+   */
+  truncateLength?: number
 }
+
+// minors (4): `series` y `valueName` son mutuamente excluyentes — una sola
+// serie SIN nombre, o varias series CON un `valueName` que no se usaría para
+// nada, no tienen una forma "correcta" que el componente pueda arbitrar en
+// silencio. La unión discriminada lo saca en tsc, no en code review.
+export type ReportBarChartProps = ReportBarChartBaseProps &
+  (
+    | { /** Varias series por barra (Vendido/Comprado/Gastado, Gastos/Compras, …) — agrega leyenda. */ series: ReportBarSeries[]; valueName?: never }
+    | { series?: never; /** Requerido cuando no se pasa `series` (una sola serie, sin leyenda). */ valueName: string }
+  )
 
 const truncate = (s: string, max = 18) => (s.length > max ? `${s.slice(0, max - 1)}…` : s)
 
@@ -80,6 +94,7 @@ export function ReportBarChart({
   formatAxisValue = formatValue,
   labelWidth = 120,
   orientation = "horizontal",
+  truncateLength = 18,
 }: ReportBarChartProps) {
   const resolvedHeight = height ?? (orientation === "vertical" ? 240 : Math.max(160, 28 * data.length + 40))
 
@@ -94,7 +109,7 @@ export function ReportBarChart({
     )
   }
 
-  const chartData = data.map((d) => ({ ...d, label: orientation === "vertical" ? d.name : truncate(d.name) }))
+  const chartData = data.map((d) => ({ ...d, label: orientation === "vertical" ? d.name : truncate(d.name, truncateLength) }))
   const tooltipLabel = (_label: string, payload: unknown) => {
     const first = Array.isArray(payload) && payload.length > 0 ? payload[0] : null
     const datum = first && typeof first === "object" && first !== null && "payload" in first

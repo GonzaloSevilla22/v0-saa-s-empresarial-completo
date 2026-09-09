@@ -184,8 +184,8 @@ export default function ClientesPage() {
           filtros (búsqueda + 2 selects) no entran en una sola fila y empujaban
           el CTA fuera del viewport (la barra de ACCIONES ya wrappeaba desde
           qa-integral-modulos G2, la de FILTROS no). */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center flex-1">
+      <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between" data-testid="filters-bar">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center flex-1" data-testid="filters-group">
           <div className="relative w-full sm:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input

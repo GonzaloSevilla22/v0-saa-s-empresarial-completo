@@ -126,6 +126,7 @@ export default function CentrosCostoReportPage() {
               formatValue={formatMoney}
               formatAxisValue={(v) => `$${Math.round(v / 1000)}K`}
               labelWidth={110}
+              truncateLength={13}
               height={220}
             />
           )}

@@ -63,9 +63,11 @@ function ControlsBar({ route }: { route: RouteName }) {
   return (
     // Mismo contenedor post-fix que sale/purchase-operations-list.tsx,
     // gastos/page.tsx y clientes/page.tsx: lg:flex-wrap en el contenedor +
-    // flex-wrap en el grupo de filtros.
-    <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between">
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+    // flex-wrap en el grupo de filtros — paridad verificada por
+    // __tests__/lib/tablet-filters-wrap-gate.test.ts vía los mismos
+    // data-testid="filters-bar"/"filters-group" que las 4 páginas reales.
+    <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:justify-between" data-testid="filters-bar">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3" data-testid="filters-group">
         <div className="w-full sm:w-64">
           <Input
             value={search}

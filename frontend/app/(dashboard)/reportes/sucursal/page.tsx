@@ -165,6 +165,7 @@ export default function SucursalReportPage() {
               formatValue={fmtARS}
               formatAxisValue={(v) => `$${Math.round(v / 1000)}K`}
               labelWidth={90}
+              truncateLength={13}
               height={220}
             />
           )}

@@ -28,7 +28,7 @@
  *   importe se declara (OQ-2).
  */
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { subDays } from "date-fns"
@@ -110,6 +110,13 @@ export default function EstadisticasPage() {
   const minDate = subDays(today, limits?.historyDays ?? 30)
   const startISO = toISODate(dateFrom)
   const endISO = toISODate(dateTo)
+
+  // minors (7): un filtro de sucursal o canal nuevo invalida la página que
+  // se venía pidiendo — sin esto, cambiar el filtro con page > 0 podía pedir
+  // una página inexistente o mostrar filas de un recorte que ya no aplica.
+  useEffect(() => {
+    setPage(0)
+  }, [branchId, canal])
 
   const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket, branchId, canal })
   const rankingQuery = useProductRanking({
@@ -224,7 +231,7 @@ export default function EstadisticasPage() {
       )}
 
       {/* ── E3: análisis con IA (ai-estadisticas, cuota de consultas) ── */}
-      <StatisticsAiPanel start={startISO} end={endISO} branchId={branchId} />
+      <StatisticsAiPanel start={startISO} end={endISO} branchId={branchId} canal={canal} />
 
       {/* ── Evolución ── */}
       <Card className="min-w-0">
@@ -426,10 +433,20 @@ export default function EstadisticasPage() {
                 agrupación y sucursal — fila a fila y en el mismo orden. */}
             <ExportButton
               exportType="product_ranking_csv"
-              params={rankingExportBody({ start: startISO, end: endISO, orderBy, groupVariants, branchId })}
+              params={rankingExportBody({ start: startISO, end: endISO, orderBy, groupVariants, branchId, canal })}
             />
           </div>
         </CardHeader>
+        {/* filtro-canal-estadisticas (majors 1a): el body de export YA lleva
+            canal (lib/sales-statistics.ts, rankingExportBody), pero
+            generate-export todavía no lo lee — se suma en un paso posterior
+            tras un rebase. Hasta entonces, con un canal filtrado, el CSV
+            trae todos los canales: se lo decimos acá en vez de callarlo. */}
+        {canal && (
+          <p className="px-6 text-xs text-muted-foreground">
+            El CSV incluye todos los canales: el filtro de canal todavía no se aplica a la exportación.
+          </p>
+        )}
         <CardContent className="flex flex-col gap-4 p-0 min-w-0">
           {rankingQuery.isError ? (
             <div role="alert" className="m-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -472,7 +489,7 @@ export default function EstadisticasPage() {
                             <div className="flex items-center gap-2 flex-wrap">
                               {/* E3 (D12): cada fila abre su detalle dentro del módulo. */}
                               <Link
-                                href={productDetailHref(row.productId, branchId)}
+                                href={productDetailHref(row.productId, branchId, canal)}
                                 className="font-medium text-foreground underline-offset-4 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                               >
                                 {row.productName}

@@ -156,4 +156,22 @@ describe("PosPage — error de stock insuficiente muestra el mensaje canónico",
     expect(message).toMatch(/sucursal está cerrada/i)
     expect(options).toBeUndefined()
   })
+
+  // minors (5): un mensaje de stock con una redacción que humanizeOperationError
+  // no reconoce (STOCK_ERROR exige "para producto <uuid>") caía antes en el
+  // texto crudo de la RPC — friendlyError ahora lo atrapa como ÚLTIMO recurso,
+  // después de humanizeOperationError, sin duplicar su regex.
+  it("un mensaje de stock con redacción no reconocida muestra el genérico de stock, sin acción", async () => {
+    quickSaleMutateAsync.mockRejectedValue(new Error("stock_insuficiente: revisar el pedido"))
+
+    render(<PosPage />)
+    addProductToCart()
+    fireEvent.click(screen.getByRole("button", { name: /^cobrar/i }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+
+    const [message, options] = toastError.mock.calls[0]
+    expect(message).toBe("Stock insuficiente para completar la venta.")
+    expect(options).toBeUndefined()
+  })
 })

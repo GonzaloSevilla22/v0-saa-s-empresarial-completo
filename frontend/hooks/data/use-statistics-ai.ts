@@ -35,6 +35,9 @@ export interface AnalyzeStatisticsInput {
   start: string
   end: string
   branchId: string | null
+  /** filtro-canal-estadisticas (majors 1c): viaja en el body pero
+   *  `ai-estadisticas` TODAVÍA NO lo lee — ver StatisticsAiPanel. */
+  canal: string | null
 }
 
 export type AnalyzeStatisticsResult =
@@ -60,7 +63,7 @@ export async function analyzeStatistics(
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ start: input.start, end: input.end, branch_id: input.branchId }),
+    body: JSON.stringify({ start: input.start, end: input.end, branch_id: input.branchId, canal: input.canal }),
   })
 
   const parsed: unknown = await res.json().catch(() => ({}))

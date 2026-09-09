@@ -478,13 +478,62 @@ describe("EstadisticasPage", () => {
     expect(within(table).getByRole("link", { name: /Gorra/ })).toHaveAttribute("href", "/estadisticas/productos/p-simple?branch=b-9")
   })
 
+  // filtro-canal-estadisticas (majors 1a/1b/1c): el canal viaja al export, al
+  // detalle de producto y al panel de IA — las tres superficies que el
+  // candidato original dejó sin cablear.
+  it("el filtro de canal viaja también al body de export del ranking, con el aviso discreto mientras la Edge no lo lee", () => {
+    nav.params = new URLSearchParams("branch=b-9&canal=whatsapp")
+    render(<EstadisticasPage />)
+    const last = () => exportButtonMock.mock.calls.at(-1)?.[0] as { exportType: string; params: Record<string, unknown> }
+    expect(last().params).toEqual(expect.objectContaining({ canal: "whatsapp", branch_id: "b-9" }))
+    expect(screen.getByText(/el csv incluye todos los canales/i)).toBeInTheDocument()
+  })
+
+  it("sin filtro de canal el body de export lleva canal null y no muestra el aviso", () => {
+    render(<EstadisticasPage />)
+    const last = () => exportButtonMock.mock.calls.at(-1)?.[0] as { exportType: string; params: Record<string, unknown> }
+    expect(last().params).toEqual(expect.objectContaining({ canal: null }))
+    expect(screen.queryByText(/el csv incluye todos los canales/i)).not.toBeInTheDocument()
+  })
+
+  it("cada fila del ranking conserva también el filtro de canal al enlazar al detalle", () => {
+    nav.params = new URLSearchParams("branch=b-9&canal=whatsapp")
+    render(<EstadisticasPage />)
+    const table = screen.getByRole("table", { name: /ranking/i })
+    const link = within(table).getByRole("link", { name: /Remera/ })
+    expect(link).toHaveAttribute("href", "/estadisticas/productos/p-parent?branch=b-9&canal=whatsapp")
+  })
+
   it("el panel de análisis con IA se monta con la ventana de la pantalla", () => {
     render(<EstadisticasPage />)
     expect(screen.getByTestId("ai-panel")).toBeInTheDocument()
-    const props = aiPanelMock.mock.calls.at(-1)?.[0] as { start: string; end: string; branchId: string | null }
+    const props = aiPanelMock.mock.calls.at(-1)?.[0] as { start: string; end: string; branchId: string | null; canal: string | null }
     const hookParams = useSalesEvolutionMock.mock.calls.at(-1)?.[0] as { start: string; end: string }
     expect(props.start).toBe(hookParams.start)
     expect(props.end).toBe(hookParams.end)
     expect(props.branchId).toBeNull()
+    expect(props.canal).toBeNull()
+  })
+
+  it("el panel de análisis con IA recibe también el filtro de canal de la URL", () => {
+    nav.params = new URLSearchParams("canal=whatsapp")
+    render(<EstadisticasPage />)
+    const props = aiPanelMock.mock.calls.at(-1)?.[0] as { canal: string | null }
+    expect(props.canal).toBe("whatsapp")
+  })
+
+  // minors (7): cambiar sucursal o canal resetea la página del ranking — sin
+  // esto, una página > 0 pedida con un filtro anterior podía quedar vacía o
+  // desalineada al cambiar de filtro.
+  it("cambiar el filtro de sucursal o de canal resetea la página del ranking a 0", () => {
+    nav.params = new URLSearchParams()
+    useProductRankingMock.mockReturnValue(ranking({ data: { items: ROWS, total: 60, page: 0, pages: 3, window: WINDOW } }))
+    const { rerender } = render(<EstadisticasPage />)
+    fireEvent.click(screen.getByRole("button", { name: /siguiente/i }))
+    expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 }))
+
+    nav.params = new URLSearchParams("branch=b-9")
+    rerender(<EstadisticasPage />)
+    expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ page: 0, branchId: "b-9" }))
   })
 })

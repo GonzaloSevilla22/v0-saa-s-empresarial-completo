@@ -552,7 +552,13 @@ export const STATISTICS_INSIGHT_TYPE = "estadisticas"
 
 /** Body que la Edge Function generate-export lee para `product_ranking_csv`:
  *  los MISMOS parámetros que la pantalla del ranking muestra, en snake_case.
- *  La sucursal null viaja explícita (= sin filtro). */
+ *  La sucursal null viaja explícita (= sin filtro).
+ *
+ *  filtro-canal-estadisticas (majors 1a): `canal` viaja también, explícito
+ *  (null = sin filtro) — pero `generate-export` TODAVÍA NO lo lee (se suma
+ *  en un paso posterior tras un rebase); hasta entonces el CSV exportado
+ *  incluye todos los canales aunque la pantalla tenga uno filtrado. La
+ *  pantalla declara ese desvío junto al botón mientras dure. */
 // `type` y no `interface`: un alias de objeto literal SÍ es asignable al
 // Record<string, …> de ExportParams (una interface no lleva index signature
 // implícita y tsc lo rechaza).
@@ -562,6 +568,7 @@ export type RankingExportBody = {
   order_by: RankingOrder
   group_variants: boolean
   branch_id: string | null
+  canal: string | null
 }
 
 export interface RankingScreenState {
@@ -570,6 +577,7 @@ export interface RankingScreenState {
   orderBy: RankingOrder
   groupVariants: boolean
   branchId: string | null
+  canal: string | null
 }
 
 export function rankingExportBody(state: RankingScreenState): RankingExportBody {
@@ -579,15 +587,30 @@ export function rankingExportBody(state: RankingScreenState): RankingExportBody 
     order_by:       state.orderBy,
     group_variants: state.groupVariants,
     branch_id:      state.branchId,
+    canal:          state.canal,
   }
+}
+
+/** Querystring compartida del módulo (sucursal + canal), en ese orden. */
+function statisticsFilterQuery(branchId: string | null | undefined, canal?: string | null): string {
+  const params = new URLSearchParams()
+  if (branchId) params.set("branch", branchId)
+  if (canal) params.set("canal", canal)
+  const qs = params.toString()
+  return qs ? `?${qs}` : ""
 }
 
 /** D12: el detalle vive DENTRO del módulo de estadísticas —
  *  /estadisticas/productos/[id], nunca /productos/[id] (que se leería como
- *  "editar producto"). Conserva el filtro de sucursal de la URL. */
-export function productDetailHref(productId: string, branchId: string | null): string {
-  const base = `/estadisticas/productos/${productId}`
-  return branchId ? `${base}?branch=${encodeURIComponent(branchId)}` : base
+ *  "editar producto"). Conserva los filtros de sucursal y canal de la URL. */
+export function productDetailHref(productId: string, branchId: string | null, canal?: string | null): string {
+  return `/estadisticas/productos/${productId}${statisticsFilterQuery(branchId, canal)}`
+}
+
+/** Vuelta a /estadisticas desde el detalle de un producto, conservando los
+ *  mismos filtros de sucursal y canal (D12). */
+export function statisticsBackHref(branchId: string | null, canal?: string | null): string {
+  return `/estadisticas${statisticsFilterQuery(branchId, canal)}`
 }
 
 // ── Detalle por producto (GET /reports/statistics/products/{id}) ────────────

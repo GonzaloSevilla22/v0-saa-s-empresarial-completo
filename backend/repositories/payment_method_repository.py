@@ -159,6 +159,28 @@ class PaymentMethodRepository(BaseRepository):
             sort_order,
         )
 
+    async def get_sole_active_bank_account(
+        self,
+        account_id: str,
+    ) -> str | None:
+        """bank-default-destination (cobranzas-catalogo-pagos OQ-5): si la
+        cuenta tiene EXACTAMENTE una cuenta bancaria activa (no borrada),
+        devuelve su id — para asignarla automáticamente como destino de una
+        forma de pago bancaria recién creada sin destino. Con 0 o 2+ bancos
+        activos devuelve None (no adivina), espejo Python de la misma
+        condición que el helper SQL `_pay_assign_default_bank_destination`.
+        """
+        rows = await self.fetch(
+            """
+            SELECT id FROM bank_accounts
+            WHERE account_id = $1 AND is_active = TRUE AND deleted_at IS NULL
+            """,
+            account_id,
+        )
+        if len(rows) == 1:
+            return rows[0]["id"]
+        return None
+
     async def get_bank_account_for_validation(
         self,
         bank_account_id: str,

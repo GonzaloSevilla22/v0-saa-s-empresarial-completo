@@ -48,6 +48,7 @@ def _make_repo(
     update_result=_SENTINEL,
     deactivate_result=_SENTINEL,
     soft_delete_result=_SENTINEL,
+    default_category_id=_SENTINEL,
 ):
     repo = AsyncMock()
     repo.list_by_account = AsyncMock(return_value=[CAT_ROW] if list_result is _SENTINEL else list_result)
@@ -57,6 +58,10 @@ def _make_repo(
         return_value={**CAT_ROW, "is_active": False} if deactivate_result is _SENTINEL else deactivate_result
     )
     repo.soft_delete = AsyncMock(return_value=True if soft_delete_result is _SENTINEL else soft_delete_result)
+    repo.get_default_category_id = AsyncMock(
+        return_value=None if default_category_id is _SENTINEL else default_category_id
+    )
+    repo.set_default_category_id = AsyncMock(return_value=None)
     return repo
 
 
@@ -299,3 +304,100 @@ class TestProductCategoryServiceDeactivateDelete:
 
         assert exc_info.value.status_code == 403
         repo.soft_delete.assert_not_awaited()
+
+
+# ── categoria-default-configurable: default de la cuenta ──────────────────────
+
+class TestProductCategoryServiceDefault:
+    @pytest.mark.asyncio
+    async def test_get_default_permitted_for_member(self):
+        from backend.services.product_categories import get_default_product_category
+
+        repo = _make_repo(default_category_id=CAT_ID)
+        result = await get_default_product_category(repo, ACCOUNT_ID)
+
+        assert result == {"default_category_id": CAT_ID}
+        repo.get_default_category_id.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_get_default_none_when_unconfigured(self):
+        from backend.services.product_categories import get_default_product_category
+
+        repo = _make_repo(default_category_id=None)
+        result = await get_default_product_category(repo, ACCOUNT_ID)
+
+        assert result == {"default_category_id": None}
+
+    @pytest.mark.asyncio
+    async def test_set_default_member_raises_403_without_touching_repo(self):
+        from backend.services.product_categories import set_default_product_category
+
+        repo = _make_repo()
+        with pytest.raises(HTTPException) as exc_info:
+            await set_default_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+
+        assert exc_info.value.status_code == 403
+        repo.set_default_category_id.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_set_default_owner_ok(self):
+        """F5 (revisor adversarial tanda candidatos-db-backend): el service
+        RELEE con repo.get_default_category_id(account_id) después de escribir
+        y devuelve ESE valor — no el category_id recibido optimistamente. Para
+        un usuario miembro de más de una cuenta, la escritura resuelve su
+        destino con current_account_ids() LIMIT 1 en la RPC, que puede no
+        coincidir con el account_id de la dependencia de lectura; releer hace
+        que la respuesta del PATCH sea siempre lo que el GET siguiente informa."""
+        from backend.services.product_categories import set_default_product_category
+
+        repo = _make_repo(default_category_id=CAT_ID)
+        result = await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+
+        assert result == {"default_category_id": CAT_ID}
+        repo.set_default_category_id.assert_awaited_once_with(CAT_ID)
+        repo.get_default_category_id.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_set_default_none_clears(self):
+        from backend.services.product_categories import set_default_product_category
+
+        repo = _make_repo(default_category_id=None)
+        result = await set_default_product_category(repo, _make_auth("admin"), ACCOUNT_ID, None, conn=_make_conn())
+
+        assert result == {"default_category_id": None}
+        repo.set_default_category_id.assert_awaited_once_with(None)
+        repo.get_default_category_id.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_set_default_owner_ok_rereads_not_optimistic(self):
+        """F5: si la RPC escribió sobre OTRA cuenta que la de la dependencia de
+        lectura (usuario miembro de 2+ cuentas), la respuesta debe reflejar lo
+        que get_default_category_id(account_id) informa — NUNCA el category_id
+        recibido tal cual. Fija el caso en rojo antes del fix: el service
+        optimista devolvía CAT_ID sin releer."""
+        from backend.services.product_categories import set_default_product_category
+
+        repo = _make_repo(default_category_id=None)  # la cuenta de LECTURA no tiene default
+        result = await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+
+        assert result == {"default_category_id": None}
+        repo.get_default_category_id.assert_awaited_once_with(ACCOUNT_ID)
+
+    @pytest.mark.asyncio
+    async def test_set_default_p0404_propagates_for_global_handler(self):
+        """Categoría inexistente/de otra cuenta/inactiva/soft-deleted: la RPC
+        rechaza con P0404 y el service NO lo traduce a mano — deja que el
+        asyncpg_error_handler global lo mapee a 404, mismo criterio que
+        set_collection_settings."""
+        from backend.services.product_categories import set_default_product_category
+
+        err = asyncpg.exceptions.RaiseError("product_category_not_found")
+        err.sqlstate = "P0404"
+        repo = _make_repo()
+        repo.set_default_category_id = AsyncMock(side_effect=err)
+
+        with pytest.raises(asyncpg.PostgresError) as exc_info:
+            await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+
+        assert exc_info.value.sqlstate == "P0404"
+        repo.get_default_category_id.assert_not_awaited()

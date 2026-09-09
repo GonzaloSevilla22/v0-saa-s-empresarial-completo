@@ -4,11 +4,24 @@ import { useState } from "react"
 import { ArrowDownLeft, ArrowUpRight, SlidersHorizontal, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import type { CustomerAccountMovement } from "@/hooks/data/use-customer-account"
-import { useReversePaymentReceived } from "@/hooks/data/use-customer-account"
+import { useReversePaymentReceived, useUpdateCustomerChargeDueDate } from "@/hooks/data/use-customer-account"
 import { DeleteOperationDialog } from "@/components/shared/delete-operation-dialog"
+import { EditChargeDueDateDialog } from "@/components/shared/edit-charge-due-date-dialog"
 import { getDeleteCompensation } from "@/lib/delete-compensation"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { formatMovementDueStatus } from "@/lib/receivables-aging"
+import { useOrgRole } from "@/hooks/useOrgRole"
+
+/**
+ * cobranzas-vencimientos OQ-1: un cargo (venta a crédito o ajuste positivo)
+ * con saldo abierto es el único tipo de fila que ofrece "Editar vencimiento"
+ * — un cobro/nota/reversa no tiene vencimiento propio que editar, y un cargo
+ * ya saldado lo rechaza el servidor (P0400) sin nada que corregir.
+ */
+function isEditableCharge(m: CustomerAccountMovement): boolean {
+  const isCharge = m.movementType === "sale" || (m.movementType === "adjustment" && m.amount > 0)
+  return isCharge && (m.openAmount ?? 0) > 0
+}
 
 const MOVEMENT_LABELS: Record<CustomerAccountMovement["movementType"], string> = {
   sale:             "Venta a crédito",
@@ -72,6 +85,12 @@ interface CustomerAccountHistoryProps {
 export function CustomerAccountHistory({ movements, loading, clientId }: CustomerAccountHistoryProps) {
   const [reason, setReason] = useState("")
   const reverseMutation = useReversePaymentReceived(clientId)
+  const updateDueDateMutation = useUpdateCustomerChargeDueDate(clientId)
+  // cobranzas-vencimientos OQ-1: "Editar vencimiento" gatea igual que el
+  // resto de las escrituras de owner/admin en el proyecto (CostCenterManager,
+  // PaymentMethodManager) — fail-open sobre isWriter, la barrera real es el
+  // servidor (is_account_writer / require_account_role).
+  const { isWriter } = useOrgRole()
 
   async function handleReverse(movement: CustomerAccountMovement) {
     try {
@@ -82,6 +101,19 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
       const { message } = humanizeOperationError((err as Error).message)
       toast.error(message)
     }
+  }
+
+  async function handleUpdateDueDate(
+    movement: CustomerAccountMovement,
+    values: { dueDate: string | null; reason?: string },
+  ) {
+    // Toast + reintento en error viven en EditChargeDueDateDialog — acá sólo
+    // se resuelve el movimiento y se delega la mutación.
+    await updateDueDateMutation.mutateAsync({
+      movementId: movement.id,
+      dueDate: values.dueDate,
+      reason: values.reason,
+    })
   }
 
   if (loading) {
@@ -231,6 +263,12 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
                   reasonField={{ value: reason, onChange: setReason }}
                 />
               )}
+              {isWriter && isEditableCharge(m) && (
+                <EditChargeDueDateDialog
+                  currentDueDate={m.dueDate}
+                  onConfirm={(values) => handleUpdateDueDate(m, values)}
+                />
+              )}
             </div>
 
             {/* Desktop */}
@@ -280,6 +318,12 @@ export function CustomerAccountHistory({ movements, loading, clientId }: Custome
                     actionVerbGerund="Anulando"
                     icon={<Undo2 className="h-3.5 w-3.5" />}
                     reasonField={{ value: reason, onChange: setReason }}
+                  />
+                )}
+                {isWriter && isEditableCharge(m) && (
+                  <EditChargeDueDateDialog
+                    currentDueDate={m.dueDate}
+                    onConfirm={(values) => handleUpdateDueDate(m, values)}
                   />
                 )}
               </div>

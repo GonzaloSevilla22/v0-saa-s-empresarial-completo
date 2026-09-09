@@ -23,7 +23,10 @@ _RN_B4_SQLSTATE = "P0B04"
 # products cuyo 23505 merece un mensaje legible. La restricción de la base es
 # la fuente de verdad; acá sólo se traduce.
 _SKU_UNIQUE_INDEX = "idx_products_sku_account_lower"
-_BARCODE_UNIQUE_INDEX = "idx_products_barcode_unique"
+# productos-categorias-sku (task 4.5): el índice de barcode pasa de user_id
+# a account_id (idx_products_barcode_account_unique), mismo residuo de
+# tenencia que ya se corrigió para el SKU.
+_BARCODE_UNIQUE_INDEX = "idx_products_barcode_account_unique"
 
 
 def normalize_sku(sku: str | None) -> str | None:

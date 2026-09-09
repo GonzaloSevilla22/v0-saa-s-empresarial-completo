@@ -309,3 +309,45 @@ class TestPaymentMethodRepositoryReport:
         sql = conn.fetch.call_args[0][0]
         assert "rpc_payment_method_report" in sql
         assert ACCOUNT_ID in conn.fetch.call_args[0]
+
+
+# ── bank-default-destination (cobranzas-catalogo-pagos OQ-5): RED ─────────────
+# get_sole_active_bank_account — devuelve el id del único banco activo de la
+# cuenta, o None si hay 0 o 2+. Espejo de la condición de
+# _pay_assign_default_bank_destination en SQL (misma regla, capa Python).
+
+BANK_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+BANK_ID_2 = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+
+
+class TestPaymentMethodRepositorySoleActiveBankAccount:
+    @pytest.mark.asyncio
+    async def test_returns_id_when_exactly_one_active_bank(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        conn.fetch = AsyncMock(return_value=[{"id": BANK_ID}])
+
+        result = await repo.get_sole_active_bank_account(ACCOUNT_ID)
+
+        assert result == BANK_ID
+        sql = conn.fetch.call_args[0][0].lower()
+        assert "is_active = true" in sql
+        assert "deleted_at is null" in sql
+        assert ACCOUNT_ID in conn.fetch.call_args[0]
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_zero_active_banks(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        result = await repo.get_sole_active_bank_account(ACCOUNT_ID)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_two_or_more_active_banks(self, payment_method_repo):
+        repo, conn = payment_method_repo
+        conn.fetch = AsyncMock(return_value=[{"id": BANK_ID}, {"id": BANK_ID_2}])
+
+        result = await repo.get_sole_active_bank_account(ACCOUNT_ID)
+
+        assert result is None

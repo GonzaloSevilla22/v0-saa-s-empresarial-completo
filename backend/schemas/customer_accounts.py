@@ -241,3 +241,33 @@ class CollectionSettingsIn(BaseModel):
         if v is not None and v < 0:
             raise ValueError("el plazo de pago no puede ser negativo")
         return v
+
+
+class ChargeDueDateIn(BaseModel):
+    """cobranzas-vencimientos OQ-1: cambia el vencimiento de un cargo abierto
+    (customer_account_movements o supplier_account_movements — la misma
+    schema sirve a los dos endpoints, PATCH .../movements/{id}/due-date de
+    customer_accounts.py y supplier_accounts.py).
+
+    due_date=None limpia el vencimiento (= "sin plazo definido", nunca un
+    error — mismo criterio que CollectionSettingsIn). reason es opcional y
+    viaja a audit_logs.metadata; nunca se persiste en el ledger append-only."""
+
+    due_date: datetime.date | None = None
+    reason:   str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_max_len(cls, v: str | None) -> str | None:
+        if v is not None and len(v) > 200:
+            raise ValueError("el motivo no puede superar los 200 caracteres")
+        return v
+
+
+class ChargeDueDateOut(BaseModel):
+    """Respuesta de rpc_update_customer_charge_due_date /
+    rpc_update_supplier_charge_due_date (jsonb)."""
+
+    movement_id:       uuid.UUID
+    due_date:           datetime.date | None
+    previous_due_date:  datetime.date | None

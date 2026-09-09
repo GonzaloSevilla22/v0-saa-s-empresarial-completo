@@ -61,6 +61,13 @@ export interface PaymentReversalResult {
   bank_reversals: number
 }
 
+/** cobranzas-vencimientos OQ-1: respuesta de PATCH .../movements/{id}/due-date. */
+export interface ChargeDueDateResult {
+  movement_id: string
+  due_date: string | null
+  previous_due_date: string | null
+}
+
 // ── Domain types ──────────────────────────────────────────────────────────────
 
 export interface CustomerAccountMovement {
@@ -302,6 +309,44 @@ export function useReversePaymentReceived(clientId: string) {
       queryClient.invalidateQueries({ queryKey: ["dashboardKpiSummary"] })
       // cobranzas-panel (D8): la anulación repone la deuda — el deudor
       // vuelve a aparecer en /cobranzas y el KPI del Tablero sube.
+      queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
+    },
+  })
+}
+
+/**
+ * cobranzas-vencimientos OQ-1: cambia el vencimiento de un cargo abierto.
+ * PATCH /customer-accounts/{clientId}/movements/{movementId}/due-date
+ *
+ * dueDate=null limpia el vencimiento (nunca un error). Sólo owner/admin
+ * (gateado en el servidor — is_account_writer/require_account_role); la UI
+ * lo oculta con useOrgRole, mismo criterio que CostCenterManager.
+ */
+export function useUpdateCustomerChargeDueDate(clientId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({
+      movementId,
+      dueDate,
+      reason,
+    }: {
+      movementId: string
+      dueDate: string | null
+      reason?: string
+    }): Promise<ChargeDueDateResult> => {
+      return await pythonClient.patch<ChargeDueDateResult>(
+        `/customer-accounts/${clientId}/movements/${movementId}/due-date`,
+        { due_date: dueDate, reason: reason ?? null },
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.customerAccounts.byClient(clientId),
+      })
+      // El vencimiento reordena el FIFO de aging — /cobranzas y el KPI del
+      // Tablero tienen que recalcular los tramos (mismo criterio que
+      // useRegisterPayment/useReversePaymentReceived).
       queryClient.invalidateQueries({ queryKey: queryKeys.receivables.all() })
     },
   })

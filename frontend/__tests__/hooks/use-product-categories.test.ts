@@ -132,3 +132,67 @@ describe("useProductCategories", () => {
     expect(spy.mock.calls.filter((c) => JSON.stringify(c[0]) === JSON.stringify({ queryKey: queryKeys.productCategories.all() }))).toHaveLength(2)
   })
 })
+
+describe("useDefaultProductCategory", () => {
+  let client: QueryClient
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  })
+
+  it("lee el default vigente de la cuenta", async () => {
+    const { useDefaultProductCategory } = await import("@/hooks/data/use-product-categories")
+    vi.mocked(pythonClient.get).mockResolvedValue({ default_category_id: "cat-ropa" })
+
+    const { result } = renderHook(() => useDefaultProductCategory(), { wrapper: makeWrapper(client) })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(pythonClient.get).toHaveBeenCalledWith("/product-categories/default")
+    expect(result.current.defaultCategoryId).toBe("cat-ropa")
+  })
+
+  it("null cuando no hay default configurado", async () => {
+    const { useDefaultProductCategory } = await import("@/hooks/data/use-product-categories")
+    vi.mocked(pythonClient.get).mockResolvedValue({ default_category_id: null })
+
+    const { result } = renderHook(() => useDefaultProductCategory(), { wrapper: makeWrapper(client) })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.defaultCategoryId).toBeNull()
+  })
+
+  it("fijar el default hace PATCH e invalida la query", async () => {
+    const { useDefaultProductCategory } = await import("@/hooks/data/use-product-categories")
+    vi.mocked(pythonClient.get).mockResolvedValue({ default_category_id: null })
+    vi.mocked(pythonClient.patch).mockResolvedValue({ default_category_id: "cat-ropa" })
+    const spy = vi.spyOn(client, "invalidateQueries")
+
+    const { result } = renderHook(() => useDefaultProductCategory(), { wrapper: makeWrapper(client) })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    let updated: unknown
+    await act(async () => {
+      updated = await result.current.setDefaultProductCategory("cat-ropa")
+    })
+
+    expect(pythonClient.patch).toHaveBeenCalledWith("/product-categories/default", { default_category_id: "cat-ropa" })
+    expect(updated).toBe("cat-ropa")
+    expect(spy).toHaveBeenCalledWith({ queryKey: queryKeys.productCategories.default() })
+  })
+
+  it("limpiar el default manda null explícito", async () => {
+    const { useDefaultProductCategory } = await import("@/hooks/data/use-product-categories")
+    vi.mocked(pythonClient.get).mockResolvedValue({ default_category_id: "cat-ropa" })
+    vi.mocked(pythonClient.patch).mockResolvedValue({ default_category_id: null })
+
+    const { result } = renderHook(() => useDefaultProductCategory(), { wrapper: makeWrapper(client) })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.setDefaultProductCategory(null)
+    })
+
+    expect(pythonClient.patch).toHaveBeenCalledWith("/product-categories/default", { default_category_id: null })
+  })
+})

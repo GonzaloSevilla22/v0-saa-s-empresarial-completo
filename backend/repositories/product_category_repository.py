@@ -140,6 +140,25 @@ class ProductCategoryRepository(BaseRepository):
             is_active,
         )
 
+    async def get_default_category_id(self, account_id: str) -> str | None:
+        """categoria-default-configurable: lee accounts.default_product_category_id.
+        Lectura directa (RLS aplica); la escritura va SIEMPRE por la RPC
+        (mismo patrón que get_default_payment_terms)."""
+        return await self._conn.fetchval(
+            "SELECT default_product_category_id FROM public.accounts WHERE id = $1::uuid",
+            account_id,
+        )
+
+    async def set_default_category_id(self, category_id: str | None) -> None:
+        """categoria-default-configurable: escribe el default vía
+        rpc_set_default_product_category (SECURITY DEFINER, guard
+        is_account_writer → P0401; categoría inexistente/de otra cuenta/
+        inactiva/soft-deleted → P0404; NULL vuelve a la heurística)."""
+        await self._conn.fetchval(
+            "SELECT public.rpc_set_default_product_category($1::uuid)",
+            category_id,
+        )
+
     async def deactivate(self, category_id: str, account_id: str) -> asyncpg.Record | None:
         """Baja lógica REVERSIBLE (D3): is_active=false. Nunca DELETE físico —
         la FK products.category_id es ON DELETE RESTRICT y los productos ya

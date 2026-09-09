@@ -238,6 +238,49 @@ class TestProductCategoryRepositoryDeactivate:
         assert await repo.deactivate("nonexistent", ACCOUNT_ID) is None
 
 
+# ── categoria-default-configurable: default de la cuenta ──────────────────────
+
+class TestProductCategoryRepositoryDefault:
+    @pytest.mark.asyncio
+    async def test_get_default_reads_accounts_column(self, category_repo):
+        repo, conn = category_repo
+        conn.fetchval = AsyncMock(return_value=CAT_ID)
+
+        result = await repo.get_default_category_id(ACCOUNT_ID)
+
+        assert result == CAT_ID
+        sql = conn.fetchval.call_args[0][0].lower()
+        assert "default_product_category_id" in sql
+        assert "from public.accounts" in sql or "from accounts" in sql
+
+    @pytest.mark.asyncio
+    async def test_get_default_none_when_unconfigured(self, category_repo):
+        repo, conn = category_repo
+        conn.fetchval = AsyncMock(return_value=None)
+
+        assert await repo.get_default_category_id(ACCOUNT_ID) is None
+
+    @pytest.mark.asyncio
+    async def test_set_default_goes_through_rpc(self, category_repo):
+        repo, conn = category_repo
+        conn.fetchval = AsyncMock(return_value=None)
+
+        await repo.set_default_category_id(CAT_ID)
+
+        sql = conn.fetchval.call_args[0][0].lower()
+        assert "rpc_set_default_product_category" in sql
+        assert conn.fetchval.call_args[0][1] == CAT_ID
+
+    @pytest.mark.asyncio
+    async def test_set_default_none_clears(self, category_repo):
+        repo, conn = category_repo
+        conn.fetchval = AsyncMock(return_value=None)
+
+        await repo.set_default_category_id(None)
+
+        assert conn.fetchval.call_args[0][1] is None
+
+
 # ── soft-delete-policy: product_categories entra a la allowlist ───────────────
 
 class TestProductCategorySoftDeleteAllowlist:

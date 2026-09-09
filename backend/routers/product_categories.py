@@ -11,6 +11,8 @@ from backend.core.deps import get_account_id
 from backend.repositories.product_category_repository import ProductCategoryRepository
 from backend.schemas.product_categories import (
     ProductCategoryCreate,
+    ProductCategoryDefaultIn,
+    ProductCategoryDefaultOut,
     ProductCategoryOut,
     ProductCategoryUpdate,
 )
@@ -37,6 +39,34 @@ async def list_product_categories(
     """
     return await pc_service.list_product_categories(
         repo, auth, str(account_id), active_only=not include_inactive
+    )
+
+
+@router.get("/default", response_model=ProductCategoryDefaultOut)
+async def get_default_product_category(
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: ProductCategoryRepository = Depends(get_repo),
+):
+    """categoria-default-configurable: default de la cuenta para las filas
+    sin categoría de la carga masiva. Lectura para cualquier miembro (RLS
+    aplica en la conexión) — espejo de get_collection_settings."""
+    return await pc_service.get_default_product_category(repo, str(account_id))
+
+
+@router.patch("/default", response_model=ProductCategoryDefaultOut)
+async def set_default_product_category(
+    payload: ProductCategoryDefaultIn,
+    auth: dict = Depends(get_current_user),
+    account_id: uuid.UUID = Depends(get_account_id),
+    repo: ProductCategoryRepository = Depends(get_repo),
+    conn: asyncpg.Connection = Depends(get_db_conn),
+):
+    """Fija (o limpia, con null) el default vía rpc_set_default_product_category
+    — guard is_account_writer (P0401 → 403); categoría inexistente/de otra
+    cuenta/inactiva/soft-deleted (P0404 → 404). Requiere owner/admin."""
+    return await pc_service.set_default_product_category(
+        repo, auth, str(account_id), str(payload.default_category_id) if payload.default_category_id else None, conn=conn
     )
 
 

@@ -56,7 +56,7 @@ El sistema SHALL persistir el vencimiento **en la fila del movimiento de cargo**
 
 El vencimiento es un hecho pactado el día de la operación, no una función del presente: cambiar el plazo de pago de una parte NO SHALL alterar el vencimiento de ningún cargo ya posteado. La ausencia de vencimiento SHALL ser representable y SHALL persistir como tal.
 
-La incorporación del vencimiento NO SHALL alterar la naturaleza append-only del ledger: la fila SHALL escribirse una sola vez y NO SHALL actualizarse después. El saldo materializado de la cabecera NO SHALL verse afectado por este dato.
+La incorporación del vencimiento NO SHALL alterar la naturaleza append-only del ledger: la fila SHALL escribirse una sola vez y NO SHALL actualizarse después, salvo la única excepción controlada que describe el requirement "Cambiar el vencimiento de un cargo abierto" — corregir el propio `due_date` de un cargo, nunca ningún otro campo. El saldo materializado de la cabecera NO SHALL verse afectado por este dato.
 
 #### Scenario: El vencimiento se escribe con el cargo
 
@@ -77,10 +77,52 @@ La incorporación del vencimiento NO SHALL alterar la naturaleza append-only del
 - **WHEN** se consulta su vencimiento
 - **THEN** es ausente, y ninguna migración les asigna uno retroactivamente
 
-#### Scenario: El movimiento sigue sin poder actualizarse
+#### Scenario: El movimiento sigue sin poder actualizarse en ningún otro campo
 
-- **WHEN** se intenta modificar el vencimiento de un movimiento ya persistido
+- **WHEN** se intenta modificar el importe, el tipo de movimiento o cualquier campo del movimiento que no sea su vencimiento
 - **THEN** la operación es denegada, igual que cualquier otra actualización sobre el ledger
+- **AND** la única corrección posible sobre un movimiento ya persistido es la que describe "Cambiar el vencimiento de un cargo abierto"
+
+### Requirement: Cambiar el vencimiento de un cargo abierto
+
+El sistema SHALL permitir corregir el vencimiento de un cargo (venta/compra a crédito, o ajuste positivo) **que siga abierto** — sin borrar y rehacer la operación que lo originó — reservado a quien puede escribir en la cuenta. Un vencimiento nuevo `NULL` SHALL limpiar el vencimiento del cargo (representa "sin plazo definido", nunca un error).
+
+Un cargo **de otra cuenta**, o inexistente, SHALL ser rechazado con el código de tenencia/no-encontrado, sin revelar si el cargo existe en otra cuenta. Un movimiento que **no sea un cargo** (un cobro, un pago, una nota, un ajuste negativo o cualquier reversa) SHALL ser rechazado. Un cargo **ya saldado por completo** (sin saldo abierto, según la misma derivación FIFO que resuelve el aging) SHALL ser rechazado: no hay nada que corregir en un cargo sin deuda viva.
+
+Todo cambio de vencimiento SHALL quedar auditado con el vencimiento anterior, el nuevo, y el motivo si se informó uno.
+
+#### Scenario: Corregir el vencimiento de un cargo abierto reordena el aging
+
+- **GIVEN** un cargo abierto con un vencimiento que hoy cae en un tramo vencido
+- **WHEN** quien puede escribir en la cuenta le fija un vencimiento futuro
+- **THEN** el cargo pasa a clasificar en el tramo "al día"
+
+#### Scenario: Un vencimiento nuevo NULL limpia el vencimiento
+
+- **GIVEN** un cargo abierto con vencimiento
+- **WHEN** se corrige su vencimiento a ausente
+- **THEN** el cargo queda sin vencimiento, y no se lo considera vencido en ningún momento futuro
+
+#### Scenario: Un cargo de otra cuenta es rechazado
+
+- **WHEN** se intenta corregir el vencimiento de un cargo que pertenece a otra cuenta
+- **THEN** la operación es rechazada con el código de no-encontrado, sin distinguir si el cargo existe en otra cuenta o no existe en absoluto
+
+#### Scenario: Un movimiento que no es cargo es rechazado
+
+- **WHEN** se intenta corregir el vencimiento de un cobro, un pago, una nota de crédito/débito, un ajuste negativo o una reversa
+- **THEN** la operación es rechazada — sólo un cargo tiene vencimiento propio para corregir
+
+#### Scenario: Un cargo ya saldado es rechazado
+
+- **GIVEN** un cargo cuyo saldo abierto es cero (cancelado por cobros/pagos o notas)
+- **WHEN** se intenta corregir su vencimiento
+- **THEN** la operación es rechazada
+
+#### Scenario: Todo cambio queda auditado
+
+- **WHEN** se corrige el vencimiento de un cargo
+- **THEN** queda una entrada de auditoría con el vencimiento anterior, el nuevo, y el motivo informado (si lo hubo)
 
 ### Requirement: El vencimiento puede fijarse explícitamente en la venta a crédito
 

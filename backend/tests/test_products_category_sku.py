@@ -299,6 +299,23 @@ class TestCreateProductSkuAndCategory:
         assert "EMP-001" in resp.json()["detail"]
 
     @pytest.mark.asyncio
+    async def test_create_duplicate_barcode_returns_409(self, async_client, mock_pool):
+        """idx_products_barcode_account_unique (task 4.5, productos-categorias-sku):
+        el índice de código de barras pasa de user_id a account_id — la
+        traducción del 23505 debe seguir el nombre nuevo del índice."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(
+            side_effect=self._side_effect(insert_raises=_unique("idx_products_barcode_account_unique"))
+        )
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products", json={"name": "Empanada", "barcode": "7791234567890"},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 409
+        assert "código de barras" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
     async def test_create_category_of_other_account_rejected(self, async_client, mock_pool):
         pool, conn = mock_pool
         conn.fetchrow = AsyncMock(side_effect=self._side_effect(category=None))

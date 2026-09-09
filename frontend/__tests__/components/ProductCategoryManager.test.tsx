@@ -16,8 +16,10 @@ const createMock = vi.fn().mockResolvedValue(undefined)
 const updateMock = vi.fn().mockResolvedValue(undefined)
 const deactivateMock = vi.fn().mockResolvedValue(undefined)
 const deleteMock = vi.fn().mockResolvedValue(undefined)
+const setDefaultMock = vi.fn().mockResolvedValue(undefined)
 let categoriesMock: ProductCategory[] = []
 let isWriterMock = true
+let defaultCategoryIdMock: string | null = null
 
 vi.mock("@/hooks/data/use-product-categories", () => ({
   useProductCategories: () => ({
@@ -34,6 +36,12 @@ vi.mock("@/hooks/data/use-product-categories", () => ({
     deactivateProductCategoryMutation: { isPending: false },
     deleteProductCategoryMutation: { isPending: false },
   }),
+  useDefaultProductCategory: () => ({
+    defaultCategoryId: defaultCategoryIdMock,
+    isLoading: false,
+    setDefaultProductCategory: setDefaultMock,
+    setDefaultProductCategoryMutation: { isPending: false },
+  }),
 }))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: isWriterMock, role: isWriterMock ? "owner" : "member", isLoading: false }) }))
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -48,6 +56,7 @@ describe("ProductCategoryManager", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     isWriterMock = true
+    defaultCategoryIdMock = null
     categoriesMock = [cat("ropa", "Ropa", 2), cat("elec", "Electrónica", 1), cat("salud", "Salud", 5, false)]
   })
 
@@ -125,5 +134,63 @@ describe("ProductCategoryManager", () => {
     const edit = within(ropa).getByRole("button", { name: /editar/i })
     expect(edit.className).toMatch(/h-11/)
     expect(edit.className).toMatch(/w-11/)
+  })
+
+  // ── categoria-default-configurable ─────────────────────────────────────────
+
+  it("marca con el badge 'Por defecto' la categoría configurada como default", () => {
+    defaultCategoryIdMock = "ropa"
+    render(<ProductCategoryManager />)
+
+    const ropa = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Ropa"))!
+    const elec = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Electrónica"))!
+    expect(within(ropa).getByText("Por defecto")).toBeInTheDocument()
+    expect(within(elec).queryByText("Por defecto")).not.toBeInTheDocument()
+  })
+
+  it("writer: usa una categoría activa como default", async () => {
+    render(<ProductCategoryManager />)
+
+    const elec = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Electrónica"))!
+    fireEvent.click(within(elec).getByRole("button", { name: /usar electrónica como categoría por defecto/i }))
+
+    await waitFor(() => expect(setDefaultMock).toHaveBeenCalledWith("elec"))
+  })
+
+  it("writer: quita el default de la categoría que lo tenía", async () => {
+    defaultCategoryIdMock = "ropa"
+    render(<ProductCategoryManager />)
+
+    const ropa = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Ropa"))!
+    fireEvent.click(within(ropa).getByRole("button", { name: /quitar ropa como categoría por defecto/i }))
+
+    await waitFor(() => expect(setDefaultMock).toHaveBeenCalledWith(null))
+  })
+
+  it("member: no ve ninguna acción de categoría por defecto", () => {
+    isWriterMock = false
+    defaultCategoryIdMock = "ropa"
+    render(<ProductCategoryManager />)
+
+    expect(screen.queryByRole("button", { name: /por defecto/i })).not.toBeInTheDocument()
+  })
+
+  it("una categoría desactivada no ofrece la acción de fijar default", () => {
+    render(<ProductCategoryManager />)
+
+    const salud = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Salud"))!
+    expect(within(salud).queryByRole("button", { name: /por defecto/i })).not.toBeInTheDocument()
+  })
+
+  it("una categoría desactivada que sigue siendo el default ofrece 'Quitar por defecto' (sin 'Usar por defecto')", async () => {
+    defaultCategoryIdMock = "salud"
+    render(<ProductCategoryManager />)
+
+    const salud = screen.getAllByRole("listitem").find((li) => li.textContent?.includes("Salud"))!
+    expect(within(salud).queryByRole("button", { name: /usar salud como categoría por defecto/i })).not.toBeInTheDocument()
+    const clearBtn = within(salud).getByRole("button", { name: /quitar salud como categoría por defecto/i })
+
+    fireEvent.click(clearBtn)
+    await waitFor(() => expect(setDefaultMock).toHaveBeenCalledWith(null))
   })
 })

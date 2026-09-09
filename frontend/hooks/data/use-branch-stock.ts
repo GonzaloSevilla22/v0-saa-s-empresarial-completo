@@ -60,6 +60,7 @@ export interface ProductBranchBreakdownRow {
   branchId:   string
   branchName: string
   quantity:   number
+  minStock:   number
 }
 
 /**
@@ -68,6 +69,10 @@ export interface ProductBranchBreakdownRow {
  * lista TODOS los productos de UNA sucursal). Leído del mismo ledger canónico
  * (branch_stock), sin recalcular nada. Alimenta la acción "Transferir stock"
  * de /stock: el usuario elige el origen viendo cuánto hay en cada sucursal.
+ *
+ * OQ-5 (mismo change): también alimenta la fila expandible del listado de
+ * /stock (ProductBranchBreakdown) — que además necesita `min_stock` por
+ * sucursal para mostrar el mismo semáforo de estado que la columna "Estado".
  */
 export function useProductBranchBreakdown(productId: string | null) {
   const { user } = useAuth()
@@ -81,18 +86,24 @@ export function useProductBranchBreakdown(productId: string | null) {
 
       const { data, error } = await supabase
         .from("branch_stock")
-        .select("branch_id, quantity, branches(name)")
+        .select("branch_id, quantity, min_stock, branches(name)")
         .eq("account_id", accountId)
         .eq("product_id", productId)
         .order("quantity", { ascending: false })
 
       if (error) throw error
       return (data ?? []).map((r) => {
-        const row = r as unknown as { branch_id: string; quantity: number; branches: { name: string } | null }
+        const row = r as unknown as {
+          branch_id: string
+          quantity: number
+          min_stock: number
+          branches: { name: string } | null
+        }
         return {
           branchId:   row.branch_id,
           branchName: row.branches?.name ?? "Sucursal",
           quantity:   row.quantity,
+          minStock:   row.min_stock,
         }
       })
     },

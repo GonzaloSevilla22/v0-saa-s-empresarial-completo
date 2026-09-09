@@ -4,7 +4,7 @@ import datetime
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from backend.schemas.common import PageOut
 
@@ -25,6 +25,11 @@ class WebhookResponse(BaseModel):
     skipped: bool | None = None
     status: str | None = None
     error: str | None = None
+    # item B (1), residuo de #526: una notificación `payment` de un cobro de
+    # suscripción (la acredita `subscription_authorized_payment`) se responde
+    # 200 con este marcador — nunca un 400 que MercadoPago reintentaría
+    # indefinidamente. Ver `services.payments.process_payment`.
+    ignored: str | None = None
 
 
 # ── Recibos de pago (#4 comprobante) ──────────────────────────────────────────
@@ -80,6 +85,9 @@ class SubscriptionOut(BaseModel):
     amount: Decimal | None = None
     currency: str
     retry_state: str
+    # item B (3), residuo (d) de mp-real-subscriptions: estado del último
+    # cobro (aprobado/rechazado/pendiente), para mostrarlo en /facturacion.
+    last_payment_status: str | None = None
 
 
 class SubscriptionCancelOut(BaseModel):
@@ -121,6 +129,37 @@ class ReplaySubscriptionChargesOut(BaseModel):
     ok: bool
     applied: list[str]
     already_applied: list[str]
+
+
+class DiscardAmbiguousSubscriptionIn(BaseModel):
+    """Descartar (residuo (b) de mp-real-subscriptions): motivo opcional,
+    en texto libre, para la traza de auditoría."""
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class DiscardAmbiguousSubscriptionOut(BaseModel):
+    id: uuid.UUID
+    status: str
+
+
+class RecentSubscriptionOut(BaseModel):
+    """Una fila de "Suscripciones recientes" (residuo (c) —
+    `GET /payments/subscriptions/recent`): suscripciones no ambiguas, para
+    disparar `replay_subscription_charges` desde el panel sin tener que
+    conocer de antemano el id de la suscripción. `account_id`/`account_name`
+    pueden ser `None` — una fila descartada (`discard_ambiguous_subscription`)
+    sigue sin cuenta asignada."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    plan: str
+    status: str
+    account_id: uuid.UUID | None = None
+    account_name: str | None = None
+    next_payment_date: datetime.datetime | None = None
+    last_payment_status: str | None = None
+    retry_state: str
+    updated_at: datetime.datetime
 
 
 class AccountSearchResultOut(BaseModel):

@@ -332,3 +332,33 @@ El texto del aviso SHALL seguir sin ocultar el error original cuando no lo recon
 - **WHEN** el usuario intenta registrarla
 - **THEN** el aviso muestra el mensaje original sin ocultarlo y sin ofrecer la acción de transferir
 
+### Requirement: Desglose por sucursal en el listado de stock
+
+El sistema SHALL mostrar, en el listado principal de `/stock`, el total agregado de cada producto y permitir desplegar por fila las existencias de cada sucursal con su cantidad, su mínimo y su estado, leídas del ledger canónico (`branch_stock`), sin recalcular el predicado de criticidad.
+
+Cierra OQ-5 de `sucursal-guard-vaciado-auditoria`: el listado sólo mostraba el agregado del catálogo (`SUM(branch_stock.quantity)`), lo mismo que hizo invisible el incidente del 22-08 (una sucursal se vació sin que nadie viera qué se estaba perdiendo en esa sucursal en particular). El despliegue es opcional por fila (colapsado por defecto) y se monta perezosamente — la consulta del desglose de una fila no corre hasta que el usuario la despliega.
+
+#### Scenario: El listado muestra el total y ofrece desplegar el desglose
+
+- **GIVEN** un producto con existencias en dos sucursales
+- **WHEN** un usuario abre el listado de `/stock`
+- **THEN** la fila del producto muestra el total agregado y ofrece una acción para desplegar el desglose por sucursal
+
+#### Scenario: Desplegar una fila muestra cantidad, mínimo y estado por sucursal
+
+- **GIVEN** un producto con 2 unidades y `min_stock = 5` en la sucursal A, y 40 unidades y `min_stock = 5` en la sucursal B
+- **WHEN** el usuario despliega el desglose de ese producto
+- **THEN** ve ambas sucursales con su cantidad y su mínimo, la sucursal A con estado "Crítico" y la sucursal B con estado "OK", usando el mismo semáforo que la columna "Estado" del listado
+
+#### Scenario: Una sucursal sin umbral configurado nunca se muestra "Crítico"
+
+- **GIVEN** una fila `branch_stock` con `min_stock = 0`
+- **WHEN** el usuario despliega el desglose del producto
+- **THEN** esa sucursal se muestra "Sin mínimo", nunca "Crítico" (mismo predicado canónico de `lib/product-stock.ts`, `min_stock <= 0` = sin umbral)
+
+#### Scenario: El desglose no se consulta hasta que la fila se despliega
+
+- **GIVEN** un listado con productos sin ninguna fila desplegada
+- **WHEN** la página termina de renderizar
+- **THEN** no se dispara ninguna consulta de desglose por sucursal para esos productos; sólo se dispara al desplegar una fila puntual
+

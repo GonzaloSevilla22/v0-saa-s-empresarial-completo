@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import json
 import logging
+import urllib.parse
+import uuid
 
 import asyncpg
 import httpx
@@ -29,7 +32,18 @@ PAID_PLANS = ("inicial", "avanzado", "pro")
 # ── D2bis: el init_point de un preapproval_plan es determinístico a partir
 # de su id — verificado en sandbox 2026-08-01 (task 2.2). Nunca se llama a
 # la API de MP para obtenerlo: es una URL construida.
-_MP_PLAN_CHECKOUT_URL = "https://www.mercadopago.com.ar/subscriptions/checkout?preapproval_plan_id={plan_id}"
+#
+# item B (2), residuo (a) de mp-real-subscriptions: además del plan, la URL
+# lleva `external_reference=<intent_id>` — la intención pre-registrada que
+# `create_subscription_intent` ya persistió ANTES de devolver esta URL. Si
+# MercadoPago la propaga intacta al preapproval, la reconciliación
+# (`process_subscription_preapproval_notification`) la usa para un match
+# determinístico, antes que el email del pagador (que puede no coincidir
+# con el de la cuenta que inició el alta — caso real: Daniel). NO
+# verificado en sandbox que MP siempre la propague del link del plan al
+# preapproval — por eso el camino por email se conserva intacto como
+# fallback (ver esa función).
+_MP_PLAN_CHECKOUT_URL = "https://www.mercadopago.com.ar/subscriptions/checkout"
 
 
 def _plan_id_for_tier(plan: str) -> str | None:
@@ -120,8 +134,13 @@ async def create_subscription_intent(
     # (D2bis, ventana 24h) sin haber comprometido nada más.
     row = await repo.create_intent(account_id, payer_email, plan, plan_id)
 
+    # item B (2): external_reference=<intent_id> — ver docstring de
+    # _MP_PLAN_CHECKOUT_URL.
+    checkout_params = urllib.parse.urlencode(
+        {"preapproval_plan_id": plan_id, "external_reference": str(row["id"])}
+    )
     return SubscriptionCreateOut(
-        init_point=_MP_PLAN_CHECKOUT_URL.format(plan_id=plan_id),
+        init_point=f"{_MP_PLAN_CHECKOUT_URL}?{checkout_params}",
         intent_id=row["id"],
         plan=plan,
         expires_at=row["expires_at"],
@@ -469,6 +488,12 @@ async def process_subscription_preapproval_notification(
     status = data.get("status")
     payer_email = (data.get("payer_email") or "").strip().lower()
     preapproval_plan_id = data.get("preapproval_plan_id") or ""
+    # item B (2), residuo (a) de mp-real-subscriptions: referencia externa
+    # que create_subscription_intent puso en la URL de checkout (ver su
+    # docstring). Puede faltar (checkouts previos a este fix) o no matchear
+    # ninguna intención (vencida, o de otro plan) — en ambos casos se cae
+    # al camino por email, sin cambios.
+    ext_ref = (data.get("external_reference") or "").strip()
 
     idem_key = f"preapproval:{preapproval_id}:{status}"
     if not await _claim_subscription_webhook_idempotency(conn, idem_key):
@@ -478,16 +503,38 @@ async def process_subscription_preapproval_notification(
 
     if existing is None:
         # Primera vez que vemos este preapproval — reconciliación D2bis.
-        candidates = await repo.find_pending_intents(payer_email, preapproval_plan_id)
+        intent = None
+        try:
+            ext_ref_uuid = uuid.UUID(ext_ref) if ext_ref else None
+        except ValueError:
+            ext_ref_uuid = None
 
-        if len(candidates) == 1:
-            intent = candidates[0]
+        if ext_ref_uuid is not None:
+            intent = await repo.find_pending_intent_by_id(str(ext_ref_uuid), preapproval_plan_id)
+            if intent is None:
+                logger.info(
+                    "[subscriptions] preapproval %s: external_reference %s no matchea "
+                    "ninguna intención pendiente (vencida o de otro plan) — cae al camino "
+                    "por email",
+                    preapproval_id, ext_ref,
+                )
+
+        candidates: list = []
+        if intent is None:
+            # Camino por email (D2bis original) — fallback cuando no hubo
+            # match determinístico por external_reference.
+            candidates = await repo.find_pending_intents(payer_email, preapproval_plan_id)
+            if len(candidates) == 1:
+                intent = candidates[0]
+
+        if intent is not None:
             sub = await repo.create_subscription(
                 account_id=intent["account_id"],
                 preapproval_id=preapproval_id,
                 preapproval_plan_id=preapproval_plan_id,
                 plan=intent["plan"],
                 status=status,
+                external_reference=ext_ref or None,
             )
             if sub:
                 await repo.mark_intent_matched(intent["id"], sub["id"])
@@ -541,8 +588,35 @@ async def process_subscription_preapproval_notification(
             plan=tier,
             status="ambiguous",
             ambiguous_reason=reason,
+            # F3 fix (revisor adversarial tanda6): la fila ambigua es
+            # justo la que más necesita external_reference (apunta a la
+            # cuenta que inició el checkout) — antes de este fix solo la
+            # rama matcheada la persistía, dejando a la cola de
+            # conciliación manual sin la única pista determinística
+            # disponible.
+            external_reference=ext_ref or None,
         )
         return {"ok": True, "ambiguous": reason}
+
+    # Cola de ambiguos — Descartar (residuo (b) de mp-real-subscriptions):
+    # una fila descartada queda `status='cancelled'`, `account_id IS NULL`
+    # (`discard_ambiguous_subscription`). Si MercadoPago vuelve a notificar
+    # el MISMO preapproval con un estado "vivo" (no cancelado) — resurrección
+    # tras el descarte — el UPDATE de abajo la dejaría con `status=<nuevo>`
+    # y `account_id` TODAVÍA NULL: una fila inconsistente e invisible
+    # (`list_ambiguous_subscriptions` solo lista `status='ambiguous'`, y
+    # nada la vincularía jamás a una cuenta). Vuelve a la cola de ambiguos
+    # en vez de resucitar sin cuenta. Si MP repite la MISMA cancelación
+    # (status sigue 'cancelled'), no hay nada que reabrir — sigue de largo.
+    if existing["account_id"] is None and existing["status"] == "cancelled" and status != "cancelled":
+        logger.warning(
+            "[subscriptions] preapproval %s fue descartado (cancelled sin cuenta) y "
+            "MercadoPago lo volvió a notificar como %s — vuelve a la cola de ambiguos en "
+            "vez de resucitar sin cuenta asignada.",
+            preapproval_id, status,
+        )
+        await repo.reopen_as_ambiguous(preapproval_id, "no_match")
+        return {"ok": True, "ambiguous": "no_match"}
 
     # Ya existe la fila (reconciliada o ambigua previamente) — solo estado.
     await repo.update_subscription_status(preapproval_id, status)
@@ -670,18 +744,34 @@ async def process_subscription_authorized_payment_notification(
         # fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1 cobró $24.900 mientras
         # ambigua y esos datos se perdieron para siempre porque nada los
         # guardaba junto con el discriminador del pago.
-        await repo.update_subscription_status(
-            preapproval_id,
-            "authorized",
-            next_payment_date=next_payment_date,
-            retry_state="none",
-            last_payment_status="approved",
-            amount=amount,
-            pending_authorized_payment_id=None if has_account else authorized_payment_id,
-            pending_mercadopago_payment_id=None if has_account else mercadopago_payment_id,
-        )
-
+        #
+        # F2 fix (revisor adversarial tanda6): una fila SIN cuenta jamás
+        # queda con status='authorized' — antes de este fix, el UPDATE de
+        # abajo forzaba 'authorized' incondicionalmente, incluso sobre una
+        # fila YA DESCARTADA (status='cancelled', ambiguous_reason=NULL):
+        # el CHECK (status='ambiguous') = (ambiguous_reason IS NOT NULL) lo
+        # permitía en silencio (false=false) y la fila quedaba
+        # 'authorized' con account_id NULL — invisible para
+        # list_ambiguous_subscriptions (filtra status='ambiguous'),
+        # rechazada por replay_subscription_charges (409 por no tener
+        # cuenta) y sin ningún dato que resolve_ambiguous_subscription
+        # pudiera consumir (exige status='ambiguous'). Dinero acreditado en
+        # MercadoPago, sin billing_events, sin plan activado y sin ninguna
+        # superficie de operador. Mismo invariante que el guard de
+        # resurrección del topic subscription_preapproval (ver más arriba):
+        # reopen_as_ambiguous + persistir el cobro pendiente, sin tocar
+        # status a 'authorized'.
         if has_account:
+            await repo.update_subscription_status(
+                preapproval_id,
+                "authorized",
+                next_payment_date=next_payment_date,
+                retry_state="none",
+                last_payment_status="approved",
+                amount=amount,
+                pending_authorized_payment_id=None,
+                pending_mercadopago_payment_id=None,
+            )
             await _apply_approved_charge(
                 conn,
                 account_id=subscription["account_id"],
@@ -691,6 +781,18 @@ async def process_subscription_authorized_payment_notification(
                 mercadopago_payment_id=mercadopago_payment_id,
                 amount=amount,
                 plan_expires_at=plan_expires_at,
+            )
+        else:
+            await repo.reopen_as_ambiguous(preapproval_id, "no_match")
+            await repo.update_subscription_status(
+                preapproval_id,
+                "ambiguous",
+                next_payment_date=next_payment_date,
+                retry_state="none",
+                last_payment_status="approved",
+                amount=amount,
+                pending_authorized_payment_id=authorized_payment_id,
+                pending_mercadopago_payment_id=mercadopago_payment_id,
             )
         return {"ok": True, "credited": True}
 
@@ -840,10 +942,15 @@ async def replay_subscription_charges(
     # llega como lista pelada.
     cuotas = payments_data.get("results") if isinstance(payments_data, dict) else payments_data
     cuotas = cuotas or []
-    # orden cronológico (id de MP monotónico) — importa porque
-    # accounts.plan_expires_at queda con el valor de la ÚLTIMA cuota
-    # aplicada; aplicar fuera de orden dejaría un vencimiento viejo pisando
-    # uno más nuevo.
+    # NIT (revisor adversarial tanda6, F9): el orden real es por id de
+    # MercadoPago (monótono creciente), NO "cronológico"/"por fecha" como
+    # decía este comentario antes — el try/except de abajo es la verdad
+    # completa: si algún id no es numérico (p.ej. ids sintéticos de test),
+    # la lista queda tal cual la devolvió MercadoPago, sin ordenar. Importa
+    # para `accounts.plan_expires_at` (queda con el valor de la ÚLTIMA cuota
+    # aplicada) y para `last_payment_status` (deriva de la ÚLTIMA cuota por
+    # este mismo criterio, ver más abajo) — aplicar/derivar fuera de orden
+    # dejaría un valor viejo pisando uno más nuevo.
     try:
         cuotas = sorted(cuotas, key=lambda c: int(c.get("id")))
     except (TypeError, ValueError):
@@ -887,6 +994,31 @@ async def replay_subscription_charges(
         else:
             applied.append(authorized_payment_id)
 
+    # item B (3), residuo (d) de mp-real-subscriptions: last_payment_status
+    # derivado de la ÚLTIMA cuota que representó un intento de cobro REAL
+    # (cuotas ya vienen ordenadas por id de MP arriba, ver NIT F9 en esa
+    # sección) — misma regla que el webhook de cuotas
+    # (process_subscription_authorized_payment_notification): aprobado si
+    # processed+approved, si no el status del pago con reserva en el de la
+    # cuota. None si no hubo ninguna cuota — update_subscription_status ya
+    # hace COALESCE, así que no pisa un valor previo.
+    #
+    # F1 fix (revisor adversarial tanda6): una cuota `scheduled` (cobro
+    # futuro, todavía no ocurrido) NUNCA representa el "último cobro" — se
+    # excluye ANTES de tomar la última. Antes de este fix, una cuota
+    # scheduled al final de la lista (orden por id ascendente) pisaba un
+    # 'approved' correcto con 'scheduled', mostrado sin traducir en
+    # /facturacion ("Último cobro: scheduled").
+    last_payment_status: str | None = None
+    charged = [c for c in cuotas if c.get("status") != "scheduled"]
+    if charged:
+        latest_cuota = charged[-1]
+        latest_payment = latest_cuota.get("payment") or {}
+        if latest_cuota.get("status") == "processed" and latest_payment.get("status") == "approved":
+            last_payment_status = "approved"
+        else:
+            last_payment_status = latest_payment.get("status") or latest_cuota.get("status")
+
     # trae el estado/vencimiento LOCAL de subscriptions al día con la verdad
     # vigente de MP, independientemente de si hubo alguna cuota para replicar.
     mp_status = preapproval_data.get("status") if isinstance(preapproval_data, dict) else None
@@ -895,6 +1027,7 @@ async def replay_subscription_charges(
             preapproval_id,
             mp_status,
             next_payment_date=_parse_mp_datetime(preapproval_data.get("next_payment_date")),
+            last_payment_status=last_payment_status,
         )
 
     # cualquier cuota processed/approved encontrada (nueva o ya aplicada)
@@ -904,3 +1037,85 @@ async def replay_subscription_charges(
         await repo.clear_pending_charge(preapproval_id)
 
     return {"ok": True, "applied": applied, "already_applied": already_applied}
+
+
+# ── Cola de ambiguos — Descartar (residuo (b) de mp-real-subscriptions,
+#    CHANGES.md "Hotfixes post-archive #511-#517") ──────────────────────────
+
+async def discard_ambiguous_subscription(
+    subscription_id: str,
+    admin_user_id: str,
+    reason: str | None,
+    repo: SubscriptionsRepository,
+    conn: asyncpg.Connection,
+) -> dict:
+    """Un admin descarta una fila `ambiguous` sin ninguna cuenta legítima
+    que la reclame (caso real: subscriptions.id
+    caeaa3a1-42b2-44bf-b938-ce20452160ff, preapproval Pro
+    7ccbebe4..., cancelado en MercadoPago).
+
+    A diferencia de `resolve_ambiguous_subscription` (asigna una cuenta y
+    activa un plan de verdad), descartar NUNCA toca `accounts`,
+    `billing_events` ni MercadoPago — solo saca la fila de la cola visible
+    (`status='cancelled'`, `account_id` se queda NULL) y deja traza en
+    `audit_logs`. El `ambiguous_reason` previo a la fila se conserva en la
+    auditoría (la columna en `subscriptions` queda NULL, como cualquier
+    otra fila `cancelled`).
+
+    F4 fix (revisor adversarial tanda6): el UPDATE del descarte y el INSERT
+    de auditoría corren en la MISMA conexión (`get_service_conn` cacheada
+    por request) pero, antes de este fix, sin ninguna transacción explícita
+    — asyncpg en autocommit, dos escrituras independientes. El UPDATE es
+    destructivo e irreversible por diseño (`ambiguous_reason` previo solo
+    sobrevive en el jsonb de auditoría), así que un fallo del INSERT (FK de
+    user_id, hipo de conexión) perdía ese dato para siempre y el admin
+    recibía un 500 creyendo que no había pasado nada. Ahora ambas
+    escrituras (y el 404 si no hay nada que descartar) corren dentro de
+    `async with conn.transaction():` — o las dos, o ninguna."""
+    async with conn.transaction():
+        discarded = await repo.discard_ambiguous_subscription(subscription_id)
+        if discarded is None:
+            raise HTTPException(
+                status_code=404, detail="No hay una suscripción ambigua con ese id (o ya fue resuelta)"
+            )
+
+        metadata = {
+            "reason": reason,
+            "ambiguous_reason_before": discarded["ambiguous_reason_before"],
+            "preapproval_id": discarded["preapproval_id"],
+            "preapproval_plan_id": discarded["preapproval_plan_id"],
+            "plan": discarded["plan"],
+            "amount": float(discarded["amount"]) if discarded["amount"] is not None else None,
+            "pending_authorized_payment_id": discarded["pending_authorized_payment_id"],
+            "pending_mercadopago_payment_id": discarded["pending_mercadopago_payment_id"],
+        }
+        # get_service_conn (postgres, BYPASSRLS) — mismo criterio que el
+        # resto de payments.py: audit_logs no tiene policy de INSERT para
+        # `authenticated` (v31-tenancy-pool-rls Paso 2 ya está ON en prod),
+        # así que este INSERT directo desde Python solo es seguro en el
+        # camino de servicio, nunca sobre una conexión que haya adoptado
+        # ese rol.
+        await conn.execute(
+            """
+            INSERT INTO public.audit_logs (user_id, account_id, action, entity_type, entity_id, metadata)
+            VALUES ($1::uuid, NULL, 'subscription.ambiguous_discarded', 'subscription', $2::uuid, $3::jsonb)
+            """,
+            admin_user_id,
+            discarded["id"],
+            json.dumps(metadata),
+        )
+    return {"id": discarded["id"], "status": "cancelled"}
+
+
+# ── "Suscripciones recientes" (residuo (c) — botón Replicar cuotas) ─────────
+
+async def list_recent_subscriptions(limit: int, repo: SubscriptionsRepository) -> list[dict]:
+    """Suscripciones no ambiguas, más recientes primero — alimenta la
+    sección "Suscripciones recientes" del panel admin, de donde sale la
+    acción "Replicar cuotas" (`replay_subscription_charges`, ya
+    existente). Convierte a `dict` en el borde (mismo patrón que
+    `list_ambiguous_subscriptions`/`search_accounts`): `asyncpg.Record` no
+    soporta `getattr()`, que es lo que usa un modelo Pydantic
+    `from_attributes=True` cuando el valor no es un dict/Mapping."""
+    rows = await repo.list_recent_subscriptions(limit)
+    return [dict(r) for r in rows]

@@ -151,6 +151,31 @@ async def _fetch_mp_payment(payment_id: str) -> dict | None:
     return resp.json()
 
 
+def _subscription_charge_marker(payment_data: dict) -> str | None:
+    """item B (1), residuo de #526: MercadoPago manda DOS notificaciones
+    para cada cobro de suscripción — `subscription_authorized_payment` (que
+    acredita el dinero, ver
+    `services.subscriptions.process_subscription_authorized_payment_notification`)
+    y esta misma `payment`, que nunca trae un `external_reference` con el
+    formato `user_id::plan` del checkout one-shot (caso real: pago
+    177298997676, reintentado por MercadoPago hasta 2026-09-07 porque
+    `process_payment` la rechazaba con 400 en un bucle sin salida).
+
+    Detecta esa situación desde campos que la API de pagos de MercadoPago
+    expone para eso — primero que aplique, en este orden. Devuelve el
+    nombre del campo usado (para el log), o `None` si ninguno aplica (un
+    pago del checkout one-shot corriente)."""
+    if payment_data.get("operation_type") == "recurring_payment":
+        return "operation_type"
+    poi_type = (payment_data.get("point_of_interaction") or {}).get("type")
+    if poi_type == "SUBSCRIPTIONS":
+        return "point_of_interaction"
+    preapproval_id = (payment_data.get("metadata") or {}).get("preapproval_id")
+    if preapproval_id:
+        return "metadata.preapproval_id"
+    return None
+
+
 async def process_payment(
     payment_id: str,
     conn: asyncpg.Connection,
@@ -177,9 +202,22 @@ async def process_payment(
     if payment_data.get("status") != "approved":
         return WebhookResponse(ok=True, status=payment_data.get("status"))
 
+    # item B (1): ver _subscription_charge_marker — se calcula ANTES del
+    # 400 de abajo, se usa solo si external_reference resulta inválido.
+    marker = _subscription_charge_marker(payment_data)
+
     external_ref = payment_data.get("external_reference") or ""
     parts = external_ref.split("::")
-    if len(parts) != 2 or not parts[0] or parts[1] not in PLAN_HIERARCHY:
+    external_ref_valid = len(parts) == 2 and bool(parts[0]) and parts[1] in PLAN_HIERARCHY
+
+    if not external_ref_valid:
+        if marker:
+            logger.info(
+                "[payments] notificación payment %s de cobro de suscripción ignorada "
+                "(marker=%s): la acredita el topic subscription_authorized_payment",
+                payment_id, marker,
+            )
+            return WebhookResponse(ok=True, ignored="subscription_charge")
         logger.error("[payments] Invalid external_reference: %s", external_ref)
         raise HTTPException(status_code=400, detail="external_reference inválido")
 

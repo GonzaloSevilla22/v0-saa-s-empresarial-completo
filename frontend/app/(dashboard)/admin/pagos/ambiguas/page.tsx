@@ -25,16 +25,26 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, ShieldAlert } from "lucide-react"
+import { toast } from "sonner"
+import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, RotateCw, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { AccountSearchCombobox } from "@/components/billing/AccountSearchCombobox"
 import {
   useAmbiguousSubscriptions,
+  useRecentSubscriptions,
   type AccountSearchResult,
+  type RecentSubscription,
 } from "@/hooks/data/use-ambiguous-subscriptions"
 
 const PLAN_LABELS: Record<string, string> = {
@@ -44,6 +54,13 @@ const PLAN_LABELS: Record<string, string> = {
 const AMBIGUOUS_REASON_LABELS: Record<string, string> = {
   no_match: "Sin cuenta candidata",
   multiple_match: "Varias cuentas candidatas",
+}
+
+const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendiente",
+  authorized: "Activa",
+  paused: "Pausada",
+  cancelled: "Cancelada",
 }
 
 function formatAmount(amount: number | null, currency: string): string {
@@ -100,13 +117,15 @@ export default function SuscripcionesAmbiguasPage() {
 
 function AmbiguousQueueContent() {
   const {
-    data, isLoading, isError, error, resolveSubscription,
+    data, isLoading, isError, error, resolveSubscription, discardSubscription,
   } = useAmbiguousSubscriptions()
 
   const [selectedAccounts, setSelectedAccounts] = useState<Record<string, AccountSearchResult | null>>({})
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
+  const [discardReasons, setDiscardReasons] = useState<Record<string, string>>({})
+  const [discardingId, setDiscardingId] = useState<string | null>(null)
 
   const handleAssign = useCallback(async (subscriptionId: string) => {
     const account = selectedAccounts[subscriptionId]
@@ -132,6 +151,24 @@ function AmbiguousQueueContent() {
       setResolvingId(null)
     }
   }, [selectedAccounts, resolveSubscription])
+
+  const handleDiscard = useCallback(async (subscriptionId: string) => {
+    setDiscardingId(subscriptionId)
+    try {
+      const reason = discardReasons[subscriptionId]?.trim()
+      await discardSubscription({ subscriptionId, reason: reason ? reason : undefined })
+      toast.success("Suscripción descartada de la cola.")
+      setDiscardReasons((prev) => {
+        const next = { ...prev }
+        delete next[subscriptionId]
+        return next
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo descartar la suscripción.")
+    } finally {
+      setDiscardingId(null)
+    }
+  }, [discardReasons, discardSubscription])
 
   return (
     <div className="container mx-auto p-6 max-w-6xl pb-20">
@@ -228,15 +265,71 @@ function AmbiguousQueueContent() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        size="sm"
-                        onClick={() => handleAssign(sub.id)}
-                        disabled={!selected || isResolving}
-                        aria-label={`Asignar suscripción ${sub.preapprovalId} a la cuenta seleccionada`}
-                      >
-                        {isResolving && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-                        Asignar
-                      </Button>
+                      <div className="flex items-center justify-end gap-2 flex-wrap">
+                        <Button
+                          size="sm"
+                          onClick={() => handleAssign(sub.id)}
+                          disabled={!selected || isResolving}
+                          aria-label={`Asignar suscripción ${sub.preapprovalId} a la cuenta seleccionada`}
+                        >
+                          {isResolving && <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+                          Asignar
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive hover:bg-destructive/10"
+                              disabled={isResolving || discardingId === sub.id}
+                              aria-label={`Descartar suscripción ${sub.preapprovalId}`}
+                            >
+                              {discardingId === sub.id && (
+                                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                              )}
+                              Descartar
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>¿Descartar esta suscripción ambigua?</AlertDialogTitle>
+                              <AlertDialogDescription asChild>
+                                <div className="space-y-3 text-sm text-muted-foreground">
+                                  <p>
+                                    Sale de esta cola sin asignar ninguna cuenta — nunca toca el
+                                    dinero ya acreditado en MercadoPago. Usalo cuando no hay
+                                    ninguna cuenta legítima que la reclame.
+                                  </p>
+                                  <div className="space-y-1.5">
+                                    <Label htmlFor={`discard-reason-${sub.id}`} className="text-foreground">
+                                      Motivo (opcional)
+                                    </Label>
+                                    <Textarea
+                                      id={`discard-reason-${sub.id}`}
+                                      value={discardReasons[sub.id] ?? ""}
+                                      onChange={(e) =>
+                                        setDiscardReasons((prev) => ({ ...prev, [sub.id]: e.target.value }))
+                                      }
+                                      maxLength={200}
+                                      placeholder="Ej: preapproval cancelado en MercadoPago, sin cuenta legítima"
+                                      className="min-h-16"
+                                    />
+                                  </div>
+                                </div>
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Volver</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDiscard(sub.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Descartar
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )
@@ -245,6 +338,146 @@ function AmbiguousQueueContent() {
           </Table>
         </div>
       )}
+
+      <RecentSubscriptionsSection />
     </div>
+  )
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-AR", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+  })
+}
+
+/**
+ * "Suscripciones recientes" (residuo (c) de mp-real-subscriptions): lista
+ * suscripciones YA resueltas/activas y dispara "Replicar cuotas"
+ * (`POST /payments/subscriptions/{id}/replay-charges`, endpoint admin ya
+ * existente desde el hotfix H3) sin que el admin tenga que conocer de
+ * antemano el id de la suscripción.
+ */
+function RecentSubscriptionsSection() {
+  const { data, isLoading, isError, replaySubscriptionCharges } = useRecentSubscriptions(20)
+  const [replayingId, setReplayingId] = useState<string | null>(null)
+
+  const handleReplay = useCallback(async (subscriptionId: string) => {
+    setReplayingId(subscriptionId)
+    try {
+      const result = await replaySubscriptionCharges(subscriptionId)
+      const appliedCount = result.applied.length
+      const alreadyCount = result.alreadyApplied.length
+      if (appliedCount === 0 && alreadyCount === 0) {
+        toast.success("No había ninguna cuota para replicar.")
+      } else {
+        toast.success(
+          `${appliedCount} cuota(s) aplicada(s), ${alreadyCount} ya estaban aplicadas.`,
+        )
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudieron replicar las cuotas.")
+    } finally {
+      setReplayingId(null)
+    }
+  }, [replaySubscriptionCharges])
+
+  return (
+    <section className="mt-10">
+      <h2 className="text-xl font-semibold text-foreground tracking-tight mb-2">
+        Suscripciones recientes
+      </h2>
+      <p className="text-muted-foreground text-sm mb-6">
+        Suscripciones ya resueltas o activas. &quot;Replicar cuotas&quot; consulta MercadoPago y
+        vuelve a aplicar cada cuota aprobada — es idempotente, sirve para completar un cobro
+        que quedó a medio aplicar.
+      </p>
+
+      {isError ? (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden="true" />
+          No se pudieron cargar las suscripciones recientes.
+        </div>
+      ) : isLoading ? (
+        <div className="flex items-center justify-center gap-2 text-muted-foreground text-sm py-16">
+          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+          Cargando suscripciones recientes...
+        </div>
+      ) : !data || data.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-center rounded-2xl border border-border bg-card">
+          <p className="text-muted-foreground text-sm">No hay suscripciones recientes todavía.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-border bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Plan</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Cuenta</TableHead>
+                <TableHead>Próximo cobro</TableHead>
+                <TableHead className="text-right">Acción</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((sub: RecentSubscription) => {
+                const isReplaying = replayingId === sub.id
+                const accountLabel = sub.accountName ?? (sub.accountId ? sub.accountId : "Sin cuenta")
+                return (
+                  <TableRow key={sub.id}>
+                    <TableCell>{PLAN_LABELS[sub.plan] ?? sub.plan}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">
+                        {SUBSCRIPTION_STATUS_LABELS[sub.status] ?? sub.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-foreground">{accountLabel}</TableCell>
+                    <TableCell className="text-muted-foreground whitespace-nowrap">
+                      {sub.nextPaymentDate ? formatDateTime(sub.nextPaymentDate) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={isReplaying}
+                            aria-label={`Replicar cuotas de la suscripción ${sub.plan} de ${accountLabel}`}
+                          >
+                            {isReplaying ? (
+                              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : (
+                              <RotateCw className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            Replicar cuotas
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>¿Replicar cuotas de esta suscripción?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Consulta MercadoPago y vuelve a aplicar cada cuota aprobada; es
+                              idempotente — no duplica nada si ya se había aplicado.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleReplay(sub.id)}>
+                              Replicar
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </section>
   )
 }

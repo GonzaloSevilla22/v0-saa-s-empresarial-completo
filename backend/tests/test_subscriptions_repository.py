@@ -77,6 +77,36 @@ class TestFindPendingIntents:
         assert args[1] == "buyer@example.com"
 
 
+class TestFindPendingIntentById:
+    @pytest.mark.asyncio
+    async def test_finds_by_id_and_plan_pending_not_expired(self, subs_repo):
+        """RED (item B (2), residuo (a) de mp-real-subscriptions): match
+        determinístico por external_reference — mismo WHERE que
+        find_pending_intents pero por id en vez de payer_email."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value={"id": INTENT_ID, "account_id": ACCOUNT_ID})
+
+        result = await repo.find_pending_intent_by_id(INTENT_ID, PLAN_ID)
+
+        assert result is not None
+        sql, *args = conn.fetchrow.call_args.args
+        assert "status = 'pending'" in sql
+        assert "expires_at > now()" in sql
+        assert "WHERE id = $1" in sql
+        assert args == [INTENT_ID, PLAN_ID]
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_expired_or_wrong_plan(self, subs_repo):
+        """TRIANGULATE: una intención vencida (o de otro preapproval_plan_id)
+        no matchea — el caller cae al camino por email."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.find_pending_intent_by_id(INTENT_ID, PLAN_ID)
+
+        assert result is None
+
+
 class TestMarkIntentMatched:
     @pytest.mark.asyncio
     async def test_mark_matched_only_touches_pending_rows(self, subs_repo):
@@ -114,6 +144,18 @@ class TestFindLiveSubscription:
         assert result is None
         sql = conn.fetchrow.call_args.args[0]
         assert "status IN ('pending', 'authorized')" in sql
+
+    @pytest.mark.asyncio
+    async def test_selects_last_payment_status(self, subs_repo):
+        """RED (item B (3), residuo (d)): last_payment_status viaja a
+        /facturacion — antes faltaba en el SELECT."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        await repo.find_live_subscription(ACCOUNT_ID)
+
+        sql = conn.fetchrow.call_args.args[0]
+        assert "last_payment_status" in sql
 
 
 class TestCreateSubscription:
@@ -412,3 +454,119 @@ class TestCorrectSubscriptionPlan:
         assert "SET plan = $2" in sql
         assert "WHERE id = $1" in sql
         assert args == [SUBSCRIPTION_ID, "inicial"]
+
+
+# ── Descartar (residuo (b) de mp-real-subscriptions) ────────────────────────
+
+class TestDiscardAmbiguousSubscription:
+    @pytest.mark.asyncio
+    async def test_discard_only_touches_still_ambiguous_rows_without_account(self, subs_repo):
+        """RED: solo afecta filas que sigan `status='ambiguous' AND
+        account_id IS NULL` — no reasigna/reescribe una fila ya resuelta o
+        ya descartada."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                "preapproval_plan_id": PLAN_ID, "plan": "pro", "amount": None,
+                "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+                "ambiguous_reason_before": "no_match",
+            }
+        )
+
+        result = await repo.discard_ambiguous_subscription(SUBSCRIPTION_ID)
+
+        assert result is not None
+        sql = conn.fetchrow.call_args.args[0]
+        assert "status = 'ambiguous' AND account_id IS NULL" in sql
+        assert "SET status = 'cancelled', ambiguous_reason = NULL" in sql
+        # F5 (revisor adversarial tanda6): el predicado se re-assertea en el
+        # WHERE del UPDATE (no solo en la CTE `prev`, que se evalúa contra
+        # el snapshot del inicio de la sentencia) — sin esto, una carrera
+        # con resolve_ambiguous_subscription commiteando entre medio deja
+        # pasar el descarte igual sobre una fila ya resuelta.
+        assert "WHERE s.id = prev.id AND s.status = 'ambiguous' AND s.account_id IS NULL" in sql
+
+    @pytest.mark.asyncio
+    async def test_discard_returns_none_when_nothing_to_discard(self, subs_repo):
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.discard_ambiguous_subscription(SUBSCRIPTION_ID)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_discard_returns_the_ambiguous_reason_from_before_the_update(self, subs_repo):
+        """El motivo previo (no_match/multiple_match) se captura ANTES del
+        UPDATE — después de descartar, la columna real queda NULL."""
+        repo, conn = subs_repo
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                "preapproval_plan_id": PLAN_ID, "plan": "pro", "amount": None,
+                "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+                "ambiguous_reason_before": "multiple_match",
+            }
+        )
+
+        result = await repo.discard_ambiguous_subscription(SUBSCRIPTION_ID)
+
+        assert result["ambiguous_reason_before"] == "multiple_match"
+        sql = conn.fetchrow.call_args.args[0]
+        assert "ambiguous_reason_before" in sql
+
+
+class TestReopenAsAmbiguous:
+    @pytest.mark.asyncio
+    async def test_reopen_sets_status_ambiguous_with_reason(self, subs_repo):
+        """RED: resurrección tras un descarte — vuelve a `status='ambiguous'`
+        con el motivo dado, sólo si la fila sigue sin cuenta."""
+        repo, conn = subs_repo
+        conn.execute = AsyncMock(return_value="UPDATE 1")
+
+        result = await repo.reopen_as_ambiguous(PREAPPROVAL_ID, "no_match")
+
+        assert result is True
+        sql, *args = conn.execute.call_args.args
+        assert "SET status = 'ambiguous', ambiguous_reason = $2" in sql
+        assert "WHERE preapproval_id = $1 AND account_id IS NULL" in sql
+        assert args == [PREAPPROVAL_ID, "no_match"]
+
+    @pytest.mark.asyncio
+    async def test_reopen_returns_false_when_no_row_affected(self, subs_repo):
+        """TRIANGULATE: una fila que YA tiene cuenta asignada (o que no
+        existe) no se reabre — 0 filas afectadas."""
+        repo, conn = subs_repo
+        conn.execute = AsyncMock(return_value="UPDATE 0")
+
+        result = await repo.reopen_as_ambiguous(PREAPPROVAL_ID, "no_match")
+
+        assert result is False
+
+
+class TestListRecentSubscriptions:
+    @pytest.mark.asyncio
+    async def test_excludes_ambiguous_orders_by_updated_at_desc(self, subs_repo):
+        repo, conn = subs_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_recent_subscriptions(20)
+
+        sql, *args = conn.fetch.call_args.args
+        assert "WHERE s.status <> 'ambiguous'" in sql
+        assert "ORDER BY s.updated_at DESC" in sql
+        assert args == [20]
+
+    @pytest.mark.asyncio
+    async def test_derives_account_name_from_owner(self, subs_repo):
+        """`accounts` no tiene nombre de negocio propio — se deriva del
+        owner (mismo criterio que `BillingRepository.search_accounts`)."""
+        repo, conn = subs_repo
+        conn.fetch = AsyncMock(return_value=[])
+
+        await repo.list_recent_subscriptions(20)
+
+        sql = conn.fetch.call_args.args[0]
+        assert "account_name" in sql
+        assert "auth.users" in sql

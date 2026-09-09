@@ -135,6 +135,18 @@ function makeSupabaseDouble(cfg: {
     data: number | string | null
     error: { message: string } | null
   }
+  criticalStockItems?: {
+    data: Array<{
+      product_id: string
+      name: string
+      sku: string | null
+      branch_id: string
+      branch_name: string
+      quantity: number | string
+      min_stock: number | string
+    }> | null
+    error: { message: string } | null
+  }
   // migrar-top-productos-canon: doble de rpc_product_ranking + resolución
   // de cuenta activa (auth.getUser + account_members). Defaults = camino
   // feliz (usuario autenticado, una membresía, ranking vacío) para no
@@ -146,6 +158,9 @@ function makeSupabaseDouble(cfg: {
   const rpcMock = vi.fn((fn: string) => {
     if (fn === "get_dashboard_critical_stock") {
       return Promise.resolve(cfg.criticalStock ?? { data: 0, error: null })
+    }
+    if (fn === "get_dashboard_critical_stock_items") {
+      return Promise.resolve(cfg.criticalStockItems ?? { data: [], error: null })
     }
     if (fn === "rpc_product_ranking") {
       return Promise.resolve(cfg.ranking ?? { data: [], error: null })
@@ -409,6 +424,68 @@ describe("buildBusinessSnapshot — KPIs de productos", () => {
     const snapshot = await buildBusinessSnapshot(supabase)
     expect(snapshot.productos.stock_critico_total).toBe(2)
     expect(snapshotToText(snapshot)).toContain("STOCK CRÍTICO: 2 productos")
+  })
+})
+
+// ─── kpi-canonicalization (candidato S5): detalle de stock crítico ─────────────
+
+describe("buildBusinessSnapshot — detalle de stock crítico (kpi-canonicalization S5)", () => {
+  it("con ítems -> el texto nombra producto, sucursal y cantidad/mínimo (no sólo el conteo)", async () => {
+    const supabase = makeSupabaseDouble({
+      criticalStock: { data: 2, error: null },
+      criticalStockItems: {
+        data: [
+          { product_id: "p1", name: "Remera", sku: "REM-01", branch_id: "b1", branch_name: "Showroom", quantity: "1", min_stock: "10" },
+          { product_id: "p2", name: "Short", sku: null, branch_id: "b2", branch_name: "Depósito", quantity: 0, min_stock: 5 },
+        ],
+        error: null,
+      },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.stock_critico_items).toEqual([
+      { productId: "p1", name: "Remera", sku: "REM-01", branchId: "b1", branchName: "Showroom", quantity: 1, minStock: 10 },
+      { productId: "p2", name: "Short", sku: null, branchId: "b2", branchName: "Depósito", quantity: 0, minStock: 5 },
+    ])
+
+    const text = snapshotToText(snapshot)
+    expect(text).toContain("STOCK CRÍTICO: 2 productos")
+    expect(text).toContain("Remera (REM-01) en Showroom: 1 de mínimo 10")
+    expect(text).toContain("Short en Depósito: 0 de mínimo 5")
+
+    const adaptive = buildAdaptiveContext(snapshot, "¿cómo viene el stock?")
+    expect(adaptive).toContain("Remera en Showroom(1/10)")
+  })
+
+  it("sin ítems (RPC de detalle en error) -> el conteo se informa igual, sin líneas de detalle inventadas", async () => {
+    const supabase = makeSupabaseDouble({
+      criticalStock: { data: 3, error: null },
+      criticalStockItems: { data: null, error: { message: "detalle rpc down" } },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.stock_critico_items).toBeNull()
+
+    const text = snapshotToText(snapshot)
+    expect(text).toContain("STOCK CRÍTICO: 3 productos")
+    expect(text).not.toContain("de mínimo")
+  })
+
+  it("el conteo total NUNCA se deriva de items.length (detalle es sólo un top 5, puede haber más críticos)", async () => {
+    const supabase = makeSupabaseDouble({
+      criticalStock: { data: 9, error: null },
+      criticalStockItems: {
+        data: [
+          { product_id: "p1", name: "Remera", sku: "REM-01", branch_id: "b1", branch_name: "Showroom", quantity: 1, min_stock: 10 },
+        ],
+        error: null,
+      },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.stock_critico_total).toBe(9)
+    expect(snapshot.productos.stock_critico_items).toHaveLength(1)
+    expect(snapshotToText(snapshot)).toContain("STOCK CRÍTICO: 9 productos")
   })
 })
 

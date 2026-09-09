@@ -153,3 +153,80 @@ El gate SHALL correr contra la base resultante de aplicar **todas** las migracio
 
 - **WHEN** se audita el estado real de permisos después de desplegar
 - **THEN** la verificación se hace contra la base de producción y no únicamente contra la de integración continua, porque las concesiones directas a los roles de aplicación pueden diferir entre ambas
+
+### Requirement: `anon` no tiene privilegios de escritura a nivel tabla sobre las tablas de negocio
+
+El sistema SHALL revocar de `anon`, a nivel de TABLA, los privilegios de INSERT, UPDATE, DELETE y TRUNCATE sobre toda tabla base de los schemas `public` y `community` —ambos servidos por la misma API de datos (PostgREST)—, salvo entrada explícita y justificada en una allowlist calificada por schema. El privilegio de SELECT no está alcanzado por este requirement.
+
+El proyecto hospedado otorga por defecto, a nivel de tabla, los cuatro privilegios de escritura a `anon` sobre toda tabla nueva de `public` y de `community` — la RLS es hoy la única pared contra una escritura de ese rol. Esa pared depende de que cada tabla tenga, para siempre, una policy de escritura correcta: una tabla que naciera sin ninguna, o con una policy que evaluara a verdadero sin ninguna sesión, quedaría escribible sin autenticación por la API de datos, sin que ningún otro mecanismo lo evitara. El privilegio a nivel de tabla es una segunda pared, independiente de que la RLS esté bien escrita, y SHALL revocarse aunque hoy ninguna policy tenga ese defecto.
+
+Una entrada de la allowlist SHALL requerir, además de su propia policy de escritura satisfacible sin sesión, un llamador real que escriba ahí como `anon` — ninguna de las dos condiciones sola basta. La ausencia de la primera hace innecesaria la segunda: sin una policy satisfacible sin sesión, conservar el privilegio de tabla no habilita ningún camino que la RLS no bloquee ya.
+
+La revocación SHALL extenderse a las tablas que el rol propietario de las migraciones cree después de este requirement, en `public` y en `community`, mediante el privilegio por defecto de ese rol sobre cada schema — sin esto, una tabla nueva reabre el hueco que el barrido sobre las tablas existentes cerró. Este alcance está acotado al rol propietario de las migraciones: una tabla creada en cualquiera de los dos schemas por un rol distinto (por ejemplo, uno con privilegios administrativos sobre el proyecto hospedado que no sea el rol propietario) queda fuera de esta garantía salvo que ese otro rol también tenga su propio privilegio por defecto endurecido explícitamente.
+
+#### Scenario: `anon` no puede escribir en una tabla de negocio por más que la RLS falle
+
+- **GIVEN** una tabla de negocio de `public` o de `community`, fuera de la allowlist, con o sin policy de escritura
+- **WHEN** `anon` intenta un INSERT, UPDATE, DELETE o TRUNCATE directo contra esa tabla
+- **THEN** la operación es rechazada por falta de privilegio a nivel de tabla, sin llegar a evaluarse ninguna policy de RLS
+
+#### Scenario: El rechazo se identifica como de capa de tabla, no de RLS
+
+- **GIVEN** el mismo intento de escritura de `anon`
+- **WHEN** se inspecciona el mensaje del rechazo
+- **THEN** el mensaje corresponde a la ausencia del privilegio de tabla y no al texto que produce una policy de RLS al rechazar una fila, aunque ambos casos compartan el mismo código de error
+
+#### Scenario: Una tabla nueva nace sin el privilegio
+
+- **GIVEN** una migración posterior que crea una tabla nueva en `public` o en `community`
+- **WHEN** la tabla se crea con el rol propietario de las migraciones
+- **THEN** la tabla nace sin INSERT/UPDATE/DELETE/TRUNCATE para `anon`, sin que la migración tenga que revocarlo explícitamente
+
+#### Scenario: Una entrada de la allowlist exige policy Y llamador real
+
+- **WHEN** se evalúa si una tabla de `public` o de `community` debe entrar a la allowlist
+- **THEN** entra sólo si tiene una policy de escritura satisfacible sin sesión Y un llamador real que escriba ahí como `anon`; la ausencia de cualquiera de las dos condiciones revoca el privilegio
+
+#### Scenario: El privilegio de lectura no se ve afectado
+
+- **GIVEN** una tabla a la que se le revocó el privilegio de escritura por este requirement
+- **WHEN** `anon` intenta un SELECT permitido por su propia policy de lectura
+- **THEN** la lectura no se ve afectada por esta revocación
+
+### Requirement: La membresía de cuentas sólo se consulta para el propio usuario
+
+El sistema SHALL restringir `get_account_ids_for_user(p_user_id uuid)` — el helper `SECURITY DEFINER` que bypassea la RLS de `account_members` para que sus propias policies no recursen — a devolver membresía únicamente cuando `p_user_id` corresponde a la sesión que lo invoca (`p_user_id IS NOT DISTINCT FROM auth.uid()`) o a un contexto `service_role`; para cualquier otro `p_user_id` SHALL devolver cero filas, nunca un error.
+
+El helper es invocable como RPC de PostgREST (ejecutable por `anon` y `authenticated`, condición que este requirement no cambia — ver el requirement "`anon` no tiene privilegios de escritura a nivel tabla…" de más arriba, que no alcanza a funciones) porque su único caller real, la policy `account_members_same_account_select`, lo invoca siempre con el propio `auth.uid()`. Sin este requirement, al ser `SECURITY DEFINER`, cualquier sesión autenticada (o `anon`) puede pedir la membresía de un `p_user_id` ajeno y obtenerla, bypasseando la RLS de `account_members` para enumerar las cuentas de un tercero con sólo conocer su `user_id`.
+
+La respuesta SHALL ser silenciosa (cero filas) y no un error: el único caller real es una policy de `SELECT`, que no puede fallar sin romper toda lectura de `account_members` para el rol consultante.
+
+#### Scenario: Un usuario no puede resolver la membresía de otro
+
+- **GIVEN** dos usuarios A y B, cada uno miembro de una cuenta distinta
+- **WHEN** A invoca `get_account_ids_for_user(B)` (por ejemplo vía `.rpc('get_account_ids_for_user', {p_user_id: B})`)
+- **THEN** la función devuelve cero filas, nunca la cuenta de B
+
+#### Scenario: Un usuario sí resuelve su propia membresía
+
+- **GIVEN** un usuario A miembro de una cuenta
+- **WHEN** A invoca `get_account_ids_for_user(A)`
+- **THEN** la función devuelve la cuenta de A, igual que antes de este requirement
+
+#### Scenario: Sin sesión, la función no filtra membresía ajena
+
+- **GIVEN** una conexión sin `auth.uid()` resuelto (sin claims de sesión, y sin ser `service_role`)
+- **WHEN** se invoca `get_account_ids_for_user(p_user_id)` con cualquier `p_user_id`
+- **THEN** la función devuelve cero filas
+
+#### Scenario: `service_role` conserva el comportamiento sin filtrar
+
+- **GIVEN** un contexto `service_role` (jobs administrativos)
+- **WHEN** se invoca `get_account_ids_for_user(p_user_id)` con el `user_id` de un tercero
+- **THEN** la función devuelve la membresía de ese `user_id`, igual que antes de este requirement
+
+#### Scenario: La policy de `account_members` sigue funcionando sin cambios
+
+- **GIVEN** la policy `account_members_same_account_select`, que invoca el helper siempre con el propio `auth.uid()` del rol consultante
+- **WHEN** un usuario autenticado hace `SELECT * FROM account_members`
+- **THEN** ve exactamente las filas de sus propias cuentas, ni una fila menos ni una fila de otro usuario

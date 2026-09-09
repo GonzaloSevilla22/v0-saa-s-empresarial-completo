@@ -8,12 +8,15 @@
 --   (2) CHECK (>= 0) en los tres niveles de plazo, por nombre de constraint.
 --   (3) UNA sola definición de cada función reescrita (gotcha 42725) con el
 --       argumento de vencimiento TRAILING.
---   (4) ACLs exactas capturadas en el checkpoint 1.4 (2026-09-02, prod):
+--   (4) ACLs exactas capturadas en el checkpoint 1.4 (2026-09-02, prod) y
+--       endurecidas por la tanda candidatos-seguridad-db (2026-09-09, F1):
 --       - _pay_register_party_charge: SIN authenticated y SIN anon (hotfix
 --         20261010000001 — recrearla con GRANT reabriría el cross-tenant).
---       - c30_register_*: CON anon+authenticated (estado vivo de prod,
---         candidato h3 pendiente — este gate replica lo VIVO; cuando h3
---         endurezca las ACLs debe actualizar este assert).
+--       - c30_register_*: SIN anon y SIN authenticated (h3 cerrado por
+--         20261036000001 — son SECURITY DEFINER con guard de tenencia por
+--         membresía; recrearlas con GRANT reabriría la escritura
+--         cross-tenant que el guard interno hoy sólo defiende en segunda
+--         capa).
 --   (5) Cascada (D2/D3): parte gana a cuenta; herencia; sin plazo → NULL sin
 --       fallar; plazo 0 → vence hoy.
 --   (6) Override (D3): explícito gana; anterior al cargo → P0400 atómico;
@@ -137,25 +140,26 @@ BEGIN
     RAISE EXCEPTION 'GATE COBRANZAS-VENC SCHEMA FAILED (4a): _pay_register_party_charge quedó ejecutable por authenticated/anon — el DROP+CREATE le devolvió un GRANT que el hotfix 20261010000001 había revocado (escritura cross-tenant reabierta).';
   END IF;
 
-  -- (4b) c30_register_*: ACLs vivas replicadas EXACTO (checkpoint 1.4 —
-  --      anon+authenticated+service_role; candidato h3 pendiente, ver cabecera)
-  IF NOT (has_function_privilege('authenticated',
+  -- (4b) c30_register_*: h3 (20261036000001) las cerró — SIN authenticated
+  --      NI anon, sólo postgres/service_role (F1: assert invertido tras el
+  --      endurecimiento; ver cabecera).
+  IF has_function_privilege('authenticated',
             'public.c30_register_customer_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('anon',
+     OR has_function_privilege('anon',
             'public.c30_register_customer_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('service_role',
-            'public.c30_register_customer_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE')) THEN
-    RAISE EXCEPTION 'GATE COBRANZAS-VENC SCHEMA FAILED (4b): c30_register_customer_account_movement no replica las ACLs vivas capturadas en 1.4 (anon+authenticated+service_role). Si esto falla porque h3 endureció las ACLs, actualizar este assert en el mismo PR.';
+     OR NOT has_function_privilege('service_role',
+            'public.c30_register_customer_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-VENC SCHEMA FAILED (4b): c30_register_customer_account_movement quedó ejecutable por authenticated/anon (o perdió service_role) — un DROP+CREATE le devolvió el GRANT que 20261036000001 revocó.';
   END IF;
-  IF NOT (has_function_privilege('authenticated',
+  IF has_function_privilege('authenticated',
             'public.c30_register_supplier_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('anon',
+     OR has_function_privilege('anon',
             'public.c30_register_supplier_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE')
-      AND has_function_privilege('service_role',
-            'public.c30_register_supplier_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE')) THEN
-    RAISE EXCEPTION 'GATE COBRANZAS-VENC SCHEMA FAILED (4b): c30_register_supplier_account_movement no replica las ACLs vivas capturadas en 1.4.';
+     OR NOT has_function_privilege('service_role',
+            'public.c30_register_supplier_account_movement(uuid, numeric, text, uuid, date)'::regprocedure, 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE COBRANZAS-VENC SCHEMA FAILED (4b): c30_register_supplier_account_movement quedó ejecutable por authenticated/anon (o perdió service_role) — un DROP+CREATE le devolvió el GRANT que 20261036000001 revocó.';
   END IF;
-  RAISE NOTICE 'PASS (4): ACLs replicadas — helper de cargo cerrado, c30_* como en prod.';
+  RAISE NOTICE 'PASS (4): ACLs replicadas — helper de cargo y los dos c30_register_* cerrados para roles de aplicación.';
 END $$;
 
 -- ═══════════ (5)-(8) COMPORTAMIENTO — anchor sintético ══════════════════════

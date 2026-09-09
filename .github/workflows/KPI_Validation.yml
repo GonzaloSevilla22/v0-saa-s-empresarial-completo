@@ -668,6 +668,17 @@ jobs:
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261033000001_charge_due_date_update.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261034000001_bank_default_destination.sql
 
+          # candidatos-seguridad-db (2026-09-09, programa "cero candidatos"
+          # tanda 7): 4 endurecimientos de ACLs/tenencia + la RPC canónica de
+          # productos críticos por sucursal. Idempotentes (REVOKE/GRANT
+          # re-ejecutables, CREATE OR REPLACE, DO $$ con chequeo) y reaplicadas
+          # localmente por su implementador y por el revisor.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261035000001_revoke_anon_table_writes.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261036000001_c30_party_movement_helpers_definer.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261037000001_get_account_ids_for_user_own_membership.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261038000001_c28_register_cash_movement_revoke_authenticated.sql
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261039000001_dashboard_critical_stock_items.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1493,3 +1504,47 @@ jobs:
       # reaplicar no duplica ni pisa. Cleanup propio (re-ejecutable).
       - name: Run bank default destination gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_bank_default_destination.sql
+
+      # candidatos-seguridad-db (2026-09-09, tanda 7 del programa "cero
+      # candidatos"; governance CRÍTICO con OK del PO). anon sin escritura a
+      # nivel tabla (OQ-7 de sucursal-guard-vaciado-auditoria generalizado):
+      # Supabase otorga INSERT/UPDATE/DELETE/TRUNCATE a anon sobre toda tabla
+      # de public/community por default privileges y la RLS era la única
+      # capa. Asserta: sweep de todas las tablas base fuera de la allowlist
+      # (vacía), default privileges sin anon, una tabla nueva nace cerrada, y
+      # el INSERT real como anon falla con 'permission denied for table'
+      # (capa GRANT) y NO con 'row-level security' (capa RLS).
+      - name: Run anon table writes revoked gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_anon_table_writes_revoked.sql
+
+      # candidatos-seguridad-db: c30_register_customer_account_movement /
+      # c30_register_supplier_account_movement (h3 de cuenta-corriente-
+      # party-guard) pasan a SECURITY DEFINER con guard de tenencia (P0401)
+      # resuelto desde la fila, y se revocan de PUBLIC/anon/authenticated
+      # (ningún caller directo vía PostgREST). Asserta: introspección,
+      # 42501 bajo authenticated, no-regresión de las RPCs de cobro/cargo y
+      # P0401 del guard interno como owner con claims ajenos.
+      - name: Run c30 party movement helpers ACL gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_c30_party_movement_helpers_acl.sql
+
+      # candidatos-seguridad-db: get_account_ids_for_user(uuid) (h4) sólo
+      # devuelve la membresía propia — con un user_id ajeno devuelve 0 filas
+      # (nunca error: la policy de account_members la usa y no debe fallar),
+      # service_role conserva el comportamiento, ACL intacta (helper de RLS
+      # allowlisteado en el gate de ACLs). Asserta: ajeno 0, propio OK, la
+      # policy real bajo authenticated, sin sesión 0, anon 0 sin error.
+      - name: Run get_account_ids_for_user guard gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_get_account_ids_for_user_guard.sql
+
+      # candidatos-seguridad-db: get_dashboard_critical_stock_items — hermana
+      # canónica de get_dashboard_critical_stock que devuelve las filas desde
+      # branch_stock con el MISMO predicado (min_stock > 0 AND quantity <=
+      # min_stock, sin untracked/variant_only ni soft-deleted), ordenadas por
+      # criticidad, con p_limit y tenencia por current_account_ids(). Asserta:
+      # introspección (SECURITY DEFINER, ACL exacta, predicado literal),
+      # paridad de count(DISTINCT product_id) con la hermana total y por
+      # sucursal sobre datos sintéticos, orden, límite y cero filas bajo
+      # otra cuenta. Consumidores: Copiloto y ai-insights (detalle en el
+      # prompt en vez de sólo el conteo).
+      - name: Run dashboard critical stock items gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_dashboard_critical_stock_items.sql

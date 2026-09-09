@@ -72,6 +72,40 @@ export interface CriticalStockClient {
   ): PromiseLike<{ data: number | string | null; error: { message: string } | null }>
 }
 
+/** Fila de `get_dashboard_critical_stock_items` mapeada a camelCase —
+ *  kpi-canonicalization (candidato S5), gemelo de
+ *  `frontend/lib/reporting/critical-stock.ts`. Una fila por (producto,
+ *  sucursal) bajo el MISMO predicado que `CriticalStockClient` — sin
+ *  deduplicar por producto, a diferencia del conteo. */
+export interface CriticalStockItem {
+  productId: string
+  name: string
+  sku: string | null
+  branchId: string
+  branchName: string
+  quantity: number
+  minStock: number
+}
+
+interface CriticalStockItemRpcRow {
+  product_id: string
+  name: string
+  sku: string | null
+  branch_id: string
+  branch_name: string
+  quantity: string | number
+  min_stock: string | number
+}
+
+/** Forma estructural mínima del cliente para el detalle canónico de stock
+ * crítico. */
+export interface CriticalStockItemsClient {
+  rpc(
+    fn: "get_dashboard_critical_stock_items",
+    args: { p_branch_id: string | null; p_limit: number },
+  ): PromiseLike<{ data: CriticalStockItemRpcRow[] | null; error: { message: string } | null }>
+}
+
 /** Ventana simple (sin período comparativo) para `get_dashboard_financials`. */
 export interface FinancialsWindow {
   from: string
@@ -274,6 +308,36 @@ export async function fetchCriticalStockCount(
   if (error) throw error
 
   return data == null ? 0 : Number(data)
+}
+
+/**
+ * Llama `get_dashboard_critical_stock_items` (mismo predicado que
+ * `fetchCriticalStockCount`, sin deduplicar por producto) y devuelve las
+ * filas mapeadas, top `limit` por criticidad. Propaga cualquier error del
+ * RPC — la decisión de degradar (omitir el bloque, nunca reconstruir desde
+ * `v_products_with_stock`) es del consumidor.
+ */
+export async function fetchCriticalStockItems(
+  client: CriticalStockItemsClient,
+  branchId: string | null = null,
+  limit = 5,
+): Promise<CriticalStockItem[]> {
+  const { data, error } = await client.rpc("get_dashboard_critical_stock_items", {
+    p_branch_id: branchId,
+    p_limit: limit,
+  })
+  if (error) throw error
+
+  const rows = data ?? []
+  return rows.map((row) => ({
+    productId: row.product_id,
+    name: row.name,
+    sku: row.sku,
+    branchId: row.branch_id,
+    branchName: row.branch_name,
+    quantity: toNumber(row.quantity),
+    minStock: toNumber(row.min_stock),
+  }))
 }
 
 /**

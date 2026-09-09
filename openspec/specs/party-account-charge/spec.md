@@ -161,3 +161,33 @@ La reafirmación de permisos que acompaña a cada redefinición del helper SHALL
 - **WHEN** se registra una venta a crédito desde el mostrador o desde el formulario
 - **THEN** el cargo se postea normalmente, porque la invocación ocurre dentro de una función con privilegios de definidor y no depende del permiso del rol de sesión
 
+### Requirement: Los helpers de movimiento de cuenta corriente validan tenencia y no son invocables por roles de aplicación
+
+El sistema SHALL exigir que `c30_register_customer_account_movement` y `c30_register_supplier_account_movement` —los helpers `SECURITY DEFINER` que materializan el movimiento y el saldo del ledger de cliente y de proveedor respectivamente— validen, antes de escribir cualquier fila, que la cuenta corriente identificada por `p_account_id` pertenece a una cuenta (tenant) de la cual el usuario autenticado es **miembro** (`current_account_ids`), independientemente de su rol dentro de esa cuenta; si no lo es, SHALL rechazar la operación sin escribir movimiento ni alterar el saldo, y sin permitir distinguir por el mensaje si la cuenta no existe o pertenece a otro tenant. Este guard es de TENENCIA, no de autorización por rol: la autorización de cada camino de entrada (owner/admin donde corresponda) la deciden las RPCs de nivel superior que ya resolvieron el tenant de la sesión (por ejemplo `rpc_register_payment_received`, `_pay_register_party_charge`) — endurecerlo acá a `is_account_writer` (owner/admin) le negaría a un miembro sin ese rol operaciones que sus RPCs de entrada sí le permiten, como una venta a crédito.
+
+Ninguno de los dos helpers SHALL ser ejecutable directamente por los roles de aplicación (`anon`, `authenticated`): reciben la cuenta corriente **como parámetro**, igual que el helper compartido de cargo, así que la reafirmación de permisos que acompaña a cada redefinición SHALL revocar explícitamente `PUBLIC`, `anon` **y** `authenticated` (nunca solo el pseudo-rol público, por el mismo motivo documentado en el requirement anterior). El guard de tenencia interno es una segunda capa, independiente del `REVOKE`: aunque una redefinición futura perdiera el revoke sin notarlo, la invocación contra la cuenta de otro tenant seguiría siendo rechazada por el guard, no solo por el permiso de ejecución.
+
+#### Scenario: Un usuario no puede registrar un movimiento en la cuenta corriente de otro tenant
+
+- **GIVEN** un usuario autenticado del tenant A con permiso de escritura sobre su propia cuenta
+- **WHEN** logra invocar el helper (por ejemplo, como el owner de la base, sin que el REVOKE intervenga) informando el id de una `CustomerAccount` o `SupplierAccount` que pertenece al tenant B
+- **THEN** la ejecución es rechazada por falta de permiso de tenencia
+- **AND** los libros del tenant B quedan sin cambios: sin movimiento nuevo, sin saldo alterado
+
+#### Scenario: El helper no es invocable directamente por un usuario autenticado
+
+- **GIVEN** una sesión de usuario autenticado
+- **WHEN** intenta ejecutar directamente `c30_register_customer_account_movement` o `c30_register_supplier_account_movement`
+- **THEN** la ejecución es rechazada por falta de permiso de ejecución, y no se escribe ningún movimiento
+
+#### Scenario: Los caminos legítimos no se ven afectados
+
+- **WHEN** una RPC `SECURITY DEFINER` que ya resolvió y validó el tenant de la sesión (por ejemplo, un cobro o un pago) invoca alguno de los dos helpers sobre una cuenta corriente de su propio tenant
+- **THEN** el movimiento se postea normalmente, porque el guard de tenencia interno valida contra la misma cuenta ya validada por el llamador
+
+#### Scenario: Un miembro sin rol de escritura puede registrar un movimiento en la cuenta corriente de su propio tenant
+
+- **GIVEN** un usuario cuyo `account_members.role` es `'member'` (sin permiso de escritura tipo owner/admin) en el tenant A
+- **WHEN** una RPC de entrada que ya autoriza el camino con su propio criterio (por ejemplo, una venta a crédito) invoca el helper sobre la `CustomerAccount`/`SupplierAccount` propia del tenant A
+- **THEN** el movimiento se postea normalmente, porque el guard interno valida MEMBRESÍA (pertenencia al tenant), no el rol dentro de la cuenta
+

@@ -3,6 +3,7 @@ import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/a
 import {
   fetchKpiSummary,
   fetchCriticalStockCount,
+  fetchCriticalStockItems,
   fetchTopProducts,
   resolveActiveAccountId,
   sumLineRevenue,
@@ -132,7 +133,7 @@ Deno.serve(async (req) => {
 
     // C-20: leer desde v_sales_flat (columnas planas desde sale_items) en lugar de sales.
     // `total` se agrega para poder degradar sin subcontar multi-unidad si el canon falla (D4).
-    const [salesRes, productsRes, expensesRes, rotationRes, criticalStockCount] = await Promise.all([
+    const [salesRes, productsRes, expensesRes, rotationRes, criticalStockCount, criticalStockItems] = await Promise.all([
       supabase.from('v_sales_flat').select('amount, quantity, total, date, product_id').gte('date', d30Str),
       // C-21 checkpoint #2: stock vive en branch_stock — la vista expone stock = Σ branch_stock
       supabase.from('v_products_with_stock').select('id, name, price, cost, stock').limit(50),
@@ -140,6 +141,12 @@ Deno.serve(async (req) => {
       supabase.from('v_sales_flat').select('product_id, date').gte('date', d60Str).order('date', { ascending: false }),
       fetchCriticalStockCount(supabase, null).catch(err => {
         console.error('[ai-insights] get_dashboard_critical_stock falló, dato omitido:', err)
+        return null
+      }),
+      // kpi-canonicalization (S5): detalle canónico (top 5, sin filtro de
+      // sucursal) — se omite (null) sin afectar el conteo de arriba si falla.
+      fetchCriticalStockItems(supabase, null, 5).catch(err => {
+        console.error('[ai-insights] get_dashboard_critical_stock_items falló, detalle omitido:', err)
         return null
       }),
     ])
@@ -265,7 +272,10 @@ Deno.serve(async (req) => {
       topProducts.length > 0 ? `TOP PRODUCTOS:\n${topProducts.map(p => `  • ${p}`).join('\n')}` : '',
       sinRotacion.length > 0 ? `SIN ROTACIÓN (≥30 días sin vender):\n${sinRotacion.map((p: string) => `  • ${p}`).join('\n')}` : '',
       criticalStockCount != null && criticalStockCount > 0
-        ? `STOCK CRÍTICO: ${criticalStockCount} productos`
+        ? `STOCK CRÍTICO: ${criticalStockCount} productos` +
+          (criticalStockItems != null && criticalStockItems.length > 0
+            ? '\n' + criticalStockItems.map(i => `  • ${i.name}${i.sku ? ` (${i.sku})` : ''} en ${i.branchName}: ${i.quantity} de mínimo ${i.minStock}`).join('\n')
+            : '')
         : '',
       margenBajo.length > 0 ? `MARGEN BAJO (<20%):\n${margenBajo.map((p: string) => `  • ${p}`).join('\n')}` : '',
     ].filter(Boolean).join('\n')

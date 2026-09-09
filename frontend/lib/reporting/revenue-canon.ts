@@ -14,6 +14,11 @@
  * línea — es lo mejor que se puede hacer sin la cantidad.
  */
 
+// F7 (revisión adversarial, tanda candidatos-seguridad-db 2026-09-09):
+// toNumber canonizado en ./coerce — Regla de Tres (esta era la 1ª de 3 copias
+// idénticas en lib/reporting/). Ver el header de ese archivo.
+import { toNumber } from "./coerce"
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** Fila mínima de venta con la que se puede calcular su revenue de línea.
@@ -26,14 +31,6 @@ export interface SaleRevenueRow {
 export interface Window {
   from: string
   to: string
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const toNumber = (v: number | string | null | undefined): number => {
-  if (v == null) return 0
-  const n = Number(v)
-  return Number.isNaN(n) ? 0 : n
 }
 
 /**

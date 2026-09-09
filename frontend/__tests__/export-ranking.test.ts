@@ -34,11 +34,16 @@ import {
   RANKING_CSV_HEADERS,
   RANKING_PAGE_SIZE,
   RANKING_MAX_ROWS,
+  RANKING_XLSX_HEADERS,
   buildRankingCsv,
+  buildRankingXlsxRows,
+  defaultFullReportRankingParams,
   fetchAllRankingRows,
+  fetchFullReportRankingRows,
   isExportType,
   parseRankingExportParams,
   rankingRowToCsvRow,
+  rankingRowToXlsxRow,
   rowsToCsv,
   type ProductRankingRpcRow,
   type RankingRpcClient,
@@ -287,5 +292,145 @@ describe("fetchAllRankingRows (8.4 — nunca re-agrega, pagina la RPC de a 500)"
     const rows = await fetchAllRankingRows(client, ACCOUNT, params)
     expect(rows).toHaveLength(RANKING_MAX_ROWS)
     expect(calls).toHaveLength(pagesNeeded)
+  })
+})
+
+// ─── hoja de ranking en el reporte completo XLSX ─────────────────────────────
+//
+// full_report_xlsx suma una 7ª hoja "Ranking" reutilizando el MISMO
+// read-model (rpc_product_ranking) y el mismo builder de filas que el CSV
+// (buildRankingCsv/rankingRowToCsvRow) — pero las hojas XLSX se abren en
+// Excel como celdas de texto si el valor es un string, así que a diferencia
+// del CSV (D11, coma decimal para Excel es-AR) acá las columnas numéricas
+// tienen que ser `number`, nunca string, para que sumen/filtren en la planilla.
+// Un margen ausente sigue vacío ("") — D11 no cambia, sólo el tipo del resto.
+
+describe("rankingRowToXlsxRow / buildRankingXlsxRows (hoja Ranking del reporte completo)", () => {
+  it("mapea las mismas columnas que el CSV pero como number, no string", () => {
+    const row = rankingRowToXlsxRow(rpcRow(1, { is_group: true, variant_count: 2 }))
+    expect(row).toEqual({
+      puesto: 1,
+      producto: "Producto 1",
+      sku: "SKU-1",
+      categoria: "Ropa",
+      producto_padre: "",
+      variantes: 2,
+      unidades: 5,
+      importe: 2350,
+      operaciones: 3,
+      costo: 1500,
+      margen: 850,
+      margen_pct: 36.17,
+      cobertura_costo_pct: 33.3,
+      ultima_venta: "2026-08-31",
+    })
+    expect(typeof row.unidades).toBe("number")
+    expect(typeof row.importe).toBe("number")
+  })
+
+  it("un margen/costo ausente es celda vacía, nunca 0 (D11 también vale para la hoja XLSX)", () => {
+    const row = rankingRowToXlsxRow(rpcRow(2, { total_cost: null, gross_margin: null, gross_margin_pct: null }))
+    expect(row.costo).toBe("")
+    expect(row.margen).toBe("")
+    expect(row.margen_pct).toBe("")
+    expect(row.margen).not.toBe(0)
+  })
+
+  it("un margen negativo (pérdida) conserva el signo como number", () => {
+    const row = rankingRowToXlsxRow(rpcRow(3, { gross_margin: "-120.50", gross_margin_pct: "-5.1" }))
+    expect(row.margen).toBe(-120.5)
+    expect(row.margen_pct).toBe(-5.1)
+  })
+
+  it("buildRankingXlsxRows mapea el ranking completo en el mismo orden, con las mismas cabeceras que el CSV", () => {
+    const rows = buildRankingXlsxRows([rpcRow(1, { product_name: "Gorra" }), rpcRow(2, { product_name: "Remera" })])
+    expect(rows).toHaveLength(2)
+    expect(rows[0].producto).toBe("Gorra")
+    expect(rows[1].producto).toBe("Remera")
+    // Antes: `expect(RANKING_XLSX_HEADERS).toEqual(RANKING_CSV_HEADERS)` — tautológico,
+    // ambas constantes son el MISMO objeto (`export const RANKING_XLSX_HEADERS =
+    // RANKING_CSV_HEADERS`), así que la aserción es cierta sin importar qué haga el
+    // mapeo. El invariante real es que las CLAVES que produce cada builder coincidan.
+    expect(Object.keys(rankingRowToXlsxRow(rpcRow(1)))).toEqual(Object.keys(rankingRowToCsvRow(rpcRow(1))))
+  })
+
+  it("operaciones sale por numberCell: un bigint que llega como string (\"3\") se mapea a number, sumable en Excel", () => {
+    const row = rankingRowToXlsxRow(rpcRow(7, { operations: "3" }))
+    expect(row.operaciones).toBe(3)
+    expect(typeof row.operaciones).toBe("number")
+  })
+})
+
+// ─── parámetros por defecto del ranking dentro del reporte completo ─────────
+//
+// El reporte completo no tiene pantalla propia con filtros: el período es
+// el MISMO que ya usan Ventas/Compras/Gastos (dateFrom del plan → hoy),
+// orden por unidades, variantes agrupadas, sin sucursal — documentado acá,
+// no improvisado en el índice de la función.
+
+describe("defaultFullReportRankingParams", () => {
+  it("usa el dateFrom del reporte como inicio, hoy como fin, unidades/agrupado/sin sucursal", () => {
+    const params = defaultFullReportRankingParams("2026-08-06", TODAY)
+    expect(params).toEqual({ start: "2026-08-06", end: "2026-09-04", orderBy: "units", groupVariants: true, branchId: null })
+  })
+
+  it("el fin de ventana usa el día de negocio ARGENTINO, no el día UTC (revisión adversarial, fix 4): 23:00 ART del 04-09 sigue siendo 04-09, no 05-09", () => {
+    // 2026-09-05T02:00:00.000Z = 23:00 ART del 2026-09-04 (ART = UTC-3): el día
+    // UTC ya rodó a 09-05, pero el día de negocio argentino sigue siendo 09-04.
+    const nowRolledOverInUtc = new Date("2026-09-05T02:00:00.000Z")
+    const params = defaultFullReportRankingParams("2026-08-06", nowRolledOverInUtc)
+    expect(params.end).toBe("2026-09-04")
+  })
+})
+
+// ─── fix 1 (revisión adversarial): degradar SOLO la hoja Ranking ────────────
+//
+// Antes, `generate-export/index.ts` armaba las 5 hojas del reporte completo
+// con un solo `Promise.all` donde la rama del ranking NO tenía `.catch()`: si
+// `rpc_product_ranking` fallaba, el `Promise.all` ENTERO rechazaba y el
+// reporte completo se caía sin generar NINGUNA hoja — pese a que el comentario
+// de al lado prometía "si la cuenta activa no se resuelve, la hoja queda
+// vacía (no rompe el resto del reporte)". El caso sin cuenta SÍ degradaba (la
+// rama era `Promise.resolve([])`); el caso "cuenta resuelta pero la RPC
+// falla" no.
+//
+// `fetchFullReportRankingRows` es la función pura extraída para poder probar
+// el degradado sin `Deno.serve`/SheetJS (generate-export/index.ts no es
+// importable desde vitest — ejecuta `Deno.serve` a nivel de módulo, patrón ya
+// establecido en `__tests__/lib/expenses-export-parity.test.ts`).
+
+describe("fetchFullReportRankingRows (fix 1 — degradar SOLO la hoja Ranking, nunca el reporte completo)", () => {
+  it("accountId null -> hoja vacía sin llamar a la RPC (mismo comportamiento que antes)", async () => {
+    const rpcMock = vi.fn()
+    const client = { rpc: rpcMock } as unknown as RankingRpcClient
+
+    const rows = await fetchFullReportRankingRows(client, null, "2026-08-06", TODAY)
+
+    expect(rows).toEqual([])
+    expect(rpcMock).not.toHaveBeenCalled()
+  })
+
+  it("rpc_product_ranking rechaza -> hoja vacía, NUNCA tira abajo el reporte completo (RED contra el bug: antes esto rechazaba)", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: null, error: { message: "P0401 unauthorized" } })
+    const client = { rpc: rpcMock } as unknown as RankingRpcClient
+
+    await expect(fetchFullReportRankingRows(client, ACCOUNT, "2026-08-06", TODAY)).resolves.toEqual([])
+  })
+
+  it("camino feliz -> filas del ranking con los parámetros default del reporte completo (período del plan, unidades, agrupado, sin sucursal)", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [rpcRow(1)], error: null })
+    const client = { rpc: rpcMock } as unknown as RankingRpcClient
+
+    const rows = await fetchFullReportRankingRows(client, ACCOUNT, "2026-08-06", TODAY)
+
+    expect(rows).toHaveLength(1)
+    expect(rpcMock).toHaveBeenCalledWith("rpc_product_ranking", expect.objectContaining({
+      p_account_id: ACCOUNT,
+      p_start: "2026-08-06",
+      p_end: "2026-09-04",
+      p_order_by: "units",
+      p_group_variants: true,
+      p_branch_id: null,
+    }))
   })
 })

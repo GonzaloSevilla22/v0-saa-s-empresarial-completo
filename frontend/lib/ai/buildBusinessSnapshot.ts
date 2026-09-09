@@ -2,6 +2,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { lineRevenue, sumLineRevenue, netMarginPct, previousWindow } from '@/lib/reporting/revenue-canon'
 import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
 import { fetchCriticalStockCount } from '@/lib/reporting/critical-stock'
+import { fetchTopProducts, resolveActiveAccountId } from '@/lib/reporting/product-ranking'
 import { argentinaToday, argentinaDaysAgo } from '@/lib/date-range'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -33,7 +34,10 @@ export interface BusinessSnapshot {
       nombre: string
       revenue: number
       unidades: number
-      margen_pct: number
+      /** migrar-top-productos-canon: `gross_margin_pct` de `rpc_product_ranking`
+       *  — `null` cuando ninguna línea del grupo resolvió costo (cascada
+       *  RN-D2), nunca un margen inventado. */
+      margen_pct: number | null
     }>
     sin_rotacion: Array<{
       nombre: string
@@ -95,12 +99,16 @@ export async function buildBusinessSnapshot(
     { data: recentSalesForRotation },
     criticalStockCount,
   ] = await Promise.all([
-    // Ventas período actual — incluye join a products para margen. `total`
-    // se agrega para poder degradar sin subcontar ventas multi-unidad si el
-    // canon no responde (D4) — es la misma fórmula que resuelve el RPC.
+    // Ventas período actual. `total` se agrega para poder degradar sin
+    // subcontar ventas multi-unidad si el canon no responde (D4) — es la
+    // misma fórmula que resuelve el RPC. fix 7 (revisión adversarial): el
+    // join `products(name, cost, price)` que traía esta consulta era muerto
+    // — el margen/top de productos sale de `rpc_product_ranking` (ver
+    // `topRentables` abajo, migrar-top-productos-canon), nadie leía `.products`
+    // de las filas de `sales`.
     supabase
       .from('sales')
-      .select('amount, quantity, total, date, product_id, client_id, products(name, cost, price)')
+      .select('amount, quantity, total, date, product_id, client_id')
       .gte('date', d30Str),
 
     // Productos (limitado para no inflar contexto)
@@ -192,40 +200,35 @@ export async function buildBusinessSnapshot(
 
   // ── PRODUCTOS ──────────────────────────────────────────────────────────────
 
-  // Agregar ventas por producto
-  const salesByProduct = new Map<string, {
-    nombre: string; revenue: number; units: number; cost: number; price: number
-  }>()
+  // Top productos por importe — migrar-top-productos-canon: read-model
+  // canónico `rpc_product_ranking` (el mismo que consume `/estadisticas` y
+  // su export CSV), no una agregación local sobre `sales` (2ª definición de
+  // la misma cuenta). `rpc_product_ranking` exige `p_account_id` explícito
+  // — se resuelve con el mismo criterio determinístico que
+  // `backend/core/deps.py:get_account_id`. Si cualquier paso falla, el
+  // bloque se omite (nunca se reconstruye con la suma local vieja, D4).
+  let topRentables: BusinessSnapshot['productos']['top_rentables'] = []
+  try {
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (!authUser) throw new Error('no_authenticated_user')
 
-  for (const s of sales) {
-    const pid = s.product_id as string | null
-    if (!pid) continue
-    const p   = s.products as { name?: string; cost?: number; price?: number } | null
-    const cur = salesByProduct.get(pid) ?? {
-      nombre:  p?.name  ?? 'Desconocido',
-      revenue: 0,
-      units:   0,
-      cost:    Number(p?.cost  ?? 0),
-      price:   Number(p?.price ?? 0),
-    }
-    salesByProduct.set(pid, {
-      ...cur,
-      revenue: cur.revenue + lineRevenue(s),
-      units:   cur.units   + Number(s.quantity),
+    const accountId = await resolveActiveAccountId(supabase, authUser.id)
+    if (!accountId) throw new Error('no_active_account')
+
+    const ranked = await fetchTopProducts(supabase, accountId, {
+      start: d30Str,
+      end:   nowStr,
+      limit: 5,
     })
-  }
-
-  const topRentables = [...salesByProduct.values()]
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 5)
-    .map(p => ({
-      nombre:     p.nombre,
+    topRentables = ranked.map(p => ({
+      nombre:     p.name,
       revenue:    Math.round(p.revenue),
       unidades:   p.units,
-      margen_pct: p.price > 0
-        ? Math.round(((p.price - p.cost) / p.price) * 100)
-        : 0,
+      margen_pct: p.marginPct,
     }))
+  } catch (err) {
+    console.error('[Copilot] rpc_product_ranking falló, top productos omitido:', err)
+  }
 
   // Última venta por producto (para rotación)
   const lastSaleDate = new Map<string, string>()
@@ -358,7 +361,10 @@ export function snapshotToText(s: BusinessSnapshot): string {
   if (s.productos.top_rentables.length > 0) {
     lines.push('TOP PRODUCTOS:')
     for (const p of s.productos.top_rentables) {
-      lines.push(`  • ${p.nombre}: $${p.revenue.toLocaleString()} (${p.unidades} uds, ${p.margen_pct}% margen)`)
+      // migrar-top-productos-canon: margen omitido (nunca "null% margen")
+      // cuando el grupo no tiene costo con snapshot (RN-D2).
+      const margenPart = p.margen_pct != null ? `, ${p.margen_pct}% margen` : ''
+      lines.push(`  • ${p.nombre}: $${p.revenue.toLocaleString()} (${p.unidades} uds${margenPart})`)
     }
   }
 
@@ -413,7 +419,7 @@ export function buildAdaptiveContext(s: BusinessSnapshot, question: string): str
   if (/venta|vendí|factur|ingreso|producto más/.test(q)) {
     blocks.push('TOP VENTAS: ' +
       s.productos.top_rentables.slice(0, 3).map(p =>
-        `${p.nombre}:$${p.revenue.toLocaleString()}(${p.unidades}uds)`
+        `${p.nombre}:$${p.revenue.toLocaleString()}(${p.unidades}uds${p.margen_pct != null ? `,${p.margen_pct}%margen` : ''})`
       ).join(', ')
     )
   }

@@ -221,3 +221,50 @@ describe("runEstadisticasAnalysis (10.4 / 10.6)", () => {
     expect(d.incrementUsage).not.toHaveBeenCalled()
   })
 })
+
+// ─── fix 12 (revisión adversarial): no desatar los métodos de `deps` ────────
+//
+// Mismo hallazgo que en `ai-rentabilidad.test.ts`: `runEstadisticasAnalysis`
+// arma el `deps` genérico copiando cada método por REFERENCIA
+// (`checkQuota: deps.checkQuota`) en vez de envolverlo en una lambda — con un
+// `deps` implementado como clase (métodos que usan `this`), el receptor se
+// pierde al invocarse desde el objeto genérico y explota.
+class ClassBasedEstadisticasDeps implements AnalysisDeps {
+  calls = { checkQuota: 0, fetchContext: 0, callModel: 0, persistInsight: [] as string[], incrementUsage: 0 }
+
+  constructor(private ctxValue: EstadisticasContext, private modelContent: string) {}
+
+  async checkQuota() {
+    this.calls.checkQuota++
+    return { allowed: true, body: null }
+  }
+  async fetchContext() {
+    this.calls.fetchContext++
+    return this.ctxValue
+  }
+  async callModel() {
+    this.calls.callModel++
+    return { kind: "ok" as const, content: this.modelContent }
+  }
+  async persistInsight(insight: string) {
+    this.calls.persistInsight.push(insight)
+  }
+  async incrementUsage() {
+    this.calls.incrementUsage++
+  }
+}
+
+describe("runEstadisticasAnalysis con deps implementado como clase (fix 12)", () => {
+  it("no lanza cuando los métodos de deps dependen de `this` (deps NO bindeado, pasado por referencia de método)", async () => {
+    const d = new ClassBasedEstadisticasDeps(ctx(), '{"insight":"Los sábados venden más.","recommendations":["a","b","c"]}')
+
+    const r = await runEstadisticasAnalysis(d)
+
+    expect(r.status).toBe(200)
+    expect(d.calls.checkQuota).toBe(1)
+    expect(d.calls.fetchContext).toBe(1)
+    expect(d.calls.callModel).toBe(1)
+    expect(d.calls.persistInsight).toEqual(["Los sábados venden más."])
+    expect(d.calls.incrementUsage).toBe(1)
+  })
+})

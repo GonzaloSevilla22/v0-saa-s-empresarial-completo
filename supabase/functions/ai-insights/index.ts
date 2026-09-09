@@ -3,13 +3,15 @@ import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/a
 import {
   fetchKpiSummary,
   fetchCriticalStockCount,
-  lineRevenue,
+  fetchTopProducts,
+  resolveActiveAccountId,
   sumLineRevenue,
   netMarginPct,
   previousWindow,
   type SaleRevenueRow,
+  type AccountResolutionClient,
 } from '../_shared/reporting-canon.ts'
-import { argentinaDaysAgoIso } from '../_shared/argentina-time.ts'
+import { argentinaDaysAgoIso, argentinaToday } from '../_shared/argentina-time.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -120,6 +122,7 @@ Deno.serve(async (req) => {
     const d30   = new Date(now); d30.setDate(now.getDate() - 30)
     const d30Str = argentinaDaysAgoIso(30, now).slice(0, 10)
     const d60Str = argentinaDaysAgoIso(60, now).slice(0, 10)
+    const nowStr = argentinaToday(now)
 
     // kpi-ia-canonical-revenue (D1/D2): ventana canónica + su previa sintética,
     // para consumir rpc_dashboard_kpi_summary de una sola llamada.
@@ -179,24 +182,35 @@ Deno.serve(async (req) => {
       ? `${totalRevenue >= prevInvoicedRevenue ? '+' : ''}${Math.round(((totalRevenue - prevInvoicedRevenue) / prevInvoicedRevenue) * 100)}%`
       : 'sin datos previos'
 
-    // Top productos por revenue
-    // C-20: s.products ya no viene del embedded join (v_sales_flat no expone FK embebida)
-    // → buscar info del producto desde productsRes ya fetched
-    const productMap = new Map<string, { name: string; cost: number; price: number }>(
-      products.map((p: any) => [p.id, { name: p.name, cost: Number(p.cost ?? 0), price: Number(p.price ?? 0) }])
-    )
-    const salesByProduct = new Map<string, { nombre: string; revenue: number; units: number; cost: number; price: number }>()
-    for (const s of sales as (SaleRevenueRow & { product_id: string | null; quantity: number | string | null })[]) {
-      const pid = s.product_id
-      if (!pid) continue
-      const p   = productMap.get(pid)
-      const cur = salesByProduct.get(pid) ?? { nombre: p?.name ?? '?', revenue: 0, units: 0, cost: p?.cost ?? 0, price: p?.price ?? 0 }
-      salesByProduct.set(pid, { ...cur, revenue: cur.revenue + lineRevenue(s), units: cur.units + Number(s.quantity) })
+    // Top productos por importe — migrar-top-productos-canon: read-model
+    // canónico `rpc_product_ranking` (el mismo que consume `/estadisticas` y
+    // su export CSV), no una agregación local sobre `v_sales_flat` (2ª/3ª
+    // definición de la misma cuenta). `rpc_product_ranking` exige
+    // `p_account_id` explícito — se resuelve con el mismo criterio
+    // determinístico que `backend/core/deps.py:get_account_id`. Si cualquier
+    // paso falla, el bloque se omite (nunca se reconstruye con la suma local
+    // vieja, D4).
+    let topProducts: string[] = []
+    try {
+      // Cast acotado (no `any`, mismo patrón que `AiQuotaClient` arriba):
+      // el chain estructural de 5 niveles de `AccountResolutionClient`
+      // dispara TS2589 ("Type instantiation is excessively deep") en `deno
+      // check` al compararse contra el tipo real, muy genérico, de
+      // supabase-js.
+      const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
+      if (!accountId) throw new Error('no_active_account')
+
+      const ranked = await fetchTopProducts(supabase, accountId, {
+        start: d30Str,
+        end:   nowStr,
+        limit: 5,
+      })
+      topProducts = ranked.map(p =>
+        `${p.name}: $${Math.round(p.revenue).toLocaleString()} (${p.units} uds${p.marginPct != null ? `, ${p.marginPct}% margen` : ''})`
+      )
+    } catch (err) {
+      console.error('[ai-insights] rpc_product_ranking falló, top productos omitido:', err)
     }
-    const topProducts = [...salesByProduct.values()]
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5)
-      .map(p => `${p.nombre}: $${Math.round(p.revenue).toLocaleString()} (${p.units} uds, ${p.price > 0 ? Math.round(((p.price - p.cost) / p.price) * 100) : 0}% margen)`)
 
     // Sin rotación
     const lastSaleDate = new Map<string, string>()

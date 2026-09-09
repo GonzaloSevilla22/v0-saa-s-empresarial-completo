@@ -1,5 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 import {
   fetchKpiSummary,
   sumLineRevenue,
@@ -77,7 +77,10 @@ Deno.serve(async (req) => {
     }
 
     // ── Plan quota check (C-02) — reject before any OpenAI cost ───────────────
-    const quota = await checkAiQuota(supabaseClient, user.id, 'queries')
+    // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members,
+    // lo que dispara TS2589 al compararlo contra el `SupabaseClient` real
+    // (mismo patrón que ai-insights/ai-resumen).
+    const quota = await checkAiQuota(supabaseClient as unknown as AiQuotaClient, user.id, 'queries')
     if (!quota.allowed) {
       console.warn('[ai-simulador] Quota exceeded for user', user.id)
       return jsonResponse(quota.body, 429)
@@ -166,7 +169,8 @@ Deno.serve(async (req) => {
     }
 
     // OpenAI call succeeded — consume one AI query from the monthly quota (C-02).
-    await incrementAiUsage(supabaseClient, user.id, 'queries')
+    // Mismo cast acotado que `checkAiQuota` arriba (ver comentario).
+    await incrementAiUsage(supabaseClient as unknown as AiQuotaClient, user.id, 'queries')
 
     const { data: insight, error: rpcError } = await supabaseClient.rpc('rpc_atomic_log_ai_insight', {
       // p_user_id removed: RPC uses auth.uid() internally (security hardening)

@@ -72,6 +72,112 @@ export interface CriticalStockClient {
   ): PromiseLike<{ data: number | string | null; error: { message: string } | null }>
 }
 
+/** Ventana simple (sin período comparativo) para `get_dashboard_financials`. */
+export interface FinancialsWindow {
+  from: string
+  to: string
+  branchId?: string | null
+}
+
+/** Fila mapeada de `get_dashboard_financials` — balance-ai-resumen-compras:
+ *  única fuente canónica que expone "compras" del período junto con ingresos
+ *  y gastos, con la misma fórmula de `net_profit` que `rpc_dashboard_kpi_summary`
+ *  (que calcula compras internamente pero no las devuelve como columna). */
+export interface DashboardFinancials {
+  totalIncome: number | null
+  totalExpenses: number | null
+  totalPurchases: number | null
+  netProfit: number | null
+}
+
+interface FinancialsRpcRow {
+  total_income: string | number | null
+  total_expenses: string | number | null
+  total_purchases: string | number | null
+  net_profit: string | number | null
+}
+
+/** Forma estructural mínima del cliente para `get_dashboard_financials`. */
+export interface FinancialsClient {
+  rpc(
+    fn: "get_dashboard_financials",
+    args: { p_date_from: string; p_date_to: string; p_branch_id?: string },
+  ): PromiseLike<{ data: FinancialsRpcRow[] | null; error: { message: string } | null }>
+}
+
+/** Fila de `rpc_product_ranking` mapeada a camelCase — migrar-top-productos-canon:
+ *  gemelo de `frontend/lib/reporting/product-ranking.ts`. Reemplaza las
+ *  agregaciones locales de "top productos" de `ai-insights/index.ts` y del
+ *  Copiloto (2ª/3ª definición de una agregación que esta RPC ya canoniza). */
+export interface TopProduct {
+  productId: string
+  name: string
+  units: number
+  revenue: number
+  /** `null` cuando ninguna línea del grupo resolvió costo (cascada RN-D2). */
+  marginPct: number | null
+}
+
+interface ProductRankingRpcRow {
+  product_id: string
+  product_name: string
+  units: string | number
+  revenue: string | number
+  gross_margin_pct: string | number | null
+}
+
+export interface ProductRankingWindow {
+  /** Fecha de negocio (YYYY-MM-DD). */
+  start: string
+  end: string
+  branchId?: string | null
+  /** Top N por importe. Default 5. */
+  limit?: number
+}
+
+/** Forma estructural mínima del cliente para `rpc_product_ranking`. */
+export interface ProductRankingClient {
+  rpc(
+    fn: "rpc_product_ranking",
+    args: {
+      p_account_id: string
+      p_start: string
+      p_end: string
+      p_order_by: string
+      p_group_variants: boolean
+      p_branch_id: string | null
+      p_canal: null
+      p_limit: number
+      p_offset: number
+    },
+  ): PromiseLike<{ data: ProductRankingRpcRow[] | null; error: { message: string } | null }>
+}
+
+interface AccountMembershipRow {
+  account_id: string
+}
+
+/** Forma estructural mínima del cliente para resolver la cuenta activa
+ *  (mismo criterio que `backend/core/deps.py:get_account_id` y
+ *  `generate-export/index.ts` — Regla de Tres: ya son 3 los consumidores de
+ *  este criterio, de ahí la extracción). */
+export interface AccountResolutionClient {
+  from(table: "account_members"): {
+    select(columns: string): {
+      eq(column: string, value: string): {
+        order(column: string, opts: { ascending: boolean }): {
+          order(
+            column: string,
+            opts: { ascending: boolean },
+          ): {
+            limit(n: number): PromiseLike<{ data: AccountMembershipRow[] | null; error: { message: string } | null }>
+          }
+        }
+      }
+    }
+  }
+}
+
 // ─── Pure helpers (gemelas de frontend/lib/reporting/revenue-canon.ts) ────────
 
 const toNumber = (v: number | string | null | undefined): number => {
@@ -168,4 +274,104 @@ export async function fetchCriticalStockCount(
   if (error) throw error
 
   return data == null ? 0 : Number(data)
+}
+
+/**
+ * Llama `get_dashboard_financials` con la ventana dada y devuelve la fila
+ * mapeada, o `null` si no hay filas. Propaga cualquier error del RPC — la
+ * decisión de degradar (D4, balance-ai-resumen-compras) es del consumidor,
+ * no de esta capa de acceso.
+ *
+ * Nit (revisión adversarial, fix 8): esta RPC resuelve la tenencia con un
+ * criterio DISTINTO al de `rpc_dashboard_kpi_summary` (`fetchKpiSummary`
+ * arriba) — `get_dashboard_financials` filtra directo por
+ * `account_id IN (SELECT current_account_ids())` (el conjunto derivado de
+ * `auth.uid()`, sin materializar una cuenta), mientras que
+ * `rpc_dashboard_kpi_summary` resuelve una única `v_account_id` explícita
+ * (`SELECT cai INTO v_account_id ... LIMIT 1`) antes de filtrar. Ninguna de
+ * las dos recibe un `p_account_id` del caller (a diferencia de
+ * `fetchTopProducts`/`resolveActiveAccountId` más abajo, que sí lo resuelven
+ * en el cliente y lo pasan explícito). `ai-resumen/index.ts` llama a AMBAS
+ * (`fetchKpiSummary` + `fetchDashboardFinancials`) para el mismo prompt sin
+ * armonizar esta diferencia — hoy inocuo porque la tenency es de una sola
+ * cuenta por usuario (OQ-2), pero deja de serlo si eso cambia.
+ */
+export async function fetchDashboardFinancials(
+  client: FinancialsClient,
+  window: FinancialsWindow,
+): Promise<DashboardFinancials | null> {
+  const args: { p_date_from: string; p_date_to: string; p_branch_id?: string } = {
+    p_date_from: window.from,
+    p_date_to: window.to,
+  }
+  if (window.branchId) args.p_branch_id = window.branchId
+
+  const { data, error } = await client.rpc("get_dashboard_financials", args)
+  if (error) throw error
+
+  const row = data && data.length > 0 ? data[0] : null
+  if (!row) return null
+
+  return {
+    totalIncome: num(row.total_income),
+    totalExpenses: num(row.total_expenses),
+    totalPurchases: num(row.total_purchases),
+    netProfit: num(row.net_profit),
+  }
+}
+
+/**
+ * Resuelve la cuenta activa del usuario con el mismo criterio determinístico
+ * que `backend/core/deps.py:get_account_id` y `generate-export/index.ts`: la
+ * membresía con `created_at` más antiguo, desempatada por `id`. `null` si no
+ * tiene ninguna cuenta activa — el caller decide si degrada.
+ */
+export async function resolveActiveAccountId(
+  client: AccountResolutionClient,
+  userId: string,
+): Promise<string | null> {
+  const { data, error } = await client
+    .from("account_members")
+    .select("account_id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1)
+
+  if (error || !data || data.length === 0) return null
+  return data[0].account_id
+}
+
+/**
+ * Llama `rpc_product_ranking` (orden por importe, variantes agrupadas, top
+ * `window.limit`) y devuelve las filas mapeadas. Propaga cualquier error del
+ * RPC — la decisión de degradar (omitir el bloque, nunca reconstruir la
+ * suma local sobre `v_sales_flat`/`sales`) es del consumidor.
+ */
+export async function fetchTopProducts(
+  client: ProductRankingClient,
+  accountId: string,
+  window: ProductRankingWindow,
+): Promise<TopProduct[]> {
+  const { data, error } = await client.rpc("rpc_product_ranking", {
+    p_account_id: accountId,
+    p_start: window.start,
+    p_end: window.end,
+    p_order_by: "revenue",
+    p_group_variants: true,
+    p_branch_id: window.branchId ?? null,
+    p_canal: null,
+    p_limit: window.limit ?? 5,
+    p_offset: 0,
+  })
+  if (error) throw error
+
+  const rows = data ?? []
+  return rows.map((row) => ({
+    productId: row.product_id,
+    name: row.product_name,
+    units: toNumber(row.units),
+    revenue: toNumber(row.revenue),
+    marginPct: num(row.gross_margin_pct),
+  }))
 }

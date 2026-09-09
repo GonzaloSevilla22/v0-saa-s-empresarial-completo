@@ -20,6 +20,7 @@ import {
   previousWindow,
   fetchKpiSummary,
   fetchCriticalStockCount,
+  fetchDashboardFinancials,
   type SaleRevenueRow,
 } from "../../../supabase/functions/_shared/reporting-canon"
 
@@ -167,6 +168,62 @@ describe("fetchCriticalStockCount (Deno, cliente inyectado)", () => {
   })
 })
 
+describe("fetchDashboardFinancials (Deno, cliente inyectado)", () => {
+  const window = {
+    from: "2026-06-01T00:00:00.000Z",
+    to: "2026-06-30T23:59:59.999Z",
+  }
+  const mockRow = {
+    total_income: "9000",
+    total_expenses: "2000",
+    total_purchases: "1500",
+    net_profit: "5500",
+  }
+
+  it("respuesta con fila → objeto canónico mapeado a camelCase", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [mockRow], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchDashboardFinancials>[0]
+
+    const result = await fetchDashboardFinancials(client, window)
+    expect(result).toEqual({
+      totalIncome: 9000,
+      totalExpenses: 2000,
+      totalPurchases: 1500,
+      netProfit: 5500,
+    })
+    expect(rpcMock).toHaveBeenCalledWith("get_dashboard_financials", {
+      p_date_from: window.from,
+      p_date_to: window.to,
+    })
+  })
+
+  it("respuesta vacía → null", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchDashboardFinancials>[0]
+
+    expect(await fetchDashboardFinancials(client, window)).toBeNull()
+  })
+
+  it("error presente → propaga el error", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: null, error: { message: "boom" } })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchDashboardFinancials>[0]
+
+    await expect(fetchDashboardFinancials(client, window)).rejects.toEqual({ message: "boom" })
+  })
+
+  it("branchId presente → envía p_branch_id", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [mockRow], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchDashboardFinancials>[0]
+
+    await fetchDashboardFinancials(client, { ...window, branchId: "branch-9" })
+    expect(rpcMock).toHaveBeenCalledWith("get_dashboard_financials", {
+      p_date_from: window.from,
+      p_date_to: window.to,
+      p_branch_id: "branch-9",
+    })
+  })
+})
+
 describe("ai-resumen — facturación canónica", () => {
   it("prioriza invoicedRevenue del RPC y deja las filas sólo como fallback", () => {
     const source = readFileSync(
@@ -177,5 +234,31 @@ describe("ai-resumen — facturación canónica", () => {
     expect(source).toContain("invoicedRevenue = summary.invoicedRevenue")
     expect(source).toMatch(/const totalSales = invoicedRevenue\s*\?\? sumLineRevenue/)
     expect(source).not.toMatch(/const totalSales = .*\.reduce/)
+  })
+
+  it("balance-ai-resumen-compras: gastos y compras salen del read-model canónico, con Compras totales en el prompt", () => {
+    const source = readFileSync(
+      join(process.cwd(), "../supabase/functions/ai-resumen/index.ts"),
+      "utf8",
+    )
+
+    expect(source).toContain("fetchDashboardFinancials")
+    expect(source).toContain("financials?.totalExpenses")
+    expect(source).toContain("financials?.totalPurchases")
+    expect(source).toMatch(/Compras totales/)
+    // Los gastos locales (Σ expenses) sólo sobreviven como fallback degradado.
+    expect(source).not.toMatch(/const totalExpenses = \(expensesResult\.data \|\| \[\]\)\.reduce/)
+  })
+
+  it("fix 6 (revisión adversarial): con financials degradado (null), el Balance se omite igual que Compras — netProfit viene de OTRA RPC (rpc_dashboard_kpi_summary) que resta compras invisibles en ese camino, y la aritmética no cierra si se muestra", () => {
+    const source = readFileSync(
+      join(process.cwd(), "../supabase/functions/ai-resumen/index.ts"),
+      "utf8",
+    )
+
+    expect(source).toMatch(/const balanceLinea = netProfit != null && financials != null/)
+    // "sin filas" (RPC ok, 0 filas) es un camino degradado distinto del catch
+    // (RPC tira error) — antes no logueaba nada.
+    expect(source).toContain("get_dashboard_financials sin filas, gastos/compras degradados")
   })
 })

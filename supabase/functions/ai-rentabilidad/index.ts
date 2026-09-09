@@ -1,5 +1,26 @@
+// ai-rentabilidad — análisis de margen por producto (C-11 rentabilidad).
+//
+// Auth con el JWT del usuario, checkAiQuota ANTES de OpenAI, gpt-4o-mini con
+// timeout de 25 s y fallback, persistencia en `insights`, incrementAiUsage
+// DESPUÉS y sólo si el insight se generó Y se persistió.
+//
+// Toda la decisión vive en _shared/ai-rentabilidad-core.ts (puro, testeado
+// desde vitest — frontend/__tests__/ai-rentabilidad.test.ts); este archivo
+// sólo cablea las dependencias reales. La orquestación (cuota → contexto →
+// modelo → persistir → cobrar) es la misma que usa ai-estadisticas, vía
+// `_shared/ai-insight-core.ts` (candidato "alinear ai-rentabilidad con
+// ai-estadisticas", CLAUDE.md) — antes de este cambio se cobraba cuota
+// aunque el insight viniera vacío o la persistencia fallara en silencio.
+
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
+import {
+  RENTABILIDAD_INSIGHT_TYPE,
+  runRentabilidadAnalysis,
+  type ModelOutcome,
+  type ProfitabilityRow,
+  type RentabilidadContext,
+} from '../_shared/ai-rentabilidad-core.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,10 +36,6 @@ function jsonResponse(body: unknown, status = 200) {
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     status,
   })
-}
-
-function fallbackResponse(msg = 'No se pudo generar el análisis de rentabilidad. Intentá de nuevo más tarde.') {
-  return jsonResponse({ ok: true, fallback: true, message: msg })
 }
 
 function extractErrorMessage(err: unknown): string {
@@ -76,14 +93,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: false, error: 'Missing OPENAI_API_KEY' }, 500)
     }
 
-    // 2. Quota check
-    const quota = await checkAiQuota(supabase, user.id, 'queries')
-    if (!quota.allowed) {
-      console.warn('[ai-rentabilidad] Quota exceeded for user', user.id)
-      return jsonResponse(quota.body, 429)
-    }
-
-    // 3. Parse period_days from body
+    // 2. Parse period_days from body
     let periodDays = 30
     try {
       const body = await req.json()
@@ -92,129 +102,91 @@ Deno.serve(async (req) => {
       }
     } catch (_) { /* use default */ }
 
-    // 4. Fetch profitability data via RPC
-    const { data: products, error: rpcErr } = await supabase.rpc('rpc_product_profitability', {
-      p_period_days: periodDays,
+    // 3. Orquestación pura (cuota → contexto → modelo → persistir → cobrar).
+    const result = await runRentabilidadAnalysis({
+      // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members,
+      // lo que dispara TS2589 al compararlo contra el `SupabaseClient` real
+      // (mismo patrón que ai-insights/ai-resumen/ai-precio/ai-comparativo/
+      // ai-prediccion/ai-simulador/fair-advisor).
+      checkQuota: () => checkAiQuota(supabase as unknown as AiQuotaClient, user.id, 'queries'),
+
+      fetchContext: async (): Promise<RentabilidadContext> => {
+        const { data: products, error: rpcErr } = await supabase.rpc('rpc_product_profitability', {
+          p_period_days: periodDays,
+        })
+        if (rpcErr) throw new Error(rpcErr.message)
+        const rows = (products ?? []) as ProfitabilityRow[]
+        console.log('[ai-rentabilidad] Data:', rows.length, 'products')
+        return { periodDays, rows }
+      },
+
+      callModel: async (prompt: string): Promise<ModelOutcome> => {
+        try {
+          const response = await fetchWithTimeout(
+            'https://api.openai.com/v1/chat/completions',
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${openAiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [
+                  {
+                    role: 'system',
+                    content: 'Sos un consultor de negocios para emprendedores argentinos. Usá el español rioplatense. Sé directo y accionable. Siempre citá números reales del contexto.',
+                  },
+                  { role: 'user', content: prompt },
+                ],
+                response_format: { type: 'json_object' },
+                max_tokens: 500,
+                temperature: 0.3,
+              }),
+            }
+          )
+
+          console.log('[ai-rentabilidad] OpenAI status:', response.status)
+
+          if (!response.ok) {
+            const errRaw = await response.text().catch(() => '')
+            console.error('[ai-rentabilidad] OpenAI error:', errRaw)
+            let message = errRaw
+            try {
+              const parsed = JSON.parse(errRaw) as { error?: { message?: string } }
+              message = parsed?.error?.message || errRaw
+            } catch { /* texto crudo */ }
+            return { kind: 'http_error', status: response.status, message }
+          }
+
+          const aiData = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
+          return { kind: 'ok', content: aiData?.choices?.[0]?.message?.content ?? '' }
+        } catch (aiErr: unknown) {
+          const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
+          console.error('[ai-rentabilidad] AI call failed:', isTimeout ? 'TIMEOUT' : aiErr)
+          return isTimeout ? { kind: 'timeout' } : { kind: 'error', message: extractErrorMessage(aiErr) }
+        }
+      },
+
+      persistInsight: async (insight: string) => {
+        const { error: insertErr } = await supabase.from('insights').insert({
+          user_id:  user.id,
+          type:     RENTABILIDAD_INSIGHT_TYPE,
+          priority: 'alta',
+          message:  insight,
+        })
+        if (insertErr) {
+          console.error('[ai-rentabilidad] DB insert error:', extractErrorMessage(insertErr))
+          throw new Error(extractErrorMessage(insertErr))
+        }
+      },
+
+      // Mismo cast acotado que `checkQuota` arriba (ver comentario).
+      incrementUsage: () => incrementAiUsage(supabase as unknown as AiQuotaClient, user.id, 'queries'),
     })
 
-    if (rpcErr) {
-      console.error('[ai-rentabilidad] RPC error:', rpcErr.message)
-      return jsonResponse({ ok: false, error: rpcErr.message }, 500)
-    }
-
-    const rows = (products ?? []) as Array<Record<string, unknown>>
-
-    if (rows.length === 0) {
-      return jsonResponse({ ok: false, error: 'Sin datos de ventas en el período seleccionado' }, 422)
-    }
-
-    // RPC returns rows sorted DESC by gross_margin_pct → top 5 are the first 5
-    const topProducts    = rows.slice(0, 5)
-    const bottomProducts = rows.length > 5 ? rows.slice(-5) : []
-
-    console.log('[ai-rentabilidad] Data:', rows.length, 'products, top:', topProducts.length, 'bottom:', bottomProducts.length)
-
-    // 5. Build prompt
-    const fmt    = (n: unknown) => `$${Math.round(Number(n)).toLocaleString('es-AR')}`
-    const pctFmt = (n: unknown) => `${Number(n).toFixed(1)}%`
-    const fmtRow = (p: Record<string, unknown>) =>
-      `${p.product_name}: ingresos ${fmt(p.total_revenue)}, costo ${fmt(p.total_cost)}, margen ${pctFmt(p.gross_margin_pct)}, ${p.units_sold} uds`
-
-    const contextBlock = [
-      `PERÍODO: últimos ${periodDays} días`,
-      '',
-      topProducts.length > 0
-        ? `TOP MARGEN:\n${topProducts.map(p => `  • ${fmtRow(p)}`).join('\n')}`
-        : '',
-      bottomProducts.length > 0
-        ? `BAJO MARGEN:\n${bottomProducts.map(p => `  • ${fmtRow(p)}`).join('\n')}`
-        : '',
-    ].filter(Boolean).join('\n')
-
-    const prompt = `${contextBlock}
-
-Analizá la rentabilidad de estos productos. Identificá los hallazgos más importantes con datos concretos.
-
-Devolvé un JSON con:
-- "insight": string — síntesis ejecutiva de 2-3 oraciones con los números más relevantes
-- "recommendations": string[] — exactamente 3 recomendaciones concretas y accionables
-
-Devolvé SOLO el JSON.`
-
-    // 6. Call OpenAI
-    let insight = ''
-    let recommendations: string[] = []
-
-    try {
-      const response = await fetchWithTimeout(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${openAiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',
-            messages: [
-              {
-                role: 'system',
-                content: 'Sos un consultor de negocios para emprendedores argentinos. Usá el español rioplatense. Sé directo y accionable. Siempre citá números reales del contexto.',
-              },
-              { role: 'user', content: prompt },
-            ],
-            response_format: { type: 'json_object' },
-            max_tokens: 500,
-            temperature: 0.3,
-          }),
-        }
-      )
-
-      console.log('[ai-rentabilidad] OpenAI status:', response.status)
-
-      if (!response.ok) {
-        const errRaw = await response.text().catch(() => '')
-        console.error('[ai-rentabilidad] OpenAI error:', errRaw)
-        let errParsed: any = {}
-        try { errParsed = JSON.parse(errRaw) } catch (_) {}
-        return jsonResponse(
-          { ok: false, error: `OpenAI error ${response.status}: ${errParsed?.error?.message || errRaw}` },
-          502
-        )
-      }
-
-      const aiData  = await response.json()
-      const content = aiData?.choices?.[0]?.message?.content ?? ''
-      if (!content) return fallbackResponse()
-
-      const cleaned  = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      const parsed   = JSON.parse(cleaned)
-      insight        = typeof parsed.insight        === 'string' ? parsed.insight        : ''
-      recommendations = Array.isArray(parsed.recommendations)  ? parsed.recommendations : []
-      console.log('[ai-rentabilidad] Parsed insight length:', insight.length)
-
-    } catch (aiErr: unknown) {
-      const isTimeout = aiErr instanceof DOMException && aiErr.name === 'AbortError'
-      console.error('[ai-rentabilidad] AI call failed:', isTimeout ? 'TIMEOUT' : aiErr)
-      if (isTimeout) return fallbackResponse('El análisis tardó demasiado. Intentá de nuevo.')
-      return jsonResponse({ ok: false, error: extractErrorMessage(aiErr) }, 502)
-    }
-
-    // 7. Persist insight + increment quota
-    if (insight) {
-      const { error: insertErr } = await supabase.from('insights').insert({
-        user_id:  user.id,
-        type:     'margen',
-        priority: 'alta',
-        message:  insight,
-      })
-      if (insertErr) console.error('[ai-rentabilidad] DB insert error:', extractErrorMessage(insertErr))
-    }
-
-    await incrementAiUsage(supabase, user.id, 'queries')
-
-    console.log('[ai-rentabilidad] Success')
-    return jsonResponse({ ok: true, data: { insight, recommendations } })
+    console.log('[ai-rentabilidad] Done:', result.status)
+    return jsonResponse(result.body, result.status)
 
   } catch (err: unknown) {
     console.error('[ai-rentabilidad] Unhandled error:', err)

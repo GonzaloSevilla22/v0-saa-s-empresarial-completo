@@ -15,7 +15,7 @@
 // agregación escrita acá (reporting-invariants, "Enforcement de consumo").
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 import { parseBusinessDateRange, parseOptionalUuid } from '../_shared/statistics-params.ts'
 import {
   ESTADISTICAS_INSIGHT_TYPE,
@@ -133,7 +133,11 @@ Deno.serve(async (req) => {
 
     // 4. Orquestación pura (cuota → contexto → modelo → persistir → cobrar).
     const result = await runEstadisticasAnalysis({
-      checkQuota: () => checkAiQuota(supabase, user.id, 'queries'),
+      // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members,
+      // lo que dispara TS2589 al compararlo contra el `SupabaseClient` real
+      // (mismo patrón que ai-insights/ai-resumen/ai-precio/ai-comparativo/
+      // ai-prediccion/ai-simulador/fair-advisor/ai-rentabilidad).
+      checkQuota: () => checkAiQuota(supabase as unknown as AiQuotaClient, user.id, 'queries'),
 
       fetchContext: async (): Promise<EstadisticasContext> => {
         const [evolution, rankingByUnits, rankingByRevenue, canal, weekday, topClients] = await Promise.all([
@@ -224,7 +228,8 @@ Deno.serve(async (req) => {
         }
       },
 
-      incrementUsage: () => incrementAiUsage(supabase, user.id, 'queries'),
+      // Mismo cast acotado que `checkQuota` arriba (ver comentario).
+      incrementUsage: () => incrementAiUsage(supabase as unknown as AiQuotaClient, user.id, 'queries'),
     })
 
     console.log('[ai-estadisticas] Done:', result.status)

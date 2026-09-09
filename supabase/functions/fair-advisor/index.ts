@@ -1,5 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -91,7 +91,10 @@ Deno.serve(async (req) => {
     console.log('[fair-advisor] Auth OK')
 
     // 1b. Quota check
-    const quota = await checkAiQuota(supabaseClient, user.id, 'advice')
+    // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members,
+    // lo que dispara TS2589 al compararlo contra el `SupabaseClient` real
+    // (mismo patrón que ai-insights/ai-resumen).
+    const quota = await checkAiQuota(supabaseClient as unknown as AiQuotaClient, user.id, 'advice')
     if (!quota.allowed) return jsonResponse(quota.body, 429)
 
     // 2. Validate OpenAI key
@@ -192,7 +195,8 @@ INSTRUCCIONES:
     }
 
     // 5b. Increment advice counter (atomic RPC, non-blocking on error)
-    await incrementAiUsage(supabaseClient, user.id, 'advice')
+    // Mismo cast acotado que `checkAiQuota` arriba (ver comentario).
+    await incrementAiUsage(supabaseClient as unknown as AiQuotaClient, user.id, 'advice')
 
     // 6. Persist to DB (error doesn't block the response)
     if (recommendations.length > 0) {

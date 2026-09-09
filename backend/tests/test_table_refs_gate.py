@@ -178,6 +178,65 @@ def test_excludes_comma_separated_cte_names():
     assert "sales" in names
 
 
+# ── extra_cte_names: CTE defined in ANOTHER scanned file ────────────────
+#
+# candidatos-db-backend: el refactor `_account_aging_sql.build_aging_cte`
+# movió la definición `WITH pool AS (...), open_items AS (...)` a un módulo
+# compartido; los repositorios (customer_account_repository.py,
+# supplier_account_repository.py) solo tienen el PLACEHOLDER
+# `{self._MOVEMENT_OPEN_ITEMS_CTE}` en su propio texto fuente — la definición
+# real de `open_items` no vive en el mismo archivo, así que `find_cte_names`
+# (file-wide) no la encuentra ahí. `extract_refs` acepta un set adicional de
+# nombres de CTE "externos" para cubrir justamente este caso.
+
+
+def test_extra_cte_names_excludes_cte_alias_defined_in_another_file_contrast():
+    # Contraste (fija el comportamiento VIEJO): sin la unión de CTEs
+    # cross-file, 'open_items' se trata como una relación real y aparece en
+    # los refs — sería reportado como tabla desconocida por el gate.
+    source_consuming_cte = (
+        'x = """\n'
+        "SELECT cam.*\n"
+        "FROM public.customer_account_movements cam\n"
+        "LEFT JOIN open_items oi ON oi.id = cam.id\n"
+        '"""\n'
+    )
+    names = {r.name for r in gate.extract_refs(source_consuming_cte)}
+    assert "open_items" in names
+
+
+def test_extra_cte_names_excludes_cte_alias_defined_in_another_file():
+    source_defining_cte = (
+        'x = """\n'
+        "WITH open_items AS (\n"
+        "  SELECT id FROM customer_account_movements\n"
+        ")\n"
+        "SELECT 1\n"
+        '"""\n'
+    )
+    source_consuming_cte = (
+        'x = """\n'
+        "SELECT cam.*\n"
+        "FROM public.customer_account_movements cam\n"
+        "LEFT JOIN open_items oi ON oi.id = cam.id\n"
+        '"""\n'
+    )
+    extra = frozenset(gate.find_cte_names(source_defining_cte))
+    assert "open_items" in extra  # sanity: la fuente que "define" sí la expone
+
+    names = {r.name for r in gate.extract_refs(source_consuming_cte, extra_cte_names=extra)}
+    assert "open_items" not in names
+    assert "customer_account_movements" in names
+
+
+def test_extra_cte_names_default_is_empty_and_does_not_break_existing_calls():
+    # La firma nueva debe ser retrocompatible: llamar extract_refs(source)
+    # sin el segundo argumento sigue funcionando igual que antes.
+    src = 'x = "SELECT * FROM sales"\n'
+    names = {r.name for r in gate.extract_refs(src)}
+    assert names == {"sales"}
+
+
 # ── subquery FROM ( skip ─────────────────────────────────────────────────
 
 
@@ -226,6 +285,33 @@ def test_extracts_from_dynamic_fstring_update_ignores_braced_table_var():
     src = 'x = f"UPDATE {table} SET deleted_at = now() WHERE id = $1"\n'
     refs = gate.extract_refs(src)
     assert refs == []
+
+
+def test_ignores_dynamic_schema_qualified_fstring_placeholder():
+    # candidatos-db-backend: `_account_aging_sql.py` arma
+    # `f"FROM public.{movements_table} m"` — nombre de relación DINÁMICO por
+    # placeholder de f-string, esquema seguido de `.{`. El regex de relación
+    # captura "public" solo (el "." no se puede consumir porque el próximo
+    # char es "{", no un identificador), y sin este tratamiento
+    # `normalize_relation_name` no lo reconoce como `public.` (falta el
+    # punto) y el gate reporta 'public' como referencia desconocida. Esto no
+    # es verificable estáticamente — la verificación de esta relación queda
+    # a cargo de los tests del módulo que la construye (equivalencia byte a
+    # byte del SQL emitido por `build_aging_cte`, en
+    # `test_account_aging_sql.py` o equivalente).
+    src = 'x = f"SELECT 1 FROM public.{movements_table} m WHERE m.id = $1"\n'
+    refs = gate.extract_refs(src)
+    assert refs == []
+
+
+def test_dynamic_schema_qualified_placeholder_does_not_swallow_next_ref():
+    # Misma fuente, pero con una segunda cláusula real después del
+    # placeholder dinámico: el JOIN a `clients` sigue viva y debe seguir
+    # detectándose — omitir la relación dinámica no debe consumir ni ocultar
+    # las referencias reales que la siguen en el mismo texto.
+    src = 'x = f"SELECT 1 FROM public.{x} m JOIN public.clients c ON c.id = m.client_id"\n'
+    names = {r.name for r in gate.extract_refs(src)}
+    assert names == {"clients"}
 
 
 # ── comments / docstrings must NOT leak false positives ────────────────────

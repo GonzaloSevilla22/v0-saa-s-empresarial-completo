@@ -94,6 +94,24 @@ _CTE_RE = re.compile(
 
 _FUNCTION_TAIL_RE = re.compile(r"[ \t]*\(")
 
+# Nombre de relación interpolado DINÁMICAMENTE vía placeholder de f-string,
+# en cualquiera de sus dos formas reales:
+#   - `f"FROM public.{movements_table} m"` (candidatos-db-backend,
+#     _account_aging_sql.build_aging_cte): el ident capturado por
+#     `_RELATION_RE` es "public" a secas — el "." literal no se puede
+#     consumir junto con el resto del grupo opcional porque el próximo
+#     carácter es "{", no `[A-Za-z_]` — así que el match termina justo
+#     antes del punto y la cola es ".{...".
+#   - `f"FROM {table} ..."` sin esquema: el ident ni siquiera matchea (su
+#     primer carácter, "{", no es `[A-Za-z_]`), pero se deja el chequeo
+#     simétrico (cola == "{...") por si algún día un identificador parcial
+#     quedara pegado directo a una llave sin esquema de por medio.
+# Ninguno de los dos casos es verificable estáticamente contra el schema
+# real — la verificación de esa relación queda a cargo de los tests del
+# módulo que arma el SQL (p.ej. equivalencia byte a byte del fragmento
+# emitido por `build_aging_cte`), nunca de este gate.
+_DYNAMIC_PLACEHOLDER_TAIL_RE = re.compile(r"^\.?\{")
+
 # RPCs propios del proyecto se llaman con frecuencia como `SELECT rpc_x(...)`
 # / `SELECT public.rpc_x(...)` — sin FROM. La keyword SELECT no se puede usar
 # como disparador genérico ("SELECT identifier(" también matchea funciones
@@ -130,22 +148,49 @@ _STRING_TOKEN_TYPES = {tokenize.STRING}
 if hasattr(tokenize, "FSTRING_MIDDLE"):
     _STRING_TOKEN_TYPES.add(tokenize.FSTRING_MIDDLE)
 
+# PEP 701 (py3.12+) tokenizes the `{`/`}` delimiters of an f-string
+# interpolation hole as plain OP tokens, and the expression inside as
+# regular NAME/OP/etc tokens — none of that is in `_STRING_TOKEN_TYPES`, so
+# on 3.12+ `_reveal_only` blanks the delimiters themselves to spaces too
+# (unlike 3.10/3.11, where the whole f-string — braces included — is a
+# single STRING token and survives verbatim). That erases the one signal
+# `extract_refs` needs to recognize a dynamic placeholder immediately after
+# an identifier (e.g. `public.{movements_table}` — see
+# `_DYNAMIC_PLACEHOLDER_TAIL_RE`): without it, "public" followed by a dot
+# and then BLANK SPACE is indistinguishable from "public" followed by a dot
+# and a real (missing) identifier. So the `{`/`}` delimiter tokens
+# themselves (never their interior — that's still Python code, not SQL, and
+# must not leak) are added to the kept spans whenever they occur inside an
+# f-string, tracked via a simple FSTRING_START/END depth counter.
+_FSTRING_DELIMITER_TRACKING = hasattr(tokenize, "FSTRING_START")
+
 _Pos = tuple[int, int]  # (line, col) — 1-indexed line, 0-indexed col (ast/tokenize convention)
 _Span = tuple[_Pos, _Pos]
 
 
 def _string_literal_spans(source: str) -> list[_Span]:
     """Spans of actual Python string-literal CONTENT (STRING tokens, and on
-    py3.12+ FSTRING_MIDDLE segments) — this is the only place real SQL can
-    live in the source. Using `tokenize` instead of scanning raw text is
-    what keeps Python's own `from X import Y` from being mistaken for a SQL
-    `FROM` clause: `from`/`import` there are NAME/keyword tokens, never a
-    STRING token, so they're simply never visited.
+    py3.12+ FSTRING_MIDDLE segments plus the bare `{`/`}` interpolation
+    delimiters — see `_FSTRING_DELIMITER_TRACKING`) — this is the only place
+    real SQL can live in the source. Using `tokenize` instead of scanning
+    raw text is what keeps Python's own `from X import Y` from being
+    mistaken for a SQL `FROM` clause: `from`/`import` there are
+    NAME/keyword tokens, never a STRING token, so they're simply never
+    visited.
     """
     spans: list[_Span] = []
+    fstring_depth = 0
     try:
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
             if tok.type in _STRING_TOKEN_TYPES:
+                spans.append((tok.start, tok.end))
+            if not _FSTRING_DELIMITER_TRACKING:
+                continue
+            if tok.type == tokenize.FSTRING_START:
+                fstring_depth += 1
+            elif tok.type == tokenize.FSTRING_END:
+                fstring_depth = max(0, fstring_depth - 1)
+            elif fstring_depth > 0 and tok.type == tokenize.OP and tok.string in ("{", "}"):
                 spans.append((tok.start, tok.end))
     except (tokenize.TokenizeError, IndentationError, SyntaxError):
         pass
@@ -241,24 +286,48 @@ def find_cte_names(source: str) -> set[str]:
     return {m.group("name").lower() for m in _CTE_RE.finditer(source)}
 
 
-def extract_refs(source: str) -> list[Ref]:
+def extract_refs(
+    source: str, extra_cte_names: frozenset[str] = frozenset()
+) -> list[Ref]:
     """Pure function: Python source text in, list of `Ref` out.
 
     Runs comment/docstring blanking first, then the relation regexes over
     the blanked text (line numbers are preserved 1:1 because blanking only
     replaces characters with spaces, never removes lines).
+
+    `extra_cte_names` (default empty, fully backward-compatible): CTE alias
+    names known to be defined in ANOTHER scanned file — not found by this
+    call's own (file-wide) `find_cte_names(blanked)`. Needed because a SQL
+    fragment can be shared across repositories via an f-string placeholder
+    (candidatos-db-backend: `_account_aging_sql.build_aging_cte` returns a
+    `WITH pool AS (...), open_items AS (...)` string that
+    customer_account_repository.py / supplier_account_repository.py only
+    reference as `{self._MOVEMENT_OPEN_ITEMS_CTE}` — the literal `WITH
+    open_items AS (` text never appears in those two files, only in
+    `_account_aging_sql.py`, so a per-file `find_cte_names` alone can't
+    exclude `open_items` there). `main()` collects `find_cte_names` across
+    ALL scanned files first and passes the union in here for every file.
+    Accepted blind spot: a CTE alias defined in file A stops being detected
+    as an unknown-table reference in file B even if B never actually
+    consumes that shared fragment — it's always a local alias name, never a
+    real table, so at worst this only widens what's ignored, it never masks
+    a real missing table/function.
     """
     blanked = strip_comments_and_docstrings(source)
-    cte_names = find_cte_names(blanked)
+    cte_names = find_cte_names(blanked) | extra_cte_names
 
     refs: list[Ref] = []
     for match in _RELATION_RE.finditer(blanked):
+        tail = blanked[match.end():]
+        if _DYNAMIC_PLACEHOLDER_TAIL_RE.match(tail):
+            # `public.{movements_table}` / `{table}` — nombre dinámico, no
+            # verificable estáticamente. Ver `_DYNAMIC_PLACEHOLDER_TAIL_RE`.
+            continue
         raw_ident = match.group("ident")
         name = normalize_relation_name(raw_ident)
         if name in _SQL_KEYWORD_NOISE or name in cte_names:
             continue
         keyword = re.sub(r"\s+", " ", match.group("keyword").strip().upper())
-        tail = blanked[match.end():]
         is_function_call = (
             keyword in _KEYWORDS_ALLOWING_FUNCTION_CALL and _FUNCTION_TAIL_RE.match(tail)
         )
@@ -366,11 +435,23 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     files = iter_backend_files(root)
+    sources = {f: f.read_text(encoding="utf-8") for f in files}
+
+    # CTEs son alias locales, pero el fragmento SQL que las define puede
+    # vivir en un archivo distinto del que las consume (p.ej.
+    # `_account_aging_sql.build_aging_cte`, compartido vía f-string
+    # placeholder — ver docstring de `extract_refs`). Se recolectan las CTEs
+    # de TODOS los archivos escaneados antes de clasificar ninguna
+    # referencia, y esa unión se pasa a cada `extract_refs` — así un alias
+    # definido en el archivo A se reconoce también al consumirse en el B.
+    all_cte_names: set[str] = set()
+    for source in sources.values():
+        all_cte_names |= find_cte_names(strip_comments_and_docstrings(source))
+    extra_cte_names = frozenset(all_cte_names)
 
     all_refs: list[tuple[Path, Ref]] = []
-    for f in files:
-        source = f.read_text(encoding="utf-8")
-        for ref in extract_refs(source):
+    for f, source in sources.items():
+        for ref in extract_refs(source, extra_cte_names=extra_cte_names):
             all_refs.append((f, ref))
 
     try:

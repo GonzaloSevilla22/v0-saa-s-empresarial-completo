@@ -40,7 +40,26 @@
 --       (2.5) c28_register_cash_movement invocada DIRECTO con los claims de A
 --             contra la sesión de B                                   → P0401
 --
---   En las cuatro NO alcanza con el SQLSTATE: el spec pide "sin efectos
+--   SECCIÓN 2.6 (2026-09-09, candidato S4 heredado de este mismo change,
+--   OQ-4): revoca el EXECUTE de `authenticated` (y confirma el de `anon`,
+--   que ya no lo tenía) sobre c28_register_cash_movement — capa ANTERIOR a
+--   la (2.5): un rol de aplicación ya no puede ni siquiera LLAMAR al helper,
+--   ni contra su propia sesión. Migración:
+--   20261038000001_c28_register_cash_movement_revoke_authenticated.sql.
+--     (2.6a) ACL: ni authenticated ni anon tienen EXECUTE.
+--     (2.6b) llamada directa bajo SET LOCAL ROLE authenticated, contra la
+--            PROPIA sesión de A (sin ningún ataque de tenencia)     → 42501
+--     (2.6c) CONTROL POSITIVO — rpc_register_cash_movement (wrapper
+--            SECURITY DEFINER) sigue funcionando bajo authenticated.
+--     (2.6e) CONTROL POSITIVO REAL — el POS completo (rpc_quick_sale) bajo
+--            SET LOCAL ROLE authenticated, el mismo rol efectivo que adopta
+--            el pool de FastAPI/PostgREST en producción: la cadena
+--            SECURITY DEFINER corre siempre como el DUEÑO (postgres), nunca
+--            como el rol externo, así que el REVOKE no le pega.
+--   El chequeo (3)/(4) de test_function_acl_gate.sql NO cubre esta ACL —
+--   filtran por prosecdef y este helper no lo es (L216-217 de ese archivo).
+--
+--   En las cuatro (2.2-2.5) NO alcanza con el SQLSTATE: el spec pide "sin efectos
 --   parciales", así que los movimientos de la caja de la víctima se cuentan y
 --   se suman ANTES y DESPUÉS, y tienen que quedar idénticos.
 --
@@ -111,10 +130,14 @@ DECLARE
   v_cashbox_a2     uuid;
   v_cashbox_a3     uuid;   -- caja limpia para el saldo firmado (3.7)
   v_cashbox_a4     uuid;   -- caja limpia para la semantica del replay (3.5b)
+  v_cashbox_a5     uuid;   -- caja limpia para el control positivo (2.6c)
+  v_cashbox_a6     uuid;   -- caja limpia para el control positivo real (2.6e)
   v_session_a1     uuid;
   v_session_a2     uuid;
   v_session_a3     uuid;
   v_session_a4     uuid;
+  v_session_a5     uuid;
+  v_session_a6     uuid;
   v_pm_cash_a      uuid;
   v_pm_transfer_a  uuid;   -- forma de pago NO efectivo (2.2b)
   v_product_a      uuid;
@@ -377,6 +400,110 @@ BEGIN
     RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.5-efectos): el rechazo dejó % movimientos / % de saldo en la caja ajena, esperaba % / %.', v_count, v_amount, v_nb_movs, v_nb_sum;
   END IF;
   RAISE NOTICE 'PASS (2.5): el helper intra-transacción rechaza con P0401 la sesión de otro tenant, sin insertar nada (backstop de la capa 2).';
+
+  -- ═══ (2.6) OQ-4 — REVOKE de EXECUTE a `authenticated`/`anon` (capa ANTERIOR
+  -- a la 2.5: ni siquiera se debe poder LLAMAR al helper como rol de
+  -- aplicación). Ver cabecera de este archivo y de
+  -- 20261038000001_c28_register_cash_movement_revoke_authenticated.sql.
+
+  -- (2.6a) ACL: ni authenticated ni anon tienen EXECUTE tras la migración.
+  IF has_function_privilege('authenticated', 'public.c28_register_cash_movement(uuid,numeric,text,uuid,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6a): authenticated todavía tiene EXECUTE sobre c28_register_cash_movement — falta aplicar/repetir 20261038000001_c28_register_cash_movement_revoke_authenticated.sql, o algo se lo re-otorgó.';
+  END IF;
+  IF has_function_privilege('anon', 'public.c28_register_cash_movement(uuid,numeric,text,uuid,text)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6a-anon): anon tiene EXECUTE sobre c28_register_cash_movement.';
+  END IF;
+  RAISE NOTICE 'PASS (2.6a): ni authenticated ni anon tienen EXECUTE sobre c28_register_cash_movement.';
+
+  -- (2.6b) llamada DIRECTA bajo el rol de aplicación, contra la PROPIA sesión
+  -- de A (sin ningún ataque de tenencia de por medio) → debe rebotar por ACL,
+  -- no por el backstop de la 2.5 (que ni siquiera llega a evaluarse).
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_nb_movs, v_nb_sum
+  FROM public.cash_movements WHERE session_id = v_session_a1;
+
+  v_sqlstate := NULL;
+  SET LOCAL ROLE authenticated;
+  BEGIN
+    PERFORM public.c28_register_cash_movement(v_session_a1, 111, 'sale', NULL);
+  EXCEPTION
+    WHEN OTHERS THEN v_sqlstate := SQLSTATE;
+  END;
+  RESET ROLE;
+
+  IF v_sqlstate IS DISTINCT FROM '42501' THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6b): c28_register_cash_movement invocado bajo el rol authenticated, contra la PROPIA sesión de A (sin ataque de tenencia), debería rebotar con 42501 (permission denied) tras el REVOKE; rebotó con %. RED esperado antes de 20261038000001: inserta sin error.', COALESCE(v_sqlstate, 'NINGÚN error');
+  END IF;
+
+  SELECT COUNT(*), COALESCE(SUM(amount), 0) INTO v_count, v_amount
+  FROM public.cash_movements WHERE session_id = v_session_a1;
+  IF v_count <> v_nb_movs OR v_amount <> v_nb_sum THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6b-efectos): el rechazo por ACL dejó % movimientos / % de saldo en la sesión propia, esperaba % / % — sin efectos parciales.', v_count, v_amount, v_nb_movs, v_nb_sum;
+  END IF;
+  RAISE NOTICE 'PASS (2.6b): un rol de aplicación ya no puede invocar el helper ni siquiera contra su propia sesión (42501), sin efectos parciales.';
+
+  -- (2.6c) CONTROL POSITIVO — rpc_register_cash_movement (wrapper SECURITY
+  -- DEFINER, owned by postgres) sigue funcionando bajo `authenticated`: la
+  -- llamada interna al helper corre como el DUEÑO, no como el rol externo.
+  INSERT INTO public.cashboxes (branch_id, name)
+  VALUES (v_branch_a1, '__gate_tgc_cashbox_a5__')
+  RETURNING id INTO v_cashbox_a5;
+
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a5, 'open', 0, v_user_a) RETURNING id INTO v_session_a5;
+
+  SET LOCAL ROLE authenticated;
+  SELECT public.rpc_register_cash_movement(v_session_a5, 250, 'adjustment', NULL, 'gate 2.6c') INTO v_result;
+  RESET ROLE;
+
+  v_mov_id := (v_result->>'movement_id')::uuid;
+  IF v_mov_id IS NULL THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6c): rpc_register_cash_movement bajo authenticated no devolvió movement_id tras el REVOKE (resultado %) — el wrapper público de caja se rompió.', v_result;
+  END IF;
+
+  SELECT COUNT(*) INTO v_count
+  FROM public.cash_movements
+  WHERE id = v_mov_id AND session_id = v_session_a5 AND amount = 250 AND movement_type = 'adjustment';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6c-fila): no se encontró la fila esperada en cash_movements tras rpc_register_cash_movement bajo authenticated.';
+  END IF;
+  RAISE NOTICE 'PASS (2.6c): rpc_register_cash_movement (wrapper SECURITY DEFINER) sigue funcionando bajo el rol de aplicación — el REVOKE del helper interno no rompe el camino público de registro manual.';
+
+  -- (2.6e) CONTROL POSITIVO REAL — el POS completo (rpc_quick_sale) bajo el
+  -- rol EFECTIVO que usa producción (SET LOCAL ROLE authenticated, el mismo
+  -- que adopta el pool de FastAPI/PostgREST por request) sigue funcionando de
+  -- punta a punta: la cadena SECURITY DEFINER (_c29_confirm_order_core →
+  -- c28_register_cash_movement) corre siempre como el DUEÑO (postgres), nunca
+  -- como el rol que originó la llamada externa.
+  INSERT INTO public.cashboxes (branch_id, name)
+  VALUES (v_branch_a1, '__gate_tgc_cashbox_a6__')
+  RETURNING id INTO v_cashbox_a6;
+
+  INSERT INTO public.cash_sessions (cashbox_id, status, opening_balance, opened_by)
+  VALUES (v_cashbox_a6, 'open', 0, v_user_a) RETURNING id INTO v_session_a6;
+
+  SET LOCAL ROLE authenticated;
+  SELECT public.rpc_quick_sale(
+    p_idempotency_key   => 'gate-tgc-2-6e',
+    p_items             => jsonb_build_array(jsonb_build_object(
+                             'product_id', v_product_a, 'quantity', 1,
+                             'price', 1000, 'subtotal', 1000)),
+    p_payment_method    => 'cash',
+    p_cash_session_id   => v_session_a6,
+    p_branch_id         => v_branch_a1,
+    p_payment_method_id => v_pm_cash_a
+  ) INTO v_result;
+  RESET ROLE;
+
+  IF (v_result->>'sales_order_id') IS NULL THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6e): rpc_quick_sale bajo el rol authenticated (el que usa el pool real) dejó de funcionar tras el REVOKE (resultado %).', v_result;
+  END IF;
+
+  SELECT COUNT(*) INTO v_count
+  FROM public.cash_movements WHERE session_id = v_session_a6 AND movement_type = 'sale';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE TENANCY-CAJA FAILED (2.6e-caja): el POS bajo authenticated no escribió el movimiento de caja esperado en su propia sesión, hay %.', v_count;
+  END IF;
+  RAISE NOTICE 'PASS (2.6e): el POS sigue funcionando de punta a punta bajo el rol authenticated (el mismo rol efectivo que usa producción) — la cadena SECURITY DEFINER no depende del EXECUTE revocado.';
 
   -- ══ (2.2b) el invariante de TENENCIA no depende del kind ═════════════════
   -- El fixture de este assert (una forma de pago con kind='transfer') se

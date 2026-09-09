@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, it, expect, vi } from "vitest"
-import { fetchCriticalStockCount } from "@/lib/reporting/critical-stock"
+import { fetchCriticalStockCount, fetchCriticalStockItems } from "@/lib/reporting/critical-stock"
 
 describe("fetchCriticalStockCount (5.2/5.4)", () => {
   it("branchId = null -> llama la RPC con p_branch_id: null (agregado)", async () => {
@@ -55,6 +55,71 @@ describe("fetchCriticalStockCount (5.2/5.4)", () => {
   })
 })
 
+describe("fetchCriticalStockItems (kpi-canonicalization S5)", () => {
+  it("llama get_dashboard_critical_stock_items con p_branch_id y p_limit, y mapea las filas", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({
+      data: [
+        {
+          product_id: "p1",
+          name: "Remera",
+          sku: "REM-01",
+          branch_id: "b1",
+          branch_name: "Showroom",
+          quantity: "2",
+          min_stock: "5",
+        },
+      ],
+      error: null,
+    })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchCriticalStockItems>[0]
+
+    const result = await fetchCriticalStockItems(client, "b1", 5)
+
+    expect(rpcMock).toHaveBeenCalledWith("get_dashboard_critical_stock_items", {
+      p_branch_id: "b1",
+      p_limit: 5,
+    })
+    expect(result).toEqual([
+      {
+        productId: "p1",
+        name: "Remera",
+        sku: "REM-01",
+        branchId: "b1",
+        branchName: "Showroom",
+        quantity: 2,
+        minStock: 5,
+      },
+    ])
+  })
+
+  it("branchId = null, sin limit -> pide p_branch_id: null y el default de la función", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchCriticalStockItems>[0]
+
+    await fetchCriticalStockItems(client, null)
+
+    expect(rpcMock).toHaveBeenCalledWith("get_dashboard_critical_stock_items", {
+      p_branch_id: null,
+      p_limit: 5,
+    })
+  })
+
+  it("data null -> devuelve []", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: null, error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchCriticalStockItems>[0]
+
+    const result = await fetchCriticalStockItems(client, null)
+    expect(result).toEqual([])
+  })
+
+  it("error presente -> propaga el error (degradar es decisión del consumidor)", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: null, error: { message: "boom" } })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof fetchCriticalStockItems>[0]
+
+    await expect(fetchCriticalStockItems(client, null)).rejects.toEqual({ message: "boom" })
+  })
+})
+
 describe("consumidores del KPI canónico de stock crítico", () => {
   it("el resumen secundario del Tablero usa el hook canónico con la sucursal activa", () => {
     const source = readFileSync(
@@ -81,6 +146,21 @@ describe("consumidores del KPI canónico de stock crítico", () => {
     for (const source of [copilotSource, insightsSource]) {
       expect(source).toContain("fetchCriticalStockCount")
       expect(source).not.toMatch(/Number\(p\.stock\)\s*<=\s*Number\(p\.min_stock/)
+    }
+  })
+
+  it("Copilot e ai-insights consumen el detalle canónico (fetchCriticalStockItems), no lo reconstruyen (kpi-canonicalization S5)", () => {
+    const copilotSource = readFileSync(
+      join(process.cwd(), "lib/ai/buildBusinessSnapshot.ts"),
+      "utf8",
+    )
+    const insightsSource = readFileSync(
+      join(process.cwd(), "../supabase/functions/ai-insights/index.ts"),
+      "utf8",
+    )
+
+    for (const source of [copilotSource, insightsSource]) {
+      expect(source).toContain("fetchCriticalStockItems")
     }
   })
 

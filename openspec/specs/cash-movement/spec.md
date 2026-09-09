@@ -132,6 +132,30 @@ El error elegido SHALL ser el mismo que el comando público ya usa para el mismo
 - **WHEN** se registran, en orden, un ingreso, un egreso menor y otro ingreso
 - **THEN** el saldo posterior de cada movimiento refleja la suma acumulada de los importes y no el máximo histórico alcanzado
 
+### Requirement: El helper de registro de movimientos de caja no es invocable por roles de aplicación
+
+El sistema SHALL revocar de `authenticated` y de `anon` el privilegio de EJECUCIÓN sobre el helper transaccional de registro de movimientos de caja, dejándolo invocable únicamente por el dueño de la función y por la cadena de RPCs públicas que ya lo envuelven con privilegio de definidor. El helper no exige por sí mismo ningún rol de escritura sobre la cuenta —esa exigencia vive en sus llamadores— así que dejarlo ejecutable directamente por un rol de aplicación es una puerta de entrada que no pasa por esa autorización, aunque el backstop de pertenencia a la cuenta (ver el requirement anterior) siga vigente dentro de su cuerpo.
+
+Esta revocación SHALL NOT alterar el comportamiento de ningún camino legítimo: los dos llamadores vivos del helper corren con privilegio de definidor y heredan la ejecución del dueño de la función, sin depender del privilegio del rol que originó la petición externa.
+
+#### Scenario: Un rol de aplicación no puede invocar el helper directamente
+
+- **GIVEN** una sesión de caja abierta de la propia cuenta del usuario
+- **WHEN** el rol de aplicación invoca el helper de registro de movimientos directamente, sin pasar por ninguna de las RPCs públicas
+- **THEN** la operación es rechazada por falta de privilegio de ejecución, sin insertar ninguna fila, incluso cuando la sesión pertenece a la propia cuenta del usuario
+
+#### Scenario: El registro manual por la RPC pública sigue funcionando
+
+- **GIVEN** un usuario con rol de escritura sobre su cuenta y una sesión de caja abierta
+- **WHEN** registra un movimiento manual por la RPC pública de registro de caja
+- **THEN** el movimiento se inserta normalmente, porque esa RPC ejecuta con privilegio de definidor y no depende del privilegio revocado
+
+#### Scenario: El mostrador (POS) sigue funcionando de punta a punta
+
+- **GIVEN** una venta en efectivo con una sesión de caja abierta de la propia sucursal
+- **WHEN** se confirma la venta desde el mostrador bajo el rol de aplicación
+- **THEN** la venta se confirma y el movimiento de caja correspondiente se registra igual que antes de la revocación
+
 ### Requirement: Suma de movimientos alimenta el arqueo
 El sistema SHALL exponer `Σ(cash_movements.amount)` de una sesión como base del `expected_balance` al cerrar (`expected = opening_balance + Σ amount`), consultable también para mostrar el saldo corriente de la sesión activa en la UI.
 

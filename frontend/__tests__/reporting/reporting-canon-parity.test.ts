@@ -13,6 +13,7 @@ import { describe, it, expect, vi } from "vitest"
 import * as frontendCanon from "@/lib/reporting/revenue-canon"
 import * as edgeCanon from "../../../supabase/functions/_shared/reporting-canon"
 import * as frontendProductRanking from "@/lib/reporting/product-ranking"
+import * as frontendCriticalStock from "@/lib/reporting/critical-stock"
 
 // ─── Tabla de casos compartida ─────────────────────────────────────────────────
 
@@ -111,6 +112,54 @@ describe("paridad frontend <-> Deno: fetchTopProducts invoca rpc_product_ranking
     expect(rpcMock).toHaveBeenCalledTimes(2)
     // Los argumentos de la llamada del gemelo Node (calls[0]) y los del
     // gemelo Deno (calls[1]) tienen que ser IDÉNTICOS ante la misma entrada.
+    expect(rpcMock.mock.calls[0]).toEqual(rpcMock.mock.calls[1])
+  })
+})
+
+// ─── kpi-canonicalization (S5): paridad de fetchCriticalStockItems ──────────
+//
+// Mismo riesgo que fetchTopProducts arriba: `fetchCriticalStockItems` tiene
+// gemelos en `frontend/lib/reporting/critical-stock.ts` (Node) y
+// `supabase/functions/_shared/reporting-canon.ts` (Deno) — si uno cambia el
+// nombre/orden de un argumento de `get_dashboard_critical_stock_items` sin
+// el otro, el Copiloto y `ai-insights` divergirían en silencio en qué le
+// piden al mismo read-model ante la MISMA ventana.
+describe("paridad frontend <-> Deno: fetchCriticalStockItems invoca get_dashboard_critical_stock_items con los MISMOS argumentos", () => {
+  // F6 (revisión adversarial, tanda candidatos-seguridad-db 2026-09-09): los
+  // dos casos de arriba siempre pasan los DOS argumentos explícitos
+  // (branchId y, en el segundo caso, branchId=null) — nunca ejercitan
+  // `fetchCriticalStockItems()` sin argumentos, así que una divergencia
+  // futura en el DEFAULT de `branchId` entre los gemelos Node/Deno no la
+  // detectarían. `Function.length` (que Node NO cuenta como parámetro
+  // ninguno con valor por defecto, incluidos los que le siguen) es la forma
+  // directa de comparar la ARIDAD real de ambas firmas sin invocarlas.
+  it("misma arity (Function.length) entre el gemelo Node y el gemelo Deno", () => {
+    expect(frontendCriticalStock.fetchCriticalStockItems.length).toBe(
+      edgeCanon.fetchCriticalStockItems.length,
+    )
+  })
+
+  it("mismo branchId + limit, mismo doble de cliente -> ambas implementaciones piden exactamente lo mismo", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof frontendCriticalStock.fetchCriticalStockItems>[0] &
+      Parameters<typeof edgeCanon.fetchCriticalStockItems>[0]
+
+    await frontendCriticalStock.fetchCriticalStockItems(client, "branch-9", 7)
+    await edgeCanon.fetchCriticalStockItems(client, "branch-9", 7)
+
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+    expect(rpcMock.mock.calls[0]).toEqual(rpcMock.mock.calls[1])
+  })
+
+  it("branchId null y limit por defecto -> ambas implementaciones coinciden también en el default", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof frontendCriticalStock.fetchCriticalStockItems>[0] &
+      Parameters<typeof edgeCanon.fetchCriticalStockItems>[0]
+
+    await frontendCriticalStock.fetchCriticalStockItems(client, null)
+    await edgeCanon.fetchCriticalStockItems(client, null)
+
+    expect(rpcMock).toHaveBeenCalledTimes(2)
     expect(rpcMock.mock.calls[0]).toEqual(rpcMock.mock.calls[1])
   })
 })

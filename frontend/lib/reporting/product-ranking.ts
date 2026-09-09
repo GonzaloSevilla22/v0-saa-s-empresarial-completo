@@ -19,6 +19,10 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js"
+// F7 (revisión adversarial, tanda candidatos-seguridad-db 2026-09-09):
+// toNumber canonizado en ./coerce — Regla de Tres (esta era la 2ª de 3 copias
+// idénticas en lib/reporting/). Ver el header de ese archivo.
+import { toNumber } from "./coerce"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -55,12 +59,6 @@ export interface ProductRankingWindow {
 
 const num = (v: string | number | null | undefined): number | null =>
   v == null ? null : Number(v)
-
-const toNumber = (v: string | number | null | undefined): number => {
-  if (v == null) return 0
-  const n = Number(v)
-  return Number.isNaN(n) ? 0 : n
-}
 
 // ─── Account resolution ────────────────────────────────────────────────────────
 

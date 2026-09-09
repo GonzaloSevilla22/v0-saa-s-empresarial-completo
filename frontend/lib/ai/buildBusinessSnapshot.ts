@@ -1,7 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { lineRevenue, sumLineRevenue, netMarginPct, previousWindow } from '@/lib/reporting/revenue-canon'
 import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
-import { fetchCriticalStockCount } from '@/lib/reporting/critical-stock'
+import { fetchCriticalStockCount, fetchCriticalStockItems, type CriticalStockItem } from '@/lib/reporting/critical-stock'
 import { fetchTopProducts, resolveActiveAccountId } from '@/lib/reporting/product-ranking'
 import { argentinaToday, argentinaDaysAgo } from '@/lib/date-range'
 
@@ -48,6 +48,12 @@ export interface BusinessSnapshot {
     /** Conteo canónico sobre branch_stock. `null` si la RPC no respondió;
      * nunca se reconstruye sobre el stock agregado del catálogo. */
     stock_critico_total: number | null
+    /** kpi-canonicalization (candidato S5): detalle canónico (top 5, sin
+     *  filtro de sucursal) — nombres reales para que el Copiloto pueda decir
+     *  QUÉ reponer, no sólo cuántos. `null` si la RPC de detalle no
+     *  respondió; el conteo total sigue viniendo de `stock_critico_total`
+     *  (nunca se deriva de `items.length`). */
+    stock_critico_items: CriticalStockItem[] | null
     margen_bajo: Array<{
       nombre: string
       margen_pct: number
@@ -98,6 +104,7 @@ export async function buildBusinessSnapshot(
     { data: newClients },
     { data: recentSalesForRotation },
     criticalStockCount,
+    criticalStockItems,
   ] = await Promise.all([
     // Ventas período actual. `total` se agrega para poder degradar sin
     // subcontar ventas multi-unidad si el canon no responde (D4) — es la
@@ -140,6 +147,12 @@ export async function buildBusinessSnapshot(
 
     fetchCriticalStockCount(supabase, null).catch(err => {
       console.error('[Copilot] get_dashboard_critical_stock falló, dato omitido:', err)
+      return null
+    }),
+    // kpi-canonicalization (S5): detalle canónico (top 5, sin filtro de
+    // sucursal) — se omite (null) sin afectar el conteo de arriba si falla.
+    fetchCriticalStockItems(supabase, null, 5).catch(err => {
+      console.error('[Copilot] get_dashboard_critical_stock_items falló, detalle omitido:', err)
       return null
     }),
   ])
@@ -319,6 +332,7 @@ export async function buildBusinessSnapshot(
       top_rentables: topRentables,
       sin_rotacion:  sinRotacion,
       stock_critico_total: criticalStockCount,
+      stock_critico_items: criticalStockItems,
       margen_bajo:   margenBajo,
     },
     clientes: {
@@ -377,6 +391,15 @@ export function snapshotToText(s: BusinessSnapshot): string {
 
   if (s.productos.stock_critico_total != null && s.productos.stock_critico_total > 0) {
     lines.push(`STOCK CRÍTICO: ${s.productos.stock_critico_total} productos`)
+    // kpi-canonicalization (S5): detalle real cuando la RPC respondió — el
+    // conteo de arriba sigue viniendo de stock_critico_total, nunca de
+    // items.length (puede haber más críticos que los que trae el top 5).
+    if (s.productos.stock_critico_items != null && s.productos.stock_critico_items.length > 0) {
+      for (const item of s.productos.stock_critico_items) {
+        const skuPart = item.sku ? ` (${item.sku})` : ''
+        lines.push(`  • ${item.name}${skuPart} en ${item.branchName}: ${item.quantity} de mínimo ${item.minStock}`)
+      }
+    }
   }
 
   if (s.productos.margen_bajo.length > 0) {
@@ -405,7 +428,13 @@ export function buildAdaptiveContext(s: BusinessSnapshot, question: string): str
 
   if (/stock|producto|inventar|repon|mercader|unidad/.test(q)) {
     if (s.productos.stock_critico_total != null && s.productos.stock_critico_total > 0) {
-      blocks.push(`STOCK CRÍTICO: ${s.productos.stock_critico_total} productos`)
+      let stockLine = `STOCK CRÍTICO: ${s.productos.stock_critico_total} productos`
+      if (s.productos.stock_critico_items != null && s.productos.stock_critico_items.length > 0) {
+        stockLine += ' — ' + s.productos.stock_critico_items
+          .map(item => `${item.name} en ${item.branchName}(${item.quantity}/${item.minStock})`)
+          .join(', ')
+      }
+      blocks.push(stockLine)
     }
     if (s.productos.sin_rotacion.length > 0) {
       blocks.push('SIN ROTACIÓN: ' +

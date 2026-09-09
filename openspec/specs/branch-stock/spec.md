@@ -279,6 +279,48 @@ El overload histórico `(p_user_id uuid)` es un vector IDOR (filtra por el `user
 - **WHEN** la migración se aplica dos veces (integración GitHub de Supabase y luego `db push`)
 - **THEN** la segunda aplicación no falla y el estado final es idéntico
 
+### Requirement: Detalle canónico de productos críticos por sucursal
+
+El sistema SHALL exponer `get_dashboard_critical_stock_items(p_branch_id uuid DEFAULT NULL, p_limit integer DEFAULT 20)` como la definición canónica del **detalle** de stock crítico — hermana de `get_dashboard_critical_stock(p_branch_id)`, con el MISMO predicado (`branch_stock.min_stock > 0 AND quantity <= min_stock`, exclusión de `untracked`/`variant_only`/`deleted_at`, tenencia vía `current_account_ids()`), pero devolviendo una fila por `(product_id, branch_id)` que lo cumple — sin deduplicar por producto, porque el detalle es por definición "por sucursal" (a diferencia del conteo, que cuenta productos distintos).
+
+Todo consumidor de IA que hoy sólo informa el conteo canónico y necesite nombrar productos concretos SHALL obtener ese detalle de esta RPC, nunca reconstruyéndolo desde `v_products_with_stock` ni desde el catálogo agregado. El conteo total que acompaña al detalle SHALL seguir viniendo de `get_dashboard_critical_stock`, nunca derivado de la longitud del detalle (que es sólo un top acotado por `p_limit`).
+
+Las filas SHALL ordenarse por criticidad — menor razón `quantity / min_stock` primero (más lejos bajo su umbral) — desempatado por nombre de producto. `p_limit` SHALL aceptar `NULL` (sin límite) y SHALL rechazar valores menores o iguales a 0 con `P0400`.
+
+#### Scenario: Paridad de predicado con el conteo canónico
+- **WHEN** se invoca `get_dashboard_critical_stock_items(NULL, NULL)` y se cuentan los `product_id` distintos de sus filas
+- **THEN** el resultado coincide con `get_dashboard_critical_stock(NULL)`, total y por sucursal
+
+#### Scenario: Un producto crítico en varias sucursales aparece una fila por sucursal
+- **GIVEN** un producto está por debajo de su umbral en 2 sucursales
+- **WHEN** se invoca el detalle sin filtro de sucursal
+- **THEN** aparecen 2 filas (una por sucursal), a diferencia del conteo canónico que lo cuenta una sola vez
+
+#### Scenario: El producto más crítico aparece primero
+- **GIVEN** dos filas críticas con razones `quantity/min_stock` distintas
+- **WHEN** se invoca el detalle
+- **THEN** la fila con menor razón (más lejos bajo su umbral) aparece primero
+
+#### Scenario: `p_limit` acota el resultado
+- **WHEN** se invoca el detalle con `p_limit = 1` habiendo más de una fila crítica
+- **THEN** se devuelve exactamente 1 fila, la más crítica
+
+#### Scenario: `p_limit` inválido se rechaza
+- **WHEN** se invoca el detalle con `p_limit <= 0`
+- **THEN** la RPC falla con `P0400`
+
+#### Scenario: Tenencia — ninguna fila de otra cuenta es visible
+- **WHEN** se invoca el detalle bajo la sesión de una cuenta que no tiene productos críticos propios, existiendo filas críticas de otra cuenta
+- **THEN** el resultado no incluye ninguna fila de la cuenta ajena
+
+#### Scenario: El Copiloto y `ai-insights` nombran los productos críticos, no sólo los cuentan
+- **WHEN** el Copiloto (`buildBusinessSnapshot.ts`) o `ai-insights` construyen su contexto y el conteo canónico es mayor a 0
+- **THEN** además del conteo, listan hasta 5 productos concretos (nombre, sucursal, cantidad y mínimo) obtenidos de esta RPC — nunca reconstruidos desde el catálogo agregado
+
+#### Scenario: Fallo aislado del detalle no afecta al conteo
+- **WHEN** `get_dashboard_critical_stock_items` falla mientras `get_dashboard_critical_stock` respondió
+- **THEN** el consumidor de IA sigue informando el conteo y omite únicamente el detalle, sin inventar productos
+
 ### Requirement: La transferencia entre sucursales se ofrece desde el módulo de Stock principal
 
 El sistema SHALL ofrecer la transferencia de stock entre sucursales desde el **módulo de Stock principal**, en la ruta `/stock`, como una acción por producto del listado.

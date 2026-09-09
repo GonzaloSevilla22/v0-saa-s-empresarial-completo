@@ -12,12 +12,19 @@ import { resolveEffectivePlan } from '../_shared/effective-plan.ts'
 // agregación propia escrita acá.
 import {
   buildRankingCsv,
+  buildRankingXlsxRows,
   fetchAllRankingRows,
+  fetchFullReportRankingRows,
   isExportType,
   parseRankingExportParams,
   rowsToCsv,
   type ExportType,
 } from '../_shared/export-ranking.ts'
+// fix 3 (revisión adversarial, reutilización antes que repetición): la
+// resolución de cuenta activa ya no se reimplementa acá — `resolveActiveAccountId`
+// vive en `_shared/reporting-canon.ts` (Regla de Tres: generate-export,
+// ai-insights y ahora también ai-precio son sus 3 consumidores).
+import { resolveActiveAccountId, type AccountResolutionClient } from '../_shared/reporting-canon.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -250,17 +257,34 @@ Deno.serve(async (req) => {
     let fileExt: string
 
     if (exportType === 'full_report_xlsx') {
-      const [salesRows, purchasesRows, expensesRows, stockRows] = await Promise.all([
+      // hoja-ranking-full-report: 5ª hoja "Ranking" (4 hojas base + Ranking),
+      // MISMO read-model (rpc_product_ranking) y mismo builder de filas que
+      // product_ranking_csv — nada se re-agrega acá. Parámetros documentados
+      // en defaultFullReportRankingParams: el mismo período que el resto del
+      // reporte (dateFrom → hoy), por unidades, variantes agrupadas, sin
+      // sucursal.
+      //
+      // fix 1 (revisión adversarial): si la cuenta activa no se resuelve, O SI
+      // rpc_product_ranking falla, la hoja queda vacía — nunca se cae el
+      // reporte completo (las otras 4 hojas no dependen de account_members ni
+      // del ranking). Antes, sólo el caso "sin cuenta" degradaba: un error de
+      // la RPC (p.ej. P0401) rechazaba el `Promise.all` ENTERO y el reporte
+      // no se generaba. `fetchFullReportRankingRows` (en `_shared/
+      // export-ranking.ts`) encapsula ambos casos.
+      const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
+      const [salesRows, purchasesRows, expensesRows, stockRows, rankingRows] = await Promise.all([
         fetchSalesRows(supabase, dateFrom),
         fetchPurchasesRows(supabase, dateFrom),
         fetchExpensesRows(supabase, dateFrom),
         fetchStockRows(supabase),
+        fetchFullReportRankingRows(supabase, accountId, dateFrom, new Date()),
       ])
       fileBytes = await buildXlsx([
         { name: 'Ventas',     rows: salesRows },
         { name: 'Compras',    rows: purchasesRows },
         { name: 'Gastos',     rows: expensesRows },
         { name: 'Inventario', rows: stockRows },
+        { name: 'Ranking',    rows: buildRankingXlsxRows(rankingRows) },
       ])
       contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       fileExt = 'xlsx'
@@ -276,19 +300,9 @@ Deno.serve(async (req) => {
         const rows = await fetchExpensesRows(supabase, dateFrom)
         csvText = rowsToCsv(['fecha', 'categoria', 'descripcion', 'forma_pago', 'monto', 'moneda', 'sucursal'], rows)
       } else if (exportType === 'product_ranking_csv' && rankingParams?.ok) {
-        // La cuenta activa se resuelve con el MISMO criterio determinístico
-        // que backend/core/deps.py:get_account_id (membresía más antigua,
-        // desempatada por id) — rpc_product_ranking exige p_account_id y
-        // vuelve a verificar la membresía (P0401).
-        const { data: membership } = await supabase
-          .from('account_members')
-          .select('account_id')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: true })
-          .order('id', { ascending: true })
-          .limit(1)
-          .maybeSingle()
-        const accountId = (membership as { account_id?: string } | null)?.account_id
+        // rpc_product_ranking exige p_account_id y vuelve a verificar la
+        // membresía (P0401).
+        const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
         if (!accountId) {
           return jsonResponse({ ok: false, error: 'no_active_account' }, 403)
         }

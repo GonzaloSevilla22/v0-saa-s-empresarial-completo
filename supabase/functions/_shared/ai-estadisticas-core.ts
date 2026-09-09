@@ -17,7 +17,21 @@
 //   · El tipo de insight es propio del módulo y coincide con el que el
 //     frontend lee (STATISTICS_INSIGHT_TYPE en lib/sales-statistics.ts).
 //
+// La orquestación (cuota → contexto → prompt → modelo → persistir → cobrar)
+// es GENÉRICA y vive en `_shared/ai-insight-core.ts` (candidato "alinear
+// ai-rentabilidad con ai-estadisticas" — ai-rentabilidad-core.ts la reusa
+// con su propio contexto/prompt/mensajes). Este archivo conserva su API
+// pública sin cambios (mismos nombres/formas — ver el test) y sólo delega.
+//
 // TS puro, sin `Deno.*` a nivel módulo: deployable a Deno y testeable.
+
+import {
+  parseInsightJson as sharedParseInsightJson,
+  runAiInsightAnalysis,
+  type AnalysisResult as SharedAnalysisResult,
+  type ModelOutcome as SharedModelOutcome,
+  type ParsedInsight as SharedParsedInsight,
+} from "./ai-insight-core.ts"
 
 export const ESTADISTICAS_INSIGHT_TYPE = "estadisticas"
 
@@ -177,37 +191,23 @@ Devolvé SOLO el JSON.`
   return { ok: true, prompt }
 }
 
-export interface ParsedInsight {
-  insight: string
-  recommendations: string[]
-}
+export type ParsedInsight = SharedParsedInsight
 
 /** Extrae {insight, recommendations} del contenido del modelo (con o sin
  *  fences ```json). Cualquier cosa que no encaje se degrada a vacío — el
- *  caller decide qué hacer con un insight vacío (fallback, sin cobrar). */
-export function parseInsightJson(content: string): ParsedInsight {
-  const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(cleaned)
-  } catch {
-    return { insight: "", recommendations: [] }
-  }
-  const obj = (parsed && typeof parsed === "object" ? parsed : {}) as Record<string, unknown>
-  const insight = typeof obj.insight === "string" ? obj.insight.trim() : ""
-  const recommendations = Array.isArray(obj.recommendations)
-    ? obj.recommendations.filter((r): r is string => typeof r === "string")
-    : []
-  return { insight, recommendations }
-}
+ *  caller decide qué hacer con un insight vacío (fallback, sin cobrar).
+ *  Re-exporta el parser genérico de `ai-insight-core.ts` bajo el nombre que
+ *  este módulo ya publicaba. */
+export const parseInsightJson = sharedParseInsightJson
 
 // ─── Orquestación ─────────────────────────────────────────────────────────────
+// Delega en el orquestador genérico (`ai-insight-core.ts`); acá sólo se traduce
+// `buildEstadisticasPrompt` a la forma que ese orquestador espera (prompt u
+// rechazo con status/body propios de este módulo) y se fijan los mensajes de
+// fallback. Ver ese archivo para el invariante de cobro (cuota → contexto →
+// modelo → persistir → cobrar SÓLO si se persistió).
 
-export type ModelOutcome =
-  | { kind: "ok"; content: string }
-  | { kind: "timeout" }
-  | { kind: "http_error"; status: number; message: string }
-  | { kind: "error"; message: string }
+export type ModelOutcome = SharedModelOutcome
 
 export interface AnalysisDeps {
   /** checkAiQuota(supabase, userId, 'queries') — {allowed, body (429)}. */
@@ -219,57 +219,32 @@ export interface AnalysisDeps {
   incrementUsage(): Promise<void>
 }
 
-export interface AnalysisResult {
-  status: number
-  body: Record<string, unknown>
-}
+export type AnalysisResult = SharedAnalysisResult
 
 const FALLBACK_TIMEOUT = "El análisis tardó demasiado. Intentá de nuevo."
 const FALLBACK_EMPTY = "No se pudo generar el análisis de estadísticas. Intentá de nuevo más tarde."
 
-function fallback(message: string): AnalysisResult {
-  return { status: 200, body: { ok: true, fallback: true, message } }
-}
-
 export async function runEstadisticasAnalysis(deps: AnalysisDeps): Promise<AnalysisResult> {
-  // 1. Cuota, antes de leer dato alguno.
-  const quota = await deps.checkQuota()
-  if (!quota.allowed) {
-    const body = (quota.body && typeof quota.body === "object" ? quota.body : { ok: false, error: "quota_exceeded" }) as Record<string, unknown>
-    return { status: 429, body }
-  }
-
-  // 2. Contexto desde los read-models canónicos (los errores de lectura
-  //    suben al handler → 500).
-  const ctx = await deps.fetchContext()
-  const built = buildEstadisticasPrompt(ctx)
-  if (!built.ok) {
-    if (built.reason === "no_sales") {
-      return { status: 422, body: { ok: false, error: "Sin ventas en el período seleccionado" } }
-    }
-    return { status: 500, body: { ok: false, error: "El read-model de evolución no devolvió los totales del período" } }
-  }
-
-  // 3. Modelo.
-  const outcome = await deps.callModel(built.prompt)
-  if (outcome.kind === "timeout") return fallback(FALLBACK_TIMEOUT)
-  if (outcome.kind === "http_error") {
-    return { status: 502, body: { ok: false, error: `OpenAI error ${outcome.status}: ${outcome.message}` } }
-  }
-  if (outcome.kind === "error") return { status: 502, body: { ok: false, error: outcome.message } }
-
-  const parsed = parseInsightJson(outcome.content)
-  if (!parsed.insight) return fallback(FALLBACK_EMPTY)
-
-  // 4. Persistir y, sólo entonces, cobrar. Si persistir falla, el análisis
-  //    igual se devuelve (ya se generó) pero NO se incrementa el contador:
-  //    no se cobra lo que no quedó guardado.
-  try {
-    await deps.persistInsight(parsed.insight)
-  } catch {
-    return { status: 200, body: { ok: true, data: parsed, persisted: false } }
-  }
-  await deps.incrementUsage()
-
-  return { status: 200, body: { ok: true, data: parsed } }
+  // Revisión adversarial (fix 12): los métodos de `deps` se envuelven en
+  // lambdas en vez de copiarse por referencia (`checkQuota: deps.checkQuota`)
+  // — ver el mismo comentario en `ai-rentabilidad-core.ts`: una referencia
+  // desatada pierde el receptor original si `deps` es una instancia de clase
+  // cuyos métodos usan `this`.
+  return runAiInsightAnalysis<EstadisticasContext>({
+    checkQuota: () => deps.checkQuota(),
+    fetchContext: () => deps.fetchContext(),
+    buildPrompt: (ctx) => {
+      const built = buildEstadisticasPrompt(ctx)
+      if (built.ok) return built
+      if (built.reason === "no_sales") {
+        return { ok: false, status: 422, body: { ok: false, error: "Sin ventas en el período seleccionado" } }
+      }
+      return { ok: false, status: 500, body: { ok: false, error: "El read-model de evolución no devolvió los totales del período" } }
+    },
+    callModel: (prompt) => deps.callModel(prompt),
+    persistInsight: (insight) => deps.persistInsight(insight),
+    incrementUsage: () => deps.incrementUsage(),
+    fallbackTimeoutMessage: FALLBACK_TIMEOUT,
+    fallbackEmptyMessage: FALLBACK_EMPTY,
+  })
 }

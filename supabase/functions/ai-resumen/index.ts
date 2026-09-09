@@ -1,6 +1,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 import {
+  fetchDashboardFinancials,
   fetchKpiSummary,
   previousWindow,
   sumLineRevenue,
@@ -122,8 +123,6 @@ Deno.serve(async (req) => {
 
     const [salesResult, expensesResult] = await Promise.all([salesQuery, expensesQuery])
 
-    const totalExpenses = (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
-
     // kpi-ia-canonical-revenue (D1/D4): el balance pasa a ser la ganancia
     // neta canónica del período del caller (RPC valida el rango — P400 en
     // uno inválido cae en el catch de abajo). Si el canon no responde, el
@@ -149,10 +148,47 @@ Deno.serve(async (req) => {
       console.error('[ai-resumen] rpc_dashboard_kpi_summary falló, KPIs canónicos degradados:', err)
     }
 
+    // balance-ai-resumen-compras: `rpc_dashboard_kpi_summary` ya calcula
+    // compras internamente para derivar `net_profit`, pero no las devuelve
+    // como columna — sin esto el prompt exponía Ventas y Gastos con un
+    // Balance que restaba Compras invisibles y la aritmética no cerraba.
+    // `get_dashboard_financials` es el read-model canónico que sí las expone,
+    // misma ventana que ya usa ai-resumen (sin sucursal: este consumidor no
+    // filtra por sucursal). Gastos también migran a esta única fuente; la
+    // suma local de `expenses` queda como fallback degradado explícito si la
+    // RPC falla (nunca se inventa un número, D4).
+    let financials: Awaited<ReturnType<typeof fetchDashboardFinancials>> = null
+    try {
+      financials = await fetchDashboardFinancials(supabaseClient, {
+        from: startIso,
+        to: effectiveEndIso,
+      })
+      if (!financials) {
+        console.error('[ai-resumen] get_dashboard_financials sin filas, gastos/compras degradados')
+      }
+    } catch (err) {
+      console.error('[ai-resumen] get_dashboard_financials falló, gastos/compras degradados:', err)
+    }
+
+    const totalExpenses = financials?.totalExpenses
+      ?? (expensesResult.data || []).reduce((acc: number, e: any) => acc + Number(e.amount), 0)
+    const totalPurchases = financials?.totalPurchases ?? null
+
     const totalSales = invoicedRevenue
       ?? sumLineRevenue((salesResult.data ?? []) as SaleRevenueRow[])
 
-    const balanceLinea = netProfit != null
+    const comprasLinea = totalPurchases != null
+      ? ` Compras totales $${Math.round(totalPurchases).toLocaleString()}.`
+      : ''
+
+    // fix 6 (revisión adversarial): con financials degradado (RPC caída o sin
+    // filas), los Gastos vienen del fallback LOCAL (Σ expenses, SIN compras),
+    // mientras que netProfit sale de OTRA RPC independiente
+    // (rpc_dashboard_kpi_summary) que sí resta compras internamente — mostrar
+    // Balance en ese camino no cierra con los Ventas/Gastos visibles (mismo
+    // síntoma que balance-ai-resumen-compras vino a resolver). Se omite en el
+    // mismo camino degradado que ya omite Compras.
+    const balanceLinea = netProfit != null && financials != null
       ? ` Balance neto $${Math.round(netProfit).toLocaleString()}.`
       : ''
 
@@ -167,7 +203,7 @@ Deno.serve(async (req) => {
             model: 'gpt-4o-mini',
             messages: [
               { role: 'system', content: 'Eres un asistente financiero profesional. Resume el periodo financiero basándote en los números provistos. Sé breve y directo.' },
-              { role: 'user', content: `Resumen para el periodo ${period ?? 'daily'}: Ventas totales $${totalSales}, Gastos totales $${totalExpenses}.${balanceLinea}` }
+              { role: 'user', content: `Resumen para el periodo ${period ?? 'daily'}: Ventas totales $${totalSales}, Gastos totales $${totalExpenses}.${comprasLinea}${balanceLinea}` }
             ],
             max_tokens: 400,
           }),

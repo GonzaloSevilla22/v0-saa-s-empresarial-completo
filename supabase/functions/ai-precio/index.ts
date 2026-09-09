@@ -1,6 +1,12 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 import { resolveEffectivePlan } from '../_shared/effective-plan.ts'
+// fix 3 (revisión adversarial, reutilización antes que repetición): la
+// resolución de cuenta activa deja de reimplementarse acá — se migra a la
+// misma `resolveActiveAccountId` de `_shared/reporting-canon.ts` que ya usan
+// generate-export/ai-insights (Regla de Tres). Ver el comentario del call
+// site más abajo por el único cambio de comportamiento real (desempate).
+import { resolveActiveAccountId, type AccountResolutionClient } from '../_shared/reporting-canon.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,56 +65,6 @@ async function fetchWithTimeout(url: string, options: RequestInit): Promise<Resp
   }
 }
 
-interface AccountMembershipRow {
-  account_id: string
-  created_at: string
-}
-
-interface AccountResolutionClient {
-  from(table: 'account_members'): {
-    select(columns: string): {
-      eq(column: string, value: string): {
-        order(column: string, opts: { ascending: boolean }): {
-          order(column: string, opts: { ascending: boolean }): {
-            limit(n: number): Promise<{ data: AccountMembershipRow[] | null; error: { message: string } | null }>
-          }
-        }
-      }
-    }
-  }
-}
-
-/**
- * Resolves the caller's account for TENANCY purposes using the SAME
- * deterministic rule as `rpc_my_effective_plan()`'s D2 (billing-edge-
- * effective-plan): the membership with the oldest `created_at`, tie-broken
- * by the smallest `account_id`. There is no authorized way to ask the RPC
- * for the account_id it resolved internally (D1 — it deliberately returns
- * only the plan, never an account identifier), so this mirrors the same
- * rule locally over `account_members` (readable by the user via RLS) for
- * the same user, which in practice always agrees with the account the plan
- * gate below resolves (task 5.5 — same rule, same table, same user, same
- * request).
- *
- * Replaces the old `.single()` (task 5.4), which threw for a user with 2+
- * memberships instead of resolving deterministically.
- */
-async function resolveAccountId(
-  supabase: AccountResolutionClient,
-  userId: string,
-): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('account_members')
-    .select('account_id, created_at')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-    .order('account_id', { ascending: true })
-    .limit(1)
-
-  if (error || !data || data.length === 0) return null
-  return data[0].account_id
-}
-
 /**
  * Calculates implicit elasticity: Pearson correlation between weekly avg price
  * and weekly units sold. Returns a value in [-1, 1] or 0 if insufficient data.
@@ -160,15 +116,37 @@ Deno.serve(async (req) => {
 
     // Resolve account_id for tenancy-aware queries (C-19). billing-edge-
     // effective-plan (task 5.4): reemplaza el `.single()` que lanzaba si el
-    // usuario pertenecía a 2+ cuentas por la MISMA regla determinista que usa
-    // rpc_my_effective_plan() en la DB (D2 — membresía más antigua por
-    // created_at, desempate por account_id). No hay una vía autorizada para
-    // pedirle el account_id resuelto al RPC (deliberado, D1: el RPC solo
-    // devuelve el plan, nunca el identificador de cuenta), así que esta
-    // función resuelve la cuenta LOCALMENTE con la misma regla, sobre la
-    // misma tabla (account_members), para el mismo usuario — en la práctica
-    // siempre coincide con la cuenta que usa el gate de plan más abajo.
-    const accountId = await resolveAccountId(supabase, user.id)
+    // usuario pertenecía a 2+ cuentas por una regla determinista de
+    // membresía más antigua. No hay una vía autorizada para pedirle el
+    // account_id resuelto a `rpc_my_effective_plan()` (deliberado, D1: el RPC
+    // solo devuelve el plan, nunca el identificador de cuenta), así que esta
+    // función resuelve la cuenta por su cuenta, sobre la misma tabla
+    // (account_members), para el mismo usuario.
+    //
+    // fix 3 (revisión adversarial, reutilización antes que repetición): deja
+    // de reimplementar la resolución localmente (`resolveAccountId`,
+    // desempate por `account_id`) y migra a la MISMA `resolveActiveAccountId`
+    // de `_shared/reporting-canon.ts` que ya usan generate-export/ai-insights
+    // (Regla de Tres) — desempate por `id` (la PK de `account_members`),
+    // igual que `backend/core/deps.py:get_account_id`.
+    //
+    // Único cambio de comportamiento real: `rpc_my_effective_plan()`'s D2
+    // desempata por `account_id` ASC, no por `id`; con 2+ membresías que
+    // comparten el MISMO `created_at` exacto (0 usuarios hoy — tenancy es de
+    // una sola cuenta, OQ-2), esta función y el gate de plan más abajo
+    // podrían en teoría resolver cuentas distintas. Mismo tipo de divergencia
+    // ya documentada entre `rpc_my_effective_plan()` y
+    // `backend/core/deps.py:get_account_id` (v31-authz-token-hook, D4) — no
+    // introducida por este fix, sólo migrada al mismo lado del desempate que
+    // el resto del módulo de reporting.
+    //
+    // Cast acotado (no `any`): `SupabaseClient` real satisface la forma
+    // estructural de `AccountResolutionClient` en runtime, pero su tipo
+    // completo (con todos los overloads de `.from()`/`.rpc()`) dispara
+    // TS2589 (profundidad de instanciación excesiva) al compararlo contra
+    // una interfaz angosta — mismo patrón que `checkAiQuota`/`incrementAiUsage`
+    // en ai-insights/ai-resumen (`_shared/ai-quota.ts`).
+    const accountId = await resolveActiveAccountId(supabase as unknown as AccountResolutionClient, user.id)
 
     if (!accountId) {
       console.error('[ai-precio] No active account for user:', user.id)
@@ -206,7 +184,10 @@ Deno.serve(async (req) => {
     }
 
     // 3. Quota check
-    const quota = await checkAiQuota(supabase, user.id, 'queries')
+    // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members,
+    // lo que dispara TS2589 al compararlo contra el `SupabaseClient` real
+    // (mismo patrón que ai-insights/ai-resumen).
+    const quota = await checkAiQuota(supabase as unknown as AiQuotaClient, user.id, 'queries')
     if (!quota.allowed) {
       console.warn('[ai-precio] Quota exceeded for user', user.id)
       return jsonResponse(quota.body, 429)
@@ -407,7 +388,8 @@ Devolvé SOLO un JSON con:
       console.error('[ai-precio] DB insert error:', extractErrorMessage(insertErr))
     }
 
-    await incrementAiUsage(supabase, user.id, 'queries')
+    // Mismo cast acotado que `checkAiQuota` arriba (ver comentario).
+    await incrementAiUsage(supabase as unknown as AiQuotaClient, user.id, 'queries')
 
     console.log('[ai-precio] Success for product:', productId, 'suggested:', suggestedPrice)
     return jsonResponse({

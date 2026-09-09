@@ -1,5 +1,5 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
-import { checkAiQuota, incrementAiUsage } from '../_shared/ai-quota.ts'
+import { checkAiQuota, incrementAiUsage, type AiQuotaClient } from '../_shared/ai-quota.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -77,7 +77,10 @@ Deno.serve(async (req) => {
     }
 
     // 2. Quota check
-    const quota = await checkAiQuota(supabase, user.id, 'queries')
+    // Cast acotado (no `any`): `AiQuotaClient` restates 5 overloaded members,
+    // lo que dispara TS2589 al compararlo contra el `SupabaseClient` real
+    // (mismo patrón que ai-insights/ai-resumen).
+    const quota = await checkAiQuota(supabase as unknown as AiQuotaClient, user.id, 'queries')
     if (!quota.allowed) {
       console.warn('[ai-comparativo] Quota exceeded for user', user.id)
       return jsonResponse(quota.body, 429)
@@ -218,7 +221,8 @@ Devolvé SOLO el JSON.`
       if (insertErr) console.error('[ai-comparativo] DB insert error:', extractErrorMessage(insertErr))
     }
 
-    await incrementAiUsage(supabase, user.id, 'queries')
+    // Mismo cast acotado que `checkAiQuota` arriba (ver comentario).
+    await incrementAiUsage(supabase as unknown as AiQuotaClient, user.id, 'queries')
 
     console.log('[ai-comparativo] Success')
     return jsonResponse({ ok: true, data: { insight, recommendations } })

@@ -54,15 +54,21 @@ Las columnas numéricas del **ranking de productos** (unidades, importe, costo, 
 
 ### Requirement: Generación de reporte completo XLSX
 
-El sistema SHALL permitir exportar un reporte consolidado en formato XLSX (una hoja por entidad: ventas, compras, gastos, inventario) para usuarios con cuota disponible.
+El sistema SHALL permitir exportar un reporte consolidado en formato XLSX (una hoja por entidad: ventas, compras, gastos, inventario, ranking de productos) para usuarios con cuota disponible.
 
 #### Scenario: Usuario pro exporta reporte XLSX completo
 - **WHEN** un usuario con plan 'pro' solicita el reporte completo
-- **THEN** la Edge Function genera un XLSX con 4 hojas (Ventas, Compras, Gastos, Inventario), aplica el filtro de historial del plan, lo guarda en Storage y retorna URL firmada
+- **THEN** la Edge Function genera un XLSX con 5 hojas (Ventas, Compras, Gastos, Inventario, Ranking), aplica el filtro de historial del plan, lo guarda en Storage y retorna URL firmada
 
 #### Scenario: El XLSX consume 1 unidad de cuota
 - **WHEN** el usuario exporta el reporte XLSX completo
 - **THEN** `exports_used` se incrementa en 1 (igual que un CSV simple)
+
+#### Scenario: El reporte completo incluye la hoja de ranking
+- **WHEN** se genera el reporte XLSX completo
+- **THEN** la hoja "Ranking" sale del mismo read-model canónico (`rpc_product_ranking`) y del mismo mapeo de filas que `product_ranking_csv`, con período = el mismo del resto del reporte (historial del plan → hoy), orden por unidades, variantes agrupadas y sin filtro de sucursal
+- **AND** las columnas numéricas (unidades, importe, costo, margen, margen_pct, cobertura_costo_pct) llegan como `number`, no como texto — a diferencia del CSV del ranking, que las formatea con coma decimal para Excel es-AR
+- **AND** un margen o costo ausente es celda vacía, nunca 0
 
 ### Requirement: Gating de cuota de exportaciones
 

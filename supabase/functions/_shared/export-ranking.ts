@@ -21,6 +21,7 @@ import {
   parseOptionalUuid,
   type ParseResult,
 } from "./statistics-params.ts"
+import { argentinaToday } from "./argentina-time.ts"
 
 // ─── Tipos de exportación (única fuente) ──────────────────────────────────────
 
@@ -197,6 +198,70 @@ export function buildRankingCsv(rows: ProductRankingRpcRow[]): string {
   return rowsToCsv(RANKING_CSV_HEADERS, rows.map(rankingRowToCsvRow))
 }
 
+// ─── Read-model → hoja XLSX (5ª hoja del reporte completo) ────────────────────
+//
+// Mismas columnas que el CSV (mismo orden, MISMOS nombres — RANKING_XLSX_HEADERS
+// === RANKING_CSV_HEADERS) pero SheetJS necesita `number` en las columnas
+// numéricas para que Excel las trate como cantidades (sumables/filtrables),
+// no como texto: a diferencia de rankingRowToCsvRow (D11: coma decimal para
+// Excel es-AR, que exige string), acá NO se convierte a string ni se
+// reemplaza el punto decimal. D11 sí se mantiene igual: una celda ausente es
+// "" vacía, nunca 0.
+
+export const RANKING_XLSX_HEADERS = RANKING_CSV_HEADERS
+
+export type RankingXlsxRow = Record<(typeof RANKING_XLSX_HEADERS)[number], string | number>
+
+function numberCell(value: number | string | null | undefined): string | number {
+  if (value === null || value === undefined) return ""
+  return typeof value === "number" ? value : Number(value)
+}
+
+export function rankingRowToXlsxRow(row: ProductRankingRpcRow): RankingXlsxRow {
+  return {
+    puesto:              row.rank,
+    producto:            row.product_name,
+    sku:                 cell(row.sku),
+    categoria:           cell(row.category),
+    producto_padre:      cell(row.parent_name),
+    variantes:           row.variant_count,
+    unidades:            numberCell(row.units),
+    importe:             numberCell(row.revenue),
+    // Revisión adversarial (fix 10): `operations` puede llegar como bigint de
+    // Postgres serializado en string (p.ej. "3") — con `cell()` la celda
+    // quedaba de texto en Excel (no sumable/filtrable), la misma clase de bug
+    // que `numberCell` ya resuelve para unidades/importe/costo/margen.
+    operaciones:         numberCell(row.operations),
+    costo:               numberCell(row.total_cost),
+    margen:              numberCell(row.gross_margin),
+    margen_pct:          numberCell(row.gross_margin_pct),
+    cobertura_costo_pct: numberCell(row.cost_coverage_pct),
+    ultima_venta:        cell(row.last_sale_date),
+  }
+}
+
+export function buildRankingXlsxRows(rows: ProductRankingRpcRow[]): RankingXlsxRow[] {
+  return rows.map(rankingRowToXlsxRow)
+}
+
+/** Parámetros del ranking dentro del reporte completo (`full_report_xlsx`):
+ *  no tiene pantalla ni filtros propios, así que usa el MISMO período que
+ *  ya rigen las otras hojas del reporte (`dateFrom` del historial del plan
+ *  → hoy) con los defaults de /estadisticas (unidades, agrupado, sin
+ *  sucursal) — documentado acá en vez de quedar implícito en el índice de
+ *  la función. El fin de ventana es el día de negocio ARGENTINO
+ *  (`argentinaToday`, D1 de `_shared/argentina-time.ts`), no el día UTC del
+ *  runtime: a las 21:00-23:59 ART el día UTC ya rodó a mañana. */
+export function defaultFullReportRankingParams(dateFrom: string, now: Date): RankingExportParams {
+  return {
+    start: dateFrom,
+    end: argentinaToday(now),
+    orderBy: "units",
+    groupVariants: true,
+    branchId: null,
+  }
+}
+
 // ─── Lectura del read-model, paginada ─────────────────────────────────────────
 
 /** rpc_product_ranking acota p_limit a 500; el export recorre las páginas
@@ -223,7 +288,7 @@ export interface RankingRpcClient {
   rpc(
     fn: "rpc_product_ranking",
     args: RankingRpcArgs,
-  ): Promise<{ data: ProductRankingRpcRow[] | null; error: { message: string } | null }>
+  ): PromiseLike<{ data: ProductRankingRpcRow[] | null; error: { message: string } | null }>
 }
 
 export async function fetchAllRankingRows(
@@ -255,4 +320,34 @@ export async function fetchAllRankingRows(
     offset += RANKING_PAGE_SIZE
   }
   return rows.slice(0, RANKING_MAX_ROWS)
+}
+
+/**
+ * Filas de ranking para la 5ª hoja ("Ranking") del reporte completo
+ * (`full_report_xlsx`), con degradado: si `accountId` no se resolvió o si
+ * `rpc_product_ranking` falla, la hoja queda VACÍA en vez de tirar abajo el
+ * reporte entero — las otras 4 hojas (Ventas/Compras/Gastos/Inventario) no
+ * dependen de `account_members` ni del ranking.
+ *
+ * Revisión adversarial (fix 1): antes, `generate-export/index.ts` armaba las
+ * 5 hojas con un solo `Promise.all` donde esta rama NO tenía `.catch()` — un
+ * error de `rpc_product_ranking` (p.ej. P0401) rechazaba el `Promise.all`
+ * ENTERO y el reporte completo se caía sin generar ninguna hoja, pese a que
+ * el comentario de al lado prometía degradar. Extraída acá (en vez de un
+ * `.catch()` inline en el índice) para ser testeable sin `Deno.serve`/SheetJS
+ * — `generate-export/index.ts` no es importable desde vitest.
+ */
+export async function fetchFullReportRankingRows(
+  client: RankingRpcClient,
+  accountId: string | null,
+  dateFrom: string,
+  now: Date,
+): Promise<ProductRankingRpcRow[]> {
+  if (!accountId) return []
+  try {
+    return await fetchAllRankingRows(client, accountId, defaultFullReportRankingParams(dateFrom, now))
+  } catch (err) {
+    console.error("[generate-export] ranking degradado, hoja vacía:", err)
+    return []
+  }
 }

@@ -49,7 +49,6 @@ interface SaleFixture {
   date: string
   product_id: string | null
   client_id: string | null
-  products: { name?: string; cost?: number; price?: number } | null
   total?: number | null
 }
 
@@ -74,6 +73,14 @@ interface ClientFixture {
 interface RotationFixture {
   product_id: string | null
   date: string
+}
+
+interface RankingRowFixture {
+  product_id: string
+  product_name: string
+  units: number | string
+  revenue: number | string
+  gross_margin_pct: number | string | null
 }
 
 interface RpcSummaryRow {
@@ -128,36 +135,69 @@ function makeSupabaseDouble(cfg: {
     data: number | string | null
     error: { message: string } | null
   }
+  // migrar-top-productos-canon: doble de rpc_product_ranking + resolución
+  // de cuenta activa (auth.getUser + account_members). Defaults = camino
+  // feliz (usuario autenticado, una membresía, ranking vacío) para no
+  // romper los tests que no ejercitan top_rentables.
+  ranking?: { data: RankingRowFixture[] | null; error: { message: string } | null }
+  authUser?: { id: string } | null
+  accountMembers?: Array<{ account_id: string }>
 }): SupabaseClient {
   const rpcMock = vi.fn((fn: string) => {
     if (fn === "get_dashboard_critical_stock") {
       return Promise.resolve(cfg.criticalStock ?? { data: 0, error: null })
     }
+    if (fn === "rpc_product_ranking") {
+      return Promise.resolve(cfg.ranking ?? { data: [], error: null })
+    }
     return Promise.resolve(cfg.rpc ?? { data: [fullRpcRow({})], error: null })
   })
 
-  const fromMock = vi.fn((table: string) => ({
-    select: (columns: string) => {
-      if (table === "sales") {
-        if (columns.includes("products(")) {
-          return makeBuilder<SaleFixture>({ data: cfg.sales ?? [], error: null })
+  const fromMock = vi.fn((table: string) => {
+    if (table === "account_members") {
+      const result = { data: cfg.accountMembers ?? [{ account_id: "acc-1" }], error: null }
+      return {
+        select: () => ({
+          eq: () => ({
+            order: () => ({
+              order: () => ({
+                limit: () => Promise.resolve(result),
+              }),
+            }),
+          }),
+        }),
+      }
+    }
+    return {
+      select: (columns: string) => {
+        if (table === "sales") {
+          // fix 7 (revisión adversarial): la consulta de ventas del período ya
+          // no pide el join muerto `products(name, cost, price)` (nadie lo
+          // leía) — el distingo entre esta consulta y la de rotación pasa a
+          // ser `client_id` (sólo la primera lo selecciona).
+          if (columns.includes("client_id")) {
+            return makeBuilder<SaleFixture>({ data: cfg.sales ?? [], error: null })
+          }
+          return makeBuilder<RotationFixture>({ data: cfg.rotation ?? [], error: null })
         }
-        return makeBuilder<RotationFixture>({ data: cfg.rotation ?? [], error: null })
-      }
-      if (table === "v_products_with_stock") {
-        return makeBuilder<ProductFixture>({ data: cfg.products ?? [], error: null })
-      }
-      if (table === "expenses") {
-        return makeBuilder<ExpenseFixture>({ data: cfg.expenses ?? [], error: null })
-      }
-      if (table === "clients") {
-        return makeBuilder<ClientFixture>({ data: cfg.newClients ?? [], error: null })
-      }
-      return makeBuilder({ data: [], error: null })
-    },
-  }))
+        if (table === "v_products_with_stock") {
+          return makeBuilder<ProductFixture>({ data: cfg.products ?? [], error: null })
+        }
+        if (table === "expenses") {
+          return makeBuilder<ExpenseFixture>({ data: cfg.expenses ?? [], error: null })
+        }
+        if (table === "clients") {
+          return makeBuilder<ClientFixture>({ data: cfg.newClients ?? [], error: null })
+        }
+        return makeBuilder({ data: [], error: null })
+      },
+    }
+  })
 
-  return { rpc: rpcMock, from: fromMock } as unknown as SupabaseClient
+  const authUser = cfg.authUser === undefined ? { id: "u1" } : cfg.authUser
+  const auth = { getUser: vi.fn().mockResolvedValue({ data: { user: authUser }, error: null }) }
+
+  return { rpc: rpcMock, from: fromMock, auth } as unknown as SupabaseClient
 }
 
 // ─── app-timezone-argentina, task 3.2: ventanas ancladas al día argentino ──────
@@ -194,7 +234,6 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
           date: "2026-08-01",
           product_id: "p1",
           client_id: null,
-          products: { name: "Producto A", cost: 500, price: 1000 },
           total: 3000,
         },
       ],
@@ -207,7 +246,7 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
 
   it("el margen neto canónico viene del RPC (descuenta compras y NC), no de ventas-gastos local", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [{ amount: 10000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, products: null, total: 10000 }],
+      sales: [{ amount: 10000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, total: 10000 }],
       expenses: [{ amount: 2000, category: "Varios" }],
       // Canon: (10000 ventas - 1000 NC) - (2000 gastos + 3000 compras) = 4000; revenue neto = 9000
       rpc: { data: [fullRpcRow({ invoiced_revenue: 9000, net_profit: 4000 })], error: null },
@@ -219,7 +258,7 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
 
   it("expone ganancia_neta en pesos (hoy no existe en el snapshot)", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [{ amount: 10000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, products: null, total: 10000 }],
+      sales: [{ amount: 10000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, total: 10000 }],
       rpc: { data: [fullRpcRow({ invoiced_revenue: 9000, net_profit: 4000 })], error: null },
     })
 
@@ -227,18 +266,62 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
     expect(snapshot.gastos.ganancia_neta).toBe(4000)
   })
 
-  it("el ranking de productos usa el total de línea: B (4u x $2.000 = $8.000) supera a A (1u x $5.000)", async () => {
+  it("el ranking de productos viene del read-model canónico rpc_product_ranking (B $8.000 por delante de A $5.000)", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [
-        { amount: 5000, quantity: 1, date: "2026-08-01", product_id: "A", client_id: null, products: { name: "A", cost: 2000, price: 5000 }, total: 5000 },
-        { amount: 2000, quantity: 4, date: "2026-08-02", product_id: "B", client_id: null, products: { name: "B", cost: 1000, price: 2000 }, total: 8000 },
-      ],
       rpc: { data: [fullRpcRow({ invoiced_revenue: 13000, net_profit: 5000 })], error: null },
+      ranking: {
+        data: [
+          { product_id: "B", product_name: "B", units: "4", revenue: "8000", gross_margin_pct: "50" },
+          { product_id: "A", product_name: "A", units: "1", revenue: "5000", gross_margin_pct: "60" },
+        ],
+        error: null,
+      },
     })
 
     const snapshot = await buildBusinessSnapshot(supabase)
     expect(snapshot.productos.top_rentables[0].nombre).toBe("B")
     expect(snapshot.productos.top_rentables[0].revenue).toBe(8000)
+    expect(snapshot.productos.top_rentables[0].margen_pct).toBe(50)
+  })
+})
+
+// ─── migrar-top-productos-canon: read-model canónico, cuenta activa, degradado ──
+
+describe("buildBusinessSnapshot — top productos (migrar-top-productos-canon)", () => {
+  it("gross_margin_pct null (sin snapshot de costo) -> margen_pct null, nunca 0 inventado", async () => {
+    const supabase = makeSupabaseDouble({
+      ranking: {
+        data: [{ product_id: "C", product_name: "C", units: "1", revenue: "100", gross_margin_pct: null }],
+        error: null,
+      },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.top_rentables[0].margen_pct).toBeNull()
+    expect(snapshotToText(snapshot)).not.toMatch(/null% margen/)
+  })
+
+  it("rpc_product_ranking en error -> top_rentables omitido (vacío), sin throw, sin volver a agregar sales localmente", async () => {
+    const supabase = makeSupabaseDouble({
+      ranking: { data: null, error: { message: "ranking rpc down" } },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.top_rentables).toEqual([])
+  })
+
+  it("sin usuario autenticado -> top_rentables omitido, sin throw", async () => {
+    const supabase = makeSupabaseDouble({ authUser: null })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.top_rentables).toEqual([])
+  })
+
+  it("sin cuenta activa (account_members vacío) -> top_rentables omitido, sin throw", async () => {
+    const supabase = makeSupabaseDouble({ accountMembers: [] })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    expect(snapshot.productos.top_rentables).toEqual([])
   })
 })
 
@@ -248,8 +331,8 @@ describe("buildBusinessSnapshot — camino degradado (D4)", () => {
   it("RPC en error → ingresos por sumLineRevenue local, margen/ganancia null, sin comparación falsa, sin throw", async () => {
     const supabase = makeSupabaseDouble({
       sales: [
-        { amount: 1000, quantity: 3, date: "2026-08-01", product_id: "p1", client_id: null, products: null, total: 3000 },
-        { amount: 500, quantity: 1, date: "2026-08-02", product_id: "p2", client_id: null, products: null, total: null },
+        { amount: 1000, quantity: 3, date: "2026-08-01", product_id: "p1", client_id: null, total: 3000 },
+        { amount: 500, quantity: 1, date: "2026-08-02", product_id: "p2", client_id: null, total: null },
       ],
       rpc: { data: null, error: { message: "rpc down" } },
     })
@@ -263,7 +346,7 @@ describe("buildBusinessSnapshot — camino degradado (D4)", () => {
 
   it("snapshotToText/buildAdaptiveContext no emiten líneas de margen ni ganancia en el camino degradado", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [{ amount: 1000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, products: null, total: 1000 }],
+      sales: [{ amount: 1000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, total: 1000 }],
       rpc: { data: null, error: { message: "rpc down" } },
     })
 
@@ -284,7 +367,7 @@ describe("buildBusinessSnapshot — camino degradado (D4)", () => {
 describe("buildBusinessSnapshot — clamp del top cliente (D6)", () => {
   it("participación del mayor cliente nunca supera 100% cuando el bruto excede el neto (NC grande)", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [{ amount: 8000, quantity: 1, date: "2026-08-01", product_id: null, client_id: "c1", products: null, total: 8000 }],
+      sales: [{ amount: 8000, quantity: 1, date: "2026-08-01", product_id: null, client_id: "c1", total: 8000 }],
       // El RPC ya restó una NC grande: el neto queda por debajo del bruto del único cliente.
       rpc: { data: [fullRpcRow({ invoiced_revenue: 5000, net_profit: 1000 })], error: null },
     })
@@ -346,7 +429,7 @@ describe("buildBusinessSnapshot — casos borde", () => {
 
   it("cuenta sin gastos ni compras: RPC devuelve ganancia = ingresos íntegros", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [{ amount: 1000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, products: null, total: 1000 }],
+      sales: [{ amount: 1000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, total: 1000 }],
       expenses: [],
       rpc: { data: [fullRpcRow({ invoiced_revenue: 1000, net_profit: 1000 })], error: null },
     })
@@ -359,7 +442,7 @@ describe("buildBusinessSnapshot — casos borde", () => {
 
   it("netProfit negativo → margen negativo se informa (no se omite)", async () => {
     const supabase = makeSupabaseDouble({
-      sales: [{ amount: 1000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, products: null, total: 1000 }],
+      sales: [{ amount: 1000, quantity: 1, date: "2026-08-01", product_id: null, client_id: null, total: 1000 }],
       rpc: { data: [fullRpcRow({ invoiced_revenue: 1000, net_profit: -500 })], error: null },
     })
 

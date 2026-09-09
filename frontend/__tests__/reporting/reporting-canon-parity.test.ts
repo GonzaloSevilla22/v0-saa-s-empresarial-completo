@@ -9,9 +9,10 @@
  * riesgo de divergencia silenciosa entre runtimes (D3).
  */
 
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import * as frontendCanon from "@/lib/reporting/revenue-canon"
 import * as edgeCanon from "../../../supabase/functions/_shared/reporting-canon"
+import * as frontendProductRanking from "@/lib/reporting/product-ranking"
 
 // ─── Tabla de casos compartida ─────────────────────────────────────────────────
 
@@ -82,4 +83,34 @@ describe("paridad frontend <-> Deno: previousWindow", () => {
       expect(frontendResult).toEqual(edgeResult)
     })
   }
+})
+
+// ─── fix 5 (revisión adversarial): paridad de fetchTopProducts ──────────────
+//
+// `fetchTopProducts` tiene gemelos en `frontend/lib/reporting/product-ranking.ts`
+// (Node, migrar-top-productos-canon) y `supabase/functions/_shared/
+// reporting-canon.ts` (Deno) — igual que `lineRevenue`/`netMarginPct`/
+// `previousWindow` arriba. Si un solo gemelo cambia el orden/nombre de un
+// argumento de `rpc_product_ranking` sin el otro, los dos consumidores reales
+// (Copiloto y las Edge Functions de IA) divergirían en silencio en qué le
+// piden al mismo read-model ante la MISMA ventana. Se ejercitan las DOS
+// implementaciones contra el MISMO doble de cliente (un solo `rpcMock`
+// compartido, llamado dos veces) y se comparan los argumentos recibidos.
+describe("paridad frontend <-> Deno: fetchTopProducts invoca rpc_product_ranking con los MISMOS argumentos", () => {
+  it("mismo accountId + ventana, mismo doble de cliente -> ambas implementaciones piden exactamente lo mismo", async () => {
+    const rpcMock = vi.fn().mockResolvedValue({ data: [], error: null })
+    const client = { rpc: rpcMock } as unknown as Parameters<typeof frontendProductRanking.fetchTopProducts>[0] &
+      Parameters<typeof edgeCanon.fetchTopProducts>[0]
+
+    const accountId = "acc-1"
+    const window = { start: "2026-08-01", end: "2026-08-31", branchId: "branch-9", limit: 7 }
+
+    await frontendProductRanking.fetchTopProducts(client, accountId, window)
+    await edgeCanon.fetchTopProducts(client, accountId, window)
+
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+    // Los argumentos de la llamada del gemelo Node (calls[0]) y los del
+    // gemelo Deno (calls[1]) tienen que ser IDÉNTICOS ante la misma entrada.
+    expect(rpcMock.mock.calls[0]).toEqual(rpcMock.mock.calls[1])
+  })
 })

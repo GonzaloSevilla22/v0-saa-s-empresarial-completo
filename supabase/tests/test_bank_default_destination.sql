@@ -139,6 +139,13 @@ BEGIN
                 FROM public.payment_methods WHERE id IN (v_pm_transfer, v_pm_card, v_pm_wallet, v_pm_check)),
              (SELECT format('%s:acc=%s:act=%s:del=%s', id, account_id, is_active, deleted_at) FROM public.bank_accounts WHERE id = v_bank_1))
       INTO v_diag;
+    SELECT v_diag || format(' | rpc=%s | helper=%s | user=%s/%s',
+             (SELECT string_agg(format('%s:md5=%s:calls_helper=%s:owner=%s:secdef=%s', pg_get_function_identity_arguments(p.oid), md5(pg_get_functiondef(p.oid)), (p.prosrc LIKE '%_pay_assign_default_bank_destination%')::text, pg_get_userbyid(p.proowner), p.prosecdef), ' || ')
+                FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'rpc_create_bank_account'),
+             (SELECT string_agg(format('md5=%s:owner=%s:acl=%s', md5(pg_get_functiondef(p.oid)), pg_get_userbyid(p.proowner), p.proacl::text), ' || ')
+                FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = '_pay_assign_default_bank_destination'),
+             current_user, session_user)
+      INTO v_diag;
     SELECT public._pay_assign_default_bank_destination(v_account_id) INTO v_helper_rc;
     RAISE EXCEPTION 'GATE BANK-DEFAULT-DESTINATION FAILED (1-card): esperaba bank_account_id = % (único banco activo), no se asignó. DIAG: % | helper explícito devolvió %', v_bank_1, v_diag, v_helper_rc;
   END IF;

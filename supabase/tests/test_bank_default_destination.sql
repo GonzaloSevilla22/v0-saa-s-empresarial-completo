@@ -46,6 +46,8 @@ DECLARE
   v_result         jsonb;
   v_count          integer;
   v_bank_account_id uuid;
+  v_diag           text;   -- diagnóstico ampliado si (1) falla (CI falló donde local pasa)
+  v_helper_rc      integer;
 BEGIN
   -- ── Anchor sintético (resuelto por email primero — un gen_random_uuid()
   -- nuevo en cada corrida rompía el índice único de email si el cleanup de
@@ -125,7 +127,20 @@ BEGIN
   -- card/wallet/check estaban sin destino → ahora apuntan a v_bank_1.
   PERFORM 1 FROM public.payment_methods WHERE id = v_pm_card   AND bank_account_id = v_bank_1;
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'GATE BANK-DEFAULT-DESTINATION FAILED (1-card): esperaba bank_account_id = % (único banco activo), no se asignó.', v_bank_1;
+    -- Diagnóstico ampliado: estado real de la cuenta y de las 4 formas
+    -- bancarias, la resolución de cuenta de la sesión y el retorno del
+    -- helper invocado explícitamente (si devuelve > 0 acá, la RPC no lo
+    -- llamó o lo llamó con otra cuenta; si devuelve 0, el predicado del
+    -- UPDATE no matchea). Sólo se ejecuta en el camino de fallo.
+    SELECT format('bancos_activos=%s | cai=%s | pms=%s | bank_1=%s',
+             (SELECT count(*) FROM public.bank_accounts WHERE account_id = v_account_id AND is_active AND deleted_at IS NULL),
+             (SELECT string_agg(cai::text, ',') FROM public.current_account_ids() AS cai),
+             (SELECT string_agg(format('%s:%s:act=%s:del=%s:acc=%s', kind, bank_account_id, is_active, deleted_at, account_id), ' ; ' ORDER BY kind)
+                FROM public.payment_methods WHERE id IN (v_pm_transfer, v_pm_card, v_pm_wallet, v_pm_check)),
+             (SELECT format('%s:acc=%s:act=%s:del=%s', id, account_id, is_active, deleted_at) FROM public.bank_accounts WHERE id = v_bank_1))
+      INTO v_diag;
+    SELECT public._pay_assign_default_bank_destination(v_account_id) INTO v_helper_rc;
+    RAISE EXCEPTION 'GATE BANK-DEFAULT-DESTINATION FAILED (1-card): esperaba bank_account_id = % (único banco activo), no se asignó. DIAG: % | helper explícito devolvió %', v_bank_1, v_diag, v_helper_rc;
   END IF;
   PERFORM 1 FROM public.payment_methods WHERE id = v_pm_wallet AND bank_account_id = v_bank_1;
   IF NOT FOUND THEN

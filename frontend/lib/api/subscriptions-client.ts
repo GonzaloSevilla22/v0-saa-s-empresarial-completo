@@ -33,6 +33,10 @@ export interface SubscriptionStatus {
   amount: number | null
   currency: string
   retry_state: string
+  // item B (3), residuo (d) de mp-real-subscriptions: estado del último
+  // cobro (aprobado/rechazado/pendiente) — espejo de
+  // backend/schemas/payments.py::SubscriptionOut.last_payment_status.
+  last_payment_status: string | null
 }
 
 /** Resultado discriminado: la palanca puede estar apagada (503) sin que eso sea un error real. */

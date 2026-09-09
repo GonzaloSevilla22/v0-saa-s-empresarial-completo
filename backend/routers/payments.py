@@ -17,9 +17,12 @@ from backend.repositories.subscriptions_repository import SubscriptionsRepositor
 from backend.schemas.payments import (
     AccountSearchResultOut,
     AmbiguousSubscriptionOut,
+    DiscardAmbiguousSubscriptionIn,
+    DiscardAmbiguousSubscriptionOut,
     MpNotification,
     PaymentReceiptOut,
     PaymentReceiptsPageOut,
+    RecentSubscriptionOut,
     ReplaySubscriptionChargesOut,
     ResolveAmbiguousSubscriptionIn,
     SubscriptionCancelOut,
@@ -38,6 +41,8 @@ from backend.services.receipts import (
 from backend.services.subscriptions import (
     cancel_subscription,
     create_subscription_intent,
+    discard_ambiguous_subscription,
+    list_recent_subscriptions,
     process_subscription_authorized_payment_notification,
     process_subscription_preapproval_notification,
     replay_subscription_charges,
@@ -274,6 +279,44 @@ async def replay_subscription_charges_endpoint(
     fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1). Ver
     `services.subscriptions.replay_subscription_charges`."""
     return await replay_subscription_charges(str(subscription_id), repo, conn)
+
+
+@router.post(
+    "/subscriptions/ambiguous/{subscription_id}/discard",
+    response_model=DiscardAmbiguousSubscriptionOut,
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def discard_ambiguous_subscription_endpoint(
+    subscription_id: uuid.UUID,
+    body: DiscardAmbiguousSubscriptionIn,
+    admin: dict = Depends(require_admin),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+    conn: asyncpg.Connection = Depends(get_service_conn),
+) -> dict:
+    """Descartar (residuo (b) de mp-real-subscriptions): saca una fila
+    ambigua sin cuenta legítima de la cola visible. Solo admin — NUNCA
+    toca accounts/billing_events ni MercadoPago (a diferencia de
+    /resolve). Ver `services.subscriptions.discard_ambiguous_subscription`."""
+    return await discard_ambiguous_subscription(
+        str(subscription_id), admin["user_id"], body.reason, repo, conn
+    )
+
+
+@router.get(
+    "/subscriptions/recent",
+    response_model=list[RecentSubscriptionOut],
+    dependencies=[Depends(require_subscriptions_enabled)],
+)
+async def list_recent_subscriptions_endpoint(
+    limit: int = Query(20, ge=1, le=100),
+    _admin: dict = Depends(require_admin),
+    repo: SubscriptionsRepository = Depends(get_subscriptions_repo),
+) -> list:
+    """Suscripciones recientes (residuo (c)): alimenta la sección del
+    panel admin desde donde se dispara "Replicar cuotas"
+    (`POST /payments/subscriptions/{id}/replay-charges`, ya existente)
+    sin tener que buscar el id de la suscripción a mano. Solo admin."""
+    return await list_recent_subscriptions(limit, repo)
 
 
 @router.get(

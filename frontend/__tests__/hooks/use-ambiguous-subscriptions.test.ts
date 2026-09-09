@@ -13,6 +13,7 @@ import React from "react"
 import {
   useAmbiguousSubscriptions,
   useAccountSearch,
+  useRecentSubscriptions,
 } from "@/hooks/data/use-ambiguous-subscriptions"
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
@@ -213,5 +214,207 @@ describe("useAccountSearch", () => {
 
     await waitFor(() => expect(result.current.isFetching).toBe(false))
     expect(pythonClient.get).toHaveBeenCalledWith("/payments/accounts/search?q=bu")
+  })
+})
+
+// ── useAmbiguousSubscriptions — discardSubscription (residuo (b)) ─────────
+
+describe("useAmbiguousSubscriptions — discardSubscription", () => {
+  it("§7 RED: posts the reason to the discard endpoint", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([AMBIGUOUS_ROW])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ id: AMBIGUOUS_ROW.id, status: "cancelled" })
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useAmbiguousSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.discardSubscription({
+        subscriptionId: AMBIGUOUS_ROW.id,
+        reason: "cancelado en MP, sin cuenta legítima",
+      })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      `/payments/subscriptions/ambiguous/${AMBIGUOUS_ROW.id}/discard`,
+      { reason: "cancelado en MP, sin cuenta legítima" },
+    )
+  })
+
+  it("§7 GREEN: an omitted reason posts null (backend field is optional)", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([AMBIGUOUS_ROW])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ id: AMBIGUOUS_ROW.id, status: "cancelled" })
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useAmbiguousSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.discardSubscription({ subscriptionId: AMBIGUOUS_ROW.id })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      `/payments/subscriptions/ambiguous/${AMBIGUOUS_ROW.id}/discard`,
+      { reason: null },
+    )
+  })
+
+  it("§8 GREEN: invalidates both the ambiguous queue AND the recent-subscriptions query", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([AMBIGUOUS_ROW])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ id: AMBIGUOUS_ROW.id, status: "cancelled" })
+    const { Wrapper, queryClient } = makeWrapper()
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
+
+    const { result } = renderHook(() => useAmbiguousSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.discardSubscription({ subscriptionId: AMBIGUOUS_ROW.id })
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ["ambiguousSubscriptions"] }),
+      )
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ["recentSubscriptions"] }),
+      )
+    })
+  })
+
+  it("§8 TRIANGULATE: a rejected discard rejects the mutateAsync promise", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([AMBIGUOUS_ROW])
+    vi.mocked(pythonClient.post).mockRejectedValueOnce(
+      new Error("No hay una suscripción ambigua con ese id"),
+    )
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useAmbiguousSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await expect(
+      result.current.discardSubscription({ subscriptionId: AMBIGUOUS_ROW.id }),
+    ).rejects.toThrow("No hay una suscripción ambigua con ese id")
+  })
+})
+
+// ── useRecentSubscriptions — list + replaySubscriptionCharges ─────────────
+
+const RECENT_ROW = {
+  id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+  plan: "pro",
+  status: "authorized",
+  account_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  account_name: "Buyer Test",
+  next_payment_date: "2026-09-01T00:00:00Z",
+  last_payment_status: "approved",
+  retry_state: "none",
+  updated_at: "2026-08-01T12:00:00Z",
+}
+
+describe("useRecentSubscriptions — list", () => {
+  it("§9 RED: fetches with the default limit and maps snake_case → camelCase", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([RECENT_ROW])
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useRecentSubscriptions(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(pythonClient.get).toHaveBeenCalledWith("/payments/subscriptions/recent?limit=20")
+    expect(result.current.data).toEqual([
+      {
+        id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        plan: "pro",
+        status: "authorized",
+        accountId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        accountName: "Buyer Test",
+        nextPaymentDate: "2026-09-01T00:00:00Z",
+        lastPaymentStatus: "approved",
+        retryState: "none",
+        updatedAt: "2026-08-01T12:00:00Z",
+      },
+    ])
+  })
+
+  it("§9 GREEN: a custom limit is passed through to the query string", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([])
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useRecentSubscriptions(5), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(pythonClient.get).toHaveBeenCalledWith("/payments/subscriptions/recent?limit=5")
+  })
+
+  it("§9 TRIANGULATE: a discarded row (null account) maps cleanly", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([
+      { ...RECENT_ROW, status: "cancelled", account_id: null, account_name: null },
+    ])
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useRecentSubscriptions(), { wrapper: Wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.data?.[0].accountId).toBeNull()
+    expect(result.current.data?.[0].accountName).toBeNull()
+    expect(result.current.data?.[0].status).toBe("cancelled")
+  })
+})
+
+describe("useRecentSubscriptions — replaySubscriptionCharges", () => {
+  it("§10 RED: posts to the replay-charges endpoint with an empty body and maps the result", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([RECENT_ROW])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      ok: true, applied: ["7031580844"], already_applied: [],
+    })
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useRecentSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    let replayResult
+    await act(async () => {
+      replayResult = await result.current.replaySubscriptionCharges(RECENT_ROW.id)
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      `/payments/subscriptions/${RECENT_ROW.id}/replay-charges`,
+      {},
+    )
+    expect(replayResult).toEqual({ ok: true, applied: ["7031580844"], alreadyApplied: [] })
+  })
+
+  it("§10 GREEN: invalidates the recent-subscriptions query on success", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([RECENT_ROW])
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({ ok: true, applied: [], already_applied: [] })
+    const { Wrapper, queryClient } = makeWrapper()
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries")
+
+    const { result } = renderHook(() => useRecentSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.replaySubscriptionCharges(RECENT_ROW.id)
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ["recentSubscriptions"] }),
+      )
+    })
+  })
+
+  it("§10 TRIANGULATE: a rejected replay rejects the mutateAsync promise", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([RECENT_ROW])
+    vi.mocked(pythonClient.post).mockRejectedValueOnce(new Error("Error al consultar MercadoPago"))
+    const { Wrapper } = makeWrapper()
+
+    const { result } = renderHook(() => useRecentSubscriptions(), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await expect(
+      result.current.replaySubscriptionCharges(RECENT_ROW.id),
+    ).rejects.toThrow("Error al consultar MercadoPago")
   })
 })

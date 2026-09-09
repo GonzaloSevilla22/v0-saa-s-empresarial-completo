@@ -306,6 +306,178 @@ async def test_webhook_invalid_external_reference_returns_400(async_client, mock
     assert resp.status_code == 400
 
 
+# ── item B (1), residuo de #526 — "payment" de un cobro de suscripción ─────
+# MercadoPago manda DOS notificaciones por cada cobro de suscripción:
+# subscription_authorized_payment (que acredita el dinero) y esta misma
+# "payment", que nunca trae un external_reference con el formato del
+# checkout one-shot. Antes de este fix moría en el 400 de arriba y
+# MercadoPago la reintentaba indefinidamente (caso real: pago 177298997676).
+
+async def test_webhook_subscription_charge_operation_type_marker_returns_200_ignored(
+    async_client, mock_service_pool
+):
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-sub-001")
+    sig = _make_signature("pay-sub-001")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": None,
+        "transaction_amount": 24900.0,
+        "operation_type": "recurring_payment",
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    body_json = resp.json()
+    assert body_json["ok"] is True
+    assert body_json["ignored"] == "subscription_charge"
+    conn.execute.assert_not_called()
+
+
+async def test_webhook_subscription_charge_point_of_interaction_marker_returns_200_ignored(
+    async_client, mock_service_pool
+):
+    """TRIANGULATE: segundo marcador — point_of_interaction.type."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-sub-002")
+    sig = _make_signature("pay-sub-002")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "malformed-no-separator",
+        "transaction_amount": 24900.0,
+        "point_of_interaction": {"type": "SUBSCRIPTIONS"},
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert resp.json()["ignored"] == "subscription_charge"
+
+
+async def test_webhook_subscription_charge_metadata_preapproval_marker_returns_200_ignored(
+    async_client, mock_service_pool
+):
+    """TRIANGULATE: tercer marcador — metadata.preapproval_id no vacío."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-sub-003")
+    sig = _make_signature("pay-sub-003")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "",
+        "transaction_amount": 24900.0,
+        "metadata": {"preapproval_id": "mp-preapproval-XYZ"},
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert resp.json()["ignored"] == "subscription_charge"
+
+
+async def test_webhook_invalid_external_reference_without_marker_still_returns_400(
+    async_client, mock_service_pool
+):
+    """TRIANGULATE: sin ningún marcador de suscripción, un external_reference
+    inválido sigue siendo el 400 de siempre — no-regresión explícita, en
+    paralelo a test_webhook_invalid_external_reference_returns_400 (que no
+    se toca)."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-sub-004")
+    sig = _make_signature("pay-sub-004")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "malformed-no-separator",
+        "transaction_amount": 500.0,
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 400
+    conn.execute.assert_not_called()
+
+
+async def test_webhook_valid_external_reference_processes_normally_even_with_marker(
+    async_client, mock_service_pool
+):
+    """TRIANGULATE: un external_reference VÁLIDO se procesa como siempre,
+    incluso si por alguna razón el payload también trae un marcador de
+    suscripción — el marcador solo se consulta cuando la referencia falla."""
+    pool, conn = mock_service_pool
+    member_row = {"account_id": "acc-uuid-1", "billing_plan": "gratis"}
+    event_row = {"id": "be-uuid-1", "receipt_number": "RC-2026-000100"}
+    conn.fetchrow = AsyncMock(side_effect=[None, member_row, event_row])
+    body = _mp_body("pay-sub-005")
+    sig = _make_signature("pay-sub-005")
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "user-uuid-1::avanzado",
+        "transaction_amount": 1500.0,
+        "operation_type": "recurring_payment",  # presente mismo, se ignora
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("backend.services.payments._fetch_user_email", new_callable=AsyncMock, return_value="user@example.com"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    body_json = resp.json()
+    assert body_json["ok"] is True
+    assert body_json.get("ignored") is None
+
+
 async def test_webhook_mp_payment_not_found_returns_skipped(async_client, mock_service_pool):
     """MP devuelve 404 para IDs de test (ej. "123456") — debe retornar ok+skipped, no 502."""
     pool, conn = mock_service_pool

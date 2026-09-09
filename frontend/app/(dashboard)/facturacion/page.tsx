@@ -59,6 +59,16 @@ const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   ambiguous:  "En verificación",
 }
 
+// item B (3), residuo (d) de mp-real-subscriptions: estado del último cobro
+// (subscription.last_payment_status). Mapa chico — un valor no contemplado
+// se muestra crudo, nunca se esconde.
+const LAST_PAYMENT_STATUS_LABELS: Record<string, string> = {
+  approved:    "Aprobado",
+  rejected:    "Rechazado",
+  pending:     "Pendiente",
+  in_process:  "Pendiente",
+}
+
 export default async function FacturacionPage() {
   const supabase = createClient()
 
@@ -197,6 +207,14 @@ export default async function FacturacionPage() {
                 Próximo cobro:{" "}
                 <span className="font-medium text-foreground">
                   {format(new Date(subscription.next_payment_date), "dd 'de' MMMM 'de' yyyy", { locale: es })}
+                </span>
+              </p>
+            )}
+            {subscription.last_payment_status != null && (
+              <p className="text-sm text-muted-foreground">
+                Último cobro:{" "}
+                <span className="font-medium text-foreground">
+                  {LAST_PAYMENT_STATUS_LABELS[subscription.last_payment_status] ?? subscription.last_payment_status}
                 </span>
               </p>
             )}

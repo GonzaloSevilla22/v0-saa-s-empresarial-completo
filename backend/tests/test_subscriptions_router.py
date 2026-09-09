@@ -13,6 +13,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from backend.schemas.payments import SubscriptionCancelOut, SubscriptionCreateOut
 from backend.tests.conftest import FakeAsyncpgRecord, make_token
@@ -637,6 +638,7 @@ class TestSubscriptionStatusEndpoint:
                 "amount": None,
                 "currency": "ARS",
                 "retry_state": "none",
+                "last_payment_status": "approved",
                 "created_at": datetime.datetime(2026, 8, 1, tzinfo=datetime.timezone.utc),
             }
         )
@@ -654,3 +656,263 @@ class TestSubscriptionStatusEndpoint:
         assert body["plan"] == "avanzado"
         assert body["status"] == "authorized"
         assert body["retry_state"] == "none"
+        assert body["last_payment_status"] == "approved"
+
+    async def test_200_last_payment_status_defaults_to_null_when_absent(self, async_client, mock_service_pool):
+        """TRIANGULATE (item B (3)): una fila sin ningún cobro todavía
+        (recién autorizada, sin cuota procesada aún) expone
+        last_payment_status=None en vez de romper la validación."""
+        pool, conn = mock_service_pool
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "preapproval_id": "mp-preapproval-1",
+                "preapproval_plan_id": "mp-plan-1",
+                "plan": "avanzado",
+                "status": "pending",
+                "next_payment_date": None,
+                "amount": None,
+                "currency": "ARS",
+                "retry_state": "none",
+                "last_payment_status": None,
+                "created_at": datetime.datetime(2026, 8, 1, tzinfo=datetime.timezone.utc),
+            }
+        )
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/status",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["last_payment_status"] is None
+
+
+# ── Descartar (residuo (b) de mp-real-subscriptions) ──────────────────────
+
+class TestDiscardAmbiguousEndpoint:
+    async def test_requires_admin(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="user")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/ambiguous/cccccccc-cccc-cccc-cccc-cccccccccccc/discard",
+                json={},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 403
+
+    async def test_503_when_flag_off(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", False),
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/ambiguous/cccccccc-cccc-cccc-cccc-cccccccccccc/discard",
+                json={},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 503
+
+    async def test_admin_ok_passes_reason_and_admin_user_id(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.routers.payments.discard_ambiguous_subscription",
+                new_callable=AsyncMock,
+                return_value={"id": "cccccccc-cccc-cccc-cccc-cccccccccccc", "status": "cancelled"},
+            ) as mock_discard,
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/ambiguous/cccccccc-cccc-cccc-cccc-cccccccccccc/discard",
+                json={"reason": "cancelado en MP, sin cuenta legítima"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {"id": "cccccccc-cccc-cccc-cccc-cccccccccccc", "status": "cancelled"}
+        mock_discard.assert_awaited_once()
+        args = mock_discard.call_args.args
+        assert args[0] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        assert args[2] == "cancelado en MP, sin cuenta legítima"
+
+    async def test_reason_is_optional(self, async_client, mock_service_pool):
+        """TRIANGULATE: body sin `reason` (u omitido por completo) no
+        rompe la validación — es opcional."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.routers.payments.discard_ambiguous_subscription",
+                new_callable=AsyncMock,
+                return_value={"id": "cccccccc-cccc-cccc-cccc-cccccccccccc", "status": "cancelled"},
+            ) as mock_discard,
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/ambiguous/cccccccc-cccc-cccc-cccc-cccccccccccc/discard",
+                json={},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        assert mock_discard.call_args.args[2] is None
+
+    async def test_404_bubbles_up_when_nothing_to_discard(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+            patch(
+                "backend.routers.payments.discard_ambiguous_subscription",
+                new_callable=AsyncMock,
+                side_effect=HTTPException(
+                    status_code=404,
+                    detail="No hay una suscripción ambigua con ese id (o ya fue resuelta)",
+                ),
+            ),
+        ):
+            resp = await async_client.post(
+                "/payments/subscriptions/ambiguous/cccccccc-cccc-cccc-cccc-cccccccccccc/discard",
+                json={},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 404
+
+
+# ── "Suscripciones recientes" (residuo (c)) ────────────────────────────────
+
+class TestRecentSubscriptionsEndpoint:
+    async def test_requires_admin(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="user")
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/recent",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 403
+
+    async def test_503_when_flag_off(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        token = make_token()
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", False),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/recent",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 503
+
+    async def test_empty_list_returns_200(self, async_client, mock_service_pool):
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(return_value=[])
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/recent",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_row_as_record_returns_200_with_shape(self, async_client, mock_service_pool):
+        """Mismo hallazgo que la cola de ambiguos: list_recent_subscriptions
+        devuelve list[asyncpg.Record] crudo — el servicio lo convierte a
+        dict en el borde, FakeAsyncpgRecord reproduce la forma real."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(
+            return_value=[
+                FakeAsyncpgRecord(
+                    {
+                        "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                        "plan": "pro",
+                        "status": "authorized",
+                        "account_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        "account_name": "Buyer Test",
+                        "next_payment_date": "2026-09-01T00:00:00+00:00",
+                        "last_payment_status": "approved",
+                        "retry_state": "none",
+                        "updated_at": "2026-08-01T12:00:00+00:00",
+                    }
+                )
+            ]
+        )
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/recent?limit=5",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["plan"] == "pro"
+        assert body[0]["account_name"] == "Buyer Test"
+
+    async def test_discarded_row_has_null_account_and_still_shows(self, async_client, mock_service_pool):
+        """Una fila descartada (status='cancelled', account_id NULL)
+        aparece en "recientes" — queda visible que se descartó."""
+        pool, conn = mock_service_pool
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetch = AsyncMock(
+            return_value=[
+                FakeAsyncpgRecord(
+                    {
+                        "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                        "plan": "pro",
+                        "status": "cancelled",
+                        "account_id": None,
+                        "account_name": None,
+                        "next_payment_date": None,
+                        "last_payment_status": None,
+                        "retry_state": "none",
+                        "updated_at": "2026-08-01T12:00:00+00:00",
+                    }
+                )
+            ]
+        )
+        token = make_token({"role": "user"})
+        with (
+            patch("backend.core.database.pool", pool),
+            patch("backend.core.config.settings.billing_subscriptions_enabled", True),
+        ):
+            resp = await async_client.get(
+                "/payments/subscriptions/recent",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body[0]["account_id"] is None
+        assert body[0]["status"] == "cancelled"

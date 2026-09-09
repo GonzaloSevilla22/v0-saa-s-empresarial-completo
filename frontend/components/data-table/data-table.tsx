@@ -1,13 +1,16 @@
 "use client"
 
-import { useState, useMemo, useRef, useCallback } from "react"
+import { Fragment, useState, useMemo, useRef, useCallback } from "react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowUpDown, Search, Plus, Trash2, Download, Upload, CalendarDays, X, Pencil } from "lucide-react"
+import {
+  ArrowUpDown, Search, Plus, Trash2, Download, Upload, CalendarDays, X, Pencil,
+  ChevronRight, ChevronDown,
+} from "lucide-react"
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -57,13 +60,29 @@ interface DataTableProps<T> {
   // Mobile card renderer — when provided, desktop table is hidden on mobile
   // and a card list is shown instead
   mobileCard?: (row: T) => React.ReactNode
+  // sucursal-guard-vaciado-auditoria (OQ-5): optional per-row expandable
+  // content (e.g. a sucursal breakdown). Opt-in — omitting it leaves the
+  // table exactly as before (no extra column, no toggle). Mounted lazily:
+  // only rendered for rows the user has expanded.
+  renderExpanded?: (row: T) => React.ReactNode
+  // Accessible name for the row being toggled — falls back to getId(row).
+  expandLabel?: (row: T) => string
+  // F7 fix (revisor adversarial tanda6): qué ES el contenido desplegable —
+  // usado en los aria-label ("Ver/Ocultar {expandContentLabel} de {row}")
+  // y como texto del botón mobile (capitalizado). Antes de este fix el
+  // texto "desglose por sucursal" estaba horneado en el componente
+  // compartido; un segundo consumidor (movimientos de cuenta, líneas de
+  // una operación) heredaba una etiqueta que no describía su contenido —
+  // y para un lector de pantalla esa etiqueta es el único texto
+  // disponible. Default preserva el comportamiento preexistente de /stock.
+  expandContentLabel?: string
 }
 
 export function DataTable<T>({
   data, columns, searchPlaceholder = "Buscar...", searchKey,
   onAdd, addLabel = "Agregar", onEdit, onDelete, getId,
   dateKey, exportColumns, exportFilename, importColumnMap, onImport,
-  mobileCard,
+  mobileCard, renderExpanded, expandLabel, expandContentLabel = "desglose por sucursal",
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("")
   const [sortKey, setSortKey] = useState<string | null>(null)
@@ -73,12 +92,25 @@ export function DataTable<T>({
   const [dateTo, setDateTo] = useState("")
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 10
 
   const hasDateFilter = !!dateKey
   const hasExport = !!exportColumns && !!exportFilename
   const hasImport = !!importColumnMap && !!onImport
+  const hasExpand = !!renderExpanded
+  const expandContentLabelCapitalized =
+    expandContentLabel.charAt(0).toUpperCase() + expandContentLabel.slice(1)
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Filter by search
   const searchFiltered = useMemo(() => {
@@ -340,32 +372,59 @@ export function DataTable<T>({
               No se encontraron resultados
             </div>
           ) : (
-            paginated.map((row) => (
-              <div
-                key={getId(row)}
-                className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2"
-              >
-                {/* Content provided by caller */}
-                {mobileCard(row)}
+            paginated.map((row) => {
+              const id = getId(row)
+              const isExpanded = hasExpand && expandedIds.has(id)
+              return (
+                <div
+                  key={id}
+                  className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2"
+                >
+                  {/* Content provided by caller */}
+                  {mobileCard(row)}
 
-                {/* Action row */}
-                {(onEdit || onDelete) && (
-                  <div className="flex items-center justify-end gap-1 pt-2 border-t border-border">
-                    {onEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-primary"
-                        onClick={() => onEdit(row)}
+                  {/* Expandable content toggle (mobile) */}
+                  {hasExpand && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(id)}
+                        aria-expanded={isExpanded}
+                        aria-label={`${isExpanded ? "Ocultar" : "Ver"} ${expandContentLabel} de ${expandLabel ? expandLabel(row) : id}`}
+                        className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
                       >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    )}
-                    {onDelete && <MobileDeleteDialog row={row} />}
-                  </div>
-                )}
-              </div>
-            ))
+                        {isExpanded ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                        {expandContentLabelCapitalized}
+                      </button>
+                      {isExpanded && (
+                        <div className="pt-2">{renderExpanded!(row)}</div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Action row */}
+                  {(onEdit || onDelete) && (
+                    <div className="flex items-center justify-end gap-1 pt-2 border-t border-border">
+                      {onEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          onClick={() => onEdit(row)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {onDelete && <MobileDeleteDialog row={row} />}
+                    </div>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
       )}
@@ -376,6 +435,14 @@ export function DataTable<T>({
           <Table>
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
+                {hasExpand && (
+                  <TableHead className="w-10">
+                    {/* F8 fix (revisor adversarial tanda6): sin nombre
+                        accesible, un lector de pantalla anuncia una
+                        columna vacía en cada fila al recorrer la tabla. */}
+                    <span className="sr-only">Desglose</span>
+                  </TableHead>
+                )}
                 {columns.map((col) => (
                   <TableHead key={col.key} className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
                     {col.sortable ? (
@@ -398,70 +465,105 @@ export function DataTable<T>({
               {paginated.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={columns.length + (onDelete ? 1 : 0)}
+                    colSpan={columns.length + (hasExpand ? 1 : 0) + (onDelete ? 1 : 0)}
                     className="h-32 text-center text-muted-foreground"
                   >
                     No se encontraron resultados
                   </TableCell>
                 </TableRow>
               ) : (
-                paginated.map((row) => (
-                  <TableRow key={getId(row)} className="group border-border hover:bg-accent/50">
-                    {columns.map((col) => (
-                      <TableCell key={col.key} className="text-sm text-card-foreground">
-                        {col.cell(row)}
-                      </TableCell>
-                    ))}
-                    {(onDelete || onEdit) && (
-                      <TableCell>
-                        <div className="flex items-center gap-1 justify-end">
-                          {onEdit && (
+                paginated.map((row) => {
+                  const id = getId(row)
+                  const isExpanded = hasExpand && expandedIds.has(id)
+                  const colCount = columns.length + (hasExpand ? 1 : 0) + ((onDelete || onEdit) ? 1 : 0)
+                  return (
+                    <Fragment key={id}>
+                      <TableRow className="group border-border hover:bg-accent/50">
+                        {hasExpand && (
+                          <TableCell className="w-10">
                             <Button
+                              type="button"
                               variant="ghost"
                               size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-primary"
-                              onClick={() => onEdit(row)}
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              onClick={() => toggleExpand(id)}
+                              aria-expanded={isExpanded}
+                              aria-label={`${isExpanded ? "Ocultar" : "Ver"} ${expandContentLabel} de ${expandLabel ? expandLabel(row) : id}`}
                             >
-                              <Pencil className="h-3.5 w-3.5" />
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
                             </Button>
-                          )}
-                          {onDelete && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
+                          </TableCell>
+                        )}
+                        {columns.map((col) => (
+                          <TableCell key={col.key} className="text-sm text-card-foreground">
+                            {col.cell(row)}
+                          </TableCell>
+                        ))}
+                        {(onDelete || onEdit) && (
+                          <TableCell>
+                            <div className="flex items-center gap-1 justify-end">
+                              {onEdit && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                  disabled={deletingId === getId(row)}
+                                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                                  onClick={() => onEdit(row)}
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Pencil className="h-3.5 w-3.5" />
                                 </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent className="bg-card border-border">
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle className="text-card-foreground">Confirmar eliminación</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Esta acción no se puede deshacer. El registro será eliminado permanentemente.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel className="border-border text-foreground">Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDelete(getId(row))}
-                                    disabled={deletingId === getId(row)}
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  >
-                                    {deletingId === getId(row) ? "Eliminando..." : "Eliminar"}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                        </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))
+                              )}
+                              {onDelete && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                      disabled={deletingId === getId(row)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent className="bg-card border-border">
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle className="text-card-foreground">Confirmar eliminación</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Esta acción no se puede deshacer. El registro será eliminado permanentemente.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel className="border-border text-foreground">Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDelete(getId(row))}
+                                        disabled={deletingId === getId(row)}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        {deletingId === getId(row) ? "Eliminando..." : "Eliminar"}
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableCell colSpan={colCount} className="bg-muted/30 p-0">
+                            <div className="px-4 py-3">
+                              {renderExpanded!(row)}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  )
+                })
               )}
             </TableBody>
           </Table>

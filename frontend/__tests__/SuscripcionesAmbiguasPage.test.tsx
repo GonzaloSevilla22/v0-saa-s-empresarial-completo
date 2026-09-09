@@ -13,10 +13,23 @@
 
 import React from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import "@testing-library/jest-dom"
-import type { AccountSearchResult, AmbiguousSubscription } from "@/hooks/data/use-ambiguous-subscriptions"
+import type {
+  AccountSearchResult,
+  AmbiguousSubscription,
+  RecentSubscription,
+} from "@/hooks/data/use-ambiguous-subscriptions"
+
+const { toastSuccessMock, toastErrorMock } = vi.hoisted(() => ({
+  toastSuccessMock: vi.fn(),
+  toastErrorMock: vi.fn(),
+}))
+
+vi.mock("sonner", () => ({
+  toast: { success: toastSuccessMock, error: toastErrorMock },
+}))
 
 // ── Mocks ─────────────────────────────────────────────────────────────────
 
@@ -47,6 +60,18 @@ const AMBIGUOUS_2: AmbiguousSubscription = {
   amount: 9900,
   currency: "ARS",
   createdAt: "2026-08-01T08:00:00.000Z",
+}
+
+const RECENT_1: RecentSubscription = {
+  id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+  plan: "pro",
+  status: "authorized",
+  accountId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  accountName: "Buyer Test",
+  nextPaymentDate: "2026-09-01T00:00:00.000Z",
+  lastPaymentStatus: "approved",
+  retryState: "none",
+  updatedAt: "2026-08-01T12:00:00.000Z",
 }
 
 let profileRole: string | null = "admin"
@@ -91,6 +116,8 @@ vi.mock("@/components/billing/AccountSearchCombobox", () => ({
 }))
 
 const resolveSubscriptionMock = vi.fn()
+const discardSubscriptionMock = vi.fn()
+const replaySubscriptionChargesMock = vi.fn()
 const mockHookState: {
   data: AmbiguousSubscription[] | undefined
   isLoading: boolean
@@ -102,6 +129,15 @@ const mockHookState: {
   isError: false,
   error: null,
 }
+const mockRecentState: {
+  data: RecentSubscription[] | undefined
+  isLoading: boolean
+  isError: boolean
+} = {
+  data: [RECENT_1],
+  isLoading: false,
+  isError: false,
+}
 
 vi.mock("@/hooks/data/use-ambiguous-subscriptions", () => ({
   useAmbiguousSubscriptions: () => ({
@@ -112,11 +148,22 @@ vi.mock("@/hooks/data/use-ambiguous-subscriptions", () => ({
     refetch: vi.fn(),
     resolveSubscription: resolveSubscriptionMock,
     resolveMutation: { isPending: false },
+    discardSubscription: discardSubscriptionMock,
+    discardMutation: { isPending: false },
   }),
   // useAccountSearch no se ejecuta en esta suite: AccountSearchCombobox
   // (su único caller) está mockeado más arriba — se exporta igual para que
   // cualquier import type-only del módulo real no rompa la resolución.
   useAccountSearch: () => ({ data: [], isFetching: false, isError: false }),
+  useRecentSubscriptions: () => ({
+    data: mockRecentState.data,
+    isLoading: mockRecentState.isLoading,
+    isError: mockRecentState.isError,
+    error: null,
+    refetch: vi.fn(),
+    replaySubscriptionCharges: replaySubscriptionChargesMock,
+    replayMutation: { isPending: false },
+  }),
 }))
 
 // ── Setup ─────────────────────────────────────────────────────────────────
@@ -129,7 +176,14 @@ beforeEach(() => {
   mockHookState.isLoading = false
   mockHookState.isError = false
   mockHookState.error = null
+  mockRecentState.data = [RECENT_1]
+  mockRecentState.isLoading = false
+  mockRecentState.isError = false
   resolveSubscriptionMock.mockReset()
+  discardSubscriptionMock.mockReset()
+  replaySubscriptionChargesMock.mockReset()
+  toastSuccessMock.mockReset()
+  toastErrorMock.mockReset()
   // jsdom no implementa navegación real — silenciar el "Not implemented" y
   // permitir asignar window.location.href sin que la suite aborte.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,12 +239,16 @@ describe("SuscripcionesAmbiguasPage — queue list", () => {
 
     await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
 
-    expect(screen.getByText("Pro")).toBeInTheDocument()
-    expect(screen.getByText("Inicial")).toBeInTheDocument()
-    expect(screen.getByText(/\$\s?69\.900,00/)).toBeInTheDocument()
-    expect(screen.getByText("Sin cuenta candidata")).toBeInTheDocument()
-    expect(screen.getByText("Varias cuentas candidatas")).toBeInTheDocument()
-    expect(screen.getByText("mp-preapproval-XYZ")).toBeInTheDocument()
+    // La sección "Suscripciones recientes" (residuo (c)) también renderiza
+    // "Pro" (RECENT_1.plan) — se escopea a la tabla de la cola de ambiguos
+    // (la primera del documento) para no colisionar.
+    const [queueTable] = screen.getAllByRole("table")
+    expect(within(queueTable).getByText("Pro")).toBeInTheDocument()
+    expect(within(queueTable).getByText("Inicial")).toBeInTheDocument()
+    expect(within(queueTable).getByText(/\$\s?69\.900,00/)).toBeInTheDocument()
+    expect(within(queueTable).getByText("Sin cuenta candidata")).toBeInTheDocument()
+    expect(within(queueTable).getByText("Varias cuentas candidatas")).toBeInTheDocument()
+    expect(within(queueTable).getByText("mp-preapproval-XYZ")).toBeInTheDocument()
   })
 
   it("§4 TRIANGULATE: shows a clear empty state when the queue has no rows", async () => {
@@ -198,7 +256,10 @@ describe("SuscripcionesAmbiguasPage — queue list", () => {
     await renderPage()
 
     expect(await screen.findByText(/no hay suscripciones pendientes de revisión/i)).toBeInTheDocument()
-    expect(screen.queryByRole("table")).not.toBeInTheDocument()
+    // La tabla de la cola de ambiguos desaparece — la de "Suscripciones
+    // recientes" (residuo (c)) sigue ahí, así que no alcanza con "ninguna
+    // tabla en la página"; se verifica por su columna distintiva.
+    expect(screen.queryByRole("columnheader", { name: /motivo/i })).not.toBeInTheDocument()
   })
 
   it("§4b: shows a loading spinner while the query is in flight", async () => {
@@ -274,5 +335,153 @@ describe("SuscripcionesAmbiguasPage — resolve flow", () => {
 
     expect(await screen.findByText(/no hay una suscripción ambigua con ese id/i)).toBeInTheDocument()
     expect(screen.queryByRole("status")).not.toBeInTheDocument()
+  })
+})
+
+// ── Descartar (residuo (b)) ─────────────────────────────────────────────────
+
+describe("SuscripcionesAmbiguasPage — discard flow", () => {
+  it("§8 RED: clicking 'Descartar' on a row opens a confirmation dialog", async () => {
+    const user = userEvent.setup()
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
+
+    await user.click(
+      screen.getByRole("button", { name: `Descartar suscripción ${AMBIGUOUS_1.preapprovalId}` }),
+    )
+
+    expect(
+      await screen.findByRole("heading", { name: /descartar esta suscripción ambigua/i }),
+    ).toBeInTheDocument()
+  })
+
+  it("§8 GREEN: confirming calls discardSubscription with the row id and the typed reason, and shows a success toast", async () => {
+    discardSubscriptionMock.mockResolvedValueOnce({ id: AMBIGUOUS_1.id, status: "cancelled" })
+    const user = userEvent.setup()
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
+
+    await user.click(
+      screen.getByRole("button", { name: `Descartar suscripción ${AMBIGUOUS_1.preapprovalId}` }),
+    )
+    await user.type(await screen.findByLabelText(/motivo \(opcional\)/i), "cancelado en MP")
+    await user.click(screen.getByRole("button", { name: "Descartar" }))
+
+    await waitFor(() => {
+      expect(discardSubscriptionMock).toHaveBeenCalledWith({
+        subscriptionId: AMBIGUOUS_1.id,
+        reason: "cancelado en MP",
+      })
+    })
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled())
+  })
+
+  it("§9 TRIANGULATE: leaving the reason empty sends undefined instead of an empty string", async () => {
+    discardSubscriptionMock.mockResolvedValueOnce({ id: AMBIGUOUS_1.id, status: "cancelled" })
+    const user = userEvent.setup()
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
+
+    await user.click(
+      screen.getByRole("button", { name: `Descartar suscripción ${AMBIGUOUS_1.preapprovalId}` }),
+    )
+    await screen.findByRole("heading", { name: /descartar esta suscripción ambigua/i })
+    await user.click(screen.getByRole("button", { name: "Descartar" }))
+
+    await waitFor(() => {
+      expect(discardSubscriptionMock).toHaveBeenCalledWith({
+        subscriptionId: AMBIGUOUS_1.id,
+        reason: undefined,
+      })
+    })
+  })
+
+  it("§9 TRIANGULATE: a failed discard shows an error toast", async () => {
+    discardSubscriptionMock.mockRejectedValueOnce(new Error("Ya fue resuelta"))
+    const user = userEvent.setup()
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones ambiguas/i })
+
+    await user.click(
+      screen.getByRole("button", { name: `Descartar suscripción ${AMBIGUOUS_1.preapprovalId}` }),
+    )
+    await screen.findByRole("heading", { name: /descartar esta suscripción ambigua/i })
+    await user.click(screen.getByRole("button", { name: "Descartar" }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Ya fue resuelta"))
+  })
+})
+
+// ── "Suscripciones recientes" (residuo (c)) ─────────────────────────────────
+
+describe("SuscripcionesAmbiguasPage — recent subscriptions section", () => {
+  it("§10 GREEN: renders a row per recent subscription with plan/status/account", async () => {
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones recientes/i })
+
+    expect(screen.getByText("Buyer Test")).toBeInTheDocument()
+    expect(screen.getByText("Activa")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /replicar cuotas de la suscripción pro de buyer test/i }),
+    ).toBeInTheDocument()
+  })
+
+  it("§10 TRIANGULATE: shows an empty state when there are no recent subscriptions", async () => {
+    mockRecentState.data = []
+    await renderPage()
+
+    expect(await screen.findByText(/no hay suscripciones recientes todavía/i)).toBeInTheDocument()
+  })
+
+  it("§10b: shows a loading state while the recent-subscriptions query is in flight", async () => {
+    mockRecentState.isLoading = true
+    mockRecentState.data = undefined
+    await renderPage()
+
+    expect(await screen.findByText(/cargando suscripciones recientes/i)).toBeInTheDocument()
+  })
+
+  it("§10c: surfaces a fetch error for the recent-subscriptions section", async () => {
+    mockRecentState.isError = true
+    await renderPage()
+
+    expect(
+      await screen.findByText(/no se pudieron cargar las suscripciones recientes/i),
+    ).toBeInTheDocument()
+  })
+
+  it("§11 GREEN: confirming 'Replicar' calls replaySubscriptionCharges with the row id and shows a summary toast", async () => {
+    replaySubscriptionChargesMock.mockResolvedValueOnce({
+      ok: true, applied: ["7031580844"], alreadyApplied: [],
+    })
+    const user = userEvent.setup()
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones recientes/i })
+
+    await user.click(
+      screen.getByRole("button", { name: /replicar cuotas de la suscripción pro de buyer test/i }),
+    )
+    await user.click(await screen.findByRole("button", { name: "Replicar" }))
+
+    await waitFor(() => {
+      expect(replaySubscriptionChargesMock).toHaveBeenCalledWith(RECENT_1.id)
+    })
+    await waitFor(() => {
+      expect(toastSuccessMock).toHaveBeenCalledWith(expect.stringMatching(/1 cuota/i))
+    })
+  })
+
+  it("§11 TRIANGULATE: a failed replay shows an error toast", async () => {
+    replaySubscriptionChargesMock.mockRejectedValueOnce(new Error("Error al consultar MercadoPago"))
+    const user = userEvent.setup()
+    await renderPage()
+    await screen.findByRole("heading", { name: /suscripciones recientes/i })
+
+    await user.click(
+      screen.getByRole("button", { name: /replicar cuotas de la suscripción pro de buyer test/i }),
+    )
+    await user.click(await screen.findByRole("button", { name: "Replicar" }))
+
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith("Error al consultar MercadoPago"))
   })
 })

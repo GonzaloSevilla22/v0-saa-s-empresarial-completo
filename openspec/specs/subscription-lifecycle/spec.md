@@ -207,3 +207,71 @@ Ningún usuario SHALL poder crear, modificar ni eliminar una fila de suscripció
 #### Scenario: El navegador no puede escribir el estado de la suscripción
 - **WHEN** un usuario intenta modificar directamente el estado o la fecha de próximo cobro de una suscripción
 - **THEN** la operación es rechazada
+
+### Requirement: Reconciliación manual de suscripciones sin cuenta asignada
+
+Cuando la reconciliación automática de una notificación `subscription_preapproval` no puede atribuir el pago a ninguna cuenta (ninguna intención candidata, o más de una), el sistema SHALL registrar la suscripción sin cuenta y visible en una cola de administración, en vez de perder el pago o adivinar una cuenta.
+
+Un administrador de plataforma SHALL poder descartar una fila de esa cola cuando ninguna cuenta legítima la reclame (por ejemplo, un preapproval cancelado en MercadoPago). Descartar NOT SHALL asignar ninguna cuenta, tocar `billing_events` ni el estado de facturación de ninguna cuenta, ni llamar a MercadoPago — el dinero ya acreditado se audita, nunca se pierde ni se atribuye a ciegas.
+
+Una fila descartada NOT SHALL resucitar sin cuenta asignada: si MercadoPago notifica después el mismo `preapproval` con un estado vigente (no cancelado), la fila vuelve a la cola de ambiguos en vez de quedar activa sin ningún dueño.
+
+Un administrador de plataforma SHALL además poder, desde el mismo panel, volver a aplicar contra MercadoPago las cuotas aprobadas de una suscripción ya resuelta — una operación idempotente que nunca duplica un cobro ya auditado.
+
+#### Scenario: El administrador descarta una suscripción ambigua sin cuenta legítima
+- **GIVEN** una suscripción sin cuenta asignada, en la cola de conciliación manual
+- **WHEN** un administrador la descarta, con un motivo opcional
+- **THEN** la fila queda sin cuenta asignada y fuera de la cola visible, auditada con el motivo dado y el motivo de ambigüedad previo
+- **AND** no se modifica ningún plan, `billing_events` ni el estado de facturación de ninguna cuenta, y tampoco se llama a MercadoPago
+- **AND** si MercadoPago notifica luego el mismo `preapproval` con un estado vigente, la fila vuelve a la cola de conciliación manual en vez de quedar activa sin ninguna cuenta asignada
+
+#### Scenario: El administrador replica las cuotas de una suscripción desde el panel
+- **GIVEN** una suscripción ya resuelta, con cuenta asignada
+- **WHEN** un administrador dispara la replicación de cuotas desde el panel de suscripciones
+- **THEN** el sistema vuelve a aplicar, contra lo que reporta MercadoPago, cada cuota aprobada de esa suscripción sin duplicar ninguna que ya estuviera auditada
+
+### Requirement: La intención viaja como external_reference en el checkout y resuelve la atribución antes que el email
+
+La URL de checkout que devuelve el alta de suscripción SHALL incluir, además del plan, la referencia externa de la intención pre-registrada (`subscription_intents.id`).
+
+Cuando la notificación `subscription_preapproval` reporta una referencia externa que corresponde a una intención pendiente, del mismo plan y no vencida, el sistema SHALL resolver la atribución por esa referencia antes de intentar el camino por email — el email que MercadoPago informa para el pagador puede no coincidir con el de la cuenta que inició el alta.
+
+Una referencia externa que no matchea ninguna intención pendiente (vencida, o de otro plan) NOT SHALL bloquear la reconciliación: el sistema cae al camino por email existente.
+
+La referencia externa recibida SHALL persistirse en la suscripción creada, coincida o no con una intención.
+
+#### Scenario: La referencia externa resuelve la atribución aunque el email no coincida
+- **GIVEN** una intención pendiente para una cuenta, y un checkout cuyo email de pagador en MercadoPago difiere del de esa cuenta
+- **WHEN** llega la notificación `subscription_preapproval` con la referencia externa de esa intención
+- **THEN** la suscripción se atribuye a esa cuenta sin consultar el camino por email
+
+#### Scenario: Una referencia externa vencida o ajena cae al camino por email
+- **GIVEN** una notificación cuya referencia externa no corresponde a ninguna intención pendiente vigente del mismo plan
+- **WHEN** se reconcilia la suscripción
+- **THEN** el sistema intenta la atribución por email exactamente como antes de esta capacidad
+
+#### Scenario: La referencia externa y el email coinciden en la misma intención
+- **GIVEN** una notificación cuya referencia externa Y cuyo email de pagador identifican la misma intención pendiente
+- **WHEN** se reconcilia la suscripción
+- **THEN** se produce una única atribución, sin duplicar la intención resuelta
+
+### Requirement: El replay sincroniza el estado del último cobro, visible en Facturación
+
+Cuando un administrador dispara la replicación de cuotas de una suscripción, el sistema SHALL sincronizar además el estado del último cobro (por fecha) reportado por MercadoPago para esa suscripción, con la misma regla que aplican las notificaciones de cuota: aprobado si la cuota está `processed` y su pago `approved`, o el estado del pago (con reserva en el estado de la cuota) en cualquier otro caso.
+
+Ese estado SHALL exponerse en el estado de suscripción que consulta `/facturacion`, para que el usuario vea el resultado de su último cobro sin depender del historial de facturación.
+
+#### Scenario: El replay deja visible que el último cobro fue aprobado
+- **GIVEN** una suscripción cuya última cuota reportada por MercadoPago está aprobada
+- **WHEN** un administrador dispara la replicación de cuotas
+- **THEN** el estado de la suscripción refleja que el último cobro fue aprobado
+
+#### Scenario: El replay deja visible que el último cobro fue rechazado
+- **GIVEN** una suscripción cuya última cuota reportada por MercadoPago no está aprobada
+- **WHEN** un administrador dispara la replicación de cuotas
+- **THEN** el estado de la suscripción refleja el resultado real de ese último cobro, no un estado aprobado inexistente
+
+#### Scenario: /facturacion muestra el estado del último cobro
+- **GIVEN** una cuenta con una suscripción viva cuyo último cobro tiene un estado registrado
+- **WHEN** el usuario consulta /facturacion
+- **THEN** ve el estado de su último cobro junto a la fecha del próximo

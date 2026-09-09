@@ -38,6 +38,28 @@ export interface AccountSearchResultApi {
   billing_plan: string
 }
 
+// Residuos (b)/(c) de mp-real-subscriptions (ver CHANGES.md "Hotfixes
+// post-archive #511-#517"): "Descartar" una fila ambigua sin cuenta
+// legítima + "Replicar cuotas" desde la sección "Suscripciones recientes".
+
+export interface RecentSubscriptionApi {
+  id: string
+  plan: string
+  status: string
+  account_id: string | null
+  account_name: string | null
+  next_payment_date: string | null
+  last_payment_status: string | null
+  retry_state: string
+  updated_at: string
+}
+
+export interface ReplaySubscriptionChargesResultApi {
+  ok: boolean
+  applied: string[]
+  already_applied: string[]
+}
+
 // ── Domain types ───────────────────────────────────────────────────────────
 
 export interface AmbiguousSubscription {
@@ -56,6 +78,24 @@ export interface AccountSearchResult {
   ownerEmail: string
   ownerName: string | null
   billingPlan: string
+}
+
+export interface RecentSubscription {
+  id: string
+  plan: string
+  status: string
+  accountId: string | null
+  accountName: string | null
+  nextPaymentDate: string | null
+  lastPaymentStatus: string | null
+  retryState: string
+  updatedAt: string
+}
+
+export interface ReplaySubscriptionChargesResult {
+  ok: boolean
+  applied: string[]
+  alreadyApplied: string[]
 }
 
 function mapAmbiguousSubscription(r: AmbiguousSubscriptionApi): AmbiguousSubscription {
@@ -80,11 +120,38 @@ function mapAccountSearchResult(r: AccountSearchResultApi): AccountSearchResult 
   }
 }
 
+function mapRecentSubscription(r: RecentSubscriptionApi): RecentSubscription {
+  return {
+    id: r.id,
+    plan: r.plan,
+    status: r.status,
+    accountId: r.account_id,
+    accountName: r.account_name,
+    nextPaymentDate: r.next_payment_date,
+    lastPaymentStatus: r.last_payment_status,
+    retryState: r.retry_state,
+    updatedAt: r.updated_at,
+  }
+}
+
+function mapReplayResult(r: ReplaySubscriptionChargesResultApi): ReplaySubscriptionChargesResult {
+  return {
+    ok: r.ok,
+    applied: r.applied,
+    alreadyApplied: r.already_applied,
+  }
+}
+
 // ── Hook: cola de ambiguos + resolve ───────────────────────────────────────
 
 export interface ResolveAmbiguousSubscriptionInput {
   subscriptionId: string
   accountId: string
+}
+
+export interface DiscardAmbiguousSubscriptionInput {
+  subscriptionId: string
+  reason?: string | null
 }
 
 /**
@@ -120,6 +187,26 @@ export function useAmbiguousSubscriptions() {
     },
   })
 
+  // Descartar (residuo (b)): saca una fila ambigua sin cuenta legítima de
+  // la cola — NUNCA toca accounts/billing_events (a diferencia de
+  // resolveSubscription). La fila reaparece en "Suscripciones recientes"
+  // como 'cancelled' sin cuenta, así que invalida las dos queries.
+  const discardMutation = useMutation({
+    mutationFn: async ({
+      subscriptionId,
+      reason,
+    }: DiscardAmbiguousSubscriptionInput): Promise<{ id: string; status: string }> => {
+      return pythonClient.post<{ id: string; status: string }>(
+        `/payments/subscriptions/ambiguous/${subscriptionId}/discard`,
+        { reason: reason ?? null },
+      )
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ambiguousSubscriptions.all() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.recentSubscriptions.all() })
+    },
+  })
+
   return {
     data:               query.data,
     isLoading:          query.isLoading,
@@ -128,6 +215,8 @@ export function useAmbiguousSubscriptions() {
     refetch:            query.refetch,
     resolveSubscription: resolveMutation.mutateAsync,
     resolveMutation,
+    discardSubscription: discardMutation.mutateAsync,
+    discardMutation,
   }
 }
 
@@ -158,5 +247,51 @@ export function useAccountSearch(query: string) {
     data:       result.data,
     isFetching: result.isFetching,
     isError:    result.isError,
+  }
+}
+
+// ── Hook: "Suscripciones recientes" + Replicar cuotas (residuo (c)) ────────
+
+const DEFAULT_RECENT_LIMIT = 20
+
+/**
+ * GET /payments/subscriptions/recent?limit=... · POST
+ * /payments/subscriptions/{id}/replay-charges (endpoint ya existente,
+ * hotfix H3 2026-09-04). Solo admin.
+ */
+export function useRecentSubscriptions(limit: number = DEFAULT_RECENT_LIMIT) {
+  const queryClient = useQueryClient()
+
+  const query = useQuery({
+    queryKey: queryKeys.recentSubscriptions.list(limit),
+    queryFn: async (): Promise<RecentSubscription[]> => {
+      const rows = await pythonClient.get<RecentSubscriptionApi[]>(
+        `/payments/subscriptions/recent?limit=${limit}`,
+      )
+      return rows.map(mapRecentSubscription)
+    },
+  })
+
+  const replayMutation = useMutation({
+    mutationFn: async (subscriptionId: string): Promise<ReplaySubscriptionChargesResult> => {
+      const result = await pythonClient.post<ReplaySubscriptionChargesResultApi>(
+        `/payments/subscriptions/${subscriptionId}/replay-charges`,
+        {},
+      )
+      return mapReplayResult(result)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.recentSubscriptions.all() })
+    },
+  })
+
+  return {
+    data:       query.data,
+    isLoading:  query.isLoading,
+    isError:    query.isError,
+    error:      query.error,
+    refetch:    query.refetch,
+    replaySubscriptionCharges: replayMutation.mutateAsync,
+    replayMutation,
   }
 }

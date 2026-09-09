@@ -218,4 +218,10 @@ export const queryKeys = {
     all:   () => ["accountSearch"] as const,
     query: (q: string) => ["accountSearch", q] as const,
   },
+  // residuos (b)/(c) de mp-real-subscriptions: "Descartar" (invalida
+  // ambiguousSubscriptions arriba) + sección "Suscripciones recientes"
+  recentSubscriptions: {
+    all:  () => ["recentSubscriptions"] as const,
+    list: (limit: number) => ["recentSubscriptions", limit] as const,
+  },
 } as const

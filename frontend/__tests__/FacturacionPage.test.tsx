@@ -126,4 +126,38 @@ describe("FacturacionPage — estado de la suscripción real (task 8.5/8.6)", ()
 
     expect(screen.getByText(/reintentando automáticamente/i)).toBeInTheDocument()
   })
+
+  // ── item B (3), residuo (d) de mp-real-subscriptions ────────────────────
+  it("con last_payment_status='approved': muestra 'Último cobro: Aprobado'", async () => {
+    subscriptionData = {
+      plan: "avanzado",
+      status: "authorized",
+      next_payment_date: "2026-09-15T12:00:00Z",
+      retry_state: "none",
+      amount: null,
+      currency: "ARS",
+      last_payment_status: "approved",
+    }
+
+    render(await FacturacionPage())
+
+    expect(screen.getByText(/Último cobro:/i)).toBeInTheDocument()
+    expect(screen.getByText("Aprobado")).toBeInTheDocument()
+  })
+
+  it("sin last_payment_status (null): no muestra la línea de último cobro", async () => {
+    subscriptionData = {
+      plan: "avanzado",
+      status: "authorized",
+      next_payment_date: "2026-09-15T12:00:00Z",
+      retry_state: "none",
+      amount: null,
+      currency: "ARS",
+      last_payment_status: null,
+    }
+
+    render(await FacturacionPage())
+
+    expect(screen.queryByText(/Último cobro:/i)).not.toBeInTheDocument()
+  })
 })

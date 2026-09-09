@@ -39,6 +39,13 @@ export interface LiveSubscriptionRow {
   retry_state: string
   amount: number | null
   currency: string
+  // item B (3), residuo (d) de mp-real-subscriptions: estado del último
+  // cobro (aprobado/rechazado/pendiente) — espejo de
+  // backend/schemas/payments.py::SubscriptionOut.last_payment_status.
+  // Opcional (no `| undefined` explícito en el resto de los campos, pero sí
+  // acá) para no romper los fixtures existentes de
+  // __tests__/lib/billing/live-subscription.test.ts, que no lo declaran.
+  last_payment_status?: string | null
 }
 
 function isLiveStatus(status: string): status is LiveSubscriptionStatus {
@@ -65,7 +72,7 @@ export async function getLiveSubscription(
   try {
     const { data, error } = await supabase
       .from("subscriptions")
-      .select("plan, status, next_payment_date, retry_state, amount, currency")
+      .select("plan, status, next_payment_date, retry_state, amount, currency, last_payment_status")
       .eq("account_id", accountId)
       .in("status", LIVE_SUBSCRIPTION_STATUSES as unknown as string[])
       .maybeSingle()

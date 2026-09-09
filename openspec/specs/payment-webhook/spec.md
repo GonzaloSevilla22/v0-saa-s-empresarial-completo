@@ -267,3 +267,29 @@ A silent mismatch is indistinguishable from the H-02 bug itself — money captur
 
 - **WHEN** the endpoint logs a signature rejection for any reason
 - **THEN** the log contains neither the configured secret nor the received signature value
+
+### Requirement: A subscription charge's payment notification is acknowledged, not rejected
+
+MercadoPago sends two notifications for every subscription charge: `subscription_authorized_payment` (which credits the money — see the `subscription-lifecycle` capability) and a `payment` notification for the same charge. The latter never carries an `external_reference` in the `"<userId>::<plan>"` format the one-shot checkout uses, so the endpoint SHALL NOT reject it with the generic invalid-`external_reference` error — MercadoPago retries a rejected notification indefinitely, and a case that will never resolve produces indefinite retries.
+
+The endpoint SHALL recognise a subscription charge from fields the MercadoPago payment API exposes for that purpose — `operation_type: "recurring_payment"`, `point_of_interaction.type: "SUBSCRIPTIONS"`, or a non-empty `metadata.preapproval_id` — and respond with a success status distinguishable from ordinary processing, without writing to the database.
+
+An invalid `external_reference` that carries none of those markers SHALL still be rejected exactly as before: this behaviour is scoped to payments the endpoint can positively identify as subscription charges, never a blanket exemption from the `external_reference` check.
+
+#### Scenario: A subscription charge's payment notification is ignored, not rejected
+
+- **WHEN** a `payment` notification arrives for an approved payment whose `external_reference` is missing or does not match the one-shot format
+- **AND** the payment reports `operation_type: "recurring_payment"`, or `point_of_interaction.type: "SUBSCRIPTIONS"`, or a non-empty `metadata.preapproval_id`
+- **THEN** the endpoint returns HTTP 200 with `{"ok": true, "ignored": "subscription_charge"}`
+- **AND** no database write occurs
+
+#### Scenario: An invalid external_reference without a subscription marker is still rejected
+
+- **WHEN** a `payment` notification arrives for an approved payment whose `external_reference` is missing or malformed
+- **AND** none of the subscription-charge markers are present
+- **THEN** the endpoint returns HTTP 400 with `{"ok": false, "error": "external_reference inválido"}`, exactly as it did before this capability
+
+#### Scenario: A valid external_reference is processed normally even if a marker is present
+
+- **WHEN** a `payment` notification carries a valid `"<userId>::<plan>"` external_reference
+- **THEN** the endpoint applies the plan upgrade as usual, regardless of any subscription-charge marker present in the payload

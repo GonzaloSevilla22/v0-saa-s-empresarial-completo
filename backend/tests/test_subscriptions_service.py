@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import json
 import re
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -20,6 +21,8 @@ from backend.services.subscriptions import (
     _tier_for_plan_id,
     cancel_subscription,
     create_subscription_intent,
+    discard_ambiguous_subscription,
+    list_recent_subscriptions,
     process_subscription_authorized_payment_notification,
     process_subscription_preapproval_notification,
     replay_subscription_charges,
@@ -46,6 +49,9 @@ def _mock_repo(**overrides):
         }
     )
     repo.find_pending_intents = AsyncMock(return_value=[])
+    # item B (2), residuo (a) de mp-real-subscriptions — match determinístico
+    # por external_reference, ver TestProcessSubscriptionPreapproval.
+    repo.find_pending_intent_by_id = AsyncMock(return_value=None)
     repo.find_by_preapproval_id = AsyncMock(return_value=None)
     repo.create_subscription = AsyncMock(return_value={"id": SUBSCRIPTION_ID})
     repo.mark_intent_matched = AsyncMock(return_value=True)
@@ -56,6 +62,10 @@ def _mock_repo(**overrides):
     repo.clear_pending_charge = AsyncMock(return_value=None)
     repo.find_subscription_by_id = AsyncMock(return_value=None)
     repo.has_billing_event_for_payment = AsyncMock(return_value=False)
+    # Descartar (residuo (b)) + resurrección tras descarte + recientes (c).
+    repo.discard_ambiguous_subscription = AsyncMock(return_value=None)
+    repo.reopen_as_ambiguous = AsyncMock(return_value=True)
+    repo.list_recent_subscriptions = AsyncMock(return_value=[])
     for k, v in overrides.items():
         setattr(repo, k, v)
     return repo
@@ -222,6 +232,24 @@ class TestCreateSubscriptionIntent:
         assert str(result.intent_id) == INTENT_ID
 
     @pytest.mark.asyncio
+    async def test_init_point_carries_intent_id_as_external_reference(self):
+        """RED (item B (2), residuo (a)): la URL de checkout lleva
+        external_reference=<intent_id> además del plan — la reconciliación
+        del preapproval la usa para un match determinístico."""
+        repo = _mock_repo()
+        with (
+            patch("backend.services.subscriptions.settings.mp_plan_id_pro", PLAN_ID),
+            patch(
+                "backend.services.subscriptions._fetch_user_email",
+                new_callable=AsyncMock, return_value="buyer@example.com",
+            ),
+        ):
+            result = await create_subscription_intent(ACCOUNT_ID, USER_ID, "pro", repo)
+
+        assert f"preapproval_plan_id={PLAN_ID}" in result.init_point
+        assert f"external_reference={INTENT_ID}" in result.init_point
+
+    @pytest.mark.asyncio
     async def test_rejects_when_payer_email_cannot_be_resolved(self):
         repo = _mock_repo()
         with (
@@ -293,13 +321,16 @@ class TestCancelSubscription:
 # ── 6.7 RED / 6.8 GREEN — subscription_preapproval ──────────────────────
 
 class TestProcessSubscriptionPreapproval:
-    def _mp_get_response(self, status="authorized", payer_email="buyer@example.com"):
+    def _mp_get_response(
+        self, status="authorized", payer_email="buyer@example.com", external_reference=None
+    ):
         resp = MagicMock()
         resp.status_code = 200
         resp.json.return_value = {
             "status": status,
             "payer_email": payer_email,
             "preapproval_plan_id": PLAN_ID,
+            "external_reference": external_reference,
         }
         return resp
 
@@ -338,6 +369,114 @@ class TestProcessSubscriptionPreapproval:
         assert "billing_plan = $2" in update_call.args[0]
         assert update_call.args[1:] == (ACCOUNT_ID, "pro")
 
+    # ── item B (2), residuo (a) de mp-real-subscriptions ───────────────────
+    # external_reference viaja en el checkout (create_subscription_intent) y
+    # debe resolver la atribución ANTES que el camino por email — el email
+    # que MercadoPago reporta puede no coincidir con el de la cuenta que iba
+    # a suscribirse (caso real: Daniel).
+
+    @pytest.mark.asyncio
+    async def test_external_reference_matches_deterministically_before_email(self):
+        """RED: con external_reference válido, ni siquiera se consulta el
+        camino por email — la referencia matchea directo, aunque el email
+        del pagador no coincida con ninguna intención."""
+        repo = _mock_repo(
+            find_pending_intent_by_id=AsyncMock(
+                return_value={"id": INTENT_ID, "account_id": ACCOUNT_ID, "plan": "pro"}
+            ),
+            find_pending_intents=AsyncMock(
+                return_value=[{"id": "otra-intencion", "account_id": "acc-ajena", "plan": "pro"}]
+            ),
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
+            return_value=self._mp_get_response(
+                payer_email="email-distinto@example.com", external_reference=INTENT_ID
+            ),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "matched": True}
+        repo.find_pending_intent_by_id.assert_awaited_once_with(INTENT_ID, PLAN_ID)
+        repo.find_pending_intents.assert_not_awaited()
+        repo.mark_intent_matched.assert_awaited_once_with(INTENT_ID, SUBSCRIPTION_ID)
+        create_kwargs = repo.create_subscription.call_args.kwargs
+        assert create_kwargs["account_id"] == ACCOUNT_ID
+        assert create_kwargs["external_reference"] == INTENT_ID
+
+    @pytest.mark.asyncio
+    async def test_expired_or_foreign_external_reference_falls_back_to_email(self):
+        """TRIANGULATE: external_reference sintácticamente válido pero sin
+        intención pendiente que lo respalde (vencida, o de otro plan) — cae
+        al camino por email exactamente como antes de esta capacidad."""
+        repo = _mock_repo(
+            find_pending_intent_by_id=AsyncMock(return_value=None),
+            find_pending_intents=AsyncMock(
+                return_value=[{"id": INTENT_ID, "account_id": ACCOUNT_ID, "plan": "pro"}]
+            ),
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
+            return_value=self._mp_get_response(external_reference=SUBSCRIPTION_ID),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "matched": True}
+        repo.find_pending_intents.assert_awaited_once()
+        repo.mark_intent_matched.assert_awaited_once_with(INTENT_ID, SUBSCRIPTION_ID)
+
+    @pytest.mark.asyncio
+    async def test_external_reference_and_email_pointing_to_same_intent_is_a_single_match(self):
+        """TRIANGULATE: si external_reference Y el email identifican la
+        MISMA intención, el match determinístico gana y el camino por email
+        ni se consulta — un solo match, no dos."""
+        repo = _mock_repo(
+            find_pending_intent_by_id=AsyncMock(
+                return_value={"id": INTENT_ID, "account_id": ACCOUNT_ID, "plan": "pro"}
+            ),
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
+            return_value=self._mp_get_response(external_reference=INTENT_ID),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "matched": True}
+        repo.find_pending_intents.assert_not_awaited()
+        repo.create_subscription.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_non_uuid_external_reference_falls_back_to_email_without_erroring(self):
+        """TRIANGULATE: un external_reference que no es un uuid válido
+        (checkout previo a esta capacidad, o valor corrupto) no revienta —
+        simplemente cae al camino por email."""
+        repo = _mock_repo(
+            find_pending_intents=AsyncMock(
+                return_value=[{"id": INTENT_ID, "account_id": ACCOUNT_ID, "plan": "pro"}]
+            ),
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
+            return_value=self._mp_get_response(external_reference="no-es-un-uuid"),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "matched": True}
+        repo.find_pending_intent_by_id.assert_not_awaited()
+        repo.find_pending_intents.assert_awaited_once()
+
     @pytest.mark.asyncio
     async def test_zero_matches_creates_ambiguous_no_match(self):
         """RED (6.7/D2bis): 0 candidatas → subscriptions.account_id=NULL,
@@ -358,6 +497,31 @@ class TestProcessSubscriptionPreapproval:
         assert kwargs["status"] == "ambiguous"
         assert kwargs["ambiguous_reason"] == "no_match"
         assert kwargs["plan"] == "pro"
+
+    @pytest.mark.asyncio
+    async def test_zero_matches_persists_external_reference_on_ambiguous_row(self):
+        """RED (F3, revisor adversarial tanda6): 0 candidatas + external_
+        reference presente — la fila ambigua TAMBIÉN debe persistir la
+        referencia externa (spec subscription-lifecycle: "se persiste
+        coincida o no con una intención"). Antes de este fix, solo la rama
+        matcheada la pasaba — justo la fila que más la necesita (cola de
+        conciliación manual) era la que perdía la única pista
+        determinística disponible."""
+        repo = _mock_repo(find_pending_intents=AsyncMock(return_value=[]))
+        conn = _mock_conn()
+
+        with (
+            patch("backend.services.subscriptions.settings.mp_plan_id_pro", PLAN_ID),
+            patch(
+                "httpx.AsyncClient.get", new_callable=AsyncMock,
+                return_value=self._mp_get_response(external_reference=INTENT_ID),
+            ),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "ambiguous": "no_match"}
+        create_kwargs = repo.create_subscription.call_args.kwargs
+        assert create_kwargs["external_reference"] == INTENT_ID
 
     # ── H2 hotfix (2026-09-04) ────────────────────────────────────────────
     # Caso real de prod: subscriptions.id = fa624f9b-32e5-4b5c-ad0d-fc64e6dc16b1
@@ -470,6 +634,109 @@ class TestProcessSubscriptionPreapproval:
             result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
 
         assert result == {"ok": True, "skipped": True}
+
+    # ── Descartar (residuo (b)) — resurrección tras el descarte ──────────
+    # Una fila descartada (discard_ambiguous_subscription) queda
+    # status='cancelled', account_id=NULL. Si MercadoPago vuelve a
+    # notificar el MISMO preapproval con un estado "vivo", el código NO
+    # debe dejarla con status=<nuevo> y account_id TODAVÍA NULL (fila
+    # inconsistente e invisible para list_ambiguous_subscriptions).
+
+    @pytest.mark.asyncio
+    async def test_discarded_row_notified_as_authorized_reopens_as_ambiguous(self):
+        """RED: MP notifica el preapproval como 'authorized' después de
+        haber sido descartado — vuelve a la cola de ambiguos en vez de
+        resucitar sin cuenta asignada."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={
+                    "account_id": None, "status": "cancelled", "ambiguous_reason": None,
+                    "next_payment_date": None,
+                }
+            )
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(status="authorized"),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "ambiguous": "no_match"}
+        repo.reopen_as_ambiguous.assert_awaited_once_with(PREAPPROVAL_ID, "no_match")
+        repo.update_subscription_status.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_discarded_row_notified_as_pending_also_reopens(self):
+        """TRIANGULATE: cualquier estado "vivo" (no solo 'authorized')
+        dispara la reapertura — 'pending' también."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={
+                    "account_id": None, "status": "cancelled", "ambiguous_reason": None,
+                    "next_payment_date": None,
+                }
+            )
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(status="pending"),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True, "ambiguous": "no_match"}
+        repo.reopen_as_ambiguous.assert_awaited_once_with(PREAPPROVAL_ID, "no_match")
+
+    @pytest.mark.asyncio
+    async def test_discarded_row_notified_cancelled_again_stays_discarded(self):
+        """TRIANGULATE: si MP repite la MISMA cancelación (status sigue
+        'cancelled'), no hay nada que reabrir — solo se actualiza el
+        status (no-op de hecho), sin tocar reopen_as_ambiguous."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={
+                    "account_id": None, "status": "cancelled", "ambiguous_reason": None,
+                    "next_payment_date": None,
+                }
+            )
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(status="cancelled"),
+        ):
+            result = await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        assert result == {"ok": True}
+        repo.reopen_as_ambiguous.assert_not_awaited()
+        repo.update_subscription_status.assert_awaited_once_with(PREAPPROVAL_ID, "cancelled")
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_row_still_pending_resolution_does_not_reopen(self):
+        """TRIANGULATE: una fila que sigue genuinamente 'ambiguous'
+        (nunca descartada) no pasa por el camino de reapertura — ese guard
+        es específico de status=='cancelled' con account_id NULL."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={
+                    "account_id": None, "status": "ambiguous", "ambiguous_reason": "no_match",
+                    "next_payment_date": None,
+                }
+            )
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(status="authorized"),
+        ):
+            await process_subscription_preapproval_notification(PREAPPROVAL_ID, repo, conn)
+
+        repo.reopen_as_ambiguous.assert_not_awaited()
 
 
 # ── 6.9 RED / 6.10 GREEN — subscription_authorized_payment ──────────────
@@ -701,6 +968,97 @@ class TestProcessAuthorizedPayment:
         _, kwargs = repo.update_subscription_status.call_args
         assert kwargs["pending_authorized_payment_id"] is None
         assert kwargs["pending_mercadopago_payment_id"] is None
+
+    # ── F2 (revisor adversarial tanda6) — no forzar 'authorized' sin cuenta ──
+    # Antes de este fix, una cuota approved forzaba status='authorized' con
+    # account_id NULL incluso sobre una fila YA DESCARTADA (status=
+    # 'cancelled', ambiguous_reason=NULL) — el CHECK
+    # (status='ambiguous')=(ambiguous_reason IS NOT NULL) lo permitía en
+    # silencio (false=false) y la fila quedaba invisible/huérfana con
+    # dinero cobrado. Mismo invariante que el guard de resurrección del
+    # topic subscription_preapproval.
+
+    @pytest.mark.asyncio
+    async def test_discarded_row_receiving_approved_charge_returns_to_ambiguous_not_authorized(self):
+        """RED (F2): una fila DESCARTADA (status='cancelled', account_id
+        NULL) que recibe una cuota approved NO debe resucitar con
+        status='authorized' — vuelve a la cola de ambiguos (mismo guard que
+        reopen_as_ambiguous usa para el topic subscription_preapproval) con
+        el cobro pendiente guardado para que resolve_ambiguous_subscription
+        lo replique más tarde."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": None, "plan": "inicial", "status": "cancelled"}
+            )
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(
+                transaction_amount=24900, debit_date="2026-10-01T00:00:00Z",
+            ),
+        ):
+            result = await process_subscription_authorized_payment_notification("7031580844", repo, conn)
+
+        assert result == {"ok": True, "credited": True}
+        repo.reopen_as_ambiguous.assert_awaited_once_with(PREAPPROVAL_ID, "no_match")
+        repo.update_subscription_status.assert_awaited_once()
+        args, kwargs = repo.update_subscription_status.call_args
+        assert args[1] == "ambiguous"
+        assert kwargs["pending_authorized_payment_id"] == "7031580844"
+        assert kwargs["pending_mercadopago_payment_id"] == "mp-payment-1"
+        assert kwargs["last_payment_status"] == "approved"
+        # sin cuenta, ningún efecto de dinero se aplica todavía.
+        sqls = [c.args[0] for c in conn.execute.call_args_list]
+        assert not any("billing_events" in s for s in sqls)
+
+    @pytest.mark.asyncio
+    async def test_still_ambiguous_row_receiving_approved_charge_stays_ambiguous(self):
+        """TRIANGULATE (F2): una fila TODAVÍA ambigua (nunca descartada)
+        que recibe una cuota approved sigue 'ambiguous' con el cobro
+        pendiente guardado — comportamiento existente (H3) intacto, ahora
+        con el status explícito en vez de forzar 'authorized' sin cuenta."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": None, "plan": "inicial", "status": "ambiguous"}
+            )
+        )
+        conn = _mock_conn()
+
+        with patch(
+            "httpx.AsyncClient.get", new_callable=AsyncMock,
+            return_value=self._mp_get_response(
+                transaction_amount=24900, debit_date="2026-10-01T00:00:00Z",
+            ),
+        ):
+            result = await process_subscription_authorized_payment_notification("7031580844", repo, conn)
+
+        assert result == {"ok": True, "credited": True}
+        repo.reopen_as_ambiguous.assert_awaited_once_with(PREAPPROVAL_ID, "no_match")
+        args, kwargs = repo.update_subscription_status.call_args
+        assert args[1] == "ambiguous"
+        assert kwargs["pending_authorized_payment_id"] == "7031580844"
+
+    @pytest.mark.asyncio
+    async def test_account_row_receiving_approved_charge_stays_authorized(self):
+        """TRIANGULATE (F2): con cuenta asignada, el comportamiento no
+        cambia — status='authorized', sin reopen_as_ambiguous ni
+        pending_*."""
+        repo = _mock_repo(
+            find_by_preapproval_id=AsyncMock(
+                return_value={"account_id": ACCOUNT_ID, "plan": "avanzado", "status": "authorized"}
+            )
+        )
+        conn = _mock_conn()
+
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=self._mp_get_response()):
+            await process_subscription_authorized_payment_notification("ap-1", repo, conn)
+
+        repo.reopen_as_ambiguous.assert_not_awaited()
+        args, kwargs = repo.update_subscription_status.call_args
+        assert args[1] == "authorized"
+        assert kwargs["pending_authorized_payment_id"] is None
 
 
 # ── H3 hotfix (2026-09-04) — camino compartido para efectos de una cuota ──
@@ -1392,6 +1750,124 @@ class TestReplaySubscriptionCharges:
         expiry_call = next(c for c in conn.execute.call_args_list if "plan_expires_at = $2" in c.args[0])
         assert expiry_call.args[2] is None
 
+    # ── item B (3), residuo (d) de mp-real-subscriptions ───────────────────
+    # El replay sincroniza last_payment_status con el estado de la ÚLTIMA
+    # cuota (por fecha) — visible después en /facturacion.
+
+    @pytest.mark.asyncio
+    async def test_syncs_last_payment_status_approved_from_latest_cuota(self):
+        """RED: la última cuota (por fecha/id) está processed+approved →
+        last_payment_status='approved'."""
+        repo = _mock_repo(
+            find_subscription_by_id=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "plan": "inicial",
+                }
+            )
+        )
+        conn = _mock_conn()
+        responses = [
+            self._mp_preapproval_response(),
+            self._mp_search_response([
+                self._cuota("7031580844", "176341057469", debit_date="2026-08-01T00:00:00Z"),
+                self._cuota("7031580900", "176341057999", debit_date="2026-09-01T00:00:00Z"),
+            ]),
+        ]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
+
+        repo.update_subscription_status.assert_awaited_once()
+        kwargs = repo.update_subscription_status.call_args.kwargs
+        assert kwargs["last_payment_status"] == "approved"
+
+    @pytest.mark.asyncio
+    async def test_syncs_last_payment_status_from_rejected_latest_cuota(self):
+        """TRIANGULATE: si la ÚLTIMA cuota (por fecha) no está aprobada, se
+        guarda el status del pago (con reserva en el de la cuota) — misma
+        regla que el webhook de cuotas, nunca 'approved' inventado."""
+        repo = _mock_repo(
+            find_subscription_by_id=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "plan": "inicial",
+                }
+            )
+        )
+        conn = _mock_conn()
+        rejected_cuota = {
+            "id": "7031580999", "status": "processed",
+            "payment": {"id": "mp-rejected", "status": "rejected"},
+            "transaction_amount": 24900, "debit_date": "2026-09-01T00:00:00Z",
+        }
+        responses = [
+            self._mp_preapproval_response(),
+            self._mp_search_response([
+                self._cuota("7031580844", "176341057469", debit_date="2026-08-01T00:00:00Z"),
+                rejected_cuota,
+            ]),
+        ]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
+
+        kwargs = repo.update_subscription_status.call_args.kwargs
+        assert kwargs["last_payment_status"] == "rejected"
+
+    @pytest.mark.asyncio
+    async def test_last_payment_status_ignores_trailing_scheduled_cuota(self):
+        """RED (F1, revisor adversarial tanda6): una cuota `scheduled`
+        (cobro futuro, todavía no ocurrido) al final de la lista (orden por
+        id ascendente) NO debe pisar el último cobro REAL ('approved') —
+        scheduled no representa ningún intento de cobro. Antes de este fix,
+        [approved, scheduled] dejaba last_payment_status='scheduled' sobre
+        un 'approved' correcto."""
+        repo = _mock_repo(
+            find_subscription_by_id=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "plan": "inicial",
+                }
+            )
+        )
+        conn = _mock_conn()
+        scheduled_cuota = {
+            "id": "7031580900", "status": "scheduled", "payment": {},
+            "transaction_amount": 24900, "debit_date": "2026-10-01T00:00:00Z",
+        }
+        responses = [
+            self._mp_preapproval_response(),
+            self._mp_search_response([
+                self._cuota("7031580844", "176341057469", debit_date="2026-09-01T00:00:00Z"),
+                scheduled_cuota,
+            ]),
+        ]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
+
+        kwargs = repo.update_subscription_status.call_args.kwargs
+        assert kwargs["last_payment_status"] == "approved"
+
+    @pytest.mark.asyncio
+    async def test_syncs_last_payment_status_none_when_no_cuotas(self):
+        """TRIANGULATE: sin ninguna cuota no hay nada que derivar —
+        update_subscription_status recibe None y su propio COALESCE evita
+        pisar un valor previo."""
+        repo = _mock_repo(
+            find_subscription_by_id=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "account_id": ACCOUNT_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "plan": "inicial",
+                }
+            )
+        )
+        conn = _mock_conn()
+        responses = [self._mp_preapproval_response(), self._mp_search_response([])]
+        with patch("httpx.AsyncClient.get", new_callable=AsyncMock, side_effect=responses):
+            await replay_subscription_charges(SUBSCRIPTION_ID, repo, conn)
+
+        kwargs = repo.update_subscription_status.call_args.kwargs
+        assert kwargs["last_payment_status"] is None
+
 
 # ── 7.2 RED / GREEN — correos encolados (renovación / baja) ──────────────
 
@@ -1472,3 +1948,158 @@ class TestSubscriptionEmailsEnqueued:
 
         sqls = [c.args[0] for c in conn.execute.call_args_list]
         assert not any("email_logs" in s for s in sqls)
+
+
+# ── Descartar (residuo (b) de mp-real-subscriptions) — admin-only ──────────
+
+ADMIN_USER_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+
+
+class TestDiscardAmbiguousSubscription:
+    @pytest.mark.asyncio
+    async def test_404_when_nothing_to_discard(self):
+        """RED: sin fila ambigua sin cuenta que descartar → 404, NUNCA
+        toca audit_logs (default de _mock_repo: None)."""
+        repo = _mock_repo()
+        conn = _mock_conn()
+
+        with pytest.raises(HTTPException) as exc:
+            await discard_ambiguous_subscription(SUBSCRIPTION_ID, ADMIN_USER_ID, None, repo, conn)
+        assert exc.value.status_code == 404
+        conn.execute.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_discards_and_audits_without_touching_accounts_or_billing_events(self):
+        """GREEN: descartar audita en audit_logs — y NUNCA en accounts ni
+        billing_events (a diferencia de resolve_ambiguous_subscription:
+        esto no asigna ninguna cuenta ni activa ningún plan)."""
+        repo = _mock_repo(
+            discard_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "amount": None,
+                    "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+                    "ambiguous_reason_before": "no_match",
+                }
+            ),
+        )
+        conn = _mock_conn()
+
+        result = await discard_ambiguous_subscription(
+            SUBSCRIPTION_ID, ADMIN_USER_ID, "cuenta cancelada en MP", repo, conn
+        )
+
+        assert result == {"id": SUBSCRIPTION_ID, "status": "cancelled"}
+        conn.execute.assert_awaited_once()
+        sql, *args = conn.execute.call_args.args
+        assert "INSERT INTO public.audit_logs" in sql
+        assert "subscription.ambiguous_discarded" in sql
+        assert ADMIN_USER_ID in args
+        assert SUBSCRIPTION_ID in args
+        # nunca toca accounts ni billing_events
+        assert "accounts" not in sql
+        assert "billing_events" not in sql
+
+    @pytest.mark.asyncio
+    async def test_audit_metadata_includes_reason_and_previous_ambiguous_reason(self):
+        """TRIANGULATE: el motivo del admin Y el ambiguous_reason previo
+        (capturado por el repo antes del UPDATE) viajan en el jsonb de
+        auditoría — ambos se pierden si no se guardan acá."""
+        repo = _mock_repo(
+            discard_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "amount": decimal.Decimal("4999.00"),
+                    "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+                    "ambiguous_reason_before": "multiple_match",
+                }
+            ),
+        )
+        conn = _mock_conn()
+
+        await discard_ambiguous_subscription(SUBSCRIPTION_ID, ADMIN_USER_ID, "duplicado", repo, conn)
+
+        metadata_arg = conn.execute.call_args.args[-1]
+        metadata = json.loads(metadata_arg)
+        assert metadata["reason"] == "duplicado"
+        assert metadata["ambiguous_reason_before"] == "multiple_match"
+        assert metadata["preapproval_id"] == PREAPPROVAL_ID
+        assert metadata["amount"] == 4999.00
+
+    @pytest.mark.asyncio
+    async def test_reason_none_is_accepted(self):
+        """TRIANGULATE: el motivo es opcional — None no rompe el INSERT."""
+        repo = _mock_repo(
+            discard_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "amount": None,
+                    "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+                    "ambiguous_reason_before": "no_match",
+                }
+            ),
+        )
+        conn = _mock_conn()
+
+        result = await discard_ambiguous_subscription(SUBSCRIPTION_ID, ADMIN_USER_ID, None, repo, conn)
+
+        assert result == {"id": SUBSCRIPTION_ID, "status": "cancelled"}
+        metadata = json.loads(conn.execute.call_args.args[-1])
+        assert metadata["reason"] is None
+
+    @pytest.mark.asyncio
+    async def test_failure_in_audit_insert_propagates_and_is_wrapped_in_a_transaction(self):
+        """RED (F4, revisor adversarial tanda6): si el INSERT de audit_logs
+        revienta, el error se propaga (no se traga en un 500 silencioso
+        dejando el UPDATE de descarte ya comiteado) Y las dos escrituras
+        corren dentro de la MISMA transacción — así el UPDATE se revierte
+        en vez de quedar aplicado sin ninguna traza de quién lo hizo."""
+        repo = _mock_repo(
+            discard_ambiguous_subscription=AsyncMock(
+                return_value={
+                    "id": SUBSCRIPTION_ID, "preapproval_id": PREAPPROVAL_ID,
+                    "preapproval_plan_id": PLAN_ID, "plan": "pro", "amount": None,
+                    "pending_authorized_payment_id": None, "pending_mercadopago_payment_id": None,
+                    "ambiguous_reason_before": "no_match",
+                }
+            ),
+        )
+        conn = _mock_conn()
+        conn.execute = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await discard_ambiguous_subscription(SUBSCRIPTION_ID, ADMIN_USER_ID, "motivo", repo, conn)
+
+        conn.transaction.assert_called_once()
+
+
+# ── "Suscripciones recientes" (residuo (c)) ─────────────────────────────────
+
+class TestListRecentSubscriptions:
+    @pytest.mark.asyncio
+    async def test_converts_records_to_dicts_at_the_boundary(self):
+        """RED: mismo patrón que list_ambiguous_subscriptions/search_accounts
+        — convierte a dict en el borde del servicio (asyncpg.Record no
+        soporta getattr(), que es lo que usa un modelo Pydantic
+        from_attributes=True cuando el valor no es un dict/Mapping)."""
+        repo = _mock_repo(
+            list_recent_subscriptions=AsyncMock(
+                return_value=[
+                    {"id": SUBSCRIPTION_ID, "plan": "pro", "status": "authorized"},
+                ]
+            )
+        )
+
+        result = await list_recent_subscriptions(20, repo)
+
+        assert result == [{"id": SUBSCRIPTION_ID, "plan": "pro", "status": "authorized"}]
+        repo.list_recent_subscriptions.assert_awaited_once_with(20)
+
+    @pytest.mark.asyncio
+    async def test_empty_list_stays_empty(self):
+        """TRIANGULATE: sin filas, devuelve []."""
+        repo = _mock_repo(list_recent_subscriptions=AsyncMock(return_value=[]))
+
+        result = await list_recent_subscriptions(20, repo)
+
+        assert result == []

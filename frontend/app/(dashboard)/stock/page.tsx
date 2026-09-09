@@ -20,6 +20,7 @@ import { SlidersHorizontal, Upload } from "lucide-react"
 import { ExportButton } from "@/components/export/ExportButton"
 import { holdsOwnStock, getStockStatus, isBelowThreshold, type StockStatus } from "@/lib/product-stock"
 import { TransferStockAction } from "@/components/branches/TransferStockAction"
+import { ProductBranchBreakdown } from "@/components/stock/ProductBranchBreakdown"
 import type { Product } from "@/lib/types"
 
 /** Sort order for the "Estado" column — most urgent first, "sin mínimo" last. */
@@ -225,6 +226,9 @@ export default function StockPage() {
         searchPlaceholder="Buscar productos..."
         searchKey={(row) => `${row.name} ${row.category}`}
         getId={(row) => row.id}
+        renderExpanded={(row) => <ProductBranchBreakdown productId={row.id} />}
+        expandLabel={(row) => row.name}
+        expandContentLabel="desglose por sucursal"
         mobileCard={(row) => {
           const toOrder = isBelowThreshold(row.stock, row.minStock) ? row.minStock * 2 - row.stock : 0
           return (

@@ -26,11 +26,18 @@ interface StatisticsAiPanelProps {
   start: string
   end: string
   branchId: string | null
+  /**
+   * filtro-canal-estadisticas (majors 1c): el prop viaja hasta el hook y el
+   * body de la Edge Function, pero `ai-estadisticas` TODAVÍA NO lo lee (lee
+   * siempre todos los canales) — dejamos el cableado listo para cuando lo
+   * soporte, en vez de duplicar la lógica de canal en este panel.
+   */
+  canal: string | null
 }
 
 const QUOTA_MESSAGE = "Alcanzaste el límite de consultas IA este mes."
 
-export function StatisticsAiPanel({ start, end, branchId }: StatisticsAiPanelProps) {
+export function StatisticsAiPanel({ start, end, branchId, canal }: StatisticsAiPanelProps) {
   const { queriesRemaining, isLoading: usageLoading } = useAiUsage()
   const { data: lastInsight } = useLastStatisticsInsight()
   const analyze = useAnalyzeStatistics()
@@ -42,7 +49,7 @@ export function StatisticsAiPanel({ start, end, branchId }: StatisticsAiPanelPro
   async function handleAnalyze() {
     if (disabled) return
     try {
-      const result = await analyze.mutateAsync({ start, end, branchId })
+      const result = await analyze.mutateAsync({ start, end, branchId, canal })
       switch (result.status) {
         case "ok":
           setRecommendations(result.recommendations)

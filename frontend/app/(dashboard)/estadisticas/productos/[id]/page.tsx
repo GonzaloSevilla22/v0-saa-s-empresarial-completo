@@ -44,6 +44,7 @@ import {
   marginCell,
   productDetailHref,
   shareOf,
+  statisticsBackHref,
   type EvolutionBucket,
 } from "@/lib/sales-statistics"
 
@@ -59,6 +60,9 @@ export default function ProductoEstadisticasPage() {
   const productId = Array.isArray(params?.id) ? params.id[0] ?? "" : params?.id ?? ""
   const searchParams = useSearchParams()
   const branchId = searchParams.get("branch") ?? null
+  // filtro-canal-estadisticas (majors 1b): mismo filtro ?canal= del módulo,
+  // conservado al ir y al volver (productDetailHref / statisticsBackHref).
+  const canal = searchParams.get("canal") ?? null
   const { limits } = usePlanLimits()
 
   const today = useMemo(() => new Date(), [])
@@ -71,10 +75,10 @@ export default function ProductoEstadisticasPage() {
   const startISO = toISODate(dateFrom)
   const endISO = toISODate(dateTo)
 
-  const query = useProductSalesEvolution({ productId, start: startISO, end: endISO, bucket, branchId })
+  const query = useProductSalesEvolution({ productId, start: startISO, end: endISO, bucket, branchId, canal })
   const detail = query.data
 
-  const backHref = branchId ? `/estadisticas?branch=${encodeURIComponent(branchId)}` : "/estadisticas"
+  const backHref = statisticsBackHref(branchId, canal)
   const hasSales = (detail?.totals.operations ?? 0) > 0
   const margin = detail ? marginCell(detail.totals) : null
   const chartData = (detail?.points ?? []).map((p) => ({
@@ -114,7 +118,7 @@ export default function ProductoEstadisticasPage() {
                     <span className="text-xs">
                       variante de{" "}
                       <Link
-                        href={productDetailHref(detail.product.parentId, branchId)}
+                        href={productDetailHref(detail.product.parentId, branchId, canal)}
                         className="text-foreground underline-offset-4 hover:underline"
                       >
                         {detail.product.parentName ?? "su producto base"}
@@ -302,7 +306,7 @@ export default function ProductoEstadisticasPage() {
                                   <span className="font-medium">{m.productName}</span>
                                 ) : (
                                   <Link
-                                    href={productDetailHref(m.productId, branchId)}
+                                    href={productDetailHref(m.productId, branchId, canal)}
                                     className="font-medium text-foreground underline-offset-4 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                                   >
                                     {m.productName}

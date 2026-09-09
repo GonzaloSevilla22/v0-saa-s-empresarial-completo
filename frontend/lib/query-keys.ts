@@ -163,19 +163,21 @@ export const queryKeys = {
   // Prefijo propio; la clave lleva la ventana, la granularidad y (ranking) el
   // orden, la agrupación y la página — el orden lo resuelve el servidor.
   // E2: toda clave lleva además el filtro de sucursal (null = todas).
+  // filtro-canal-estadisticas: toda clave que soporta canal (todas salvo
+  // topClients, que la API no acepta) lo suma al final (null = todos).
   salesStatistics: {
     all: () => ["salesStatistics"] as const,
-    evolution: (accountId: string | null, start: string, end: string, bucket: string, branchId: string | null = null) =>
-      ["salesStatistics", "evolution", accountId, start, end, bucket, branchId] as const,
-    ranking: (accountId: string | null, start: string, end: string, orderBy: string, groupVariants: boolean, page: number, size: number, branchId: string | null = null) =>
-      ["salesStatistics", "ranking", accountId, start, end, orderBy, groupVariants, page, size, branchId] as const,
-    breakdown: (accountId: string | null, start: string, end: string, dimension: string, branchId: string | null) =>
-      ["salesStatistics", "breakdown", accountId, start, end, dimension, branchId] as const,
+    evolution: (accountId: string | null, start: string, end: string, bucket: string, branchId: string | null = null, canal: string | null = null) =>
+      ["salesStatistics", "evolution", accountId, start, end, bucket, branchId, canal] as const,
+    ranking: (accountId: string | null, start: string, end: string, orderBy: string, groupVariants: boolean, page: number, size: number, branchId: string | null = null, canal: string | null = null) =>
+      ["salesStatistics", "ranking", accountId, start, end, orderBy, groupVariants, page, size, branchId, canal] as const,
+    breakdown: (accountId: string | null, start: string, end: string, dimension: string, branchId: string | null, canal: string | null = null) =>
+      ["salesStatistics", "breakdown", accountId, start, end, dimension, branchId, canal] as const,
     topClients: (accountId: string | null, start: string, end: string, branchId: string | null, limit: number) =>
       ["salesStatistics", "topClients", accountId, start, end, branchId, limit] as const,
     // E3
-    productDetail: (accountId: string | null, productId: string, start: string, end: string, bucket: string, branchId: string | null) =>
-      ["salesStatistics", "productDetail", accountId, productId, start, end, bucket, branchId] as const,
+    productDetail: (accountId: string | null, productId: string, start: string, end: string, bucket: string, branchId: string | null, canal: string | null = null) =>
+      ["salesStatistics", "productDetail", accountId, productId, start, end, bucket, branchId, canal] as const,
     aiInsight: (userId: string | null) => ["salesStatistics", "aiInsight", userId] as const,
   },
   // productos-categorias-sku

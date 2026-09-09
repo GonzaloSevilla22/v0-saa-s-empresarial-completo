@@ -28,7 +28,7 @@
  *   importe se declara (OQ-2).
  */
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { subDays } from "date-fns"
@@ -46,6 +46,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
 import { BranchFilter } from "@/components/branches/BranchFilter"
+import { ChannelFilter } from "@/components/statistics/ChannelFilter"
 import { KpiCard } from "@/components/dashboard/kpi-card"
 import { ReportTimeSeriesChart } from "@/components/charts/ReportTimeSeriesChart"
 import { ReportBarChart } from "@/components/charts/ReportBarChart"
@@ -99,6 +100,10 @@ export default function EstadisticasPage() {
   // E2: filtro de sucursal compartido (URL ?branch=, como el Tablero).
   const searchParams = useSearchParams()
   const branchId = searchParams.get("branch") ?? null
+  // filtro-canal-estadisticas: filtro de canal propio del módulo (URL
+  // ?canal=). Viaja a evolución, ranking, desglose y detalle de producto;
+  // top clientes lo ignora porque la API no lo acepta (ver use-sales-statistics.ts).
+  const canal = searchParams.get("canal") ?? null
 
   // Cota visual del calendario según el plan (como los otros reportes); la
   // cota REAL la aplica el read-model (D8) aunque el cliente no coopere.
@@ -106,9 +111,16 @@ export default function EstadisticasPage() {
   const startISO = toISODate(dateFrom)
   const endISO = toISODate(dateTo)
 
-  const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket, branchId })
+  // minors (7): un filtro de sucursal o canal nuevo invalida la página que
+  // se venía pidiendo — sin esto, cambiar el filtro con page > 0 podía pedir
+  // una página inexistente o mostrar filas de un recorte que ya no aplica.
+  useEffect(() => {
+    setPage(0)
+  }, [branchId, canal])
+
+  const evolutionQuery = useSalesEvolution({ start: startISO, end: endISO, bucket, branchId, canal })
   const rankingQuery = useProductRanking({
-    start: startISO, end: endISO, orderBy, groupVariants, page, size: RANKING_PAGE_SIZE, branchId,
+    start: startISO, end: endISO, orderBy, groupVariants, page, size: RANKING_PAGE_SIZE, branchId, canal,
   })
 
   const evolution = evolutionQuery.data
@@ -154,6 +166,7 @@ export default function EstadisticasPage() {
           <span className="text-xs text-muted-foreground">→</span>
           <DateButton date={dateTo} onSelect={changeEnd} minDate={dateFrom} maxDate={today} label="Fecha hasta" />
           <BranchFilter />
+          <ChannelFilter />
           <ToggleGroup
             type="single"
             size="sm"
@@ -218,7 +231,7 @@ export default function EstadisticasPage() {
       )}
 
       {/* ── E3: análisis con IA (ai-estadisticas, cuota de consultas) ── */}
-      <StatisticsAiPanel start={startISO} end={endISO} branchId={branchId} />
+      <StatisticsAiPanel start={startISO} end={endISO} branchId={branchId} canal={canal} />
 
       {/* ── Evolución ── */}
       <Card className="min-w-0">
@@ -309,6 +322,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Desglose por canal"
               />
             </TabsContent>
@@ -318,6 +332,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Desglose por sucursal"
                 footnote={branchId ? "Con una sucursal filtrada, el desglose muestra sólo esa sucursal; las ventas sin sucursal asignada quedan fuera de todo el módulo mientras el filtro esté activo." : undefined}
               />
@@ -343,6 +358,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Ventas por día de la semana"
                 orientation="vertical"
                 footnote="Día de la semana de la fecha de negocio declarada en cada venta (lunes a domingo)."
@@ -375,6 +391,7 @@ export default function EstadisticasPage() {
                 start={startISO}
                 end={endISO}
                 branchId={branchId}
+                canal={canal}
                 ariaLabel="Ventas por horario de carga"
                 orientation="vertical"
                 bandView={hourView === "band"}
@@ -416,7 +433,7 @@ export default function EstadisticasPage() {
                 agrupación y sucursal — fila a fila y en el mismo orden. */}
             <ExportButton
               exportType="product_ranking_csv"
-              params={rankingExportBody({ start: startISO, end: endISO, orderBy, groupVariants, branchId })}
+              params={rankingExportBody({ start: startISO, end: endISO, orderBy, groupVariants, branchId, canal })}
             />
           </div>
         </CardHeader>
@@ -462,7 +479,7 @@ export default function EstadisticasPage() {
                             <div className="flex items-center gap-2 flex-wrap">
                               {/* E3 (D12): cada fila abre su detalle dentro del módulo. */}
                               <Link
-                                href={productDetailHref(row.productId, branchId)}
+                                href={productDetailHref(row.productId, branchId, canal)}
                                 className="font-medium text-foreground underline-offset-4 hover:underline rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                               >
                                 {row.productName}
@@ -528,6 +545,7 @@ export default function EstadisticasPage() {
             start={startISO}
             end={endISO}
             branchId={branchId}
+            canal={canal}
             ariaLabel="Ventas por categoría"
             operationsTotal={false}
             footnote={evolution

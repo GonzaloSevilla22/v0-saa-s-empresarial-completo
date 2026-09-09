@@ -7,9 +7,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "@/hooks/auth/use-plan-limits"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
-} from "recharts"
+import { ReportBarChart, type ReportBarMultiDatum } from "@/components/charts/ReportBarChart"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { DateButton, toISODate } from "@/components/shared/DateRangeButton"
@@ -58,12 +56,21 @@ export default function FormasPagoReportPage() {
 
   const totals = sumPaymentMethodReport(rows)
 
-  const chartData = rows.map((r) => ({
-    name:      r.name.length > 14 ? `${r.name.slice(0, 12)}…` : r.name,
+  const chartData: ReportBarMultiDatum[] = rows.map((r) => ({
+    name:      r.name,
     Vendido:   Math.round(r.totalSold),
     Comprado:  Math.round(r.totalPurchased),
     Gastado:   Math.round(r.totalSpent),
   }))
+
+  // Vendido/Comprado/Gastado (gastos-forma-pago D14): la tercera serie es
+  // obligatoria, sin ella el reporte miente por omisión sobre un tercio del
+  // dinero. Colores fijos por serie (REPORT_SERIES_COLORS), no por fila.
+  const chartSeries = [
+    { key: "Vendido", name: "Vendido", color: REPORT_SERIES_COLORS.sold },
+    { key: "Comprado", name: "Comprado", color: REPORT_SERIES_COLORS.purchased },
+    { key: "Gastado", name: "Gastado", color: REPORT_SERIES_COLORS.spent },
+  ]
 
   return (
     // min-w-0 en toda la cadena de flex items — ver el mismo comentario en
@@ -113,19 +120,16 @@ export default function FormasPagoReportPage() {
           ) : rows.length === 0 ? (
             <EmptyState />
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16, top: 4 }}>
-                <XAxis type="number" tickFormatter={(v) => `$${Math.round(v / 1000)}K`} tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: number, name: string) => [formatMoney(v), name]} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="Vendido" fill={REPORT_SERIES_COLORS.sold} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-                <Bar dataKey="Comprado" fill={REPORT_SERIES_COLORS.purchased} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-                {/* gastos-forma-pago (D14): tercera serie — sin ella el reporte
-                    miente por omisión sobre un tercio del dinero. */}
-                <Bar dataKey="Gastado" fill={REPORT_SERIES_COLORS.spent} fillOpacity={0.85} radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <ReportBarChart
+              data={chartData}
+              series={chartSeries}
+              ariaLabel="Vendido, comprado y gastado por forma de pago"
+              formatValue={formatMoney}
+              formatAxisValue={(v) => `$${Math.round(v / 1000)}K`}
+              labelWidth={110}
+              truncateLength={13}
+              height={220}
+            />
           )}
         </CardContent>
       </Card>

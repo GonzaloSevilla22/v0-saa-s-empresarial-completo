@@ -39,9 +39,14 @@ import {
   type TopClientsRaw,
 } from "@/lib/sales-statistics"
 
-function withBranch(params: Record<string, string>, branchId: string | null | undefined): URLSearchParams {
+function withFilters(
+  params: Record<string, string>,
+  branchId: string | null | undefined,
+  canal?: string | null,
+): URLSearchParams {
   const qs = new URLSearchParams(params)
   if (branchId) qs.set("branch_id", branchId)
+  if (canal) qs.set("canal", canal)
   return qs
 }
 
@@ -51,16 +56,17 @@ export interface UseSalesEvolutionParams {
   end: string
   bucket: EvolutionBucket
   branchId?: string | null
+  canal?: string | null
 }
 
-export function useSalesEvolution({ start, end, bucket, branchId = null }: UseSalesEvolutionParams) {
+export function useSalesEvolution({ start, end, bucket, branchId = null, canal = null }: UseSalesEvolutionParams) {
   const { user } = useAuth()
   const accountId = user?.accountId ?? null
 
   return useQuery<SalesEvolution>({
-    queryKey: queryKeys.salesStatistics.evolution(accountId, start, end, bucket, branchId),
+    queryKey: queryKeys.salesStatistics.evolution(accountId, start, end, bucket, branchId, canal),
     queryFn: async (): Promise<SalesEvolution> => {
-      const qs = withBranch({ start, end, bucket }, branchId).toString()
+      const qs = withFilters({ start, end, bucket }, branchId, canal).toString()
       const raw = await pythonClient.get<SalesEvolutionRaw>(`/reports/statistics/evolution?${qs}`)
       return mapSalesEvolution(raw)
     },
@@ -77,25 +83,26 @@ export interface UseProductRankingParams {
   page?: number
   size?: number
   branchId?: string | null
+  canal?: string | null
 }
 
 export function useProductRanking({
-  start, end, orderBy, groupVariants, page = 0, size = 25, branchId = null,
+  start, end, orderBy, groupVariants, page = 0, size = 25, branchId = null, canal = null,
 }: UseProductRankingParams) {
   const { user } = useAuth()
   const accountId = user?.accountId ?? null
 
   return useQuery<ProductRankingPage>({
-    queryKey: queryKeys.salesStatistics.ranking(accountId, start, end, orderBy, groupVariants, page, size, branchId),
+    queryKey: queryKeys.salesStatistics.ranking(accountId, start, end, orderBy, groupVariants, page, size, branchId, canal),
     queryFn: async (): Promise<ProductRankingPage> => {
-      const qs = withBranch({
+      const qs = withFilters({
         start,
         end,
         order_by: orderBy,
         group_variants: String(groupVariants),
         page: String(page),
         size: String(size),
-      }, branchId).toString()
+      }, branchId, canal).toString()
       const raw = await pythonClient.get<ProductRankingPageRaw>(`/reports/statistics/products?${qs}`)
       return mapProductRankingPage(raw)
     },
@@ -111,18 +118,19 @@ export interface UseSalesBreakdownParams {
   end: string
   dimension: BreakdownDimension
   branchId?: string | null
+  canal?: string | null
 }
 
 /** Desglose del período por una dimensión. El tramo "Sin …" viaja con key
  *  null; día y hora llegan completos (7 / 24 filas). */
-export function useSalesBreakdown({ start, end, dimension, branchId = null }: UseSalesBreakdownParams) {
+export function useSalesBreakdown({ start, end, dimension, branchId = null, canal = null }: UseSalesBreakdownParams) {
   const { user } = useAuth()
   const accountId = user?.accountId ?? null
 
   return useQuery<SalesBreakdown>({
-    queryKey: queryKeys.salesStatistics.breakdown(accountId, start, end, dimension, branchId),
+    queryKey: queryKeys.salesStatistics.breakdown(accountId, start, end, dimension, branchId, canal),
     queryFn: async (): Promise<SalesBreakdown> => {
-      const qs = withBranch({ start, end, dimension }, branchId).toString()
+      const qs = withFilters({ start, end, dimension }, branchId, canal).toString()
       const raw = await pythonClient.get<SalesBreakdownRaw>(`/reports/statistics/breakdown?${qs}`)
       return mapSalesBreakdown(raw)
     },
@@ -146,7 +154,7 @@ export function useTopClients({ start, end, branchId = null, limit = 10 }: UseTo
   return useQuery<TopClients>({
     queryKey: queryKeys.salesStatistics.topClients(accountId, start, end, branchId, limit),
     queryFn: async (): Promise<TopClients> => {
-      const qs = withBranch({ start, end, limit: String(limit) }, branchId).toString()
+      const qs = withFilters({ start, end, limit: String(limit) }, branchId).toString()
       const raw = await pythonClient.get<TopClientsRaw>(`/reports/statistics/clients?${qs}`)
       return mapTopClients(raw)
     },
@@ -163,19 +171,20 @@ export interface UseProductSalesEvolutionParams {
   end: string
   bucket: EvolutionBucket
   branchId?: string | null
+  canal?: string | null
 }
 
 /** Detalle de un producto y su grupo de variantes (D12). Un producto de
  *  otra cuenta o inexistente responde 404 → estado de error de la pantalla,
  *  nunca un detalle vacío. */
-export function useProductSalesEvolution({ productId, start, end, bucket, branchId = null }: UseProductSalesEvolutionParams) {
+export function useProductSalesEvolution({ productId, start, end, bucket, branchId = null, canal = null }: UseProductSalesEvolutionParams) {
   const { user } = useAuth()
   const accountId = user?.accountId ?? null
 
   return useQuery<ProductSalesDetail>({
-    queryKey: queryKeys.salesStatistics.productDetail(accountId, productId, start, end, bucket, branchId),
+    queryKey: queryKeys.salesStatistics.productDetail(accountId, productId, start, end, bucket, branchId, canal),
     queryFn: async (): Promise<ProductSalesDetail> => {
-      const qs = withBranch({ start, end, bucket }, branchId).toString()
+      const qs = withFilters({ start, end, bucket }, branchId, canal).toString()
       const raw = await pythonClient.get<ProductSalesDetailRaw>(
         `/reports/statistics/products/${encodeURIComponent(productId)}?${qs}`,
       )

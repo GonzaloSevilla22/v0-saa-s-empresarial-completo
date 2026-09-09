@@ -36,6 +36,8 @@ export interface DimensionBreakdownSectionProps {
   start: string
   end: string
   branchId: string | null
+  /** filtro-canal-estadisticas: filtro de canal del módulo (URL ?canal=). */
+  canal?: string | null
   /** aria-label de la tabla y del gráfico. */
   ariaLabel: string
   /** Horario: agrupar en franjas (presentación, D5). */
@@ -56,6 +58,7 @@ export function DimensionBreakdownSection({
   start,
   end,
   branchId,
+  canal = null,
   ariaLabel,
   bandView = false,
   operationsTotal = true,
@@ -63,7 +66,7 @@ export function DimensionBreakdownSection({
   chartRows = MAX_CHART_ROWS,
   footnote,
 }: DimensionBreakdownSectionProps) {
-  const query = useSalesBreakdown({ start, end, dimension, branchId })
+  const query = useSalesBreakdown({ start, end, dimension, branchId, canal })
   const label = BREAKDOWN_DIMENSION_LABELS[dimension].toLowerCase()
 
   if (query.isError) {

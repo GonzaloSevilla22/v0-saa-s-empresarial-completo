@@ -18,6 +18,17 @@
  * los dos call sites existentes en el mismo PR (regla del proyecto: al
  * endurecer un contrato, migrar TODOS los callers) — sale-form.tsx era el
  * único consumidor.
+ *
+ * candidato "POS sin wirear a operation-errors" (origen: sucursal-guard-
+ * vaciado-auditoria G3): el POS (/ventas/pos) tenía su propio friendlyError
+ * duplicado y jamás mostraba ni el nombre del producto ni la acción de
+ * transferir, porque la RPC que respalda el quick-sale (`_c29_confirm_order_
+ * core`, vía `rpc_quick_sale`) usa un vocabulario de error DISTINTO al de
+ * `rpc_create_sale_operation_v2` (sale-form): `stock_insuficiente para
+ * producto <uuid>: disponible X, solicitado Y` en vez de `Insufficient stock
+ * for product <uuid>`. Mismo caso, dos redacciones — `STOCK_ERROR` extiende
+ * el regex para reconocer ambas en vez de que el POS reinvente su propio
+ * mapeo (regla "reutilización antes que repetición").
  */
 
 /** Devuelve el nombre del producto, o undefined si no se lo puede resolver. */
@@ -35,7 +46,8 @@ export interface HumanizedOperationError {
   action?: OperationErrorAction
 }
 
-const STOCK_ERROR = /(?:insufficient_branch_stock|Insufficient stock) for product\s+([0-9a-f-]{36})/i
+const STOCK_ERROR =
+  /(?:insufficient_branch_stock|Insufficient stock) for product\s+([0-9a-f-]{36})|stock_insuficiente para producto\s+([0-9a-f-]{36})/i
 
 // qa-integral-modulos G10 (H21a): tres details crudos que el QA vio impresos
 // tal cual al usuario — mismo mapa, sin crear otro (regla del proyecto).
@@ -72,7 +84,7 @@ export function humanizeOperationError(
 
   const stockMatch = message.match(STOCK_ERROR)
   if (stockMatch) {
-    const productId = stockMatch[1]
+    const productId = stockMatch[1] ?? stockMatch[2]
     const name = lookupProductName?.(productId)
     const producto = name ? `«${name}»` : "uno de los productos"
     const sucursal = branchName ? `la sucursal ${branchName}` : "la sucursal de esta operación"

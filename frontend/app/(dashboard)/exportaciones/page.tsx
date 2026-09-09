@@ -9,7 +9,10 @@ import { ExportButton } from "@/components/export/ExportButton"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { toast } from "@/hooks/use-toast"
+// G7 (H7): sonner es el ÚNICO sistema de toast montado en la app
+// (app/layout.tsx) — el de @/hooks/use-toast emitía a un <Toaster /> que no
+// existe en ningún layout, así que los avisos de "Regenerar" eran invisibles.
+import { toast } from "sonner"
 import { Download, RefreshCw, FileText, FileSpreadsheet, Clock, BarChart3 } from "lucide-react"
 import { formatDate } from "@/lib/format"
 import type { ExportLog, ExportType } from "@/lib/types"
@@ -85,7 +88,7 @@ export default function ExportacionesPage() {
 
     const result = await triggerExport(exportType, token)
     if (!result.ok) {
-      toast({ title: "No se pudo regenerar", description: result.error, variant: "destructive" })
+      toast.error("No se pudo regenerar", { description: result.error })
       return
     }
     if (result.signedUrl) {
@@ -96,7 +99,7 @@ export default function ExportacionesPage() {
       a.click()
       document.body.removeChild(a)
     }
-    toast({ title: "Exportación regenerada" })
+    toast.success("Exportación regenerada")
     queryClient.invalidateQueries({ queryKey: ["exportLogs", user?.id] })
     queryClient.invalidateQueries({ queryKey: ["exportUsage", user?.id] })
   }

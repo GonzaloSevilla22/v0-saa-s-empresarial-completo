@@ -23,6 +23,7 @@
 
 import { useState, useMemo, useRef, useCallback } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ShoppingCart, PackagePlus, Plus, AlertCircle, CheckCircle2, Landmark, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
 
@@ -66,12 +67,18 @@ import {
   resolveUnit,
 } from "@/lib/unit-utils"
 import { getCanonicalLabel } from "@/lib/product-labels"
+import { humanizeOperationError } from "@/lib/operation-errors"
 
 // ── Error code → friendly Spanish messages ────────────────────────────────────
-
+//
+// candidato "POS sin wirear a operation-errors" (origen: sucursal-guard-
+// vaciado-auditoria G3): el error de stock insuficiente YA NO se traduce
+// acá — lo resuelve `humanizeOperationError` (mismo helper canónico que usa
+// sale-form.tsx), que nombra el producto y ofrece la acción "Transferir
+// stock" en vez de este genérico sin acción. `friendlyError` queda como
+// fallback SOLO para los códigos que ese helper no cubre (permisos,
+// sucursal, forma de pago) — ver `showOperationError` más abajo.
 function friendlyError(message: string): string {
-  if (message.includes("stock_insuficiente") || message.toLowerCase().includes("stock insuficiente"))
-    return "Stock insuficiente para completar la venta."
   if (message.includes("no_open_session") || message.toLowerCase().includes("caja abierta"))
     return "No hay caja abierta en esta sucursal. Abrí una sesión de caja antes de cobrar en efectivo."
   if (message.includes("cash_requires_session"))
@@ -95,6 +102,11 @@ function friendlyError(message: string): string {
     return "Esa forma de pago está desactivada. Elegí otra o reactivala en Configuración."
   if (message.includes("payment_method_mismatch"))
     return "La forma de pago no coincide con lo esperado. Volvé a elegirla e intentá de nuevo."
+  // minors (5): ÚLTIMO recurso, después de humanizeOperationError — una
+  // redacción de stock que STOCK_ERROR no reconoce (sin "para producto
+  // <uuid>") no debe filtrar el texto crudo de la RPC al usuario.
+  if (message.includes("stock_insuficiente"))
+    return "Stock insuficiente para completar la venta."
   return message || "Ocurrió un error inesperado."
 }
 
@@ -112,6 +124,8 @@ interface LastSaleResult {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function PosPage() {
+  const router = useRouter()
+
   // ── Auth & role ─────────────────────────────────────────────────────────────
   const { isWriter } = useOrgRole()
 
@@ -262,6 +276,37 @@ export default function PosPage() {
   const clientOptions = useMemo(
     () => clients.map((c) => ({ value: c.id, label: c.name })),
     [clients],
+  )
+
+  // ── Errores de operación (candidato "POS sin wirear a operation-errors")──────
+  // Mismo patrón que sale-form.tsx (sucursal-guard-vaciado-auditoria G3): el
+  // nombre sale del carrito primero (lo que el usuario ve) y del catálogo
+  // como respaldo.
+  const lookupProductName = useCallback(
+    (id: string) =>
+      cartItems.find((i) => i.productId === id)?.productName ??
+      products.find((p) => p.id === id)?.name,
+    [cartItems, products],
+  )
+
+  // El helper canónico humaniza el error de stock (nombre + acción de
+  // transferir); para todo lo demás que no reconoce, degrada al mapeo propio
+  // del POS (permisos, sucursal, forma de pago) — nunca duplica lo que el
+  // helper ya cubre.
+  const showOperationError = useCallback(
+    (rawMessage: string) => {
+      const { message, action } = humanizeOperationError(
+        rawMessage,
+        lookupProductName,
+        activeBranch?.name ?? null,
+      )
+      const finalMessage = message === rawMessage ? friendlyError(rawMessage) : message
+      toast.error(
+        finalMessage,
+        action ? { action: { label: action.label, onClick: () => router.push(action.href) } } : undefined,
+      )
+    },
+    [router, lookupProductName, activeBranch],
   )
 
   // ── Cash session validation (pos-catalogo-pagos D5: sobre el kind RESUELTO,
@@ -485,7 +530,7 @@ export default function PosPage() {
       )
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error inesperado"
-      toast.error(friendlyError(msg))
+      showOperationError(msg)
     } finally {
       setSubmitting(false)
       submittingRef.current = false

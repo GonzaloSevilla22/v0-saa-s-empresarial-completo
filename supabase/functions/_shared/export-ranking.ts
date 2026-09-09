@@ -4,8 +4,8 @@
 // (`product_ranking_csv`). Regla dura (spec data-export, "El archivo del
 // ranking coincide con la pantalla"): las filas del CSV salen del read-model
 // canónico `rpc_product_ranking` con los MISMOS parámetros que la pantalla
-// (período, orden, agrupación de variantes, sucursal), 1:1 y en el mismo
-// orden — acá no se agrega, no se reordena, no se filtra. Un archivo que no
+// (período, orden, agrupación de variantes, sucursal, canal), 1:1 y en el
+// mismo orden — acá no se agrega, no se reordena, no se filtra. Un archivo que no
 // coincide con la pantalla de la que se exportó es indistinguible de un
 // archivo corrupto.
 //
@@ -18,6 +18,7 @@
 
 import {
   parseBusinessDateRange,
+  parseOptionalCanal,
   parseOptionalUuid,
   type ParseResult,
 } from "./statistics-params.ts"
@@ -51,6 +52,9 @@ export interface RankingExportParams {
   orderBy: RankingOrder
   groupVariants: boolean
   branchId: string | null
+  /** filtro-canal-estadisticas: null = todos los canales (mismo contrato que
+   *  branchId — ausente/null en el body = sin filtro). */
+  canal: string | null
 }
 
 function isRankingOrder(value: unknown): value is RankingOrder {
@@ -85,9 +89,15 @@ export function parseRankingExportParams(
   const branch = parseOptionalUuid(body, "branch_id")
   if (!branch.ok) return branch
 
+  const canal = parseOptionalCanal(body, "canal")
+  if (!canal.ok) return canal
+
   return {
     ok: true,
-    value: { start: range.value.start, end: range.value.end, orderBy, groupVariants, branchId: branch.value },
+    value: {
+      start: range.value.start, end: range.value.end, orderBy, groupVariants,
+      branchId: branch.value, canal: canal.value,
+    },
   }
 }
 
@@ -259,6 +269,9 @@ export function defaultFullReportRankingParams(dateFrom: string, now: Date): Ran
     orderBy: "units",
     groupVariants: true,
     branchId: null,
+    // El reporte completo no tiene filtro de canal propio (sin pantalla):
+    // siempre todos los canales, igual que siempre fue sin sucursal.
+    canal: null,
   }
 }
 
@@ -277,7 +290,7 @@ export interface RankingRpcArgs {
   p_order_by: RankingOrder
   p_group_variants: boolean
   p_branch_id: string | null
-  p_canal: null
+  p_canal: string | null
   p_limit: number
   p_offset: number
 }
@@ -306,7 +319,7 @@ export async function fetchAllRankingRows(
       p_order_by: params.orderBy,
       p_group_variants: params.groupVariants,
       p_branch_id: params.branchId,
-      p_canal: null,
+      p_canal: params.canal,
       p_limit: RANKING_PAGE_SIZE,
       p_offset: offset,
     })

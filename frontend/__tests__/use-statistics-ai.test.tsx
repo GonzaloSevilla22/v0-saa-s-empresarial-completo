@@ -35,7 +35,7 @@ import { queryKeys } from "@/lib/query-keys"
 import { STATISTICS_INSIGHT_TYPE } from "@/lib/sales-statistics"
 
 const fetchMock = vi.fn()
-const INPUT = { start: "2026-08-01", end: "2026-08-31", branchId: "b-9" }
+const INPUT = { start: "2026-08-01", end: "2026-08-31", branchId: "b-9", canal: null as string | null }
 
 function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: async () => body }
@@ -56,7 +56,16 @@ describe("analyzeStatistics (fetch a ai-estadisticas)", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe("http://127.0.0.1:54321/functions/v1/ai-estadisticas")
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok-abc")
-    expect(JSON.parse(String(init.body))).toEqual({ start: "2026-08-01", end: "2026-08-31", branch_id: "b-9" })
+    expect(JSON.parse(String(init.body))).toEqual({ start: "2026-08-01", end: "2026-08-31", branch_id: "b-9", canal: null })
+  })
+
+  // filtro-canal-estadisticas (majors 1c): el body manda también canal — la
+  // Edge Function todavía no lo lee, pero el cableado queda listo.
+  it("manda también el canal cuando la pantalla lo tiene filtrado", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { insight: "x", recommendations: [] } }))
+    await analyzeStatistics({ ...INPUT, canal: "whatsapp" }, "tok-abc")
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ start: "2026-08-01", end: "2026-08-31", branch_id: "b-9", canal: "whatsapp" })
   })
 
   it("429 → quota_exceeded", async () => {

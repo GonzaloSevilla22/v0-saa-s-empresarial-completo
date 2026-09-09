@@ -1,17 +1,24 @@
 "use client"
 
 /**
- * estadisticas-ventas E1 (task 4.1, D13) — barras de los reportes (una serie,
- * una barra por categoría). Ver ReportTimeSeriesChart para el porqué de la
- * extracción y el contrato accesible.
+ * estadisticas-ventas E1 (task 4.1, D13) — barras de los reportes. Ver
+ * ReportTimeSeriesChart para el porqué de la extracción y el contrato
+ * accesible.
  *
  * E2: `orientation`. "horizontal" (por defecto) = barras acostadas, una por
  * fila, para rankings con rótulos largos (productos, clientes, canales);
  * "vertical" = columnas, para dimensiones temporales con muchos tramos
  * cortos (7 días, 24 horas) que acostadas ocuparían media pantalla.
+ *
+ * migrar-reportes-a-charts-canonicos: `series` — una barra por categoría,
+ * VARIAS series por barra (p. ej. Vendido/Comprado/Gastado). Los tres
+ * reportes legacy (/reportes/formas-pago, /reportes/centros-costo,
+ * /reportes/sucursal) traían su propio <BarChart> multi-serie inline;
+ * `valueName`/`color`/`value` (una sola serie, sin leyenda) queda intacto
+ * para los consumidores de estadisticas-ventas que no la necesitan.
  */
 
-import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { REPORT_SERIES_COLORS } from "@/lib/report-chart-colors"
 import { formatNumber } from "@/lib/format"
 
@@ -25,18 +32,54 @@ export interface ReportBarDatum {
 
 export type ReportBarOrientation = "horizontal" | "vertical"
 
-export interface ReportBarChartProps {
-  data: ReportBarDatum[]
-  valueName: string
+/** Una serie de un gráfico multi-serie — ver `series` en ReportBarChartProps. */
+export interface ReportBarSeries {
+  /** Clave del dato en cada fila de `data` (p. ej. "Vendido"). */
+  key: string
+  /** Rótulo de leyenda/tooltip — normalmente igual a `key`. */
+  name: string
+  color: string
+}
+
+/** Fila de un gráfico multi-serie: el rótulo de categoría + un valor por serie. */
+export type ReportBarMultiDatum = { name: string; tooltipName?: string } & Record<string, number | string | undefined>
+
+interface ReportBarChartBaseProps {
+  /** Multi-serie: filas con una clave por `series[].key`. Una serie: `ReportBarDatum[]`. */
+  data: ReportBarDatum[] | ReportBarMultiDatum[]
   ariaLabel: string
-  /** Color de la serie — por defecto la serie "vendido" del sistema. */
+  /** Color de la serie única — por defecto la serie "vendido" del sistema. Ignorado si se pasa `series`. */
   color?: string
   height?: number
   formatValue?: (value: number) => string
+  /**
+   * Formato del eje numérico cuando difiere del tooltip — p. ej. montos en
+   * notación compacta ("$6K") en el eje contra el monto completo en el
+   * tooltip. Por defecto usa `formatValue` (mismo formato en ambos).
+   */
+  formatAxisValue?: (value: number) => string
   /** Ancho reservado a los rótulos de categoría (orientación horizontal). */
   labelWidth?: number
   orientation?: ReportBarOrientation
+  /**
+   * minors (6, migrar-reportes-a-charts-canonicos): largo máximo de un
+   * rótulo horizontal antes de truncarlo con "…" — ver `truncate` más abajo.
+   * Default 18 (el que ya tenían los consumidores de estadisticas-ventas);
+   * los 3 reportes legacy migrados lo fijan en 13 para conservar el render
+   * que tenían con su propio truncado inline (`length > 14 → slice(0,12)+"…"`).
+   */
+  truncateLength?: number
 }
+
+// minors (4): `series` y `valueName` son mutuamente excluyentes — una sola
+// serie SIN nombre, o varias series CON un `valueName` que no se usaría para
+// nada, no tienen una forma "correcta" que el componente pueda arbitrar en
+// silencio. La unión discriminada lo saca en tsc, no en code review.
+export type ReportBarChartProps = ReportBarChartBaseProps &
+  (
+    | { /** Varias series por barra (Vendido/Comprado/Gastado, Gastos/Compras, …) — agrega leyenda. */ series: ReportBarSeries[]; valueName?: never }
+    | { series?: never; /** Requerido cuando no se pasa `series` (una sola serie, sin leyenda). */ valueName: string }
+  )
 
 const truncate = (s: string, max = 18) => (s.length > max ? `${s.slice(0, max - 1)}…` : s)
 
@@ -45,10 +88,13 @@ export function ReportBarChart({
   valueName,
   ariaLabel,
   color = REPORT_SERIES_COLORS.sold,
+  series,
   height,
   formatValue = formatNumber,
+  formatAxisValue = formatValue,
   labelWidth = 120,
   orientation = "horizontal",
+  truncateLength = 18,
 }: ReportBarChartProps) {
   const resolvedHeight = height ?? (orientation === "vertical" ? 240 : Math.max(160, 28 * data.length + 40))
 
@@ -63,7 +109,7 @@ export function ReportBarChart({
     )
   }
 
-  const chartData = data.map((d) => ({ ...d, label: orientation === "vertical" ? d.name : truncate(d.name) }))
+  const chartData = data.map((d) => ({ ...d, label: orientation === "vertical" ? d.name : truncate(d.name, truncateLength) }))
   const tooltipLabel = (_label: string, payload: unknown) => {
     const first = Array.isArray(payload) && payload.length > 0 ? payload[0] : null
     const datum = first && typeof first === "object" && first !== null && "payload" in first
@@ -73,6 +119,34 @@ export function ReportBarChart({
     return datum ? (datum.tooltipName ?? datum.name) : String(_label)
   }
 
+  // Multi-serie: una <Bar> por serie + leyenda. El color sigue a la ENTIDAD
+  // (la serie), nunca a la fila — nunca <Cell> con paleta rotativa (skill de
+  // dataviz; era el bug real: la paleta rotada colisionaba con el fill fijo
+  // de otra serie, ver REPORT_SERIES_COLORS).
+  const bars = series
+    ? series.map((s) => (
+        <Bar
+          key={s.key}
+          dataKey={s.key}
+          name={s.name}
+          fill={s.color}
+          fillOpacity={0.85}
+          radius={orientation === "vertical" ? [4, 4, 0, 0] : [0, 4, 4, 0]}
+          isAnimationActive={false}
+        />
+      ))
+    : [
+        <Bar
+          key="value"
+          dataKey="value"
+          name={valueName}
+          fill={color}
+          fillOpacity={0.85}
+          radius={orientation === "vertical" ? [4, 4, 0, 0] : [0, 4, 4, 0]}
+          isAnimationActive={false}
+        />,
+      ]
+
   if (orientation === "vertical") {
     return (
       <div role="img" aria-label={ariaLabel} className="min-w-0" style={{ height: resolvedHeight }}>
@@ -81,9 +155,10 @@ export function ReportBarChart({
             {/* preserveStartEnd: Recharts mide cada rótulo y omite los que se
                 solaparían (24 horas en 300 px de móvil), conservando extremos. */}
             <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" minTickGap={6} />
-            <YAxis type="number" tickFormatter={(v: number) => formatValue(v)} tick={{ fontSize: 11 }} width={64} />
-            <Tooltip formatter={(v: number) => [formatValue(v), valueName]} labelFormatter={tooltipLabel} />
-            <Bar dataKey="value" name={valueName} fill={color} fillOpacity={0.85} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <YAxis type="number" tickFormatter={(v: number) => formatAxisValue(v)} tick={{ fontSize: 11 }} width={64} />
+            <Tooltip formatter={(v: number, name: string) => [formatValue(v), name]} labelFormatter={tooltipLabel} />
+            {series && <Legend wrapperStyle={{ fontSize: 12 }} />}
+            {bars}
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -94,10 +169,11 @@ export function ReportBarChart({
     <div role="img" aria-label={ariaLabel} className="min-w-0" style={{ height: resolvedHeight }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
-          <XAxis type="number" tickFormatter={(v: number) => formatValue(v)} tick={{ fontSize: 11 }} />
+          <XAxis type="number" tickFormatter={(v: number) => formatAxisValue(v)} tick={{ fontSize: 11 }} />
           <YAxis type="category" dataKey="label" width={labelWidth} tick={{ fontSize: 12 }} />
-          <Tooltip formatter={(v: number) => [formatValue(v), valueName]} labelFormatter={tooltipLabel} />
-          <Bar dataKey="value" name={valueName} fill={color} fillOpacity={0.85} radius={[0, 4, 4, 0]} isAnimationActive={false} />
+          <Tooltip formatter={(v: number, name: string) => [formatValue(v), name]} labelFormatter={tooltipLabel} />
+          {series && <Legend wrapperStyle={{ fontSize: 12 }} />}
+          {bars}
         </BarChart>
       </ResponsiveContainer>
     </div>

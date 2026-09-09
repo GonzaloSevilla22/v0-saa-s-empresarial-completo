@@ -25,6 +25,7 @@ import {
   rankingExportBody,
   mapProductSalesDetail,
   productDetailHref,
+  statisticsBackHref,
   type ProductSalesDetailRaw,
   type SalesEvolutionRaw,
   type ProductRankingRowRaw,
@@ -360,10 +361,17 @@ describe("breakdownChartLabel (rótulo corto del gráfico en orientación vertic
 
 describe("rankingExportBody (E3, grupo 8)", () => {
   it("traduce el estado de la pantalla al body de la Edge Function, en snake_case y con la sucursal null explícita", () => {
-    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "margin", groupVariants: false, branchId: null })).toEqual({
-      start: "2026-08-01", end: "2026-08-31", order_by: "margin", group_variants: false, branch_id: null,
+    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "margin", groupVariants: false, branchId: null, canal: null })).toEqual({
+      start: "2026-08-01", end: "2026-08-31", order_by: "margin", group_variants: false, branch_id: null, canal: null,
     })
-    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "units", groupVariants: true, branchId: "b1" }).branch_id).toBe("b1")
+    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "units", groupVariants: true, branchId: "b1", canal: null }).branch_id).toBe("b1")
+  })
+
+  // filtro-canal-estadisticas (majors 1a): el body ya lleva `canal` — la Edge
+  // Function generate-export todavía no lo lee (se suma en un paso posterior
+  // tras un rebase), pero el body sale listo para cuando lo haga.
+  it("suma canal al body cuando el filtro de la pantalla está activo", () => {
+    expect(rankingExportBody({ start: "2026-08-01", end: "2026-08-31", orderBy: "units", groupVariants: true, branchId: null, canal: "whatsapp" }).canal).toBe("whatsapp")
   })
 })
 
@@ -372,6 +380,22 @@ describe("productDetailHref (E3, D12)", () => {
     expect(productDetailHref("p-1", null)).toBe("/estadisticas/productos/p-1")
     expect(productDetailHref("p-1", "b-9")).toBe("/estadisticas/productos/p-1?branch=b-9")
     expect(productDetailHref("p-1", null)).not.toMatch(/^\/productos\//)
+  })
+
+  // filtro-canal-estadisticas (majors 1b): conserva también el filtro de canal.
+  it("conserva el filtro de canal junto con el de sucursal", () => {
+    expect(productDetailHref("p-1", null, "whatsapp")).toBe("/estadisticas/productos/p-1?canal=whatsapp")
+    expect(productDetailHref("p-1", "b-9", "whatsapp")).toBe("/estadisticas/productos/p-1?branch=b-9&canal=whatsapp")
+    expect(productDetailHref("p-1", "b-9", null)).toBe("/estadisticas/productos/p-1?branch=b-9")
+  })
+})
+
+describe("statisticsBackHref (E3, D12 — vuelta al módulo)", () => {
+  it("conserva sucursal y canal al volver a /estadisticas", () => {
+    expect(statisticsBackHref(null, null)).toBe("/estadisticas")
+    expect(statisticsBackHref("b-9", null)).toBe("/estadisticas?branch=b-9")
+    expect(statisticsBackHref("b-9", "whatsapp")).toBe("/estadisticas?branch=b-9&canal=whatsapp")
+    expect(statisticsBackHref(null, "whatsapp")).toBe("/estadisticas?canal=whatsapp")
   })
 })
 

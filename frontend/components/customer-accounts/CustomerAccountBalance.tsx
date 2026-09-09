@@ -24,8 +24,8 @@ export function CustomerAccountBalance({ balance, clientName }: CustomerAccountB
               isZero
                 ? "text-foreground"
                 : isDebt
-                ? "text-yellow-400"
-                : "text-emerald-400"
+                ? "text-warning"
+                : "text-success"
             }`}
           >
             {balance < 0 ? "-" : ""}$ {Math.abs(balance).toLocaleString("es-AR", {
@@ -46,14 +46,14 @@ export function CustomerAccountBalance({ balance, clientName }: CustomerAccountB
             isZero
               ? "bg-accent"
               : isDebt
-              ? "bg-yellow-500/10"
-              : "bg-emerald-500/10"
+              ? "bg-warning/10"
+              : "bg-success/10"
           }`}
         >
           {isDebt ? (
-            <TrendingDown className="h-5 w-5 text-yellow-400" />
+            <TrendingDown className="h-5 w-5 text-warning" />
           ) : (
-            <TrendingUp className="h-5 w-5 text-emerald-400" />
+            <TrendingUp className="h-5 w-5 text-success" />
           )}
         </div>
       </div>

@@ -26,10 +26,6 @@ vi.mock("@/contexts/auth-context", () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 }))
 
-vi.mock("@/hooks/use-toast", () => ({
-  toast: vi.fn(),
-}))
-
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }))

@@ -79,3 +79,26 @@ export function parseOptionalUuid(body: Record<string, unknown>, key: string): P
   if (!isUuid(raw)) return { ok: false, error: `${key} debe ser un uuid` }
   return { ok: true, value: raw }
 }
+
+/** Máximo de caracteres de `canal` — mismo contrato que el backend FastAPI
+ *  (`canal: str | None = Query(None, max_length=80)`, backend/routers/
+ *  statistics.py). */
+export const MAX_CANAL_LENGTH = 80
+
+/** canal opcional del body (filtro-canal-estadisticas): ausente o null = sin
+ *  filtro (todos los canales). Presente, tiene que ser un texto no vacío
+ *  (tras trim) de hasta MAX_CANAL_LENGTH caracteres — cualquier otra forma se
+ *  rechaza ANTES de tocar la base, como el resto de los parámetros de este
+ *  módulo (a diferencia de parseOptionalUuid, acá "" NO es un sinónimo de
+ *  "sin filtro": un canal en blanco es un pedido malformado, no "todos"). */
+export function parseOptionalCanal(body: Record<string, unknown>, key: string): ParseResult<string | null> {
+  const raw = body[key]
+  if (raw === undefined || raw === null) return { ok: true, value: null }
+  if (typeof raw !== "string") return { ok: false, error: `${key} debe ser un texto` }
+  const trimmed = raw.trim()
+  if (trimmed.length === 0) return { ok: false, error: `${key} no puede ser vacío` }
+  if (trimmed.length > MAX_CANAL_LENGTH) {
+    return { ok: false, error: `${key} no puede superar los ${MAX_CANAL_LENGTH} caracteres` }
+  }
+  return { ok: true, value: trimmed }
+}

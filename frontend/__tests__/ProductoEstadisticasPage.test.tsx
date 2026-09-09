@@ -116,6 +116,22 @@ describe("ProductoEstadisticasPage", () => {
     expect(screen.getByRole("link", { name: /volver a estadísticas/i })).toHaveAttribute("href", "/estadisticas?branch=b-9")
   })
 
+  // filtro-canal-estadisticas (majors 1b): conserva también el filtro de
+  // canal, al ir y al volver, y lo manda al hook del detalle.
+  it("consulta el detalle también con el canal de la URL", () => {
+    nav.params = new URLSearchParams("branch=b-9&canal=whatsapp")
+    render(<ProductoEstadisticasPage />)
+    expect(useProductSalesEvolutionMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ productId: "p-parent", branchId: "b-9", canal: "whatsapp" }),
+    )
+  })
+
+  it("vuelve al módulo conservando también el filtro de canal", () => {
+    nav.params = new URLSearchParams("branch=b-9&canal=whatsapp")
+    render(<ProductoEstadisticasPage />)
+    expect(screen.getByRole("link", { name: /volver a estadísticas/i })).toHaveAttribute("href", "/estadisticas?branch=b-9&canal=whatsapp")
+  })
+
   it("KPIs del período y tabla de evolución con un punto por intervalo y totales", () => {
     render(<ProductoEstadisticasPage />)
     expect(screen.getByText("Facturado")).toBeInTheDocument()
@@ -136,6 +152,13 @@ describe("ProductoEstadisticasPage", () => {
     // Participación de Remera M: 3000 / 4300 = 69,8 %
     expect(within(table).getByText(/69,8\s?%/)).toBeInTheDocument()
     expect(within(table).getByText(/producto base/i)).toBeInTheDocument()
+  })
+
+  it("los enlaces a cada variante conservan también el filtro de canal de la URL", () => {
+    nav.params = new URLSearchParams("canal=whatsapp")
+    render(<ProductoEstadisticasPage />)
+    const table = screen.getByRole("table", { name: /variante/i })
+    expect(within(table).getByRole("link", { name: /Remera M/ })).toHaveAttribute("href", "/estadisticas/productos/p-v1?canal=whatsapp")
   })
 
   it("standalone (sin variantes): no hay tabla de miembros ni badge", () => {

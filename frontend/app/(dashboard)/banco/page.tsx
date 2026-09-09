@@ -10,7 +10,7 @@
 
 import { useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
-import { Landmark, Scale } from "lucide-react"
+import { AlertTriangle, Landmark, Scale, XCircle } from "lucide-react"
 import { toast } from "sonner"
 import { humanizeOperationError } from "@/lib/operation-errors"
 import { Badge } from "@/components/ui/badge"
@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label"
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ReconciliationBoard } from "@/components/bank-reconciliation/ReconciliationBoard"
 import { BankAccountFormDialog } from "@/components/bank-accounts/BankAccountFormDialog"
@@ -40,7 +41,8 @@ import { BANK_MOVEMENT_FAMILIES, BANK_MOVEMENT_META } from "@/lib/ledger/bank-mo
 import type { LedgerBookConfig } from "@/lib/ledger/types"
 import type { BankMovementRow } from "@/lib/types"
 import {
-  hashFileSHA256, parseBankStatementFile, type NormalizedStatementLine,
+  hashFileSHA256, parseBankStatementFile,
+  type DiscardedStatementLine, type NormalizedStatementLine,
 } from "@/lib/bank-statement-parser"
 import { getAccountKindIcon, type AccountKind } from "@/lib/bank-account-kind"
 
@@ -261,7 +263,11 @@ function MovimientosTab({
 
 // ── Tab: Conciliación — contenido de la ex /finanzas/conciliacion, intacto ──
 
-function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
+// Exportada para test unitario (candidatos-importadores, 2026-09-09): permite
+// probar los avisos/descartes del importador de extracto sin pasar por el
+// selector de cuenta bancaria (Radix Select no abre bien en jsdom — mismo
+// gotcha documentado en __tests__/components/PaymentMethodSelect.test.tsx).
+export function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
   const { data: sessions } = useReconciliationSessions(bankAccountId)
   const { data: imports } = useStatementImports(bankAccountId)
   const importStatement = useImportStatement(bankAccountId)
@@ -272,6 +278,7 @@ function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
     fileName: string
     fileHash: string
     lines: NormalizedStatementLine[]
+    discarded: DiscardedStatementLine[]
   } | null>(null)
 
   const [openDialog, setOpenDialog] = useState(false)
@@ -288,6 +295,22 @@ function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
     [sessions]
   )
 
+  // candidatos-importadores: avisos de ambigüedad por línea (importe/saldo
+  // con punto de miles) — mismo canal que los importadores de productos y
+  // gastos, ahora también en el extracto bancario.
+  //
+  // F5 (revisor adversarial): se numera con `source_row` (fila física del
+  // archivo), la MISMA convención que ya usan las filas descartadas — antes
+  // se usaba `line_no` (índice entre líneas válidas, se renumera tras cada
+  // descarte), dos numeraciones distintas conviviendo en el mismo panel.
+  const lineWarnings = useMemo(
+    () =>
+      (parsedFile?.lines ?? []).flatMap((line) =>
+        line.warnings.map((warning) => ({ row: line.source_row, warning }))
+      ),
+    [parsedFile]
+  )
+
   const handleFileChange = async (file: File | null) => {
     if (!file) return
     const parsed = await parseBankStatementFile(file)
@@ -297,7 +320,7 @@ function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
       return
     }
     const fileHash = await hashFileSHA256(file)
-    setParsedFile({ fileName: file.name, fileHash, lines: parsed.lines })
+    setParsedFile({ fileName: file.name, fileHash, lines: parsed.lines, discarded: parsed.discarded })
   }
 
   const handleImport = async () => {
@@ -357,14 +380,67 @@ function ConciliacionTab({ bankAccountId }: { bankAccountId: string }) {
             onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
           />
           {parsedFile && (
-            <div className="flex items-center justify-between rounded-md border p-3 text-sm">
-              <span>
-                <b>{parsedFile.fileName}</b> · {parsedFile.lines.length} líneas ·{" "}
-                {parsedFile.lines[0]?.value_date} → {parsedFile.lines.at(-1)?.value_date}
-              </span>
-              <Button size="sm" disabled={importStatement.isPending} onClick={handleImport}>
-                Importar
-              </Button>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 flex-wrap rounded-md border p-3 text-sm">
+                <span className="flex items-center gap-2 flex-wrap">
+                  <span>
+                    {/* F11: nombre de archivo truncado — uno largo no debe romper el layout de la fila. */}
+                    <b className="inline-block align-bottom truncate max-w-[200px]">{parsedFile.fileName}</b> ·{" "}
+                    {parsedFile.lines.length} líneas ·{" "}
+                    {parsedFile.lines[0]?.value_date} → {parsedFile.lines.at(-1)?.value_date}
+                  </span>
+                  {lineWarnings.length > 0 && (
+                    <Badge variant="outline" className="text-warning border-warning/30 text-xs gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      {lineWarnings.length} advertencia{lineWarnings.length !== 1 ? "s" : ""}
+                    </Badge>
+                  )}
+                  {parsedFile.discarded.length > 0 && (
+                    <Badge variant="outline" className="text-destructive border-destructive/30 text-xs gap-1">
+                      <XCircle className="h-3 w-3" />
+                      {parsedFile.discarded.length} descartada{parsedFile.discarded.length !== 1 ? "s" : ""}
+                    </Badge>
+                  )}
+                </span>
+                <Button size="sm" disabled={importStatement.isPending} onClick={handleImport}>
+                  Importar
+                </Button>
+              </div>
+
+              {/* candidatos-importadores: detalle de avisos y filas
+                  descartadas — mismo patrón (tokens semánticos, ScrollArea)
+                  que ProductImportDialog/ExpenseImportDialog.
+                  F3: el límite de alto vive en el VIEWPORT (viewportClassName),
+                  no en el root — un max-h en el root (overflow-hidden) recorta
+                  el contenido sin habilitar scroll (qa-integral-modulos G5/H5).
+                  F12: role="status"/aria-live="polite" — el panel aparece de
+                  forma asíncrona tras elegir el archivo, sin esto un lector de
+                  pantalla no se entera. */}
+              {(lineWarnings.length > 0 || parsedFile.discarded.length > 0) && (
+                <ScrollArea
+                  className="rounded-md border"
+                  viewportClassName="max-h-40"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <div className="p-2 space-y-1 text-xs">
+                    {lineWarnings.map(({ row, warning }, i) => (
+                      <p key={`warning-${row}-${i}`} className="text-warning flex items-start gap-1.5">
+                        <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                        {/* F5: numerado con la fila física (source_row), misma
+                            convención que usan las filas descartadas de abajo. */}
+                        <span className="break-all">Fila {row}: {warning}</span>
+                      </p>
+                    ))}
+                    {parsedFile.discarded.map((d, i) => (
+                      <p key={`discarded-${i}`} className="text-destructive flex items-start gap-1.5">
+                        <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span className="break-all">Fila {d.row}: {d.reason}</span>
+                      </p>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
             </div>
           )}
           {(imports ?? []).length > 0 && (

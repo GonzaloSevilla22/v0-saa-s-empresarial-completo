@@ -29,6 +29,7 @@ import {
   useCreateMatch,
   useCloseSession,
   useUndoMatch,
+  useImportStatement,
 } from "@/hooks/data/use-bank-reconciliation"
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
@@ -83,8 +84,11 @@ describe("parseBankStatementText", () => {
       description: "Transferencia recibida",
       amount: "5000.00",
       balance: "15000.00",
+      warnings: [],
+      source_row: 2, // F5: fila física del archivo (1 = encabezado)
     })
     expect(result.lines[1].amount).toBe("-350.00")
+    expect(result.lines[1].source_row).toBe(3)
   })
 
   it("parsea CSV plano con , e ISO dates, sin saldo", () => {
@@ -110,12 +114,254 @@ describe("parseBankStatementText", () => {
     expect(result.error).toContain("fecha")
   })
 
-  it("rechaza fila con fecha inválida indicando la fila", () => {
+  it("F8: fecha inválida en la única fila descarta esa fila (mismo canal que importe) y el archivo queda sin filas válidas", () => {
     const csv = ["Fecha;Importe", "99/99/2026;100"].join("\n")
     const result = parseBankStatementText(csv)
     expect(result.ok).toBe(false)
     if (result.ok) return
-    expect(result.error).toContain("Fila 2")
+    expect(result.error).toContain("no contiene filas de movimientos válidas")
+    expect(result.error).toContain("fila 2")
+    expect(result.error).toContain('Fecha inválida: "99/99/2026"')
+  })
+})
+
+// F8 — una fecha inválida ya NO aborta el archivo completo: se descarta esa
+// fila puntual por el mismo canal `discarded` que el importe ilegible, con
+// motivo, y el resto del archivo se sigue procesando.
+describe("parseBankStatementText — F8: fecha inválida descarta solo esa línea", () => {
+  it("no aborta el resto del archivo: la fila con fecha inválida se descarta y la válida se importa", () => {
+    const csv = [
+      "Fecha;Importe",
+      "99/99/2026;100",
+      "16/07/2026;200,00",
+    ].join("\n")
+
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0].amount).toBe("200.00")
+    expect(result.discarded).toEqual([
+      { row: 2, reason: 'Fecha inválida: "99/99/2026".' },
+    ])
+  })
+})
+
+// candidatos-importadores (2026-09-09): guard de importe inválido REAL — una
+// fila con importe ilegible o vacío se descarta individualmente (con motivo
+// en `discarded`), en vez de abortar el archivo completo o convertirse en un
+// valor silencioso.
+describe("parseBankStatementText — descarte de líneas con importe ilegible", () => {
+  it('descarta una fila con importe ilegible ("abc") sin abortar el resto del archivo', () => {
+    const csv = [
+      "Fecha;Concepto;Importe",
+      "15/07/2026;Movimiento raro;abc",
+      "16/07/2026;Movimiento ok;100,00",
+    ].join("\n")
+
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0].description).toBe("Movimiento ok")
+    expect(result.discarded).toEqual([
+      { row: 2, reason: 'Importe ilegible: "abc" — no se puede registrar un movimiento sin importe.' },
+    ])
+  })
+
+  it("descarta una fila con importe vacío (fecha presente, importe en blanco)", () => {
+    const csv = [
+      "Fecha;Concepto;Importe",
+      "15/07/2026;Sin importe;",
+      "16/07/2026;Movimiento ok;100,00",
+    ].join("\n")
+
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines).toHaveLength(1)
+    expect(result.discarded).toEqual([
+      { row: 2, reason: "Importe vacío — no se puede registrar un movimiento sin importe." },
+    ])
+  })
+
+  it("si TODAS las filas tienen importe ilegible, el resultado es ok:false (sin filas válidas)", () => {
+    const csv = ["Fecha;Importe", "15/07/2026;abc"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain("no contiene filas de movimientos válidas")
+  })
+
+  it("F4: si TODAS las filas se descartan, el error incluye el conteo y el motivo de cada descarte (no se pierden)", () => {
+    const csv = ["Fecha;Importe", "15/07/2026;abc", "16/07/2026;xyz"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.error).toContain("no contiene filas de movimientos válidas")
+    expect(result.error).toContain("2 filas descartadas")
+    expect(result.error).toContain("fila 2")
+    expect(result.error).toContain('"abc"')
+    expect(result.error).toContain("fila 3")
+    expect(result.error).toContain('"xyz"')
+  })
+})
+
+// candidatos-importadores: canal de avisos por línea — importe/saldo con
+// punto de miles ambiguo ("1.500") avisa sin bloquear, igual que los
+// importadores de productos/gastos (mismo helper `amountAmbiguityWarning`).
+describe("parseBankStatementText — avisos de ambigüedad (importe y saldo)", () => {
+  it('"1.500" en Importe → el punto se lee como decimal (string preservado, "1.500" = 1,5) CON warning de ambigüedad', () => {
+    const csv = ["Fecha;Importe", "15/07/2026;1.500"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // El importe se preserva como string (RN-D4, sin pasar por float): "1.500"
+    // literal, que representa el mismo valor que "1.5" — el warning sí
+    // muestra el valor numérico interpretado ($ 1,5) para que quede claro.
+    expect(result.lines[0].amount).toBe("1.500")
+    expect(result.lines[0].warnings).toEqual([
+      'Importe ambiguo: "1.500" — se interpretó como $ 1,5. Usá coma para decimales y ningún separador para miles.',
+    ])
+  })
+
+  it('"1.500,00" en Importe → SIN warning (no es ambiguo, coma decimal explícita)', () => {
+    const csv = ["Fecha;Importe", "15/07/2026;1.500,00"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines[0].amount).toBe("1500.00")
+    expect(result.lines[0].warnings).toEqual([])
+  })
+
+  it('"1.500" en Saldo (opcional) → mismo aviso de ambigüedad, en la misma línea', () => {
+    const csv = ["Fecha;Importe;Saldo", "15/07/2026;100,00;1.500"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines[0].balance).toBe("1.500")
+    expect(result.lines[0].warnings).toEqual([
+      'Saldo ambiguo: "1.500" — se interpretó como $ 1,5. Usá coma para decimales y ningún separador para miles.',
+    ])
+  })
+
+  it("saldo ilegible NO descarta la fila: importe válido queda, saldo null + warning", () => {
+    const csv = ["Fecha;Importe;Saldo", "15/07/2026;100,00;abc"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines).toHaveLength(1)
+    expect(result.lines[0].amount).toBe("100.00")
+    expect(result.lines[0].balance).toBeNull()
+    expect(result.lines[0].warnings).toEqual([
+      'Saldo ilegible: "abc" — se ignora (no bloquea la fila; el saldo es informativo).',
+    ])
+  })
+
+  it("F11: un importe ilegible con texto crudo largo se acota en el motivo del descarte (no infla el mensaje sin límite)", () => {
+    const longRaw = "x".repeat(80)
+    const csv = ["Fecha;Importe", `15/07/2026;${longRaw}`, "16/07/2026;100,00"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.discarded).toHaveLength(1)
+    // El mensaje fijo alrededor del valor trunca ya suma ~70 caracteres —
+    // 130 deja margen sin dejar de probar que el crudo de 80 no viaja entero.
+    expect(result.discarded[0].reason.length).toBeLessThan(130)
+    expect(result.discarded[0].reason).toContain(longRaw.slice(0, 40))
+    expect(result.discarded[0].reason).not.toContain(longRaw)
+  })
+
+  it('F6: "1,500" en Importe (coma, dominio bancario con loneCommaIsDecimal) avisa igual que el punto', () => {
+    const csv = ["Fecha;Importe", "15/07/2026;1,500"].join("\n")
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.lines[0].amount).toBe("1.500")
+    expect(result.lines[0].warnings).toEqual([
+      'Importe ambiguo: "1,500" — se interpretó como $ 1,5. Usá coma para decimales y ningún separador para miles.',
+    ])
+  })
+})
+
+// F5 — la línea normalizada lleva la fila física del archivo (`source_row`),
+// la MISMA convención numérica que usa `discarded[].row` — antes los avisos
+// se numeraban con `line_no` (índice entre filas válidas, se renumera tras
+// cada descarte) mientras los descartes usaban la fila física, dos
+// numeraciones distintas conviviendo en la misma lista de la UI.
+describe("parseBankStatementText — F5: source_row unifica la numeración con `discarded`", () => {
+  it("source_row de una línea válida coincide con la convención física que ya usa `discarded[].row`", () => {
+    const csv = [
+      "Fecha;Importe",
+      "15/07/2026;abc",   // fila física 2 → descartada
+      "16/07/2026;1.500", // fila física 3 → válida, con warning
+    ].join("\n")
+
+    const result = parseBankStatementText(csv)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.discarded).toEqual([
+      { row: 2, reason: 'Importe ilegible: "abc" — no se puede registrar un movimiento sin importe.' },
+    ])
+    // line_no se renumera (única línea válida = 1), pero source_row conserva
+    // la fila física real del archivo (3) — la misma que usaría `discarded`
+    // si esta línea también se hubiese descartado.
+    expect(result.lines[0].line_no).toBe(1)
+    expect(result.lines[0].source_row).toBe(3)
+  })
+})
+
+// F10 — el hook NO debe mandar `warnings`/`source_row` al backend (Pydantic
+// los ignora — peso muerto en el payload). Sólo viajan los 5 campos que el
+// backend modela.
+describe("useImportStatement — F10: mapea las líneas al shape del backend antes de postear", () => {
+  it("no manda warnings ni source_row: sólo {line_no, value_date, description, amount, balance}", async () => {
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      import_id: "imp-1",
+      line_count: 1,
+      period_from: "2026-07-15",
+      period_to: "2026-07-15",
+      replayed: false,
+    })
+
+    const { result } = renderHook(() => useImportStatement(BANK_ACCOUNT_ID), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        idempotencyKey: "import-abc",
+        fileName: "extracto.csv",
+        fileHash: "abc123",
+        lines: [
+          {
+            line_no: 1,
+            value_date: "2026-07-15",
+            description: "Movimiento",
+            amount: "100.00",
+            balance: null,
+            warnings: ["Importe ambiguo: ..."],
+            source_row: 2,
+          },
+        ],
+      })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledWith(
+      `/bank-accounts/${BANK_ACCOUNT_ID}/statement-imports`,
+      {
+        file_name: "extracto.csv",
+        file_hash: "abc123",
+        lines: [
+          {
+            line_no: 1,
+            value_date: "2026-07-15",
+            description: "Movimiento",
+            amount: "100.00",
+            balance: null,
+          },
+        ],
+      },
+      { "Idempotency-Key": "import-abc" }
+    )
   })
 })
 
@@ -125,6 +371,10 @@ describe("parseAmount / parseDate", () => {
     expect(parseAmount("1,234.56")).toBe("1234.56")
     expect(parseAmount("-350")).toBe("-350")
     expect(parseAmount("$ -1.234,56")).toBe("-1234.56")
+  })
+
+  it("acepta la convención contable de paréntesis para negativos", () => {
+    expect(parseAmount("(1.234,56)")).toBe("-1234.56")
   })
 
   it("devuelve null en montos inválidos", () => {

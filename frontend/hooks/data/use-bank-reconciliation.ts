@@ -286,12 +286,22 @@ export function useImportStatement(bankAccountId: string | null) {
       lines: NormalizedStatementLine[]
     }) => {
       // v3-api-standards §3/§6.2: Idempotency-Key por header (D4).
+      // F10 (revisor adversarial): `warnings`/`source_row` son sólo para la
+      // UI (avisos no bloqueantes, numeración por fila física — F5); el
+      // backend modela la línea con estos 5 campos únicamente y Pydantic los
+      // ignoraría igual, pero mandarlos es peso muerto en el payload.
       return pythonClient.post<StatementImportResultApi>(
         `/bank-accounts/${bankAccountId}/statement-imports`,
         {
           file_name: input.fileName,
           file_hash: input.fileHash,
-          lines: input.lines,
+          lines: input.lines.map(({ line_no, value_date, description, amount, balance }) => ({
+            line_no,
+            value_date,
+            description,
+            amount,
+            balance,
+          })),
         },
         { "Idempotency-Key": input.idempotencyKey }
       )

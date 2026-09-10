@@ -178,4 +178,30 @@ describe("humanizeOperationError — details crudos del servidor (G10/H21a)", ()
     expect(out.message).not.toContain("journal_entry_original_not_found")
     expect(out.message).toMatch(/asiento/i)
   })
+
+  // operacion-party-guard (fix ad-hoc 2026-09-10): rpc_create_sale_operation_v2,
+  // _c29_confirm_order_core y rpc_atomic_update_sale_operation rechazan un
+  // client_id ajeno con este literal (P0404) — sin traducción, el usuario veía
+  // el UUID crudo.
+  it("client_not_found (P0404): no expone el UUID, invita a elegir del listado", () => {
+    const out = humanizeOperationError(
+      "client_not_found: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    )
+    expect(out.message).not.toContain("client_not_found")
+    expect(out.message).not.toContain("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    expect(out.message).toMatch(/cliente/i)
+    expect(out.message).toMatch(/no existe|no pertenece/i)
+  })
+
+  // Espejo del lado proveedor: rpc_create_purchase_operation (D6 de
+  // compras-proveedor-cuenta-corriente, 2026-08-23) — mismo literal, mismo fix.
+  it("supplier_not_found (P0404): espejo del lado proveedor", () => {
+    const out = humanizeOperationError(
+      "supplier_not_found: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc",
+    )
+    expect(out.message).not.toContain("supplier_not_found")
+    expect(out.message).not.toContain("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbc")
+    expect(out.message).toMatch(/proveedor/i)
+    expect(out.message).toMatch(/no existe|no pertenece/i)
+  })
 })

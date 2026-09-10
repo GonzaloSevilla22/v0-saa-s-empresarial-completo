@@ -4,6 +4,7 @@ import { PurchaseForm } from "@/components/forms/purchase-form"
 import type { PurchaseOperation } from "@/lib/group-operations"
 import type { Purchase } from "@/lib/types"
 import { formatMoney } from "@/lib/format"
+import { toast } from "sonner"
 
 // compras-proveedor-cuenta-corriente (D10/D6, task 12.1-12.6): espejo exacto
 // de sale-form-payment-effects.test.tsx para el bloque cliente→proveedor —
@@ -612,5 +613,45 @@ describe("PurchaseForm — edición: 'Guardar cambios' y el contrato de crédito
     const call = updatePurchaseOperationMock.mock.calls[0][0]
     expect("supplierId" in call.meta).toBe(true)
     expect(call.meta.supplierId).toBeNull()
+  })
+})
+
+// operacion-party-guard (fix ad-hoc 2026-09-10, hallazgo de revisión
+// adversarial ronda 1): el comentario de operation-errors.ts citaba a
+// rpc_create_purchase_operation como consumidor de la traducción de
+// supplier_not_found, pero purchase-form.tsx nunca pasaba por
+// humanizeOperationError — el usuario seguía viendo el UUID crudo. Este
+// bloque congela que los dos catch (alta y edición) ya usan el helper.
+describe("PurchaseForm — traducción de supplier_not_found (operacion-party-guard)", () => {
+  it("alta: supplier_not_found llega humanizado al toast, sin el UUID crudo", async () => {
+    addPurchaseOperationMock.mockRejectedValueOnce(
+      new Error("supplier_not_found: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+    )
+    render(<PurchaseForm onSuccess={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId("product-option-prod-1"))
+    fireEvent.click(screen.getByRole("button", { name: /agregar al carrito/i }))
+    fireEvent.click(screen.getByRole("button", { name: /confirmar compra/i }))
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    const [toastMessage] = (toast.error as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(toastMessage).not.toContain("supplier_not_found")
+    expect(toastMessage).not.toContain("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    expect(toastMessage).toMatch(/proveedor/i)
+  })
+
+  it("edición: supplier_not_found llega humanizado al toast (mismo helper que el alta)", async () => {
+    updatePurchaseOperationMock.mockRejectedValueOnce(
+      new Error("supplier_not_found: cccccccc-cccc-cccc-cccc-cccccccccccc"),
+    )
+    render(<PurchaseForm onSuccess={vi.fn()} editingOperation={makeOperation()} />)
+
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }))
+
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    const [toastMessage] = (toast.error as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(toastMessage).not.toContain("supplier_not_found")
+    expect(toastMessage).not.toContain("cccccccc-cccc-cccc-cccc-cccccccccccc")
+    expect(toastMessage).toMatch(/proveedor/i)
   })
 })

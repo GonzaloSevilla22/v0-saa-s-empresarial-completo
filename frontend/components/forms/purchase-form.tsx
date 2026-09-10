@@ -38,6 +38,7 @@ import { argentinaToday } from "@/lib/date-range"
 import { ScrollableCartShell } from "@/components/shared/scrollable-cart-shell"
 import { getCanonicalLabel } from "@/lib/product-labels"
 import { getErrorMessage } from "@/lib/errors"
+import { humanizeOperationError } from "@/lib/operation-errors"
 import { ProductPicker } from "@/components/shared/product-picker"
 import { Plus, PackagePlus, ShoppingCart, CalendarIcon, Ruler, UserPlus, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -210,6 +211,30 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   // condiciones no se reescriben, se reusan (tercer consumidor).
   const cashOptin = useCashOptin({ kind: resolvedKind, branchId, date, document: "compra" })
   const showCashBlock = !isEdit && cashOptin.isCashSelected
+
+  // operacion-party-guard (fix ad-hoc 2026-09-10, hallazgo de revisión
+  // adversarial ronda 1): rpc_create_purchase_operation y rpc_atomic_update_
+  // purchase_operation rechazan un supplier_id ajeno con
+  // `supplier_not_found: <uuid>` (P0404, D6 de compras-proveedor-cuenta-
+  // corriente) — sin pasar por `humanizeOperationError` el usuario veía el
+  // UUID crudo pese a que el comentario de operation-errors.ts ya citaba a
+  // este formulario como consumidor. Mismo patrón que sale-form.tsx (lookup
+  // por carrito primero, catálogo como respaldo); sin branchName porque este
+  // form no resuelve el nombre de sucursal por id (STOCK_ERROR no aplica del
+  // lado compra: una compra suma stock, nunca lo descuenta).
+  const lookupProductName = useCallback(
+    (id: string) =>
+      cartItems.find((i) => i.productId === id)?.productName ??
+      products.find((p) => p.id === id)?.name,
+    [cartItems, products],
+  )
+  const showOperationError = useCallback(
+    (prefix: string, rawMessage: string) => {
+      const { message } = humanizeOperationError(rawMessage, lookupProductName)
+      toast.error(`${prefix}${message}`)
+    },
+    [lookupProductName],
+  )
 
   // compras-proveedor-cuenta-corriente (D6/OQ-D): kind=credit exige proveedor
   // y postea el cargo en su cuenta corriente — mismo patrón que SaleForm.
@@ -594,7 +619,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
         await refreshData()
         onSuccess()
       } catch (err: any) {
-        toast.error(`Error al actualizar: ${err.message || "Error desconocido"}`)
+        showOperationError("Error al actualizar: ", err.message || "Error desconocido")
       } finally {
         setSubmitting(false)
         submittingRef.current = false
@@ -646,7 +671,7 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
       await refreshData()
       onSuccess()
     } catch (err: any) {
-      toast.error(`Error al registrar la compra: ${err.message || "Error desconocido"}`)
+      showOperationError("Error al registrar la compra: ", err.message || "Error desconocido")
     } finally {
       setSubmitting(false)
       submittingRef.current = false

@@ -404,6 +404,42 @@ class TestQuoteRepository:
         args = conn.fetchrow.call_args[0]
         assert QUOTE_ID in args
 
+    # ── operacion-party-guard (RONDA 2, finding MINOR) ──────────────────────
+    # client_belongs_to_account: guard de tenencia para quotes.client_id, que
+    # no vive en una RPC (a diferencia de sales/purchases/sales_orders) — ver
+    # backend/tests/test_operacion_party_guard.py (bloque 6) para el candado
+    # a nivel service.
+
+    @pytest.mark.asyncio
+    async def test_client_belongs_to_account_queries_clients_scoped(self, quote_repo):
+        """Consulta clients filtrando por id Y account_id — mismo predicado
+        que el guard SQL (sin filtro de deleted_at)."""
+        repo, conn = quote_repo
+        conn.fetchrow = AsyncMock(return_value={"?column?": 1})
+
+        result = await repo.client_belongs_to_account(CLIENT_ID, ACCOUNT_ID)
+
+        query = conn.fetchrow.call_args[0][0].lower()
+        assert "clients" in query
+        assert "account_id" in query
+        assert "deleted_at" not in query
+        args = conn.fetchrow.call_args[0]
+        assert CLIENT_ID in args
+        assert ACCOUNT_ID in args
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_client_belongs_to_account_foreign_returns_false(self, quote_repo):
+        """Triangulación: client_id de otro tenant (o inexistente) → False."""
+        repo, conn = quote_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        result = await repo.client_belongs_to_account(
+            "ffffffff-ffff-ffff-ffff-ffffffffffff", ACCOUNT_ID
+        )
+
+        assert result is False
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK 5.1 RED — REPOSITORY TESTS (SalesOrder)

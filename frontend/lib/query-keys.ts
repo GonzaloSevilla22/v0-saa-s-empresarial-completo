@@ -18,6 +18,13 @@ export const queryKeys = {
     lists:   () => ["expenses", "list"] as const,
     summary: () => ["expenses", "summary"] as const,
   },
+  // asiento-contable-gastos (D10): clave de caché propia para el libro
+  // diario — GET /journal-entries existía desde journal-entry-outbox sin
+  // consumidor en el frontend.
+  journalEntries: {
+    all:   () => ["journal-entries"] as const,
+    lists: () => ["journal-entries", "list"] as const,
+  },
   products: {
     all:    () => ["products"] as const,
     lists:  () => ["products", "list"] as const,

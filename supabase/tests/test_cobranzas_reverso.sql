@@ -55,7 +55,7 @@
 --   (11) INVARIANTE D13 — los dos filtros de event_type (el de
 --        _journal_post_from_event y el del Consumer 3 de
 --        rpc_process_outbox_dispatch) listan EXACTAMENTE el mismo conjunto
---        de 11 tipos, extraídos de los cuerpos VIVOS — no de este archivo.
+--        de 14 tipos (asiento-contable-gastos suma los tres de gasto), extraídos de los cuerpos VIVOS — no de este archivo.
 --        Matriz de evasión ejecutada: el mismo comparador se corre además
 --        contra dos textos sintéticos con una divergencia plantada, para
 --        probar que SÍ la detecta (lección de tenancy-guard-caja-outbox: un
@@ -868,8 +868,11 @@ DECLARE
   v_dispatch_block  text;
   v_journal_set     text[];
   v_dispatch_set    text[];
+  -- asiento-contable-gastos (D8, 2026-09-10): suma ExpenseCreated/
+  -- ExpenseAdjusted/ExpenseDeleted — el conjunto canónico pasa de 11 a 14.
   v_expected        text[] := ARRAY[
-    'CreditNoteIssued','PaymentMade','PaymentMadeReversed','PaymentReceived',
+    'CreditNoteIssued','ExpenseAdjusted','ExpenseCreated','ExpenseDeleted',
+    'PaymentMade','PaymentMadeReversed','PaymentReceived',
     'PaymentReceivedReversed','PurchaseCreated','PurchaseDeleted','SaleConfirmed',
     'SaleOperationAdjusted','SaleOperationCreated','SaleOperationDeleted'
   ];
@@ -914,10 +917,10 @@ BEGIN
   END IF;
 
   IF v_journal_set IS DISTINCT FROM v_expected THEN
-    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (11): el conjunto vivo es % y esperaba los 11 tipos canónicos %.', v_journal_set, v_expected;
+    RAISE EXCEPTION 'GATE COBRANZAS-REVERSO FAILED (11): el conjunto vivo es % y esperaba los 14 tipos canónicos %.', v_journal_set, v_expected;
   END IF;
 
-  RAISE NOTICE 'PASS (11a): los dos filtros de event_type coinciden EXACTO — 11 tipos: %', v_journal_set;
+  RAISE NOTICE 'PASS (11a): los dos filtros de event_type coinciden EXACTO — 14 tipos: %', v_journal_set;
 
   -- ── Matriz de evasión ejecutada: el MISMO extractor+comparador, corrido
   -- contra dos textos SINTÉTICOS con una divergencia plantada, tiene que

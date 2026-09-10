@@ -5,6 +5,7 @@ import { ExpenseForm } from "@/components/forms/expense-form-v2"
 import { CostCenterSelect } from "@/components/cost-centers/CostCenterSelect"
 import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodSelect"
 import { PaymentMethodBadge } from "@/components/payment-methods/PaymentMethodBadge"
+import { ExpenseJournalStatusBadge } from "@/components/gastos/ExpenseJournalStatusBadge"
 import { useCostCenters } from "@/hooks/data/use-cost-centers"
 import { useExpenses } from "@/hooks/data/use-expenses-query"
 import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
@@ -292,9 +293,9 @@ export default function GastosPage() {
       {/* Table */}
       <div className="rounded-lg border border-border overflow-hidden">
         {/* Header */}
-        <div className="hidden sm:grid grid-cols-[100px_140px_1fr_120px_80px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+        <div className="hidden sm:grid grid-cols-[100px_140px_1fr_120px_110px_80px] gap-3 px-4 py-2.5 bg-accent/40 border-b border-border text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
           <span>Fecha</span><span>Categoría</span><span>Descripción</span>
-          <span className="text-right">Monto</span><span />
+          <span className="text-right">Monto</span><span>Asiento</span><span />
         </div>
 
         {/* Skeleton */}
@@ -302,8 +303,8 @@ export default function GastosPage() {
           <div className="flex flex-col">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="border-t border-border/50 first:border-t-0 px-4 py-3">
-                <div className="hidden sm:grid grid-cols-[100px_140px_1fr_120px_80px] gap-3 items-center">
-                  {Array.from({ length: 4 }).map((_, j) => (
+                <div className="hidden sm:grid grid-cols-[100px_140px_1fr_120px_110px_80px] gap-3 items-center">
+                  {Array.from({ length: 5 }).map((_, j) => (
                     <div key={j} className="h-3.5 rounded bg-accent animate-pulse" />
                   ))}
                   <div />
@@ -359,6 +360,11 @@ export default function GastosPage() {
                   </Badge>
                 )}
                 <PaymentMethodBadge name={row.paymentMethodName} kind={row.paymentMethodKind} />
+                <ExpenseJournalStatusBadge
+                  expenseId={row.id}
+                  hasJournalEntry={row.hasJournalEntry}
+                  journalPending={row.journalPending}
+                />
               </div>
               <div className="flex items-center justify-between">
                 <p className="text-xs text-muted-foreground">{formatDate(row.date)}</p>
@@ -384,7 +390,7 @@ export default function GastosPage() {
             </div>
 
             {/* Desktop */}
-            <div className="hidden sm:grid grid-cols-[100px_140px_1fr_120px_80px] gap-3 px-4 py-3 items-center">
+            <div className="hidden sm:grid grid-cols-[100px_140px_1fr_120px_110px_80px] gap-3 px-4 py-3 items-center">
               <span className="text-sm text-muted-foreground tabular-nums">{formatDate(row.date)}</span>
               <Badge variant="outline" className={`text-xs w-fit ${categoryColors[row.category] || categoryColors.Otros}`}>
                 {row.category}
@@ -399,6 +405,13 @@ export default function GastosPage() {
                 <PaymentMethodBadge name={row.paymentMethodName} kind={row.paymentMethodKind} layout="inline" />
               </div>
               <span className="text-right text-sm font-semibold text-destructive tabular-nums">{formatMoney(row.amount)}</span>
+              <div className="flex items-center">
+                <ExpenseJournalStatusBadge
+                  expenseId={row.id}
+                  hasJournalEntry={row.hasJournalEntry}
+                  journalPending={row.journalPending}
+                />
+              </div>
               <div className="flex items-center gap-1 justify-end">
                 <Button
                   variant="ghost" size="icon" data-testid="expense-edit"

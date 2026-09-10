@@ -177,12 +177,20 @@ class TestJournalEntryService:
 
     @pytest.mark.asyncio
     async def test_list_service_delegates_to_repo(self):
-        """6.2: list_journal_entries calls repo.list_by_account."""
+        """6.2: list_journal_entries calls repo.list_by_account.
+
+        asiento-contable-gastos (D10, 8.9): sin filtros, la llamada sigue
+        pasando limit/offset — los cinco filtros nuevos viajan como None.
+        """
         repo = MagicMock()
         repo.list_by_account = AsyncMock(return_value=[_make_entry()])
 
         results = await je_service.list_journal_entries(repo, str(ACCOUNT_ID))
-        repo.list_by_account.assert_called_once_with(str(ACCOUNT_ID), limit=100, offset=0)
+        repo.list_by_account.assert_called_once_with(
+            str(ACCOUNT_ID), limit=100, offset=0,
+            date_from=None, date_to=None,
+            source_doc_type=None, source_doc_ref=None, status=None,
+        )
         assert len(results) == 1
 
     @pytest.mark.asyncio
@@ -205,7 +213,31 @@ class TestJournalEntryService:
         repo.list_by_account = AsyncMock(return_value=[])
 
         await je_service.list_journal_entries(repo, str(ACCOUNT_ID), limit=10, offset=20)
-        repo.list_by_account.assert_called_once_with(str(ACCOUNT_ID), limit=10, offset=20)
+        repo.list_by_account.assert_called_once_with(
+            str(ACCOUNT_ID), limit=10, offset=20,
+            date_from=None, date_to=None,
+            source_doc_type=None, source_doc_ref=None, status=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_list_service_forwards_filters(self):
+        """asiento-contable-gastos (8.6/8.7): los cinco filtros llegan al repo tal cual."""
+        import datetime as _dt
+
+        repo = MagicMock()
+        repo.list_by_account = AsyncMock(return_value=[])
+        ref = uuid.uuid4()
+
+        await je_service.list_journal_entries(
+            repo, str(ACCOUNT_ID),
+            date_from=_dt.date(2026, 9, 1), date_to=_dt.date(2026, 9, 30),
+            source_doc_type="Expense", source_doc_ref=str(ref), status="posted",
+        )
+        repo.list_by_account.assert_called_once_with(
+            str(ACCOUNT_ID), limit=100, offset=0,
+            date_from=_dt.date(2026, 9, 1), date_to=_dt.date(2026, 9, 30),
+            source_doc_type="Expense", source_doc_ref=str(ref), status="posted",
+        )
 
 
 # ── Schema validation tests ────────────────────────────────────────────────────

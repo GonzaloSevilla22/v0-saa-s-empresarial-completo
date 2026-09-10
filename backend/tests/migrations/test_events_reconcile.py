@@ -43,29 +43,32 @@ MIGRATIONS_DIR = Path(__file__).parents[3] / "supabase" / "migrations"
 MIGRATION_FILE = MIGRATIONS_DIR / "20260718000001_c25_events_outbox_reconcile.sql"
 
 # Migración VIGENTE del despachador — otra cosa. `rpc_process_outbox_dispatch`
-# se redefinió por CREATE OR REPLACE cuatro veces después de nacer
+# se redefinió por CREATE OR REPLACE seis veces después de nacer
 # (20260803000001 journal, 20260808000001 notifications, 20261004000001
-# asiento-venta, 20261005000001 delete-guard), así que el cuerpo de
-# 20260718000001 hace rato que NO es el que corre: afirmar sobre él el orden de
-# los consumers, el SKIP LOCKED o el "nunca UPDATE/DELETE sobre audit_logs" era
-# verificar una fotografía vieja. Las aserciones de COMPORTAMIENTO apuntan por
-# eso a la redefinición más nueva.
+# asiento-venta, 20261005000001 delete-guard, 20261019000001
+# cobranzas-reverso, 20261043000001 asiento-contable-gastos), así que el
+# cuerpo de 20260718000001 hace rato que NO es el que corre: afirmar sobre
+# él el orden de los consumers, el SKIP LOCKED o el
+# "nunca UPDATE/DELETE sobre audit_logs" era verificar una fotografía vieja.
+# Las aserciones de COMPORTAMIENTO apuntan por eso a la redefinición más nueva.
 #
 # Lo ideal sería leer `pg_get_functiondef` vivo —la regla dura del proyecto—,
 # pero este job de pytest corre SIN DB: la suite es hermética por diseño
 # (asyncpg mockeado, ver backend/tests/conftest.py y
 # .github/workflows/Backend_Tests.yml, que no levanta ningún servicio). La
 # migración más nueva es lo más cerca del cuerpo vivo que se puede estar sin
-# conexión, y la equivalencia se verificó a mano: el 2026-08-24, el cuerpo de
-# este archivo y el `prosrc` de la función en la DB local dieron el mismo md5
-# (b01bdc1bd52829281e96e6b191885cce, 5730 bytes). El chequeo en runtime contra
-# el despachador REAL vive en supabase/tests/test_outbox_single_dispatcher.sql,
-# que sí corre con Postgres.
+# conexión — asiento-contable-gastos verificó la equivalencia a mano el
+# 2026-09-10: md5(pg_get_functiondef) local == el hasheado por el orquestador
+# antes del apply (507b1bcdd8747c755b4c20c3ec928e97), y el único diff de esta
+# migración contra ese cuerpo vivo es el filtro del Consumer 3 (11→14 tipos) —
+# ninguna otra sección cambia. El chequeo en runtime contra el despachador
+# REAL vive en supabase/tests/test_outbox_single_dispatcher.sql, que sí corre
+# con Postgres.
 #
 # Que este puntero no vuelva a envejecer lo sostiene
 # TestDispatcherMigrationPointer, abajo: si alguien agrega una migración más
 # nueva que redefine la función y no mueve esta constante, falla.
-DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261019000001_cobranzas_reverso.sql"
+DISPATCHER_MIGRATION_FILE = MIGRATIONS_DIR / "20261043000001_asiento_contable_gastos.sql"
 
 _DISPATCH_DEF_RE = re.compile(
     r"CREATE\s+OR\s+REPLACE\s+FUNCTION\s+public\.rpc_process_outbox_dispatch",

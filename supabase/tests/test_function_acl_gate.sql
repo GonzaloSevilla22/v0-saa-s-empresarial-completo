@@ -237,7 +237,17 @@ DECLARE
     -- filtro: cerrar un evento ajeno hace que su asiento no se postee nunca.
     'public.rpc_mark_event_processed(p_event_id uuid)',
     -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
-    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)'
+    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)',
+    -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
+    -- asiento-contable-gastos (D7): el SELECT 1 FROM public.events del
+    -- predicado ("¿existe ExpenseCreated para este gasto?") es una LECTURA
+    -- del outbox, aunque el INSERT condicionado a ese mismo SELECT ya se
+    -- resta por la regla (2) del detector.
+    'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)',
+    -- expuesta: SÍ, y es LEGÍTIMO (ver v_cross_tenant_event_exposed_ok).
+    -- asiento-contable-gastos (D7): mismo predicado de lectura que la de
+    -- arriba, antes del borrado físico del gasto.
+    'public.rpc_delete_expense(p_expense_id uuid)'
   ];
   -- Subconjunto del anterior que SÍ puede estar expuesto a `authenticated`.
   -- Una entrada acá es una excepción con nombre y apellido, no una categoría.
@@ -250,7 +260,19 @@ DECLARE
     -- acotado a los eventos de la operación que la propia RPC ya validó por
     -- tenant antes de tocar nada — no recorre el outbox completo ni acepta un
     -- event_id por parámetro, que es la diferencia con las dos de arriba.
-    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)'
+    'public.rpc_atomic_update_sale_operation(p_sale_ids uuid[], p_client_id uuid, p_date date, p_currency text, p_items jsonb, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_canal text, p_canal_provided boolean)',
+    -- asiento-contable-gastos (D7, 2026-09-10): rpc_update_expense y
+    -- rpc_delete_expense son las RPC de EDICIÓN y BORRADO de un gasto, API
+    -- pública real (con GRANT a authenticated desde gastos-forma-pago). El
+    -- único acceso al outbox es un SELECT 1 ... WHERE event_type =
+    -- 'ExpenseCreated' AND aggregate_id = p_expense_id AND account_id =
+    -- v_account_id — el gasto y la cuenta ya están validados por tenant
+    -- ANTES de esta lectura (localización de v_old/v_expense por
+    -- (id, account_id), más arriba en el mismo cuerpo). No acepta un
+    -- event_id por parámetro ni recorre el outbox de otro tenant: exactamente
+    -- la misma forma que rpc_atomic_update_sale_operation.
+    'public.rpc_update_expense(p_expense_id uuid, p_category text, p_amount numeric, p_date date, p_description text, p_payment_method_id uuid, p_payment_method_provided boolean, p_branch_id uuid, p_branch_provided boolean, p_cost_center_id uuid, p_cost_center_provided boolean)',
+    'public.rpc_delete_expense(p_expense_id uuid)'
   ];
 BEGIN
   -- Entorno sin roles de Supabase (p.ej. postgres pelado): no hay nada que gatear

@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from "vitest"
 import { navGroups } from "@/components/app-sidebar"
-import { BarChart3, Truck, Users } from "lucide-react"
+import { BarChart3, BookOpen, Truck, Users, Wallet } from "lucide-react"
 
 describe("app-sidebar navGroups — entrada Proveedores", () => {
   const catalogo = navGroups.find((g) => g.label === "Catálogo")
@@ -87,5 +87,34 @@ describe("app-sidebar navGroups — entrada Estadísticas (estadisticas-ventas)"
     const rentabilidadIdx = items.findIndex((i) => i.title === "Rentabilidad")
     expect(estadisticasIdx).toBeGreaterThanOrEqual(0)
     expect(rentabilidadIdx).toBe(estadisticasIdx + 1)
+  })
+})
+
+// asiento-contable-gastos (task 10.5): "Libro diario" cuelga de Inteligencia,
+// mismo criterio que "Centros de costo" y "Formas de pago" — sin gate de
+// plan, es lectura de datos que el propio usuario generó.
+describe("app-sidebar navGroups — entrada Libro diario (asiento-contable-gastos)", () => {
+  const inteligencia = navGroups.find((g) => g.label === "Inteligencia")
+
+  it("existe una entrada 'Libro diario' con href /reportes/libro-diario e ícono BookOpen, sin gate", () => {
+    const item = inteligencia?.items.find((i) => i.title === "Libro diario")
+    expect(item).toBeDefined()
+    expect(item?.href).toBe("/reportes/libro-diario")
+    expect(item?.icon).toBe(BookOpen)
+    expect(item?.pro).toBe(false)
+    expect(item?.proOnly).toBe(false)
+  })
+
+  it("aparece inmediatamente después de 'Formas de pago'", () => {
+    const items = inteligencia?.items ?? []
+    const formasIdx = items.findIndex((i) => i.title === "Formas de pago")
+    const libroIdx = items.findIndex((i) => i.title === "Libro diario")
+    expect(formasIdx).toBeGreaterThanOrEqual(0)
+    expect(libroIdx).toBe(formasIdx + 1)
+  })
+
+  it("'Formas de pago' conserva su ícono Wallet (no se pisó al insertar Libro diario)", () => {
+    const item = inteligencia?.items.find((i) => i.title === "Formas de pago")
+    expect(item?.icon).toBe(Wallet)
   })
 })

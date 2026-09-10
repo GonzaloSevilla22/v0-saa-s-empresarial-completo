@@ -288,6 +288,54 @@ describe("/gastos — export local (11.5)", () => {
   })
 })
 
+// ── asiento-contable-gastos (9.3/9.4/9.6) ───────────────────────────────────
+
+describe("/gastos — estado contable (9.3, D9)", () => {
+  it("gasto asentado: el badge dice 'Asentado' y enlaza al libro diario de ese gasto", () => {
+    expensesFixture = [{ ...BASE, hasJournalEntry: true, journalPending: false }]
+    render(<GastosPage />)
+
+    const links = screen.getAllByRole("link", { name: /asentado/i })
+    expect(links.length).toBeGreaterThan(0)
+    for (const l of links) {
+      expect(l).toHaveAttribute("href", "/reportes/libro-diario?source_doc_type=Expense&source_doc_ref=exp-1")
+    }
+  })
+
+  it("gasto pendiente: dice 'Pendiente' y NO es un enlace", () => {
+    expensesFixture = [{ ...BASE, hasJournalEntry: false, journalPending: true }]
+    render(<GastosPage />)
+
+    expect(screen.getAllByText(/^pendiente$/i).length).toBeGreaterThan(0)
+    expect(screen.queryAllByRole("link", { name: /pendiente/i })).toHaveLength(0)
+  })
+
+  it("gasto histórico (sin evento ni asiento): dice 'Sin asiento', tono neutro", () => {
+    expensesFixture = [{ ...BASE, hasJournalEntry: false, journalPending: false }]
+    render(<GastosPage />)
+
+    const badges = screen.getAllByTestId("expense-journal-status")
+    expect(badges.length).toBeGreaterThan(0)
+    for (const b of badges) {
+      expect(b).toHaveTextContent(/sin asiento/i)
+      expect(b.className).not.toMatch(/destructive/)
+    }
+  })
+
+  it("los tres estados se distinguen entre sí en el mismo listado", () => {
+    expensesFixture = [
+      { ...BASE, id: "exp-1", hasJournalEntry: true, journalPending: false },
+      { ...BASE, id: "exp-2", hasJournalEntry: false, journalPending: true },
+      { ...BASE, id: "exp-3", hasJournalEntry: false, journalPending: false },
+    ]
+    render(<GastosPage />)
+
+    expect(screen.getAllByText(/^asentado$/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/^pendiente$/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/^sin asiento$/i).length).toBeGreaterThan(0)
+  })
+})
+
 // ── G11 (H13): "Limpiar filtro" del popover de fechas ───────────────────────
 describe("/gastos — 'Limpiar filtro' limpia SOLO el rango de fechas (G11/H13)", () => {
   it("limpia dateFrom/dateTo sin tocar buscador, forma de pago ni centro", async () => {

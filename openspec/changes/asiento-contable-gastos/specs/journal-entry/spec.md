@@ -119,13 +119,15 @@ The entry SHALL be dated by the expense's own business date, carried in the payl
 
 ### Requirement: ExpenseAdjusted posts a contra-entry and a new entry
 
-On an `ExpenseAdjusted` event the system SHALL locate the expense's live entry by `(source_doc_type = 'Expense', source_doc_ref = expense_id, status = 'posted', account_id)`, post a contra-entry with every line's side inverted and `reversal_of` pointing at it, mark the original `reversed`, and then post a new entry with the edited values through the same mapping used by `ExpenseCreated`.
+On an `ExpenseAdjusted` event the system SHALL locate the expense's live entry by `(source_doc_type = 'Expense', source_doc_ref = expense_id, status = 'posted', reversal_of IS NULL, account_id)`, post a contra-entry with every line's side inverted and `reversal_of` pointing at it, mark the original `reversed`, and then post a new entry with the edited values through the same mapping used by `ExpenseCreated`.
 
 The contra-entry SHALL be dated at the moment of the correction; the new entry SHALL be dated by the expense's business date.
 
 When no live entry is found the consumer SHALL raise `P0451`, leaving the event pending for retry, and SHALL NOT post the new entry on its own — an adjustment without its reversal would double-count the expense.
 
 Both the contra-entry and the new entry SHALL balance, and the contra-entry's balance SHALL be validated individually, as the sale-adjustment branch already does.
+
+A contra-entry SHALL NOT itself be a candidate for the "live entry" lookup: at every point in time there SHALL exist at most one live (`posted`, `reversal_of IS NULL`) entry per expense. Omitting `reversal_of IS NULL` from the lookup key would let a second adjustment match the first adjustment's own contra-entry instead of the entry it actually reversed, reversing the wrong amount and double-counting the expense in `5300 Gastos`.
 
 #### Scenario: Editing an expense adjusts its trail
 
@@ -138,9 +140,16 @@ Both the contra-entry and the new entry SHALL balance, and the contra-entry's ba
 - **WHEN** an `ExpenseAdjusted` event is processed before the expense's `ExpenseCreated` event
 - **THEN** it raises `P0451`, the event stays pending, the batch continues, and the pair posts correctly on the run after the creation entry exists
 
+#### Scenario: A second edit of the same expense
+
+- **GIVEN** an expense that has already been adjusted once, with its contra-entry and its replacement live entry both posted
+- **WHEN** a second `ExpenseAdjusted` event is posted for the same expense
+- **THEN** the lookup finds the replacement entry (not the first contra-entry) as the live entry, reverses only that one, and posts a second replacement
+- **AND** exactly one live entry exists for the expense afterward, and the net balance of `5300 Gastos` for the expense equals the latest edited amount
+
 ### Requirement: ExpenseDeleted posts a contra-entry
 
-On an `ExpenseDeleted` event the system SHALL locate the expense's live entry by `(source_doc_type = 'Expense', source_doc_ref = expense_id, status = 'posted', account_id)`, post a contra-entry with every line's side inverted, its `cost_center_id` preserved per line, and `reversal_of` pointing at the original, and mark the original `reversed`.
+On an `ExpenseDeleted` event the system SHALL locate the expense's live entry by `(source_doc_type = 'Expense', source_doc_ref = expense_id, status = 'posted', reversal_of IS NULL, account_id)`, post a contra-entry with every line's side inverted, its `cost_center_id` preserved per line, and `reversal_of` pointing at the original, and mark the original `reversed`.
 
 The contra-entry SHALL be the only entry of the event and SHALL therefore carry its own `source_event_id`, keeping the event-to-entry trail complete — the same shape as `PurchaseDeleted`.
 
@@ -148,11 +157,19 @@ The lookup SHALL NOT read the `expenses` row: expense deletion is physical and t
 
 When no live entry is found the consumer SHALL raise `P0451` and leave the event pending for retry.
 
+A contra-entry SHALL NOT itself be a candidate for the "live entry" lookup, the same invariant `ExpenseAdjusted` relies on: at every point in time there SHALL exist at most one live (`posted`, `reversal_of IS NULL`) entry per expense, so a delete after a prior edit reverses the edited entry, not the edit's own contra-entry.
+
 #### Scenario: Deleting an expense reverses its entry
 
 - **WHEN** an `ExpenseDeleted` event is posted for an expense with a live entry
 - **THEN** the original entry is marked `reversed` and a contra-entry with inverted sides and the same amounts exists, referencing it
 - **AND** the contra-entry balances and carries its own `source_event_id`
+
+#### Scenario: Deleting an expense that was edited first
+
+- **GIVEN** an expense that was created and then adjusted once, leaving one contra-entry and one live replacement entry
+- **WHEN** its `ExpenseDeleted` event is posted
+- **THEN** the lookup finds the replacement entry as the live one, reverses only that one, and afterward zero live entries exist for the expense and the net balance of `5300 Gastos` for the expense is zero
 
 #### Scenario: The contra-entry does not depend on the deleted row
 

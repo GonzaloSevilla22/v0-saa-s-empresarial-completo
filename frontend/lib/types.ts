@@ -512,6 +512,11 @@ export interface Expense {
   hasBankMovement?: boolean
   /** D8: hay movimiento de caja y NO hay sesión abierta en esa caja → el borrado sería P0426. */
   isDeleteBlocked?: boolean
+  // ── asiento-contable-gastos ───────────────────────────────────────────────
+  /** Derivado de SERVIDOR: hay un asiento VIGENTE (status='posted') para este gasto. */
+  hasJournalEntry?: boolean
+  /** Derivado de SERVIDOR: hay un evento contable de este gasto que el relay todavía no procesó. */
+  journalPending?: boolean
 }
 
 // ── importador-gastos-transaccional ──────────────────────────────────────────
@@ -1074,4 +1079,39 @@ export interface PayablesSummary {
   totalPayable: number
   overdueTotal: number
   creditorCount: number
+}
+
+// ── asiento-contable-gastos: libro diario ────────────────────────────────────
+
+/** Línea de débito/crédito de un asiento. Espejo de `JournalLineOut` (backend). */
+export interface JournalLine {
+  id: string
+  entryId: string
+  accountCode: string
+  side: "debit" | "credit"
+  amount: number
+  lineNo: number
+  costCenterId: string | null
+}
+
+/** Asiento de partida doble. Espejo de `JournalEntryOut` (backend). */
+export interface JournalEntry {
+  id: string
+  accountId: string
+  postedAt: string
+  status: "posted" | "reversed"
+  sourceDocType: string | null
+  sourceDocRef: string | null
+  reversalOf: string | null
+  createdAt: string
+  lines: JournalLine[]
+}
+
+/** Filtros server-side de `GET /journal-entries` (D10). */
+export interface JournalEntryFilters {
+  dateFrom?: string | null
+  dateTo?: string | null
+  sourceDocType?: string | null
+  sourceDocRef?: string | null
+  status?: "posted" | "reversed" | null
 }

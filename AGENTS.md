@@ -220,7 +220,7 @@ Heredado de `v31-tenancy-role-assertion` (ítem 14, ver `CHANGES.md` §"Candidat
 
 Heredado de `gastos-forma-pago` (ítem 16, ver `openspec/changes/archive/2026-08-30-gastos-forma-pago/design.md`/`tasks.md`):
 
-- **Importador CSV de gastos sin forma de pago** (D13) — alcance declarado y deliberado, no deuda: el importador emite una llamada por fila sin transacción que abarque el lote, así que imputar forma de pago ahí arriesgaría dejar parte de los gastos con movimiento y parte sin él ante un fallo a mitad de proceso.
+- ~~**Importador CSV de gastos sin forma de pago**~~ (D13) — alcance declarado y deliberado, no deuda: el importador emite una llamada por fila sin transacción que abarque el lote, así que imputar forma de pago ahí arriesgaría dejar parte de los gastos con movimiento y parte sin él ante un fallo a mitad de proceso. → **cerrado por `importador-gastos-transaccional`** (2026-09-10, PRs #535/#542).
 - **Asiento contable de gastos** (D10) — diferido a V2.6 junto con el resto del plan de cuentas; `_journal_post_from_event` no tiene rama de gasto y `public.events` no tiene ningún `event_type` de gasto. Este change deja lista la forma de pago, que es el dato que le falta al asiento futuro para elegir la contrapartida (`1100 Caja`/`1110 Banco`).
 - **`kind='credit'` en gastos** (D3) — rechazado por diseño, no una limitación técnica a levantar: `expenses` no referencia cliente ni proveedor y no hay cuenta corriente que cargar.
 - ~~**Desborde horizontal de `/gastos` por debajo de ~1372px**~~ → **absorbido por `qa-integral-modulos`** (ítem 17, grupo G2): la causa raíz es el `<main>` de `SidebarInset` sin `min-w-0` — el QA del 30-08 midió el mismo desborde en 12 pantallas, `/gastos` incluida en tablet 768–1024.

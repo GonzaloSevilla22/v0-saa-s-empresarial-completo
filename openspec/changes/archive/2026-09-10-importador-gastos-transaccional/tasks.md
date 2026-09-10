@@ -128,8 +128,8 @@ Verificación de esta tanda: `pnpm vitest run --maxWorkers=2 __tests__/hooks/use
 
 ## 11. Post-merge en producción (sólo lectura, salvo el humo del PO)
 
-- [ ] 11.1 `MAX(version)` en prod = la migración de 1.1, y el conteo total de migraciones esperado.
-- [ ] 11.2 ACLs vivas: `rpc_import_expenses` sin `EXECUTE` para `anon` y con `EXECUTE` para `authenticated`; `expense_imports` sin `INSERT`/`UPDATE`/`DELETE` para `authenticated` ni `anon`.
-- [ ] 11.3 Una sola definición viva de `rpc_import_expenses` (sin overload) y `rpc_create_expense` **sin cambios** respecto del md5 de 1.2 — la prueba de que el change compuso en vez de modificar.
-- [ ] 11.4 Auditoría de daño histórico: cero filas en `expense_imports`, cero gastos con `import_id` no nulo **antes** del primer uso real (el "cero" del que se parte).
+- [x] 11.1 `MAX(version)` en prod = la migración de 1.1, y el conteo total de migraciones esperado.
+- [x] 11.2 ACLs vivas: `rpc_import_expenses` sin `EXECUTE` para `anon` y con `EXECUTE` para `authenticated`; `expense_imports` sin `INSERT`/`UPDATE`/`DELETE` para `authenticated` ni `anon`.
+- [x] 11.3 Una sola definición viva de `rpc_import_expenses` (sin overload) y `rpc_create_expense` **sin cambios** respecto del md5 de 1.2 — la prueba de que el change compuso en vez de modificar.
+- [x] 11.4 Auditoría de daño histórico: cero filas en `expense_imports`, cero gastos con `import_id` no nulo **antes** del primer uso real (el "cero" del que se parte). — 11.1-11.4 verificadas por el orquestador en prod el 2026-09-10 (05:42 UTC) vía MCP read-only: MAX(version)=20261041000001, rpc_import_expenses única y SECURITY DEFINER sin EXECUTE para anon, rpc_create_expense md5 c8f2ef987a6efe06ba0303e93d367d6a intacto, expense_imports 0 filas y sólo SELECT para authenticated, 0 gastos con import_id.
 - [ ] 11.5 **Humo real del PO**: importar un archivo propio de gastos del mes, con al menos una fila por transferencia y una en efectivo. Verificar con él: que el movimiento aparece en `/banco` con la fecha correcta, que `/caja` **no** se movió, que `/reportes/formas-pago` ahora incluye esos gastos, y que volver a subir el mismo archivo no duplica nada.

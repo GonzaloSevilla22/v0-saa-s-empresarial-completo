@@ -133,27 +133,39 @@ Este requisito cumple RN-93 para el documento de gasto, que hasta ahora era el �
 
 El sistema SHALL ejecutar el alta, la edición y el borrado de un gasto dentro de una RPC `SECURITY DEFINER` propia por operación, con `search_path` fijo, que evalúe todos sus guards y aplique la escritura del gasto **y** todos sus efectos en libros en la misma transacción.
 
+El rastro contable SHALL formar parte de esa unidad atómica: la emisión del evento contable del gasto hacia el outbox SHALL ocurrir dentro de la misma transacción que la escritura del gasto y que sus movimientos de caja y banco, como una inserción plana sin manejador de excepciones. No SHALL existir ninguna combinación de fallos que deje el dinero movido y el evento contable ausente, ni el evento contable emitido y el gasto revertido.
+
 El repositorio de la aplicación SHALL NOT componer SQL ni orquestar pasos de negocio: SHALL emitir una única llamada por operación.
 
 Ninguna combinación de fallos SHALL poder dejar un gasto sin sus movimientos ni movimientos sin su gasto.
+
+El posteo del asiento propiamente dicho SHALL quedar **fuera** de esa transacción, a cargo del consumidor contable del relay: la operación de gasto produce el hecho contable, no lo registra. Esta asimetría es deliberada — el asiento es asincrónico por diseño y su fallo no puede tumbar el alta de un gasto.
 
 #### Scenario: Fallo al postear el movimiento de caja
 
 - **WHEN** el alta de un gasto en efectivo falla al registrar el movimiento de caja
 - **THEN** la transacción completa se revierte
 - **AND** no queda ninguna fila nueva en gastos
+- **AND** no queda ningún evento contable de gasto
 
 #### Scenario: Fallo al postear el movimiento bancario
 
 - **WHEN** el alta de un gasto por transferencia falla al registrar el movimiento bancario
 - **THEN** la transacción completa se revierte
 - **AND** no queda ninguna fila nueva en gastos
+- **AND** no queda ningún evento contable de gasto
 
 #### Scenario: El repositorio no orquesta pasos de negocio
 
 - **WHEN** el backend crea, edita o borra un gasto
 - **THEN** emite una única llamada a la RPC correspondiente
 - **AND** no evalúa guards ni compone secuencias de escritura del lado de la aplicación
+
+#### Scenario: El evento contable viaja con la mutación
+
+- **WHEN** un alta, una edición o un borrado de gasto commitea y corresponde emitir su evento
+- **THEN** el evento existe en el outbox, escrito por la misma RPC y en la misma transacción que la mutación
+- **AND** el asiento todavía no existe, porque lo postea el relay más tarde
 
 ### Requirement: Las operaciones de gasto resuelven el tenant desde la sesión y exigen rol de escritura
 
@@ -301,6 +313,8 @@ El camino de corrección SHALL ser borrar y volver a cargar, que este mismo camb
 
 Un gasto sin movimientos asociados SHALL seguir siendo plenamente editable.
 
+La existencia de un **asiento contable** SHALL NOT sumarse a los predicados de bloqueo. La inmutabilidad de un gasto la determinan sus movimientos de dinero, y sólo ellos: un gasto con asiento posteado pero sin movimiento de caja ni bancario SHALL seguir siendo plenamente editable, y su edición SHALL corregir el asiento por el par contra-asiento más asiento nuevo en lugar de impedirse. Es el mismo criterio ya vigente para la operación de venta, y lo contrario volvería inmutable a todo gasto en cuanto el rastro contable se ponga en marcha, rompiendo dos escenarios normativos de este mismo requirement.
+
 #### Scenario: Editar un gasto con movimiento de caja
 
 - **GIVEN** un gasto en efectivo que registró su egreso de caja
@@ -328,6 +342,12 @@ Un gasto sin movimientos asociados SHALL seguir siendo plenamente editable.
 - **WHEN** un usuario lo edita
 - **THEN** la edición procede normalmente
 
+#### Scenario: El asiento no bloquea la edición
+
+- **GIVEN** un gasto sin movimiento de caja ni bancario cuyo asiento contable ya fue posteado
+- **WHEN** un usuario edita su importe
+- **THEN** la edición procede normalmente
+- **AND** se emite el evento que corrige el asiento, sin ningún rechazo por `P0423`
 ### Requirement: La edición de un gasto preserva su contexto mediante contrato tri-estado
 
 El sistema SHALL aplicar a la edición de un gasto el contrato tri-estado ya vigente en ventas y compras: la **ausencia** de una clave en la petición conserva el valor vigente, un **nulo explícito** desimputa, y un identificador **reimputa**. El contrato SHALL aplicarse a la forma de pago, la sucursal y el centro de costo.

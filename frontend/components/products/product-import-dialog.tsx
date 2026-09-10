@@ -468,7 +468,13 @@ export function ProductImportDialog({
                     <span key={t} className="text-xs px-2 py-0.5 rounded bg-muted font-medium text-foreground">{t}</span>
                   ))}
                 </div>
-                <p className="text-[11px] text-muted-foreground/60">
+                {/* Pasada visual (importador-productos-fastapi 10.6): `/60` bajaba el
+                    contraste real a ~2.3:1 en claro / ~3.3:1 en oscuro (medido con
+                    getComputedStyle + compositing de alpha real, no el valor rgba()
+                    crudo) — bajo el mínimo AA de 4.5:1 para texto normal de 11px.
+                    Mismo tono que el párrafo hermano de "Cómo se importa" (sin /60),
+                    que sí pasa (~4.7:1 claro / ~7:1 oscuro). */}
+                <p className="text-[11px] text-muted-foreground">
                   Si omitís la columna Tipo, todas las filas se importan como productos simples.
                   Las variantes se asocian automáticamente al Padre más cercano en el archivo.
                 </p>

@@ -197,7 +197,7 @@ Heredado de `seguros-perfil-asesor` (ítem 18, ver `CHANGES.md` para el detalle 
 
 Heredado de `cuenta-corriente-party-guard` (ver `openspec/changes/archive/2026-08-23-cuenta-corriente-party-guard/design.md` §"Hallazgos laterales de la revisión de seguridad" y `CHANGES.md` §"Candidatos dados de alta por `cuenta-corriente-party-guard`"):
 
-- **`operacion-party-guard`** (OQ-4 de `cuenta-corriente-party-guard`) — la venta/compra **al contado** con `client_id`/`supplier_id` ajeno sigue sin guard (no crea saldo ni asiento contra un tercero, pero deja una fila mala en `sales`/`purchases`). Guard natural en `rpc_create_sale_operation(_v2)`, `_c29_confirm_order_core` y `rpc_create_purchase_operation`.
+- ~~**`operacion-party-guard`**~~ (OQ-4 de `cuenta-corriente-party-guard`) — la venta/compra **al contado** con `client_id`/`supplier_id` ajeno sigue sin guard (no crea saldo ni asiento contra un tercero, pero deja una fila mala en `sales`/`purchases`). Guard natural en `rpc_create_sale_operation(_v2)`, `_c29_confirm_order_core` y `rpc_create_purchase_operation`. → **cerrado por el fix ad-hoc `operacion-party-guard`** (2026-09-10, PR #552).
 - ~~**Endurecimiento de `c30_register_customer_account_movement` / `c30_register_supplier_account_movement`**~~ (h3) — `SECURITY INVOKER` con `EXECUTE` para `anon` en prod; hoy lo frena sólo la ausencia de policies de escritura en esas tablas (defensa de segundo orden, no un incidente). → **cerrado por `candidatos-seguridad-db`** (2026-09-09, PR #533).
 - ~~**`get_account_ids_for_user(uuid)`**~~ (h4) — devuelve la membresía de cualquier `user_id` sin comparar contra `auth.uid()` (fuga menor: hace falta conocer el `user_id` ajeno). → **cerrado por `candidatos-seguridad-db`** (2026-09-09, PR #533).
 

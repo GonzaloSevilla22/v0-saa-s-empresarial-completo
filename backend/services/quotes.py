@@ -12,6 +12,7 @@ from decimal import Decimal
 import asyncpg
 from fastapi import HTTPException
 
+from backend.core.errors import ProblemHTTPException
 from backend.core.guards import require_role
 from backend.repositories.quote_repository import QuoteRepository
 from backend.schemas.quotes import QuoteIn, QuoteTransitionIn
@@ -35,8 +36,31 @@ async def create_quote(
     created_by: str,
     account_id: str,
 ) -> dict:
-    """Crea un presupuesto con sus ítems. Guard: writer."""
+    """Crea un presupuesto con sus ítems. Guard: writer.
+
+    operacion-party-guard (RONDA 2, finding MINOR): `client_id` es opcional
+    pero, si viene, tiene que pertenecer al tenant — ANTES del INSERT. Este
+    repository escribe `quotes.client_id` directo (D3: excepción declarada al
+    patrón RPC, ver el docstring del módulo); a diferencia de
+    `rpc_create_sale_operation_v2`/`_c29_confirm_order_core`/
+    `rpc_atomic_update_sale_operation`/`rpc_accept_quote` (guardadas en SQL,
+    migración 20261045000001), `quotes` no es una de las 3 tablas en alcance
+    de ese fix — pero dejarla sin guard igual permitía materializar un quote
+    cross-tenant que `rpc_accept_quote` sólo intercepta en el momento de
+    aceptar, no al crearse. Mismo ERRCODE/mensaje que el guard SQL
+    (P0404, 'client_not_found: <id>') para que el frontend
+    (humanizeOperationError) lo traduzca igual sin importar qué capa lo
+    rechazó."""
     require_role(auth, ["user", "admin"])
+
+    if payload.client_id is not None:
+        client_id_str = str(payload.client_id)
+        if not await repo.client_belongs_to_account(client_id_str, account_id):
+            raise ProblemHTTPException(
+                status_code=404,
+                detail=f"client_not_found: {client_id_str}",
+                code="P0404",
+            )
 
     # Calcular total como suma de subtotals
     total = sum(item.subtotal for item in payload.items)

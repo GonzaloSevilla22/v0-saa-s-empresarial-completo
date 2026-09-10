@@ -93,6 +93,23 @@ class QuoteRepository(BaseRepository):
 
         return row
 
+    async def client_belongs_to_account(self, client_id: str, account_id: str) -> bool:
+        """Guard de tenencia (operacion-party-guard, RONDA 2, finding MINOR):
+        ¿`client_id` pertenece a esta cuenta? `create_quote` hacía un INSERT
+        directo de `client_id` sin este chequeo — la única barrera era la RLS
+        de `account_id`, que no scopea el FK a `clients`. Mismo predicado que
+        el guard SQL de `rpc_accept_quote`/`rpc_create_sale_operation_v2`
+        (WHERE id = $1 AND account_id = $2, SIN filtro de `deleted_at` — un
+        cliente dado de baja ya es aceptado hoy por ese mismo criterio para
+        postear un cargo a crédito, así que este guard reutiliza el criterio
+        en vez de inventar uno segundo)."""
+        row = await self.fetchrow(
+            "SELECT 1 FROM public.clients WHERE id = $1::uuid AND account_id = $2::uuid",
+            client_id,
+            account_id,
+        )
+        return row is not None
+
     async def list_quotes(self, account_id: str) -> list[dict]:
         """Lista los quotes de una cuenta, ordenados por created_at DESC."""
         return await self.fetch(

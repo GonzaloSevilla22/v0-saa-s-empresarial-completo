@@ -67,6 +67,17 @@ const NO_OPEN_SESSION_FOR_REVERSAL_ERROR = /no_open_session_for_reversal/
 const PAYMENT_NOT_FOUND_ERROR = /payment_not_found/
 const JOURNAL_ENTRY_ORIGINAL_NOT_FOUND_ERROR = /journal_entry_original_not_found/
 
+// operacion-party-guard (fix ad-hoc 2026-09-10): rpc_create_sale_operation_v2,
+// _c29_confirm_order_core (formulario y POS) y rpc_atomic_update_sale_operation
+// (edición) rechazan con `client_not_found: <uuid>` un client_id que no
+// pertenece a la cuenta — mismo literal que ya usaban las RPCs de cuenta
+// corriente (P0404). rpc_create_purchase_operation usa el espejo
+// `supplier_not_found: <uuid>` (D6 de compras-proveedor-cuenta-corriente,
+// 2026-08-23) — ninguno de los dos tenía traducción propia hasta este fix, así
+// que el usuario veía el UUID crudo.
+const CLIENT_NOT_FOUND_ERROR = /client_not_found/
+const SUPPLIER_NOT_FOUND_ERROR = /supplier_not_found/
+
 const fmtMoney = (n: number) =>
   n.toLocaleString("es-AR", { style: "currency", currency: "ARS" })
 
@@ -148,6 +159,20 @@ export function humanizeOperationError(
     return {
       message:
         "La anulación se registró, pero el asiento contable todavía no está listo para revertirse. Se completará solo en unos minutos.",
+    }
+  }
+
+  if (CLIENT_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "El cliente seleccionado no existe o no pertenece a esta cuenta. Elegí un cliente del listado o dejá el campo vacío.",
+    }
+  }
+
+  if (SUPPLIER_NOT_FOUND_ERROR.test(message)) {
+    return {
+      message:
+        "El proveedor seleccionado no existe o no pertenece a esta cuenta. Elegí un proveedor del listado o dejá el campo vacío.",
     }
   }
 

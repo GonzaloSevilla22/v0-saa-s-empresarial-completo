@@ -755,6 +755,15 @@ jobs:
           # veces consecutivas sin error ni duplicación (tasks 3.7/6.2).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261044000001_importador_productos_fastapi.sql
 
+          # operacion-party-guard (2026-09-10, último candidato de código del
+          # programa "cero candidatos"): idempotente — CREATE OR REPLACE puro
+          # sobre rpc_create_sale_operation_v2, _c29_confirm_order_core,
+          # rpc_atomic_update_sale_operation y (ronda 1 de revisión
+          # adversarial) rpc_accept_quote, las 4 con la MISMA firma (sin
+          # DROP). Reaplicada localmente dos veces consecutivas sin error,
+          # mismo fingerprint de las 4 funciones y mismas ACLs.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261045000001_operacion_party_guard.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1702,3 +1711,12 @@ jobs:
       # authenticated) al levantar el stack — este paso sólo corre el gate.
       - name: Run importador-productos-fastapi gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_import_batch.sql
+
+      # operacion-party-guard (2026-09-10, último candidato de código del
+      # programa "cero candidatos" — cierra OQ-4 de cuenta-corriente-party-
+      # guard): venta AL CONTADO con client_id ajeno → P0404 en las 4 RPCs
+      # del lado venta (formulario, POS, PRESUPUESTO→ACEPTAR [ronda 1],
+      # edición), cero filas nuevas en los 6 libros; control positivo con
+      # parte propia; candado de ACL/cuerpo; candado de flag legacy.
+      - name: Run operacion-party-guard gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_operacion_party_guard.sql

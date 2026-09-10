@@ -514,22 +514,31 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (2.5/2.6-B): los libros del tenant víctima quedan sin cambios — ni cuenta, ni movimiento, ni evento.';
 
-  -- ═══════════════════ (3.8) el choke point es lo que cubre ═════════════════
-  -- Esto era un NOTICE incondicional: decía "PASS" aunque alguien agregara un
-  -- guard propio dentro de la RPC de venta y el choke point dejara de ser
-  -- quien cubre. Ahora es un assert de verdad sobre el cuerpo VIVO: si
-  -- aparece una lectura de `clients` en el camino de venta, 2.5/2.6 podrían
-  -- seguir verdes por el motivo equivocado y nadie se enteraría.
+  -- ═══════════════════ (3.8) qué cubre 2.5/2.6 (ACTUALIZADO) ═════════════════
+  -- Hasta operacion-party-guard (fix ad-hoc 2026-09-10) esto era un assert de
+  -- AUSENCIA: "rpc_create_sale_operation_v2 / _c29_confirm_order_core NO leen
+  -- public.clients — es el choke point c30_get_or_create_customer_account
+  -- (sólo alcanzable por ventas a CRÉDITO, vía _pay_register_party_charge)
+  -- quien cubre 2.5/2.6". Ese diseño dejaba sin guard la venta AL CONTADO
+  -- con client_id ajeno — la OQ-4 que operacion-party-guard cierra — porque
+  -- el choke point nunca se invoca fuera de kind='credit'. El fix agregó un
+  -- guard EXPLÍCITO e incondicional al kind DENTRO de las dos RPCs (mismo
+  -- predicado, ver supabase/migrations/20261045000001_operacion_party_guard.sql),
+  -- así que la aserción se INVIERTE: ahora se congela que el guard vive
+  -- adentro, no que esté ausente. El candado de POSICIÓN (antes de cualquier
+  -- escritura) y el resto del comportamiento cross-tenant de este archivo
+  -- vive en supabase/tests/test_operacion_party_guard.sql — este bloque sólo
+  -- verifica que la lectura de `clients` sigue presente en el cuerpo vivo.
   -- cobranzas-vencimientos: la firma gana p_due_date trailing (11 args).
   v_def := pg_get_functiondef('public.rpc_create_sale_operation_v2(text, uuid, date, text, jsonb, uuid, text, uuid, uuid, uuid, date)'::regprocedure);
-  IF position('FROM public.clients' in v_def) <> 0 THEN
-    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-v2): el choke point dejó de ser quien cubre — alguien agregó un guard propio (lectura de public.clients) dentro de rpc_create_sale_operation_v2. Revisar 3.8 y la decisión D1: 2.5 puede estar verde por el motivo equivocado.';
+  IF position('FROM public.clients' in v_def) = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-v2): rpc_create_sale_operation_v2 perdió el guard explícito de client_id (operacion-party-guard, 2026-09-10) — sin él, una venta AL CONTADO con cliente ajeno vuelve a escribir en sales.client_id sin rechazo (OQ-4 reabierta).';
   END IF;
   v_def := pg_get_functiondef('public._c29_confirm_order_core(text, uuid, text, uuid, text, uuid, text, uuid, uuid)'::regprocedure);
-  IF position('FROM public.clients' in v_def) <> 0 THEN
-    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-core): el choke point dejó de ser quien cubre — alguien agregó un guard propio (lectura de public.clients) dentro de _c29_confirm_order_core. Revisar 3.8 y la decisión D1: 2.6 puede estar verde por el motivo equivocado.';
+  IF position('FROM public.clients' in v_def) = 0 THEN
+    RAISE EXCEPTION 'GATE PARTY-GUARD FAILED (3.8-core): _c29_confirm_order_core perdió el guard explícito de client_id (operacion-party-guard, 2026-09-10) — sin él, el POS (rpc_quick_sale) vuelve a confirmar una orden con cliente ajeno sin rechazo (OQ-4 reabierta).';
   END IF;
-  RAISE NOTICE 'PASS (3.8): 2.5 y 2.6 pasan SIN una sola lectura de public.clients en rpc_create_sale_operation_v2 ni en _c29_confirm_order_core — el guard del choke point c30_get_or_create_customer_account cubre todo caller, presente y futuro.';
+  RAISE NOTICE 'PASS (3.8): rpc_create_sale_operation_v2 y _c29_confirm_order_core conservan su guard explícito de client_id (operacion-party-guard) — 2.5/2.6 ya no dependen sólo del choke point de crédito; el candado de posición vive en test_operacion_party_guard.sql.';
 
   -- ════════════ (3.5) CONTROL POSITIVO — la parte PROPIA sigue andando ══════
   -- (3.5a) venta a crédito con cliente propio FRESCO (sin cuenta corriente

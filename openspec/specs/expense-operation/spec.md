@@ -498,33 +498,6 @@ Los paneles de historial de caja y de banco administran su propio estado imperat
 - **WHEN** se borra un gasto que había impactado caja y banco
 - **THEN** las mismas superficies reflejan los contra-movimientos sin requerir una recarga manual
 
-### Requirement: El importador de gastos no imputa forma de pago
-
-El sistema SHALL NOT aceptar forma de pago en el importador de gastos por archivo: la plantilla SHALL conservar sus columnas actuales y las filas importadas SHALL quedar sin forma de pago imputada y sin efecto en libros.
-
-La ayuda del importador SHALL declararlo explícitamente, y SHALL decirlo sin prometer un efecto que el sistema no produce: imputar la forma de pago después desde el listado es **sólo una etiqueta**, porque la edición de un gasto no postea movimientos; para que el gasto impacte caja o banco hay que cargarlo desde el formulario.
-
-El motivo SHALL ser que el importador emite una llamada por fila sin transacción que abarque el lote: con impacto en libros, un fallo a mitad del proceso dejaría parte de los gastos con movimiento y parte sin él, sin forma de reconstruir el estado.
-
-#### Scenario: Importación de un archivo de gastos
-
-- **WHEN** se importa un archivo con varias filas de gasto
-- **THEN** todos los gastos quedan creados sin forma de pago
-- **AND** no se registra ningún movimiento de caja ni bancario
-
-#### Scenario: La ayuda del importador declara la limitación
-
-- **WHEN** un usuario abre el diálogo de importación
-- **THEN** la ayuda indica que los gastos importados quedan sin forma de pago y sin impacto en libros
-- **AND** aclara que imputarles la forma de pago después es sólo una etiqueta y que para impactar los libros hay que cargar el gasto desde el formulario
-
-#### Scenario: Imputar la forma de pago a un gasto importado no mueve ningún libro
-
-- **GIVEN** un gasto creado por importación, sin forma de pago
-- **WHEN** se lo edita imputándole una forma de pago de tipo efectivo o de tipo transferencia
-- **THEN** el gasto queda con esa forma de pago imputada
-- **AND** no se registra ningún movimiento de caja ni bancario
-
 ### Requirement: Los movimientos de libros de un gasto llevan su descripción como motivo
 
 El sistema SHALL registrar la descripción del gasto como motivo (`description`) tanto en el movimiento de caja (`c28_register_cash_movement`) como en el movimiento bancario (`_pay_register_operation_bank_movement`) que el gasto genera, de modo que desde el historial de caja o de banco siempre se sepa a qué gasto corresponde el egreso — la descripción del gasto es un dato obligatorio, así que el motivo nunca puede quedar vacío para un movimiento nuevo. Los movimientos de reversa del borrado SHALL llevar el mismo motivo.

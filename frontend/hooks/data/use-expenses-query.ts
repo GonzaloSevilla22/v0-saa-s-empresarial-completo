@@ -36,6 +36,10 @@ interface ExpenseApiRow {
   has_cash_movement?: boolean
   has_bank_movement?: boolean
   is_delete_blocked?: boolean
+  // asiento-contable-gastos: rastro contable, mismo tratamiento que los
+  // cuatro derivados de arriba — servidor-derivado, default seguro.
+  has_journal_entry?: boolean
+  journal_pending?: boolean
 }
 
 /**
@@ -95,6 +99,10 @@ function mapExpense(e: ExpenseApiRow): Expense {
     hasCashMovement: e.has_cash_movement ?? false,
     hasBankMovement: e.has_bank_movement ?? false,
     isDeleteBlocked: e.is_delete_blocked ?? false,
+    // asiento-contable-gastos: default false/false = "sin asiento", el
+    // estado legítimo de un gasto histórico o de una lectura sin el derivado.
+    hasJournalEntry: e.has_journal_entry ?? false,
+    journalPending:  e.journal_pending ?? false,
   }
 }
 

@@ -22,6 +22,7 @@ import { describe, it, expect, vi, afterEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ExpenseForm } from "@/components/forms/expense-form-v2"
+import { ExpenseJournalStatusBadge } from "@/components/gastos/ExpenseJournalStatusBadge"
 
 let paymentMethodsMock: Array<{ id: string; name: string; kind: string; isActive: boolean }> = []
 let currentSessionMock: { id: string } | null = null
@@ -206,5 +207,38 @@ describe("Accesibilidad — ExpenseImportDialog (task 8.10)", () => {
     // El badge de estado por fila (paso 2) es texto real ("OK"), no un
     // cuadrito de color sin nombre accesible.
     expect(screen.getByText("OK")).toBeInTheDocument()
+  })
+})
+
+/**
+ * asiento-contable-gastos (task 9.8): el estado contable tiene nombre
+ * accesible y el enlace al diario es alcanzable por teclado.
+ */
+describe("Accesibilidad — ExpenseJournalStatusBadge (task 9.8)", () => {
+  it("el estado 'asentado' es un link con nombre accesible (Tab lo alcanza)", () => {
+    render(<ExpenseJournalStatusBadge expenseId="e1" hasJournalEntry />)
+    const link = screen.getByRole("link", { name: /asentado/i })
+    // Un <a href> real es alcanzable por teclado sin tabIndex adicional —
+    // se afirma la ausencia de tabIndex=-1, que lo sacaría del orden de tabulación.
+    expect(link.getAttribute("tabindex")).not.toBe("-1")
+    expect(link).toHaveAccessibleName(/asentado/i)
+  })
+
+  it("los estados 'pendiente' y 'sin asiento' tienen nombre accesible propio, sin prometer un enlace", () => {
+    // Un <span> sin rol interactivo no "hereda" el texto visible como nombre
+    // accesible (Name-from-content sólo aplica a roles como link/button): su
+    // nombre accesible es el `title`, que además es MÁS descriptivo — dice
+    // "se registra en unos minutos" en vez de sólo "pendiente". Se afirma que
+    // el nombre accesible existe y comunica lo mismo que el texto visible.
+    const { unmount } = render(<ExpenseJournalStatusBadge expenseId="e1" journalPending />)
+    const pendiente = screen.getByText(/pendiente/i)
+    expect(pendiente).toHaveAccessibleName(/en unos minutos/i)
+    expect(pendiente.tagName).not.toBe("A")
+    unmount()
+
+    render(<ExpenseJournalStatusBadge expenseId="e1" />)
+    const sinAsiento = screen.getByText(/sin asiento/i)
+    expect(sinAsiento).toHaveAccessibleName(/anterior/i)
+    expect(sinAsiento.tagName).not.toBe("A")
   })
 })

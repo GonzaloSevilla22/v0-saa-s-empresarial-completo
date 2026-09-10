@@ -115,6 +115,13 @@ class ExpenseOut(BaseModel):
     has_cash_movement: bool = False
     has_bank_movement: bool = False
     is_delete_blocked: bool = False
+    # asiento-contable-gastos (D11): rastro contable, derivado de servidor con
+    # el mismo tratamiento que los cuatro de arriba. Default False: un gasto
+    # que llega sin el derivado (lectura vieja) se muestra "sin asiento", que
+    # es el estado legítimo de un gasto histórico — nunca "asentado" por
+    # accidente.
+    has_journal_entry: bool = False
+    journal_pending: bool = False
 
     @field_validator("date", mode="before")
     @classmethod

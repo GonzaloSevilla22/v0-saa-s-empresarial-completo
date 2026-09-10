@@ -11,7 +11,7 @@ import {
   Package, Warehouse, Users, Sparkles, Calculator,
   MessageSquare, GraduationCap, Settings, LogOut, Zap, Crown,
   ShieldCheck, BarChart3, LayoutGrid, Bot, TrendingUp, GitCompare, MapPin,
-  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck, HandCoins
+  CreditCard, FolderDown, Leaf, Scan, Landmark, ShieldAlert, Tags, Wallet, Banknote, Truck, HandCoins, BookOpen
 } from "lucide-react"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup,
@@ -85,6 +85,11 @@ export const navGroups = [
       // metodos-pago-operaciones (D10): mismo criterio que centros de costo —
       // sin gate de plan, el catálogo está disponible en todos los planes.
       { title: "Formas de pago", href: "/reportes/formas-pago", icon: Wallet, pro: false, proOnly: false },
+      // asiento-contable-gastos (D9/D10, task 10.5): mismo criterio que
+      // Centros de costo y Formas de pago — es lectura de datos que el
+      // propio usuario generó, sin gate de plan. GET /journal-entries existe
+      // desde journal-entry-outbox y no tenía consumidor en el frontend.
+      { title: "Libro diario", href: "/reportes/libro-diario", icon: BookOpen, pro: false, proOnly: false },
       { title: "Feria AI", href: "/ferias/ia", icon: LayoutGrid, pro: false, proOnly: false },
       { title: "Simulador", href: "/simulador", icon: Calculator, pro: false, proOnly: false },
     ],

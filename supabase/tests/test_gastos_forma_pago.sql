@@ -956,6 +956,7 @@ DECLARE
   v_product_a  uuid;
   v_result     jsonb; v_exp_id uuid;
   v_bm         RECORD;
+  v_debit      RECORD; v_credit RECORD;
   v_count      integer; v_count_before integer;
   v_amount     numeric;
   v_rejected   boolean; v_sqlstate text;
@@ -1139,25 +1140,52 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (3.10g/3.13): período conciliado cerrado rechaza con P0424 y revierte también el gasto (atomicidad de la pata bancaria).';
 
-  -- ═══ (3.10h) CONTROL NEGATIVO DE D10 — ni evento ni asiento ══════════════
-  -- D10 declara el asiento contable fuera de alcance y la RPC no inserta en
-  -- public.events (eso además la deja fuera del chequeo (5) del gate de ACLs).
-  -- Sin control negativo la garantía se cumple por accidente hasta que alguien
-  -- agregue un INSERT.
+  -- ═══ (3.10h) D10 RESUELTA por asiento-contable-gastos (2026-09-10) ═══════
+  -- D10 de este mismo change declaraba el asiento contable FUERA de alcance
+  -- y este control negativo exigía CERO eventos. asiento-contable-gastos
+  -- cierra exactamente ese candidato heredado: el alta emite ExpenseCreated
+  -- en la misma transacción, y el relay lo asienta a 5300 Gastos / 1110
+  -- Banco (kind=transfer, D4 de ese change). El control ahora asserta el
+  -- EFECTO nuevo — no sólo su existencia, también el mapeo de cuentas —
+  -- para no quedar verde por una regresión (revisor, ronda 2, nit: el
+  -- comentario prometía verificar 5300/1110 pero el bloque sólo contaba
+  -- asientos; el mapeo completo lo cubre en detalle el gate dedicado
+  -- test_asiento_contable_gastos.sql bloque (C-bancario) — este bloque
+  -- ahora lo confirma también aquí, en el gate de formas de pago).
   SELECT COUNT(*) INTO v_count_before FROM public.events WHERE account_id = v_account_a;
   v_result := public.rpc_create_expense(
     p_category => 'Servicios', p_amount => 2800, p_date => v_today,
     p_payment_method_id => v_pm_transfer_a, p_bank_account_id => v_ba_a);
   v_exp_id := (v_result->>'expense_id')::uuid;
-  SELECT COUNT(*) INTO v_count FROM public.events WHERE account_id = v_account_a;
-  IF v_count <> v_count_before THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (3.10h): el alta del gasto insertó % eventos en public.events — D10 declara la emisión al outbox FUERA DE ALCANCE y ese INSERT metería a la RPC en el chequeo (5) del gate de ACLs.', v_count - v_count_before;
+  SELECT COUNT(*) INTO v_count FROM public.events
+  WHERE account_id = v_account_a AND event_type = 'ExpenseCreated' AND aggregate_id = v_exp_id;
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (3.10h): el alta del gasto insertó % ExpenseCreated y esperaba exactamente 1 (asiento-contable-gastos, D1).', v_count;
   END IF;
-  SELECT COUNT(*) INTO v_count FROM public.journal_entries WHERE account_id = v_account_a;
-  IF v_count <> 0 THEN
-    RAISE EXCEPTION 'GATE GASTOS FAILED (3.10h): el alta del gasto creó % asientos contables — el asiento del gasto está diferido a V2.6 (D10).', v_count;
+
+  PERFORM public.rpc_process_outbox_dispatch(100);
+
+  SELECT COUNT(*) INTO v_count FROM public.journal_entries
+  WHERE source_doc_type = 'Expense' AND source_doc_ref = v_exp_id AND status = 'posted';
+  IF v_count <> 1 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (3.10h): tras el relay hay % asientos para el gasto y esperaba exactamente 1 (asiento-contable-gastos resolvió D10).', v_count;
   END IF;
-  RAISE NOTICE 'PASS (3.10h): el gasto con movimiento bancario no emite eventos al outbox ni crea asiento contable.';
+
+  SELECT jl.* INTO v_debit FROM public.journal_lines jl
+    JOIN public.journal_entries je ON je.id = jl.entry_id
+    WHERE je.source_doc_type = 'Expense' AND je.source_doc_ref = v_exp_id AND je.status = 'posted'
+      AND jl.side = 'debit';
+  SELECT jl.* INTO v_credit FROM public.journal_lines jl
+    JOIN public.journal_entries je ON je.id = jl.entry_id
+    WHERE je.source_doc_type = 'Expense' AND je.source_doc_ref = v_exp_id AND je.status = 'posted'
+      AND jl.side = 'credit';
+  IF v_debit.account_code <> '5300' OR v_debit.amount <> 2800 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (3.10h): débito=%/% y esperaba 5300/2800.', v_debit.account_code, v_debit.amount;
+  END IF;
+  IF v_credit.account_code <> '1110' OR v_credit.amount <> 2800 THEN
+    RAISE EXCEPTION 'GATE GASTOS FAILED (3.10h): crédito=%/% y esperaba 1110/2800 (kind=transfer con bank_account_id resuelto, D4 de asiento-contable-gastos).', v_credit.account_code, v_credit.amount;
+  END IF;
+  RAISE NOTICE 'PASS (3.10h): el gasto con movimiento bancario emite su ExpenseCreated y el relay lo asienta a 5300/1110 — D10 resuelta por asiento-contable-gastos.';
 
   -- ═══ (3.11) [OQ-2 / D5] guard de cuenta bancaria EXIGIBLE ════════════════
   -- La organización A TIENE cuentas bancarias activas y la forma de pago de

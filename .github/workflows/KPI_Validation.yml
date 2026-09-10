@@ -739,6 +739,15 @@ jobs:
           # veces sin cambios (task 4.12).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261042000001_products_cost_nullable.sql
 
+          # asiento-contable-gastos (2026-09-10): reescribe _journal_expense_
+          # credit_account (nueva), _journal_post_from_event, rpc_create_expense,
+          # rpc_update_expense, rpc_delete_expense y rpc_process_outbox_dispatch,
+          # las seis con CREATE OR REPLACE sin cambio de firma — sin conflicto
+          # de overload al reaplicar (verificado localmente: dos reaplicaciones
+          # consecutivas, EXIT=0 las dos, una sola definición de cada función,
+          # sin duplicar el REVOKE del helper nuevo).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261043000001_asiento_contable_gastos.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1646,3 +1655,36 @@ jobs:
       # (costo ausente = 0, sin cambios — gate de regresión, T14).
       - name: Run productos-costo-nullable gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_productos_costo_nullable.sql
+
+      # asiento-contable-gastos: el gasto pasa a producir su asiento de
+      # partida doble por el mismo outbox que ya sirve a venta/compra/cobros.
+      # 16 bloques (A-J, con sufijos): mapeo de cuenta de contrapartida en
+      # aislamiento; alta en efectivo asentada a 5300/1100; los 4 kind
+      # bancarios acreditan 1110; sin forma de pago acredita 1100 y NUNCA
+      # 2100 (OQ-1); control negativo OQ-2 (cash sin opt-in de caja acredita
+      # 1100 igual); D5 (el asiento cae en el día del gasto, no en el del
+      # relay); D6 (edición sin P0423, contra-asiento + asiento nuevo);
+      # F-bis (segunda edición del mismo gasto — un solo asiento vigente,
+      # sin duplicar — revisor ronda 1, blocker); F2 (alta→edición→borrado —
+      # cero asientos vigentes, neto 0); F3 (editar a un kind bancario sin
+      # bank_movement real NO acredita 1110 — revisor ronda 1, major);
+      # borrado con contra-asiento sobre la fila ya borrada; D7 (gasto
+      # histórico no emite evento, gasto creado-y-borrado antes del relay
+      # SÍ); idempotencia y P0451; tenencia y ACL del helper nuevo.
+      - name: Run asiento contable de gastos gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_asiento_contable_gastos.sql
+
+      # cobranzas-reverso: gate escrito en su propio apply (2026-09-02) y
+      # NUNCA cableado a CI — hallazgo (1) del propose de asiento-contable-
+      # gastos, verificado por grep antes de escribir una línea de SQL de
+      # este change. Cubre el reverso de cobranzas/pagos (grupos 3-6 de ese
+      # change) Y, en su bloque (11), el invariante D13/D8 de que los dos
+      # filtros de event_type del consumidor contable (helper + Consumer 3
+      # del dispatcher) enumeran EXACTAMENTE el mismo conjunto — ahora 14
+      # tipos tras sumar los tres de gasto, con su propia matriz de evasión
+      # ejecutada (bloque 11b). Corrido localmente contra la base sin migrar
+      # (D8, apply de asiento-contable-gastos): 12/12 bloques en verde, sin
+      # ningún rojo preexistente que reportar (OQ-6 resuelta: nada que
+      # arreglar, sólo cablear).
+      - name: Run cobranzas reverso gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cobranzas_reverso.sql

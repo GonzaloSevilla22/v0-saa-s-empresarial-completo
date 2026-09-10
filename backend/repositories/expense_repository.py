@@ -92,7 +92,26 @@ _EXPENSE_PROJECTION = """
           SELECT 1 FROM public.cash_sessions os
           WHERE os.cashbox_id = cs.cashbox_id AND os.status = 'open'
         )
-    ) AS is_delete_blocked
+    ) AS is_delete_blocked,
+    -- asiento-contable-gastos (D11): rastro contable del gasto. Mismo patrón
+    -- que los cuatro derivados de arriba — se calcula UNA vez acá y lo heredan
+    -- get_by_id, list_paginated y el re-SELECT de las tres mutaciones.
+    --   has_journal_entry → existe un asiento VIGENTE (status='posted') con
+    --     source_doc_type='Expense' y source_doc_ref = este gasto.
+    --   journal_pending    → existe un evento de este gasto en el outbox que
+    --     el relay todavía no procesó (ExpenseCreated/Adjusted/Deleted con
+    --     processed_at IS NULL). Los dos son mutuamente excluyentes en la
+    --     práctica salvo la ventana entre el alta y el primer tick del relay.
+    EXISTS (
+      SELECT 1 FROM public.journal_entries je
+      WHERE je.source_doc_type = 'Expense' AND je.source_doc_ref = e.id
+        AND je.status = 'posted'
+    ) AS has_journal_entry,
+    EXISTS (
+      SELECT 1 FROM public.events ev
+      WHERE ev.aggregate_type = 'Expense' AND ev.aggregate_id = e.id
+        AND ev.processed_at IS NULL
+    ) AS journal_pending
 """
 
 # El LEFT JOIN del nombre NO filtra is_active ni deleted_at a propósito (D18):

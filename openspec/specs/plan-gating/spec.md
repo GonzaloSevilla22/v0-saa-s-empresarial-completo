@@ -64,6 +64,8 @@ Los límites SHALL leerse de `plan_limits` en runtime **en todas las capas que l
 
 El enforcement de los límites de recursos maestros (productos, clientes, proveedores) SHALL aplicarse en la **creación**. Los límites de contadores mensuales (operaciones/mes, exportaciones/mes) quedan fuera del enforcement de creación de este comportamiento.
 
+Cuando el enforcement de un límite de recurso maestro se ejecuta **dentro de la unidad de trabajo de base de datos**, la resolución del plan efectivo SHALL hacerse contra la base por la definición normativa única de plan efectivo, y NO SHALL derivarse de la información de plan que viaja en el token: ese camino cae a un valor por defecto permisivo cuando el claim no viaja, y el límite deja de existir sin que nada falle. Esta cláusula NO altera el enforcement que realiza el backend en la capa de aplicación, que conserva su regla propia.
+
 #### Scenario: Usuario gratis intenta crear el producto 101
 - **GIVEN** un usuario con plan efectivo 'gratis' que ya tiene 100 productos
 - **WHEN** intenta acceder al formulario de creación de producto

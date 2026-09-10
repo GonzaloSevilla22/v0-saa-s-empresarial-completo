@@ -86,7 +86,7 @@ updated_at      TIMESTAMP   -- auto-update via trigger
 id                  UUID        PK
 user_id             UUID        FK auth.users
 name                TEXT
-category            TEXT        -- Electrónica|Ropa|Alimentos|Hogar|Salud|Accesorios|Otros
+category_id         UUID        FK product_categories(id) ON DELETE RESTRICT, nullable  -- productos-categoria-text-retiro (2026-09-09): única representación física de la categoría. La columna `category` (TEXT) que existía acá se retiró — el nombre legible se lee DERIVADO en `v_products_with_stock` (LEFT JOIN product_categories), nunca almacenado en products.
 price               NUMERIC(15,2)
 cost                NUMERIC(15,2)
 stock               NUMERIC(15,4)   -- fraccionario (ej: 0.5 kg) — DEPRECATED, dropeada en C-21 checkpoint #2; stock real vive en branch_stock.quantity

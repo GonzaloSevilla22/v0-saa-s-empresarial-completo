@@ -351,7 +351,12 @@ export interface ProductAttribute {
 export interface Product {
   id: string
   name: string
-  /** Espejo TEXT del nombre de la categoría (mantenido por trigger) — para mostrar/buscar. */
+  /**
+   * Nombre legible de la categoría. productos-categoria-text-retiro: ya NO es
+   * una columna física ni un espejo mantenido por trigger — el servidor lo
+   * deriva de `product_categories` vía `categoryId` (v_products_with_stock).
+   * El campo, su nombre y su significado no cambian para este tipo.
+   */
   category: string
   /**
    * productos-categorias-sku (D1): FK a product_categories — la fuente de

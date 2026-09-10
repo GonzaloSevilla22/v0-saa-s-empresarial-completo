@@ -13,10 +13,11 @@ BULK_CATEGORY_MAX_IDS = 500
 
 class ProductCreate(BaseModel):
     name: str
-    category: str | None = None
     # productos-categorias-sku (D1/D11): fuente de verdad de la categoría. Para
     # una VARIANTE (parent_id informado) el servidor la resuelve desde el padre
-    # e ignora este campo.
+    # e ignora este campo. productos-categoria-text-retiro: el campo `category`
+    # (nombre libre) se retiró del schema de entrada — un cliente viejo que
+    # todavía lo mande no rompe (Pydantic ignora el extra en silencio, D6).
     category_id: uuid.UUID | None = None
     price: Decimal | None = None
     cost: Decimal | None = None
@@ -38,7 +39,6 @@ class ProductUpdate(BaseModel):
     (`exclude_none`) para no ampliar el alcance."""
 
     name: str | None = None
-    category: str | None = None
     category_id: uuid.UUID | None = None
     price: Decimal | None = None
     cost: Decimal | None = None
@@ -55,11 +55,11 @@ class ProductOut(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID
     name: str
+    # productos-categoria-text-retiro: `category` es ahora DERIVADA por
+    # v_products_with_stock (LEFT JOIN product_categories por category_id) —
+    # ya no es una columna física de products. El nombre de campo y su
+    # significado ("nombre legible de la categoría") no cambian (D1/D2).
     category: str | None
-    # productos-categorias-sku: llega desde v_products_with_stock (última
-    # columna). Default None para lecturas de una base sin la migración — y
-    # porque el response_model FILTRA la salida: sin esta línea el cliente
-    # nunca vería la categoría imputada.
     category_id: uuid.UUID | None = None
     price: Decimal | None
     cost: Decimal | None

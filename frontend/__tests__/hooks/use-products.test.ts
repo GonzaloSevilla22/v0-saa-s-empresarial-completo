@@ -113,6 +113,51 @@ describe("useProducts", () => {
     expect(result.current.products[0].margin).toBe(0)
   })
 
+  // ── productos-categoria-text-retiro (task 5.5): el payload de alta/edición
+  // ya no manda la clave legacy `category` — category_id es la única fuente
+  // de verdad y el servidor deriva el nombre legible. ────────────────────
+  it("addProduct sends category_id but never the legacy category key", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue(mockProductRows)
+    vi.mocked(pythonClient.post).mockResolvedValueOnce(mockProductRows[0])
+
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.addProduct({
+        name: "Gorra", category: "Accesorios", categoryId: "cat-1",
+        cost: 10, price: 20, margin: 50, stock: 0, minStock: 0,
+        isVariant: false, stockControlType: "tracked",
+      })
+    })
+
+    expect(pythonClient.post).toHaveBeenCalledTimes(1)
+    const body = vi.mocked(pythonClient.post).mock.calls[0][1] as Record<string, unknown>
+    expect(body).not.toHaveProperty("category")
+    expect(body).toHaveProperty("category_id", "cat-1")
+  })
+
+  it("updateProduct sends category_id but never the legacy category key", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValue(mockProductRows)
+    vi.mocked(pythonClient.put).mockResolvedValueOnce(mockProductRows[0])
+
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    await act(async () => {
+      await result.current.updateProduct({
+        id: "prod-1", name: "Remera", category: "Ropa", categoryId: "cat-1",
+        cost: 10, price: 20, margin: 50, stock: 0, minStock: 0,
+        isVariant: false, stockControlType: "tracked",
+      })
+    })
+
+    expect(pythonClient.put).toHaveBeenCalledTimes(1)
+    const body = vi.mocked(pythonClient.put).mock.calls[0][1] as Record<string, unknown>
+    expect(body).not.toHaveProperty("category")
+    expect(body).toHaveProperty("category_id", "cat-1")
+  })
+
   // ── RED → GREEN: deleteProduct invalidates cache post-204 ───────────────
   it("deleteProduct calls DELETE /products/:id and invalidates cache", async () => {
     vi.mocked(pythonClient.get).mockResolvedValue(mockProductRows)

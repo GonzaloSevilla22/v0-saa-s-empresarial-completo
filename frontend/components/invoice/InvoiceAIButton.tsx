@@ -99,6 +99,11 @@ export function InvoiceAIButton({ onPurchasesCreated }: Props) {
       if (line.is_new_product && line.confirmed_product_name && !line.confirmed_product_id) {
         await addProduct({
           name:             line.confirmed_product_name,
+          // productos-categoria-text-retiro: `category` ya no se persiste
+          // (era el espejo TEXT, retirado) y no se manda `categoryId` acá —
+          // el producto nace sin categoría (category_id NULL), igual que
+          // antes de este change. El literal queda como placeholder de tipo,
+          // nunca imputa "Otros" de verdad.
           category:         "Otros",
           cost:             line.confirmed_unit_price,
           price:            line.confirmed_unit_price,

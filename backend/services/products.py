@@ -105,13 +105,11 @@ async def create_product(
             raise HTTPException(status_code=404, detail="Producto padre no encontrado")
         parent_category_id = parent["category_id"] if "category_id" in parent.keys() else None
         data["category_id"] = str(parent_category_id) if parent_category_id else None
-        data["category"] = parent["category"]
     elif payload.category_id is not None:
         if category_repo is None:
             raise HTTPException(status_code=500, detail="Catálogo de categorías no disponible")
-        category = await _resolve_category_for_account(category_repo, str(payload.category_id), account_id)
+        await _resolve_category_for_account(category_repo, str(payload.category_id), account_id)
         data["category_id"] = str(payload.category_id)
-        data["category"] = category["name"]
     else:
         data["category_id"] = None
 

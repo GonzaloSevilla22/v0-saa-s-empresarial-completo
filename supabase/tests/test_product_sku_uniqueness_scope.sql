@@ -78,11 +78,11 @@ BEGIN
     RAISE NOTICE 'GATE PRODUCT-SKU-SCOPE (2-5) degradado: no se pudo resolver cuenta para los anchors sintéticos — omitido sin fallar.';
   ELSE
     -- (2) Mismo SKU en dos cuentas → permitido.
-    INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock)
-    VALUES (v_user_a, v_account_a, 'Gate SKU remera A', 'Otros', 'REM-001', 100, 50, 0)
+    INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock)
+    VALUES (v_user_a, v_account_a, 'Gate SKU remera A', 'REM-001', 100, 50, 0)
     RETURNING id INTO v_prod_a;
-    INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock)
-    VALUES (v_user_b, v_account_b, 'Gate SKU remera B', 'Otros', 'REM-001', 100, 50, 0)
+    INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock)
+    VALUES (v_user_b, v_account_b, 'Gate SKU remera B', 'REM-001', 100, 50, 0)
     RETURNING id INTO v_prod_b;
     IF v_prod_a IS NULL OR v_prod_b IS NULL THEN
       RAISE EXCEPTION 'GATE PRODUCT-SKU-SCOPE FAILED (2): el mismo SKU en dos cuentas distintas debería coexistir.';
@@ -91,8 +91,8 @@ BEGIN
 
     -- (3) Mismo SKU, distinta caja, misma cuenta → rechazado.
     BEGIN
-      INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock)
-      VALUES (v_user_a, v_account_a, 'Gate SKU remera A bis', 'Otros', 'rem-001', 100, 50, 0);
+      INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock)
+      VALUES (v_user_a, v_account_a, 'Gate SKU remera A bis', 'rem-001', 100, 50, 0);
     EXCEPTION
       WHEN unique_violation THEN
         v_rejected := true;
@@ -105,8 +105,8 @@ BEGIN
     -- (5) Dos miembros de la MISMA cuenta → rechazado (user_id distinto, account_id igual).
     v_rejected := false;
     BEGIN
-      INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock)
-      VALUES (v_user_b, v_account_a, 'Gate SKU remera A por B', 'Otros', 'REM-001', 100, 50, 0);
+      INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock)
+      VALUES (v_user_b, v_account_a, 'Gate SKU remera A por B', 'REM-001', 100, 50, 0);
     EXCEPTION
       WHEN unique_violation THEN
         v_rejected := true;
@@ -118,8 +118,8 @@ BEGIN
 
     -- (4) SKU de un producto soft-deleteado → recreable.
     UPDATE public.products SET deleted_at = now(), deleted_by = v_user_a WHERE id = v_prod_a;
-    INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock)
-    VALUES (v_user_a, v_account_a, 'Gate SKU remera A nueva', 'Otros', 'REM-001', 100, 50, 0)
+    INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock)
+    VALUES (v_user_a, v_account_a, 'Gate SKU remera A nueva', 'REM-001', 100, 50, 0)
     RETURNING id INTO v_prod_new;
     IF v_prod_new IS NULL THEN
       RAISE EXCEPTION 'GATE PRODUCT-SKU-SCOPE FAILED (4): el SKU de un producto soft-deleteado debería poder recrearse.';

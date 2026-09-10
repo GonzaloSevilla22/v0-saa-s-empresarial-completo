@@ -97,12 +97,14 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
     }
 
     const resolvedParentId = parentId === "none" ? undefined : parentId
-    const parent = resolvedParentId ? products.find((p) => p.id === resolvedParentId) : undefined
     const productData = {
       name,
-      // El TEXT `category` lo mantiene el trigger de espejo desde category_id;
-      // para la variante se acarrea el del padre (camino legacy de lectura).
-      category: parent?.category ?? "",
+      // productos-categoria-text-retiro: `category` ya no se deriva del padre
+      // acá — category_id es la única fuente de verdad y el nombre legible lo
+      // deriva el servidor (v_products_with_stock). El campo sigue existiendo
+      // en el tipo `Product` (D1/D2, no cambia) pero este valor nunca se
+      // transmite: use-products.ts ya no lo incluye en el payload de alta/edición.
+      category: "",
       // Variante: NO se manda categoryId — el servidor la hereda del padre e
       // ignora lo que mande el cliente (D11/9.7).
       categoryId: resolvedParentId ? undefined : (categoryId ?? undefined),

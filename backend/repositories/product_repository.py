@@ -84,16 +84,15 @@ class ProductRepository(BaseRepository):
         async with self._conn.transaction():
             row = await self.fetchrow(
                 """
-                INSERT INTO products (user_id, account_id, name, category, price, cost, min_stock,
+                INSERT INTO products (user_id, account_id, name, price, cost, min_stock,
                                       barcode, sku, parent_id, is_variant, stock_control_type,
                                       category_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 RETURNING id
                 """,
                 user_id,
                 account_id,
                 data["name"],
-                data.get("category"),
                 data.get("price"),
                 data.get("cost"),
                 data.get("min_stock", 0),
@@ -102,8 +101,9 @@ class ProductRepository(BaseRepository):
                 data.get("parent_id"),
                 data.get("is_variant", False),
                 data.get("stock_control_type", "unit"),
-                # productos-categorias-sku (D1): fuente de verdad; el trigger de
-                # espejo deja products.category con el nombre de la categoría.
+                # productos-categoria-text-retiro (D1): category_id es la única
+                # representación física; el nombre legible lo deriva
+                # v_products_with_stock (LEFT JOIN product_categories).
                 data.get("category_id"),
             )
             if row is None:
@@ -183,10 +183,11 @@ class ProductRepository(BaseRepository):
 
     async def bulk_set_category(self, product_ids: list[str], account_id: str, category_id: str) -> int:
         """D14: recategoriza en lote (un solo UPDATE, ver _BULK_SET_CATEGORY_SQL)
-        y devuelve las filas realmente cambiadas. El trigger de espejo
-        (trg_product_category_mirror) deja products.category correcto en
-        cada fila tocada — y rechaza con P0404 una categoría de otra cuenta,
-        defensa en profundidad detrás de la validación del service."""
+        y devuelve las filas realmente cambiadas. productos-categoria-text-retiro:
+        el nombre legible lo deriva v_products_with_stock — ya no hay espejo que
+        mantener. El trigger de tenencia (fn_product_category_tenancy_guard)
+        rechaza con P0404 una categoría de otra cuenta, defensa en profundidad
+        detrás de la validación del service."""
         status = await self.execute(_BULK_SET_CATEGORY_SQL, product_ids, account_id, category_id)
         return int(status.rsplit(" ", 1)[-1])
 

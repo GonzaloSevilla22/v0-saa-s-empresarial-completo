@@ -71,9 +71,10 @@ export function useProducts() {
     mutationFn: async (product: Omit<Product, "id">) => {
       return pythonClient.post<ProductApiRow>("/products", {
         name:               product.name,
-        category:           product.category   || null,
-        // productos-categorias-sku: la clave viaja SÓLO si el formulario la
-        // resolvió — una variante no la manda: el servidor hereda del padre (D11).
+        // productos-categoria-text-retiro: `category` (nombre libre) ya no se
+        // envía — category_id es la única fuente de verdad (D1); el nombre
+        // legible lo deriva el servidor. La clave viaja SÓLO si el formulario
+        // la resolvió — una variante no la manda: el servidor hereda del padre (D11).
         ...(product.categoryId !== undefined ? { category_id: product.categoryId } : {}),
         price:              product.price,
         cost:               product.cost,
@@ -95,7 +96,7 @@ export function useProducts() {
     mutationFn: async (product: Product) => {
       return pythonClient.put<ProductApiRow>(`/products/${product.id}`, {
         name:               product.name,
-        category:           product.category   || null,
+        // productos-categoria-text-retiro: `category` ya no se envía (idem alta).
         // productos-categorias-sku (D12): tri-estado por AUSENCIA de la clave
         // (mismo contrato que bankAccountId en use-payment-methods): omitida
         // conserva; uuid asigna; null desasigna. `sku: null` más abajo BORRA

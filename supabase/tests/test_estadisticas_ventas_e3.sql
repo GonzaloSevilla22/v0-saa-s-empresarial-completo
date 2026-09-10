@@ -125,6 +125,7 @@ DECLARE
   v_account   uuid;
   v_foreign_account uuid;
   v_branch1   uuid;
+  v_cat_ropa  uuid;
   v_today     date;
   v_monday    date;
   v_sunday    date;
@@ -190,6 +191,16 @@ BEGIN
     RETURN;
   END IF;
 
+  -- productos-categoria-text-retiro: `category` ya no es columna física —
+  -- el padre se imputa por category_id a la categoría "Ropa" del seed de
+  -- provisioning; la vista deriva el nombre para el assert de más abajo.
+  SELECT id INTO v_cat_ropa FROM public.product_categories
+   WHERE account_id = v_account AND lower(name) = 'ropa' AND deleted_at IS NULL;
+  IF v_cat_ropa IS NULL THEN
+    RAISE NOTICE 'GATE ESTADISTICAS E3: la cuenta no tiene la categoría "Ropa" del seed de provisioning — degradando sin abortar.';
+    RETURN;
+  END IF;
+
   -- ── Fechas relativas (fecha de negocio = día calendario, a medianoche UTC) ─
   v_today  := public.reporting_local_today();
   v_monday := date_trunc('week', v_today::timestamp)::date;  -- lunes ISO
@@ -200,8 +211,8 @@ BEGIN
   v_end    := v_today;
 
   -- ── Fixture: padre con 2 variantes, standalone, producto sin ventas, ajeno ─
-  INSERT INTO public.products (user_id, account_id, name, sku, price, cost, category)
-  VALUES (v_user, v_account, '__gate_e3_padre__', 'E3-PADRE', 1000, 100, 'Ropa') RETURNING id INTO v_p_parent;
+  INSERT INTO public.products (user_id, account_id, name, sku, price, cost, category_id)
+  VALUES (v_user, v_account, '__gate_e3_padre__', 'E3-PADRE', 1000, 100, v_cat_ropa) RETURNING id INTO v_p_parent;
   INSERT INTO public.products (user_id, account_id, name, sku, price, cost, parent_id, is_variant)
   VALUES (v_user, v_account, '__gate_e3_v1__', 'E3-V1', 1000, 100, v_p_parent, true) RETURNING id INTO v_p_v1;
   INSERT INTO public.products (user_id, account_id, name, sku, price, cost, parent_id, is_variant)

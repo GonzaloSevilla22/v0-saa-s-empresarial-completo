@@ -19,3 +19,9 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   tablet-filtros-cta: barra de controles (filtros + acciones) de `/ventas`,
   `/gastos`, `/compras` y `/clientes`, con el mismo contenedor y las mismas
   clases de wrap que las páginas reales.
+- `/dev-harness/expense-import` — importador-gastos-transaccional (task 9.6):
+  `ExpenseImportDialog` real (sin mocks de componente), con un intercept de
+  `window.fetch` hacia `/payment-methods`, `/cost-centers`, `/bank-accounts` y
+  `/expenses/import` (catálogos sintéticos + heurística mínima para ejercitar
+  ok/aviso/error del paso 2), para la pasada visual de los tres pasos sin
+  sesión ni backend real.

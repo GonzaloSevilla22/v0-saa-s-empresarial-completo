@@ -322,6 +322,8 @@ El diálogo lo dispara **automáticamente al pasar al paso 2**, con estado de ca
 
 **Verificación visual obligatoria** (regla PO 2026-08-02): los tres pasos en **desktop y móvil**, en **claro y oscuro**. Atención específica al paso 2: la tabla gana tres columnas y el diálogo mide `sm:max-w-[680px]` — a 375 px tiene que scrollear **dentro** de su contenedor (`responsive-shell`), nunca estirar el documento. Los badges de estado usan hoy literales `text-emerald-400` / `text-yellow-400` / `text-red-400` (`expense-import-dialog.tsx:206-212`): se migran a los **tokens semánticos** del sistema de diseño, que es lo que exige el gate `token-contrast-aa`.
 
+**Candidato dejado fuera de este change (hallazgo de la revisión adversarial, apply)**: los cuatro valores por defecto del lote sólo son elegibles ANTES de elegir el archivo — `handleFile` salta al paso 2 apenas termina de parsear, sin ninguna confirmación intermedia, así que la única forma de cambiarlos es volver a elegir el archivo (botón "Cambiar archivo"). Es coherente con esta decisión (los defaults viven en el paso 1) y no es un defecto de corrección, pero es un orden de operaciones contraintuitivo para el flujo natural "subo el archivo y después configuro". Dos salidas posibles, ninguna implementada acá: (a) un botón "Continuar" en el paso 1 tras cargar el archivo, antes de disparar la simulación; (b) replicar los cuatro selectores (colapsados) en el paso 2, re-disparando la simulación al cambiarlos. Decisión de producto, no bloqueante — queda para que el PO la priorice si lo pide.
+
 ---
 
 ### D11 — Plomería HTTP: `POST /expenses/import`, tres capas, `Idempotency-Key` por header
@@ -458,3 +460,18 @@ Orden dentro del archivo, todo idempotente:
 
 **OQ-8 — ¿Se necesita alguna verificación en producción después del merge?**
 **Recomendación: sí, tres, todas de lectura**: (a) `MAX(version)` = la migración nueva; (b) ACLs vivas de `rpc_import_expenses` (sin `EXECUTE` para `anon`) y de `expense_imports` (sin `INSERT` para `authenticated`); (c) humo real del PO con un archivo suyo de gastos del mes, con al menos una fila por transferencia, verificando que el movimiento aparece en `/banco` y que la caja **no** se movió.
+
+---
+
+### Resolución de las OQs (task 10.3, apply)
+
+**Las ocho se resolvieron por su opción recomendada** — sign-off general del orquestador en nombre del PO ("aplicá con todas las recomendaciones"), sin variantes. Ninguna quedó abierta a mitad de camino:
+
+- **OQ-1**: RPC de lote (D1) — implementada tal cual.
+- **OQ-2**: sin movimiento de caja + aviso `cash_not_posted` por fila (D6) — implementada; la variante de opt-in por fila **no** se construyó.
+- **OQ-3**: las tres columnas nuevas, Forma de pago + Sucursal + Centro de costo (D4) — implementadas.
+- **OQ-4**: tope 500, sin trocear (D8) — implementado; `EXPENSE_IMPORT_MAX_ROWS = 500` en el schema de Pydantic y en la RPC.
+- **OQ-5**: `P0427` para el payload malformado (D12) — implementado, junto con `P0429` (señal interna de rollback, nunca sale de la RPC).
+- **OQ-6**: sin insensibilidad a tildes — no implementada (queda como candidato si aparece un catálogo real con tildes).
+- **OQ-7**: `ExportButton`/el CSV de exportación de `/gastos` no se tocaron — confirmado fuera de alcance.
+- **OQ-8**: las tres verificaciones de post-merge quedan en la sección 11 de `tasks.md`, a cargo del orquestador (sólo lectura, salvo el humo del PO).

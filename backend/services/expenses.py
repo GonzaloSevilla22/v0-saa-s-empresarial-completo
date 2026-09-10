@@ -168,3 +168,45 @@ async def delete_expense(
     require_role(auth, ["user", "admin"])
     with _pg_errors_as_problems():
         return await repo.delete(expense_id, account_id)
+
+
+# ── importador-gastos-transaccional ─────────────────────────────────────────
+
+
+async def import_expenses(
+    repo: ExpenseRepository,
+    auth: dict,
+    *,
+    idempotency_key: str,
+    rows_json: str,
+    file_name: str,
+    file_hash: str,
+    default_payment_method_id: str | None,
+    default_branch_id: str | None,
+    default_cost_center_id: str | None,
+    fallback_bank_account_id: str | None,
+    dry_run: bool,
+) -> dict:
+    """Traduce el payload y delega en `rpc_import_expenses`. CERO reglas de
+    dominio nuevas acá (D1 del design) — si aparece un `if` de negocio, está
+    en la capa equivocada.
+
+    `_pg_errors_as_problems()` sólo traduce los ERRCODEs que SÍ escapan de la
+    RPC: forma del payload (P0427). Los errores de FILA nunca escapan como
+    excepción (D2 del design) — viajan en el `errors[]` del retorno normal,
+    así que esta RPC responde siempre `200` salvo por un problema real de
+    protocolo (payload malformado, tope excedido, sin rol, sin clave).
+    """
+    require_role(auth, ["user", "admin"])
+    with _pg_errors_as_problems():
+        return await repo.import_batch(
+            idempotency_key=idempotency_key,
+            rows_json=rows_json,
+            file_name=file_name,
+            file_hash=file_hash,
+            default_payment_method_id=_uid(default_payment_method_id),
+            default_branch_id=_uid(default_branch_id),
+            default_cost_center_id=_uid(default_cost_center_id),
+            fallback_bank_account_id=_uid(fallback_bank_account_id),
+            dry_run=dry_run,
+        )

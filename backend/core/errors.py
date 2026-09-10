@@ -157,6 +157,13 @@ _BUSINESS_ERRCODE_STATUS = {
     # hasta ahora sólo lo levantaba el consumidor async, nunca un camino
     # síncrono expuesto por un endpoint.
     "P0451": 409,
+    # importador-gastos-transaccional: payload del lote de importación de
+    # gastos malformado (no es array, vacío, tope de 500 filas excedido, fila
+    # sin campos mínimos, o metadata de archivo faltante) — 422, error de
+    # VALIDACIÓN de payload, no de dominio. `P0429` (señal interna de rollback
+    # del lote) nunca sale de `rpc_import_expenses` — se captura dentro de su
+    # propio EXCEPTION y no necesita entrada acá.
+    "P0427": 422,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

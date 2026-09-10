@@ -8,6 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.schemas.common import PageOut
 
+# importador-gastos-transaccional (D8): tope de filas por lote, verificado en
+# el SERVIDOR (acá y de nuevo en la RPC — el cliente lo aplica antes de subir,
+# pero no es la autoridad). Trocear está PROHIBIDO por diseño (D8 del design):
+# no es este número el que decide, es "no partir en sub-lotes".
+EXPENSE_IMPORT_MAX_ROWS = 500
+
 
 class ExpenseCreate(BaseModel):
     category: str
@@ -125,3 +131,81 @@ class ExpenseOut(BaseModel):
 # deja de devolver una lista plana y adopta el envelope estándar
 # {items,total,page,pages} de v3-api-standards §2, igual que `GET /sales`.
 ExpensesPageOut = PageOut[ExpenseOut]
+
+
+# ── importador-gastos-transaccional ─────────────────────────────────────────
+#
+# El lote es UNA SOLA unidad de trabajo de servidor (rpc_import_expenses,
+# SECURITY DEFINER, DEC-24) que invoca rpc_create_expense por fila — este
+# módulo NO evalúa ninguna regla de negocio nueva (D1 del design): sólo
+# valida la FORMA del payload (lo que Pydantic ya hace bien) y delega.
+
+
+class ExpenseImportRowIn(BaseModel):
+    """Una fila del archivo, ya parseada por el cliente.
+
+    `amount` reutiliza la MISMA restricción que `ExpenseCreate.amount`
+    (`gt=0`, D1 de gastos-forma-pago) — no una segunda definición de "importe
+    válido". Las tres columnas de catálogo son SIEMPRE opcionales (D4): una
+    celda vacía cae al default del lote (o a rpc_create_expense, que no
+    imputa nada); un nombre que NO resuelve es error de fila, nunca un
+    default silencioso — eso lo decide la RPC, no este schema.
+    """
+
+    row_no: int = Field(gt=0)
+    description: str
+    category: str
+    amount: Decimal = Field(gt=0)
+    date: datetime.date
+    payment_method_name: str | None = None
+    branch_name: str | None = None
+    cost_center_name: str | None = None
+
+
+class ExpenseImportIn(BaseModel):
+    """Payload de `POST /expenses/import`.
+
+    `idempotency_key` es el fallback deprecado del body (v3-api-standards
+    §3) — el header `Idempotency-Key` tiene precedencia, resuelta en el
+    router con `require_idempotency_key` (igual que bank-reconciliation).
+    """
+
+    idempotency_key: str | None = None
+    file_name: str
+    file_hash: str
+    dry_run: bool = False
+    default_payment_method_id: uuid.UUID | None = None
+    default_branch_id: uuid.UUID | None = None
+    default_cost_center_id: uuid.UUID | None = None
+    fallback_bank_account_id: uuid.UUID | None = None
+    rows: list[ExpenseImportRowIn] = Field(min_length=1, max_length=EXPENSE_IMPORT_MAX_ROWS)
+
+
+class ExpenseImportErrorOut(BaseModel):
+    row: int
+    code: str
+    message: str
+
+
+class ExpenseImportNoticeOut(BaseModel):
+    row: int
+    code: str
+    message: str
+
+
+class ExpenseImportOut(BaseModel):
+    """Reporte del lote — SIEMPRE `200`, aplicado o rechazado (D11 del design).
+
+    Un lote rechazado no es un error de protocolo: es un resultado de negocio
+    con estructura. Los `4xx` quedan para lo que sí lo es (payload
+    malformado, tope excedido, sin rol de escritura, sin clave de
+    idempotencia).
+    """
+
+    committed: bool
+    import_id: uuid.UUID | None
+    imported: int
+    errors: list[ExpenseImportErrorOut]
+    notices: list[ExpenseImportNoticeOut]
+    replayed: bool
+    dry_run: bool

@@ -707,6 +707,10 @@ jobs:
           # productos-categoria-text-retiro (2026-09-09): idempotente — reaplicada localmente sin cambios.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261040000001_productos_categoria_text_retiro.sql
 
+          # importador-gastos-transaccional: idempotente (CREATE OR REPLACE,
+          # sin DROP), reaplicada localmente.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261041000001_importador_gastos_transaccional.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1582,3 +1586,20 @@ jobs:
       # prompt en vez de sólo el conteo).
       - name: Run dashboard critical stock items gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_dashboard_critical_stock_items.sql
+
+      # importador-gastos-transaccional: rpc_import_expenses — lote
+      # transaccional todo-o-nada de importación de gastos. Asserta: forma
+      # de expense_imports (RLS+policy) y expenses.import_id, todo-o-nada (una
+      # fila inválida no deja NADA en las 5 tablas), camino feliz (cash +
+      # transfer + sin forma de pago con aviso cash_not_posted), control
+      # negativo de que el lote NUNCA postea en caja (ni con sesión abierta
+      # hoy), precedencia del destino bancario configurado sobre el respaldo
+      # del lote, equivalencia con el alta directa (la llamada anidada
+      # SECURITY DEFINER no cambia auth.uid()/current_account_ids()),
+      # simulación (p_dry_run) sin ninguna escritura, tenencia cruzada, tope
+      # de 500 filas, idempotencia por clave + dedupe por archivo + un lote
+      # rechazado no quema la clave, un error estructural también aborta el
+      # lote entero, y ACLs (anon sin EXECUTE, authenticated sin INSERT en
+      # expense_imports).
+      - name: Run expense import batch gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_expense_import_batch.sql

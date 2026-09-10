@@ -506,6 +506,54 @@ export interface Expense {
   isDeleteBlocked?: boolean
 }
 
+// ── importador-gastos-transaccional ──────────────────────────────────────────
+//
+// El lote es una sola unidad de trabajo de servidor (rpc_import_expenses):
+// todo o nada, con el reporte de errores/avisos por fila en el retorno
+// normal — nunca una excepción de protocolo (D2 del design).
+
+/** Una fila del CSV, ya parseada por el cliente — espejo de `ExpenseImportRowIn`. */
+export interface ExpenseImportRow {
+  rowNo: number
+  description: string
+  category: string
+  amount: number
+  date: string
+  paymentMethodName?: string | null
+  branchName?: string | null
+  costCenterName?: string | null
+}
+
+/** Un error o aviso de fila del reporte del lote. */
+export interface ExpenseImportRowIssue {
+  row: number
+  code: string
+  message: string
+}
+
+/** Payload de `POST /expenses/import` — espejo de `ExpenseImportIn`. */
+export interface ExpenseImportInput {
+  fileName: string
+  fileHash: string
+  dryRun: boolean
+  defaultPaymentMethodId?: string | null
+  defaultBranchId?: string | null
+  defaultCostCenterId?: string | null
+  fallbackBankAccountId?: string | null
+  rows: ExpenseImportRow[]
+}
+
+/** Reporte del lote — espejo de `ExpenseImportOut`. SIEMPRE HTTP 200. */
+export interface ExpenseImportResult {
+  committed: boolean
+  importId: string | null
+  imported: number
+  errors: ExpenseImportRowIssue[]
+  notices: ExpenseImportRowIssue[]
+  replayed: boolean
+  dryRun: boolean
+}
+
 // ── cost-center-dimension (V2.5 Finanzas) ────────────────────────────────────
 
 /**

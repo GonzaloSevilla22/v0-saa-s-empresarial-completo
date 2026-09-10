@@ -31,6 +31,16 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("@/hooks/data/use-expenses-query", () => ({
   useAddExpense: () => ({ mutateAsync: vi.fn() }),
   useUpdateExpense: () => ({ mutateAsync: vi.fn() }),
+  // importador-gastos-transaccional (task 8.10): ExpenseImportDialog usa
+  // este hook — se declara en el MISMO vi.mock (un solo factory por
+  // especificador de módulo en todo el archivo; un segundo `vi.mock` para
+  // la misma ruta pisaría a éste en vez de fusionarse).
+  useImportExpenses: () => ({
+    importMutation: { mutateAsync: vi.fn().mockResolvedValue({
+      committed: false, importId: null, imported: 0, errors: [], notices: [], replayed: false, dryRun: true,
+    }) },
+    invalidateLedgers: vi.fn(),
+  }),
 }))
 vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
 vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
@@ -46,6 +56,17 @@ vi.mock("@/hooks/data/use-branches", () => ({
 vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [{ id: "cashbox-1" }] }) }))
 vi.mock("@/hooks/data/use-cash-session", () => ({
   useCurrentSession: () => ({ data: currentSessionMock, isLoading: false }),
+}))
+// importador-gastos-transaccional (task 8.10): el diálogo hashea el archivo
+// con `hashFileSHA256` (`lib/bank-statement-parser.ts`, vía
+// `crypto.subtle.digest` sobre `File.arrayBuffer()`) antes de simular la
+// importación. En jsdom de CI ese `arrayBuffer()` no devuelve algo que
+// `SubtleCrypto.digest` acepte (`ERR_INVALID_ARG_TYPE` real en CI, ver
+// `expense-import-dialog-review-findings.test.tsx` / `-invalidation` /
+// `-no-payment-method`, que mockean esto mismo por el mismo motivo) — sin
+// este mock la simulación nunca resuelve y el badge "OK" jamás aparece.
+vi.mock("@/lib/bank-statement-parser", () => ({
+  hashFileSHA256: vi.fn().mockResolvedValue("hash-fixed-for-test"),
 }))
 
 const PM_CASH = { id: "pm-cash", name: "Efectivo", kind: "cash", isActive: true }
@@ -141,5 +162,49 @@ describe("Accesibilidad — ExpenseForm (task 10.7)", () => {
 
     const input = screen.getByLabelText(/^descripci[oó]n$/i)
     expect(input.className).toMatch(/focus-visible:ring/)
+  })
+})
+
+// ── importador-gastos-transaccional (task 8.10) ─────────────────────────────
+//
+// Este archivo ya mockea `BranchSelect`/`CostCenterSelect` a `() => null`
+// (arriba, para los tests de `ExpenseForm`) — así que estos tests verifican
+// lo que SÍ queda real en este entorno: `PaymentMethodSelect` y
+// `BankAccountDestinationSelect` (sólo su hook `useBankAccounts` está
+// mockeado, ya declarado arriba), más la estructura propia del diálogo.
+
+import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
+
+describe("Accesibilidad — ExpenseImportDialog (task 8.10)", () => {
+  it("el selector de forma de pago por defecto (PaymentMethodSelect real) es alcanzable por getByLabelText", () => {
+    paymentMethodsMock = [PM_CASH]
+    render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
+
+    expect(screen.getByLabelText(/forma de pago por defecto/i)).toBeInTheDocument()
+  })
+
+  it("el input de archivo tiene un label asociado (drop zone) alcanzable por getByLabelText", () => {
+    render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
+    expect(screen.getByLabelText(/hacé clic o arrastrá tu archivo csv/i)).toBeInTheDocument()
+  })
+
+  it("los estados de fila del paso 2 se comunican por TEXTO (OK/Aviso/Error), no sólo por color", async () => {
+    const { fireEvent, waitFor } = await import("@testing-library/react")
+    render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
+
+    const csv = ["Descripción;Categoría;Monto;Fecha", "Alquiler;Alquiler;1000;2026-05-01"].join("\n")
+    const input = document.getElementById("csv-expense-upload") as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File([csv], "gastos.csv", { type: "text/csv" })] } })
+
+    // Esperar a que la simulación (mockeada al tope del archivo, sin
+    // errores/avisos) RESUELVA y a que el badge concreto de la fila válida
+    // se muestre — antes se aceptaba la alternancia
+    // `/OK|Aviso|Error|Validando/i` contra TODO el body, que también pasa
+    // con "Validando…" (el propio `StatusBadge` en loading) sin probar que
+    // el estado final se comunica por texto.
+    await waitFor(() => expect(screen.getByText("OK")).toBeInTheDocument())
+    // El badge de estado por fila (paso 2) es texto real ("OK"), no un
+    // cuadrito de color sin nombre accesible.
+    expect(screen.getByText("OK")).toBeInTheDocument()
   })
 })

@@ -57,6 +57,17 @@ vi.mock("@/hooks/data/use-cashboxes", () => ({ useCashboxes: () => ({ data: [{ i
 vi.mock("@/hooks/data/use-cash-session", () => ({
   useCurrentSession: () => ({ data: currentSessionMock, isLoading: false }),
 }))
+// importador-gastos-transaccional (task 8.10): el diálogo hashea el archivo
+// con `hashFileSHA256` (`lib/bank-statement-parser.ts`, vía
+// `crypto.subtle.digest` sobre `File.arrayBuffer()`) antes de simular la
+// importación. En jsdom de CI ese `arrayBuffer()` no devuelve algo que
+// `SubtleCrypto.digest` acepte (`ERR_INVALID_ARG_TYPE` real en CI, ver
+// `expense-import-dialog-review-findings.test.tsx` / `-invalidation` /
+// `-no-payment-method`, que mockean esto mismo por el mismo motivo) — sin
+// este mock la simulación nunca resuelve y el badge "OK" jamás aparece.
+vi.mock("@/lib/bank-statement-parser", () => ({
+  hashFileSHA256: vi.fn().mockResolvedValue("hash-fixed-for-test"),
+}))
 
 const PM_CASH = { id: "pm-cash", name: "Efectivo", kind: "cash", isActive: true }
 const PM_TRANSFER = { id: "pm-transfer", name: "Transferencia", kind: "transfer", isActive: true }

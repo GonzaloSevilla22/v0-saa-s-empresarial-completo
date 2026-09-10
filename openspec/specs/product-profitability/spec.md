@@ -10,6 +10,8 @@ Rentabilidad por SKU: RPC `rpc_product_profitability` (revenue de línea, costo 
 
 El sistema SHALL proveer el RPC `rpc_product_profitability(p_period_days INT DEFAULT 30)` que calcula para cada producto de la cuenta activa: `total_revenue`, `total_cost`, `gross_margin`, `gross_margin_pct`, `units_sold`, `last_sale_date`. El RPC deriva el `account_id` internamente desde `current_account_ids()` — no acepta parámetros de identidad. `total_revenue` SHALL ser la suma del **total de línea** (`COALESCE(total, amount)`) — nunca `amount` solo, que es precio unitario (corrige el margen para líneas con `quantity > 1`). El costo SHALL derivarse del snapshot de costo congelado en la línea (`unit_cost_snapshot`), no del maestro actual (RN-D2), con una cascada de fallback: (1) `unit_cost_snapshot` de la línea cuando está presente; (2) `products.cost` actual sólo cuando el snapshot es NULL (líneas muy antiguas no backfilleadas). Las líneas con `snapshot_backfilled = true` SHALL usar su snapshot aunque sea aproximado, en lugar del maestro actual. La ventana de `p_period_days` SHALL anclarse a la fecha local del tenant (`reporting_local_today()`, RN-D5), no a `CURRENT_DATE` del servidor en UTC. La firma de entrada y las columnas de salida NO cambian.
 
+La cascada de costo SHALL admitir un **tercer estado**: cuando ninguno de sus dos peldaños resuelve —la línea no tiene snapshot y el producto no tiene costo de catálogo, que es un estado válido desde que el costo es opcional (capability `product-cost`)— el producto SHALL informarse con `total_cost`, `gross_margin` y `gross_margin_pct` **ausentes**, y NOT SHALL sustituirse el costo por cero. Los productos con margen ausente SHALL quedar al final del orden por rentabilidad, no en la cabecera.
+
 El RPC SHALL derivar su población de líneas de venta del **helper canónico compartido** que la capability `sales-statistics` define, en lugar de mantener su propia expresión de filtrado y de revenue: es la misma población que agrega el ranking de productos, y duplicarla es el mecanismo por el que dos pantallas del mismo sistema informan cifras distintas del mismo período.
 
 `last_sale_date` SHALL informar la **fecha de negocio declarada** de la última venta del producto, sin desplazamiento: se deriva de esa fecha por casteo directo y NOT SHALL aplicársele una conversión de zona horaria, conforme al invariante de la capability `reporting-invariants` que distingue fecha de negocio de instante. Convertirla de zona la retrasa un día para toda fila.
@@ -37,6 +39,13 @@ El RPC SHALL derivar su población de líneas de venta del **helper canónico co
 - **GIVEN** una venta antigua cuya línea tiene `unit_cost_snapshot = NULL` (no backfilleada), con `products.cost = 50` y `units_sold = 10`
 - **WHEN** se llama a `rpc_product_profitability(30)`
 - **THEN** el `total_cost` de esa línea usa `products.cost` como último recurso (50 × 10 = 500)
+
+#### Scenario: Ningún peldaño de la cascada resuelve
+
+- **GIVEN** una venta cuya línea tiene `unit_cost_snapshot = NULL` de un producto **sin costo de catálogo**
+- **WHEN** se llama a `rpc_product_profitability(30)`
+- **THEN** ese producto informa `total_cost`, `gross_margin` y `gross_margin_pct` ausentes
+- **AND** NO informa un `total_cost = 0` ni un margen del 100 %
 
 #### Scenario: Solo se incluyen productos con al menos una venta en el período
 
@@ -99,6 +108,10 @@ El sistema SHALL proveer la página `/rentabilidad` con:
 - **Botón "Sugerir precio IA" en cada fila de la tabla**, que abre el `PriceSuggestionModal` para ese producto
 - Gating: solo accesible para `'avanzado'` y `'pro'`; para planes inferiores muestra `<PlanGate requiredPlan="avanzado" />`
 
+La página SHALL renderizar el costo y el margen **ausentes** como ausencia visible ("—") y NOT SHALL fallar al formatearlos ni aplicarles los umbrales de color de los márgenes conocidos. Un margen ausente que llega a un formateador numérico sin guarda deja la pantalla en blanco: el estado dejó de ser teórico desde que el costo del catálogo es opcional.
+
+Los productos con margen ausente NOT SHALL contarse como el mejor ni el peor margen del período en los indicadores de resumen de la página, ni ocupar posiciones del gráfico de top 10.
+
 #### Scenario: Usuario avanzado ve la tabla de rentabilidad completa con botón de precio
 
 - **GIVEN** un usuario con plan efectivo `'avanzado'`
@@ -129,3 +142,10 @@ El sistema SHALL proveer la página `/rentabilidad` con:
 - **WHEN** hace clic en "Sugerir precio IA" en la fila del producto "Medialunas"
 - **THEN** se abre el `PriceSuggestionModal` con `productName = "Medialunas"` y comienza a cargar la sugerencia
 
+#### Scenario: Un producto sin costo no rompe la pantalla
+
+- **GIVEN** un período cuyos productos vendidos incluyen al menos uno sin costo resoluble
+- **WHEN** el usuario navega a `/rentabilidad`
+- **THEN** la página se renderiza completa
+- **AND** ese producto muestra costo y margen como "—", sin color de umbral
+- **AND** no figura como mejor ni peor margen del período

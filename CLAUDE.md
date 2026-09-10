@@ -245,7 +245,7 @@ Heredado de `estadisticas-ventas` E1+E2+E3 (ítem 25, ver `CHANGES.md` y `opensp
 - **Filtro de canal sin superficie** — `p_canal` existe en las RPCs y en la API de evolución / ranking / breakdown (fail-closed, sin restar NC), pero ninguna pantalla lo expone; candidato barato si el PO lo pide.
 - **Migrar las dos copias JS de "top productos"** (`supabase/functions/ai-insights/index.ts`, `frontend/lib/ai/buildBusinessSnapshot.ts`) a `rpc_product_ranking` — Non-Goal declarado del change; hoy son la 2ª y 3ª definición de la misma agregación.
 - **Migrar los 3 reportes existentes** (`/reportes/formas-pago`, `/reportes/centros-costo`, `/reportes/sucursal`) a `components/charts/` — D13 los dejó fuera para no ensanchar el diff.
-- ~~**`products.cost NOT NULL DEFAULT 0`** hace que "sin costo" y "costo cero" sean indistinguibles para la cascada canónica RN-D2 [...]~~ ✅ **resuelto por `productos-costo-nullable` (2026-09-10)** — detalle completo en `CHANGES.md`.
+- ~~**`products.cost NOT NULL DEFAULT 0`** hace que "sin costo" y "costo cero" sean indistinguibles para la cascada canónica RN-D2 [...]~~ → **cerrado por `productos-costo-nullable`** (2026-09-10, PRs #539/#544).
 
 Heredado de `v31-mp-upgrade-webhook-fix` (H-02, ✅ archivada 2026-09-05 en `openspec/changes/archive/2026-09-05-v31-mp-upgrade-webhook-fix/`). **No es un candidato de código** — es un residuo operativo con fecha firme, decidido por el PO el 2026-09-05 ("aplica todo lo recomendado", opción (a) de OQ1):
 

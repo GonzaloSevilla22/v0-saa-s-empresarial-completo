@@ -677,7 +677,28 @@ jobs:
               exit 1
             fi
           fi
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261024000001_estadisticas_ventas_e1.sql
+          # productos-costo-nullable (2026-09-10): 20261024000001 crea
+          # reporting_sales_lines_in_window con CREATE OR REPLACE y la columna
+          # de salida has_cost_snapshot; 20261042000001 la reemplazó por
+          # has_cost (DROP + CREATE, cambia el RETURNS TABLE), así que el
+          # reapply del archivo viejo revienta con el error nativo estable
+          # `cannot change return type of existing function` (misma familia
+          # que 20261023 arriba: migración VIEJA que asume una definición que
+          # una migración POSTERIOR ya cambió). Se tolera SOLO ese marcador;
+          # el `supabase db reset` + `schema_snapshot` de más abajo reconverge.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261024000001_estadisticas_ventas_e1.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'cannot change return type of existing function' && echo "$REAPPLY_OUT" | grep -qF 'reporting_sales_lines_in_window'; then
+              echo "20261024000001 reapply chocó con el RETURNS TABLE de reporting_sales_lines_in_window ya cambiado por 20261042000001 (productos-costo-nullable) — reconverge con el 'supabase db reset' de más abajo"
+            else
+              echo "ERROR: el reapply de 20261024000001 falló por un motivo DISTINTO del esperado."
+              exit 1
+            fi
+          fi
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261025000001_estadisticas_ventas_e2.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261026000001_estadisticas_ventas_e3.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261027000001_subscription_webhook_idempotency_contract.sql

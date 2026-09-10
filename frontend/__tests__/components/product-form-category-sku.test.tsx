@@ -99,7 +99,12 @@ describe("ProductForm — categoría del catálogo + SKU", () => {
     const sent = addProductMock.mock.calls[0][0]
     expect(sent.parentId).toBe("parent-1")
     expect(sent.categoryId).toBeUndefined()
-    expect(sent.category).toBe("Ropa")
+    // productos-categoria-text-retiro: `category` ya no se deriva del padre en
+    // el formulario — category_id es la única fuente de verdad (D1) y el
+    // servidor deriva el nombre legible. use-products.ts ya no transmite esta
+    // clave; el formulario la deja en un valor inerte que el tipo `Product`
+    // sigue exigiendo (D1/D2, el campo no se retira del tipo).
+    expect(sent.category).toBe("")
   })
 
   it("alta sin SKU envía sku undefined (NULL en la base, nunca cadena vacía)", async () => {

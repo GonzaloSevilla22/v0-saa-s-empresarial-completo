@@ -89,12 +89,12 @@ BEGIN
     RAISE NOTICE 'GATE PRODUCTS-BARCODE-ACCOUNT-SCOPE (2-4) degradado: no se pudo resolver cuenta para los anchors sintéticos — omitido sin fallar.';
   ELSE
     -- (2) el mismo código de barras en dos cuentas distintas está permitido.
-    INSERT INTO public.products (user_id, account_id, name, category, barcode, price, cost, min_stock)
-    VALUES (v_user_a, v_account_a, 'Gate Barcode A1', 'Otros', '7791111111111', 10, 5, 0)
+    INSERT INTO public.products (user_id, account_id, name, barcode, price, cost, min_stock)
+    VALUES (v_user_a, v_account_a, 'Gate Barcode A1', '7791111111111', 10, 5, 0)
     RETURNING id INTO v_prod_a1;
 
-    INSERT INTO public.products (user_id, account_id, name, category, barcode, price, cost, min_stock)
-    VALUES (v_user_b, v_account_b, 'Gate Barcode B1', 'Otros', '7791111111111', 10, 5, 0)
+    INSERT INTO public.products (user_id, account_id, name, barcode, price, cost, min_stock)
+    VALUES (v_user_b, v_account_b, 'Gate Barcode B1', '7791111111111', 10, 5, 0)
     RETURNING id INTO v_prod_b1;
 
     IF v_prod_a1 IS NULL OR v_prod_b1 IS NULL THEN
@@ -107,11 +107,11 @@ BEGIN
     --     viejo (user_id, barcode): v_user_b nunca escribió en account_a
     --     bajo esa clave, así que hoy NO colisiona pese a compartir cuenta.
     BEGIN
-      INSERT INTO public.products (user_id, account_id, name, category, barcode, price, cost, min_stock)
-      VALUES (v_user_b, v_account_a, 'Gate Barcode A2 por B', 'Otros', '7792222222222', 10, 5, 0);
+      INSERT INTO public.products (user_id, account_id, name, barcode, price, cost, min_stock)
+      VALUES (v_user_b, v_account_a, 'Gate Barcode A2 por B', '7792222222222', 10, 5, 0);
 
-      INSERT INTO public.products (user_id, account_id, name, category, barcode, price, cost, min_stock)
-      VALUES (v_user_a, v_account_a, 'Gate Barcode A2 por A', 'Otros', '7792222222222', 10, 5, 0);
+      INSERT INTO public.products (user_id, account_id, name, barcode, price, cost, min_stock)
+      VALUES (v_user_a, v_account_a, 'Gate Barcode A2 por A', '7792222222222', 10, 5, 0);
     EXCEPTION
       WHEN unique_violation THEN
         v_rejected := true;
@@ -126,8 +126,8 @@ BEGIN
     --     código de barras dentro de la misma cuenta.
     UPDATE public.products SET deleted_at = now(), deleted_by = v_user_a WHERE id = v_prod_a1;
 
-    INSERT INTO public.products (user_id, account_id, name, category, barcode, price, cost, min_stock)
-    VALUES (v_user_a, v_account_a, 'Gate Barcode A1 nuevo', 'Otros', '7791111111111', 20, 10, 0)
+    INSERT INTO public.products (user_id, account_id, name, barcode, price, cost, min_stock)
+    VALUES (v_user_a, v_account_a, 'Gate Barcode A1 nuevo', '7791111111111', 20, 10, 0)
     RETURNING id INTO v_prod_a3;
 
     IF v_prod_a3 IS NULL THEN

@@ -650,7 +650,33 @@ jobs:
             fi
           fi
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261022000001_cobranzas_vencimientos.sql
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261023000001_productos_categorias_sku.sql
+          # productos-categoria-text-retiro (2026-09-09): 20261040000001 (más
+          # abajo en la cadena, fuera de este bloque) dropea products.category
+          # y retira los dos triggers de espejo que esta migración vieja
+          # todavía asume vivos. Reaplicada acá, en su posición cronológica
+          # real, llega hasta el ALTER TABLE ADD COLUMN category_id (ya
+          # existe, NOTICE/skip) y el CREATE INDEX (ídem), pero su segundo
+          # COMMENT ON COLUMN (sobre products.category) revienta porque la
+          # columna física ya no existe — error nativo de Postgres, sin gate
+          # propio del archivo, con un mensaje estable para tolerar.
+          # Reproducido localmente en una transacción con ROLLBACK (cero
+          # huella): psql exit=3, `ERROR:  column "category" of relation
+          # "public.products" does not exist`. No hace falta reconvergencia
+          # puntual: el paso termina con el `supabase db reset` + la
+          # aserción de `schema_snapshot` de más abajo.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261023000001_productos_categorias_sku.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'column "category" of relation "public.products" does not exist'; then
+              echo "20261023000001 reapply chocó con products.category ya dropeada por 20261040000001 (productos-categoria-text-retiro) — reconverge con el 'supabase db reset' de más abajo"
+            else
+              echo "ERROR: el reapply de 20261023000001 falló por un motivo DISTINTO del esperado."
+              exit 1
+            fi
+          fi
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261024000001_estadisticas_ventas_e1.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261025000001_estadisticas_ventas_e2.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261026000001_estadisticas_ventas_e3.sql
@@ -678,6 +704,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261037000001_get_account_ids_for_user_own_membership.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261038000001_c28_register_cash_movement_revoke_authenticated.sql
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261039000001_dashboard_critical_stock_items.sql
+          # productos-categoria-text-retiro (2026-09-09): idempotente — reaplicada localmente sin cambios.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261040000001_productos_categoria_text_retiro.sql
 
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
@@ -1360,14 +1388,20 @@ jobs:
       - name: Run productos-categorias-sku catalog gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_categories_catalog.sql
 
-      # productos-categorias-sku (grupo 3): el espejo products.category (TEXT)
-      # coincide SIEMPRE con el name de la categoría referenciada por los
-      # tres caminos (INSERT, UPDATE de category_id, renombre); renombre sin
-      # cambio = cero filas tocadas (xmin); un UPDATE legacy del TEXT no
-      # desincroniza (choke point); categoría ajena → P0404; FK RESTRICT; el
-      # guard de soft delete sigue vivo al lado del trigger nuevo (3.6).
-      - name: Run productos-categorias-sku category mirror gate
-        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_category_mirror.sql
+      # productos-categoria-text-retiro: products.category (TEXT) se retiró —
+      # category_id es la única representación física; v_products_with_stock
+      # deriva el nombre por LEFT JOIN (nunca INNER: no puede hacer
+      # desaparecer productos). T1 columna física ausente; T2 vista deriva el
+      # nombre vigente; T3 renombrar NO reescribe products (xmin intacto);
+      # T4 categoría desactivada/soft-deleted sigue mostrando su nombre; T5
+      # category_id NULL no filtra (LEFT JOIN); T6 security_invoker + GRANTs
+      # intactos; T7 ningún lector de public referencia ya la columna física;
+      # T8 rpc_product_ranking (consumidor real de `category` fuera de la
+      # vista) deriva el nombre vigente antes y después de un renombre.
+      # Hereda literal los bloques P0404 / FK RESTRICT / guard de soft delete
+      # del gate viejo (ahora contra el trigger de tenencia particionado).
+      - name: Run productos-categoria-text-retiro category derived gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_category_derived.sql
 
       # productos-categorias-sku (grupo 4): unicidad del SKU alcanzada por
       # account_id (case-insensitive, filas vivas) y SIN residuo por user_id;

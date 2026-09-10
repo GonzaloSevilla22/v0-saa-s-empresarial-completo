@@ -501,3 +501,135 @@ class TestProductOutCarriesCategoryId:
             resp = await async_client.get("/products", headers={"Authorization": f"Bearer {valid_token}"})
         assert resp.status_code == 200
         assert resp.json()[0]["category_id"] == CAT_ID
+
+
+# ── productos-categoria-text-retiro (tasks 4.5-4.7): products.category (TEXT)
+# retirada — category_id es la única representación física, el nombre
+# legible lo deriva v_products_with_stock (LEFT JOIN product_categories). ──
+
+class TestCategoryTextRetiro:
+    def _side_effect(self, *, category=CAT_ROW, parent=PARENT_ROW, get_by_id_row=None):
+        async def fetchrow_side_effect(query, *args):
+            if "plan_limits" in query:
+                return _plan_limits_row()
+            if "COUNT" in query:
+                return {"total": 5}
+            if "product_categories" in query:
+                return category
+            if "INSERT INTO products" in query:
+                return {"id": PRODUCT_ID}
+            if f"WHERE id = $1" in query and args and args[0] == PARENT_ID:
+                return parent
+            return get_by_id_row if get_by_id_row is not None else PRODUCT_ROW
+        return fetchrow_side_effect
+
+    def _insert_args(self, conn) -> tuple:
+        for call in conn.fetchrow.call_args_list:
+            if "INSERT INTO products" in call.args[0]:
+                return call.args[1:]
+        return ()
+
+    def _insert_sql(self, conn) -> str:
+        for call in conn.fetchrow.call_args_list:
+            if "INSERT INTO products" in call.args[0]:
+                return call.args[0]
+        return ""
+
+    @pytest.mark.asyncio
+    async def test_create_with_legacy_category_field_ignored_no_error(self, async_client, mock_pool):
+        """4.5 (D6): un payload de alta con `category` (nombre libre, cliente
+        desactualizado) NO falla — Pydantic descarta el campo sobrante; el
+        INSERT ya no tiene ninguna columna `category` que escribir, y el
+        producto queda imputado sólo por `category_id`."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(side_effect=self._side_effect())
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products",
+                json={"name": "Empanada", "category": "Un nombre cualquiera", "category_id": CAT_ID},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 201
+        sql = self._insert_sql(conn)
+        assert "category," not in sql and "category)" not in sql
+        args = self._insert_args(conn)
+        assert CAT_ID in args
+        assert "Un nombre cualquiera" not in args
+
+    @pytest.mark.asyncio
+    async def test_update_with_legacy_category_field_ignored_no_error(self, async_client, mock_pool):
+        """4.5 (D6), lado edición: idem para PUT — `category` en el body no
+        rompe y el UPDATE nunca setea una columna `category` (bare)."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value=PRODUCT_ROW)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/products/{PRODUCT_ID}",
+                json={"category": "Otro nombre", "price": 200},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 200
+        sql = _update_sql(conn)
+        assert sql is not None
+        assert "category =" not in sql  # "category_id = $" no matchea (sigue "_id")
+
+    @pytest.mark.asyncio
+    async def test_variant_create_never_reads_parent_category_name(self, async_client, mock_pool):
+        """4.6: la variante hereda `category_id` del padre (9.7, sin cambios) Y
+        el service NO necesita leer `parent["category"]` para nada — si la
+        línea retirada (`data["category"] = parent["category"]`) siguiera
+        viva, esta prueba fallaría con KeyError porque el padre mockeado no
+        trae esa clave."""
+        pool, conn = mock_pool
+        parent_without_category_text = {k: v for k, v in PARENT_ROW.items() if k != "category"}
+        conn.fetchrow = AsyncMock(side_effect=self._side_effect(parent=parent_without_category_text))
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products",
+                json={"name": "Zapatillas 41", "parent_id": PARENT_ID, "is_variant": True},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 201
+        args = self._insert_args(conn)
+        assert CAT_OTHER in args  # category_id heredado del padre, igual que antes
+
+    @pytest.mark.asyncio
+    async def test_variant_response_category_comes_from_view_not_service(self, async_client, mock_pool):
+        """4.6: `ProductOut.category` de la variante recién creada muestra el
+        nombre que la VISTA derive (simulado acá vía el mock de `get_by_id`
+        posterior al INSERT) — nunca un valor que el service haya escrito."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(
+            side_effect=self._side_effect(get_by_id_row={**PRODUCT_ROW, "category": "Ropa", "category_id": CAT_OTHER})
+        )
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products",
+                json={"name": "Zapatillas 41", "parent_id": PARENT_ID, "is_variant": True},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 201
+        assert resp.json()["category"] == "Ropa"
+
+    @pytest.mark.asyncio
+    async def test_list_exposes_category_from_view(self, async_client, valid_token, mock_pool):
+        """4.7 (list_by_org): ProductOut.category sigue llegando poblado desde
+        el SELECT * de la vista."""
+        pool, conn = mock_pool
+        conn.fetch = AsyncMock(return_value=[PRODUCT_ROW])
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get("/products", headers={"Authorization": f"Bearer {valid_token}"})
+        assert resp.status_code == 200
+        assert resp.json()[0]["category"] == "Alimentos"
+
+    @pytest.mark.asyncio
+    async def test_get_by_id_exposes_category_from_view(self, async_client, valid_token, mock_pool):
+        """4.7 (get_by_id): idem, para GET /products/{id}."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value=PRODUCT_ROW)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.get(
+                f"/products/{PRODUCT_ID}", headers={"Authorization": f"Bearer {valid_token}"}
+            )
+        assert resp.status_code == 200
+        assert resp.json()["category"] == "Alimentos"

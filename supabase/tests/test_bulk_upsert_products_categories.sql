@@ -146,7 +146,9 @@ BEGIN
       v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
         jsonb_build_object('name','Gate Martillo','sku','GMAR','category','Ferretería','price',500,'cost',200,'stock',2,'min_stock',0,'barcode',NULL,'parent_id',NULL,'is_variant',false,'stock_control_type','tracked','attributes','[]'::jsonb)
       ), v_user_a);
-      SELECT category_id, category INTO v_cat_id, v_cat_name FROM public.products WHERE account_id = v_account_a AND sku = 'GMAR';
+      -- productos-categoria-text-retiro: `category` ya no es columna física de
+      -- `products` — se lee derivada desde `v_products_with_stock` (T2).
+      SELECT category_id, category INTO v_cat_id, v_cat_name FROM public.v_products_with_stock WHERE account_id = v_account_a AND sku = 'GMAR';
       IF v_cat_id IS NULL OR v_cat_name IS DISTINCT FROM 'Ferretería' THEN
         RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (5a): el producto no quedó imputado a "Ferretería" (category_id=%, category=%).', v_cat_id, v_cat_name;
       END IF;
@@ -166,7 +168,7 @@ BEGIN
       IF v_cats_after <> v_cats_before THEN
         RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (6a): "ropa"/"Ropa "/"ROPA" crearon categorías nuevas (% → %).', v_cats_before, v_cats_after;
       END IF;
-      SELECT COUNT(*) INTO v_count FROM public.products WHERE account_id = v_account_a AND sku IN ('GREM-1','GREM-2','GREM-3') AND category_id = v_ropa_id AND category = 'Ropa';
+      SELECT COUNT(*) INTO v_count FROM public.v_products_with_stock WHERE account_id = v_account_a AND sku IN ('GREM-1','GREM-2','GREM-3') AND category_id = v_ropa_id AND category = 'Ropa';
       IF v_count <> 3 THEN
         RAISE EXCEPTION 'GATE BULK-UPSERT-CATEGORIES FAILED (6b): sólo % de 3 filas quedaron en la "Ropa" existente.', v_count;
       END IF;
@@ -258,8 +260,8 @@ BEGIN
       RAISE NOTICE 'PASS (9): superar el tope de 50 rechaza toda la importación con P0400 y sin crear nada.';
 
       -- ── (10): alcance de cuenta en la resolución del SKU ───────────────────
-      INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock)
-      VALUES (v_user_b, v_account_a, 'Gate Accesorio por B', 'Accesorios', 'ACC-1', 10, 5, 0)
+      INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock)
+      VALUES (v_user_b, v_account_a, 'Gate Accesorio por B', 'ACC-1', 10, 5, 0)
       RETURNING id INTO v_other_id;
       v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
         jsonb_build_object('name','Gate Accesorio por B','sku','acc-1','category','Accesorios','price',33,'cost',5,'stock',0,'min_stock',0,'barcode',NULL,'parent_id',NULL,'is_variant',false,'stock_control_type','tracked','attributes','[]'::jsonb)
@@ -278,8 +280,8 @@ BEGIN
       RAISE NOTICE 'PASS (10): la resolución por SKU usa el alcance de la cuenta, case-insensitive.';
 
       -- ── (11): un producto borrado no se resucita ───────────────────────────
-      INSERT INTO public.products (user_id, account_id, name, category, sku, price, cost, min_stock, deleted_at, deleted_by)
-      VALUES (v_user_a, v_account_a, 'Gate Borrado', 'Otros', 'DEL-1', 10, 5, 0, now(), v_user_a)
+      INSERT INTO public.products (user_id, account_id, name, sku, price, cost, min_stock, deleted_at, deleted_by)
+      VALUES (v_user_a, v_account_a, 'Gate Borrado', 'DEL-1', 10, 5, 0, now(), v_user_a)
       RETURNING id INTO v_deleted_id;
       v_res := public.rpc_bulk_upsert_products(jsonb_build_array(
         jsonb_build_object('name','Gate Borrado nuevo','sku','DEL-1','category','Otros','price',10,'cost',5,'stock',0,'min_stock',0,'barcode',NULL,'parent_id',NULL,'is_variant',false,'stock_control_type','tracked','attributes','[]'::jsonb)

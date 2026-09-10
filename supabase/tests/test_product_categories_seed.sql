@@ -1,23 +1,37 @@
 -- =============================================================================
 -- GATE: test_product_categories_seed.sql
 -- CHANGE: productos-categorias-sku (tasks 6.1 RED, 6.5 TRIANGULATE, 6.6)
+-- ACTUALIZADO por productos-categoria-text-retiro (2026-09-09): el backfill
+-- histórico `UPDATE products SET category_id = ... WHERE lower(pc.name) =
+-- lower(btrim(p.category))` (paso 2 de la migración 20261023000001) leía la
+-- columna física `products.category`, que este change retiró. Ese paso YA
+-- CORRIÓ una sola vez en prod (verificado 0 sin resolver al archivar
+-- `productos-categorias-sku`) y no puede volver a ejecutarse ni volver a
+-- probarse — no porque se haya decidido no hacerlo, sino porque la columna
+-- que necesitaría leer ya no existe en ninguna base migrada a este punto.
+-- Los bloques (2) y (5) se **retiran** en la parte que dependía de esa
+-- columna (nunca se "arreglan" a leer algo que no existe); el resto del gate
+-- —seed en signup, degrade-don't-fail, aislamiento cross-cuenta— sigue
+-- siendo normativo y no cambia.
 --
--- Seed de provisioning y backfill de categorías de producto (D13) — molde
--- de test_payment_methods_seed.sql:
+-- Vigente hoy:
 --   (1) toda cuenta existente tiene las 7 categorías sembradas (backfill
 --       paso 1 — verificado sobre las cuentas reales del stack, degrada si
 --       no hay ninguna),
---   (2) re-ejecutar el backfill (paso 1 + paso 2) no duplica categorías ni
---       reescribe productos (idempotencia real, fingerprint antes/después),
+--   (2) re-ejecutar el paso 1 del backfill no duplica categorías (idempotencia
+--       real, conteo antes/después). El paso 2 (backfill de `category_id`
+--       desde `category` TEXT) se retiró de este gate — ver nota arriba.
 --   (3) un signup nuevo nace con las 7 categorías activas sin intervención
 --       manual (handle_new_user, sub-bloque 7),
 --   (4) un fallo forzado del sub-bloque de seed NO aborta el signup: el
 --       perfil, la cuenta y la membresía se crean igual (degrade-don't-fail,
 --       técnica CHECK ... NOT VALID — mismo patrón que el gate de formas de
 --       pago),
---   (5) criterio de aceptación duro (6.6): tras el backfill, ningún producto
---       vivo con category TEXT resoluble en su cuenta quedó con category_id
---       NULL.
+--   (5) ningún producto está imputado a una categoría de OTRA cuenta (el
+--       criterio "ningún producto resoluble por TEXT quedó sin category_id"
+--       se retiró — no hay TEXT que resolver; el invariante equivalente hoy
+--       es el guard de tenencia `fn_product_category_tenancy_guard`, ya
+--       cubierto por el gate `test_product_category_derived.sql`).
 -- =============================================================================
 
 -- ── (1) Toda cuenta existente tiene las 7 categorías sembradas ────────────────
@@ -45,17 +59,18 @@ BEGIN
 END $$;
 
 
--- ── (2) Re-ejecutar el backfill no duplica ni reescribe ──────────────────────
+-- ── (2) Re-ejecutar el seed de categorías no duplica ─────────────────────────
+-- productos-categoria-text-retiro: el paso 2 del backfill histórico (`UPDATE
+-- products SET category_id = ... WHERE lower(pc.name) = lower(btrim(p.category))`)
+-- se retiró de este bloque — leía la columna física `category`, que ya no
+-- existe en ninguna base migrada a este punto (ya cumplió su función una
+-- sola vez en prod, verificado al archivar `productos-categorias-sku`).
 DO $$
 DECLARE
   v_cats_before  bigint;
   v_cats_after   bigint;
-  v_prod_before  text;
-  v_prod_after   text;
 BEGIN
   SELECT COUNT(*) INTO v_cats_before FROM public.product_categories;
-  -- Fingerprint de products: (id, xmin) — cualquier reescritura cambia xmin.
-  SELECT md5(string_agg(id::text || ':' || xmin::text, ',' ORDER BY id)) INTO v_prod_before FROM public.products;
 
   -- Mismo INSERT exacto que el paso 1 del backfill de la migración 20261023000001.
   INSERT INTO public.product_categories (account_id, name, sort_order)
@@ -74,27 +89,13 @@ BEGIN
       SELECT 1 FROM public.product_categories pc WHERE pc.account_id = a.id
   );
 
-  -- Mismo UPDATE exacto que el paso 2 del backfill.
-  UPDATE public.products p
-  SET    category_id = pc.id
-  FROM   public.product_categories pc
-  WHERE  p.category_id IS NULL
-    AND  p.account_id IS NOT NULL
-    AND  pc.account_id = p.account_id
-    AND  pc.deleted_at IS NULL
-    AND  lower(pc.name) = lower(btrim(p.category));
-
   SELECT COUNT(*) INTO v_cats_after FROM public.product_categories;
-  SELECT md5(string_agg(id::text || ':' || xmin::text, ',' ORDER BY id)) INTO v_prod_after FROM public.products;
 
   IF v_cats_before <> v_cats_after THEN
-    RAISE EXCEPTION 'GATE PRODUCT-CATEGORIES-SEED FAILED (2a): el backfill paso 1 NO es idempotente — % categorías antes, % después.', v_cats_before, v_cats_after;
-  END IF;
-  IF v_prod_before IS DISTINCT FROM v_prod_after THEN
-    RAISE EXCEPTION 'GATE PRODUCT-CATEGORIES-SEED FAILED (2b): el backfill paso 2 reescribió productos al re-ejecutarse (fingerprint cambió).';
+    RAISE EXCEPTION 'GATE PRODUCT-CATEGORIES-SEED FAILED (2): el seed de categorías NO es idempotente — % categorías antes, % después.', v_cats_before, v_cats_after;
   END IF;
 
-  RAISE NOTICE 'PASS (2): backfill idempotente — % categorías y cero productos reescritos (TRIANGULATE).', v_cats_before;
+  RAISE NOTICE 'PASS (2): el seed de categorías es idempotente — % categorías, sin duplicar (TRIANGULATE).', v_cats_before;
 END $$;
 
 
@@ -250,39 +251,28 @@ EXCEPTION
 END $$;
 
 
--- ── (5) 6.6: ningún producto resoluble quedó sin category_id ────────────────
+-- ── (5) Ningún producto imputado a una categoría de OTRA cuenta ──────────────
+-- productos-categoria-text-retiro: el criterio "ningún producto resoluble
+-- por category TEXT quedó sin category_id" se retiró — no hay TEXT que
+-- resolver, la columna no existe más. Ese invariante ya cumplió su función
+-- una sola vez en prod (0 sin resolver, verificado al archivar
+-- `productos-categorias-sku`); el invariante que sigue siendo alcanzable
+-- hoy (y el que de verdad importa a nivel de base, D4 de este change) es el
+-- aislamiento por cuenta, que `fn_product_category_tenancy_guard` hace
+-- imposible violar desde el momento de la escritura — ver también el gate
+-- `test_product_category_derived.sql`.
 DO $$
 DECLARE
-  v_unresolved integer;
-  v_orphans    integer;
+  v_orphans integer;
 BEGIN
-  -- Productos cuya category TEXT coincide con una categoría viva de SU
-  -- cuenta y sin embargo tienen category_id NULL → el backfill los debió
-  -- cubrir. (Un producto con un texto que no existe en su catálogo queda
-  -- fuera de este conteo: es el residuo tolerado del D13, que en prod es 0.)
-  SELECT COUNT(*) INTO v_unresolved
-  FROM public.products p
-  WHERE p.category_id IS NULL
-    AND p.account_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM public.product_categories pc
-      WHERE pc.account_id = p.account_id AND pc.deleted_at IS NULL
-        AND lower(pc.name) = lower(btrim(p.category))
-    );
-
-  IF v_unresolved > 0 THEN
-    RAISE EXCEPTION 'GATE PRODUCT-CATEGORIES-SEED FAILED (5a): % productos con categoría resoluble en su cuenta quedaron con category_id NULL.', v_unresolved;
-  END IF;
-
-  -- Ningún producto imputado a una categoría de OTRA cuenta.
   SELECT COUNT(*) INTO v_orphans
   FROM public.products p
   JOIN public.product_categories pc ON pc.id = p.category_id
   WHERE pc.account_id IS DISTINCT FROM p.account_id;
 
   IF v_orphans > 0 THEN
-    RAISE EXCEPTION 'GATE PRODUCT-CATEGORIES-SEED FAILED (5b): % productos imputados a una categoría de otra cuenta.', v_orphans;
+    RAISE EXCEPTION 'GATE PRODUCT-CATEGORIES-SEED FAILED (5): % productos imputados a una categoría de otra cuenta.', v_orphans;
   END IF;
 
-  RAISE NOTICE 'PASS (5): backfill completo — cero productos resolubles sin category_id y cero cruces de cuenta (6.6).';
+  RAISE NOTICE 'PASS (5): cero productos imputados a una categoría de otra cuenta.';
 END $$;

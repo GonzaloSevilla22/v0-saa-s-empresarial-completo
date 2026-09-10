@@ -68,11 +68,11 @@ Cuando el lote se rechaza, el sistema NOT SHALL dejar rastro alguno de él: ni p
 
 ### Requirement: El veredicto del lote viaja como resultado, no como error de protocolo
 
-El sistema SHALL devolver el rechazo de un lote por reglas de fila o de cuota como una **respuesta exitosa** que informa que el lote no se aplicó, junto con la lista de errores. Un rechazo por reglas es un resultado del procesamiento, no un fallo de la petición.
+El sistema SHALL devolver el rechazo de un lote por reglas de fila como una **respuesta exitosa** que informa que el lote no se aplicó, junto con la lista de errores. Un rechazo por reglas es un resultado del procesamiento, no un fallo de la petición.
 
-El sistema SHALL reservar las respuestas de error de la petición para lo que impide procesarla: forma del payload inválida, tope de filas excedido, metadata de archivo ausente, falta de permisos y falta de clave de idempotencia.
+El sistema SHALL reservar las respuestas de error de la petición para lo que impide procesarla: forma del payload inválida, tope de filas excedido, metadata de archivo ausente, falta de permisos, falta de clave de idempotencia y tope de categorías nuevas excedido — este último es un rechazo de CUOTA, no un veredicto sobre las filas del archivo, y el servidor lo deja escapar como error de la petición.
 
-Tras el rechazo de un lote, la conexión de base de datos del request SHALL quedar utilizable: el rechazo NOT SHALL propagarse como excepción de base de datos hasta abortar la transacción del request.
+Tras el rechazo de un lote **por reglas de fila**, la conexión de base de datos del request SHALL quedar utilizable: el rechazo NOT SHALL propagarse como excepción de base de datos hasta abortar la transacción del request. Un rechazo por tope de categorías SÍ se propaga como excepción de base de datos — no está sujeto a esta garantía.
 
 #### Scenario: Lote rechazado por reglas de fila
 
@@ -83,6 +83,12 @@ Tras el rechazo de un lote, la conexión de base de datos del request SHALL qued
 
 - **WHEN** se envía una importación sin clave de idempotencia
 - **THEN** la respuesta es un error de la petición y nada se procesa
+
+#### Scenario: Lote rechazado por tope de categorías nuevas
+
+- **WHEN** se importa un archivo que introduce más categorías nuevas que el tope admitido
+- **THEN** la respuesta es un error de la petición, no un resultado con `committed: false`
+- **AND** no se escribe nada
 
 #### Scenario: Después de un rechazo la sesión sigue sirviendo
 
@@ -110,7 +116,7 @@ La fila normalizada que el cliente envía SHALL poder transportar su número de 
 
 ### Requirement: La vista previa es un veredicto del servidor, no una conjetura del cliente
 
-El sistema SHALL ofrecer un modo de **simulación** de la importación que ejecute el lote completo y lo deshaga, devolviendo el mismo veredicto que devolvería la importación real: errores por fila, cuántos productos se crearían y cuántos se actualizarían, qué categorías se crearían y si el archivo excedería el límite de productos del plan.
+El sistema SHALL ofrecer un modo de **simulación** de la importación que ejecute el lote completo y lo deshaga, devolviendo el mismo veredicto que devolvería la importación real: errores por fila, cuántos productos se crearían y cuántos se actualizarían, y qué categorías se crearían.
 
 La simulación NOT SHALL dejar ninguna escritura: ni productos, ni categorías, ni existencias, ni la fila de importación, ni la marca de idempotencia.
 
@@ -142,7 +148,7 @@ La validación de las celdas del lado del cliente SHALL conservarse como primera
 
 El sistema SHALL rechazar un archivo que supere el tope de filas admitido por lote, con un mensaje que informe el tope y el conteo del archivo, y NOT SHALL partirlo en varias unidades de trabajo para sortear el tope.
 
-El tope SHALL fijarse por encima del uso real observado y por encima del mayor límite de productos por plan, de modo que el límite que se alcance primero en la práctica sea el del plan y no el del transporte.
+El tope SHALL fijarse por encima del uso real observado (el mayor lote real y el catálogo más grande medidos), con margen suficiente para no romper ningún caso legítimo.
 
 #### Scenario: Archivo por encima del tope
 

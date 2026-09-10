@@ -113,47 +113,6 @@ export interface ResolvedImportRow extends ValidatedImportRow {
   stockControlType:   "tracked" | "untracked" | "variant_only"
 }
 
-// ─── Batch / RPC payload ──────────────────────────────────────────────────────
-
-export interface ProductUpsertPayload {
-  name:               string
-  sku:                string | null
-  category:           string
-  price:              number
-  /** productos-costo-nullable: `null` = sin costo (alta) o conservar (edición). */
-  cost:               number | null
-  stock:              number
-  min_stock:          number
-  barcode:            string | null
-  parent_id:          string | null
-  /** Resolved by RPC using sku when parent is in same batch and has a SKU. */
-  sku_parent?:        string
-  /** Resolved by RPC using name when parent is in same batch and has no SKU. */
-  parent_name?:       string
-  is_variant:         boolean
-  stock_control_type: "tracked" | "untracked" | "variant_only"
-  attributes:         ImportAttribute[]
-}
-
-// ─── Result types ─────────────────────────────────────────────────────────────
-
-export interface ImportRowError {
-  lineNumber: number
-  sku:        string | null
-  name:       string
-  message:    string
-}
-
-export interface ImportResult {
-  inserted:         number
-  updated:          number
-  parents:          number
-  variants:         number
-  standalone:       number
-  validationErrors: ImportRowError[]
-  dbErrors:         ImportRowError[]
-}
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /**
@@ -169,4 +128,22 @@ export const VALID_ROW_TYPES = new Set<string>(["Padre", "Variante", "Producto",
 
 export const ATTRIBUTE_PREFIX = "atributo:"
 
-export const IMPORT_BATCH_SIZE = 200
+/**
+ * importador-productos-fastapi (D6): tope de FILAS por lote, evaluado en el
+ * SERVIDOR (`rpc_import_products`) — el cliente lo aplica antes de subir
+ * como rechazo temprano, pero no es la autoridad. El archivo se importa
+ * ENTERO en una sola unidad de trabajo, sin trocear: `IMPORT_BATCH_SIZE` y
+ * el troceo en sub-lotes de 200 se RETIRAN (D13 del design) — trocear es
+ * exactamente el fallo parcial que este change existe para eliminar.
+ *
+ * OQ-2: bajado de 5.000 a 2.500 tras medir en la base local (post-apply)
+ * que 5.000 filas tardaban 33,1s de simulación + 34,2s de confirmación con
+ * escalado SUPERLINEAL — el propio design dejaba esto como el criterio de
+ * baja. 2.500 sigue cubriendo el mayor lote real (1.393) y el catálogo más
+ * grande (2.372) con margen.
+ *
+ * La re-medición independiente de la revisión de código no reprodujo la
+ * degradación (escalado ~lineal); el tope se mantiene en 2.500 de todos
+ * modos, por cobertura de uso real y no por esa medición — ver design.md §D6.
+ */
+export const PRODUCT_IMPORT_MAX_ROWS = 2500

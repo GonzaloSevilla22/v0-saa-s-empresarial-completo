@@ -235,7 +235,7 @@ Heredado de `productos-categorias-sku` (ítem 24, ver `CHANGES.md`):
 
 - ~~**Retiro de `products.category` TEXT**~~ (OQ-3, sign-off PO: no en este change) — change propio que debe migrar `v_products_with_stock` y todos sus lectores (IA, exportaciones, `rpc_product_profitability`) de una sola vez. → **cerrado por `productos-categoria-text-retiro`** (2026-09-09, PRs #534/#537).
 - **`idx_products_barcode_unique` sigue alcanzado por `user_id`** (task 4.5) — mismo residuo de tenencia que tenía el SKU; inerte hoy (0 cuentas multiusuario con productos), fuera de superficie de este change.
-- **Migración del importador a FastAPI** (D7) — sigue por `rpc_bulk_upsert_products` con supabase-js; migrarlo entero es un change propio.
+- ~~**Migración del importador a FastAPI** (D7) — sigue por `rpc_bulk_upsert_products` con supabase-js; migrarlo entero es un change propio.~~ → **cerrado por `importador-productos-fastapi`** (2026-09-10, PRs #541/#548).
 - **Categoría por defecto configurable** — la fila del CSV sin categoría va hoy a una heurística documentada en la RPC ("Otros" si vive y activa, si no la última activa por `sort_order`).
 
 Heredado de `estadisticas-ventas` E1+E2+E3 (ítem 25, ver `CHANGES.md` y `openspec/changes/archive/2026-09-04-estadisticas-ventas/design.md` §"Notas de implementación de E1", §"… de E2" y §"… de E3"). **Ya NO son candidatos** (resueltos al archivar el 2026-09-04): la reconciliación de la spec `product-ranking` ("ranking por categoría" → 5ª dimensión de `rpc_sales_breakdown`, ahora en `sales-statistics`), el humo real de `ai-estadisticas` con clave de prod (PASÓ) y el CSV ilegible en Excel (fix PR #508). Lo que sigue abierto:

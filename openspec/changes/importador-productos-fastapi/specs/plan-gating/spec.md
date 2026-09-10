@@ -8,10 +8,6 @@ Los límites SHALL leerse de `plan_limits` en runtime **en todas las capas que l
 
 El enforcement de los límites de recursos maestros (productos, clientes, proveedores) SHALL aplicarse en la **creación**. Los límites de contadores mensuales (operaciones/mes, exportaciones/mes) quedan fuera del enforcement de creación de este comportamiento.
 
-El enforcement SHALL alcanzar **todo camino que cree recursos maestros**, incluida la carga masiva por archivo. Un camino de creación que no lo aplique NO SHALL considerarse una excepción sino un hueco: mientras exista, el límite del plan sólo restringe a quien crea de a uno.
-
-Cuando una carga masiva dejaría a la cuenta por encima de su límite, el sistema SHALL rechazar el **lote completo** informando el conteo resultante y el tope, y NO SHALL aplicar una parte del archivo hasta agotar el cupo: aplicar parcialmente por cuota deja al usuario sin saber qué quedó adentro y qué no. Una carga masiva que sólo **actualiza** recursos existentes, sin crear ninguno, NO SHALL bloquearse aunque la cuenta ya esté por encima de su límite.
-
 Cuando el enforcement de un límite de recurso maestro se ejecuta **dentro de la unidad de trabajo de base de datos**, la resolución del plan efectivo SHALL hacerse contra la base por la definición normativa única de plan efectivo, y NO SHALL derivarse de la información de plan que viaja en el token: ese camino cae a un valor por defecto permisivo cuando el claim no viaja, y el límite deja de existir sin que nada falle. Esta cláusula NO altera el enforcement que realiza el backend en la capa de aplicación, que conserva su regla propia.
 
 #### Scenario: Usuario gratis intenta crear el producto 101
@@ -38,17 +34,6 @@ Cuando el enforcement de un límite de recurso maestro se ejecuta **dentro de la
 - **GIVEN** una cuenta 'inicial' (max_products=500) con 2 miembros que crearon 498 y 1 productos (499 total)
 - **WHEN** cualquier miembro crea un producto más
 - **THEN** la creación es permitida (499 < 500); el siguiente (#501) es bloqueado para todos los miembros
-
-#### Scenario: La carga masiva no puede sobrepasar el límite de productos
-- **GIVEN** una cuenta con plan efectivo 'gratis' (max_products = 100) que tiene 90 productos
-- **WHEN** importa un archivo que crearía 30 productos nuevos
-- **THEN** el lote completo es rechazado informando el conteo resultante y el tope
-- **AND** no queda creado ninguno de los 30
-
-#### Scenario: Una carga masiva que sólo actualiza no se bloquea
-- **GIVEN** una cuenta cuyo conteo de productos ya supera el límite de su plan
-- **WHEN** importa un archivo cuyas filas todas actualizan productos existentes
-- **THEN** la importación es permitida
 
 #### Scenario: El límite de clientes se enforcea en la creación
 - **GIVEN** una cuenta con plan efectivo 'gratis' (max_clients = 50) que ya tiene 50 clientes

@@ -100,3 +100,109 @@ class ProductBulkCategoryOut(BaseModel):
 
     requested: int
     updated: int
+
+
+# ── importador-productos-fastapi ──────────────────────────────────────────
+#
+# El lote es UNA SOLA unidad de trabajo de servidor (rpc_import_products,
+# SECURITY DEFINER, DEC-24) que invoca rpc_bulk_upsert_products UNA VEZ con
+# el archivo completo — este módulo NO evalúa ninguna regla de negocio nueva
+# (D1 del design): sólo valida la FORMA del payload y delega.
+#
+# Tope 2.500 (D6/OQ-2, bajado del 5.000 original tras medir en la base local
+# post-apply: 5.000 filas tardó 33,1s de simulación + 34,2s de confirmación,
+# con escalado SUPERLINEAL (4,0 → 6,6 ms/fila entre 200 y 5.000) — el propio
+# design dejaba esto como el criterio de baja si la medición no acompañaba.
+# 2.500 sigue cubriendo el mayor lote real medido (1.393) y el catálogo más
+# grande (2.372) con margen.
+#
+# La re-medición independiente de la revisión de código no reprodujo la
+# degradación (escalado ~lineal); el tope se mantiene en 2.500 de todos
+# modos, por cobertura de uso real y no por esa medición — ver design.md §D6.
+
+PRODUCT_IMPORT_MAX_ROWS = 2500
+
+
+class ProductImportAttributeIn(BaseModel):
+    key: str
+    value: str
+    sort_order: int = 0
+
+
+class ProductImportRowIn(BaseModel):
+    """Una fila del archivo, ya parseada y resuelta por el cliente.
+
+    D12 (contrato null-preserving, coexistencia con `productos-costo-
+    nullable`): NINGÚN campo opcional tiene un default numérico. `price`,
+    `cost`, `stock` y `min_stock` son `None` cuando la celda vino vacía —
+    nunca `0` — porque la RPC usa `COALESCE` para distinguir "conservar/sin
+    valor" de "cero declarado" (mismo contrato que el alta/edición de a uno).
+    """
+
+    row_no: int = Field(gt=0)
+    name: str
+    category: str | None = None
+    price: Decimal | None = None
+    cost: Decimal | None = None
+    stock: Decimal | None = None
+    min_stock: int | None = None
+    barcode: str | None = None
+    sku: str | None = None
+    # Referencias de jerarquía (D9): resueltas por el SERVIDOR contra la
+    # cuenta — sku_parent/parent_name que no resuelven en el lote NI en el
+    # catálogo de la cuenta son error de fila, nunca un default silencioso.
+    sku_parent: str | None = None
+    parent_name: str | None = None
+    is_variant: bool | None = None
+    stock_control_type: str | None = None
+    attributes: list[ProductImportAttributeIn] = Field(default_factory=list)
+
+
+class ProductImportIn(BaseModel):
+    """Payload de `POST /products/import`.
+
+    El body NO lleva `user_id` ni `account_id` (spec product-import): la
+    tenencia la deriva `rpc_import_products` desde `auth.uid()` de la
+    sesión — es el punto entero del change.
+    """
+
+    idempotency_key: str | None = None
+    file_name: str
+    file_hash: str
+    dry_run: bool = False
+    rows: list[ProductImportRowIn] = Field(min_length=1, max_length=PRODUCT_IMPORT_MAX_ROWS)
+
+
+class ProductImportRowErrorOut(BaseModel):
+    row: int | None
+    sku: str | None = None
+    name: str | None = None
+    message: str
+
+
+class ProductImportNewCategoryOut(BaseModel):
+    name: str
+    rows: int
+
+
+class ProductImportOut(BaseModel):
+    """Reporte del lote — `200` cuando el rechazo es por REGLAS DE FILA,
+    aplicado o no (D3 del design).
+
+    Un lote rechazado por reglas de fila NO es un error de protocolo: es un
+    resultado del procesamiento. Los `4xx` quedan para lo que impide
+    procesar (forma del payload, tope de filas, sin rol de escritura, sin
+    clave de idempotencia) — y el tope de categorías nuevas (cuota) viaja
+    ahí también: `rpc_bulk_upsert_products` lo levanta como `P0400` DENTRO
+    de la llamada que `rpc_import_products` hace, sin capturarlo, así que
+    escapa igual que el tope de filas (`P0427`) y nunca llega a este schema.
+    """
+
+    committed: bool
+    import_id: uuid.UUID | None
+    inserted: int
+    updated: int
+    errors: list[ProductImportRowErrorOut]
+    new_categories: list[ProductImportNewCategoryOut]
+    replayed: bool
+    dry_run: bool

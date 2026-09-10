@@ -144,7 +144,7 @@ Una llamada, con **todas** las filas del archivo. El upsert hace lo que siempre 
 
 ```
   <guards: auth.uid(), cuenta por current_account_ids(), is_account_writer>
-  <validación de forma del payload: array, 1..5000 filas, shape mínimo>   -- RAISE normal (P0427)
+  <validación de forma del payload: array, 1..2500 filas, shape mínimo>   -- RAISE normal (P0427)
   <validación de metadata: file_name y file_hash obligatorios>            -- RAISE normal (P0427)
 
   BEGIN                                    -- ← subtransacción del LOTE
@@ -171,6 +171,8 @@ Una llamada, con **todas** las filas del archivo. El upsert hace lo que siempre 
                             'replayed', …, 'dry_run', p_dry_run);
 ```
 
+> **Nota (apply, OQ-1 sin sign-off):** el tope de filas es 1..2500 (bajado de 5.000, ver D6). La línea `<gate de plan sobre el estado RESULTANTE (D5)>`, `v_plan_exceeded` y el campo `'plan'` del `RETURN` son parte del diseño ORIGINAL de este pseudocódigo — el apply NO los escribió (OQ-1 sin sign-off del PO): el `rpc_import_products` real no tiene ninguna de las tres piezas. El resto del esqueleto (guards, validación de forma, subtransacción del lote, `RAISE`/`EXCEPTION` de P0429, `RETURN` sin `plan`) es exactamente lo que se implementó.
+
 **Las dos propiedades de PL/pgSQL de las que depende, que hay que enunciar porque son sutiles:**
 
 1. Un bloque `BEGIN … EXCEPTION` es una **subtransacción**: al capturar su excepción, **todo el estado de base escrito dentro del bloque se deshace** y la transacción exterior queda **sana** (no abortada).
@@ -196,6 +198,12 @@ Una llamada, con **todas** las filas del archivo. El upsert hace lo que siempre 
 **Precedente y verificación.** Es el mismo movimiento que `20261038000001` hizo con `c28_register_cash_movement` (revocada de `authenticated`, invocable sólo desde otras `SECURITY DEFINER`). Y `service_role` conserva su `EXECUTE`: los jobs administrativos no dependen de esta decisión.
 
 **Qué hay que verificar antes de revocar** (checkpoint 1.5, lección de `tenancy-guard-caja-outbox`): que no quede **ningún** caller de `rpc_bulk_upsert_products` fuera del backend. La lista sale de un grep sobre `frontend/`, `supabase/functions/` y `supabase/tests/`, no del design.
+
+**Decisión de la ronda 3 (F1) — resolución de tenant determinística y cuenta única.** La corrección post-review de la ronda 1 sumó `ORDER BY cai` a la resolución de `v_account_id` de `rpc_import_products` para hacerla determinística — pero **sólo a esa**, no a la de `rpc_bulk_upsert_products` (que la sigue resolviendo sin orden, y que D2 prohíbe tocar más allá de sumar `row` al error). Para un usuario con más de una cuenta, eso las hace **divergir por construcción**: la revisión adversarial midió 6/8 usuarios multi-cuenta sintéticos con el guard evaluando `is_account_writer` sobre una cuenta distinta de la que el upsert usaba para escribir — una **regresión** real, no un candidato (un owner legítimo quedaba rechazado con `P0401`).
+
+La opción determinística que se adopta: `rpc_import_products` vuelve a resolver `v_account_id` con la consulta **literal** de `rpc_bulk_upsert_products` (sin `ORDER BY` — miden 8/8 de acuerdo entre sí sin él) y, además, rechaza explícitamente la ambigüedad — si `current_account_ids()` devuelve más de una fila para el usuario, `rpc_import_products` corta con `P0403` (*"la importación en lote requiere una única cuenta activa"*) en vez de resolver una cualquiera. La importación en lote no tiene selector de cuenta en su contrato (a diferencia del alta de a uno, que no necesita uno porque el usuario ya está "parado" en una cuenta al abrir el formulario), así que ambigüedad honesta es mejor que una resolución que depende del plan de consulta.
+
+Medido en prod el 2026-09-10: **0 usuarios pertenecen hoy a más de una cuenta** (y, por transitividad, 0 cuentas con más de un usuario tienen productos) — este guard no reproduce en ningún caso real hoy, pero cierra el hueco de raíz para cuando `v3-rbac-multirole` haga que la multi-cuenta por usuario deje de ser rara. Gate nuevo (13.x de `test_product_import_batch.sql`): usuario con dos membresías → `P0403`; usuario con una → sigue funcionando igual que en los bloques (2)/(3)/etc.
 
 ---
 
@@ -234,15 +242,17 @@ El gate de este change vive **dentro de la RPC**, así que le aplica el segundo,
 
 ---
 
-### D6 — Tope de **5.000 filas por lote**, con rechazo — y explícitamente **sin trocear**
+### D6 — Tope de **2.500 filas por lote** (bajado de 5.000 post-review, ver task 6.9), con rechazo — y explícitamente **sin trocear**
 
-**Decisión.** `p_rows` se acepta con `1..5000` elementos; por encima, `P0427` con el conteo y el tope en el mensaje. `IMPORT_BATCH_SIZE` y `chunkArray` se retiran del cliente.
+**Decisión.** `p_rows` se acepta con `1..2500` elementos; por encima, `P0427` con el conteo y el tope en el mensaje. `IMPORT_BATCH_SIZE` y `chunkArray` se retiran del cliente.
 
-**Por qué 5.000 y no 500.** El tope tiene que estar por encima del uso real y por debajo de lo absurdo. Medido: el mayor lote real de la historia del producto son **1.393 filas**, el catálogo más grande son **2.372 productos**, y **cero** lotes superaron 2.000. 5.000 es además el `max_products` del plan más alto —o sea, **el gate que muerde primero es el de plan (D5), no el de transporte**, que es como tiene que ser— y es el mismo tope que `rpc_import_bank_statement` ya usa para sus líneas. Un tope de 500 (el de gastos) rompería tres casos reales el primer día.
+> **Corrección post-review (2026-09-10, antes de mergear):** el design original recomendaba 5.000 con la task 6.9 (medición del tope real) como precondición de merge — esa task nunca se escribió en el apply. La revisión de código la ejecutó: en la base local del apply, 5.000 filas tardó 33,1s de simulación + 34,2s de confirmación con escalado que reportó como superlineal (200→804ms, 1000→4189ms, 2000→9999ms, 5000→33101ms). Al corregir el hallazgo se aplicó el criterio que OQ-2 ya dejaba escrito ("bajarlo a 2.500 si la medición no acompaña") — **pero la re-medición independiente en la base reconciliada de este worktree no reprodujo esos números**: 200→81ms, 1000→302ms, 2000→566ms, 2500→718ms (dry+real combinado), y `rpc_bulk_upsert_products` invocada DIRECTO a 5.000 filas (bypaseando el tope de `rpc_import_products` para poder medir) tardó 752ms — escalado aproximadamente LINEAL (0,15-0,4 ms/fila), casi dos órdenes de magnitud más rápido que lo reportado. No se pudo determinar la causa de la discrepancia (¿base bajo carga distinta en el momento de la medición original, contención de otro worktree compartiendo el mismo Postgres, algo específico del entorno de esa corrida?) — **se deja 2.500 de todos modos**, no porque el riesgo de superlinealidad se haya confirmado, sino porque el propio D6 original ya lo justificaba en términos independientes de esa medición: sigue cubriendo el mayor lote real (1.393) y el catálogo más grande (2.372) con margen, cuesta cero en usabilidad real, y Docker local no es un proxy confiable del backend en Render free tier + la latencia de red real a Supabase en producción. Ver candidato en `CHANGES.md`: remedir en un entorno más parecido a prod antes de considerar subirlo de nuevo a 5.000.
 
-**Por qué no se trocea.** Trocear es exactamente el fallo parcial que este change viene a eliminar, y además es lo que hoy convierte el tope de 50 categorías nuevas del servidor en un tope por 200 filas. Un archivo por encima de 5.000 se rechaza con el motivo; no se parte en dos transacciones.
+**Por qué 2.500 y no 500.** El tope tiene que estar por encima del uso real y por debajo de lo absurdo. Medido: el mayor lote real de la historia del producto son **1.393 filas**, el catálogo más grande son **2.372 productos**, y **cero** lotes superaron 2.000. Un tope de 500 (el de gastos) rompería tres casos reales el primer día. (5.000 seguía siendo el `max_products` del plan más alto — con 2.500 el gate que muerde primero para el plan `pro` vuelve a ser el de transporte antes que el de plan, una inversión menor que D6 acepta a cambio del margen de seguridad.)
 
-**Sobre el costo de las subtransacciones.** Un lote de 5.000 filas abre ~5.001 subtransacciones anidadas en la misma transacción — el upsert **ya** abre una por fila hoy, así que lo que cambia es cuántas viven en la misma transacción, no cuántas se abren. Es una operación puntual de un solo tenant y no compite con el hot path; aun así, la task 6.9 la mide en el tope antes de dar el change por bueno, y OQ-2 deja abierto bajarlo si la medición no acompaña.
+**Por qué no se trocea.** Trocear es exactamente el fallo parcial que este change viene a eliminar, y además es lo que hoy convierte el tope de 50 categorías nuevas del servidor en un tope por 200 filas. Un archivo por encima de 2.500 se rechaza con el motivo; no se parte en dos transacciones.
+
+**Sobre el costo de las subtransacciones.** Un lote de 2.500 filas abre ~2.501 subtransacciones anidadas en la misma transacción — el upsert **ya** abre una por fila hoy, así que lo que cambia es cuántas viven en la misma transacción, no cuántas se abren. Es una operación puntual de un solo tenant y no compite con el hot path.
 
 ---
 
@@ -254,6 +264,8 @@ El gate de este change vive **dentro de la RPC**, así que le aplica el segundo,
 - `inserted` / `updated` — cuántos productos nuevos y cuántas actualizaciones;
 - `new_categories` — las que se crearían (**del servidor**, no de la conjetura del cliente);
 - el veredicto del gate de plan, con el conteo resultante y el tope.
+
+> **Corrección de la ronda 3 (F2).** El agrupamiento de `new_categories` normalizaba el nombre de cada fila pero no bajaba a minúsculas antes de agrupar — un archivo con "Zapatillas"/"zapatillas"/"ZAPATILLAS" se anunciaba como 3 categorías nuevas cuando el upsert, que sí agrupa case-insensitive, crea 1. Es justo la garantía que el párrafo de arriba promete ("el veredicto real, no una aproximación") y que el delta `product-category` declara normativa. Corregido a agrupar por `lower(product_category_normalize_name(...))`, con un nombre canónico elegido por `min(...)` sobre las variantes de capitalización y la suma de sus filas.
 
 La validación de cliente que ya existe (`validateImportRows`) **se conserva**: es la que produce los avisos de ambigüedad de importes, los duplicados de SKU dentro del archivo y los errores fatales de fila, y es la que evita mandar al servidor un archivo que ya se sabe roto. Las dos capas conviven: el cliente filtra lo evidente, el servidor dicta el veredicto.
 
@@ -358,7 +370,7 @@ Dos mecanismos, dos modos de falla distintos:
 
 **3. Dos changes reescriben `rpc_bulk_upsert_products` en la misma ventana.** *Mitigación*: firmas idénticas, adiciones disjuntas, y el checkpoint 1.2 obliga a hashear el cuerpo vivo y a partir de él. *Residuo*: si los dos se aplican el mismo día en paralelo, el segundo tiene que rehacer su `CREATE OR REPLACE` sobre el cuerpo del primero. Es exactamente el escenario que la regla de integridad de función existe para atrapar.
 
-**4. 5.000 subtransacciones en una sola transacción.** El upsert ya abre una por fila; lo que cambia es cuántas conviven. Un backend con más de 64 subxids abiertos desborda su caché y obliga a los demás a consultar `pg_subtrans`. *Mitigación*: la task 6.9 mide el tope real antes del merge; OQ-2 deja abierto bajarlo a 2.500 si la medición no acompaña. *Residuo*: es una operación puntual, no un hot path.
+**4. 2.500 subtransacciones en una sola transacción** (bajado de 5.000 post-review — ver D6). El upsert ya abre una por fila; lo que cambia es cuántas conviven. Un backend con más de 64 subxids abiertos desborda su caché y obliga a los demás a consultar `pg_subtrans`. *Mitigación*: la corrección post-review midió el tope real (200/1000/2000/2500/5000, ver D6) — la degradación superlineal que motivó bajar el tope NO se reprodujo en la re-medición independiente, pero el tope se dejó en 2.500 igual, por costar cero en usabilidad real y no depender de esa medición para justificarse (D6 original ya lo hacía). *Residuo*: es una operación puntual, no un hot path; la medición de prod real (Render + latencia de red a Supabase) sigue pendiente — candidato en `CHANGES.md`.
 
 **5. La simulación duplica el trabajo.** *Mitigación*: una vez por archivo elegido, no por click; y el trabajo que duplica hoy son siete round-trips HTTP para el mismo archivo.
 
@@ -386,8 +398,19 @@ Dos mecanismos, dos modos de falla distintos:
 **OQ-1 — ¿El importador aplica el límite de productos del plan?** (D5)
 *Recomendación: sí, evaluado sobre el estado resultante y anunciado en la vista previa.* Es lo que `plan-gating` ya declara y lo que el formulario ya hace; el importador es la puerta de atrás. **Pero rechaza importaciones de 4 cuentas reales medidas**, así que necesita sign-off explícito del PO antes de escribirse. Alternativa (b): dejarlo fuera y anotarlo como candidato — el change cierra el resto de los huecos igual.
 
+> **Estado al apply (2026-09-10): SIN SIGN-OFF — NO implementado.** El orquestador del apply no recibió una respuesta explícita del PO sobre esta OQ, así que se aplicó la instrucción por defecto: la task 4.7 (el bloque de código de D5 dentro de `rpc_import_products`) **no se escribió**. Todo lo demás del change está completo e independiente de esta decisión: el todo-o-nada, la idempotencia, el `REVOKE`, el guard de rol de escritura, el número de fila en los errores, la vista previa de servidor y la resolución de jerarquía por cuenta funcionan igual sin el gate de plan.
+>
+> Lo que quedó preparado para cuando el sign-off llegue, sin que actives esta OQ tengas que rehacer nada:
+> - `P0430` está **reservado** en `backend/core/errors.py` (403) con un comentario explícito — activar el gate no exige inventar ni renumerar un ERRCODE.
+> - El diseño de D5 (evaluar sobre el estado **resultante**, después de la llamada al upsert, nunca *a priori*) sigue siendo la recomendación vigente — no cambió nada que lo invalide.
+> - El frontend NO tiene ningún camino que asuma la ausencia del gate: no hay lógica de "esto nunca se va a rechazar por plan" — simplemente el veredicto de plan no existe todavía en la respuesta (`ProductImportOut` no tiene el campo `plan`).
+>
+> Candidato para un change de una sola task cuando el PO responda: agregar el bloque de D5 a `rpc_import_products` (dentro de la subtransacción del lote, después de `v_res := ...`), sumar el campo `plan` a `ProductImportOut`/`ProductImportResult`, y un CTA de upgrade en el paso 2 del diálogo. Ninguna otra pieza del change necesita tocarse.
+
 **OQ-2 — ¿El tope por lote es 5.000 filas?** (D6)
-*Recomendación: sí.* Cubre el mayor lote real (1.393), el catálogo más grande (2.372) y coincide con el `max_products` del plan más alto, de modo que el gate que muerde primero sea el de negocio. Si la medición de la task 6.9 muestra degradación, bajarlo a 2.500 sigue cubriendo todo el uso histórico.
+*Recomendación original: sí.* Cubre el mayor lote real (1.393), el catálogo más grande (2.372) y coincide con el `max_products` del plan más alto, de modo que el gate que muerde primero sea el de negocio. Si la medición de la task 6.9 muestra degradación, bajarlo a 2.500 sigue cubriendo todo el uso histórico.
+
+> **Resuelta post-review (2026-09-10): bajado a 2.500.** La task 6.9 nunca se ejecutó en el apply original; la revisión de código la corrió y reportó degradación superlineal a 5.000 filas (33,1s + 34,2s). Se aplicó el propio criterio de esta OQ y se bajó a 2.500 — pero la re-medición independiente en la base reconciliada de este worktree **no reprodujo** esa degradación (escalado ~lineal, 5.000 filas en 752ms invocando `rpc_bulk_upsert_products` directo). El tope queda en 2.500 de todos modos: no depende de la medición en disputa para justificarse (ya lo hacía D6 por cobertura de uso real) y no tiene costo real de usabilidad. Detalle completo de ambas mediciones en D6 y `CHANGES.md`.
 
 **OQ-3 — ¿Se conserva algún modo "importar las que se pueda"?** (D3)
 *Recomendación: no.* Con SKU en el 0,4 % del catálogo, un import parcial no se puede reintentar sin duplicar; el todo-o-nada + dedupe por hash es lo que hace seguro el reintento. Alternativa (b): un checkbox "importar las filas válidas igual" en el paso 2 — es un segundo modo de escritura con su propia semántica de idempotencia y duplica la superficie de test.

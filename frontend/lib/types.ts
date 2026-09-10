@@ -567,6 +567,76 @@ export interface ExpenseImportResult {
   dryRun: boolean
 }
 
+// ── importador-productos-fastapi ─────────────────────────────────────────────
+//
+// El lote es UNA SOLA unidad de trabajo de servidor (rpc_import_products):
+// todo o nada, con el reporte de errores por fila en el retorno normal —
+// nunca una excepción de protocolo (D3 del design). El transporte es
+// NULL-PRESERVING (D12): un campo opcional ausente viaja como `undefined`
+// (JSON.stringify lo omite), nunca como `0`.
+
+/** Un atributo dinámico ("Atributo: Talle", etc.) de una fila — espejo de `ProductImportAttributeIn`. */
+export interface ProductImportAttribute {
+  key: string
+  value: string
+  sortOrder: number
+}
+
+/** Una fila del archivo, ya parseada y resuelta por el cliente — espejo de `ProductImportRowIn`. */
+export interface ProductImportRow {
+  rowNo: number
+  name: string
+  category?: string | null
+  price?: number | null
+  /** `undefined`/`null` = celda vacía (sin costo o conservar); nunca 0 por default. */
+  cost?: number | null
+  stock?: number | null
+  minStock?: number | null
+  barcode?: string | null
+  sku?: string | null
+  /** Referencia de jerarquía por SKU — el SERVIDOR la resuelve por cuenta (D9). */
+  skuParent?: string | null
+  /** Referencia de jerarquía por nombre — el SERVIDOR la resuelve por cuenta (D9). */
+  parentName?: string | null
+  isVariant?: boolean | null
+  stockControlType?: "tracked" | "untracked" | "variant_only" | null
+  attributes?: ProductImportAttribute[]
+}
+
+/** Un error de fila del reporte del lote — espejo de `ProductImportRowErrorOut`. */
+export interface ProductImportRowIssue {
+  row: number | null
+  sku?: string | null
+  name?: string | null
+  message: string
+}
+
+/** Una categoría que el lote crearía/creó — espejo de `ProductImportNewCategoryOut`. */
+export interface ProductImportNewCategory {
+  name: string
+  rows: number
+}
+
+/** Payload de `POST /products/import` — espejo de `ProductImportIn`. */
+export interface ProductImportInput {
+  fileName: string
+  fileHash: string
+  dryRun: boolean
+  rows: ProductImportRow[]
+}
+
+/** Reporte del lote — espejo de `ProductImportOut`. SIEMPRE HTTP 200. */
+export interface ProductImportResult {
+  committed: boolean
+  importId: string | null
+  inserted: number
+  updated: number
+  errors: ProductImportRowIssue[]
+  newCategories: ProductImportNewCategory[]
+  replayed: boolean
+  dryRun: boolean
+}
+
 // ── cost-center-dimension (V2.5 Finanzas) ────────────────────────────────────
 
 /**

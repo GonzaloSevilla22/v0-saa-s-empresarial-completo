@@ -748,6 +748,13 @@ jobs:
           # sin duplicar el REVOKE del helper nuevo).
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261043000001_asiento_contable_gastos.sql
 
+          # importador-productos-fastapi (2026-09-10): idempotente — CREATE
+          # TABLE IF NOT EXISTS / DROP POLICY IF EXISTS + CREATE POLICY /
+          # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT / CREATE OR REPLACE
+          # FUNCTION (sin DROP) en todo el archivo. Reaplicada localmente dos
+          # veces consecutivas sin error ni duplicación (tasks 3.7/6.2).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261044000001_importador_productos_fastapi.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1688,3 +1695,10 @@ jobs:
       # arreglar, sólo cablear).
       - name: Run cobranzas reverso gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_cobranzas_reverso.sql
+
+      # importador-productos-fastapi: `supabase start` ya aplicó
+      # 20261044000001 (product_imports + CHECK ampliado +
+      # rpc_bulk_upsert_products con D2 + rpc_import_products + REVOKE de
+      # authenticated) al levantar el stack — este paso sólo corre el gate.
+      - name: Run importador-productos-fastapi gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_import_batch.sql

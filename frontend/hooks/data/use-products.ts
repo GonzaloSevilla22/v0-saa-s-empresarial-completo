@@ -1,10 +1,11 @@
 "use client"
 
+import { useCallback } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
 import { bulkRecategorizeInChunks, type BulkCategoryResult } from "@/lib/product-bulk-category"
-import type { Product } from "@/lib/types"
+import type { Product, ProductImportInput, ProductImportResult } from "@/lib/types"
 
 // ── Types for API responses ───────────────────────────────────────────────────
 
@@ -52,6 +53,109 @@ function mapProduct(p: ProductApiRow): Product {
     isVariant:        p.is_variant ?? false,
     stockControlType: (p.stock_control_type ?? "tracked") as Product["stockControlType"],
   }
+}
+
+// ── importador-productos-fastapi ────────────────────────────────────────────
+
+interface ProductImportRowApi {
+  row_no: number
+  name: string
+  category?: string | null
+  price?: string | null
+  cost?: string | null
+  stock?: string | null
+  min_stock?: number | null
+  barcode?: string | null
+  sku?: string | null
+  sku_parent?: string | null
+  parent_name?: string | null
+  is_variant?: boolean | null
+  stock_control_type?: string | null
+  attributes: Array<{ key: string; value: string; sort_order: number }>
+}
+
+interface ProductImportResultApi {
+  committed: boolean
+  import_id: string | null
+  inserted: number
+  updated: number
+  errors: Array<{ row: number | null; sku?: string | null; name?: string | null; message: string }>
+  new_categories: Array<{ name: string; rows: number }>
+  replayed: boolean
+  dry_run: boolean
+}
+
+function mapProductImportResult(r: ProductImportResultApi): ProductImportResult {
+  return {
+    committed: r.committed,
+    importId: r.import_id,
+    inserted: r.inserted,
+    updated: r.updated,
+    errors: r.errors.map((e) => ({ row: e.row, sku: e.sku ?? null, name: e.name ?? null, message: e.message })),
+    newCategories: r.new_categories,
+    replayed: r.replayed,
+    dryRun: r.dry_run,
+  }
+}
+
+/**
+ * Set de invalidaciones del importador: escribe productos, categorías
+ * (D6/D7 pueden crear nuevas) y stock por sucursal (D1, branch_stock de la
+ * sucursal por defecto) — los tres, UNA sola vez al confirmar (task 8.8),
+ * nunca por fila.
+ */
+export function useInvalidateProductImport() {
+  const queryClient = useQueryClient()
+  return useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.products.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.productCategories.all() })
+    queryClient.invalidateQueries({ queryKey: queryKeys.branchStock.all() })
+  }, [queryClient])
+}
+
+/**
+ * Lote transaccional de importación (D1 del design): UNA sola request a
+ * `POST /products/import`, con `Idempotency-Key` por header. El `dryRun`
+ * del input dispara el mismo camino en modo simulación (D7) — la vista
+ * previa del paso 2 del diálogo usa la MISMA mutación, no un validador
+ * aparte. Espejo exacto de `useImportExpenses`.
+ */
+export function useImportProducts() {
+  const invalidateImportData = useInvalidateProductImport()
+  const mutation = useMutation({
+    mutationFn: async (input: ProductImportInput & { idempotencyKey: string }): Promise<ProductImportResult> => {
+      const rows: ProductImportRowApi[] = input.rows.map((r) => ({
+        row_no: r.rowNo,
+        name: r.name,
+        category: r.category ?? null,
+        price: r.price != null ? String(r.price) : null,
+        cost: r.cost != null ? String(r.cost) : null,
+        stock: r.stock != null ? String(r.stock) : null,
+        min_stock: r.minStock ?? null,
+        barcode: r.barcode ?? null,
+        sku: r.sku ?? null,
+        sku_parent: r.skuParent ?? null,
+        parent_name: r.parentName ?? null,
+        is_variant: r.isVariant ?? null,
+        stock_control_type: r.stockControlType ?? null,
+        attributes: (r.attributes ?? []).map((a) => ({ key: a.key, value: a.value, sort_order: a.sortOrder })),
+      }))
+      const result = await pythonClient.post<ProductImportResultApi>(
+        "/products/import",
+        {
+          file_name: input.fileName,
+          file_hash: input.fileHash,
+          dry_run: input.dryRun,
+          rows,
+        },
+        { "Idempotency-Key": input.idempotencyKey }
+      )
+      return mapProductImportResult(result)
+    },
+    // Una sola invalidación por lote CONFIRMADO — el propio diálogo decide
+    // cuándo llamar invalidateImportData() tras un resultado committed.
+  })
+  return { importMutation: mutation, invalidateImportData }
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────

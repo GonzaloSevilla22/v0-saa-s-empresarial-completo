@@ -19,23 +19,54 @@ import type { RawImportRow } from "@/lib/import/types"
 import type { ProductCategory } from "@/lib/types"
 import { buildTemplateCsv } from "@/lib/import/template"
 
+// importador-productos-fastapi (fix de CI, misma causa que #542): el diálogo
+// hashea el archivo con `hashFileSHA256` (`lib/bank-statement-parser.ts`, vía
+// `crypto.subtle.digest` sobre `File.arrayBuffer()`) antes de simular. En el
+// jsdom de CI (Node 20) ese `arrayBuffer()` no es aceptado por
+// `SubtleCrypto.digest` (`ERR_INVALID_ARG_TYPE`), la simulación nunca resuelve
+// y el paso 2 jamás aparece — localmente (Node 24) sí pasa. Mock idéntico al
+// de `gastos.a11y.test.tsx`; el hash real no es objeto de estos tests.
+vi.mock("@/lib/bank-statement-parser", () => ({
+  // Determinístico por archivo (nombre + tamaño): dos archivos distintos deben
+  // dar hashes distintos — el test de cambio de archivo lo asserta.
+  hashFileSHA256: vi.fn(async (file: File) => `hash-${file.name}-${file.size}`),
+}))
+
 let parsedRows: RawImportRow[] = []
 let categoriesMock = [
   { id: "cat-ropa",  accountId: "a", name: "Ropa",  isActive: true,  sortOrder: 2, createdAt: "" },
   { id: "cat-otros", accountId: "a", name: "Otros", isActive: true,  sortOrder: 7, createdAt: "" },
 ]
 
-vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u1" } }) }))
+// Veredicto de la SIMULACIÓN de servidor (dry_run) que dispara el paso 2 al
+// entrar (D7) — por default, sin errores ni categorías propias (el aviso de
+// categorías nuevas del cliente sigue mostrándose hasta que este veredicto
+// llegue; los tests que lo necesitan lo esperan explícitamente con waitFor).
+let dryRunResult = {
+  committed: false,
+  importId: null,
+  inserted: 0,
+  updated: 0,
+  errors: [] as Array<{ row: number | null; message: string }>,
+  newCategories: [] as Array<{ name: string; rows: number }>,
+  replayed: false,
+  dryRun: true,
+}
+const mutateAsyncMock = vi.fn(async () => dryRunResult)
+
 vi.mock("@/hooks/data/use-product-categories", () => ({
   useProductCategories: () => ({ productCategories: categoriesMock, isLoading: false }),
 }))
 vi.mock("@/lib/import/parser", () => ({
   parseImportFile: vi.fn(async () => ({ ok: true, rows: parsedRows })),
 }))
-vi.mock("@/lib/import/importer", () => ({
-  importProductsFromFile: vi.fn(async () => ({ inserted: 0, updated: 0, parents: 0, variants: 0, standalone: 0, validationErrors: [], dbErrors: [] })),
+vi.mock("@/hooks/data/use-products", () => ({
+  useImportProducts: () => ({
+    importMutation: { mutateAsync: mutateAsyncMock },
+    invalidateImportData: vi.fn(),
+  }),
 }))
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const { ProductImportDialog } = await import("@/components/products/product-import-dialog")
 
@@ -86,6 +117,10 @@ describe("ProductImportDialog — categorías nuevas en el paso de revisión", (
       { id: "cat-ropa",  accountId: "a", name: "Ropa",  isActive: true, sortOrder: 2, createdAt: "" },
       { id: "cat-otros", accountId: "a", name: "Otros", isActive: true, sortOrder: 7, createdAt: "" },
     ]
+    dryRunResult = {
+      committed: false, importId: null, inserted: 0, updated: 0,
+      errors: [], newCategories: [], replayed: false, dryRun: true,
+    }
   })
 
   it("el paso 1 declara que la categoría se crea y que el SKU coincidente actualiza", () => {
@@ -95,14 +130,19 @@ describe("ProductImportDialog — categorías nuevas en el paso de revisión", (
   })
 
   it("lista las categorías a crear con su conteo antes de confirmar", async () => {
+    // D7: el anuncio final proviene del VEREDICTO DEL SERVIDOR (la
+    // simulación) — se configura acá para que coincida con la conjetura del
+    // cliente, y el test espera a que la simulación asíncrona resuelva.
+    dryRunResult = { ...dryRunResult, newCategories: [{ name: "Ferretería", rows: 2 }] }
     parsedRows = [
       raw({ lineNumber: 2, nombre: "Martillo", categoria: "Ferretería" }),
       raw({ lineNumber: 3, nombre: "Tenaza", categoria: "ferretería" }),
       raw({ lineNumber: 4, nombre: "Remera", categoria: "ropa" }),
     ]
     await openWithFile()
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
 
-    const block = screen.getByRole("region", { name: /categorías nuevas/i })
+    const block = await screen.findByRole("region", { name: /categorías nuevas/i })
     expect(block).toHaveTextContent(/1 categoría nueva/i)
     expect(block).toHaveTextContent(/Ferretería/)
     expect(block).toHaveTextContent(/2 filas/)
@@ -113,6 +153,7 @@ describe("ProductImportDialog — categorías nuevas en el paso de revisión", (
   it("sin categorías nuevas no hay bloque de anuncio", async () => {
     parsedRows = [raw({ lineNumber: 2, nombre: "Remera", categoria: "Ropa" })]
     await openWithFile()
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
     expect(screen.queryByRole("region", { name: /categorías nuevas/i })).not.toBeInTheDocument()
   })
 

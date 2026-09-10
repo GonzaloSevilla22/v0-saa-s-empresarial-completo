@@ -19,6 +19,19 @@ import type { RawImportRow } from "@/lib/import/types"
 import type { ProductCategory } from "@/lib/types"
 import { buildTemplateCsv } from "@/lib/import/template"
 
+// importador-productos-fastapi (fix de CI, misma causa que #542): el diálogo
+// hashea el archivo con `hashFileSHA256` (`lib/bank-statement-parser.ts`, vía
+// `crypto.subtle.digest` sobre `File.arrayBuffer()`) antes de simular. En el
+// jsdom de CI (Node 20) ese `arrayBuffer()` no es aceptado por
+// `SubtleCrypto.digest` (`ERR_INVALID_ARG_TYPE`), la simulación nunca resuelve
+// y el paso 2 jamás aparece — localmente (Node 24) sí pasa. Mock idéntico al
+// de `gastos.a11y.test.tsx`; el hash real no es objeto de estos tests.
+vi.mock("@/lib/bank-statement-parser", () => ({
+  // Determinístico por archivo (nombre + tamaño): dos archivos distintos deben
+  // dar hashes distintos — el test de cambio de archivo lo asserta.
+  hashFileSHA256: vi.fn(async (file: File) => `hash-${file.name}-${file.size}`),
+}))
+
 let parsedRows: RawImportRow[] = []
 let categoriesMock = [
   { id: "cat-ropa",  accountId: "a", name: "Ropa",  isActive: true,  sortOrder: 2, createdAt: "" },

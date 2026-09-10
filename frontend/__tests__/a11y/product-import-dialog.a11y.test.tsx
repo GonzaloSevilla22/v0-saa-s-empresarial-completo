@@ -19,6 +19,19 @@ import { render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import type { RawImportRow } from "@/lib/import/types"
 
+// importador-productos-fastapi (fix de CI, misma causa que #542): el diálogo
+// hashea el archivo con `hashFileSHA256` (`lib/bank-statement-parser.ts`, vía
+// `crypto.subtle.digest` sobre `File.arrayBuffer()`) antes de simular. En el
+// jsdom de CI (Node 20) ese `arrayBuffer()` no es aceptado por
+// `SubtleCrypto.digest` (`ERR_INVALID_ARG_TYPE`), la simulación nunca resuelve
+// y el paso 2 jamás aparece — localmente (Node 24) sí pasa. Mock idéntico al
+// de `gastos.a11y.test.tsx`; el hash real no es objeto de estos tests.
+vi.mock("@/lib/bank-statement-parser", () => ({
+  // Determinístico por archivo (nombre + tamaño): dos archivos distintos deben
+  // dar hashes distintos — el test de cambio de archivo lo asserta.
+  hashFileSHA256: vi.fn(async (file: File) => `hash-${file.name}-${file.size}`),
+}))
+
 let parsedRows: RawImportRow[] = []
 
 vi.mock("@/hooks/data/use-product-categories", () => ({
@@ -66,11 +79,18 @@ beforeEach(() => {
 describe("ProductImportDialog — accesibilidad (task 9.8)", () => {
   it("el estado de carga de la simulación se anuncia con role=status", async () => {
     parsedRows = [raw({ lineNumber: 2, nombre: "Producto válido" })]
+    // La mutación queda PENDIENTE a propósito: el estado de carga tiene que
+    // seguir anunciado hasta que el servidor responda. Con el mock resolviendo
+    // de inmediato había una carrera (bajo carga el badge ya no estaba al
+    // assertear) — fallo real en CI del PR #548.
+    mutateAsyncMock.mockImplementationOnce(() => new Promise(() => {}))
     await openWithFile()
 
     // Mientras la promesa de mutateAsync no resolvió, el badge de carga
     // tiene que estar anunciado como región de estado.
-    expect(screen.getByRole("status")).toHaveTextContent(/validando con el servidor/i)
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(/validando con el servidor/i),
+    )
 
     await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
   })

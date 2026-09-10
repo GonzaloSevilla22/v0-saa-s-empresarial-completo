@@ -150,11 +150,11 @@
 
 > **Fuera del alcance de este apply** (requiere el merge a `main` y el deploy real, que no ocurrieron en esta sesión). Quedan `[ ]` para que el orquestador/revisor los ejecute después del merge — 12.1-12.7 son lecturas de prod.
 
-- [ ] 12.1 `MAX(version)` = la migración de este change; conteo total de migraciones.
-- [ ] 12.2 `information_schema.columns`: `products.cost` con `is_nullable = 'YES'` y `column_default IS NULL`.
-- [ ] 12.3 Conteos: `cost IS NULL` ≈ 2.617 + altas del período; `cost = 0` = **sólo** los declarados explícitamente desde el deploy (idealmente 0 el primer día); `cost > 0` sin cambios respecto de 1.3.
-- [ ] 12.4 Cuerpos vivos: `reporting_sales_lines_in_window` con `has_cost`, las tres coberturas de `rpc_product_sales_evolution` migradas, `rpc_bulk_upsert_products` sin el `COALESCE(..., 0)` del INSERT y **con** el de la rama UPDATE.
-- [ ] 12.5 ACLs de las funciones reescritas sin `EXECUTE` para `anon`, y **una sola definición viva** de cada una (sin overload).
+- [x] 12.1 `MAX(version)` = la migración de este change; conteo total de migraciones.
+- [x] 12.2 `information_schema.columns`: `products.cost` con `is_nullable = 'YES'` y `column_default IS NULL`.
+- [x] 12.3 Conteos: `cost IS NULL` ≈ 2.617 + altas del período; `cost = 0` = **sólo** los declarados explícitamente desde el deploy (idealmente 0 el primer día); `cost > 0` sin cambios respecto de 1.3.
+- [x] 12.4 Cuerpos vivos: `reporting_sales_lines_in_window` con `has_cost`, las tres coberturas de `rpc_product_sales_evolution` migradas, `rpc_bulk_upsert_products` sin el `COALESCE(..., 0)` del INSERT y **con** el de la rama UPDATE.
+- [x] 12.5 ACLs de las funciones reescritas sin `EXECUTE` para `anon`, y **una sola definición viva** de cada una (sin overload). — 12.1-12.5 verificadas por el orquestador en prod el 2026-09-10 (~07:00 UTC) vía MCP read-only: MAX(version)=20261042000001; products.cost is_nullable=YES sin default; cost NULL 2.640 / cost=0 0 / cost>0 2.456 (5.096 filas incl. soft-deleted); reporting_sales_lines_in_window RETURNS TABLE(..., unit_cost, has_cost) con ACL {postgres, service_role}; rpc_bulk_upsert_products sin COALESCE(v_cost,0) en el INSERT; rpc_dashboard_kpi_summary con stagnant_stock_without_cost_count; una sola definición de las 5 funciones; ranking con NULLS LAST.
 - [ ] 12.6 Re-medir el ranking por margen en una cuenta real: los productos sin costo aparecen **al final**, no en la cabecera. Es la verificación de que el bug se fue, no de que el SQL corrió.
 - [ ] 12.7 **Humo real del PO**: crear un producto sin costo y verlo con "—" en catálogo, ranking y `/rentabilidad`; cargarle `0` explícito y verlo como `0` con su margen calculado; importar una planilla con la celda de costo vacía sobre un producto existente y confirmar que **conserva** su costo.
 - [x] 12.8 Guardar en engram el resultado del apply con `topic_key: "opsx/productos-costo-nullable/apply"`. Confirmado guardado (observación #872, `decision`, "productos-costo-nullable apply COMPLETO (2026-09-10)") — corregido en la ronda 1 de revisión, que encontró la casilla `[ ]` inconsistente con el guardado real.

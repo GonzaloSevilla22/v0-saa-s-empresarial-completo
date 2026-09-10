@@ -56,7 +56,8 @@ interface ProductFixture {
   id: string
   name: string
   price: number
-  cost: number
+  // productos-costo-nullable: el fixture admite costo ausente.
+  cost: number | null
   stock: number
   min_stock: number
 }
@@ -424,6 +425,39 @@ describe("buildBusinessSnapshot — KPIs de productos", () => {
     const snapshot = await buildBusinessSnapshot(supabase)
     expect(snapshot.productos.stock_critico_total).toBe(2)
     expect(snapshotToText(snapshot)).toContain("STOCK CRÍTICO: 2 productos")
+  })
+
+  // productos-costo-nullable (ronda 2 de revisión, finding minor): la falta
+  // de costo excluye el producto de margen_bajo (no hay margen que evaluar,
+  // spec product-cost "Una alerta de margen no se emite…") pero NO de
+  // sin_rotacion — "tiene stock y hace N días que no se vende" es un hecho
+  // verdadero e independiente del costo (spec product-cost, escenario "El
+  // contexto de IA omite el margen en vez de inventarlo": el producto
+  // aparece sin costo y sin margen, no desaparece). Sólo se omite el
+  // `valor_inmovilizado` (nunca se imputa a partir de un costo ausente).
+  it("conserva en sin_rotacion (sin valor_inmovilizado) y excluye de margen_bajo a los productos sin costo cargado", async () => {
+    const supabase = makeSupabaseDouble({
+      products: [
+        { id: "p1", name: "Sin costo, sin rotación", price: 100, cost: null, stock: 10, min_stock: 2 },
+        { id: "p2", name: "Sin costo, margen bajo aparente", price: 100, cost: null, stock: 0, min_stock: 2 },
+        { id: "p3", name: "Con costo real", price: 100, cost: 90, stock: 10, min_stock: 2 },
+      ],
+      sales: [],
+      rotation: [],
+      rpc: { data: [fullRpcRow({ invoiced_revenue: 0, net_profit: 0 })], error: null },
+      criticalStock: { data: 0, error: null },
+    })
+
+    const snapshot = await buildBusinessSnapshot(supabase)
+    const sinRotacionNombres = snapshot.productos.sin_rotacion.map((p) => p.nombre)
+    const margenBajoNombres  = snapshot.productos.margen_bajo.map((p) => p.nombre)
+    const sinCostoEntry = snapshot.productos.sin_rotacion.find(
+      (p) => p.nombre === "Sin costo, sin rotación"
+    )
+    expect(sinRotacionNombres).toContain("Sin costo, sin rotación")
+    expect(sinCostoEntry?.valor_inmovilizado).toBeNull()
+    expect(margenBajoNombres).not.toContain("Sin costo, margen bajo aparente")
+    expect(margenBajoNombres).toContain("Con costo real")
   })
 })
 

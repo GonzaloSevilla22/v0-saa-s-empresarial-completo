@@ -10,7 +10,11 @@ export function AiAlerts() {
     const { sales }    = useSales()
 
     // Business logic for alerts
+    // productos-costo-nullable: sin costo cargado no hay margen que evaluar
+    // — NUNCA se sustituye por cero (eso produciría un falso "margen del
+    // 100%" y dispararía la alerta de oportunidad para el peor caso).
     const marginAlerts = products.map(p => {
+        if (p.cost == null) return null
         const margin = p.price > 0 ? ((p.price - p.cost) / p.price) * 100 : 0
 
         if (margin < 20) {

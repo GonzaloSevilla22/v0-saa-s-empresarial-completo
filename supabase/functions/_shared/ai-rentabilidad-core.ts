@@ -47,8 +47,16 @@ export interface RentabilidadContext {
 
 const fmt = (n: unknown) => `$${Math.round(Number(n)).toLocaleString("es-AR")}`
 const pctFmt = (n: unknown) => `${Number(n).toFixed(1)}%`
-const fmtRow = (p: ProfitabilityRow) =>
-  `${p.product_name}: ingresos ${fmt(p.total_revenue)}, costo ${fmt(p.total_cost)}, margen ${pctFmt(p.gross_margin_pct)}, ${p.units_sold} uds`
+// productos-costo-nullable: `total_cost`/`gross_margin_pct` pueden llegar
+// `null` (ningún costo resoluble en el grupo, capability product-cost) —
+// `fmt(null)`/`pctFmt(null)` fabricarían "$0"/"0.0%" en silencio. Se OMITE
+// el par costo/margen del contexto en vez de sustituirlo (nunca inventar).
+const fmtRow = (p: ProfitabilityRow) => {
+  const base = `${p.product_name}: ingresos ${fmt(p.total_revenue)}`
+  const hasCost = p.total_cost != null && p.gross_margin_pct != null
+  const costPart = hasCost ? `, costo ${fmt(p.total_cost)}, margen ${pctFmt(p.gross_margin_pct)}` : ", sin costo cargado"
+  return `${base}${costPart}, ${p.units_sold} uds`
+}
 
 /**
  * Arma el contexto del modelo con el top 5 / bottom 5 de margen bruto tal

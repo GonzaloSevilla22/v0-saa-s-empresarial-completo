@@ -120,15 +120,19 @@ Deno.serve(async (req) => {
       const pSales = sales.filter((s: Record<string, unknown>) => s.product_id === p.id)
       const salesCount = pSales.reduce((acc: number, s: Record<string, unknown>) => acc + Number(s.quantity), 0)
       const price = Number(p.price)
-      const cost = Number(p.cost)
-      const margin = price > 0 ? ((price - cost) / price) * 100 : 0
-      const score = salesCount + (margin / 10) + (Number(p.stock) > 0 ? 5 : 0)
+      // productos-costo-nullable: el costo del catálogo es OPCIONAL — sin
+      // costo, `margin` queda AUSENTE (nunca se calcula sobre un costo
+      // imputado a 0, que daría un falso 100% y sesgaría el score hacia ese
+      // producto por sobre uno realmente medido).
+      const hasCost = p.cost != null
+      const margin = hasCost && price > 0 ? ((price - Number(p.cost)) / price) * 100 : null
+      const score = salesCount + (margin != null ? margin / 10 : 0) + (Number(p.stock) > 0 ? 5 : 0)
       return {
         name: p.name,
         stock: p.stock,
         cost: p.cost,
         price: p.price,
-        margin: margin.toFixed(1) + '%',
+        margin: margin != null ? margin.toFixed(1) + '%' : 'sin costo cargado',
         units: salesCount,
         score, // kept for sort, stripped before prompt
       }

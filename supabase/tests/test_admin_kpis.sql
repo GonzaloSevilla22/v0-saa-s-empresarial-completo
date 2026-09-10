@@ -641,11 +641,14 @@ BEGIN
   -- directamente en el INSERT — trg_guard_product_soft_delete es BEFORE
   -- UPDATE y sólo se dispara al pasar de NULL a no NULL, no al insertar ya
   -- borrado).
-  INSERT INTO public.products (user_id, account_id, name)
-  VALUES (v_admin_id, v_account_id, 'Gate Stock Vivo');
+  -- cost explícito (task 1.6 de productos-costo-nullable): esta fixture no
+  -- assertea nada sobre costo/margen, pero desde que la columna perdió su
+  -- DEFAULT 0 todo INSERT que la omita cae en NULL en silencio.
+  INSERT INTO public.products (user_id, account_id, name, cost)
+  VALUES (v_admin_id, v_account_id, 'Gate Stock Vivo', 0);
 
-  INSERT INTO public.products (user_id, account_id, name, deleted_at, deleted_by)
-  VALUES (v_admin_id, v_account_id, 'Gate Stock Borrado', now(), v_admin_id);
+  INSERT INTO public.products (user_id, account_id, name, deleted_at, deleted_by, cost)
+  VALUES (v_admin_id, v_account_id, 'Gate Stock Borrado', now(), v_admin_id, 0);
 
   -- Soft delete 'clientes': un cliente vivo y uno borrado, ambos dentro de
   -- la ventana [v_from, v_to] (created_at BETWEEN).

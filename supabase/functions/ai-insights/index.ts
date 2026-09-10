@@ -224,6 +224,12 @@ Deno.serve(async (req) => {
     for (const s of rotationRes.data ?? []) {
       if (s.product_id && !lastSaleDate.has(s.product_id)) lastSaleDate.set(s.product_id, s.date)
     }
+    // productos-costo-nullable (ronda 2): el costo del catálogo es OPCIONAL.
+    // "margen bajo" SÍ excluye el producto sin costo (no hay margen que
+    // evaluar). "Sin rotación" NO: "tiene stock y no se vendió en N días" es
+    // un hecho verdadero e independiente del costo — el producto se
+    // CONSERVA y sólo se omite el monto inmovilizado (nunca se imputa a
+    // partir de un costo ausente, patrón ai-canonical-metrics/fmtRow).
     const sinRotacion = products
       .filter((p: any) => Number(p.stock) > 0)
       .map((p: any) => {
@@ -235,12 +241,14 @@ Deno.serve(async (req) => {
       .sort((a: any, b: any) => b.dias - a.dias)
       .slice(0, 4)
       .map(({ p, dias }: any) =>
-        `${p.name}: ${p.stock} uds, ${dias} días sin vender, $${Math.round(p.stock * Number(p.cost)).toLocaleString()} inmovilizado`
+        p.cost != null
+          ? `${p.name}: ${p.stock} uds, ${dias} días sin vender, $${Math.round(p.stock * Number(p.cost)).toLocaleString()} inmovilizado`
+          : `${p.name}: ${p.stock} uds, ${dias} días sin vender, sin costo cargado`
       )
 
     // Margen bajo
     const margenBajo = products
-      .filter((p: any) => Number(p.price) > 0 && (Number(p.price) - Number(p.cost)) / Number(p.price) < 0.2)
+      .filter((p: any) => p.cost != null && Number(p.price) > 0 && (Number(p.price) - Number(p.cost)) / Number(p.price) < 0.2)
       .slice(0, 4)
       .map((p: any) => `${p.name}: ${Math.round(((Number(p.price) - Number(p.cost)) / Number(p.price)) * 100)}% margen (costo $${p.cost} → precio $${p.price})`)
 

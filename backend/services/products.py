@@ -134,16 +134,24 @@ async def update_product(
     *,
     sku_provided: bool = False,
     category_provided: bool = False,
+    cost_provided: bool = False,
     category_repo: ProductCategoryRepository | None = None,
 ) -> dict:
     """productos-categorias-sku (D12): tri-estado por AUSENCIA para `sku` y
     `category_id` (`*_provided` derivado de `model_fields_set` en el router).
+    productos-costo-nullable extiende el mismo molde a `cost`: campo ausente
+    conserva el costo que el producto tenía, informado en `null` lo
+    desasigna (queda sin costo cargado) — nunca por `is None`, porque `None`
+    es indistinguible de "no lo mandé" sin `model_fields_set`.
     El resto de los campos conserva `exclude_none` (task 9.4)."""
     require_role(auth, ["user", "admin"])
-    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id"})
+    data = payload.model_dump(exclude_none=True, exclude={"sku", "category_id", "cost"})
 
     if sku_provided:
         data["sku"] = normalize_sku(payload.sku)
+
+    if cost_provided:
+        data["cost"] = payload.cost
 
     if category_provided:
         existing = await repo.get_by_id(product_id, account_id)

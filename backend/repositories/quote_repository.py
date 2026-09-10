@@ -73,6 +73,11 @@ class QuoteRepository(BaseRepository):
                 SELECT
                   $1::uuid, $2::uuid, $3::uuid, $4::uuid,
                   $5::numeric, $6::numeric, $7::numeric,
+                  -- productos-costo-nullable (task 5.7, verificar/no cambia):
+                  -- p.cost puede ser NULL desde este change (sin costo
+                  -- cargado) — el snapshot ya admite NULL (D8, unit_cost_
+                  -- snapshot nullable en las 5 tablas de línea) y se propaga
+                  -- sin COALESCE, congelando la ausencia, no un cero.
                   p.name, p.sku, p.cost, NULL
                 FROM (SELECT $3::uuid AS product_id) AS item_ref
                 LEFT JOIN public.products p ON p.id = item_ref.product_id

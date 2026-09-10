@@ -55,11 +55,16 @@ export default function SimuladorPage() {
   const selectedProduct = useMemo(() => products.find((p) => p.id === productId), [products, productId])
 
   const currentPrice = selectedProduct?.price || 0
-  const cost         = selectedProduct?.cost  || 0
+  // productos-costo-nullable: `hasCost` distingue "no hay costo cargado" de
+  // "el costo es cero" — el slider y las proyecciones de ingreso SIGUEN
+  // funcionando sin costo (no dependen de él), pero el margen no se simula
+  // con un costo inventado (D15).
+  const hasCost = selectedProduct != null && selectedProduct.cost != null
+  const cost    = selectedProduct?.cost ?? 0
   const effectivePrice = newPrice || currentPrice
 
-  const currentMargin  = currentPrice  > 0 ? ((currentPrice  - cost) / currentPrice)  * 100 : 0
-  const newMargin      = effectivePrice > 0 ? ((effectivePrice - cost) / effectivePrice) * 100 : 0
+  const currentMargin  = !hasCost ? null : (currentPrice   > 0 ? ((currentPrice  - cost) / currentPrice)  * 100 : 0)
+  const newMargin      = !hasCost ? null : (effectivePrice > 0 ? ((effectivePrice - cost) / effectivePrice) * 100 : 0)
 
   const productSales = useMemo(
     () => sales.filter((s) => s.productId === productId),
@@ -92,11 +97,17 @@ export default function SimuladorPage() {
     // "Still working…" hint after 10 s so the user knows we haven't frozen
     const slowTimer = setTimeout(() => setIsSlow(true), 10_000)
 
+    // productos-costo-nullable: sin costo cargado se OMITEN las líneas de
+    // costo/margen del prompt — nunca se manda un costo inventado (patrón
+    // ai-canonical-metrics: omitir, jamás sustituir por una estimación).
     const scenario =
       `Producto: "${selectedProduct.name}". ` +
-      `Costo: $${cost}. ` +
-      `Precio actual: $${currentPrice} (margen ${currentMargin.toFixed(0)}%). ` +
-      `Precio propuesto: $${effectivePrice} (margen proyectado ${newMargin.toFixed(0)}%). ` +
+      (hasCost
+        ? `Costo: $${cost}. ` +
+          `Precio actual: $${currentPrice} (margen ${currentMargin!.toFixed(0)}%). ` +
+          `Precio propuesto: $${effectivePrice} (margen proyectado ${newMargin!.toFixed(0)}%). `
+        : `Precio actual: $${currentPrice}. Precio propuesto: $${effectivePrice}. ` +
+          `(Sin costo cargado — la sugerencia no considera el margen.) `) +
       `Historial: ${productSales.length} ventas registradas, promedio ${avgQtyPerSale.toFixed(1)} unidades por venta. ` +
       `Ingreso mensual actual estimado: $${currentRevenue.toFixed(0)}. ` +
       `Proyección con nuevo precio: $${projectedRevenue.toFixed(0)}. ` +
@@ -209,6 +220,12 @@ export default function SimuladorPage() {
 
               {selectedProduct && (
                 <>
+                  {!hasCost && (
+                    <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      Este producto no tiene costo cargado — la simulación de margen queda deshabilitada.
+                    </div>
+                  )}
                   {/* Price slider */}
                   <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between">
@@ -218,13 +235,15 @@ export default function SimuladorPage() {
                     <Slider
                       value={[effectivePrice]}
                       onValueChange={([v]) => setNewPrice(v)}
-                      min={Math.max(1, cost)}
+                      min={hasCost ? Math.max(1, cost) : 1}
                       max={currentPrice * 3}
                       step={1}
                       className="w-full"
                     />
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>${Math.max(1, cost)} (costo)</span>
+                      {/* Sin costo, el piso del slider es un mínimo técnico
+                          (no hay costo real que declarar como referencia). */}
+                      <span>{hasCost ? `$${Math.max(1, cost)} (costo)` : "$1"}</span>
                       <span>${currentPrice * 3}</span>
                     </div>
                   </div>
@@ -297,16 +316,22 @@ export default function SimuladorPage() {
                 <CardContent className="p-4 flex flex-col items-center gap-1">
                   <Percent className="h-5 w-5 text-muted-foreground mb-1" />
                   <span className="text-xs text-muted-foreground">Margen actual</span>
-                  <span className="text-xl font-bold text-card-foreground">{currentMargin.toFixed(0)}%</span>
+                  <span className="text-xl font-bold text-card-foreground">
+                    {currentMargin == null ? "—" : `${currentMargin.toFixed(0)}%`}
+                  </span>
                 </CardContent>
               </Card>
               <Card className="border-primary/20 bg-card">
                 <CardContent className="p-4 flex flex-col items-center gap-1">
                   <Percent className="h-5 w-5 text-primary mb-1" />
                   <span className="text-xs text-muted-foreground">Nuevo margen</span>
-                  <span className={`text-xl font-bold ${newMargin > currentMargin ? "text-emerald-400" : "text-red-400"}`}>
-                    {newMargin.toFixed(0)}%
-                  </span>
+                  {newMargin == null || currentMargin == null ? (
+                    <span className="text-xl font-bold text-muted-foreground">—</span>
+                  ) : (
+                    <span className={`text-xl font-bold ${newMargin > currentMargin ? "text-emerald-400" : "text-red-400"}`}>
+                      {newMargin.toFixed(0)}%
+                    </span>
+                  )}
                 </CardContent>
               </Card>
               <Card className="border-border bg-card">
@@ -335,16 +360,22 @@ export default function SimuladorPage() {
                 <div className="flex flex-col gap-2">
                   {[0.8, 0.9, 1.0, 1.1, 1.2].map((mult) => {
                     const scenarioPrice  = Math.round(currentPrice * mult)
-                    const scenarioMargin = scenarioPrice > 0 ? ((scenarioPrice - cost) / scenarioPrice) * 100 : 0
+                    const scenarioMargin = !hasCost
+                      ? null
+                      : (scenarioPrice > 0 ? ((scenarioPrice - cost) / scenarioPrice) * 100 : 0)
                     return (
                       <div key={mult} className="flex items-center justify-between rounded-md border border-border p-2">
                         <span className="text-sm text-card-foreground">${scenarioPrice}</span>
                         <span className="text-xs text-muted-foreground">
                           {mult === 1.0 ? "Precio actual" : `${mult > 1 ? "+" : ""}${((mult - 1) * 100).toFixed(0)}%`}
                         </span>
-                        <span className={`text-sm font-medium ${scenarioMargin >= 50 ? "text-emerald-400" : scenarioMargin >= 30 ? "text-yellow-400" : "text-red-400"}`}>
-                          {scenarioMargin.toFixed(0)}% margen
-                        </span>
+                        {scenarioMargin == null ? (
+                          <span className="text-sm font-medium text-muted-foreground">—</span>
+                        ) : (
+                          <span className={`text-sm font-medium ${scenarioMargin >= 50 ? "text-emerald-400" : scenarioMargin >= 30 ? "text-yellow-400" : "text-red-400"}`}>
+                            {scenarioMargin.toFixed(0)}% margen
+                          </span>
+                        )}
                       </div>
                     )
                   })}

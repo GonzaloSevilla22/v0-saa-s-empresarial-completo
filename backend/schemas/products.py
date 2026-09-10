@@ -20,6 +20,11 @@ class ProductCreate(BaseModel):
     # todavía lo mande no rompe (Pydantic ignora el extra en silencio, D6).
     category_id: uuid.UUID | None = None
     price: Decimal | None = None
+    # productos-costo-nullable: `cost` es un dato OPCIONAL del catálogo.
+    # `None` = no se cargó el costo (ausente); `Decimal("0")` = costo cero
+    # declarado explícitamente. Los dos son hechos distintos del negocio
+    # (capability `product-cost`) — ya era `Decimal | None` en el schema,
+    # sólo faltaba el camino de escritura (ver ProductUpdate).
     cost: Decimal | None = None
     stock: Decimal = Decimal("0")
     min_stock: int = 0
@@ -35,8 +40,11 @@ class ProductUpdate(BaseModel):
     AUSENCIA de la clave, nunca por `is None` — se distinguen con
     `model_fields_set` en el router (precedente exacto: `bank_account_id` en
     PaymentMethodUpdate). Campo ausente conserva; con valor asigna; en `null`
-    desasigna. El resto de los campos conserva el comportamiento previo
-    (`exclude_none`) para no ampliar el alcance."""
+    desasigna. productos-costo-nullable extiende el mismo tri-estado a
+    `cost` (mismo molde exacto, `cost_provided` en el router/service): un
+    costo ausente en el payload conserva el que el producto tenía, y sólo un
+    `null` explícito lo desasigna. El resto de los campos conserva el
+    comportamiento previo (`exclude_none`) para no ampliar el alcance."""
 
     name: str | None = None
     category_id: uuid.UUID | None = None

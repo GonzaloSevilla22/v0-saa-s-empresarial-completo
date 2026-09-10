@@ -79,6 +79,7 @@ describe("useDashboardKpiSummary", () => {
       prevCostPerSale: 1148.15,
       stagnantStockValue: 41600,
       stagnantStockCount: 23,
+      stagnantStockWithoutCostCount: null,
       prevStagnantStockValue: 39000,
       prevStagnantStockCount: 20,
       salesCount: 27,

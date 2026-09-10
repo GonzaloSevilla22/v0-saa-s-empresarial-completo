@@ -154,7 +154,10 @@ function toPayload(row: ResolvedImportRow): ProductUpsertPayload {
     // "" → el servidor imputa la categoría por defecto de la cuenta (D6).
     category:           row.category,
     price:              row.rowType === "Padre" ? 0 : row.price,
-    cost:               row.rowType === "Padre" ? 0 : row.cost,
+    // productos-costo-nullable (D10): un padre variant_only no tiene costo
+    // propio — sin costo (null), no cero (el validator ya lo deja en null,
+    // esto lo hace explícito e inmune a un futuro cambio ahí).
+    cost:               row.rowType === "Padre" ? null : row.cost,
     stock:              row.rowType === "Padre" ? 0 : row.stock,
     min_stock:          row.minStock,
     barcode:            row.barcode,

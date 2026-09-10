@@ -148,15 +148,25 @@ function validateRow(raw: RawImportRow, canonicalByKey: Map<string, string>): Va
   }
 
   // ── Cost ───────────────────────────────────────────────────────────────────
-  let cost = 0
+  // productos-costo-nullable (D10): celda vacía ≠ "0" — vacía deja el
+  // producto SIN costo (null), nunca se imputa 0 por default. Una fila
+  // Padre (variant_only) tampoco tiene costo propio: el de cada variante es
+  // el que cuenta, mismo criterio que `price` arriba — pero (hallazgo de
+  // revisión) eso sólo debe descartar el VALOR, nunca los avisos: una
+  // columna Costo mal mapeada en un Padre es la misma señal de archivo roto
+  // que en cualquier otra fila, así que el parseo corre siempre y sólo la
+  // ASIGNACIÓN queda condicionada a `rowType !== "Padre"`.
+  let cost: number | null = null
   if (raw.costo.trim()) {
     const parsed = parseAmount(raw.costo)
     if (isNaN(parsed) || parsed < 0) {
-      warnings.push(`Costo inválido: "${raw.costo}" — se usará 0.`)
+      // Decirle al usuario que se usó 0 cuando 0 significa un costo cero
+      // DECLARADO sería una mentira nueva — la fila queda sin costo.
+      warnings.push(`Costo inválido: "${raw.costo}" — se dejará sin costo.`)
     } else {
-      cost = parsed
       const ambiguity = amountAmbiguityWarning("Costo", raw.costo, parsed)
       if (ambiguity) warnings.push(ambiguity)
+      if (rowType !== "Padre") cost = parsed
     }
   }
 

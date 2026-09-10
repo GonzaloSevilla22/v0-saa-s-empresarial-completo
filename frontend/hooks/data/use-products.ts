@@ -31,7 +31,11 @@ interface ProductApiRow {
 
 function mapProduct(p: ProductApiRow): Product {
   const price = Number(p.price ?? 0)
-  const cost  = Number(p.cost  ?? 0)
+  // productos-costo-nullable: el costo del catálogo es OPCIONAL — `null`/
+  // `undefined` significan "no se cargó", nunca se imputan a 0 (eso produce
+  // un margen del 100% indistinguible de uno medido). `0` es un costo cero
+  // DECLARADO y se preserva tal cual.
+  const cost = p.cost == null ? null : Number(p.cost)
   return {
     id:               p.id,
     name:             p.name,
@@ -39,7 +43,7 @@ function mapProduct(p: ProductApiRow): Product {
     categoryId:       p.category_id ?? null,
     cost,
     price,
-    margin:           price > 0 ? Math.round(((price - cost) / price) * 100) : 0,
+    margin:           cost == null ? null : (price > 0 ? Math.round(((price - cost) / price) * 100) : 0),
     stock:            Number(p.stock),
     minStock:         p.min_stock ?? 0,
     barcode:          p.barcode   ?? undefined,
@@ -68,7 +72,11 @@ export function useProducts() {
   })
 
   const addProductMutation = useMutation({
-    mutationFn: async (product: Omit<Product, "id">) => {
+    // productos-costo-nullable: `cost` admite `undefined` además de
+    // `number | null` — para un ALTA, omitir la clave y mandar `null`
+    // producen el mismo resultado (sin costo cargado), así que el caller no
+    // necesita distinguirlos.
+    mutationFn: async (product: Omit<Product, "id" | "cost"> & { cost?: number | null }) => {
       return pythonClient.post<ProductApiRow>("/products", {
         name:               product.name,
         // productos-categoria-text-retiro: `category` (nombre libre) ya no se
@@ -77,7 +85,7 @@ export function useProducts() {
         // la resolvió — una variante no la manda: el servidor hereda del padre (D11).
         ...(product.categoryId !== undefined ? { category_id: product.categoryId } : {}),
         price:              product.price,
-        cost:               product.cost,
+        cost:               product.cost ?? null,
         stock:              product.stock,
         min_stock:          product.minStock,
         barcode:            product.barcode     ?? null,
@@ -93,7 +101,13 @@ export function useProducts() {
   })
 
   const updateProductMutation = useMutation({
-    mutationFn: async (product: Product) => {
+    // productos-costo-nullable (D12): `cost` es tri-estado igual que
+    // `categoryId` — el caller (ProductForm) puede omitir la clave del todo
+    // (`undefined`) para CONSERVAR el costo existente, distinto de mandarla
+    // en `null` para DESASIGNARLO. `Product.cost` (lectura) es siempre
+    // `number | null` definido; este payload de escritura relaja sólo ESE
+    // campo a también admitir `undefined`.
+    mutationFn: async (product: Omit<Product, "cost"> & { cost?: number | null }) => {
       return pythonClient.put<ProductApiRow>(`/products/${product.id}`, {
         name:               product.name,
         // productos-categoria-text-retiro: `category` ya no se envía (idem alta).
@@ -103,7 +117,7 @@ export function useProducts() {
         // el SKU — el formulario manda siempre el estado vigente del campo.
         ...(product.categoryId !== undefined ? { category_id: product.categoryId } : {}),
         price:              product.price,
-        cost:               product.cost,
+        ...(product.cost !== undefined ? { cost: product.cost } : {}),
         stock:              product.stock,
         min_stock:          product.minStock,
         barcode:            product.barcode     ?? null,

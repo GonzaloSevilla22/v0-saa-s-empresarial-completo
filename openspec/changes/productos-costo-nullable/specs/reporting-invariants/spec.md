@@ -10,10 +10,12 @@ Cuando un read-model agrega líneas de las cuales **sólo algunas** tienen costo
 
 Los read-models que valorizan existencias (no márgenes) SHALL declarar cuántos de sus productos no tienen costo, en lugar de sumarlos como cero en silencio: la aritmética de una valorización que excluye lo que no puede valorizar es correcta, pero un total del que no se sabe qué proporción quedó afuera no es auditable.
 
+**Excepción declarada** — `rpc_dashboard_kpi_summary` (columnas `cost_per_sale`/`prev_cost_per_sale`, derivadas de su CTE `sales_agg.cogs`) y `rpc_dashboard_channel_margin` (columna `margin_pct` por canal) son agregados de rentabilidad de **toda la cuenta**, no read-models por producto: siguen sumando el costo ausente como cero, comportamiento idéntico al de antes de este change (`products.cost` ya era `0`, nunca `NULL`, para estos productos). No es la reintroducción del defecto que este requirement prohíbe — es un defecto preexistente que este change no corrige, porque corregirlo cambiaría el número que informan (el margen agregado bajaría), no sólo cómo lo declaran. Candidato propio, ver `CHANGES.md`.
+
 #### Scenario: Un read-model no inventa un costo cero
 
 - **GIVEN** una línea de venta sin snapshot de costo, de un producto sin costo de catálogo
-- **WHEN** cualquier read-model de reporting agrega el costo y el margen del período
+- **WHEN** cualquier read-model de reporting **por producto** agrega el costo y el margen del período
 - **THEN** esa línea no aporta costo
 - **AND** si es la única línea del agregado, el costo y el margen del agregado se informan ausentes, nunca en cero
 

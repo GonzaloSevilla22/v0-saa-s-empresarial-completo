@@ -99,11 +99,13 @@ async def update_product(
 ):
     """productos-categorias-sku (D12): `sku` y `category_id` son tri-estado por
     AUSENCIA de la clave en el JSON — `model_fields_set`, nunca `is None`
-    (precedente exacto: `bank_account_id` en PATCH /payment-methods)."""
+    (precedente exacto: `bank_account_id` en PATCH /payment-methods).
+    productos-costo-nullable extiende el mismo tri-estado a `cost`."""
     return await product_service.update_product(
         repo, auth, str(account_id), product_id, payload,
         sku_provided="sku" in payload.model_fields_set,
         category_provided="category_id" in payload.model_fields_set,
+        cost_provided="cost" in payload.model_fields_set,
         category_repo=category_repo,
     )
 

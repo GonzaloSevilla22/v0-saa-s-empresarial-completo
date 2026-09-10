@@ -711,6 +711,13 @@ jobs:
           # sin DROP), reaplicada localmente.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261041000001_importador_gastos_transaccional.sql
 
+          # productos-costo-nullable (2026-09-10): idempotente — el ALTER
+          # DROP NOT NULL/DEFAULT y el backfill (WHERE cost = 0) no matchean
+          # nada en la segunda corrida; las 4 funciones son DROP FUNCTION IF
+          # EXISTS + CREATE / CREATE OR REPLACE. Reaplicada localmente dos
+          # veces sin cambios (task 4.12).
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261042000001_products_cost_nullable.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1603,3 +1610,18 @@ jobs:
       # expense_imports).
       - name: Run expense import batch gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_expense_import_batch.sql
+
+      # productos-costo-nullable: products.cost NULLABLE sin default (T1/T2/T3);
+      # reporting_sales_lines_in_window expone has_cost, no has_cost_snapshot
+      # (T4); rpc_product_ranking/rpc_product_sales_evolution informan margen
+      # ausente sin costo resoluble, nunca 0 (T5-T7); rpc_product_profitability
+      # (no reescrita) hereda la ausencia (T8); op_line_snapshot congela costo
+      # ausente en venta y compra (T9); check_low_margin no dispara sin costo,
+      # sí con margen bajo real (T10); rpc_bulk_upsert_products tri-estado
+      # alta/edición (T11); rpc_dashboard_kpi_summary declara productos sin
+      # costo en el stock sin rotación (T12); ACLs + sin overload en las 5
+      # funciones reescritas/verificadas (T13); excepción declarada a RN-D2
+      # en rpc_dashboard_kpi_summary.cost_per_sale/rpc_dashboard_channel_margin
+      # (costo ausente = 0, sin cambios — gate de regresión, T14).
+      - name: Run productos-costo-nullable gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_productos_costo_nullable.sql

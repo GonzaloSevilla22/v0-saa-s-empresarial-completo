@@ -24,6 +24,13 @@ export interface DashboardKpiSummary {
   prevCostPerSale: number | null
   stagnantStockValue: number | null
   stagnantStockCount: number | null
+  /**
+   * productos-costo-nullable (OQ-2=a): cuántos de los `stagnantStockCount`
+   * productos no tienen costo cargado — el `stagnantStockValue` los suma en
+   * $0 (misma aritmética de siempre), pero sin esta cifra ese total no es
+   * auditable. `null` si el RPC aún no expone la columna (ventana de deploy).
+   */
+  stagnantStockWithoutCostCount: number | null
   prevStagnantStockValue: number | null
   prevStagnantStockCount: number | null
   salesCount: number
@@ -45,6 +52,10 @@ export interface RpcKpiSummaryRow {
   prev_cost_per_sale: string | number | null
   stagnant_stock_value: string | number | null
   stagnant_stock_count: number | null
+  // productos-costo-nullable (OQ-2=a): ausente si el caller corre contra un
+  // RPC viejo (ventana entre deploy de DB y de frontend) — null-safe, mismo
+  // patrón que invoiced_revenue/collected_revenue de arriba.
+  stagnant_stock_without_cost_count?: number | null
   prev_stagnant_stock_value: string | number | null
   prev_stagnant_stock_count: number | null
   sales_count: number | null
@@ -81,6 +92,7 @@ export function mapKpiSummaryRow(row: RpcKpiSummaryRow): DashboardKpiSummary {
     prevCostPerSale: num(row.prev_cost_per_sale),
     stagnantStockValue: num(row.stagnant_stock_value),
     stagnantStockCount: num(row.stagnant_stock_count),
+    stagnantStockWithoutCostCount: num(row.stagnant_stock_without_cost_count),
     prevStagnantStockValue: num(row.prev_stagnant_stock_value),
     prevStagnantStockCount: num(row.prev_stagnant_stock_count),
     salesCount: Number(row.sales_count ?? 0),

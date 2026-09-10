@@ -88,7 +88,7 @@ user_id             UUID        FK auth.users
 name                TEXT
 category_id         UUID        FK product_categories(id) ON DELETE RESTRICT, nullable  -- productos-categoria-text-retiro (2026-09-09): única representación física de la categoría. La columna `category` (TEXT) que existía acá se retiró — el nombre legible se lee DERIVADO en `v_products_with_stock` (LEFT JOIN product_categories), nunca almacenado en products.
 price               NUMERIC(15,2)
-cost                NUMERIC(15,2)
+cost                NUMERIC(15,2), nullable, sin default  -- productos-costo-nullable (2026-09-10): dato OPCIONAL del catálogo. NULL = no se cargó el costo (ausente); 0 = costo cero declarado explícitamente. Los dos son hechos distintos del negocio (capability product-cost) — ningún read-model/pantalla/IA sustituye el ausente por cero al informar margen. Un padre `variant_only` no tiene costo propio (el de cada variante es el que cuenta). Backfill de migración: los 2.617 productos con cost=0 heredados del antiguo DEFAULT 0 pasaron a NULL (0 de ellos tenían evidencia de cero real).
 stock               NUMERIC(15,4)   -- fraccionario (ej: 0.5 kg) — DEPRECATED, dropeada en C-21 checkpoint #2; stock real vive en branch_stock.quantity
 min_stock           INTEGER         -- DEPRECATED (branch-min-stock-realign, 2026-07-04): fuente de verdad del umbral de alerta es branch_stock.min_stock (RN-23). Se conserva por el dual-write del importador; DROP diferido
 barcode             TEXT        UNIQUE(user_id, barcode)

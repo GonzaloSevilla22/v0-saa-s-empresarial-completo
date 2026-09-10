@@ -284,3 +284,75 @@ describe("calculateElasticity", () => {
     expect(elasticity).toBeCloseTo(-1, 5)
   })
 })
+
+// ─── buildPricePrompt (productos-costo-nullable, task 8.1 RED/GREEN, OQ-3) ───
+// Lógica pura duplicada del Edge Function (no se puede importar Deno acá,
+// ver el comentario del encabezado del archivo).
+
+function buildPricePrompt(params: {
+  productName: string
+  price: number
+  cost: number | null
+  lookbackDays: number
+  salesCount: number
+  totalQty: number
+  elasticity: number
+  weeklyBlock: string
+  fmt: (n: number) => string
+}): string {
+  const { productName, price, cost, lookbackDays, salesCount, totalQty, elasticity, weeklyBlock, fmt } = params
+  const costLine = cost == null ? '' : `\nCOSTO CATÁLOGO: ${fmt(cost)}`
+  const marginInstruction = cost == null
+    ? ''
+    : '\nTen en cuenta el costo del catálogo para que el margen no sea negativo.'
+
+  return `PRODUCTO: ${productName}
+PRECIO ACTUAL: ${fmt(price)}${costLine}
+VENTAS ÚLTIMOS ${lookbackDays} DÍAS: ${salesCount} transacciones, ${totalQty.toFixed(0)} unidades
+ELASTICIDAD IMPLÍCITA (correlación precio-cantidad): ${elasticity.toFixed(3)} (negativo = más ventas a precio menor)
+
+VENTAS SEMANALES RECIENTES:
+${weeklyBlock}
+
+Basándote en estos datos reales, sugerí el precio óptimo para maximizar el ingreso total (no solo el margen).${marginInstruction}
+Si la elasticidad es negativa y pronunciada (< -0.3), considerá bajar el precio para incrementar volumen.
+Si la elasticidad es positiva o cercana a 0, el volumen no depende tanto del precio — priorizá margen.
+
+Devolvé SOLO un JSON con:
+- "suggested_price": number — precio sugerido en ARS (entero)${cost == null ? '' : `
+- "margin_pct": number — margen proyectado con ese precio (porcentaje, 1 decimal)`}
+- "argument": string — argumento narrativo en español rioplatense, 2-3 oraciones con números concretos`
+}
+
+const fmtARS = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`
+
+function basePromptParams(cost: number | null) {
+  return {
+    productName: "Medialunas",
+    price: 1000,
+    cost,
+    lookbackDays: 90,
+    salesCount: 10,
+    totalQty: 50,
+    elasticity: -0.2,
+    weeklyBlock: "  2026-W36: precio $1.000, cant. 10",
+    fmt: fmtARS,
+  }
+}
+
+describe("buildPricePrompt — costo opcional (OQ-3)", () => {
+  it("con costo de catálogo, incluye la línea COSTO CATÁLOGO y la instrucción de margen no negativo", () => {
+    const prompt = buildPricePrompt(basePromptParams(600))
+    expect(prompt).toContain("COSTO CATÁLOGO: $600")
+    expect(prompt).toContain("Ten en cuenta el costo del catálogo")
+    expect(prompt).toContain('"margin_pct"')
+  })
+
+  it("sin costo de catálogo, OMITE la línea de costo y la instrucción de margen — nunca manda un costo cero", () => {
+    const prompt = buildPricePrompt(basePromptParams(null))
+    expect(prompt).not.toContain("COSTO CATÁLOGO")
+    expect(prompt).not.toContain("Ten en cuenta el costo del catálogo")
+    expect(prompt).not.toContain('"margin_pct"')
+    expect(prompt).not.toMatch(/COSTO CAT[ÁA]LOGO:\s*\$0/)
+  })
+})

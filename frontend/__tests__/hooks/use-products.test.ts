@@ -97,7 +97,11 @@ describe("useProducts", () => {
   })
 
   // ── TRIANGULATE: product with null price/cost ─────────────────────────
-  it("handles null price and cost gracefully", async () => {
+  it("handles null price gracefully, but preserves a null cost as absence (never 0)", async () => {
+    // productos-costo-nullable: `price` sigue con el default `?? 0` (Non-Goal
+    // declarado, un precio ausente no falsea ningún margen). `cost` es
+    // opcional y su ausencia NUNCA se imputa a 0 — un costo tratado como
+    // cero produce un margen del 100% indistinguible de uno medido.
     vi.mocked(pythonClient.get).mockResolvedValueOnce([{
       ...mockProductRows[0],
       price: null,
@@ -109,8 +113,23 @@ describe("useProducts", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false))
 
     expect(result.current.products[0].price).toBe(0)
+    expect(result.current.products[0].cost).toBeNull()
+    expect(result.current.products[0].margin).toBeNull()
+  })
+
+  it("preserves a cost of 0 as a declared value, and computes its margin normally", async () => {
+    vi.mocked(pythonClient.get).mockResolvedValueOnce([{
+      ...mockProductRows[0],
+      price: 2000,
+      cost:  0,
+    }])
+
+    const { result } = renderHook(() => useProducts(), { wrapper: makeWrapper() })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
     expect(result.current.products[0].cost).toBe(0)
-    expect(result.current.products[0].margin).toBe(0)
+    expect(result.current.products[0].margin).toBe(100)
   })
 
   // ── productos-categoria-text-retiro (task 5.5): el payload de alta/edición

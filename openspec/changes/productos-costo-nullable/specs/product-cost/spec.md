@@ -36,7 +36,8 @@ Cuando un consumidor de IA arma el contexto que envía al modelo, SHALL **omitir
 
 - **GIVEN** un producto con precio cargado y sin costo
 - **WHEN** el usuario abre el catálogo de productos
-- **THEN** la fila muestra el costo y el margen como ausentes
+- **THEN** la fila muestra el margen como ausente ("—"), sin umbral de color — el catálogo no tiene columna de costo propia, sólo margen
+- **AND** el CSV exportado desde el catálogo trae la celda de costo vacía para ese producto (mismo criterio D11 de `export-ranking`)
 - **AND** NO muestra un margen del 100 % ni el color que ese valor tendría
 
 #### Scenario: Una alerta de margen no se emite sobre un producto sin costo

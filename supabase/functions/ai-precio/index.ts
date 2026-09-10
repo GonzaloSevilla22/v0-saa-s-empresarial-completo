@@ -29,7 +29,9 @@ interface ProductRow {
   id:    string
   name:  string
   price: number
-  cost:  number
+  // productos-costo-nullable: el costo del catálogo es OPCIONAL. `null` =
+  // no se cargó — la función NUNCA lo sustituye por cero ni lo estima.
+  cost:  number | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -91,6 +93,49 @@ export function calculateElasticity(weeklyData: SaleRow[]): number {
   const denom = Math.sqrt(denP * denQ)
   if (denom === 0) return 0
   return num / denom
+}
+
+/**
+ * productos-costo-nullable (OQ-3): construye el prompt de sugerencia de
+ * precio. Con `cost == null` (sin costo de catálogo) se OMITE la línea
+ * "COSTO CATÁLOGO" y la instrucción de mantener el margen no negativo —
+ * nunca se manda un costo cero ni una estimación propia (patrón
+ * ai-canonical-metrics: omitir, jamás sustituir). Exportada como función
+ * pura para que su contrato sea testeable sin runtime de Deno.
+ */
+export function buildPricePrompt(params: {
+  productName: string
+  price: number
+  cost: number | null
+  lookbackDays: number
+  salesCount: number
+  totalQty: number
+  elasticity: number
+  weeklyBlock: string
+  fmt: (n: number) => string
+}): string {
+  const { productName, price, cost, lookbackDays, salesCount, totalQty, elasticity, weeklyBlock, fmt } = params
+  const costLine = cost == null ? '' : `\nCOSTO CATÁLOGO: ${fmt(cost)}`
+  const marginInstruction = cost == null
+    ? ''
+    : '\nTen en cuenta el costo del catálogo para que el margen no sea negativo.'
+
+  return `PRODUCTO: ${productName}
+PRECIO ACTUAL: ${fmt(price)}${costLine}
+VENTAS ÚLTIMOS ${lookbackDays} DÍAS: ${salesCount} transacciones, ${totalQty.toFixed(0)} unidades
+ELASTICIDAD IMPLÍCITA (correlación precio-cantidad): ${elasticity.toFixed(3)} (negativo = más ventas a precio menor)
+
+VENTAS SEMANALES RECIENTES:
+${weeklyBlock}
+
+Basándote en estos datos reales, sugerí el precio óptimo para maximizar el ingreso total (no solo el margen).${marginInstruction}
+Si la elasticidad es negativa y pronunciada (< -0.3), considerá bajar el precio para incrementar volumen.
+Si la elasticidad es positiva o cercana a 0, el volumen no depende tanto del precio — priorizá margen.
+
+Devolvé SOLO un JSON con:
+- "suggested_price": number — precio sugerido en ARS (entero)${cost == null ? '' : `
+- "margin_pct": number — margen proyectado con ese precio (porcentaje, 1 decimal)`}
+- "argument": string — argumento narrativo en español rioplatense, 2-3 oraciones con números concretos`
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -289,28 +334,26 @@ Deno.serve(async (req) => {
       .map((w) => `  ${w.week_key}: precio ${fmt(w.avg_price)}, cant. ${w.qty.toFixed(0)}`)
       .join('\n')
 
-    const prompt = `PRODUCTO: ${prod.name}
-PRECIO ACTUAL: ${fmt(prod.price)}
-COSTO CATÁLOGO: ${fmt(prod.cost)}
-VENTAS ÚLTIMOS ${LOOKBACK_DAYS} DÍAS: ${items.length} transacciones, ${totalQty.toFixed(0)} unidades
-ELASTICIDAD IMPLÍCITA (correlación precio-cantidad): ${elasticity.toFixed(3)} (negativo = más ventas a precio menor)
-
-VENTAS SEMANALES RECIENTES:
-${weeklyBlock}
-
-Basándote en estos datos reales, sugerí el precio óptimo para maximizar el ingreso total (no solo el margen).
-Ten en cuenta el costo del catálogo para que el margen no sea negativo.
-Si la elasticidad es negativa y pronunciada (< -0.3), considerá bajar el precio para incrementar volumen.
-Si la elasticidad es positiva o cercana a 0, el volumen no depende tanto del precio — priorizá margen.
-
-Devolvé SOLO un JSON con:
-- "suggested_price": number — precio sugerido en ARS (entero)
-- "margin_pct": number — margen proyectado con ese precio (porcentaje, 1 decimal)
-- "argument": string — argumento narrativo en español rioplatense, 2-3 oraciones con números concretos`
+    const hasCost = prod.cost != null
+    const prompt = buildPricePrompt({
+      productName: prod.name,
+      price: prod.price,
+      cost: prod.cost,
+      lookbackDays: LOOKBACK_DAYS,
+      salesCount: items.length,
+      totalQty,
+      elasticity,
+      weeklyBlock,
+      fmt,
+    })
 
     // 10. Call OpenAI with timeout
     let suggestedPrice = 0
-    let marginPct      = 0
+    // productos-costo-nullable (OQ-3): sin costo, el margen proyectado es
+    // AUSENTE — nunca 0 (0 leería como "sin margen" cuando en realidad es
+    // "no lo calculamos"), nunca inventado por el modelo pese a que el
+    // prompt no lo pidió.
+    let marginPct: number | null = hasCost ? 0 : null
     let argument       = ''
 
     try {
@@ -360,7 +403,11 @@ Devolvé SOLO un JSON con:
       const cleaned = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
       const parsed  = JSON.parse(cleaned)
       suggestedPrice = typeof parsed.suggested_price === 'number' ? parsed.suggested_price : 0
-      marginPct      = typeof parsed.margin_pct      === 'number' ? parsed.margin_pct      : 0
+      // Sin costo, marginPct queda en null pase lo que pase — el prompt ni
+      // siquiera pidió el campo (OQ-3); si el modelo lo manda igual, se ignora.
+      if (hasCost) {
+        marginPct = typeof parsed.margin_pct === 'number' ? parsed.margin_pct : 0
+      }
       argument       = typeof parsed.argument        === 'string' ? parsed.argument        : ''
 
     } catch (aiErr: unknown) {
@@ -381,7 +428,9 @@ Devolvé SOLO un JSON con:
         user_id:  user.id,
         type:     'oportunidad',
         priority: 'alta',
-        message:  `[Producto: ${prod.name}] Precio sugerido: $${suggestedPrice} (margen ${marginPct.toFixed(1)}%). ${argument}`,
+        message:  hasCost
+          ? `[Producto: ${prod.name}] Precio sugerido: $${suggestedPrice} (margen ${marginPct!.toFixed(1)}%). ${argument}`
+          : `[Producto: ${prod.name}] Precio sugerido: $${suggestedPrice} (margen no considerado — sin costo cargado). ${argument}`,
       })
 
     if (insertErr) {
@@ -397,6 +446,9 @@ Devolvé SOLO un JSON con:
       suggested_price: suggestedPrice,
       margin_pct:      marginPct,
       argument,
+      // productos-costo-nullable (OQ-3): declara explícitamente por qué el
+      // margen no viene — el modal lo usa para explicarlo, no para adivinar.
+      ...(hasCost ? {} : { margin_not_considered: true }),
     })
 
   } catch (err: unknown) {

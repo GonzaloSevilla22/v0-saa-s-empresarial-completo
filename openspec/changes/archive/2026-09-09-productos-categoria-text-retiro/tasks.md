@@ -97,10 +97,10 @@
 
 > Grupo 9 completo requiere la migración **mergeada y desplegada en prod** — fuera del alcance del apply (que trabaja sobre la base local). Verificado el equivalente local en el grupo 3/8: `MAX(version)` local = `20261040000001` (era `20261039000001`), `products.category` ausente, los dos triggers de espejo ausentes + `trg_product_category_tenancy_guard` presente con `P0404` en el cuerpo vivo, `v_products_with_stock` con `security_invoker=true`, ACLs de las tres RPCs re-declaradas sin `EXECUTE` para `anon`. Queda pendiente de la fase de merge/post-merge:
 
-- [ ] 9.1 `MAX(version)` = la migración de este change; conteo de migraciones = 289 **(en prod)**.
-- [ ] 9.2 `products.category` **ausente** de `information_schema.columns` **(en prod)**.
-- [ ] 9.3 `trg_product_category_mirror` y `trg_product_category_propagate_name` ausentes de `pg_trigger`; `trg_product_category_tenancy_guard` presente y su función con el `P0404` en el cuerpo vivo **(en prod)**.
-- [ ] 9.4 `v_products_with_stock` con `security_invoker=true`; `COUNT(*)` de la vista **igual** a `COUNT(*)` de `products` (5.096); `category` no nula para los 4.953 vivos **(en prod)**.
-- [ ] 9.5 ACLs de `rpc_product_ranking`, `rpc_product_sales_evolution` y `rpc_bulk_upsert_products` sin `EXECUTE` para `anon`; una sola definición viva de cada una (sin overload) **(en prod)**.
+- [x] 9.1 `MAX(version)` = la migración de este change; conteo de migraciones = 289 **(en prod)**.
+- [x] 9.2 `products.category` **ausente** de `information_schema.columns` **(en prod)**.
+- [x] 9.3 `trg_product_category_mirror` y `trg_product_category_propagate_name` ausentes de `pg_trigger`; `trg_product_category_tenancy_guard` presente y su función con el `P0404` en el cuerpo vivo **(en prod)**.
+- [x] 9.4 `v_products_with_stock` con `security_invoker=true`; `COUNT(*)` de la vista **igual** a `COUNT(*)` de `products` (5.096); `category` no nula para los 4.953 vivos **(en prod)**.
+- [x] 9.5 ACLs de `rpc_product_ranking`, `rpc_product_sales_evolution` y `rpc_bulk_upsert_products` sin `EXECUTE` para `anon`; una sola definición viva de cada una (sin overload) **(en prod)**. — 9.1-9.5 verificadas por el orquestador en prod el 2026-09-10 (00:53 UTC) vía MCP read-only: MAX(version)=20261040000001, columna ausente, sólo trg_product_category_tenancy_guard con P0404, vista security_invoker con 5.096/5.096, 4.953 vivos con nombre, ranking con JOIN a product_categories.
 - [ ] 9.6 Humo real con el PO: abrir `/productos` y `/estadisticas` en prod, renombrar una categoría y ver el cambio reflejado en ambas.
 - [x] 9.7 Guardado en engram el resultado del apply con `topic_key: "opsx/productos-categoria-text-retiro/apply"` (ver mem_save de esta sesión).

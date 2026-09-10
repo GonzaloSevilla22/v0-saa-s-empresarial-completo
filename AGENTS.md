@@ -233,7 +233,7 @@ Heredado de `cobranzas-panel` (ítem 22) y `cobranzas-vencimientos` (ítem 23, v
 
 Heredado de `productos-categorias-sku` (ítem 24, ver `CHANGES.md`):
 
-- **Retiro de `products.category` TEXT** (OQ-3, sign-off PO: no en este change) — change propio que debe migrar `v_products_with_stock` y todos sus lectores (IA, exportaciones, `rpc_product_profitability`) de una sola vez.
+- ~~**Retiro de `products.category` TEXT**~~ (OQ-3, sign-off PO: no en este change) — change propio que debe migrar `v_products_with_stock` y todos sus lectores (IA, exportaciones, `rpc_product_profitability`) de una sola vez. → **cerrado por `productos-categoria-text-retiro`** (2026-09-09, PRs #534/#537).
 - **`idx_products_barcode_unique` sigue alcanzado por `user_id`** (task 4.5) — mismo residuo de tenencia que tenía el SKU; inerte hoy (0 cuentas multiusuario con productos), fuera de superficie de este change.
 - **Migración del importador a FastAPI** (D7) — sigue por `rpc_bulk_upsert_products` con supabase-js; migrarlo entero es un change propio.
 - **Categoría por defecto configurable** — la fila del CSV sin categoría va hoy a una heurística documentada en la RPC ("Otros" si vive y activa, si no la última activa por `sort_order`).

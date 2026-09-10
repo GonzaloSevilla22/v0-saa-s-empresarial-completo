@@ -78,10 +78,15 @@ const ORDERS: RankingOrder[] = ["units", "revenue", "margin"]
 type HourView = "hour" | "band"
 const HOUR_VIEW_LABELS: Record<HourView, string> = { hour: "Por hora", band: "Por franja" }
 
-function rankingMetric(row: ProductRankingRow, orderBy: RankingOrder): number {
+// productos-costo-nullable (ronda 1 de revisión): `null` ≠ 0 — un margen
+// ausente (NULLS LAST puede colarlo en el top-10 apenas la cuenta tenga
+// menos de 10 grupos con costo en la ventana) nunca se dibuja como una
+// barra en $0. `rankingChartData` filtra los `null` antes de mapear, igual
+// que /rentabilidad excluye del Top 10 los productos sin margen resoluble.
+function rankingMetric(row: ProductRankingRow, orderBy: RankingOrder): number | null {
   if (orderBy === "units") return row.units
   if (orderBy === "revenue") return row.revenue
-  return row.grossMargin ?? 0
+  return row.grossMargin
 }
 
 export default function EstadisticasPage() {
@@ -133,7 +138,9 @@ export default function EstadisticasPage() {
     value: p.netRevenue,
   }))
   const topRows = (ranking?.items ?? []).slice(0, TOP_CHART_ROWS)
-  const rankingChartData = topRows.map((r) => ({ name: r.productName, value: rankingMetric(r, orderBy) }))
+  const rankingChartData = topRows
+    .map((r) => ({ name: r.productName, value: rankingMetric(r, orderBy) }))
+    .filter((d): d is { name: string; value: number } => d.value !== null)
   const rankingFormat = orderBy === "units" ? formatNumber : formatMoney
 
   const netChange = evolution ? percentChange(evolution.current.netRevenue, evolution.previous.netRevenue) : null

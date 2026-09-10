@@ -371,9 +371,13 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
             id:           crypto.randomUUID(),
             productId:    product.id,
             productName:  getCanonicalLabel(product, product.parentId ? productById.get(product.parentId) : undefined),
-            unitCost:     product.cost,
+            // productos-costo-nullable (D12): este campo CAPTURA el costo que
+            // se está pagando ahora, no informa el del catálogo — `?? 0` es
+            // el valor inicial de un input editable, no un dato publicado.
+            // Sin costo de catálogo, arranca en 0 y el usuario lo completa.
+            unitCost:     product.cost ?? 0,
             quantity:     qty,
-            subtotal:     calcPurchaseSubtotal(product.cost, qty),
+            subtotal:     calcPurchaseSubtotal(product.cost ?? 0, qty),
             unitId:       product.baseUnitId || undefined,
             unitSymbol:   baseUnit?.symbol,
             unitFactor:   baseUnit?.factor,
@@ -389,7 +393,8 @@ export function PurchaseForm({ onSuccess, editingOperation }: PurchaseFormProps)
   function handleProductChange(id: string) {
     setProductId(id)
     const p = products.find((x) => x.id === id)
-    if (p) setUnitCost(p.cost)
+    // productos-costo-nullable (D12): idem arriba — captura, no informa.
+    if (p) setUnitCost(p.cost ?? 0)
     // Pre-select the product's base unit so step/min are immediately correct
     const nextUnitId = p?.baseUnitId ?? ""
     setUnitId(nextUnitId)

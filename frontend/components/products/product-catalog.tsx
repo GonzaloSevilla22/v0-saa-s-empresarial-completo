@@ -191,6 +191,27 @@ export function ProductCatalog({
     )
   }
 
+  /**
+   * productos-costo-nullable: margen ausente ("—") sin costo cargado, nunca
+   * 0% ni 100% — y sin aplicarle los umbrales de color de un margen medido
+   * (capability product-cost, "ningún consumidor sustituye por cero").
+   */
+  function marginCell(margin: number | null): ReactNode {
+    if (margin == null) {
+      return <span className="font-medium text-muted-foreground">—</span>
+    }
+    return (
+      <span
+        className={cn(
+          "font-medium",
+          margin >= 50 ? "text-success" : margin >= 30 ? "text-warning" : "text-destructive",
+        )}
+      >
+        {margin}%
+      </span>
+    )
+  }
+
   /** Aggregated stock label for a variant group. */
   function groupStockLabel(g: ProductGroup): ReactNode {
     const total = groupStock(g)
@@ -648,11 +669,9 @@ export function ProductCatalog({
                       </div>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-success font-medium">{formatMoney(child.price)}</span>
-                        <span className={cn(
-                          "font-medium",
-                          child.margin >= 50 ? "text-success" : child.margin >= 30 ? "text-warning" : "text-destructive"
-                        )}>
-                          {child.margin}% margen
+                        <span className="inline-flex items-center gap-0.5">
+                          {marginCell(child.margin)}
+                          {child.margin != null && <span className="font-medium"> margen</span>}
                         </span>
                         <span className="text-muted-foreground text-xs">{stockLabel(child)}</span>
                       </div>
@@ -721,12 +740,7 @@ export function ProductCatalog({
                   </Badge>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-success font-medium">{formatMoney(p.price)}</span>
-                    <span className={cn(
-                      "font-medium",
-                      p.margin >= 50 ? "text-success" : p.margin >= 30 ? "text-warning" : "text-destructive"
-                    )}>
-                      {p.margin}%
-                    </span>
+                    {marginCell(p.margin)}
                     <span className="text-muted-foreground text-xs">{stockLabel(p)}</span>
                   </div>
                 </div>
@@ -1002,19 +1016,8 @@ export function ProductCatalog({
                             </TableCell>
 
                             {/* Margin */}
-                            <TableCell>
-                              <span
-                                className={cn(
-                                  "text-xs font-medium",
-                                  child.margin >= 50
-                                    ? "text-success"
-                                    : child.margin >= 30
-                                      ? "text-warning"
-                                      : "text-destructive",
-                                )}
-                              >
-                                {child.margin}%
-                              </span>
+                            <TableCell className="text-xs">
+                              {marginCell(child.margin)}
                             </TableCell>
 
                             {/* Stock */}
@@ -1124,19 +1127,8 @@ export function ProductCatalog({
                   </TableCell>
 
                   {/* Margin */}
-                  <TableCell>
-                    <span
-                      className={cn(
-                        "text-xs font-medium",
-                        p.margin >= 50
-                          ? "text-success"
-                          : p.margin >= 30
-                            ? "text-warning"
-                            : "text-destructive",
-                      )}
-                    >
-                      {p.margin}%
-                    </span>
+                  <TableCell className="text-xs">
+                    {marginCell(p.margin)}
                   </TableCell>
 
                   {/* Stock */}

@@ -67,6 +67,20 @@ describe("buildRentabilidadPrompt", () => {
     const r = buildRentabilidadPrompt(ctx({ rows: [] }))
     expect(r).toEqual({ ok: false, status: 422, body: { ok: false, error: "Sin datos de ventas en el período seleccionado" } })
   })
+
+  // productos-costo-nullable (task 8.5 RED/GREEN): total_cost/gross_margin_pct
+  // NULL (ningún costo resoluble) NO se sustituyen por $0/0.0% — se omiten.
+  it("un producto sin costo resoluble omite costo/margen del prompt, no fabrica $0 / 0.0%", () => {
+    const r = buildRentabilidadPrompt(ctx({
+      rows: [row({ product_name: "SinCosto", total_cost: null, gross_margin_pct: null })],
+    }))
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.prompt).toContain("SinCosto")
+    expect(r.prompt).toContain("sin costo cargado")
+    expect(r.prompt).not.toMatch(/SinCosto.*costo \$0\b/)
+    expect(r.prompt).not.toMatch(/SinCosto.*margen 0\.0%/)
+  })
 })
 
 function deps(overrides: Partial<AnalysisDeps> = {}) {

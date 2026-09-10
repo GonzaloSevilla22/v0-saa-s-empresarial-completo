@@ -472,19 +472,24 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS (ranking por importe): el orden difiere del de unidades.';
 
-  -- ══ MARGEN: cascada snapshot → products.cost, cobertura de snapshot ═══════
-  -- S: A 600×2 (snapshot) + G 100×1 + H 100×2 (fallback) = 1500 → margen 850, cobertura 1/3 = 33.3.
-  -- P: V1 80×1 + V2 90×3 = 350 → margen 2250, cobertura 0. O: 10 → 690.
+  -- ══ MARGEN: cascada snapshot → products.cost, cobertura de costo ══════════
+  -- productos-costo-nullable (D3/D4): la cobertura mide costo RESOLUBLE (por
+  -- snapshot O por catálogo), no presencia de snapshot — has_cost_snapshot
+  -- pasó a has_cost. S: A 600×2 (snapshot) + G 100×1 + H 100×2 (fallback al
+  -- catálogo de v_p_simple, cost=100, real) = 1500 → margen 850, cobertura
+  -- 3/3 = 100 (las tres líneas resuelven costo, aunque sólo una tenga
+  -- snapshot). P: V1 80×1 + V2 90×3 = 350 → margen 2250, cobertura 100 (V1/V2
+  -- también resuelven por catálogo). O: 10 → 690.
   SELECT * INTO v_row FROM public.rpc_product_ranking(v_account, v_start, v_end, 'margin', true, NULL, NULL, 50, 0) r WHERE r.product_id = v_p_simple;
-  IF v_row.total_cost <> 1500 OR v_row.gross_margin <> 850 OR v_row.cost_coverage_pct <> 33.3 THEN
-    RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (margen S): cost=% margin=% coverage=% y esperaba 1500/850/33.3 (snapshot congelado, fallback al catálogo sólo sin snapshot).', v_row.total_cost, v_row.gross_margin, v_row.cost_coverage_pct;
+  IF v_row.total_cost <> 1500 OR v_row.gross_margin <> 850 OR v_row.cost_coverage_pct <> 100.0 THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (margen S): cost=% margin=% coverage=% y esperaba 1500/850/100.0 (snapshot congelado + fallback al catálogo, ambos cuentan como costo resoluble — D3).', v_row.total_cost, v_row.gross_margin, v_row.cost_coverage_pct;
   END IF;
   IF v_row.gross_margin_pct <> ROUND(850.0 / 2350 * 100, 2) THEN
     RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (margen S): gross_margin_pct=% y esperaba %.', v_row.gross_margin_pct, ROUND(850.0 / 2350 * 100, 2);
   END IF;
   SELECT * INTO v_row FROM public.rpc_product_ranking(v_account, v_start, v_end, 'margin', true, NULL, NULL, 50, 0) r WHERE r.rank = 1;
-  IF v_row.product_id <> v_p_parent OR v_row.gross_margin <> 2250 OR v_row.cost_coverage_pct <> 0 THEN
-    RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (ranking margen #1): esperaba PADRE 2250 / cobertura 0 y fue % % / %.', v_row.product_name, v_row.gross_margin, v_row.cost_coverage_pct;
+  IF v_row.product_id <> v_p_parent OR v_row.gross_margin <> 2250 OR v_row.cost_coverage_pct <> 100.0 THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS FAILED (ranking margen #1): esperaba PADRE 2250 / cobertura 100.0 (D3: V1/V2 resuelven por catálogo) y fue % % / %.', v_row.product_name, v_row.gross_margin, v_row.cost_coverage_pct;
   END IF;
   -- Remarcar el catálogo NO altera el margen de la línea con snapshot (RN-D2).
   UPDATE public.products SET cost = 900 WHERE id = v_p_simple;

@@ -10,6 +10,7 @@ account_id, con 404 para la categoría destino ajena/inactiva y tope 500.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import asyncpg
@@ -633,3 +634,130 @@ class TestCategoryTextRetiro:
             )
         assert resp.status_code == 200
         assert resp.json()["category"] == "Alimentos"
+
+
+# ── productos-costo-nullable (task 5.2 RED, D12 de productos-categorias-sku
+#    como precedente exacto): tri-estado de `cost` en PUT, por AUSENCIA de la
+#    clave (`model_fields_set`), nunca por `is None`. Molde idéntico al de
+#    TestUpdateSkuTriState: ausente conserva, null desasigna, valor asigna. ──
+
+class TestUpdateCostTriState:
+    @pytest.mark.asyncio
+    async def test_cost_absent_preserves(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value=PRODUCT_ROW)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/products/{PRODUCT_ID}", json={"name": "Empanada de carne"},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 200
+        sql = _update_sql(conn)
+        assert sql is not None and "cost" not in sql
+
+    @pytest.mark.asyncio
+    async def test_cost_null_clears(self, async_client, mock_pool):
+        """Antes de este change: `exclude_none=True` en el service descartaba el
+        `None`, así que borrar un costo por la API era imposible."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={**PRODUCT_ROW, "cost": None})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/products/{PRODUCT_ID}", json={"cost": None},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 200
+        sql = _update_sql(conn)
+        assert sql is not None and "cost = $" in sql
+        assert None in _update_args(conn)
+
+    @pytest.mark.asyncio
+    async def test_cost_value_assigns(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={**PRODUCT_ROW, "cost": "500.0000"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/products/{PRODUCT_ID}", json={"cost": 500},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 200
+        sql = _update_sql(conn)
+        assert sql is not None and "cost = $" in sql
+        assert 500 in _update_args(conn) or Decimal("500") in _update_args(conn)
+
+    @pytest.mark.asyncio
+    async def test_cost_zero_assigns_not_absent(self, async_client, mock_pool):
+        """Un costo cero DECLARADO se distingue de la ausencia — 0 no es None."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value={**PRODUCT_ROW, "cost": "0.0000"})
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/products/{PRODUCT_ID}", json={"cost": 0},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 200
+        sql = _update_sql(conn)
+        assert sql is not None and "cost = $" in sql
+
+    @pytest.mark.asyncio
+    async def test_other_fields_unaffected_by_cost_nullable_on_update(self, async_client, mock_pool):
+        """No ampliar el alcance: sumar `cost` a `_NULLABLE_ON_UPDATE` no cambia
+        el comportamiento de `barcode` (sigue con `exclude_none`)."""
+        pool, conn = mock_pool
+        conn.fetchrow = AsyncMock(return_value=PRODUCT_ROW)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.put(
+                f"/products/{PRODUCT_ID}", json={"barcode": None, "price": 10},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 200
+        sql = _update_sql(conn)
+        assert sql is not None and "barcode" not in sql and "cost" not in sql
+
+    @pytest.mark.asyncio
+    async def test_create_cost_absent_stays_null(self, async_client, mock_pool):
+        """`ProductRepository.create` ya pasaba `data.get('cost')` tal cual —
+        este test lo fija (task 5.7: verificar, no cambia)."""
+        pool, conn = mock_pool
+
+        async def fetchrow_side_effect(query, *args):
+            if "plan_limits" in query:
+                return _plan_limits_row()
+            if "COUNT" in query:
+                return {"total": 5}
+            if "INSERT INTO products" in query:
+                return {"id": PRODUCT_ID}
+            return {**PRODUCT_ROW, "cost": None}
+
+        conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products",
+                json={"name": "Producto sin costo"},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 201
+        assert resp.json()["cost"] is None
+
+    @pytest.mark.asyncio
+    async def test_create_cost_zero_stays_zero(self, async_client, mock_pool):
+        pool, conn = mock_pool
+
+        async def fetchrow_side_effect(query, *args):
+            if "plan_limits" in query:
+                return _plan_limits_row()
+            if "COUNT" in query:
+                return {"total": 5}
+            if "INSERT INTO products" in query:
+                return {"id": PRODUCT_ID}
+            return {**PRODUCT_ROW, "cost": "0.0000"}
+
+        conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products",
+                json={"name": "Producto regalado", "cost": 0},
+                headers={"Authorization": f"Bearer {_owner()}"},
+            )
+        assert resp.status_code == 201
+        assert Decimal(str(resp.json()["cost"])) == Decimal("0")

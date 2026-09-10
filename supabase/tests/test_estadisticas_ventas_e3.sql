@@ -326,9 +326,13 @@ BEGIN
   IF v_row.last_sale_date <> v_monday THEN
     RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (última venta): % y esperaba el lunes % (fecha de negocio sin corrimiento).', v_row.last_sale_date, v_monday;
   END IF;
-  -- D11: cascada de costo (snapshot 400 en op5, catálogo en el resto) y cobertura.
-  IF v_row.total_cost <> 750 OR v_row.gross_margin <> 3550 OR v_row.gross_margin_pct <> 82.56 OR v_row.cost_coverage_pct <> 25.0 THEN
-    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (margen): cost=% margin=% pct=% coverage=% y esperaba 750/3550/82.56/25.0 (RN-D2 + D11).', v_row.total_cost, v_row.gross_margin, v_row.gross_margin_pct, v_row.cost_coverage_pct;
+  -- D11: cascada de costo (snapshot 400 en op5, catálogo en el resto). Con
+  -- productos-costo-nullable (D3), la cobertura mide costo RESOLUBLE (por
+  -- snapshot O por catálogo) — todas las líneas del grupo tienen un producto
+  -- con costo de catálogo real (V1=100, V2=50, padre=100), así que la
+  -- cobertura es 100, no 25 (que medía sólo presencia de snapshot).
+  IF v_row.total_cost <> 750 OR v_row.gross_margin <> 3550 OR v_row.gross_margin_pct <> 82.56 OR v_row.cost_coverage_pct <> 100.0 THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (margen): cost=% margin=% pct=% coverage=% y esperaba 750/3550/82.56/100.0 (RN-D2 + D3: costo resoluble por catálogo también cuenta).', v_row.total_cost, v_row.gross_margin, v_row.gross_margin_pct, v_row.cost_coverage_pct;
   END IF;
   IF v_row.window_start <> v_start OR v_row.window_end <> v_end OR v_row.window_clamped THEN
     RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (ventana): [% .. %] clamped=% — un rango dentro del plan no se recorta.', v_row.window_start, v_row.window_end, v_row.window_clamped;
@@ -419,9 +423,13 @@ BEGIN
   IF v_row.is_group OR v_row.variant_count <> 0 OR v_row.parent_id <> v_p_parent OR v_row.parent_name <> '__gate_e3_padre__' THEN
     RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (variante contexto): is_group=% variant_count=% parent=% (%) — una variante no agrupa y lleva su padre.', v_row.is_group, v_row.variant_count, v_row.parent_id, v_row.parent_name;
   END IF;
-  -- Cobertura de la variante: 1 de sus 2 líneas con snapshot → 50.0; costo 2×100 + 400 = 600.
-  IF v_row.total_cost <> 600 OR v_row.cost_coverage_pct <> 50.0 THEN
-    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (variante margen): cost=% coverage=% y esperaba 600/50.0.', v_row.total_cost, v_row.cost_coverage_pct;
+  -- Costo de la variante: 1 línea con snapshot (400) + 1 sin snapshot que cae
+  -- al catálogo de V1 (cost=100, real) = 200 + 400 = 600. productos-costo-
+  -- nullable (D3): la cobertura mide costo RESOLUBLE, no presencia de
+  -- snapshot — las DOS líneas resuelven costo (una por snapshot, otra por
+  -- catálogo), así que la cobertura es 100, no 50.
+  IF v_row.total_cost <> 600 OR v_row.cost_coverage_pct <> 100.0 THEN
+    RAISE EXCEPTION 'GATE ESTADISTICAS E3 FAILED (variante margen): cost=% coverage=% y esperaba 600/100.0 (D3: costo resoluble por catálogo también cuenta).', v_row.total_cost, v_row.cost_coverage_pct;
   END IF;
   SELECT count(*) INTO v_count FROM public.rpc_product_sales_evolution(v_account, v_p_v1, v_start, v_end, 'day', NULL, NULL) r
   WHERE r.row_kind = 'member';

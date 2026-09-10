@@ -100,6 +100,17 @@ export function KpiSummaryBlock({ periodDate, branchId = null }: KpiSummaryBlock
         tone={kpiBadgeTone(stockDelta, "up_bad")}
         icon={PackageX}
         iconColor="text-warning"
+        // productos-costo-nullable (OQ-2=a, hallazgo de revisión): la
+        // disclosure va en la línea secundaria (min-w-0, sin nowrap), NUNCA
+        // en el badge — "531 productos · 518 sin costo" desborda la tarjeta
+        // a 375px (badge es whitespace-nowrap y no encoge). El valor ya suma
+        // sólo los productos con costo (misma aritmética de siempre) — sin
+        // esta cifra, ese total no es auditable por quien lo lee.
+        secondaryLine={
+          !empty && data.stagnantStockWithoutCostCount
+            ? `${data.stagnantStockWithoutCostCount} sin costo`
+            : null
+        }
       />
       <KpiSummaryCard
         label="Costo por Venta"

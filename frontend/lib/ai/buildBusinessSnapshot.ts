@@ -43,7 +43,11 @@ export interface BusinessSnapshot {
       nombre: string
       stock: number
       dias_sin_vender: number
-      valor_inmovilizado: number  // stock * costo
+      /** stock * costo. `null` cuando el producto no tiene costo cargado —
+       *  el hecho reportado ("tiene stock y no rota") es independiente del
+       *  costo, así que el producto se conserva y sólo se omite el monto
+       *  (nunca se imputa a partir de un costo ausente). */
+      valor_inmovilizado: number | null
     }>
     /** Conteo canónico sobre branch_stock. `null` si la RPC no respondió;
      * nunca se reconstruye sobre el stock agregado del catálogo. */
@@ -252,7 +256,12 @@ export async function buildBusinessSnapshot(
     }
   }
 
-  // Sin rotación: tiene stock pero no se vendió en ≥30 días
+  // Sin rotación: tiene stock pero no se vendió en ≥30 días.
+  // productos-costo-nullable (ronda 2): "tiene stock y no rota" es un hecho
+  // verdadero e independiente del costo — el producto se CONSERVA; sólo se
+  // omite `valor_inmovilizado` (nunca se imputa 0 — "$0 inmovilizado" sería
+  // una mentira, no un dato). Distinto de margen_bajo, donde no hay margen
+  // que evaluar sin costo.
   const sinRotacion = prods
     .filter(p => Number(p.stock) > 0)
     .map(p => {
@@ -269,12 +278,14 @@ export async function buildBusinessSnapshot(
       nombre:             p.name as string,
       stock:              Number(p.stock),
       dias_sin_vender:    dias,
-      valor_inmovilizado: Math.round(Number(p.stock) * Number(p.cost)),
+      valor_inmovilizado: p.cost != null ? Math.round(Number(p.stock) * Number(p.cost)) : null,
     }))
 
-  // Margen bajo: < 20%
+  // Margen bajo: < 20%. productos-costo-nullable: sin costo, no hay margen
+  // que evaluar — se excluye en vez de tratarlo como 100% de margen.
   const margenBajo = prods
     .filter(p => {
+      if (p.cost == null) return false
       const price = Number(p.price)
       const cost  = Number(p.cost)
       return price > 0 && (price - cost) / price < 0.2
@@ -385,7 +396,12 @@ export function snapshotToText(s: BusinessSnapshot): string {
   if (s.productos.sin_rotacion.length > 0) {
     lines.push('SIN ROTACIÓN (≥30 días sin vender):')
     for (const p of s.productos.sin_rotacion) {
-      lines.push(`  • ${p.nombre}: ${p.stock} uds, ${p.dias_sin_vender} días parado, $${p.valor_inmovilizado.toLocaleString()} inmovilizado`)
+      // productos-costo-nullable (ronda 2): sin costo cargado, el producto
+      // se conserva pero no se inventa un monto inmovilizado.
+      const inmovilizadoPart = p.valor_inmovilizado != null
+        ? `$${p.valor_inmovilizado.toLocaleString()} inmovilizado`
+        : 'sin costo cargado'
+      lines.push(`  • ${p.nombre}: ${p.stock} uds, ${p.dias_sin_vender} días parado, ${inmovilizadoPart}`)
     }
   }
 
@@ -439,7 +455,9 @@ export function buildAdaptiveContext(s: BusinessSnapshot, question: string): str
     if (s.productos.sin_rotacion.length > 0) {
       blocks.push('SIN ROTACIÓN: ' +
         s.productos.sin_rotacion.map(p =>
-          `${p.nombre}(${p.dias_sin_vender}d,$${p.valor_inmovilizado.toLocaleString()}inmovilizado)`
+          p.valor_inmovilizado != null
+            ? `${p.nombre}(${p.dias_sin_vender}d,$${p.valor_inmovilizado.toLocaleString()}inmovilizado)`
+            : `${p.nombre}(${p.dias_sin_vender}d,sin costo cargado)`
         ).join(', ')
       )
     }

@@ -539,38 +539,95 @@ export type Database = {
       }
       seguros: {
         Row: {
+          advisor_name: string | null
+          advisor_role: string | null
+          bio: string | null
           clicks_count: number | null
+          contact_clicks: Json
+          contact_email: string | null
+          contact_phone: string | null
           contact_url: string | null
+          contact_whatsapp: string | null
           coverage: string | null
+          coverage_areas: string[] | null
           created_at: string | null
           description: string | null
+          disclaimer: string | null
+          entry_type: string
+          headline: string | null
           id: string
+          is_featured: boolean
           is_visible: boolean | null
+          license_authority: string | null
+          license_number: string | null
+          photo_url: string | null
+          pillars: Json | null
           price: string | null
+          service_lines: Json | null
+          slug: string | null
+          sort_order: number
           title: string
           updated_at: string | null
         }
         Insert: {
+          advisor_name?: string | null
+          advisor_role?: string | null
+          bio?: string | null
           clicks_count?: number | null
+          contact_clicks?: Json
+          contact_email?: string | null
+          contact_phone?: string | null
           contact_url?: string | null
+          contact_whatsapp?: string | null
           coverage?: string | null
+          coverage_areas?: string[] | null
           created_at?: string | null
           description?: string | null
+          disclaimer?: string | null
+          entry_type?: string
+          headline?: string | null
           id?: string
+          is_featured?: boolean
           is_visible?: boolean | null
+          license_authority?: string | null
+          license_number?: string | null
+          photo_url?: string | null
+          pillars?: Json | null
           price?: string | null
+          service_lines?: Json | null
+          slug?: string | null
+          sort_order?: number
           title: string
           updated_at?: string | null
         }
         Update: {
+          advisor_name?: string | null
+          advisor_role?: string | null
+          bio?: string | null
           clicks_count?: number | null
+          contact_clicks?: Json
+          contact_email?: string | null
+          contact_phone?: string | null
           contact_url?: string | null
+          contact_whatsapp?: string | null
           coverage?: string | null
+          coverage_areas?: string[] | null
           created_at?: string | null
           description?: string | null
+          disclaimer?: string | null
+          entry_type?: string
+          headline?: string | null
           id?: string
+          is_featured?: boolean
           is_visible?: boolean | null
+          license_authority?: string | null
+          license_number?: string | null
+          photo_url?: string | null
+          pillars?: Json | null
           price?: string | null
+          service_lines?: Json | null
+          slug?: string | null
+          sort_order?: number
           title?: string
           updated_at?: string | null
         }
@@ -751,6 +808,8 @@ export type Database = {
           billing_plan: string
           billing_status: string
           created_at: string
+          default_payment_terms_days: number | null
+          default_product_category_id: string | null
           id: string
           owner_user_id: string
           plan_expires_at: string | null
@@ -766,6 +825,8 @@ export type Database = {
           billing_plan?: string
           billing_status?: string
           created_at?: string
+          default_payment_terms_days?: number | null
+          default_product_category_id?: string | null
           id?: string
           owner_user_id: string
           plan_expires_at?: string | null
@@ -781,6 +842,8 @@ export type Database = {
           billing_plan?: string
           billing_status?: string
           created_at?: string
+          default_payment_terms_days?: number | null
+          default_product_category_id?: string | null
           id?: string
           owner_user_id?: string
           plan_expires_at?: string | null
@@ -788,7 +851,15 @@ export type Database = {
           trial_plan?: string | null
           trial_started_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "accounts_default_product_category_id_fkey"
+            columns: ["default_product_category_id"]
+            isOneToOne: false
+            referencedRelation: "product_categories"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_conversations: {
         Row: {
@@ -1515,6 +1586,7 @@ export type Database = {
           iva_condition: string | null
           legal_name: string | null
           name: string
+          payment_terms_days: number | null
           phone: string | null
           status: string
           tax_id: string | null
@@ -1533,6 +1605,7 @@ export type Database = {
           iva_condition?: string | null
           legal_name?: string | null
           name: string
+          payment_terms_days?: number | null
           phone?: string | null
           status?: string
           tax_id?: string | null
@@ -1551,6 +1624,7 @@ export type Database = {
           iva_condition?: string | null
           legal_name?: string | null
           name?: string
+          payment_terms_days?: number | null
           phone?: string | null
           status?: string
           tax_id?: string | null
@@ -1654,6 +1728,7 @@ export type Database = {
           created_at: string
           created_by: string
           customer_account_id: string
+          due_date: string | null
           id: string
           movement_type: string
           reference_id: string | null
@@ -1665,6 +1740,7 @@ export type Database = {
           created_at?: string
           created_by: string
           customer_account_id: string
+          due_date?: string | null
           id?: string
           movement_type: string
           reference_id?: string | null
@@ -1676,6 +1752,7 @@ export type Database = {
           created_at?: string
           created_by?: string
           customer_account_id?: string
+          due_date?: string | null
           id?: string
           movement_type?: string
           reference_id?: string | null
@@ -2647,6 +2724,7 @@ export type Database = {
           created_by: string
           id: string
           movement_id: string | null
+          payment_method_id: string | null
           reference_purchase_id: string | null
           supplier_account_id: string
           supplier_id: string
@@ -2658,6 +2736,7 @@ export type Database = {
           created_by: string
           id?: string
           movement_id?: string | null
+          payment_method_id?: string | null
           reference_purchase_id?: string | null
           supplier_account_id: string
           supplier_id: string
@@ -2669,6 +2748,7 @@ export type Database = {
           created_by?: string
           id?: string
           movement_id?: string | null
+          payment_method_id?: string | null
           reference_purchase_id?: string | null
           supplier_account_id?: string
           supplier_id?: string
@@ -2686,6 +2766,13 @@ export type Database = {
             columns: ["movement_id"]
             isOneToOne: false
             referencedRelation: "supplier_account_movements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_made_payment_method_id_fkey"
+            columns: ["payment_method_id"]
+            isOneToOne: false
+            referencedRelation: "payment_methods"
             referencedColumns: ["id"]
           },
           {
@@ -2714,6 +2801,7 @@ export type Database = {
           customer_account_id: string
           id: string
           movement_id: string | null
+          payment_method_id: string | null
           reference_sale_id: string | null
         }
         Insert: {
@@ -2725,6 +2813,7 @@ export type Database = {
           customer_account_id: string
           id?: string
           movement_id?: string | null
+          payment_method_id?: string | null
           reference_sale_id?: string | null
         }
         Update: {
@@ -2736,6 +2825,7 @@ export type Database = {
           customer_account_id?: string
           id?: string
           movement_id?: string | null
+          payment_method_id?: string | null
           reference_sale_id?: string | null
         }
         Relationships: [
@@ -2765,6 +2855,13 @@ export type Database = {
             columns: ["movement_id"]
             isOneToOne: false
             referencedRelation: "customer_account_movements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_received_payment_method_id_fkey"
+            columns: ["payment_method_id"]
+            isOneToOne: false
+            referencedRelation: "payment_methods"
             referencedColumns: ["id"]
           },
         ]
@@ -3011,6 +3108,47 @@ export type Database = {
           },
         ]
       }
+      product_categories: {
+        Row: {
+          account_id: string
+          created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_categories_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_variants: {
         Row: {
           created_at: string | null
@@ -3036,9 +3174,9 @@ export type Database = {
         Row: {
           account_id: string | null
           barcode: string | null
-          category: string | null
+          category_id: string | null
           company_id: string | null
-          cost: number
+          cost: number | null
           created_at: string
           deleted_at: string | null
           deleted_by: string | null
@@ -3055,9 +3193,9 @@ export type Database = {
         Insert: {
           account_id?: string | null
           barcode?: string | null
-          category?: string | null
+          category_id?: string | null
           company_id?: string | null
-          cost?: number
+          cost?: number | null
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
@@ -3074,9 +3212,9 @@ export type Database = {
         Update: {
           account_id?: string | null
           barcode?: string | null
-          category?: string | null
+          category_id?: string | null
           company_id?: string | null
-          cost?: number
+          cost?: number | null
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
@@ -3096,6 +3234,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "product_categories"
             referencedColumns: ["id"]
           },
           {
@@ -4411,6 +4556,8 @@ export type Database = {
           id: string
           last_payment_status: string | null
           next_payment_date: string | null
+          pending_authorized_payment_id: string | null
+          pending_mercadopago_payment_id: string | null
           plan: string
           preapproval_id: string
           preapproval_plan_id: string
@@ -4428,6 +4575,8 @@ export type Database = {
           id?: string
           last_payment_status?: string | null
           next_payment_date?: string | null
+          pending_authorized_payment_id?: string | null
+          pending_mercadopago_payment_id?: string | null
           plan: string
           preapproval_id: string
           preapproval_plan_id: string
@@ -4445,6 +4594,8 @@ export type Database = {
           id?: string
           last_payment_status?: string | null
           next_payment_date?: string | null
+          pending_authorized_payment_id?: string | null
+          pending_mercadopago_payment_id?: string | null
           plan?: string
           preapproval_id?: string
           preapproval_plan_id?: string
@@ -4469,6 +4620,7 @@ export type Database = {
           balance_after: number
           created_at: string
           created_by: string
+          due_date: string | null
           id: string
           movement_type: string
           reference_id: string | null
@@ -4480,6 +4632,7 @@ export type Database = {
           balance_after: number
           created_at?: string
           created_by: string
+          due_date?: string | null
           id?: string
           movement_type: string
           reference_id?: string | null
@@ -4491,6 +4644,7 @@ export type Database = {
           balance_after?: number
           created_at?: string
           created_by?: string
+          due_date?: string | null
           id?: string
           movement_type?: string
           reference_id?: string | null
@@ -4567,6 +4721,7 @@ export type Database = {
           iva_condition: string | null
           legal_name: string | null
           name: string
+          payment_terms_days: number | null
           phone: string | null
           tax_id: string | null
         }
@@ -4581,6 +4736,7 @@ export type Database = {
           iva_condition?: string | null
           legal_name?: string | null
           name: string
+          payment_terms_days?: number | null
           phone?: string | null
           tax_id?: string | null
         }
@@ -4595,6 +4751,7 @@ export type Database = {
           iva_condition?: string | null
           legal_name?: string | null
           name?: string
+          payment_terms_days?: number | null
           phone?: string | null
           tax_id?: string | null
         }
@@ -4707,6 +4864,7 @@ export type Database = {
           account_id: string | null
           barcode: string | null
           category: string | null
+          category_id: string | null
           company_id: string | null
           cost: number | null
           created_at: string | null
@@ -4722,50 +4880,19 @@ export type Database = {
           stock_control_type: string | null
           user_id: string | null
         }
-        Insert: {
-          account_id?: string | null
-          barcode?: string | null
-          category?: string | null
-          company_id?: string | null
-          cost?: number | null
-          created_at?: string | null
-          deleted_at?: string | null
-          id?: string | null
-          is_variant?: boolean | null
-          min_stock?: never
-          name?: string | null
-          parent_id?: string | null
-          price?: number | null
-          sku?: string | null
-          stock?: never
-          stock_control_type?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          account_id?: string | null
-          barcode?: string | null
-          category?: string | null
-          company_id?: string | null
-          cost?: number | null
-          created_at?: string | null
-          deleted_at?: string | null
-          id?: string | null
-          is_variant?: boolean | null
-          min_stock?: never
-          name?: string | null
-          parent_id?: string | null
-          price?: number | null
-          sku?: string | null
-          stock?: never
-          stock_control_type?: string | null
-          user_id?: string | null
-        }
         Relationships: [
           {
             foreignKeyName: "products_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "product_categories"
             referencedColumns: ["id"]
           },
           {
@@ -4894,6 +5021,10 @@ export type Database = {
         Returns: undefined
       }
       _notifications_cleanup: { Args: never; Returns: undefined }
+      _pay_assign_default_bank_destination: {
+        Args: { p_account_id: string }
+        Returns: number
+      }
       _pay_register_operation_bank_movement: {
         Args: {
           p_account_id: string
@@ -4914,6 +5045,8 @@ export type Database = {
         Args: {
           p_account_id: string
           p_amount: number
+          p_charge_date?: string
+          p_due_date?: string
           p_operation_id: string
           p_party_id: string
           p_party_kind: string
@@ -4941,6 +5074,7 @@ export type Database = {
         Returns: string
       }
       _produce_plan_expiring_soon: { Args: never; Returns: number }
+      _produce_receivables_overdue_digest: { Args: never; Returns: number }
       _register_bank_movement: {
         Args: {
           p_amount: number
@@ -4987,6 +5121,7 @@ export type Database = {
         Args: {
           p_account_id: string
           p_amount: number
+          p_due_date?: string
           p_reference_id?: string
           p_type: string
         }
@@ -4996,6 +5131,7 @@ export type Database = {
         Args: {
           p_account_id: string
           p_amount: number
+          p_due_date?: string
           p_reference_id?: string
           p_type: string
         }
@@ -5016,6 +5152,18 @@ export type Database = {
         Args: { p_branch_id?: string }
         Returns: number
       }
+      get_dashboard_critical_stock_items: {
+        Args: { p_branch_id?: string; p_limit?: number }
+        Returns: {
+          branch_id: string
+          branch_name: string
+          min_stock: number
+          name: string
+          product_id: string
+          quantity: number
+          sku: string
+        }[]
+      }
       get_dashboard_financials: {
         Args: { p_branch_id?: string; p_date_from: string; p_date_to: string }
         Returns: {
@@ -5027,6 +5175,10 @@ export type Database = {
       }
       get_effective_plan: { Args: { p_account_id: string }; Returns: string }
       increment_seguros_clicks: { Args: { row_id: string }; Returns: undefined }
+      increment_seguros_contact_click: {
+        Args: { channel: string; row_id: string }
+        Returns: undefined
+      }
       is_account_writer: { Args: { p_account_id: string }; Returns: boolean }
       is_admin:
         | { Args: never; Returns: boolean }
@@ -5062,6 +5214,10 @@ export type Database = {
         Returns: string
       }
       process_cancellations: { Args: never; Returns: number }
+      product_category_normalize_name: {
+        Args: { p_name: string }
+        Returns: string
+      }
       purge_internal_logs: { Args: never; Returns: Json }
       queue_trial_notifications: { Args: never; Returns: number }
       record_status_transition: {
@@ -5086,6 +5242,39 @@ export type Database = {
         Returns: number
       }
       reporting_local_today: { Args: never; Returns: string }
+      reporting_plan_window: {
+        Args: { p_account_id: string; p_end: string; p_start: string }
+        Returns: {
+          history_days: number
+          plan: string
+          window_clamped: boolean
+          window_end: string
+          window_start: string
+        }[]
+      }
+      reporting_sales_lines_in_window: {
+        Args: {
+          p_account_id: string
+          p_branch_id?: string
+          p_canal?: string
+          p_end: string
+          p_start: string
+        }
+        Returns: {
+          branch_id: string
+          business_date: string
+          canal: string
+          client_id: string
+          created_at: string
+          has_cost: boolean
+          line_revenue: number
+          operation_key: string
+          product_id: string
+          quantity: number
+          sale_id: string
+          unit_cost: number
+        }[]
+      }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
       rpc_accept_quote: { Args: { p_quote_id: string }; Returns: Json }
       rpc_adjust_branch_stock: {
@@ -5344,9 +5533,11 @@ export type Database = {
         Args: {
           p_bank_account_id?: string
           p_branch_id?: string
+          p_cash_session_id?: string
           p_cost_center_id?: string
           p_date: string
           p_description: string
+          p_due_date?: string
           p_idempotency_key: string
           p_items: Json
           p_payment_method_id?: string
@@ -5380,6 +5571,7 @@ export type Database = {
           p_client_id: string
           p_currency: string
           p_date: string
+          p_due_date?: string
           p_idempotency_key: string
           p_items: Json
           p_payment_method_id?: string
@@ -5395,6 +5587,7 @@ export type Database = {
           p_client_id: string
           p_currency: string
           p_date: string
+          p_due_date?: string
           p_idempotency_key: string
           p_items: Json
           p_payment_method_id?: string
@@ -5445,6 +5638,7 @@ export type Database = {
           sales_count: number
           stagnant_stock_count: number
           stagnant_stock_value: number
+          stagnant_stock_without_cost_count: number
         }[]
       }
       rpc_deactivate_branch: {
@@ -5591,6 +5785,25 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_payables_report: {
+        Args: { p_account_id: string }
+        Returns: {
+          amount_current: number
+          amount_no_due_date: number
+          amount_overdue_1_30: number
+          amount_overdue_31_60: number
+          amount_overdue_60_plus: number
+          balance: number
+          days_overdue_max: number
+          days_since_last_charge: number
+          days_since_last_payment: number
+          last_payment_date: string
+          oldest_due_date: string
+          overdue_total: number
+          supplier_id: string
+          supplier_name: string
+        }[]
+      }
       rpc_payment_method_report: {
         Args: { p_account_id: string; p_end: string; p_start: string }
         Returns: {
@@ -5665,6 +5878,83 @@ export type Database = {
           units_sold: number
         }[]
       }
+      rpc_product_ranking: {
+        Args: {
+          p_account_id: string
+          p_branch_id?: string
+          p_canal?: string
+          p_end: string
+          p_group_variants?: boolean
+          p_limit?: number
+          p_offset?: number
+          p_order_by?: string
+          p_start: string
+        }
+        Returns: {
+          category: string
+          cost_coverage_pct: number
+          gross_margin: number
+          gross_margin_pct: number
+          history_days: number
+          is_group: boolean
+          last_sale_date: string
+          operations: number
+          parent_id: string
+          parent_name: string
+          product_id: string
+          product_name: string
+          rank: number
+          revenue: number
+          sku: string
+          total_cost: number
+          total_count: number
+          units: number
+          variant_count: number
+          window_clamped: boolean
+          window_end: string
+          window_start: string
+        }[]
+      }
+      rpc_product_sales_evolution: {
+        Args: {
+          p_account_id: string
+          p_branch_id?: string
+          p_bucket?: string
+          p_canal?: string
+          p_end: string
+          p_product_id: string
+          p_start: string
+        }
+        Returns: {
+          bucket_end: string
+          bucket_start: string
+          cost_coverage_pct: number
+          gross_margin: number
+          gross_margin_pct: number
+          history_days: number
+          is_group: boolean
+          last_sale_date: string
+          operations: number
+          parent_id: string
+          parent_name: string
+          product_category: string
+          product_id: string
+          product_name: string
+          product_sku: string
+          rank: number
+          revenue: number
+          row_kind: string
+          total_cost: number
+          units: number
+          variant_count: number
+          variant_id: string
+          variant_name: string
+          variant_sku: string
+          window_clamped: boolean
+          window_end: string
+          window_start: string
+        }[]
+      }
       rpc_promote_legacy_sale_to_order: {
         Args: { p_operation_id: string }
         Returns: Json
@@ -5684,6 +5974,26 @@ export type Database = {
           p_point_of_sale_id?: string
         }
         Returns: Json
+      }
+      rpc_receivables_report: {
+        Args: { p_account_id: string }
+        Returns: {
+          amount_current: number
+          amount_no_due_date: number
+          amount_overdue_1_30: number
+          amount_overdue_31_60: number
+          amount_overdue_60_plus: number
+          balance: number
+          client_id: string
+          client_name: string
+          client_phone: string
+          days_overdue_max: number
+          days_since_last_charge: number
+          days_since_last_payment: number
+          last_payment_date: string
+          oldest_due_date: string
+          overdue_total: number
+        }[]
       }
       rpc_record_fiscal_transition: {
         Args: {
@@ -5719,8 +6029,9 @@ export type Database = {
         Args: {
           p_amount: number
           p_bank_account_id?: string
+          p_cash_session_id?: string
           p_idempotency_key: string
-          p_payment_method?: string
+          p_payment_method_id?: string
           p_reference_purchase_id?: string
           p_supplier_id: string
         }
@@ -5730,9 +6041,10 @@ export type Database = {
         Args: {
           p_amount: number
           p_bank_account_id?: string
+          p_cash_session_id?: string
           p_client_id: string
           p_idempotency_key: string
-          p_payment_method?: string
+          p_payment_method_id?: string
           p_reference_sale_id?: string
         }
         Returns: Json
@@ -5750,6 +6062,14 @@ export type Database = {
         Args: { p_account_id: string; p_target_user_id: string }
         Returns: Json
       }
+      rpc_reverse_payment_made: {
+        Args: { p_payment_id: string; p_reason?: string }
+        Returns: Json
+      }
+      rpc_reverse_payment_received: {
+        Args: { p_payment_id: string; p_reason?: string }
+        Returns: Json
+      }
       rpc_reverse_stock_movement: {
         Args: {
           p_reason?: string
@@ -5764,6 +6084,85 @@ export type Database = {
             Args: { p_product_id: string; p_user_id: string }
             Returns: undefined
           }
+      rpc_sales_breakdown: {
+        Args: {
+          p_account_id: string
+          p_branch_id?: string
+          p_canal?: string
+          p_dimension?: string
+          p_end: string
+          p_start: string
+        }
+        Returns: {
+          bucket_key: string
+          bucket_label: string
+          history_days: number
+          operations: number
+          revenue: number
+          sort_order: number
+          units: number
+          window_clamped: boolean
+          window_end: string
+          window_start: string
+        }[]
+      }
+      rpc_sales_evolution: {
+        Args: {
+          p_account_id: string
+          p_branch_id?: string
+          p_bucket?: string
+          p_canal?: string
+          p_end: string
+          p_start: string
+        }
+        Returns: {
+          bucket_end: string
+          bucket_start: string
+          credit_notes: number
+          history_days: number
+          net_revenue: number
+          operations: number
+          period: string
+          revenue: number
+          service_revenue: number
+          units: number
+          window_clamped: boolean
+          window_end: string
+          window_start: string
+        }[]
+      }
+      rpc_sales_top_clients: {
+        Args: {
+          p_account_id: string
+          p_branch_id?: string
+          p_end: string
+          p_limit?: number
+          p_start: string
+        }
+        Returns: {
+          client_id: string
+          client_name: string
+          history_days: number
+          last_sale_date: string
+          operations: number
+          rank: number
+          revenue: number
+          row_kind: string
+          total_clients: number
+          units: number
+          window_clamped: boolean
+          window_end: string
+          window_start: string
+        }[]
+      }
+      rpc_set_default_payment_terms: {
+        Args: { p_days: number }
+        Returns: undefined
+      }
+      rpc_set_default_product_category: {
+        Args: { p_category_id: string }
+        Returns: undefined
+      }
       rpc_set_primary_client_address: {
         Args: { p_account_id: string; p_address_id: string }
         Returns: {
@@ -5837,6 +6236,10 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_update_customer_charge_due_date: {
+        Args: { p_due_date: string; p_movement_id: string; p_reason?: string }
+        Returns: Json
+      }
       rpc_update_expense: {
         Args: {
           p_amount?: number
@@ -5851,6 +6254,10 @@ export type Database = {
           p_payment_method_id?: string
           p_payment_method_provided?: boolean
         }
+        Returns: Json
+      }
+      rpc_update_supplier_charge_due_date: {
+        Args: { p_due_date: string; p_movement_id: string; p_reason?: string }
         Returns: Json
       }
       transition_requires_reason: {
@@ -5876,12 +6283,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5905,11 +6312,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5930,11 +6337,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5955,11 +6362,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -5972,11 +6379,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

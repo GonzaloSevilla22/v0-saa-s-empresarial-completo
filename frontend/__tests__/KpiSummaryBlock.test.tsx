@@ -31,6 +31,7 @@ const fullData: DashboardKpiSummary = {
   prevCostPerSale: 1148,     // +8% → rojo (up_bad: subir es malo)
   stagnantStockValue: 41600,
   stagnantStockCount: 23,
+  stagnantStockWithoutCostCount: null,
   prevStagnantStockCount: 20, // +15% → rojo (up_bad)
   prevStagnantStockValue: 39000,
   salesCount: 27,
@@ -82,6 +83,28 @@ describe("KpiSummaryBlock", () => {
     expect(screen.getByText("$1.240")).toBeInTheDocument()
     expect(screen.getByText("$41.600")).toBeInTheDocument()
     expect(screen.getByText("23 productos")).toBeInTheDocument()
+  })
+
+  it("productos-costo-nullable (OQ-2=a): declara cuántos productos sin rotación no tienen costo, en una línea secundaria (nunca en el badge — desborda a 375px, ver finding revisión)", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({
+      data: { ...fullData, stagnantStockWithoutCostCount: 5 },
+      isLoading: false,
+    })
+    render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
+    // El badge conserva el texto corto (cabe en el ancho disponible del layout).
+    expect(screen.getByText("23 productos")).toBeInTheDocument()
+    // La disclosure vive en la línea secundaria (min-w-0, sin whitespace-nowrap).
+    expect(screen.getByText("5 sin costo")).toBeInTheDocument()
+  })
+
+  it("productos-costo-nullable: sin productos sin costo, no muestra línea secundaria de disclosure", () => {
+    useDashboardKpiSummaryMock.mockReturnValue({
+      data: { ...fullData, stagnantStockWithoutCostCount: 0 },
+      isLoading: false,
+    })
+    render(<KpiSummaryBlock periodDate={new Date(2026, 5, 15)} />)
+    expect(screen.getByText("23 productos")).toBeInTheDocument()
+    expect(screen.queryByText(/sin costo/)).toBeNull()
   })
 
   it("colorea el badge según polaridad: ganancia sube=verde, costo sube=rojo, ticket ~igual=amarillo", () => {

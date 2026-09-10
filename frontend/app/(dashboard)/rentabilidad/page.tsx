@@ -49,7 +49,11 @@ function PlanGateFallback() {
 const fmtARS = (n: number) =>
   new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n)
 
-const fmtPct = (n: number) => `${n.toFixed(1)}%`
+// productos-costo-nullable (D7): un margen/costo ausente NO es un caso
+// teórico desde que el costo del catálogo es opcional — "—" en vez de
+// romper el formateo.
+const fmtPct = (n: number | null) => (n == null ? "—" : `${n.toFixed(1)}%`)
+const fmtARSNullable = (n: number | null) => (n == null ? "—" : fmtARS(n))
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -137,8 +141,13 @@ export default function RentabilidadPage() {
 
   if (!hasAccess) return <PlanGateFallback />
 
-  // Chart data: top 10 by gross_margin_pct
-  const chartData = products
+  // Chart data: top 10 by gross_margin_pct. productos-costo-nullable: un
+  // producto sin margen (costo no resoluble) no ocupa una posición del top
+  // 10 — no hay con qué compararlo, y mostrarlo sería inventar un rank.
+  const productsWithMargin = products.filter(
+    (p): p is typeof p & { gross_margin_pct: number } => p.gross_margin_pct != null,
+  )
+  const chartData = productsWithMargin
     .slice(0, 10)
     .map((p) => ({ name: p.product_name, margen: Number(p.gross_margin_pct) }))
     .reverse() // highest at top in horizontal chart
@@ -231,16 +240,19 @@ export default function RentabilidadPage() {
         <div className="flex flex-col gap-4">
           {[
             {
+              // productos-costo-nullable: mejor/peor margen se calculan
+              // SOLO sobre productos con margen medido — uno sin costo no
+              // es "el mejor" ni "el peor", no hay con qué compararlo.
               label: "Mejor margen",
-              value: products[0]
-                ? `${products[0].product_name} (${fmtPct(products[0].gross_margin_pct)})`
+              value: productsWithMargin[0]
+                ? `${productsWithMargin[0].product_name} (${fmtPct(productsWithMargin[0].gross_margin_pct)})`
                 : "—",
               variant: "default" as const,
             },
             {
               label: "Peor margen",
-              value: products.length > 1
-                ? `${products.at(-1)!.product_name} (${fmtPct(products.at(-1)!.gross_margin_pct)})`
+              value: productsWithMargin.length > 1
+                ? `${productsWithMargin.at(-1)!.product_name} (${fmtPct(productsWithMargin.at(-1)!.gross_margin_pct)})`
                 : "—",
               variant: "destructive" as const,
             },
@@ -295,19 +307,25 @@ export default function RentabilidadPage() {
                   <TableRow key={p.product_id}>
                     <TableCell className="font-medium max-w-[200px] truncate">{p.product_name}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmtARS(p.total_revenue)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{fmtARS(p.total_cost)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtARSNullable(p.total_cost)}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <span
-                        className={
-                          p.gross_margin_pct >= 30
-                            ? "text-green-500"
-                            : p.gross_margin_pct >= 10
-                            ? "text-yellow-500"
-                            : "text-destructive"
-                        }
-                      >
-                        {fmtPct(p.gross_margin_pct)}
-                      </span>
+                      {/* productos-costo-nullable: sin margen, "—" y SIN
+                          umbral de color — no hay valor que clasificar. */}
+                      {p.gross_margin_pct == null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span
+                          className={
+                            p.gross_margin_pct >= 30
+                              ? "text-green-500"
+                              : p.gross_margin_pct >= 10
+                              ? "text-yellow-500"
+                              : "text-destructive"
+                          }
+                        >
+                          {fmtPct(p.gross_margin_pct)}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{Number(p.units_sold).toFixed(0)}</TableCell>
                     {/* task 4.1-4.2: action button for price suggestion */}

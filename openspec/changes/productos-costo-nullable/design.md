@@ -47,6 +47,7 @@ Dos lecturas load-bearing:
 - No se toca el asiento contable, ni caja/banco, ni ninguna RPC que mueva dinero. Este change no escribe dinero.
 - No se agrega un costo por sucursal ni costeo promedio ponderado (BOM / V3 Inteligencia).
 - No se migra el importador de productos a FastAPI (sigue por `rpc_bulk_upsert_products` con supabase-js — candidato heredado de `productos-categorias-sku` D7).
+- **`rpc_dashboard_kpi_summary.cogs`/`prev_cogs` y `rpc_dashboard_channel_margin` (COGS y margen por canal del Tablero) conservan `COALESCE(si.unit_cost_snapshot, pr.cost, 0)` sin cambios** — excepción explícita a RN-D2 (ver el requirement, que la declara). No es una regresión: `pr.cost` ya era `0` (nunca `NULL`) para estos productos antes de este change, así que ambas agregaciones ya sumaban `0` de COGS por ellos — el comportamiento es idéntico al de hoy, byte a byte. Sí es un defecto preexistente (un producto sin costo infla el margen agregado hacia el 100%), pero corregirlo es un cambio de comportamiento numérico sobre dos read-models de rentabilidad agregada de toda la cuenta, no una propagación mecánica de nulabilidad como en `rpc_product_ranking`/`rpc_product_sales_evolution` — queda fuera de este change y anotado como candidato en `CHANGES.md`.
 
 ## Inventario de lectores y escritores de `cost` (ruta:línea)
 
@@ -62,8 +63,8 @@ Levantado por grep sobre el árbol + `pg_proc.prosrc` del cuerpo vivo. Cada fila
 | `rpc_product_ranking(...)` | `SUM(k.unit_cost * k.quantity)`; `COUNT(*) FILTER (WHERE k.has_cost_snapshot)`; `ORDER BY ... NULLS LAST` | **CAMBIA (1 predicado)** — ver D4 |
 | `rpc_product_sales_evolution(...)` | 3 expresiones de cobertura (`t_coverage`, `b_coverage`, `m_coverage`) con el mismo FILTER | **CAMBIA (3 predicados)** |
 | `rpc_product_profitability(integer)` | `SUM(l.unit_cost * l.quantity)`; `ORDER BY gross_margin_pct DESC NULLS LAST` | **verificar, NO cambia** — ver D5 |
-| `rpc_dashboard_kpi_summary(...)` | `COALESCE(si.unit_cost_snapshot, pr.cost, 0)` (COGS, 2×); `SUM(bs.quantity * COALESCE(p.cost, 0))` (stock estancado, 2×) | **CAMBIA sólo si OQ-2 = (a)** — ya es NULL-safe |
-| `rpc_dashboard_channel_margin(...)` | `COALESCE(si.unit_cost_snapshot, pr.cost, 0)` (3×) | **verificar, NO cambia** — ya NULL-safe, misma aritmética que hoy |
+| `rpc_dashboard_kpi_summary(...)` | `COALESCE(si.unit_cost_snapshot, pr.cost, 0)` (COGS, 2×) — **excepción a RN-D2 declarada en Non-Goals**, NO cambia; `SUM(bs.quantity * COALESCE(p.cost, 0))` (stock estancado, 2×) — CAMBIA sólo si OQ-2 = (a) | **CAMBIA (RETURNS TABLE, por la disclosure de stock estancado) — el COGS del `WITH sales_agg` no se toca** |
+| `rpc_dashboard_channel_margin(...)` | `COALESCE(si.unit_cost_snapshot, pr.cost, 0)` (3×) — **excepción a RN-D2 declarada en Non-Goals** | **verificar, NO cambia** — ya NULL-safe, misma aritmética que hoy |
 | `check_low_margin()` (trigger) | `SELECT cost INTO prod_cost`; `IF prod_cost IS NOT NULL THEN` | **verificar, NO cambia** — ya cortocircuita en NULL (D6) |
 | `op_line_snapshot(jsonb,text,text,numeric)` | `'unit_cost_snapshot', p_cost` sin COALESCE | **verificar, NO cambia** — propaga NULL solo (D8) |
 | `rpc_bulk_upsert_products(jsonb,uuid)` | INSERT `COALESCE((v_row->>'cost')::numeric, 0)`; UPDATE `COALESCE(..., cost)` | **CAMBIA (INSERT)** — ver D10 |
@@ -243,7 +244,7 @@ Archivo único `supabase/migrations/20261042000001_products_cost_nullable.sql` (
 | Pantalla | Qué muestra hoy | Qué muestra después |
 |---|---|---|
 | `/productos` — formulario | campo Costo con `0` y "Margen 100 %" | campo vacío admitido, texto de ayuda *"Dejalo vacío si todavía no sabés el costo"*, margen "—" sin costo |
-| `/productos` — catálogo | `Costo $0` y badge verde `100 %` | `Costo —` y badge neutro `—` (los umbrales de color no se evalúan sin margen) |
+| `/productos` — catálogo | badge de margen verde `100 %` (el catálogo no tiene columna de Costo propia, sólo Margen) | badge de margen `—` sin umbral de color |
 | `/productos` — export CSV | `costo 0`, `margen 100` | celdas vacías (mismo criterio D11 de `export-ranking`) |
 | `/estadisticas` + `/estadisticas/productos/[id]` | ya renderiza "—" | igual, **ahora alcanzable**; cambia el texto de la nota al pie (la cobertura pasa a ser "% de líneas con costo") |
 | `/rentabilidad` | crashea con margen nulo (D7) | "—" y sin color de umbral |
@@ -276,20 +277,22 @@ Verificación en desktop + mobile y en tema claro + oscuro; el sistema de tokens
 
 ## Open Questions
 
-**OQ-1 — ¿Los 2.617 productos con `cost = 0` pasan a `NULL`?**
+> **Todas resueltas por su recomendación** (sign-off general del PO transmitido por el orquestador al apply, "si a todo") y aplicadas en el apply del 2026-09-10 — ver la marca ✅ RESUELTA en cada una y `tasks.md`/`CHANGES.md` para el detalle de implementación.
+
+**OQ-1 — ¿Los 2.617 productos con `cost = 0` pasan a `NULL`?** ✅ RESUELTA (a — todos, backfill ejecutado)
 *Recomendación: **sí, todos** (D2).* Datos: 0 de 2.617 fueron comprados alguna vez con costo positivo; 626 son padres `variant_only` que no pueden tener costo propio; sólo 10 fueron vendidos alguna vez. Alternativas: (a) todos → `NULL` *(recomendada)*; (b) sólo los que nunca tuvieron una línea de venta con snapshot > 0 — discrimina 10 filas de 2.617 y deja el 53 % del catálogo a medio migrar; (c) ninguno — el change no cumple su propósito para la mayoría del catálogo vivo.
 
-**OQ-2 — Valorización del stock con costo ausente: ¿se declara cuántos productos no tienen costo?**
+**OQ-2 — Valorización del stock con costo ausente: ¿se declara cuántos productos no tienen costo?** ✅ RESUELTA (a — `stagnant_stock_without_cost_count` implementado)
 *Recomendación: **sí (a)**.* La aritmética no cambia en ninguna opción (D13); la decisión es sobre la **disclosure**. (a) `rpc_dashboard_kpi_summary` suma una columna `stagnant_stock_without_cost_count` y el badge del Tablero dice *"N productos · M sin costo"* — cuesta un `DROP FUNCTION`+`CREATE` (cambia el `RETURNS TABLE`), el mapper y el badge; hoy serían **601 productos / 1.299 unidades** valorizados en $0 sin decirlo. (b) nota estática al pie del KPI sin conteo — cero SQL, pero no dice cuántos y por lo tanto no es accionable. (c) no declarar nada — deja el KPI diciendo un número que el usuario no puede auditar.
 
-**OQ-3 — `ai-precio` con un producto sin costo de catálogo: ¿rechaza o sugiere sin margen?**
+**OQ-3 — `ai-precio` con un producto sin costo de catálogo: ¿rechaza o sugiere sin margen?** ✅ RESUELTA (b — sugiere sin margen, `buildPricePrompt` implementado)
 *Recomendación: **sugerir sin margen (b)**.* (a) rechazar con *"cargá el costo para sugerir un precio"* — honesto pero deja sin servicio a un producto por el que el usuario ya gastó una consulta de su cuota; (b) sugerir **omitiendo del prompt la línea `COSTO CATÁLOGO`** y la instrucción *"que el margen no sea negativo"*, y avisando en la respuesta que la sugerencia se apoya sólo en elasticidad e historial de ventas — es el patrón ya establecido en `ai-canonical-metrics` (omitir, nunca sustituir) y sigue siendo útil; (c) mandar `0` — es la mentira que este change existe para eliminar, **descartada**. Nota de implementación en cualquier caso: la cuota se verifica antes de leer nada, y si se rechaza (opción a) **no** se incrementa el contador.
 
-**OQ-4 — Snapshot de línea con producto sin costo: ¿`NULL` o `0`?**
+**OQ-4 — Snapshot de línea con producto sin costo: ¿`NULL` o `0`?** ✅ RESUELTA (`NULL`, sin cambios de código — D8 confirmado por el gate T9)
 *Recomendación: **`NULL`**, y no cuesta nada (D8).* `op_line_snapshot` ya propaga el valor sin `COALESCE` y las cinco tablas de línea ya admiten `NULL`. La pregunta queda registrada porque **la respuesta contraria exigiría escribir código** (meter un `COALESCE(..., 0)`), y conviene que quede claro que la ausencia se hereda por diseño y no por olvido.
 
-**OQ-5 — ¿Se reescriben las 9 líneas históricas con `unit_cost_snapshot = 0`?**
+**OQ-5 — ¿Se reescriben las 9 líneas históricas con `unit_cost_snapshot = 0`?** ✅ RESUELTA (no — residuo declarado, medido de nuevo en el apply: sigue en 9)
 *Recomendación: **no** (D9).* Contradiría la regla de inmutabilidad de líneas de documento confirmado (`knowledge-base/05_reglas_de_negocio.md:281`), que es la que garantiza que remarcar un producto no reescriba el margen del pasado. Residuo declarado: 9 líneas en 9 productos seguirán informando 100 % de margen con 100 % de cobertura.
 
-**OQ-6 — ¿`products.price` recibe el mismo tratamiento?**
+**OQ-6 — ¿`products.price` recibe el mismo tratamiento?** ✅ RESUELTA (no en este change — Non-Goal, candidato propio dejado en `CHANGES.md`)
 *Recomendación: **no en este change** (Non-Goal declarado).* Tiene el mismo `NOT NULL DEFAULT 0`, pero un precio ausente no falsea ningún margen ni ninguna valorización: un producto sin precio no se vende. Si el PO lo quiere, es un change gemelo y más chico, apoyado en el precedente que éste deja.

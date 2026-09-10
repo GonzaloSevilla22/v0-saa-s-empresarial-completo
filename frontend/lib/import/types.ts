@@ -83,7 +83,12 @@ export interface ValidatedImportRow {
   /** Explicit parent reference by name (optional). */
   nameParent:    string | null
   price:         number
-  cost:          number
+  /**
+   * productos-costo-nullable: `null` = celda vacía (alta sin costo, o
+   * edición que conserva el costo existente); un número (incluido `0`) es
+   * un costo declarado. Nunca se imputa 0 por default.
+   */
+  cost:          number | null
   /**
    * Nombre canónico del catálogo si la categoría existe; el nombre normalizado
    * (trim + colapso de espacios) si es nueva; "" si la fila no trae categoría
@@ -115,7 +120,8 @@ export interface ProductUpsertPayload {
   sku:                string | null
   category:           string
   price:              number
-  cost:               number
+  /** productos-costo-nullable: `null` = sin costo (alta) o conservar (edición). */
+  cost:               number | null
   stock:              number
   min_stock:          number
   barcode:            string | null

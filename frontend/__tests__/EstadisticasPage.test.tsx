@@ -223,6 +223,25 @@ describe("EstadisticasPage", () => {
     expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ orderBy: "revenue", page: 0 }))
   })
 
+  // productos-costo-nullable (ronda 1 de revisión, finding minor): con
+  // NULLS LAST, un producto sin margen resoluble (Bufanda, grossMargin:
+  // null) puede entrar al top-10 en cuanto la cuenta tenga menos de 10
+  // grupos con costo — el gráfico dibujaba una barra de $0 rotulada con su
+  // nombre, leyéndose "margen $0" en vez de "margen ausente" (la tabla, en
+  // cambio, ya mostraba "—" via marginCell). El chart debe excluirla, igual
+  // que /rentabilidad excluye los productos sin margen de su Top 10.
+  it("el gráfico de ranking por margen excluye los productos sin margen (nunca los dibuja en $0)", () => {
+    render(<EstadisticasPage />)
+    fireEvent.click(screen.getByRole("radio", { name: "Margen" }))
+    // La página monta varios ReportBarChart (evolución, desglose, ranking) —
+    // el del ranking es el único cuyo aria-label empieza con "Top ".
+    const rankingBar = screen.getAllByTestId("bar-stub").find((el) => el.textContent?.startsWith("Top "))
+    expect(rankingBar).toBeDefined()
+    expect(rankingBar!.textContent).toContain("Gorra")
+    expect(rankingBar!.textContent).toContain("Remera")
+    expect(rankingBar!.textContent).not.toContain("Bufanda")
+  })
+
   it("desactivar la agrupación re-consulta con group_variants=false", () => {
     render(<EstadisticasPage />)
     expect(useProductRankingMock).toHaveBeenLastCalledWith(expect.objectContaining({ groupVariants: true }))

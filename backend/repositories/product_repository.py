@@ -20,8 +20,11 @@ _APPLY_STOCK_DELTA_SQL = (
 # products.min_stock queda DEPRECATED (columna legacy, ver COMMENT en la DB).
 _SET_MIN_STOCK_SQL = "SELECT public.rpc_set_product_min_stock($1::uuid, $2::int)"
 
-# productos-categorias-sku (D12): columnas que el UPDATE acepta en NULL explícito.
-_NULLABLE_ON_UPDATE: frozenset[str] = frozenset({"sku", "category_id"})
+# productos-categorias-sku (D12) / productos-costo-nullable: columnas que el
+# UPDATE acepta en NULL explícito — `cost` es tri-estado por el mismo molde
+# exacto que `sku`/`category_id` (D12 de aquel change): campo ausente
+# conserva, informado en null desasigna (queda sin costo cargado).
+_NULLABLE_ON_UPDATE: frozenset[str] = frozenset({"sku", "category_id", "cost"})
 
 # productos-categorias-sku (D14): recategorización en lote como UN SOLO UPDATE.
 # `AND p.account_id = $2` ES el guard de tenencia (regla dura: todo repository
@@ -94,6 +97,11 @@ class ProductRepository(BaseRepository):
                 account_id,
                 data["name"],
                 data.get("price"),
+                # productos-costo-nullable (task 5.7, verificar/no cambia):
+                # `data.get("cost")` ya pasaba `None` tal cual cuando el
+                # payload no informaba costo — el alta sin costo funcionaba
+                # antes de este change, sólo faltaba poder BORRAR uno ya
+                # cargado (ver `_NULLABLE_ON_UPDATE` arriba).
                 data.get("cost"),
                 data.get("min_stock", 0),
                 data.get("barcode"),

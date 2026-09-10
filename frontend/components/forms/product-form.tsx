@@ -32,7 +32,14 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
   // productos-categorias-sku (D1): la categoría se elige del catálogo de la
   // cuenta por id — PRODUCT_CATEGORIES (lista fija) se retiró.
   const [categoryId, setCategoryId] = useState<string | null>(initialData?.categoryId ?? null)
-  const [cost, setCost] = useState(initialData?.cost || 0)
+  // productos-costo-nullable: `cost` es OPCIONAL — `null` = sin costo
+  // cargado (alta nueva sin tocar el campo, o un producto existente sin
+  // costo), nunca 0 por default. `costTouched` distingue "no lo toqué" de
+  // "lo dejé en el mismo valor" para el tri-estado de la edición (D12,
+  // mismo molde que sku/category_id): la clave `cost` sólo viaja en el
+  // payload de EDICIÓN si el usuario tocó el campo.
+  const [cost, setCost] = useState<number | null>(initialData?.cost ?? null)
+  const [costTouched, setCostTouched] = useState(false)
   const [price, setPrice] = useState(initialData?.price || 0)
   const [stock, setStock] = useState(initialData?.stock || 0)
   const [minStock, setMinStock] = useState(initialData?.minStock || 10)
@@ -51,7 +58,9 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
 
   const [isScanning, setIsScanning] = useState(false)
 
-  const margin = price > 0 ? Math.round(((price - cost) / price) * 100) : 0
+  // productos-costo-nullable: sin costo, el margen es ausente — nunca 0 ni
+  // un valor derivado de un costo inventado (capability product-cost).
+  const margin = cost == null ? null : (price > 0 ? Math.round(((price - cost) / price) * 100) : 0)
 
   const isVariant = parentId !== "none"
 
@@ -108,7 +117,12 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
       // Variante: NO se manda categoryId — el servidor la hereda del padre e
       // ignora lo que mande el cliente (D11/9.7).
       categoryId: resolvedParentId ? undefined : (categoryId ?? undefined),
-      cost,
+      // productos-costo-nullable (D12, tri-estado): en una EDICIÓN, la clave
+      // `cost` sólo viaja si el usuario tocó el campo — así se conserva el
+      // costo existente sin reescribirlo en cada guardado. En un ALTA
+      // siempre viaja (ausencia y `null` explícito producen el mismo
+      // resultado en la creación, así que no hace falta distinguir).
+      ...(!initialData || costTouched ? { cost } : {}),
       price,
       margin,
       stock: stockControlType === "untracked" ? 0 : stock,
@@ -230,21 +244,38 @@ export function ProductForm({ onSuccess, initialData, defaultParentId }: Product
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Costo</Label>
-          <NumericInput min={0} step={0.01} value={cost} onValueChange={setCost} className="bg-background border-border text-foreground" />
+          <Label htmlFor="product-cost" className="text-foreground">Costo</Label>
+          <NumericInput
+            id="product-cost"
+            nullable
+            min={0}
+            step={0.01}
+            value={cost}
+            onValueChange={(v) => { setCost(v); setCostTouched(true) }}
+            className="bg-background border-border text-foreground"
+          />
+          {/* productos-costo-nullable (D15): el precedente exacto es la ayuda
+              de SKU de arriba — un campo opcional se declara como tal. */}
+          <p className="text-[11px] text-muted-foreground">
+            Dejalo vacío si todavía no sabés el costo.
+          </p>
         </div>
         <div className="flex flex-col gap-2">
-          <Label className="text-foreground">Precio</Label>
-          <NumericInput min={0} step={0.01} value={price} onValueChange={setPrice} className="bg-background border-border text-foreground" />
+          <Label htmlFor="product-price" className="text-foreground">Precio</Label>
+          <NumericInput id="product-price" min={0} step={0.01} value={price} onValueChange={setPrice} className="bg-background border-border text-foreground" />
         </div>
       </div>
 
       {price > 0 && (
         <div className="rounded-lg border border-border bg-accent/50 p-3 text-center">
           <span className="text-xs text-muted-foreground">Margen: </span>
-          <span className={`text-sm font-bold ${margin >= 50 ? "text-emerald-400" : margin >= 30 ? "text-yellow-400" : "text-red-400"}`}>
-            {margin}%
-          </span>
+          {margin == null ? (
+            <span className="text-sm font-bold text-muted-foreground">—</span>
+          ) : (
+            <span className={`text-sm font-bold ${margin >= 50 ? "text-emerald-400" : margin >= 30 ? "text-yellow-400" : "text-red-400"}`}>
+              {margin}%
+            </span>
+          )}
         </div>
       )}
 

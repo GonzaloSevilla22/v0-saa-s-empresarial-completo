@@ -287,7 +287,8 @@ export interface MarginCell {
   /** Importe formateado, o "—" cuando no hay margen (D11). */
   value: string
   /** Marca de cobertura ("33% con costo") cuando no todas las líneas del
-   *  grupo tienen costo congelado; null con cobertura total o sin margen. */
+   *  grupo tienen costo resoluble (snapshot congelado o costo de catálogo);
+   *  null con cobertura total o sin margen. */
   coverage: string | null
 }
 

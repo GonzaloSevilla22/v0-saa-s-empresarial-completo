@@ -363,9 +363,17 @@ export interface Product {
    * verdad de la imputación. `null` = sin categoría (legacy no resuelto).
    */
   categoryId?: string | null
-  cost: number
+  /**
+   * productos-costo-nullable: el costo del catálogo es OPCIONAL. `null` =
+   * no se cargó el costo (dato ausente); `0` = costo cero declarado
+   * explícitamente. Los dos son hechos distintos del negocio — ningún
+   * consumidor NOT SHALL sustituir el ausente por cero al informar margen
+   * (capability `product-cost`).
+   */
+  cost: number | null
   price: number
-  margin: number
+  /** `null` cuando no hay costo con qué calcular el margen — nunca 0/100. */
+  margin: number | null
   stock: number
   minStock: number
   barcode?: string
@@ -767,9 +775,14 @@ export interface ProductProfitability {
   product_id:       string
   product_name:     string
   total_revenue:    number
-  total_cost:       number
-  gross_margin:     number
-  gross_margin_pct: number
+  /**
+   * productos-costo-nullable: `null` cuando ningún peldaño de la cascada de
+   * costo resolvió para este producto en el período (costo del catálogo
+   * opcional, capability `product-cost`) — nunca 0 ni un margen inventado.
+   */
+  total_cost:       number | null
+  gross_margin:     number | null
+  gross_margin_pct: number | null
   units_sold:       number
   last_sale_date:   string | null
 }

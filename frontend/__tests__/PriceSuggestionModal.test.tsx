@@ -201,3 +201,44 @@ describe("PriceSuggestionModal — success state", () => {
     })
   })
 })
+
+// ─── productos-costo-nullable (task 8.2 RED/GREEN, OQ-3): producto sin costo ──
+
+describe("PriceSuggestionModal — sugerencia sin costo de catálogo (OQ-3)", () => {
+  beforeEach(() => {
+    mockFetch.mockReturnValue(
+      buildFetchResponse({
+        ok:              true,
+        suggested_price: 1500,
+        // margin_pct AUSENTE del todo — el prompt ni lo pidió (OQ-3).
+        argument:        "Sin costo cargado, la sugerencia se basa en elasticidad e historial.",
+        margin_not_considered: true,
+      })
+    )
+  })
+
+  it("se renderiza completo con el precio sugerido y el argumento, sin romperse", async () => {
+    await renderModal()
+    await waitFor(() => {
+      const matches = screen.getAllByText(/1[.,. ]500/)
+      expect(matches.length).toBeGreaterThan(0)
+      expect(screen.getByText(/sin costo cargado/i)).toBeInTheDocument()
+    })
+  })
+
+  it('muestra el margen como "—" junto a la explicación de que falta el costo', async () => {
+    await renderModal()
+    await waitFor(() => {
+      expect(screen.getByText("—")).toBeInTheDocument()
+      expect(screen.getByText(/no considera el margen/i)).toBeInTheDocument()
+    })
+  })
+
+  it("no muestra un margen del 0% ni del 100% inventado", async () => {
+    await renderModal()
+    await waitFor(() => {
+      expect(screen.queryByText(/0\.0%/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/100\.0%/)).not.toBeInTheDocument()
+    })
+  })
+})

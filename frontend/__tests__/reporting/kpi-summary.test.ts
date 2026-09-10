@@ -23,6 +23,7 @@ const mockRpcRow: RpcKpiSummaryRow = {
   prev_cost_per_sale: "1148.15",
   stagnant_stock_value: "41600",
   stagnant_stock_count: 23,
+  stagnant_stock_without_cost_count: 5,
   prev_stagnant_stock_value: "39000",
   prev_stagnant_stock_count: 20,
   sales_count: 27,
@@ -44,6 +45,7 @@ describe("mapKpiSummaryRow (2.2)", () => {
       prevCostPerSale: 1148.15,
       stagnantStockValue: 41600,
       stagnantStockCount: 23,
+      stagnantStockWithoutCostCount: 5,
       prevStagnantStockValue: 39000,
       prevStagnantStockCount: 20,
       salesCount: 27,
@@ -61,6 +63,12 @@ describe("mapKpiSummaryRow (2.2)", () => {
     expect(mapped.avgTicket).toBeNull()
     expect(mapped.costPerSale).toBeNull()
     expect(mapped.salesCount).toBe(0)
+  })
+
+  it("productos-costo-nullable (OQ-2=a): stagnant_stock_without_cost_count ausente → null, no rompe", () => {
+    const { stagnant_stock_without_cost_count, ...rest } = mockRpcRow
+    const mapped = mapKpiSummaryRow(rest as RpcKpiSummaryRow)
+    expect(mapped.stagnantStockWithoutCostCount).toBeNull()
   })
 
   it("columnas RN-D3 ausentes (invoiced_revenue?) no rompen el mapeo", () => {

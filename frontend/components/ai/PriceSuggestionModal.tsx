@@ -24,7 +24,10 @@ interface PriceSuggestionModalProps {
 
 type ModalState =
   | { status: "loading" }
-  | { status: "success"; suggestedPrice: number; marginPct: number; argument: string }
+  // productos-costo-nullable (OQ-3): `marginPct` es `null` cuando el
+  // producto no tiene costo de catálogo — la Edge Function no lo calcula,
+  // nunca 0 ni un valor inventado.
+  | { status: "success"; suggestedPrice: number; marginPct: number | null; argument: string }
   | { status: "fallback"; reason: "insufficient_data" | "timeout" }
   | { status: "error"; reason: "quota_exceeded" }
   | { status: "error_generic"; message: string }
@@ -108,7 +111,10 @@ export function PriceSuggestionModal({
           setState({
             status:        "success",
             suggestedPrice: json.suggested_price as number,
-            marginPct:      typeof json.margin_pct === "number" ? (json.margin_pct as number) : 0,
+            // productos-costo-nullable (OQ-3): margin_pct ausente (producto
+            // sin costo) → null, nunca 0 — 0 significaría "margen cero
+            // medido", que es una afirmación distinta de "no se calculó".
+            marginPct:      typeof json.margin_pct === "number" ? (json.margin_pct as number) : null,
             argument:       typeof json.argument === "string"   ? (json.argument   as string) : "",
           })
           return
@@ -191,18 +197,29 @@ export function PriceSuggestionModal({
                 </p>
                 <p className="text-sm text-muted-foreground mt-1">
                   Margen proyectado:{" "}
-                  <span
-                    className={
-                      state.marginPct >= 30
-                        ? "text-green-500 font-semibold"
-                        : state.marginPct >= 10
-                        ? "text-yellow-500 font-semibold"
-                        : "text-destructive font-semibold"
-                    }
-                  >
-                    {state.marginPct.toFixed(1)}%
-                  </span>
+                  {state.marginPct == null ? (
+                    <span className="font-semibold text-muted-foreground">—</span>
+                  ) : (
+                    <span
+                      className={
+                        state.marginPct >= 30
+                          ? "text-green-500 font-semibold"
+                          : state.marginPct >= 10
+                          ? "text-yellow-500 font-semibold"
+                          : "text-destructive font-semibold"
+                      }
+                    >
+                      {state.marginPct.toFixed(1)}%
+                    </span>
+                  )}
                 </p>
+                {/* productos-costo-nullable (OQ-3): explicar por qué falta
+                    el margen — el producto no tiene costo cargado. */}
+                {state.marginPct == null && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Esta sugerencia no considera el margen porque el producto no tiene costo cargado.
+                  </p>
+                )}
               </div>
 
               {state.argument && (

@@ -1,88 +1,134 @@
 /**
- * Importador de gastos — D13 / tasks 11.7 y 11.8.
+ * Importador de gastos — importador-gastos-transaccional (D13 del design,
+ * task 8.9): esta suite REEMPLAZA la anterior, que fijaba el comportamiento
+ * VIEJO ("los gastos importados quedan sin forma de pago y sin impacto en
+ * caja ni en banco"). Ese comportamiento era una consecuencia de una
+ * LIMITACIÓN TÉCNICA —el importador emitía una llamada por fila sin
+ * transacción de lote— que este change elimina: el lote pasa a ser una sola
+ * transacción de servidor (`rpc_import_expenses`) que SÍ acepta forma de
+ * pago, sucursal y centro de costo, resueltos por NOMBRE.
  *
- * El importador llama `addExpense` UNA VEZ POR FILA, sin ninguna transacción
- * que abarque el loop: con impacto en libros, importar 200 filas generaría 200
- * movimientos y, ante un fallo a mitad de camino, dejaría N gastos con
- * movimiento y M sin — un descuadre imposible de reconstruir. Por eso las
- * filas importadas entran SIN forma de pago, y el texto del paso 1 tiene que
- * decir la verdad completa: imputarles la forma de pago después desde el
- * listado es sólo una etiqueta, porque la EDICIÓN no postea movimientos
- * (`rpc_update_expense` ni siquiera recibe `p_cash_session_id` /
- * `p_bank_account_id`). La redacción anterior del design prometía un efecto
- * que el sistema no produce y quedó explícitamente prohibida.
+ * Qué se INVIERTE (documentado por escrito, D13/task 2.4):
+ *   - el payload YA NO omite `payment_method_name`/`branch_name`/
+ *     `cost_center_name` — viajan tal cual la celda del CSV;
+ *   - el texto del paso 1 ya NO promete "sin impacto en caja ni en banco":
+ *     la pata bancaria SÍ se registra; sólo la de CAJA sigue sin impacto.
+ *
+ * Qué se CONSERVA como aserción PERMANENTE (D6, nunca se relaja):
+ *   - el payload de la mutación NUNCA lleva una sesión de caja — el lote no
+ *     tiene ese campo ni por construcción (el tipo `ExpenseImportInput` no
+ *     lo declara), y este test lo re-verifica explícitamente contra el
+ *     payload REAL que llega al hook.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 
-const addExpenseMock = vi.fn().mockResolvedValue(undefined)
-// El importador usa el alta MASIVA (sin invalidación por fila): ver
-// expense-import-dialog-invalidation.test.tsx.
+const importMock = vi.fn()
+const invalidateLedgersMock = vi.fn()
+
 vi.mock("@/hooks/data/use-expenses-query", () => ({
-  useBulkAddExpense: () => ({
-    addExpenseMutation: { mutateAsync: addExpenseMock },
-    invalidateLedgers: vi.fn(),
+  useImportExpenses: () => ({
+    importMutation: { mutateAsync: importMock },
+    invalidateLedgers: invalidateLedgersMock,
   }),
 }))
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }))
+vi.mock("@/lib/bank-statement-parser", () => ({
+  hashFileSHA256: vi.fn().mockResolvedValue("hash-fixed-for-test"),
+}))
+// Selectores canónicos: se mockean a null para aislar el comportamiento del
+// diálogo de su implementación (se reusan tal cual, no se reescriben — D10).
+vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
+  PaymentMethodSelect: () => null,
+  BankAccountDestinationSelect: () => null,
+}))
+vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
+vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 
 import { ExpenseImportDialog } from "@/components/gastos/expense-import-dialog"
 
 const CSV = [
-  "Descripción;Categoría;Monto;Fecha",
-  "Alquiler del local;Alquiler;150000;2026-08-01",
-  "Factura de luz;Servicios;12000;2026-08-05",
+  "Descripción;Categoría;Monto;Fecha;Forma de pago;Sucursal;Centro de costo",
+  "Alquiler del local;Alquiler;150000;2026-08-01;Transferencia bancaria;;",
+  "Factura de luz;Servicios;12000;2026-08-05;;;",
 ].join("\n")
+
+function applyDryRunResult(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    committed: false,
+    importId: null,
+    imported: 2,
+    errors: [],
+    notices: [],
+    replayed: false,
+    dryRun: true,
+    ...overrides,
+  }
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
+  importMock.mockResolvedValue(applyDryRunResult())
 })
 
 async function uploadCsv() {
   const input = document.getElementById("csv-expense-upload") as HTMLInputElement
   const file = new File([CSV], "gastos.csv", { type: "text/csv" })
   fireEvent.change(input, { target: { files: [file] } })
-  // El paso 2 aparece cuando el FileReader terminó de parsear.
-  await waitFor(() => expect(screen.getByRole("button", { name: /importar 2 gastos/i })).toBeInTheDocument())
+  // El paso 2 dispara la SIMULACIÓN automáticamente al entrar (D9) — se
+  // espera a que la mutación de dry-run se haya llamado.
+  await waitFor(() => expect(importMock).toHaveBeenCalled())
 }
 
-describe("ExpenseImportDialog — 11.7: el texto del paso 1 dice la verdad", () => {
-  it("declara que los gastos importados no impactan caja ni banco, y que imputarlos después es sólo una etiqueta", () => {
+describe("ExpenseImportDialog — el texto del paso 1 dice la verdad (D13, invertido)", () => {
+  it("declara que el lote es todo o nada y que el efectivo no impacta la caja", () => {
     render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
 
     const text = document.body.textContent ?? ""
-    expect(text).toMatch(/sin forma de pago y sin impacto en caja ni en banco/i)
-    expect(text).toMatch(/s[oó]lo una etiqueta/i)
-    expect(text).toMatch(/cargarlo desde el formulario/i)
+    expect(text).toMatch(/todo o nada/i)
+    expect(text).toMatch(/efectivo.*no impactan la caja|no impactan la caja/i)
+    expect(text).toMatch(/cargalo desde el formulario/i)
   })
 
-  it("NO promete que imputar después haga impactar los libros (redacción prohibida por D13)", () => {
+  it("NO promete 'sin impacto en caja ni en banco' — la pata bancaria SÍ se registra (redacción prohibida por D13)", () => {
     render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
 
     const text = document.body.textContent ?? ""
-    expect(text).not.toMatch(/imputalos despu[eé]s desde el listado si quer[eé]s que impacten/i)
+    expect(text).not.toMatch(/sin impacto en caja ni en banco/i)
+    expect(text).not.toMatch(/quedan sin forma de pago/i)
   })
 })
 
-describe("ExpenseImportDialog — 11.8: el payload no lleva forma de pago", () => {
-  it("importa las filas sin payment_method_id, sin sesión de caja y sin cuenta bancaria", async () => {
+describe("ExpenseImportDialog — el payload SÍ lleva forma de pago/sucursal/centro de costo por nombre", () => {
+  it("las filas viajan con payment_method_name/branch_name resueltos desde la celda cruda del CSV", async () => {
     render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
     await uploadCsv()
 
-    fireEvent.click(screen.getByRole("button", { name: /importar 2 gastos/i }))
-
-    await waitFor(() => expect(addExpenseMock).toHaveBeenCalledTimes(2))
-    for (const [payload] of addExpenseMock.mock.calls) {
-      expect("paymentMethodId" in payload).toBe(false)
-      expect("cashSessionId" in payload).toBe(false)
-      expect("bankAccountId" in payload).toBe(false)
-    }
-    // Control positivo: lo que SÍ importa sigue viajando — si el payload
-    // llegara vacío, las tres aserciones de arriba pasarían igual.
-    expect(addExpenseMock.mock.calls[0][0]).toMatchObject({
+    const dryRunCall = importMock.mock.calls[0][0]
+    expect(dryRunCall.dryRun).toBe(true)
+    expect(dryRunCall.rows).toHaveLength(2)
+    expect(dryRunCall.rows[0]).toMatchObject({
       description: "Alquiler del local",
       category: "Alquiler",
       amount: 150000,
+      paymentMethodName: "Transferencia bancaria",
     })
+    expect(dryRunCall.rows[1].paymentMethodName).toBeNull()
+  })
+})
+
+describe("ExpenseImportDialog — el payload NUNCA lleva sesión de caja (D6, aserción PERMANENTE)", () => {
+  it("ni la simulación ni la confirmación incluyen ninguna clave de sesión de caja", async () => {
+    render(<ExpenseImportDialog open onOpenChange={vi.fn()} />)
+    await uploadCsv()
+
+    for (const [input] of importMock.mock.calls) {
+      expect("cashSessionId" in input).toBe(false)
+      expect("cash_session_id" in input).toBe(false)
+      for (const row of input.rows ?? []) {
+        expect("cashSessionId" in row).toBe(false)
+        expect("cash_session_id" in row).toBe(false)
+      }
+    }
   })
 })

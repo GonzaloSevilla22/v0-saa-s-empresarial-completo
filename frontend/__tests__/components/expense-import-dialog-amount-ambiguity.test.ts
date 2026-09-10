@@ -1,8 +1,14 @@
 import { describe, it, expect, vi } from "vitest"
 
 vi.mock("@/hooks/data/use-expenses-query", () => ({
-  useBulkAddExpense: () => ({ addExpenseMutation: { mutateAsync: vi.fn() }, invalidateLedgers: vi.fn() }),
+  useImportExpenses: () => ({ importMutation: { mutateAsync: vi.fn() }, invalidateLedgers: vi.fn() }),
 }))
+vi.mock("@/components/payment-methods/PaymentMethodSelect", () => ({
+  PaymentMethodSelect: () => null,
+  BankAccountDestinationSelect: () => null,
+}))
+vi.mock("@/components/branches/BranchSelect", () => ({ BranchSelect: () => null }))
+vi.mock("@/components/cost-centers/CostCenterSelect", () => ({ CostCenterSelect: () => null }))
 
 import { parseAndValidate } from "@/components/gastos/expense-import-dialog"
 import { formatNumber } from "@/lib/format"

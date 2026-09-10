@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import type { Expense, PaymentMethodKind } from "@/lib/types"
+import type { Expense, ExpenseImportInput, ExpenseImportResult, PaymentMethodKind } from "@/lib/types"
 import {
   buildPaginationMeta,
   type PaginationMeta,
@@ -100,9 +100,13 @@ function mapExpense(e: ExpenseApiRow): Expense {
 
 /**
  * Alta contra `POST /expenses`. Vive en el módulo, no dentro del hook, para que
- * el alta suelta (`useExpenses`) y el alta masiva del importador
- * (`useBulkAddExpense`) compartan EXACTAMENTE el mismo payload: dos copias del
- * mapeo divergen y el bug aparece sólo por uno de los dos caminos.
+ * `useExpenses().addExpenseMutation` y el `@deprecated useAddExpense` (ambos
+ * más abajo) compartan EXACTAMENTE el mismo payload sin duplicar el mapeo.
+ *
+ * importador-gastos-transaccional: el importador masivo YA NO llama a este
+ * helper por fila — usa su propio lote transaccional (`useImportExpenses`,
+ * más abajo) contra `POST /expenses/import`. El hook que sí compartía este
+ * payload antes (`useBulkAddExpense`) se retiró con ese change (D11).
  */
 async function postExpense(expense: ExpenseCreateInput) {
   return pythonClient.post<ExpenseApiRow>("/expenses", {
@@ -153,22 +157,87 @@ export function useInvalidateExpenseLedgers() {
   }, [queryClient])
 }
 
+// ── importador-gastos-transaccional ─────────────────────────────────────────
+
+interface ExpenseImportRowApi {
+  row_no: number
+  description: string
+  category: string
+  amount: number
+  date: string
+  payment_method_name?: string | null
+  branch_name?: string | null
+  cost_center_name?: string | null
+}
+
+interface ExpenseImportResultApi {
+  committed: boolean
+  import_id: string | null
+  imported: number
+  errors: Array<{ row: number; code: string; message: string }>
+  notices: Array<{ row: number; code: string; message: string }>
+  replayed: boolean
+  dry_run: boolean
+}
+
+function mapExpenseImportResult(r: ExpenseImportResultApi): ExpenseImportResult {
+  return {
+    committed: r.committed,
+    importId: r.import_id,
+    imported: r.imported,
+    errors: r.errors,
+    notices: r.notices,
+    replayed: r.replayed,
+    dryRun: r.dry_run,
+  }
+}
+
 /**
- * Alta MASIVA para el importador CSV (D13): la misma alta, SIN invalidación por
- * fila y sin montar el listado.
+ * Lote transaccional de importación (D1 del design): UNA sola request a
+ * `POST /expenses/import`, con `Idempotency-Key` por header (v3-api-standards
+ * §3/§6.2, mismo patrón que `useImportStatement` de bank-reconciliation). El
+ * `dryRun` del input dispara el mismo camino en modo simulación (D9) — la
+ * vista previa del paso 2 del diálogo usa la MISMA mutación, no un validador
+ * aparte.
  *
- * El importador llama al alta una vez por fila, en serie. Con `onSuccess:
- * invalidateLedgers` eso son seis invalidaciones por fila —y, en /gastos, dos
- * refetches reales por fila— todos descartados salvo el último. Y en este
- * camino son además inútiles por definición: por D13 las filas importadas
- * viajan sin forma de pago, sin sesión de caja y sin cuenta bancaria, así que
- * un alta por importación no puede tocar caja, banco ni el catálogo. El
- * diálogo invalida UNA vez al terminar el lote.
+ * Retira `useBulkAddExpense` (D11 del design): su único consumidor era este
+ * diálogo, que ya no hace una llamada por fila.
  */
-export function useBulkAddExpense() {
+export function useImportExpenses() {
   const invalidateLedgers = useInvalidateExpenseLedgers()
-  const addExpenseMutation = useMutation({ mutationFn: postExpense })
-  return { addExpenseMutation, invalidateLedgers }
+  const mutation = useMutation({
+    mutationFn: async (input: ExpenseImportInput & { idempotencyKey: string }): Promise<ExpenseImportResult> => {
+      const rows: ExpenseImportRowApi[] = input.rows.map((r) => ({
+        row_no: r.rowNo,
+        description: r.description,
+        category: r.category,
+        amount: r.amount,
+        date: r.date,
+        payment_method_name: r.paymentMethodName ?? null,
+        branch_name: r.branchName ?? null,
+        cost_center_name: r.costCenterName ?? null,
+      }))
+      const result = await pythonClient.post<ExpenseImportResultApi>(
+        "/expenses/import",
+        {
+          file_name: input.fileName,
+          file_hash: input.fileHash,
+          dry_run: input.dryRun,
+          default_payment_method_id: input.defaultPaymentMethodId ?? null,
+          default_branch_id: input.defaultBranchId ?? null,
+          default_cost_center_id: input.defaultCostCenterId ?? null,
+          fallback_bank_account_id: input.fallbackBankAccountId ?? null,
+          rows,
+        },
+        { "Idempotency-Key": input.idempotencyKey }
+      )
+      return mapExpenseImportResult(result)
+    },
+    // Una sola invalidación por lote CONFIRMADO (no por la simulación, que
+    // dry_run: true nunca escribe nada que refrescar) — el propio diálogo
+    // decide cuándo llamar invalidateLedgers() tras un resultado committed.
+  })
+  return { importMutation: mutation, invalidateLedgers }
 }
 
 // ── Unified hook ─────────────────────────────────────────────────────────────

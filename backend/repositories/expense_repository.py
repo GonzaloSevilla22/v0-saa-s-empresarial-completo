@@ -264,3 +264,37 @@ class ExpenseRepository(BaseRepository):
             _uid(expense_id),
         )
         return _jsonb(rpc_row["result"]) if rpc_row is not None else {}
+
+    # ── importador-gastos-transaccional ───────────────────────────────────
+
+    async def import_batch(
+        self,
+        idempotency_key: str,
+        rows_json: str,
+        file_name: str,
+        file_hash: str,
+        default_payment_method_id: str | None,
+        default_branch_id: str | None,
+        default_cost_center_id: str | None,
+        fallback_bank_account_id: str | None,
+        dry_run: bool,
+    ) -> dict:
+        """`rpc_import_expenses` — un solo `fetchrow`, espejo de
+        `BankReconciliationRepository.import_statement`. El orden posicional
+        replica la firma SQL exacta; `account_id` NO viaja como parámetro (la
+        RPC lo resuelve desde la sesión, igual que `rpc_create_expense`)."""
+        row = await self.fetchrow(
+            "SELECT public.rpc_import_expenses("
+            "$1::text, $2::jsonb, $3::text, $4::text, "
+            "$5::uuid, $6::uuid, $7::uuid, $8::uuid, $9::boolean) AS result",
+            idempotency_key,
+            rows_json,
+            file_name,
+            file_hash,
+            _uid(default_payment_method_id),
+            _uid(default_branch_id),
+            _uid(default_cost_center_id),
+            _uid(fallback_bank_account_id),
+            dry_run,
+        )
+        return _jsonb(row["result"]) if row is not None else {}

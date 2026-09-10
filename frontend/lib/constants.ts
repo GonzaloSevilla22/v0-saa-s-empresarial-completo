@@ -168,6 +168,15 @@ export const EXPENSE_CATEGORIES = [
   "Otros",
 ] as const
 
+// importador-gastos-transaccional (D8): tope de 500 filas por lote,
+// IDÉNTICO al que aplica `rpc_import_expenses` (rechazo P0427,
+// `backend/schemas/expenses.py: EXPENSE_IMPORT_MAX_ROWS`). El cliente lo
+// aplica primero para evitar el viaje inútil (un 422 que el usuario ni
+// siquiera llega a ver — la simulación fallada deja `serverVerdicts` vacío
+// y el botón de confirmar queda habilitado); el servidor sigue siendo la
+// autoridad final. Si el tope cambia, actualizar LOS TRES lugares.
+export const EXPENSE_IMPORT_MAX_ROWS = 500
+
 // productos-categorias-sku: PRODUCT_CATEGORIES se retiró — la categoría de
 // producto vive en el catálogo por cuenta (product_categories) y toda
 // superficie la obtiene de useProductCategories / ProductCategorySelect.

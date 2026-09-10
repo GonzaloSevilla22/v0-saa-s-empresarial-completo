@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.expense_repository import ExpenseRepository
-from backend.schemas.expenses import ExpenseCreate, ExpenseOut, ExpensesPageOut, ExpenseUpdate
+from backend.schemas.expenses import (
+    ExpenseCreate,
+    ExpenseImportIn,
+    ExpenseImportOut,
+    ExpenseOut,
+    ExpensesPageOut,
+    ExpenseUpdate,
+)
 from backend.services import expenses as expense_service
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
@@ -70,6 +79,50 @@ async def create_expense(
     repo: ExpenseRepository = Depends(get_repo),
 ):
     return await expense_service.create_expense(repo, auth, str(account_id), payload)
+
+
+@router.post("/import", response_model=ExpenseImportOut)
+async def import_expenses(
+    request: Request,
+    payload: ExpenseImportIn,
+    auth: dict = Depends(get_current_user),
+    repo: ExpenseRepository = Depends(get_repo),
+):
+    """importador-gastos-transaccional: lote transaccional, todo o nada.
+
+    v3-api-standards §3.3: `Idempotency-Key` por header, con fallback al
+    body — misma precedencia que el resto de las mutaciones no idempotentes
+    del proyecto (calcado de `POST /bank-accounts/{id}/statement-imports`).
+    """
+    idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
+    rows_json = json.dumps(
+        [
+            {
+                "row_no": row.row_no,
+                "description": row.description,
+                "category": row.category,
+                "amount": str(row.amount),
+                "date": row.date.isoformat(),
+                "payment_method_name": row.payment_method_name,
+                "branch_name": row.branch_name,
+                "cost_center_name": row.cost_center_name,
+            }
+            for row in payload.rows
+        ]
+    )
+    return await expense_service.import_expenses(
+        repo,
+        auth,
+        idempotency_key=idempotency_key,
+        rows_json=rows_json,
+        file_name=payload.file_name,
+        file_hash=payload.file_hash,
+        default_payment_method_id=str(payload.default_payment_method_id) if payload.default_payment_method_id else None,
+        default_branch_id=str(payload.default_branch_id) if payload.default_branch_id else None,
+        default_cost_center_id=str(payload.default_cost_center_id) if payload.default_cost_center_id else None,
+        fallback_bank_account_id=str(payload.fallback_bank_account_id) if payload.fallback_bank_account_id else None,
+        dry_run=payload.dry_run,
+    )
 
 
 @router.put("/{expense_id}", response_model=ExpenseOut)

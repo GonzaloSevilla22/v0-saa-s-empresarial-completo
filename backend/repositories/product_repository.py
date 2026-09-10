@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import asyncpg
 
 from backend.repositories.base import BaseRepository
+
+
+def _jsonb(value):
+    """asyncpg entrega jsonb como str cuando no hay type codec registrado.
+
+    Mismo helper canónico que el resto de los repositories del proyecto
+    (ver ExpenseRepository)."""
+    return json.loads(value) if isinstance(value, str) else value
 
 # C-21 checkpoint #2: products.stock no existe — branch_stock es el único ledger.
 # Este RPC aplica deltas validando que el producto pertenezca a la cuenta del caller.
@@ -198,6 +207,32 @@ class ProductRepository(BaseRepository):
         detrás de la validación del service."""
         status = await self.execute(_BULK_SET_CATEGORY_SQL, product_ids, account_id, category_id)
         return int(status.rsplit(" ", 1)[-1])
+
+    # ── importador-productos-fastapi ─────────────────────────────────────────
+
+    async def import_batch(
+        self,
+        idempotency_key: str,
+        rows_json: str,
+        file_name: str,
+        file_hash: str,
+        dry_run: bool,
+    ) -> dict:
+        """`rpc_import_products` — un solo `fetchrow`, espejo de
+        `ExpenseRepository.import_batch` / `BankReconciliationRepository.
+        import_statement`. El orden posicional replica la firma SQL exacta;
+        ni `user_id` ni `account_id` viajan como parámetro (la RPC los
+        resuelve desde la sesión, D1 del design)."""
+        row = await self.fetchrow(
+            "SELECT public.rpc_import_products("
+            "$1::text, $2::jsonb, $3::text, $4::text, $5::boolean) AS result",
+            idempotency_key,
+            rows_json,
+            file_name,
+            file_hash,
+            dry_run,
+        )
+        return _jsonb(row["result"]) if row is not None else {}
 
     async def count_by_org(self, account_id: str) -> int:
         # v3-soft-delete-policy: los borrados no cuentan para el límite de plan

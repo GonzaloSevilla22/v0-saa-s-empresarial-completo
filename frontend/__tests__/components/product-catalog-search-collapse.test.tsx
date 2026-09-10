@@ -18,6 +18,15 @@ import type { Product } from "@/lib/types"
 vi.mock("@/hooks/data/use-product-categories", () => ({
   useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn() }),
 }))
+// importador-productos-fastapi: ProductImportDialog ahora importa
+// useImportProducts (hooks/data/use-products.ts), que también toca
+// python-client al cargarse — mismo gotcha que use-product-categories arriba.
+vi.mock("@/hooks/data/use-products", () => ({
+  useImportProducts: () => ({
+    importMutation: { mutateAsync: vi.fn() },
+    invalidateImportData: vi.fn(),
+  }),
+}))
 vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
 vi.mock("@/hooks/use-units-of-measure", () => ({
   useUnitsOfMeasure: () => ({ unitsById: new Map() }),

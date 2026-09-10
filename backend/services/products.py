@@ -205,6 +205,42 @@ async def bulk_set_category(
     return {"requested": len(unique_ids), "updated": updated}
 
 
+# ── importador-productos-fastapi ────────────────────────────────────────────
+
+
+async def import_products(
+    repo: ProductRepository,
+    auth: dict,
+    *,
+    idempotency_key: str,
+    rows_json: str,
+    file_name: str,
+    file_hash: str,
+    dry_run: bool,
+) -> dict:
+    """Traduce el payload y delega en `rpc_import_products`. CERO reglas de
+    dominio nuevas acá (D1 del design) — si aparece un `if` de negocio, está
+    en la capa equivocada.
+
+    `require_role` es el guard de PLATAFORMA; el guard de TENANT
+    (`is_account_writer`) vive DENTRO de la RPC (P0401) — defensa en
+    profundidad, no duplicación. Los errores de FILA nunca escapan como
+    excepción (D3 del design): viajan en `errors[]` del retorno normal, así
+    que esta llamada responde siempre `200` salvo por un problema real de
+    protocolo (payload malformado, tope de filas excedido, sin rol, sin
+    clave de idempotencia, o el P0400 del propio upsert por exceder el tope
+    de categorías nuevas — un rechazo de FORMA/CUOTA, no de fila).
+    """
+    require_role(auth, ["user", "admin"])
+    return await repo.import_batch(
+        idempotency_key=idempotency_key,
+        rows_json=rows_json,
+        file_name=file_name,
+        file_hash=file_hash,
+        dry_run=dry_run,
+    )
+
+
 async def delete_product(repo: ProductRepository, auth: dict, account_id: str, product_id: str) -> None:
     """v3-soft-delete-policy: borrado soft (RN-B1/RN-B2). El guard RN-B4 de la
     DB (stock <> 0 o referenciado en documentos draft) se traduce a 409 con

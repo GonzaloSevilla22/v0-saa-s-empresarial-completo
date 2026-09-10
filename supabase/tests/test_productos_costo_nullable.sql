@@ -70,7 +70,11 @@ BEGIN
       ('reporting_sales_lines_in_window', 'p_account_id uuid, p_start date, p_end date, p_branch_id uuid, p_canal text', false, true),
       ('rpc_product_ranking',             'p_account_id uuid, p_start date, p_end date, p_order_by text, p_group_variants boolean, p_branch_id uuid, p_canal text, p_limit integer, p_offset integer', true, true),
       ('rpc_product_sales_evolution',     'p_account_id uuid, p_product_id uuid, p_start date, p_end date, p_bucket text, p_branch_id uuid, p_canal text', true, true),
-      ('rpc_bulk_upsert_products',        'p_rows jsonb, p_user_id uuid', true, true),
+      -- importador-productos-fastapi (D4/OQ-7, 2026-09-10): revocada de
+      -- `authenticated` — el backend (`rpc_import_products`) es el único
+      -- camino de importación desde ese change en adelante. `expect_
+      -- authenticated` pasa de `true` a `false`; `service_role` no cambia.
+      ('rpc_bulk_upsert_products',        'p_rows jsonb, p_user_id uuid', false, true),
       ('rpc_dashboard_kpi_summary',       'p_from timestamp with time zone, p_to timestamp with time zone, p_prev_from timestamp with time zone, p_prev_to timestamp with time zone, p_branch_id uuid', true, true)
     ) AS t(fname, fargs, expect_authenticated, expect_service_role)
   LOOP

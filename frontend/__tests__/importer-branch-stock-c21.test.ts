@@ -1,27 +1,58 @@
 /**
- * C-21 v20-inventory-unification — Group 6 TDD tests for importer branch_stock.
+ * C-21 v20-inventory-unification — Group 6 tests for importer branch_stock,
+ * REESCRITO por importador-productos-fastapi (task 8.9).
  *
- * Tests verify:
- *   6.1 Importing a product with stock calls rpc_bulk_upsert_products with the stock value
- *   6.2 The RPC is responsible for writing to branch_stock (tested here via call args)
- *   6.3 Re-importing same product with updated stock calls RPC (upsert — no duplicate)
+ * El INVARIANTE que este archivo assertea NO CAMBIA desde C-21: "el stock
+ * del CSV llega a `branch_stock`". Lo que cambia es DÓNDE se puede observar
+ * ese invariante desde el frontend, porque el transporte cambió de raíz:
  *
- * The actual branch_stock write is server-side (inside rpc_bulk_upsert_products).
- * Frontend responsibility: pass the correct `stock` value in the RPC payload.
+ *   ANTES (C-21):  parseImportFile → resolveHierarchy → UNA función
+ *                  (`importProductsFromFile`) armaba el payload Y llamaba
+ *                  `supabase.rpc("rpc_bulk_upsert_products", {p_rows, ...})`
+ *                  en el MISMO módulo — el mock era `supabase.rpc`.
+ *
+ *   AHORA (importador-productos-fastapi): la responsabilidad se partió en
+ *   dos módulos, cada uno con su propia frontera observable:
+ *
+ *     1. `prepareProductImport` (lib/import/importer.ts) — parsea, valida y
+ *        resuelve jerarquía, SIN llamar a ningún transporte. Produce
+ *        `apiRows`, la forma que el servidor espera.
+ *     2. `useImportProducts()` (hooks/data/use-products.ts) — el hook de
+ *        TanStack Query cuyo `mutationFn` llama `pythonClient.post(
+ *        "/products/import", ...)`. Es el ÚNICO lugar que sabe de HTTP.
+ *
+ *   El mock deja de ser `supabase.rpc` y pasa a ser `pythonClient` (task
+ *   8.9) — pero como el stock ahora se observa en DOS fronteras distintas
+ *   (la salida de `prepareProductImport` y el body que `useImportProducts`
+ *   arma para `pythonClient.post`), este archivo cubre las DOS, para que el
+ *   invariante siga demostrado de punta a punta y no sólo a mitad de camino.
+ *
+ * Aserciones que CAMBIAN y por qué:
+ *   - Ya no se assertea `mockRpc.mock.calls[0][0] === "rpc_bulk_upsert_products"`
+ *     ni `payload.p_user_id`: el user_id/account_id YA NO viaja desde el
+ *     cliente (D1 del design) — el servidor lo deriva del JWT.
+ *   - "6.3 — re-importing" (upsert por SKU en dos llamadas separadas) se
+ *     retira: con el todo-o-nada de este change, "reimportar" ya no es un
+ *     segundo lote arbitrario sino un REPLAY por idempotencia — un
+ *     escenario distinto, cubierto por los tests de servidor (gate SQL,
+ *     bloque 11) y no por este archivo, cuyo alcance es sólo el transporte
+ *     del stock.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
+import { renderHook, act } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import React from "react"
 
-// ── Supabase mock ─────────────────────────────────────────────────────────────
-const mockRpc = vi.fn()
-
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: vi.fn(() => ({
-    rpc: mockRpc,
-  })),
+// ── HTTP client mock (task 8.9: reemplaza a supabase.rpc) ──────────────────
+vi.mock("@/lib/api/python-client", () => ({
+  pythonClient: {
+    get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(),
+  },
 }))
+import { pythonClient } from "@/lib/api/python-client"
 
-// ── File parser mock ───────────────────────────────────────────────────────────
+// ── File parser mock ─────────────────────────────────────────────────────────
 vi.mock("@/lib/import/parser", () => ({
   parseImportFile: vi.fn().mockResolvedValue({
     ok: true,
@@ -45,54 +76,38 @@ vi.mock("@/lib/import/parser", () => ({
   }),
 }))
 
-// ── Resolver mock ──────────────────────────────────────────────────────────────
-vi.mock("@/lib/import/resolver", () => ({
-  resolveHierarchy: vi.fn().mockImplementation(async (rows) => ({
-    rows: rows.map((r: any) => ({
-      ...r,
-      rowType:           r.rowType || "Producto",
-      isVariant:         false,
-      resolvedParentId:  null,
-      resolvedParentName: null,
-    })),
-  })),
-}))
+function makeWrapper() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children)
+}
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
-describe("importProductsFromFile — C-21 branch_stock dual-write", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
+// ══════════════════════════════════════════════════════════════════════════
+// Frontera 1 — prepareProductImport: el CSV produce apiRows con el stock
+// correcto, SIN llamar a ningún transporte.
+// ══════════════════════════════════════════════════════════════════════════
 
-  it("6.1 — calls rpc_bulk_upsert_products with correct stock value (25)", async () => {
-    const { importProductsFromFile } = await import("@/lib/import/importer")
-
-    mockRpc.mockResolvedValueOnce({
-      data: { inserted: 1, updated: 0, errors: [] },
-      error: null,
-    })
+describe("prepareProductImport — stock reaches apiRows", () => {
+  it("6.1 — a Producto row carries its CSV stock value (25) into apiRows", async () => {
+    const { prepareProductImport } = await import("@/lib/import/importer")
 
     const mockFile = new File(["fake-csv"], "products.csv", { type: "text/csv" })
-    await importProductsFromFile({ file: mockFile, userId: "user-123" })
+    const prepared = await prepareProductImport(mockFile)
 
-    expect(mockRpc).toHaveBeenCalledOnce()
-    const rpcCall = mockRpc.mock.calls[0]
-    expect(rpcCall[0]).toBe("rpc_bulk_upsert_products")
-
-    const payload = rpcCall[1]
-    expect(payload.p_user_id).toBe("user-123")
-
-    const rows = payload.p_rows
-    expect(Array.isArray(rows)).toBe(true)
-    expect(rows).toHaveLength(1)
-
-    // 6.1: stock value is passed correctly (will be written to branch_stock server-side)
-    expect(rows[0].stock).toBe(25)
-    expect(rows[0].name).toBe("Yerba Mate")
+    expect(prepared.apiRows).toHaveLength(1)
+    expect(prepared.apiRows[0].stock).toBe(25)
+    expect(prepared.apiRows[0].name).toBe("Yerba Mate")
+    // El punto entero del change: NADA de tenencia sale de este módulo — no
+    // hay user_id ni account_id en la fila que viaja al servidor.
+    expect(prepared.apiRows[0]).not.toHaveProperty("user_id")
+    expect(prepared.apiRows[0]).not.toHaveProperty("account_id")
   })
 
-  it("6.2 — stock=0 is passed for Padre rows (parent products have no direct stock)", async () => {
+  it("6.2 — a Padre row always carries stock=0 (parent products have no direct stock)", async () => {
     const { parseImportFile } = await import("@/lib/import/parser")
     vi.mocked(parseImportFile).mockResolvedValueOnce({
       ok: true,
@@ -103,7 +118,7 @@ describe("importProductsFromFile — C-21 branch_stock dual-write", () => {
           nombre:     "Yerba Mate Padre",
           precio:     "0",
           costo:      "0",
-          stock:      "10",  // ignored for Padre rows
+          stock:      "10", // ignored for Padre rows
           stock_minimo: "0",
           sku:        "YM-PAD",
           sku_padre:  "",
@@ -115,40 +130,53 @@ describe("importProductsFromFile — C-21 branch_stock dual-write", () => {
       ],
     })
 
-    mockRpc.mockResolvedValueOnce({
-      data: { inserted: 1, updated: 0, errors: [] },
-      error: null,
-    })
-
-    const { importProductsFromFile } = await import("@/lib/import/importer")
+    const { prepareProductImport } = await import("@/lib/import/importer")
     const mockFile = new File(["fake-csv"], "products.csv", { type: "text/csv" })
-    await importProductsFromFile({ file: mockFile, userId: "user-123" })
+    const prepared = await prepareProductImport(mockFile)
 
-    const rows = mockRpc.mock.calls[0][1].p_rows
-    // Padre rows always send stock=0 (design decision — parent has no direct stock)
-    expect(rows[0].stock).toBe(0)
+    expect(prepared.apiRows[0].stock).toBe(0)
   })
+})
 
-  it("6.3 — re-importing same product updates stock (upsert, no error)", async () => {
-    const { importProductsFromFile } = await import("@/lib/import/importer")
+// ══════════════════════════════════════════════════════════════════════════
+// Frontera 2 — useImportProducts(): el stock numérico de apiRows llega al
+// BODY que se manda por `pythonClient.post`, preservado como string (D12,
+// contrato null-preserving/precisión exacta — mismo criterio que el resto
+// del transporte de importes de este repo).
+// ══════════════════════════════════════════════════════════════════════════
 
-    // First import
-    mockRpc.mockResolvedValueOnce({
-      data: { inserted: 1, updated: 0, errors: [] },
-      error: null,
+describe("useImportProducts — stock reaches the HTTP transport", () => {
+  it("forwards apiRows[].stock into the POST /products/import body", async () => {
+    const { useImportProducts } = await import("@/hooks/data/use-products")
+
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      committed: true,
+      import_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      inserted: 1,
+      updated: 0,
+      errors: [],
+      new_categories: [],
+      replayed: false,
+      dry_run: false,
     })
-    const mockFile = new File(["fake-csv"], "products.csv", { type: "text/csv" })
-    const result1 = await importProductsFromFile({ file: mockFile, userId: "user-123" })
-    expect(result1.inserted).toBe(1)
-    expect(result1.dbErrors).toHaveLength(0)
 
-    // Second import (same product — RPC does upsert → updated: 1)
-    mockRpc.mockResolvedValueOnce({
-      data: { inserted: 0, updated: 1, errors: [] },
-      error: null,
+    const { result } = renderHook(() => useImportProducts(), { wrapper: makeWrapper() })
+
+    await act(async () => {
+      await result.current.importMutation.mutateAsync({
+        fileName: "products.csv",
+        fileHash: "hash-1",
+        dryRun: false,
+        idempotencyKey: "key-1",
+        rows: [{ rowNo: 1, name: "Yerba Mate", stock: 25, attributes: [] }],
+      })
     })
-    const result2 = await importProductsFromFile({ file: mockFile, userId: "user-123" })
-    expect(result2.updated).toBe(1)
-    expect(result2.dbErrors).toHaveLength(0)
+
+    expect(pythonClient.post).toHaveBeenCalledOnce()
+    const [path, body, headers] = vi.mocked(pythonClient.post).mock.calls[0]
+    const typedBody = body as { rows: Array<{ stock: unknown }> }
+    expect(path).toBe("/products/import")
+    expect(typedBody.rows[0].stock).toBe("25")
+    expect(headers).toEqual({ "Idempotency-Key": "key-1" })
   })
 })

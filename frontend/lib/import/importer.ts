@@ -1,186 +1,111 @@
 /**
- * Product import orchestrator.
+ * Product import pipeline — parseo, validación y resolución de jerarquía.
  *
- * Wires together: parser → validator → resolver → bulk upsert RPC.
+ * importador-productos-fastapi: este módulo deja de hablar con Supabase y
+ * de trocear el archivo en sub-lotes (`createClient()`, `IMPORT_BATCH_SIZE`,
+ * `chunkArray` — todos retirados, D13 del design). Su única responsabilidad
+ * ahora es preparar el archivo hasta el punto en que está listo para viajar
+ * al servidor como UNA SOLA unidad de trabajo: parsear → validar (cliente,
+ * primera capa) → resolver la jerarquía (sin consultas a la base, D9) →
+ * convertir cada fila a la forma que espera `POST /products/import`
+ * (`ProductImportRow`, espejo de `ProductImportRowIn`).
  *
- * SKU is optional throughout the pipeline.
- * Parent→Variant relationships are resolved by sequential grouping when
- * no explicit SKU Padre or Producto Padre is provided.
- *
- * productos-categorias-sku (D6/D7): el importador SIGUE por RPC (no FastAPI):
- * la resolución/creación de la categoría ocurre en el servidor, dentro de la
- * misma transacción por lote que inserta los productos. El cliente sólo
- * valida contra el catálogo (para anunciar qué se va a crear) y rechaza el
- * archivo que supera el tope ANTES de mandar nada.
+ * La llamada HTTP real vive en `useImportProducts()`
+ * (`hooks/data/use-products.ts`), igual que `useImportExpenses()` — el
+ * diálogo dispara la simulación (`dryRun: true`) al entrar al paso 2 y la
+ * confirmación (`dryRun: false`) al confirmar, con la MISMA clave de
+ * idempotencia (D8) y las MISMAS filas preparadas acá.
  */
 
-import { createClient } from "@/lib/supabase/client"
 import { parseImportFile }    from "@/lib/import/parser"
-import { validateImportRows, newCategoryLimitMessage } from "@/lib/import/validator"
+import { validateImportRows, type NewCategorySummary } from "@/lib/import/validator"
 import { resolveHierarchy }   from "@/lib/import/resolver"
-import {
-  IMPORT_BATCH_SIZE,
-  type ImportCategoryRef,
-  type ImportResult,
-  type ProductUpsertPayload,
-  type ResolvedImportRow,
-} from "@/lib/import/types"
+import type { ImportCategoryRef, ResolvedImportRow, ValidatedImportRow } from "@/lib/import/types"
+import type { ProductImportRow } from "@/lib/types"
 
-export type ImportProgressCallback = (params: {
-  phase: "parsing" | "validating" | "resolving" | "uploading"
-  done:  number
-  total: number
-}) => void
-
-export interface ImportProductsOptions {
-  file:        File
-  userId:      string
-  /** Catálogo de categorías de la cuenta (para resolver/anunciar; default vacío). */
-  categories?: readonly ImportCategoryRef[]
-  onProgress?: ImportProgressCallback
+export interface PreparedImport {
+  /** Todas las filas validadas (incluye las que tienen error de cliente). */
+  validatedRows: ValidatedImportRow[]
+  /** Sólo las filas sin error de cliente, con su jerarquía resuelta. */
+  resolvedRows:  ResolvedImportRow[]
+  /** `resolvedRows` convertidas al contrato de `POST /products/import`. */
+  apiRows:       ProductImportRow[]
+  parentCount:      number
+  variantCount:     number
+  standaloneCount:  number
+  invalidCount:     number
+  warningCount:     number
+  newCategories:            NewCategorySummary[]
+  newCategoryLimitExceeded: boolean
+  maxNewCategories:         number
 }
 
-interface BulkUpsertRpcResult {
-  inserted?: number
-  updated?:  number
-  errors?:   Array<{ sku?: string | null; name?: string; message?: string }>
-}
-
-export async function importProductsFromFile({
-  file,
-  userId,
-  categories = [],
-  onProgress,
-}: ImportProductsOptions): Promise<ImportResult> {
-  const result: ImportResult = {
-    inserted: 0, updated: 0,
-    parents: 0, variants: 0, standalone: 0,
-    validationErrors: [], dbErrors: [],
-  }
-
-  // Phase 1: Parse
-  onProgress?.({ phase: "parsing", done: 0, total: 1 })
+/**
+ * Parsea, valida (primera capa, cliente) y resuelve la jerarquía de un
+ * archivo — SIN llamar al servidor. El resultado (`apiRows`) es lo que el
+ * diálogo manda como `rows` de la simulación y, sin cambios, de la
+ * confirmación real (D7: la MISMA forma para las dos llamadas).
+ */
+export async function prepareProductImport(
+  file: File,
+  categories: readonly ImportCategoryRef[] = [],
+): Promise<PreparedImport> {
   const parsed = await parseImportFile(file)
   if (!parsed.ok) throw new Error(parsed.error)
-  onProgress?.({ phase: "parsing", done: 1, total: 1 })
 
-  // Phase 2: Validate
-  onProgress?.({ phase: "validating", done: 0, total: parsed.rows.length })
-  const { rows: validatedRows, newCategories, newCategoryLimitExceeded, maxNewCategories } =
-    validateImportRows(parsed.rows, categories)
+  const {
+    rows: validatedRows, invalidCount, warningCount,
+    parentCount, variantCount, standaloneCount,
+    newCategories, newCategoryLimitExceeded, maxNewCategories,
+  } = validateImportRows(parsed.rows, categories)
 
-  if (newCategoryLimitExceeded) {
-    throw new Error(newCategoryLimitMessage(newCategories.length, maxNewCategories))
+  // Superar el tope se comunica en el PASO 2 (alerta inline + botón
+  // deshabilitado), igual que antes de este change — no se aborta el
+  // parseo. La resolución de jerarquía y la conversión a `apiRows` corren
+  // igual (son baratas y no escriben nada); es el diálogo quien decide no
+  // disparar la simulación de servidor mientras el tope siga excedido.
+  const validRows = validatedRows.filter((r) => r.errors.length === 0)
+  const { rows: resolvedRows } = resolveHierarchy(validRows)
+  const apiRows = resolvedRows.map(toApiRow)
+
+  return {
+    validatedRows, resolvedRows, apiRows,
+    parentCount, variantCount, standaloneCount,
+    invalidCount, warningCount,
+    newCategories, newCategoryLimitExceeded, maxNewCategories,
   }
-
-  const invalidRows = validatedRows.filter((r) => r.errors.length > 0)
-  const validRows   = validatedRows.filter((r) => r.errors.length === 0)
-
-  for (const row of invalidRows) {
-    result.validationErrors.push({
-      lineNumber: row.lineNumber,
-      sku:        row.sku,
-      name:       row.name,
-      message:    row.errors.join(" | "),
-    })
-  }
-  onProgress?.({ phase: "validating", done: validatedRows.length, total: validatedRows.length })
-
-  if (validRows.length === 0) return result
-
-  // Phase 3: Resolve hierarchy
-  onProgress?.({ phase: "resolving", done: 0, total: validRows.length })
-  const { rows: resolvedRows } = await resolveHierarchy(validRows, userId)
-  onProgress?.({ phase: "resolving", done: resolvedRows.length, total: resolvedRows.length })
-
-  const importable = resolvedRows  // all resolved rows are importable (orphans → standalone)
-
-  // Phase 4: Batch upsert
-  const supabase = createClient()
-  const chunks   = chunkArray(importable, IMPORT_BATCH_SIZE)
-  let uploaded   = 0
-
-  for (const chunk of chunks) {
-    onProgress?.({ phase: "uploading", done: uploaded, total: importable.length })
-
-    const payloads: ProductUpsertPayload[] = chunk.map(toPayload)
-
-    const { data, error } = await supabase.rpc("rpc_bulk_upsert_products", {
-      p_rows:    payloads,
-      p_user_id: userId,
-    })
-
-    if (error) {
-      for (const row of chunk) {
-        result.dbErrors.push({
-          lineNumber: row.lineNumber,
-          sku:        row.sku,
-          name:       row.name,
-          message:    error.message,
-        })
-      }
-    } else {
-      const res = (data ?? {}) as BulkUpsertRpcResult
-      result.inserted += res.inserted ?? 0
-      result.updated  += res.updated  ?? 0
-      for (const e of res.errors ?? []) {
-        result.dbErrors.push({
-          lineNumber: 0,
-          sku:        e.sku ?? null,
-          name:       e.name ?? "",
-          message:    e.message ?? "DB error",
-        })
-      }
-    }
-
-    uploaded += chunk.length
-  }
-
-  for (const row of importable) {
-    if (row.rowType === "Padre") result.parents++
-    else if (row.isVariant)      result.variants++
-    else                         result.standalone++
-  }
-
-  return result
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toPayload(row: ResolvedImportRow): ProductUpsertPayload {
-  const payload: ProductUpsertPayload = {
-    name:               row.name,
-    sku:                row.sku,
-    // "" → el servidor imputa la categoría por defecto de la cuenta (D6).
-    category:           row.category,
-    price:              row.rowType === "Padre" ? 0 : row.price,
-    // productos-costo-nullable (D10): un padre variant_only no tiene costo
-    // propio — sin costo (null), no cero (el validator ya lo deja en null,
-    // esto lo hace explícito e inmune a un futuro cambio ahí).
-    cost:               row.rowType === "Padre" ? null : row.cost,
-    stock:              row.rowType === "Padre" ? 0 : row.stock,
-    min_stock:          row.minStock,
-    barcode:            row.barcode,
-    parent_id:          row.resolvedParentId,
-    is_variant:         row.isVariant,
-    stock_control_type: row.stockControlType,
-    attributes:         row.isVariant ? row.attributes : [],
+function toApiRow(row: ResolvedImportRow): ProductImportRow {
+  const isPadre = row.rowType === "Padre"
+
+  return {
+    rowNo:    row.lineNumber,
+    name:     row.name,
+    // "" → ausencia (el servidor imputa la categoría por defecto de la cuenta).
+    category: row.category || null,
+    // Un Padre (variant_only) no tiene precio/stock propio — mismo criterio
+    // que el importador tenía antes de este change.
+    price:    isPadre ? 0 : row.price,
+    // productos-costo-nullable (D10) + D12 de este change (null-preserving):
+    // `null` = sin costo (alta) o "conservar" (edición) — nunca 0 por
+    // default. Un Padre tampoco tiene costo propio: null, no 0.
+    cost:     isPadre ? null : row.cost,
+    stock:    isPadre ? 0 : row.stock,
+    minStock: row.minStock,
+    barcode:  row.barcode,
+    sku:      row.sku,
+    // D9: la referencia explícita viaja TAL CUAL — nunca se resuelve en el
+    // cliente. resolvedParentId ya no lo produce ningún camino (el resolver
+    // retiró las consultas a la base), así que sólo depende de isVariant.
+    skuParent:  row.isVariant ? (row.skuParent ?? null)          : null,
+    parentName: row.isVariant ? (row.resolvedParentName ?? null) : null,
+    isVariant:        row.isVariant,
+    stockControlType: row.stockControlType,
+    attributes: row.isVariant
+      ? row.attributes.map((a) => ({ key: a.key, value: a.value, sortOrder: a.sort_order }))
+      : [],
   }
-
-  if (row.isVariant && !row.resolvedParentId) {
-    // Parent is in the same batch — RPC resolves by SKU or by name
-    if (row.skuParent) {
-      payload.sku_parent = row.skuParent
-    } else if (row.resolvedParentName) {
-      payload.parent_name = row.resolvedParentName
-    }
-  }
-
-  return payload
-}
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const chunks: T[][] = []
-  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size))
-  return chunks
 }

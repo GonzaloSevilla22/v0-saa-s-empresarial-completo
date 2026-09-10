@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db_conn
 from backend.core.deps import get_account_id
+from backend.core.idempotency import require_idempotency_key
 from backend.repositories.plan_limits_repository import PlanLimitsRepository
 from backend.repositories.product_category_repository import ProductCategoryRepository
 from backend.repositories.product_repository import ProductRepository
@@ -15,6 +17,8 @@ from backend.schemas.products import (
     ProductBulkCategoryIn,
     ProductBulkCategoryOut,
     ProductCreate,
+    ProductImportIn,
+    ProductImportOut,
     ProductOut,
     ProductUpdate,
 )
@@ -61,6 +65,56 @@ async def bulk_set_category(
         [str(pid) for pid in payload.product_ids],
         str(payload.category_id),
         category_repo,
+    )
+
+
+@router.post("/import", response_model=ProductImportOut)
+async def import_products(
+    request: Request,
+    payload: ProductImportIn,
+    auth: dict = Depends(get_current_user),
+    repo: ProductRepository = Depends(get_repo),
+):
+    """importador-productos-fastapi: lote transaccional, todo o nada.
+
+    v3-api-standards §3.3: `Idempotency-Key` por header, con fallback al
+    body — misma precedencia que el resto de las mutaciones no idempotentes
+    del proyecto. Declarado ANTES de `/{product_id}` para que "import" nunca
+    se lea como un id (mismo cuidado que `bulk-category`).
+    """
+    idempotency_key = await require_idempotency_key(request, payload.idempotency_key)
+    rows_json = json.dumps(
+        [
+            {
+                "row_no": row.row_no,
+                "name": row.name,
+                "category": row.category,
+                # D12 (null-preserving): un Decimal ausente viaja como `None`
+                # → `null` en el JSON, NUNCA como "0". `str(...)` conserva
+                # precisión exacta (mismo criterio que el resto del repo).
+                "price": str(row.price) if row.price is not None else None,
+                "cost": str(row.cost) if row.cost is not None else None,
+                "stock": str(row.stock) if row.stock is not None else None,
+                "min_stock": row.min_stock,
+                "barcode": row.barcode,
+                "sku": row.sku,
+                "sku_parent": row.sku_parent,
+                "parent_name": row.parent_name,
+                "is_variant": row.is_variant,
+                "stock_control_type": row.stock_control_type,
+                "attributes": [attr.model_dump() for attr in row.attributes],
+            }
+            for row in payload.rows
+        ]
+    )
+    return await product_service.import_products(
+        repo,
+        auth,
+        idempotency_key=idempotency_key,
+        rows_json=rows_json,
+        file_name=payload.file_name,
+        file_hash=payload.file_hash,
+        dry_run=payload.dry_run,
     )
 
 

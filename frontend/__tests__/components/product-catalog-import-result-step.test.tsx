@@ -1,0 +1,136 @@
+/**
+ * ProductCatalog — el paso 3 (resultado del lote) de ProductImportDialog
+ * queda VISIBLE tras confirmar (revisión importador-productos-fastapi,
+ * ronda 2, finding major #2).
+ *
+ * El único montaje real de `ProductImportDialog` (en `ProductCatalog`)
+ * pasaba un `onComplete` que CERRABA el diálogo (`setImportDialogOpen
+ * (false)`), y `ProductImportDialog.handleImport` llama a `setStep(3)`
+ * seguido INMEDIATAMENTE de `onComplete()` — el diálogo se desmontaba
+ * (`open` pasa a `false`) antes de que el paso 3 pintara un solo frame. El
+ * change agrega la UI del paso 3 y una spec normativa que lo declara
+ * obligatorio; sin este test nada lo ejercitaba (todos los tests de
+ * `ProductImportDialog` en aislamiento pasan `onComplete={vi.fn()}`, un
+ * no-op que nunca cierra nada).
+ *
+ * Este test monta `ProductCatalog` con el cableado REAL del padre (mismo
+ * patrón que `product-catalog-search-collapse.test.tsx`) para ejercitar el
+ * bug tal como ocurría en producción.
+ */
+
+import React from "react"
+import { describe, it, expect, vi } from "vitest"
+import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import "@testing-library/jest-dom"
+import type { Product } from "@/lib/types"
+import type { RawImportRow } from "@/lib/import/types"
+
+// ─── Mocks (mismo set que product-catalog-search-collapse.test.tsx) ──────────
+vi.mock("@/hooks/data/use-product-categories", () => ({
+  useProductCategories: () => ({ productCategories: [], isLoading: false, createProductCategory: vi.fn() }),
+}))
+
+const mutateAsyncMock = vi.fn()
+vi.mock("@/hooks/data/use-products", () => ({
+  useImportProducts: () => ({
+    importMutation: { mutateAsync: mutateAsyncMock },
+    invalidateImportData: vi.fn(),
+  }),
+}))
+vi.mock("@/lib/import/parser", () => ({
+  parseImportFile: vi.fn(async () => ({
+    ok: true,
+    rows: [
+      {
+        tipo: "Producto", nombre: "Producto nuevo", sku: "", sku_padre: "", producto_padre: "",
+        precio: "10", costo: "5", categoria: "", stock: "0", stock_minimo: "0", codigo: "", attributes: {},
+        lineNumber: 2,
+      } satisfies RawImportRow,
+    ],
+  })),
+}))
+vi.mock("@/hooks/useOrgRole", () => ({ useOrgRole: () => ({ isWriter: true, role: "owner", isLoading: false }) }))
+vi.mock("@/hooks/use-units-of-measure", () => ({
+  useUnitsOfMeasure: () => ({ unitsById: new Map() }),
+}))
+vi.mock("@/lib/format", () => ({ formatMoney: (n: number) => `$${n}` }))
+vi.mock("@/lib/format-unit", () => ({ formatStock: (n: number) => `${n}` }))
+vi.mock("@/lib/unit-utils", () => ({ resolveUnit: () => null }))
+// exportToCSV mockeado (sólo dispara una descarga de archivo, sin sentido
+// en jsdom); parseAmount/parseQuantity/amountAmbiguityWarning REALES —
+// lib/import/validator.ts los usa para normalizar precio/costo/stock.
+vi.mock("@/lib/excel", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/excel")>()),
+  exportToCSV: vi.fn(),
+}))
+const toastErrorMock = vi.fn()
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: toastErrorMock, info: vi.fn() } }))
+vi.mock("@/contexts/auth-context", () => ({
+  useAuth: () => ({
+    user: { id: "u", email: "e@e.com" },
+    profile: { plan: "gratis", billing_plan: "gratis" },
+    loading: false,
+  }),
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
+
+const product: Product = {
+  id: "p-1", name: "Producto existente", category: "Ropa",
+  cost: 100, price: 200, margin: 50, stock: 5, minStock: 1,
+  isVariant: false, stockControlType: "tracked",
+}
+
+// Import a nivel de módulo — mismo motivo que product-catalog-search-collapse
+// (los vi.mock de arriba ya están hoisted; un import dinámico dentro del
+// primer test puede exceder el testTimeout bajo contención).
+const { ProductCatalog } = await import("@/components/products/product-catalog")
+
+describe("ProductCatalog — paso 3 del importador queda visible tras confirmar", () => {
+  it("no cierra el diálogo al terminar el lote — el resultado se ve", async () => {
+    mutateAsyncMock
+      // Simulación (dryRun: true) al entrar al paso 2.
+      .mockResolvedValueOnce({
+        committed: true, importId: null, inserted: 1, updated: 0,
+        errors: [], newCategories: [], replayed: false, dryRun: true,
+      })
+      // Confirmación real (dryRun: false).
+      .mockResolvedValueOnce({
+        committed: true, importId: "imp-1", inserted: 1, updated: 0,
+        errors: [], newCategories: [], replayed: false, dryRun: false,
+      })
+
+    render(
+      <ProductCatalog
+        products={[product]}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onAddVariant={vi.fn()}
+        onDelete={async () => {}}
+        isAtLimit={false}
+        onImportComplete={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /importar csv/i }))
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(["Nombre\nProducto nuevo"], "productos.csv", { type: "text/csv" })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    // Paso 2: espera el veredicto de la simulación.
+    await screen.findByText(/filas ·/i)
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalledTimes(1))
+    const confirmButton = await screen.findByRole("button", { name: /importar 1 fila/i })
+    expect(confirmButton).toBeEnabled()
+
+    fireEvent.click(confirmButton)
+
+    // La confirmación real dispara la SEGUNDA llamada.
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalledTimes(2))
+
+    // El diálogo SIGUE ABIERTO (el bug lo cerraba acá) y el paso 3 se ve.
+    expect(await screen.findByText(/1 producto importado correctamente/i)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /cerrar/i })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /importar otro archivo/i })).toBeInTheDocument()
+  })
+})

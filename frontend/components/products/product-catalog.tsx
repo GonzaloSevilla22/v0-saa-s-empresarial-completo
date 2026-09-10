@@ -1231,12 +1231,18 @@ export function ProductCatalog({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Import dialog */}
+      {/* Import dialog. Finding de revisión: `onComplete` NO cierra el
+          diálogo (a diferencia de `onOpenChange`) — el paso 3 (resultado
+          del lote) vive DENTRO de `ProductImportDialog` y necesita quedar
+          montado para mostrarse; cerrarlo acá lo desmontaba antes de
+          pintar un solo frame. El usuario lo cierra desde el propio
+          diálogo ("Cerrar") o encadena con "Importar otro archivo" — mismo
+          cableado que `ExpenseImportDialog` en `app/(dashboard)/gastos/
+          page.tsx`. */}
       <ProductImportDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
         onComplete={() => {
-          setImportDialogOpen(false)
           onImportComplete?.()
         }}
       />

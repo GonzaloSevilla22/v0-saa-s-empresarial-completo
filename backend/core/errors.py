@@ -173,6 +173,19 @@ _BUSINESS_ERRCODE_STATUS = {
     # por si algún camino futuro necesitara levantarlo como error de
     # protocolo; hoy nada lo emite.
     "P0430": 403,
+    # v3-rbac-multirole Parte A (D6): la cuenta con miembros se quedaría sin
+    # ningún propietario activo — constraint trigger DEFERRABLE INITIALLY
+    # DEFERRED sobre account_member_roles (fn_guard_account_owner_invariant),
+    # punto de paso obligado (revocación, degradación, DELETE directo del
+    # pivot, CASCADE al expulsar al último miembro). 409 porque es un
+    # conflicto de ESTADO (misma familia que P0423/P0425/P0426), no de
+    # payload.
+    "P0405": 409,
+    # v3-rbac-multirole Parte A (D5): se intentó asignar el rol propietario
+    # con fecha de vencimiento — un owner temporal dejaría la cuenta sin
+    # dueño por el mero paso del tiempo. 422 porque es un error de
+    # VALIDACIÓN de payload (expires_at no debía venir), no de estado.
+    "P0406": 422,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

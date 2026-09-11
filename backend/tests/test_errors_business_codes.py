@@ -71,6 +71,13 @@ def _body(resp) -> dict:
         # payload). El mensaje del RAISE ya nombra la acción que destraba
         # (transferir el stock / desactivar en lugar de borrar).
         ("P0428", 409),
+        # v3-rbac-multirole Parte A (D6): la cuenta se quedaría sin ningún
+        # propietario activo — constraint trigger diferido sobre el pivot,
+        # 409 (conflicto de ESTADO, misma familia que P0423/P0425/P0426/P0428).
+        ("P0405", 409),
+        # v3-rbac-multirole Parte A (D5): owner con expires_at — 422
+        # (validación de payload, el vencimiento no debía venir).
+        ("P0406", 422),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

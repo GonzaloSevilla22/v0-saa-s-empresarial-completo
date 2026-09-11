@@ -25,10 +25,15 @@ class WebhookResponse(BaseModel):
     skipped: bool | None = None
     status: str | None = None
     error: str | None = None
-    # item B (1), residuo de #526: una notificación `payment` de un cobro de
-    # suscripción (la acredita `subscription_authorized_payment`) se responde
-    # 200 con este marcador — nunca un 400 que MercadoPago reintentaría
-    # indefinidamente. Ver `services.payments.process_payment`.
+    # item B (1), residuo de #526, y fix ad-hoc
+    # `mp-webhook-external-reference-vacio` (2026-09-11): dos motivos
+    # posibles para responder 200 en vez del 400 que MercadoPago
+    # reintentaría indefinidamente — "subscription_charge" (notificación
+    # `payment` de un cobro de suscripción, la acredita
+    # `subscription_authorized_payment`) y "no_external_reference"
+    # (external_reference vacío y sin marcador de suscripción conocido; se
+    # deja un log de diagnóstico con la forma real del pago). Ver
+    # `services.payments.process_payment`.
     ignored: str | None = None
 
 

@@ -164,7 +164,16 @@ def _subscription_charge_marker(payment_data: dict) -> str | None:
     Detecta esa situación desde campos que la API de pagos de MercadoPago
     expone para eso — primero que aplique, en este orden. Devuelve el
     nombre del campo usado (para el log), o `None` si ninguno aplica (un
-    pago del checkout one-shot corriente)."""
+    pago del checkout one-shot corriente).
+
+    Fix ad-hoc `mp-webhook-external-reference-vacio` (2026-09-11): el pago
+    real 177298997676 siguió reintentando MÁS ALLÁ del 2026-09-07 (logs de
+    Render: 09-04, 09-05, 09-07 y 09-11) porque NINGUNO de los tres
+    marcadores de arriba aparece en su payload — no es `recurring_payment`,
+    no trae `point_of_interaction.type=SUBSCRIPTIONS` ni
+    `metadata.preapproval_id`. `process_payment` distingue ahora ese caso
+    (`external_reference` vacío y sin marcador) del resto de las referencias
+    inválidas — ver el bloque `if not external_ref:` más abajo."""
     if payment_data.get("operation_type") == "recurring_payment":
         return "operation_type"
     poi_type = (payment_data.get("point_of_interaction") or {}).get("type")
@@ -218,6 +227,52 @@ async def process_payment(
                 payment_id, marker,
             )
             return WebhookResponse(ok=True, ignored="subscription_charge")
+        if not external_ref:
+            # Fix ad-hoc `mp-webhook-external-reference-vacio` (2026-09-11):
+            # sin marcador Y sin external_reference no hay forma de saber a
+            # qué corresponde este pago — pero devolver 400 hace que
+            # MercadoPago reintente para siempre (caso real: pago
+            # 177298997676, reintentado 09-04/09-05/09-07/09-11 sin que
+            # ninguno de los tres marcadores de _subscription_charge_marker
+            # aplicara nunca). Se responde 200 (MercadoPago deja de
+            # reintentar) y se deja un diagnóstico con la forma REAL del
+            # pago — nunca datos del pagador — para decidir en el próximo
+            # reintento si hace falta sumar un cuarto marcador. Ronda 1 de
+            # revisión adversarial: `order`/`metadata` se leen con
+            # isinstance, no sólo `.get` — un payload real siempre los trae
+            # como objeto JSON (dict), pero un 500 en ESTE endpoint sería
+            # el mismo bucle de reintentos infinitos que el fix vino a
+            # cerrar, así que la forma inesperada se degrada a "sin dato"
+            # en vez de propagar la excepción. Ronda 2: `point_of_interaction`
+            # se lee con el mismo isinstance que `order`/`metadata` — antes
+            # usaba el idiom viejo `(... or {}).get(...)`, que explota con
+            # AttributeError si el campo llega como algo truthy no-dict (hoy
+            # inalcanzable porque `_subscription_charge_marker` ya lo
+            # desreferencia igual más arriba y revienta primero, pero esa
+            # protección implícita desaparece el día que ese helper cambie).
+            _order = payment_data.get("order")
+            order_data = _order if isinstance(_order, dict) else {}
+            _metadata = payment_data.get("metadata")
+            metadata_keys = sorted(map(str, _metadata)) if isinstance(_metadata, dict) else []
+            _poi = payment_data.get("point_of_interaction")
+            poi_type = _poi.get("type") if isinstance(_poi, dict) else None
+            logger.warning(
+                "[payments] payment %s sin external_reference y sin marcador de "
+                "suscripción conocido — diagnóstico para el próximo reintento: "
+                "operation_type=%s point_of_interaction.type=%s metadata_keys=%s "
+                "description=%r payment_type_id=%s payment_method_id=%s "
+                "order.type=%s order.id=%s",
+                payment_id,
+                payment_data.get("operation_type"),
+                poi_type,
+                metadata_keys,
+                payment_data.get("description"),
+                payment_data.get("payment_type_id"),
+                payment_data.get("payment_method_id"),
+                order_data.get("type"),
+                order_data.get("id"),
+            )
+            return WebhookResponse(ok=True, ignored="no_external_reference")
         logger.error("[payments] Invalid external_reference: %s", external_ref)
         raise HTTPException(status_code=400, detail="external_reference inválido")
 

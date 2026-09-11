@@ -106,7 +106,7 @@ The endpoint SHALL parse `external_reference` from the MercadoPago payment in th
 
 #### Scenario: Invalid external_reference format
 
-- **WHEN** `external_reference` is missing, null, or does not contain `::`
+- **WHEN** `external_reference` is present and non-empty but does not contain `::`
 - **THEN** the endpoint returns HTTP 400 with `{"ok": false, "error": "external_reference inválido"}`
 - **AND** no database write occurs
 
@@ -274,7 +274,7 @@ MercadoPago sends two notifications for every subscription charge: `subscription
 
 The endpoint SHALL recognise a subscription charge from fields the MercadoPago payment API exposes for that purpose — `operation_type: "recurring_payment"`, `point_of_interaction.type: "SUBSCRIPTIONS"`, or a non-empty `metadata.preapproval_id` — and respond with a success status distinguishable from ordinary processing, without writing to the database.
 
-An invalid `external_reference` that carries none of those markers SHALL still be rejected exactly as before: this behaviour is scoped to payments the endpoint can positively identify as subscription charges, never a blanket exemption from the `external_reference` check.
+A non-empty, malformed `external_reference` that carries none of those markers SHALL still be rejected exactly as before: the exemption from the `external_reference` check is scoped to subscription charges the endpoint can positively identify, plus the single case of an absent/empty `external_reference`, which is acknowledged rather than retried forever; never a blanket exemption for a malformed non-empty reference.
 
 #### Scenario: A subscription charge's payment notification is ignored, not rejected
 
@@ -285,9 +285,17 @@ An invalid `external_reference` that carries none of those markers SHALL still b
 
 #### Scenario: An invalid external_reference without a subscription marker is still rejected
 
-- **WHEN** a `payment` notification arrives for an approved payment whose `external_reference` is missing or malformed
+- **WHEN** a `payment` notification arrives for an approved payment whose `external_reference` is non-empty and malformed
 - **AND** none of the subscription-charge markers are present
 - **THEN** the endpoint returns HTTP 400 with `{"ok": false, "error": "external_reference inválido"}`, exactly as it did before this capability
+
+#### Scenario: An empty external_reference without a subscription marker is acknowledged
+
+- **WHEN** a `payment` notification arrives for an approved payment whose `external_reference` is missing, null, or empty
+- **AND** none of the subscription-charge markers are present
+- **THEN** the endpoint returns HTTP 200 with `{"ok": true, "ignored": "no_external_reference"}`
+- **AND** a single diagnostic warning is logged, carrying no payer data
+- **AND** no database write occurs
 
 #### Scenario: A valid external_reference is processed normally even if a marker is present
 

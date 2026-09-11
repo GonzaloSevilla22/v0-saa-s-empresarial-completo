@@ -478,6 +478,234 @@ async def test_webhook_valid_external_reference_processes_normally_even_with_mar
     assert body_json.get("ignored") is None
 
 
+# ── Fix ad-hoc `mp-webhook-external-reference-vacio` (2026-09-11) ────────────
+# El pago real 177298997676 siguió reintentando MÁS ALLÁ del 2026-09-07 (logs
+# de Render: 09-04, 09-05, 09-07 y 09-11) porque ninguno de los tres
+# marcadores de _subscription_charge_marker aplica a su payload. Sin marcador
+# Y sin external_reference, process_payment ahora responde 200 con
+# ignored="no_external_reference" (en vez del 400 de siempre) y deja un log
+# de diagnóstico con la forma real del pago — nunca datos del pagador.
+
+async def test_webhook_empty_external_reference_without_marker_returns_200_diagnostic(
+    async_client, mock_service_pool, caplog
+):
+    """RED: external_reference == "" y sin ningún marcador de suscripción ->
+    200 ignored="no_external_reference", nunca 400 (caso real: pago
+    177298997676, reintentado sin fin porque el 400 nunca deja de
+    reintentarse). El log de diagnóstico incluye el payment_id y el campo
+    operation_type (aunque venga ausente) para poder leer la forma real del
+    pago en el próximo reintento."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-noref-001")
+    sig = _make_signature("pay-noref-001")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "",
+        "transaction_amount": 24900.0,
+        "payment_type_id": "account_money",
+        "payment_method_id": "account_money",
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+        caplog.at_level(logging.WARNING, logger="backend"),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    body_json = resp.json()
+    assert body_json["ok"] is True
+    assert body_json["ignored"] == "no_external_reference"
+    conn.execute.assert_not_called()
+    assert "pay-noref-001" in caplog.text
+    # No basta con "operation_type" in caplog.text (ronda 1 de revisión
+    # adversarial): esa cadena literal vive en el format string y pasaría
+    # aunque todos los valores interpolados salieran None. Se assertea un
+    # valor real de la fixture para probar que el dato efectivamente llegó
+    # al log.
+    assert "payment_type_id=account_money" in caplog.text
+
+
+async def test_webhook_none_external_reference_without_marker_returns_200_diagnostic(
+    async_client, mock_service_pool, caplog
+):
+    """TRIANGULATE: external_reference == None (ausente del payload) da el
+    mismo resultado que "" — process_payment ya normaliza ambos a "" antes
+    de esta rama (`payment_data.get("external_reference") or ""`)."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-noref-002")
+    sig = _make_signature("pay-noref-002")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": None,
+        "transaction_amount": 24900.0,
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+        caplog.at_level(logging.WARNING, logger="backend"),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    body_json = resp.json()
+    assert body_json["ok"] is True
+    assert body_json["ignored"] == "no_external_reference"
+    conn.execute.assert_not_called()
+    assert "pay-noref-002" in caplog.text
+    # Igual que en el test "empty" de arriba: se assertea el valor
+    # interpolado (None, porque la fixture no trae operation_type), no sólo
+    # la etiqueta del format string.
+    assert "operation_type=None" in caplog.text
+
+
+async def test_webhook_malformed_nonempty_external_reference_without_marker_still_returns_400(
+    async_client, mock_service_pool
+):
+    """TRIANGULATE: un external_reference NO VACÍO pero malformado (plan
+    fuera de PLAN_HIERARCHY, con separador presente) sigue siendo el 400 de
+    siempre — el fix distingue "vacío" de "malformado", no ensancha el 200 a
+    cualquier referencia inválida. Complementa
+    test_webhook_invalid_external_reference_without_marker_still_returns_400
+    (que cubre el caso sin separador) con el caso "separador presente, plan
+    inexistente"."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-noref-003")
+    sig = _make_signature("pay-noref-003")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "user-uuid-1::plan_inexistente",
+        "transaction_amount": 500.0,
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 400
+    conn.execute.assert_not_called()
+
+
+async def test_webhook_marker_precedence_over_empty_external_reference(
+    async_client, mock_service_pool
+):
+    """TRIANGULATE: con marcador de suscripción presente Y external_reference
+    vacío, sigue ganando el marcador (ignored="subscription_charge"), no el
+    diagnóstico nuevo — mismo comportamiento que
+    test_webhook_subscription_charge_metadata_preapproval_marker_returns_200_ignored,
+    reafirmado explícitamente contra la rama nueva."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-noref-004")
+    sig = _make_signature("pay-noref-004")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "",
+        "transaction_amount": 24900.0,
+        "operation_type": "recurring_payment",
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert resp.json()["ignored"] == "subscription_charge"
+
+
+async def test_webhook_empty_external_reference_diagnostic_log_never_leaks_payer_pii(
+    async_client, mock_service_pool, caplog
+):
+    """Ronda 1 de revisión adversarial: ningún test previo alimentaba
+    `payer`/`card`, que es justo el riesgo nuevo que introduce este fix (un
+    log en el endpoint de pagos, governance CRÍTICO, donde el PO acotó
+    explícitamente el diagnóstico a "sin datos personales"). Se arma un
+    payload con datos personales reales de MercadoPago (email, nombre,
+    DNI, últimos 4 dígitos de tarjeta) y se assertea que NINGUNO llega al
+    log — hoy no se leen (el diagnóstico sólo interpola campos de forma:
+    operation_type, point_of_interaction.type, metadata_keys, description,
+    payment_type_id, payment_method_id, order.type/id), pero sin este test
+    nada impediría que una edición futura sume `payer=%s` al warning y la
+    suite siguiera en verde."""
+    pool, conn = mock_service_pool
+    body = _mp_body("pay-noref-005")
+    sig = _make_signature("pay-noref-005")
+
+    conn.fetchrow = AsyncMock(return_value=None)
+
+    mp_response = MagicMock()
+    mp_response.status_code = 200
+    mp_response.json.return_value = {
+        "status": "approved",
+        "external_reference": "",
+        "transaction_amount": 24900.0,
+        "payer": {
+            "email": "victima@example.com",
+            "first_name": "Juana",
+            "last_name": "Perez",
+            "identification": {"type": "DNI", "number": "30111222"},
+        },
+        "card": {
+            "last_four_digits": "4242",
+            "cardholder": {"name": "JUANA PEREZ"},
+        },
+        "additional_info": {"payer": {"phone": {"number": "2611234567"}}},
+    }
+
+    with (
+        patch("backend.core.database.pool", pool),
+        patch("backend.core.config.settings.mercadopago_webhook_secret", SECRET),
+        patch("backend.core.config.settings.mercadopago_access_token", "mp-token"),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=mp_response),
+        caplog.at_level(logging.WARNING, logger="backend"),
+    ):
+        resp = await _post_webhook(async_client, body, sig)
+
+    assert resp.status_code == 200
+    assert resp.json()["ignored"] == "no_external_reference"
+    # Ancla positiva (ronda 2 de revisión adversarial): sin esto, si el
+    # `logger.warning` del diagnóstico desaparece entero, `caplog.text`
+    # queda vacío y las 6 aserciones negativas de abajo pasan vacuamente
+    # sin haber probado nada. Confirmar primero que el diagnóstico se
+    # emitió — recién entonces afirmar que no filtra PII.
+    assert "pay-noref-005" in caplog.text
+    for needle in ("victima@example.com", "Juana", "Perez", "30111222", "4242", "2611234567"):
+        assert needle not in caplog.text
+
+
 async def test_webhook_mp_payment_not_found_returns_skipped(async_client, mock_service_pool):
     """MP devuelve 404 para IDs de test (ej. "123456") — debe retornar ok+skipped, no 502."""
     pool, conn = mock_service_pool

@@ -23,7 +23,16 @@ vi.mock("@/lib/api/python-client", () => ({
 
 import { pythonClient } from "@/lib/api/python-client"
 import { useImportProducts } from "@/hooks/data/use-products"
-import type { ProductImportInput } from "@/lib/types"
+import type { ProductImportInput, ProductImportResult } from "@/lib/types"
+
+// importador-gate-plan (OQ-1, sign-off PO 2026-09-11): `plan` viaja en el
+// reporte del servidor en todo camino de la RPC vigente. Corrección de
+// revisión (ronda 1 adversarial, minor): sigue siendo opcional en el
+// transporte (`backend/schemas/products.py` lo declara con default `None`)
+// para degradar sin romper el endpoint durante la ventana de deploy en la
+// que el backend ya se redesplegó pero la migración del gate todavía no
+// corrió — ver el test "plan ausente" más abajo.
+const PLAN_VERDICT_API = { plan: "gratis", limit: 100, before: 10, after: 12, added: 2, exceeded: false }
 
 const APPLIED_RESULT_API = {
   committed: true,
@@ -32,6 +41,7 @@ const APPLIED_RESULT_API = {
   updated: 0,
   errors: [],
   new_categories: [{ name: "Ferretería", rows: 1 }],
+  plan: PLAN_VERDICT_API,
   replayed: false,
   dry_run: false,
 }
@@ -145,9 +155,66 @@ describe("useImportProducts — payload exacto (8.1)", () => {
       updated: 0,
       errors: [],
       newCategories: [{ name: "Ferretería", rows: 1 }],
+      plan: { plan: "gratis", limit: 100, before: 10, after: 12, added: 2, exceeded: false },
       replayed: false,
       dryRun: false,
     })
+  })
+
+  it("propaga el veredicto de plan tal cual (exceeded=true bloquea el lote, sin transformarlo)", async () => {
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      ...APPLIED_RESULT_API,
+      committed: false,
+      import_id: null,
+      plan: { plan: "gratis", limit: 100, before: 100, after: 101, added: 1, exceeded: true },
+    })
+    const { wrapper } = makeWrapper()
+    const { result } = renderHook(() => useImportProducts(), { wrapper })
+
+    let mapped!: ProductImportResult
+    await act(async () => {
+      mapped = await result.current.importMutation.mutateAsync(INPUT)
+    })
+
+    expect(mapped.committed).toBe(false)
+    expect(mapped.plan).toEqual({ plan: "gratis", limit: 100, before: 100, after: 101, added: 1, exceeded: true })
+  })
+
+  it("plan.limit === null (plan sin tope configurado) se propaga sin convertirlo a 0", async () => {
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      ...APPLIED_RESULT_API,
+      plan: { plan: "pro", limit: null, before: 10, after: 12, added: 2, exceeded: false },
+    })
+    const { wrapper } = makeWrapper()
+    const { result } = renderHook(() => useImportProducts(), { wrapper })
+
+    let mapped!: ProductImportResult
+    await act(async () => {
+      mapped = await result.current.importMutation.mutateAsync(INPUT)
+    })
+
+    expect(mapped.plan?.limit).toBeNull()
+  })
+
+  it("plan ausente en la respuesta (ventana de deploy: backend nuevo + DB vieja) se mapea a null, no a un TypeError", async () => {
+    // Corrección de revisión (ronda 1 adversarial, minor): antes de este fix
+    // `plan` era requerido en el schema del backend y el mapper asumía
+    // `r.plan.plan` sin guardas — una RPC vieja sin el campo habría lanzado
+    // un TypeError acá. Ahora se degrada a `null`.
+    vi.mocked(pythonClient.post).mockResolvedValueOnce({
+      ...APPLIED_RESULT_API,
+      plan: null,
+    })
+    const { wrapper } = makeWrapper()
+    const { result } = renderHook(() => useImportProducts(), { wrapper })
+
+    let mapped!: ProductImportResult
+    await act(async () => {
+      mapped = await result.current.importMutation.mutateAsync(INPUT)
+    })
+
+    expect(mapped.plan).toBeNull()
+    expect(mapped.committed).toBe(true)
   })
 
   it("la mutación NO invalida por sí sola — invalidateImportData() es una función aparte que el diálogo decide cuándo llamar", async () => {

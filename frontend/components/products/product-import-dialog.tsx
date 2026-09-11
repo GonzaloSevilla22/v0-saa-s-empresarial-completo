@@ -31,6 +31,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react"
+import Link from "next/link"
 import { toast } from "sonner"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -40,12 +41,13 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Upload, FileText, AlertTriangle, CheckCircle2, XCircle,
-  ChevronRight, Loader2, Download, RotateCcw,
+  ChevronRight, Loader2, Download, RotateCcw, Crown,
 } from "lucide-react"
 import { useImportProducts } from "@/hooks/data/use-products"
 import { useProductCategories } from "@/hooks/data/use-product-categories"
 import { prepareProductImport, type PreparedImport } from "@/lib/import/importer"
 import { newCategoryLimitMessage } from "@/lib/import/validator"
+import { planProductLimitMessage } from "@/lib/plan-utils"
 import { buildTemplateCsv } from "@/lib/import/template"
 import { PRODUCT_IMPORT_MAX_ROWS } from "@/lib/import/types"
 import { hashFileSHA256 } from "@/lib/bank-statement-parser"
@@ -314,7 +316,18 @@ export function ProductImportDialog({
           if (e.row != null) verdicts[e.row] = { error: e.message }
         }
         setServerVerdicts(verdicts)
-        toast.error("El lote no se pudo aplicar — revisá los errores en la tabla.")
+        // Corrección de revisión (ronda 1 adversarial, nit): esta rama
+        // también se alcanza cuando el rechazo es por PLAN (carrera
+        // simulación→confirmación: `confirmDisabled` ya bloqueaba el caso
+        // normal) — ahí `result.errors` está vacío y "revisá los errores en
+        // la tabla" apunta a un lugar sin nada que revisar. El banner de
+        // plan ya se refresca solo (setServerResult más arriba); el toast
+        // sólo necesita señalar el motivo correcto.
+        toast.error(
+          result.plan?.exceeded
+            ? "El lote no se aplicó: superaría el límite de productos de tu plan."
+            : "El lote no se pudo aplicar — revisá los errores en la tabla."
+        )
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Error al importar.")
@@ -351,9 +364,29 @@ export function ProductImportDialog({
   const dryRunFailed = Boolean(prepared) && !categoryLimitExceeded
     && dryRunTriggeredRef.current && !serverLoading && serverResult === null
 
+  // importador-gate-plan (OQ-1, sign-off PO 2026-09-11): el veredicto de
+  // plan viaja en `serverResult.plan` (dry_run o confirmación real) — un
+  // lote que agrega productos por encima del tope del plan bloquea ENTERO,
+  // igual que un error de fila (D3: "conservan sus productos").
+  //
+  // `planVerdict` puede ser `null` (corrección de revisión, ronda 1
+  // adversarial): sólo durante la ventana de deploy en la que el backend
+  // ya se redesplegó pero la migración del gate todavía no corrió contra
+  // la DB — ese instante, simplemente no hay veredicto que bloquear con.
+  const planVerdict = serverResult?.plan ?? null
+  const planExceeded = planVerdict?.exceeded ?? false
+
   const confirmDisabled = applying || serverLoading || errorCount > 0
     || (prepared?.apiRows.length ?? 0) === 0 || categoryLimitExceeded
-    || dryRunFailed || rowlessServerErrors.length > 0
+    || dryRunFailed || rowlessServerErrors.length > 0 || planExceeded
+
+  // El motivo que explica por qué "Importar" está deshabilitado — un solo
+  // aria-describedby a la vez, en orden de severidad (fila > plan).
+  const disabledReasonId = errorCount > 0
+    ? "product-import-error-summary"
+    : planExceeded
+      ? "product-import-plan-summary"
+      : undefined
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -577,6 +610,41 @@ export function ProductImportDialog({
                 </div>
               )}
 
+              {/* importador-gate-plan (OQ-1, sign-off PO 2026-09-11): la
+                  importación AGREGA productos y el resultado excede el
+                  tope del plan — el lote bloquea ENTERO (D3: "conservan sus
+                  productos"). Mismo mensaje base que el formulario de alta
+                  de a uno (backend/services/products.py) — extraído a
+                  `planProductLimitMessage` (revisión adversarial, ronda 2)
+                  para que las dos superficies no puedan divergir en
+                  redacción sin que alguien lo note — más el detalle de
+                  cuántos hay y cuántos agregaría esta importación.
+                  `planVerdict.limit != null` es un guard defensivo: el
+                  invariante del backend (`v_plan_exceeded` en
+                  20261046000001) garantiza que `exceeded=true` sólo puede
+                  darse con `limit` no nulo, pero el tipo de TS no lo sabe. */}
+              {planExceeded && planVerdict && planVerdict.limit != null && (
+                <div
+                  id="product-import-plan-summary"
+                  role="alert"
+                  className="px-6 py-2.5 border-b border-destructive/30 bg-destructive/5 shrink-0"
+                >
+                  <p className="text-xs text-destructive flex items-start gap-1.5">
+                    <XCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      {planProductLimitMessage({ plan: planVerdict.plan, limit: planVerdict.limit })}
+                      {" "}Tenés {planVerdict.before} y esta importación agregaría {planVerdict.added}.
+                    </span>
+                  </p>
+                  <Button asChild variant="outline" size="sm" className="mt-2 gap-1.5">
+                    <Link href="/planes">
+                      <Crown className="h-3.5 w-3.5" />
+                      Ver planes
+                    </Link>
+                  </Button>
+                </div>
+              )}
+
               {/* productos-categorias-sku (D6): tope excedido — mismo
                   comportamiento previo a este change, sólo que ahora
                   también corta la simulación de servidor (no tiene sentido
@@ -714,6 +782,16 @@ export function ProductImportDialog({
                       Este archivo ya se había importado antes — no se creó un lote nuevo.
                     </p>
                   )}
+                  {/* importador-gate-plan: nota informativa, no bloqueante —
+                      sólo cuando hay veredicto de plan Y el plan tiene un
+                      tope configurado (planVerdict puede ser null durante
+                      la ventana de deploy descrita más arriba). */}
+                  {totalErr === 0 && planVerdict?.limit != null && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Te quedan {Math.max(planVerdict.limit - planVerdict.after, 0)} producto
+                      {Math.max(planVerdict.limit - planVerdict.after, 0) !== 1 ? "s" : ""} en tu plan {planVerdict.plan}.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   {serverResult.inserted > 0 && <Badge variant="outline" className="text-success border-success/30">{serverResult.inserted} nuevo{serverResult.inserted !== 1 ? "s" : ""}</Badge>}
@@ -775,7 +853,7 @@ export function ProductImportDialog({
                 size="sm"
                 onClick={handleImport}
                 disabled={confirmDisabled}
-                aria-describedby={errorCount > 0 ? "product-import-error-summary" : undefined}
+                aria-describedby={disabledReasonId}
                 className="gap-1.5"
               >
                 {applying ? (

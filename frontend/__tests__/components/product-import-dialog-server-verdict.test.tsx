@@ -94,7 +94,9 @@ describe("ProductImportDialog — dry run fallido bloquea la confirmación", () 
     // Reintentar dispara una segunda simulación — ahora exitosa.
     mutateAsyncMock.mockResolvedValueOnce({
       committed: true, importId: null, inserted: 1, updated: 0,
-      errors: [], newCategories: [], replayed: false, dryRun: true,
+      errors: [], newCategories: [],
+      plan: { plan: "gratis", limit: 100, before: 0, after: 1, added: 1, exceeded: false },
+      replayed: false, dryRun: true,
     })
     fireEvent.click(screen.getByRole("button", { name: /reintentar/i }))
 
@@ -108,7 +110,9 @@ describe("ProductImportDialog — error de servidor sin fila asociada", () => {
     mutateAsyncMock.mockResolvedValueOnce({
       committed: false, importId: null, inserted: 0, updated: 0,
       errors: [{ row: null, sku: null, name: null, message: "cuota de categorías excedida" }],
-      newCategories: [], replayed: false, dryRun: true,
+      newCategories: [],
+      plan: { plan: "gratis", limit: 100, before: 0, after: 0, added: 0, exceeded: false },
+      replayed: false, dryRun: true,
     })
     await openWithFile()
     await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
@@ -119,11 +123,47 @@ describe("ProductImportDialog — error de servidor sin fila asociada", () => {
   })
 })
 
+describe("ProductImportDialog — límite de plan excedido (OQ-1, sign-off PO 2026-09-11)", () => {
+  it("bloquea la confirmación, muestra el motivo y el CTA a /planes", async () => {
+    mutateAsyncMock.mockResolvedValueOnce({
+      committed: false, importId: null, inserted: 0, updated: 0,
+      errors: [],
+      newCategories: [],
+      plan: { plan: "gratis", limit: 100, before: 100, after: 101, added: 1, exceeded: true },
+      replayed: false, dryRun: true,
+    })
+    await openWithFile()
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
+
+    expect(await screen.findByText(/límite de productos alcanzado/i)).toBeInTheDocument()
+    expect(screen.getByText(/tenés 100 y esta importación agregaría 1/i)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /ver planes/i })).toHaveAttribute("href", "/planes")
+    expect(screen.getByRole("button", { name: /importar/i })).toBeDisabled()
+  })
+
+  it("una importación que sólo actualiza (sin agregar productos) NO se bloquea aunque la cuenta ya esté excedida", async () => {
+    mutateAsyncMock.mockResolvedValueOnce({
+      committed: true, importId: null, inserted: 0, updated: 1,
+      errors: [],
+      newCategories: [],
+      plan: { plan: "gratis", limit: 100, before: 105, after: 105, added: 0, exceeded: false },
+      replayed: false, dryRun: true,
+    })
+    await openWithFile()
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
+
+    expect(screen.queryByText(/límite de productos alcanzado/i)).not.toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /importar 1 fila/i })).toBeEnabled()
+  })
+})
+
 describe("ProductImportDialog — archivo ya importado (replay)", () => {
   it("avisa ANTES de confirmar y cambia el texto del botón", async () => {
     mutateAsyncMock.mockResolvedValueOnce({
       committed: true, importId: "existing-import-id", inserted: 3, updated: 0,
-      errors: [], newCategories: [], replayed: true, dryRun: true,
+      errors: [], newCategories: [],
+      plan: { plan: "gratis", limit: 100, before: 3, after: 3, added: 0, exceeded: false },
+      replayed: true, dryRun: true,
     })
     await openWithFile()
     await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())

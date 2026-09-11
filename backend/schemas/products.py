@@ -185,17 +185,53 @@ class ProductImportNewCategoryOut(BaseModel):
     rows: int
 
 
-class ProductImportOut(BaseModel):
-    """Reporte del lote — `200` cuando el rechazo es por REGLAS DE FILA,
-    aplicado o no (D3 del design).
+# ── importador-gate-plan (OQ-1 de importador-productos-fastapi, sign-off del
+# PO 2026-09-11) ──────────────────────────────────────────────────────────
+#
+# Regla exacta del PO: "las cuentas que hoy superan el máximo de su plan
+# conservan sus productos, pero no pueden agregar más; si quieren agregar,
+# tienen que eliminar productos hasta no exceder el máximo de su plan".
+# `rpc_import_products` evalúa el gate SIEMPRE sobre el estado RESULTANTE
+# (después de invocar rpc_bulk_upsert_products, nunca a priori — D5 del
+# design archivado) y devuelve `plan` en TODO RETURN (committed=true,
+# committed=false por errores/plan/dry_run, y las dos ramas de replay) desde
+# la migración `20261046000001`.
+class ProductImportPlanVerdictOut(BaseModel):
+    plan: str
+    limit: int | None
+    before: int
+    after: int
+    added: int
+    exceeded: bool
 
-    Un lote rechazado por reglas de fila NO es un error de protocolo: es un
-    resultado del procesamiento. Los `4xx` quedan para lo que impide
-    procesar (forma del payload, tope de filas, sin rol de escritura, sin
-    clave de idempotencia) — y el tope de categorías nuevas (cuota) viaja
-    ahí también: `rpc_bulk_upsert_products` lo levanta como `P0400` DENTRO
-    de la llamada que `rpc_import_products` hace, sin capturarlo, así que
+
+class ProductImportOut(BaseModel):
+    """Reporte del lote — `200` cuando el rechazo es por REGLAS DE FILA o por
+    el LÍMITE DE PLAN, aplicado o no (D3 del design + importador-gate-plan).
+
+    Un lote rechazado por reglas de fila o por plan NO es un error de
+    protocolo: es un resultado del procesamiento (el rechazo por plan viaja
+    como `committed: false` + `plan.exceeded: true`, nunca como una
+    excepción — `P0430` sigue reservado en `backend/core/errors.py` pero no
+    se emite). Los `4xx` quedan para lo que impide procesar (forma del
+    payload, tope de filas, sin rol de escritura, sin clave de
+    idempotencia) — y el tope de categorías nuevas (cuota) viaja ahí
+    también: `rpc_bulk_upsert_products` lo levanta como `P0400` DENTRO de
+    la llamada que `rpc_import_products` hace, sin capturarlo, así que
     escapa igual que el tope de filas (`P0427`) y nunca llega a este schema.
+
+    Corrección de revisión (ronda 1 adversarial, minor): `plan` es
+    `Optional` con default `None`, NUNCA requerido sin default, pese a que
+    `rpc_import_products` lo garantiza en todo `RETURN` desde
+    `20261046000001`. Motivo: `deploy.yml` redeploya el backend (push a
+    Render) y aplica la migración (`supabase db push`) por caminos
+    INDEPENDIENTES — si el backend nuevo queda vivo antes de que la
+    migración corra, la RPC vieja devuelve un jsonb sin `plan` y, con el
+    campo requerido, Pydantic levantaría `ResponseValidationError` (500) en
+    TODA importación durante esa ventana, no sólo las que tocan el límite.
+    Con el default, esa ventana degrada a "sin veredicto de plan" (el
+    diálogo no bloquea por plan, tal como antes de este fix) en vez de
+    romper el endpoint entero.
     """
 
     committed: bool
@@ -204,5 +240,6 @@ class ProductImportOut(BaseModel):
     updated: int
     errors: list[ProductImportRowErrorOut]
     new_categories: list[ProductImportNewCategoryOut]
+    plan: ProductImportPlanVerdictOut | None = None
     replayed: bool
     dry_run: bool

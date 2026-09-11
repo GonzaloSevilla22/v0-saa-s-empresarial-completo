@@ -57,6 +57,18 @@ VALID_PAYLOAD = {
     "rows": [ROW_1, ROW_2],
 }
 
+# importador-gate-plan (OQ-1, sign-off PO 2026-09-11): `plan` viaja en TODO
+# RETURN de rpc_import_products vigente, por eso las fixtures de abajo ya lo
+# incluyen. Corrección de revisión (ronda 1 adversarial, minor): el campo
+# SIGUE siendo `Optional` con default `None` en `ProductImportOut`
+# (`backend/schemas/products.py`) — no requerido sin default — para que un
+# dict SIN la clave (la RPC vieja, antes de que `supabase db push` corra
+# contra la DB en un deploy en curso) degrade a `plan: null` en vez de
+# `ResponseValidationError` (500) en TODA importación durante esa ventana.
+# Ver `TestImportProductsPlanVerdict.test_plan_missing_from_rpc_result_degrades_to_null_not_500`.
+PLAN_OK = {"plan": "gratis", "limit": 100, "before": 10, "after": 12, "added": 2, "exceeded": False}
+PLAN_EXCEEDED = {"plan": "gratis", "limit": 100, "before": 100, "after": 101, "added": 1, "exceeded": True}
+
 APPLIED_RESULT = {
     "committed": True,
     "import_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
@@ -64,6 +76,7 @@ APPLIED_RESULT = {
     "updated": 0,
     "errors": [],
     "new_categories": [{"name": "Ropa", "rows": 1}],
+    "plan": PLAN_OK,
     "replayed": False,
     "dry_run": False,
 }
@@ -75,6 +88,19 @@ REJECTED_RESULT = {
     "updated": 0,
     "errors": [{"row": 2, "sku": None, "name": "Variante huérfana", "message": 'SKU Padre "X" no encontrado'}],
     "new_categories": [],
+    "plan": PLAN_OK,
+    "replayed": False,
+    "dry_run": False,
+}
+
+PLAN_EXCEEDED_RESULT = {
+    "committed": False,
+    "import_id": None,
+    "inserted": 0,
+    "updated": 0,
+    "errors": [],
+    "new_categories": [],
+    "plan": PLAN_EXCEEDED,
     "replayed": False,
     "dry_run": False,
 }
@@ -249,8 +275,11 @@ def test_p0427_registered_as_422():
 
 
 def test_p0430_registered_reserved_for_plan_gate():
-    """OQ-1 NO tiene sign-off del PO — rpc_import_products no emite P0430
-    hoy, pero el mapeo queda listo para cuando el gate de plan se escriba."""
+    """importador-gate-plan (OQ-1, sign-off PO 2026-09-11): el gate de plan
+    YA está implementado, pero viaja por el RETURN normal de la RPC
+    (`committed: false` + `plan.exceeded: true`), NUNCA por una excepción —
+    `rpc_import_products` sigue sin emitir P0430. El mapeo se mantiene
+    reservado (403) por si un camino futuro lo necesitara."""
     from backend.core.errors import _BUSINESS_ERRCODE_STATUS
 
     assert _BUSINESS_ERRCODE_STATUS["P0430"] == 403
@@ -443,6 +472,116 @@ class TestImportProductsEndpoint:
         # nada derivado de "attacker-controlled-uuid".
         args = conn.fetchrow.call_args.args
         assert "attacker-controlled-uuid" not in args
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# importador-gate-plan (OQ-1, sign-off PO 2026-09-11) — el veredicto de plan
+# se propaga tal cual, sin ninguna regla de negocio en Python (D1: "cero
+# reglas de dominio nuevas acá").
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class TestImportProductsPlanVerdict:
+    async def test_applied_batch_response_includes_plan_verdict(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        token = make_token({"role": "user"})
+        conn.fetchrow = AsyncMock(return_value=_rpc_row(APPLIED_RESULT))
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products/import", json=VALID_PAYLOAD,
+                headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-plan-ok"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["plan"] == PLAN_OK
+
+    async def test_plan_exceeded_batch_returns_200_not_4xx_with_exceeded_true(self, async_client, mock_pool):
+        """El rechazo por límite de plan NO es un error de protocolo — sigue
+        respondiendo 200 (mismo criterio que un rechazo por errores de fila,
+        D3): la UI decide qué mostrar mirando `plan.exceeded`, nunca un
+        status code especial. Zero reglas de negocio en Python: el service
+        no re-evalúa nada, sólo propaga lo que la RPC ya decidió."""
+        pool, conn = mock_pool
+        token = make_token({"role": "user"})
+        conn.fetchrow = AsyncMock(return_value=_rpc_row(PLAN_EXCEEDED_RESULT))
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products/import", json=VALID_PAYLOAD,
+                headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-plan-exceeded"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["committed"] is False
+        assert body["plan"]["exceeded"] is True
+        assert body["plan"]["plan"] == "gratis"
+        assert body["plan"]["limit"] == 100
+        assert body["plan"]["before"] == 100
+        assert body["plan"]["after"] == 101
+        assert body["plan"]["added"] == 1
+
+    async def test_plan_exceeded_in_dry_run_still_reports_the_verdict(self, async_client, mock_pool):
+        """D7 del design: la vista previa (dry_run) tiene que mostrar el
+        MISMO veredicto de plan que mostraría la confirmación real."""
+        pool, conn = mock_pool
+        token = make_token({"role": "user"})
+        dry_result = {**PLAN_EXCEEDED_RESULT, "dry_run": True}
+        conn.fetchrow = AsyncMock(return_value=_rpc_row(dry_result))
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products/import", json={**VALID_PAYLOAD, "dry_run": True},
+                headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-plan-dry"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["dry_run"] is True
+        assert body["plan"]["exceeded"] is True
+
+    async def test_plan_with_null_limit_is_accepted(self, async_client, mock_pool):
+        """D5 del design: `limit IS NULL` significa "sin gate" (plan sin
+        tope configurado) — el schema tiene que aceptarlo, no exigir un
+        entero."""
+        pool, conn = mock_pool
+        token = make_token({"role": "user"})
+        result_sin_limite = {
+            **APPLIED_RESULT,
+            "plan": {"plan": "pro", "limit": None, "before": 10, "after": 12, "added": 2, "exceeded": False},
+        }
+        conn.fetchrow = AsyncMock(return_value=_rpc_row(result_sin_limite))
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products/import", json=VALID_PAYLOAD,
+                headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-plan-null-limit"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["plan"]["limit"] is None
+
+    async def test_plan_missing_from_rpc_result_degrades_to_null_not_500(self, async_client, mock_pool):
+        """Corrección de revisión (ronda 1 adversarial, minor): simula la
+        ventana de deploy en la que el backend ya se redesplegó pero la
+        migración `20261046000001` todavía no corrió contra la DB — la RPC
+        vieja no trae la clave `plan` en absoluto. Antes de este fix, `plan`
+        era requerido sin default en `ProductImportOut` y esto habría
+        respondido `500` (ResponseValidationError) para TODA importación,
+        no sólo las que tocan el límite. Con el default, responde 200 con
+        `plan: null` — el endpoint sigue funcionando, sólo sin veredicto de
+        plan ese instante."""
+        pool, conn = mock_pool
+        token = make_token({"role": "user"})
+        result_sin_plan = {k: v for k, v in APPLIED_RESULT.items() if k != "plan"}
+        conn.fetchrow = AsyncMock(return_value=_rpc_row(result_sin_plan))
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/products/import", json=VALID_PAYLOAD,
+                headers={"Authorization": f"Bearer {token}", "Idempotency-Key": "k-plan-missing"},
+            )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["committed"] is True
+        assert body["plan"] is None
 
 
 # ══════════════════════════════════════════════════════════════════════════

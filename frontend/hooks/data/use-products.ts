@@ -74,6 +74,15 @@ interface ProductImportRowApi {
   attributes: Array<{ key: string; value: string; sort_order: number }>
 }
 
+interface ProductImportPlanVerdictApi {
+  plan: string
+  limit: number | null
+  before: number
+  after: number
+  added: number
+  exceeded: boolean
+}
+
 interface ProductImportResultApi {
   committed: boolean
   import_id: string | null
@@ -81,6 +90,15 @@ interface ProductImportResultApi {
   updated: number
   errors: Array<{ row: number | null; sku?: string | null; name?: string | null; message: string }>
   new_categories: Array<{ name: string; rows: number }>
+  // importador-gate-plan (OQ-1, sign-off PO 2026-09-11): presente en TODO
+  // camino de la RPC vigente. Corrección de revisión (ronda 1 adversarial,
+  // minor): sigue siendo opcional en el transporte — `backend/schemas/
+  // products.py` lo declara `Optional[..., default=None]` a propósito,
+  // para degradar sin romper el endpoint durante la ventana de deploy en
+  // la que el backend ya se redesplegó pero la migración
+  // `20261046000001` todavía no corrió (Render y `supabase db push`
+  // avanzan por caminos independientes).
+  plan: ProductImportPlanVerdictApi | null
   replayed: boolean
   dry_run: boolean
 }
@@ -93,6 +111,16 @@ function mapProductImportResult(r: ProductImportResultApi): ProductImportResult 
     updated: r.updated,
     errors: r.errors.map((e) => ({ row: e.row, sku: e.sku ?? null, name: e.name ?? null, message: e.message })),
     newCategories: r.new_categories,
+    plan: r.plan
+      ? {
+          plan: r.plan.plan,
+          limit: r.plan.limit,
+          before: r.plan.before,
+          after: r.plan.after,
+          added: r.plan.added,
+          exceeded: r.plan.exceeded,
+        }
+      : null,
     replayed: r.replayed,
     dryRun: r.dry_run,
   }

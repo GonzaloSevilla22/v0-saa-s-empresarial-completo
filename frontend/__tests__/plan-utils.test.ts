@@ -8,7 +8,7 @@
  * implementaciones debe romper esta prueba (task 7.3).
  */
 import { describe, it, expect } from "vitest"
-import { getEffectivePlan, type EffectivePlanInput } from "@/lib/plan-utils"
+import { getEffectivePlan, planProductLimitMessage, type EffectivePlanInput } from "@/lib/plan-utils"
 
 const HOUR = 60 * 60 * 1000
 
@@ -100,6 +100,34 @@ describe("getEffectivePlan — parity table (billing-pro-trial D1/D3)", () => {
     )
     expect(new Set(results).size).toBe(1)
     expect(results[0]).toBe("inicial")
+  })
+})
+
+describe("planProductLimitMessage — mensaje de rechazo por tope (importador-gate-plan, revisión ronda 2)", () => {
+  // Molde de `newCategoryLimitMessage` (`lib/import/validator.ts`): oración
+  // canónica que antes vivía duplicada, literal, en `ProductImportDialog`.
+  // A diferencia de esa hermana (que sí pluraliza "categoría"/"categorías"
+  // según la cantidad), esta oración usa siempre "productos" en plural —
+  // no es un conteo gramatical, es el nombre del recurso limitado — así
+  // que no hay rama singular/plural que cubrir; los casos de abajo fijan
+  // igual el formato exacto (incluido el borde `limit === 1`, donde la
+  // palabra "productos" NO pasa a "producto").
+  it("arma la oración exacta que también debe reflejar backend/services/products.py (~línea 93)", () => {
+    expect(planProductLimitMessage({ plan: "gratis", limit: 100 })).toBe(
+      "Límite de productos alcanzado para el plan gratis (100 máx.). Borrá productos existentes o subí de plan.",
+    )
+  })
+
+  it("interpola el plan tal cual, sin normalizar mayúsculas ni traducir el nombre", () => {
+    expect(planProductLimitMessage({ plan: "pro", limit: 5000 })).toBe(
+      "Límite de productos alcanzado para el plan pro (5000 máx.). Borrá productos existentes o subí de plan.",
+    )
+  })
+
+  it("con limit === 1 sigue diciendo 'productos' en plural (no es un conteo, es el nombre del recurso)", () => {
+    expect(planProductLimitMessage({ plan: "gratis", limit: 1 })).toBe(
+      "Límite de productos alcanzado para el plan gratis (1 máx.). Borrá productos existentes o subí de plan.",
+    )
   })
 })
 

@@ -156,6 +156,8 @@ describe("useImportProducts — stock reaches the HTTP transport", () => {
       updated: 0,
       errors: [],
       new_categories: [],
+      // importador-gate-plan (OQ-1, sign-off PO 2026-09-11): siempre presente.
+      plan: { plan: "gratis", limit: 100, before: 0, after: 1, added: 1, exceeded: false },
       replayed: false,
       dry_run: false,
     })

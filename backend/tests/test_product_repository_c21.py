@@ -113,3 +113,40 @@ class TestProductRepositoryGetById:
         result = await repo.get_by_id(PRODUCT_ID, ACCOUNT_ID)
 
         assert result is None
+
+
+# ── importador-gate-plan (2026-09-11, decisión punto 1 del brief) ───────────
+#
+# El predicado de "producto VIVO" que el gate de plan usa en SQL
+# (`deleted_at IS NULL`) tiene que ser el MISMO que usa `count_by_org` — la
+# regla del PO ("eliminá productos para bajar del máximo") sólo funciona si
+# los dos caminos (el formulario, vía este método, y el importador, vía la
+# RPC) están de acuerdo en qué cuenta como "producto vivo". Evidencia: el
+# código YA excluía los borrados desde v3-soft-delete-policy
+# (`not_deleted_clause()`) — este test es la regresión que faltaba, no una
+# corrección (ver CHANGES.md, decisión punto 1).
+class TestProductRepositoryCountByOrg:
+    @pytest.mark.asyncio
+    async def test_count_by_org_excludes_soft_deleted(self, product_repo):
+        repo, conn = product_repo
+        conn.fetchrow = AsyncMock(return_value={"total": 3})
+
+        total = await repo.count_by_org(ACCOUNT_ID)
+
+        assert total == 3
+        sql = conn.fetchrow.call_args.args[0]
+        assert "FROM products" in sql
+        assert "deleted_at IS NULL" in sql
+        assert conn.fetchrow.call_args.args[1] == ACCOUNT_ID
+
+    @pytest.mark.asyncio
+    async def test_count_by_org_returns_zero_when_no_row(self, product_repo):
+        """Defensa: si por lo que sea `fetchrow` no devuelve fila, el
+        conteo es 0 — nunca None (evita un `TypeError` aguas arriba en la
+        comparación contra el límite del plan)."""
+        repo, conn = product_repo
+        conn.fetchrow = AsyncMock(return_value=None)
+
+        total = await repo.count_by_org(ACCOUNT_ID)
+
+        assert total == 0

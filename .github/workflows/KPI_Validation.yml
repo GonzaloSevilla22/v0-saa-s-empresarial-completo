@@ -772,6 +772,16 @@ jobs:
           # definición viva y mismas ACLs.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261046000001_importador_gate_plan.sql
 
+          # v3-rbac-multirole Parte A (2026-09-11): idempotente — CREATE TABLE
+          # IF NOT EXISTS / seed ON CONFLICT DO UPDATE / backfill ON CONFLICT
+          # DO NOTHING / DROP TRIGGER IF EXISTS + CREATE (CONSTRAINT) TRIGGER /
+          # CREATE OR REPLACE FUNCTION sin cambio de firma en las 5 funciones
+          # tocadas (las 4 RPCs de membresía + handle_new_user, hallazgo
+          # 6.3b). Reaplicada localmente 2 veces consecutivas: EXIT=0 las dos,
+          # 8 filas de catálogo (sin duplicar), pivot = account_members en
+          # cantidad, sin overload en ninguna de las 5 funciones, mismas ACLs.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261047000001_v3_rbac_multirole_parte_a.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1741,3 +1751,34 @@ jobs:
       # parte propia; candado de ACL/cuerpo; candado de flag legacy.
       - name: Run operacion-party-guard gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_operacion_party_guard.sql
+
+      # v3-rbac-multirole Parte A, grupo 2 (D1, D2): catálogo global de 8
+      # roles en minúscula, sólo viewer sin escritura, ni authenticated ni
+      # anon pueden alterarlo, integridad referencial contra un rol
+      # inventado, is_writer editable sin DDL.
+      - name: Run v3-rbac-multirole account role catalog gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_account_role_catalog.sql
+
+      # v3-rbac-multirole Parte A, grupo 3 (D3, D4): unicidad (member_id,role),
+      # CASCADE desde account_members, member_active_roles()/account_user_
+      # active_roles() con vencido/vigente/sin vencimiento, asignación vencida
+      # que se conserva, y triangulación con 4 roles simultáneos.
+      - name: Run v3-rbac-multirole account member roles pivot gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_account_member_roles_pivot.sql
+
+      # v3-rbac-multirole Parte A, grupo 4 (D3, D5, D6, D7): invariante de
+      # propietario único (constraint trigger DEFERRABLE INITIALLY DEFERRED,
+      # P0405) en sus 4 formas + el caso que DEBE pasar (transferencia +
+      # vaciado de cuenta), owner sin vencimiento (P0406), espejo
+      # account_members.role y auditoría role.assigned/role.revoked.
+      - name: Run v3-rbac-multirole account owner invariant gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_account_owner_invariant.sql
+
+      # v3-rbac-multirole Parte A, grupo 5 (D3): los 4 RPCs de membresía
+      # reescritos escribiendo a través del pivot (change_member_role,
+      # remove_member, accept_invitation, my_account_role) con firma/
+      # contrato/orden de validaciones intactos, el hallazgo 6.3b de
+      # handle_new_user (sin el cual todo signup nuevo rompería con P0405),
+      # y el candado anti-overload (gotcha 42725).
+      - name: Run v3-rbac-multirole membership RPCs pivot rewrite gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_membership_rpcs_pivot_rewrite.sql

@@ -164,11 +164,14 @@ _BUSINESS_ERRCODE_STATUS = {
     # del lote) nunca sale de `rpc_import_expenses` — se captura dentro de su
     # propio EXCEPTION y no necesita entrada acá.
     "P0427": 422,
-    # importador-productos-fastapi: P0430 queda RESERVADO para el rechazo
-    # por límite de plan al importar (D5/OQ-1 del design) — el gate de plan
-    # NO se escribió en este change porque OQ-1 no tiene sign-off del PO
-    # (tasks.md 4.7). `rpc_import_products` no lo emite hoy; el mapeo queda
-    # listo para cuando ese sign-off llegue, sin requerir un ERRCODE nuevo.
+    # importador-gate-plan (2026-09-11): el gate de plan por límite de
+    # productos al importar (D5/OQ-1 del design archivado de
+    # importador-productos-fastapi) YA ESTÁ implementado en
+    # `rpc_import_products`, con el sign-off del PO del 2026-09-11 — pero el
+    # rechazo viaja por el RETURN normal (`committed: false` +
+    # `plan.exceeded: true`), NUNCA por excepción. `P0430` sigue RESERVADO
+    # por si algún camino futuro necesitara levantarlo como error de
+    # protocolo; hoy nada lo emite.
     "P0430": 403,
 }
 

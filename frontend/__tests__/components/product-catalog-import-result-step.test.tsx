@@ -19,10 +19,10 @@
  */
 
 import React from "react"
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
-import type { Product } from "@/lib/types"
+import type { Product, ProductImportPlanVerdict } from "@/lib/types"
 import type { RawImportRow } from "@/lib/import/types"
 
 // importador-productos-fastapi (fix de CI, misma causa que #542): el diálogo
@@ -99,17 +99,30 @@ const product: Product = {
 const { ProductCatalog } = await import("@/components/products/product-catalog")
 
 describe("ProductCatalog — paso 3 del importador queda visible tras confirmar", () => {
+  // `mutateAsyncMock` es un mock de módulo compartido entre TODOS los `it()`
+  // de este archivo (no hay `clearMocks`/`resetMocks` en vitest.config.ts):
+  // sin este reset, la 2ª prueba en adelante encontraría la cola de
+  // `mockResolvedValueOnce` de la prueba anterior ya consumida y el conteo
+  // de llamadas acumulado rompería los `toHaveBeenCalledTimes`.
+  beforeEach(() => {
+    mutateAsyncMock.mockReset()
+  })
+
   it("no cierra el diálogo al terminar el lote — el resultado se ve", async () => {
     mutateAsyncMock
       // Simulación (dryRun: true) al entrar al paso 2.
       .mockResolvedValueOnce({
         committed: true, importId: null, inserted: 1, updated: 0,
-        errors: [], newCategories: [], replayed: false, dryRun: true,
+        errors: [], newCategories: [],
+        plan: { plan: "gratis", limit: 100, before: 1, after: 2, added: 1, exceeded: false },
+        replayed: false, dryRun: true,
       })
       // Confirmación real (dryRun: false).
       .mockResolvedValueOnce({
         committed: true, importId: "imp-1", inserted: 1, updated: 0,
-        errors: [], newCategories: [], replayed: false, dryRun: false,
+        errors: [], newCategories: [],
+        plan: { plan: "gratis", limit: 100, before: 1, after: 2, added: 1, exceeded: false },
+        replayed: false, dryRun: false,
       })
 
     render(
@@ -145,5 +158,70 @@ describe("ProductCatalog — paso 3 del importador queda visible tras confirmar"
     expect(await screen.findByText(/1 producto importado correctamente/i)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /cerrar/i })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /importar otro archivo/i })).toBeInTheDocument()
+  })
+
+  // Revisión adversarial, ronda 2 (finding minor #6): la nota "Te quedan N
+  // productos en tu plan" del paso 3 (`ProductImportDialog`, bloque
+  // `totalErr === 0 && planVerdict?.limit != null`) pluraliza con la MISMA
+  // expresión que ya cubre visualmente CHANGES.md («Te quedan 3
+  // productos…» / «Te quedan 1 producto…», medido en la pasada visual de
+  // `importador-gate-plan`) — hasta este change ningún test automatizado la
+  // ejercitaba en ninguno de sus tres casos (singular, plural, sin tope).
+  async function importOneProductWithPlan(plan: ProductImportPlanVerdict | null) {
+    const confirmResult = {
+      committed: true, importId: "imp-1", inserted: 1, updated: 0,
+      errors: [], newCategories: [], plan, replayed: false, dryRun: false,
+    }
+    mutateAsyncMock
+      // Simulación (dryRun: true) al entrar al paso 2 — mismo veredicto que
+      // el de la confirmación: un replay no recomputa nada distinto acá.
+      .mockResolvedValueOnce({ ...confirmResult, importId: null, dryRun: true })
+      .mockResolvedValueOnce(confirmResult)
+
+    render(
+      <ProductCatalog
+        products={[product]}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onAddVariant={vi.fn()}
+        onDelete={async () => {}}
+        isAtLimit={false}
+        onImportComplete={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: /importar csv/i }))
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(["Nombre\nProducto nuevo"], "productos.csv", { type: "text/csv" })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await screen.findByText(/filas ·/i)
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalledTimes(1))
+    const confirmButton = await screen.findByRole("button", { name: /importar 1 fila/i })
+    fireEvent.click(confirmButton)
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalledTimes(2))
+
+    // Ancla del paso 3 — sin esto, un `findByText` de la nota podría
+    // resolver antes de que React termine de pintar el paso.
+    expect(await screen.findByText(/1 producto importado correctamente/i)).toBeInTheDocument()
+  }
+
+  it("nota del paso 3 en singular cuando limit - after === 1", async () => {
+    await importOneProductWithPlan({ plan: "gratis", limit: 100, before: 98, after: 99, added: 1, exceeded: false })
+
+    expect(await screen.findByText("Te quedan 1 producto en tu plan gratis.")).toBeInTheDocument()
+  })
+
+  it("nota del paso 3 en plural cuando limit - after !== 1", async () => {
+    await importOneProductWithPlan({ plan: "gratis", limit: 100, before: 96, after: 97, added: 1, exceeded: false })
+
+    expect(await screen.findByText("Te quedan 3 productos en tu plan gratis.")).toBeInTheDocument()
+  })
+
+  it("no renderiza la nota cuando plan es null (ventana de deploy sin veredicto)", async () => {
+    await importOneProductWithPlan(null)
+
+    expect(screen.queryByText(/Te quedan/i)).not.toBeInTheDocument()
   })
 })

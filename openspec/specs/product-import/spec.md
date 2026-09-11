@@ -166,6 +166,43 @@ El tope SHALL fijarse por encima del uso real observado (el mayor lote real y el
 - **WHEN** se importa un lote sin ninguna fila
 - **THEN** la importación es rechazada y no se escribe nada
 
+### Requirement: La importación respeta el límite de productos del plan
+
+El sistema SHALL evaluar el límite de productos del plan efectivo de la cuenta sobre el **estado resultante** de la importación —después de aplicar el lote, nunca calculándolo por adelantado sobre las filas del archivo— y SHALL rechazar el lote entero cuando la importación **agrega** productos y el conteo resultante supera ese límite.
+
+Una importación que sólo actualiza productos existentes, sin aumentar el conteo de productos vivos de la cuenta, NOT SHALL rechazarse por este motivo, aunque la cuenta ya tenga más productos que el límite de su plan: el límite acota la creación, no la corrección de un catálogo que ya existe.
+
+Cuando el rechazo ocurre, el sistema NOT SHALL escribir nada del lote —ni productos, ni categorías, ni existencias, ni la fila de importación, ni la marca de idempotencia—: la cuenta conserva los productos que ya tenía, y sólo queda impedida de agregar más hasta reducir su catálogo o cambiar de plan.
+
+El veredicto del límite de plan —el plan efectivo, su tope, el conteo antes y después de la importación, cuántos productos agregaría y si excede el tope— SHALL viajar en el resultado del lote, tanto en la simulación como en la confirmación real, para que la superficie pueda anunciarlo antes de que el usuario intente confirmar.
+
+#### Scenario: Cuenta excedida que sólo actualiza no se bloquea
+
+- **GIVEN** una cuenta cuyo conteo de productos ya supera el límite de su plan
+- **WHEN** se importa un archivo cuyas filas actualizan únicamente productos existentes de esa cuenta
+- **THEN** el lote se aplica
+- **AND** el veredicto informa que el límite no se excedió
+
+#### Scenario: Cuenta excedida que agrega se bloquea entera
+
+- **GIVEN** una cuenta cuyo conteo de productos ya supera el límite de su plan
+- **WHEN** se importa un archivo que agrega al menos un producto nuevo
+- **THEN** el lote se rechaza entero
+- **AND** no se escribe ningún producto, categoría, existencia ni fila de importación
+
+#### Scenario: La simulación informa el mismo veredicto de límite
+
+- **GIVEN** un archivo cuya importación real excedería el límite del plan
+- **WHEN** se solicita su simulación
+- **THEN** el veredicto informa el mismo límite excedido, con el conteo antes y después
+- **AND** no se escribe nada
+
+#### Scenario: Cruzar el límite al agregar bloquea el lote
+
+- **GIVEN** una cuenta cuyo conteo de productos está por debajo del límite de su plan
+- **WHEN** se importa un archivo que agrega productos suficientes para superar ese límite
+- **THEN** el lote se rechaza entero, aunque antes de la importación la cuenta no estuviera excedida
+
 ### Requirement: La importación es idempotente por clave y deduplicada por archivo
 
 El sistema SHALL exigir una clave de idempotencia en la petición de importación y SHALL devolver el resultado del lote original —sin escribir de nuevo— cuando la misma clave se reintenta.

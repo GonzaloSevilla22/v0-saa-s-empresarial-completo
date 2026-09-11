@@ -70,7 +70,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mutateAsyncMock.mockResolvedValue({
     committed: true, importId: null, inserted: 1, updated: 0,
-    errors: [], newCategories: [], replayed: false, dryRun: true,
+    errors: [], newCategories: [],
+    // importador-gate-plan (OQ-1, sign-off PO 2026-09-11): siempre presente.
+    plan: { plan: "gratis", limit: 100, before: 0, after: 1, added: 1, exceeded: false },
+    replayed: false, dryRun: true,
   })
   rowsByFile["uno.csv"] = [raw({ lineNumber: 2, nombre: "ARCHIVO-UNO" })]
   rowsByFile["dos.csv"] = [raw({ lineNumber: 2, nombre: "ARCHIVO-DOS" })]

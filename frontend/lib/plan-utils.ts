@@ -90,3 +90,22 @@ export const PLAN_DISPLAY_NAMES: Record<Plan, string> = {
   avanzado: "Avanzado",
   pro:      "Pro",
 }
+
+/**
+ * Mensaje de rechazo por tope de productos del plan (revisión adversarial,
+ * ronda 2, de `importador-gate-plan`) — molde de `newCategoryLimitMessage`
+ * (`lib/import/validator.ts`). Antes de este helper, la oración vivía
+ * literal y por separado en dos superficies que bloquean el MISMO límite
+ * (`ProductRepository.count_by_org`, mismo predicado en las dos): el alta
+ * de un producto a la vez y la importación por lote. Ahora sólo la
+ * consume `ProductImportDialog` (el importador), porque la del alta de a
+ * uno **vive en el backend**: `backend/services/products.py` (función
+ * `create_product`, ~línea 93) devuelve el `HTTPException.detail` ya
+ * armado como string — no hay ningún literal de cliente que reemplazar
+ * ahí. Este comentario fija la equivalencia: si cambia la redacción acá,
+ * cambiar también el f-string de esa línea (no hay forma automática de
+ * sincronizar Python y TypeScript).
+ */
+export function planProductLimitMessage({ plan, limit }: { plan: string; limit: number }): string {
+  return `Límite de productos alcanzado para el plan ${plan} (${limit} máx.). Borrá productos existentes o subí de plan.`
+}

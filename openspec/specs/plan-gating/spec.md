@@ -308,6 +308,11 @@ Cuando el plan efectivo de una cuenta baja y sus recursos existentes superan el 
 - **WHEN** edita o borra uno de sus productos
 - **THEN** la operación es permitida
 
+#### Scenario: Actualizar por lote un catálogo excedido no cuenta como creación
+- **GIVEN** una cuenta cuyo conteo de productos ya supera el límite de su plan
+- **WHEN** importa por lote un archivo cuyas filas actualizan únicamente productos que ya existían en la cuenta
+- **THEN** la importación se aplica, porque ninguna fila crea un producto nuevo
+
 ### Requirement: El límite de historial es enforceable en el servidor, no sólo en la interfaz
 
 `plan_limits.history_days` SHALL tratarse como un límite **enforceable**, no como una sugerencia de presentación: todo read-model que exponga una ventana temporal elegida por el usuario SHALL recortar esa ventana al historial que el plan de la cuenta habilita, dentro del propio read-model.

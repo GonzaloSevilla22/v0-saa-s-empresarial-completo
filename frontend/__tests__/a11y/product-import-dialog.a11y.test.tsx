@@ -43,7 +43,10 @@ vi.mock("@/lib/import/parser", () => ({
 const mutateAsyncMock = vi.fn(async () => ({
   committed: false, importId: null, inserted: 0, updated: 0,
   errors: [] as Array<{ row: number | null; message: string }>,
-  newCategories: [], replayed: false, dryRun: true,
+  newCategories: [],
+  // importador-gate-plan (OQ-1, sign-off PO 2026-09-11): siempre presente.
+  plan: { plan: "gratis", limit: 100, before: 0, after: 0, added: 0, exceeded: false },
+  replayed: false, dryRun: true,
 }))
 vi.mock("@/hooks/data/use-products", () => ({
   useImportProducts: () => ({
@@ -125,5 +128,31 @@ describe("ProductImportDialog — accesibilidad (task 9.8)", () => {
     expect(reason).not.toBeNull()
     expect(reason).toHaveTextContent(/fila con error/i)
     expect(reason).toHaveTextContent(/todo o nada/i)
+  })
+
+  it("el bloqueo por límite de plan también asocia el botón deshabilitado a su motivo vía aria-describedby (OQ-1, sign-off PO 2026-09-11)", async () => {
+    parsedRows = [raw({ lineNumber: 2, nombre: "Producto nuevo" })]
+    mutateAsyncMock.mockResolvedValueOnce({
+      committed: false, importId: null, inserted: 0, updated: 0,
+      errors: [],
+      newCategories: [],
+      plan: { plan: "gratis", limit: 100, before: 100, after: 101, added: 1, exceeded: true },
+      replayed: false, dryRun: true,
+    })
+    await openWithFile()
+    await waitFor(() => expect(mutateAsyncMock).toHaveBeenCalled())
+
+    const button = await screen.findByRole("button", { name: /importar/i })
+    expect(button).toBeDisabled()
+
+    const describedById = button.getAttribute("aria-describedby")
+    expect(describedById).toBe("product-import-plan-summary")
+    const reason = document.getElementById(describedById as string)
+    expect(reason).not.toBeNull()
+    expect(reason).toHaveTextContent(/límite de productos/i)
+    expect(reason).toHaveTextContent(/gratis/i)
+
+    // El CTA "Ver planes" está adentro del mismo bloque de motivo.
+    expect(reason).toHaveTextContent(/ver planes/i)
   })
 })

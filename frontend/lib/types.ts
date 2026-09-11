@@ -617,6 +617,23 @@ export interface ProductImportNewCategory {
   rows: number
 }
 
+/**
+ * Veredicto del límite de productos del plan — espejo de
+ * `ProductImportPlanVerdictOut` (importador-gate-plan, OQ-1, sign-off del
+ * PO 2026-09-11). La RPC lo computa en TODO camino, incluidos los dos
+ * replays (donde `before === after` y `exceeded` es `false` porque un
+ * replay no escribe). `limit === null` significa "el plan no tiene tope
+ * configurado" (sin gate) — no es un error de transporte.
+ */
+export interface ProductImportPlanVerdict {
+  plan: string
+  limit: number | null
+  before: number
+  after: number
+  added: number
+  exceeded: boolean
+}
+
 /** Payload de `POST /products/import` — espejo de `ProductImportIn`. */
 export interface ProductImportInput {
   fileName: string
@@ -625,7 +642,17 @@ export interface ProductImportInput {
   rows: ProductImportRow[]
 }
 
-/** Reporte del lote — espejo de `ProductImportOut`. SIEMPRE HTTP 200. */
+/**
+ * Reporte del lote — espejo de `ProductImportOut`. SIEMPRE HTTP 200.
+ *
+ * `plan: null` (corrección de revisión, ronda 1 adversarial): sólo ocurre
+ * durante una ventana de deploy en la que el backend ya se redesplegó pero
+ * la migración `20261046000001` todavía no corrió contra la DB (Render y
+ * `supabase db push` avanzan por caminos independientes) — la RPC vieja no
+ * trae `plan` y el backend lo degrada a `null` en vez de romper el
+ * endpoint entero. El diálogo simplemente no puede bloquear por plan ese
+ * instante (mismo comportamiento que antes de este fix).
+ */
 export interface ProductImportResult {
   committed: boolean
   importId: string | null
@@ -633,6 +660,7 @@ export interface ProductImportResult {
   updated: number
   errors: ProductImportRowIssue[]
   newCategories: ProductImportNewCategory[]
+  plan: ProductImportPlanVerdict | null
   replayed: boolean
   dryRun: boolean
 }

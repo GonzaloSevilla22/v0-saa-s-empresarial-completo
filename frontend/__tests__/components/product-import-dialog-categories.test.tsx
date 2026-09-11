@@ -42,6 +42,11 @@ let categoriesMock = [
 // entrar (D7) — por default, sin errores ni categorías propias (el aviso de
 // categorías nuevas del cliente sigue mostrándose hasta que este veredicto
 // llegue; los tests que lo necesitan lo esperan explícitamente con waitFor).
+// importador-gate-plan (OQ-1, sign-off PO 2026-09-11): `plan` viaja SIEMPRE
+// en el reporte del servidor — sin gate en juego en estos tests (categorías
+// nuevas), así que "exceeded: false" con margen amplio.
+const PLAN_OK = { plan: "gratis", limit: 100, before: 0, after: 0, added: 0, exceeded: false }
+
 let dryRunResult = {
   committed: false,
   importId: null,
@@ -49,6 +54,7 @@ let dryRunResult = {
   updated: 0,
   errors: [] as Array<{ row: number | null; message: string }>,
   newCategories: [] as Array<{ name: string; rows: number }>,
+  plan: PLAN_OK,
   replayed: false,
   dryRun: true,
 }
@@ -119,7 +125,7 @@ describe("ProductImportDialog — categorías nuevas en el paso de revisión", (
     ]
     dryRunResult = {
       committed: false, importId: null, inserted: 0, updated: 0,
-      errors: [], newCategories: [], replayed: false, dryRun: true,
+      errors: [], newCategories: [], plan: PLAN_OK, replayed: false, dryRun: true,
     }
   })
 

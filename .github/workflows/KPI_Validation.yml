@@ -764,6 +764,14 @@ jobs:
           # mismo fingerprint de las 4 funciones y mismas ACLs.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261045000001_operacion_party_guard.sql
 
+          # importador-gate-plan (2026-09-11, cierra OQ-1/task 4.7 de
+          # importador-productos-fastapi con sign-off del PO): CREATE OR
+          # REPLACE puro sobre rpc_import_products, MISMA firma (sin DROP,
+          # ACLs re-emitidas idénticas) — reaplicada localmente 3 veces
+          # consecutivas (1 alta + 2 reaplicaciones) sin error, una sola
+          # definición viva y mismas ACLs.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261046000001_importador_gate_plan.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1711,6 +1719,19 @@ jobs:
       # authenticated) al levantar el stack — este paso sólo corre el gate.
       - name: Run importador-productos-fastapi gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_import_batch.sql
+
+      # importador-gate-plan (2026-09-11): `supabase start` ya aplicó
+      # 20261046000001 (rpc_import_products gana el gate de plan sobre el
+      # estado RESULTANTE, D5/OQ-1 con sign-off del PO) al levantar el
+      # stack — este paso sólo corre el gate. 11 escenarios (a-k): exacto en
+      # el tope bloquea, sólo-actualizaciones nunca bloquea aunque ya esté
+      # excedida, llegar exacto al tope pasa, cruzarlo bloquea, borrados no
+      # cuentan, plan pro con tope mayor pasa, dry_run informa el mismo
+      # veredicto sin escribir, ACL/definición única intacta, el mismo
+      # bloqueo (a) bajo `SET LOCAL ROLE authenticated`, y los 4 planes del
+      # CHECK vivo con fila en `plan_limits`.
+      - name: Run importador-gate-plan gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_product_import_plan_gate.sql
 
       # operacion-party-guard (2026-09-10, último candidato de código del
       # programa "cero candidatos" — cierra OQ-4 de cuenta-corriente-party-

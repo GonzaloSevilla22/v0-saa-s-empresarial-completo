@@ -6,6 +6,7 @@ import asyncpg
 from fastapi import HTTPException
 
 from backend.core.guards import require_account_role
+from backend.core.rbac import CAN_CONFIGURE
 from backend.repositories.product_category_repository import ProductCategoryRepository
 
 _WS = re.compile(r"\s+")
@@ -55,7 +56,7 @@ async def create_product_category(
     create_payment_method), con defensa en profundidad vía RLS writer_insert.
     El unique de la DB es la fuente de verdad del duplicado; acá sólo se
     traduce el 23505 a un 409 legible que nombra la categoría."""
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     normalised = normalize_category_name(name)
     if normalised is None:
         raise HTTPException(status_code=422, detail="El nombre de la categoría no puede estar vacío")
@@ -82,7 +83,7 @@ async def update_product_category(
     """Renombrar / reordenar / reactivar. Requiere owner/admin. Una categoría
     inexistente, borrada o de OTRA cuenta devuelve el mismo 404 (el repo
     scopea por account_id) sin revelar en cuál de los tres casos cayó."""
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     normalised = name
     if name is not None:
         normalised = normalize_category_name(name)
@@ -131,7 +132,7 @@ async def set_default_product_category(
     repo.get_default_category_id(account_id) evita devolver optimistamente
     un category_id que el GET siguiente no confirmaría (hallazgo F5 del
     revisor adversarial, tanda candidatos-db-backend, 2026-09-08)."""
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     await repo.set_default_category_id(category_id)
     resolved = await repo.get_default_category_id(account_id)
     return {"default_category_id": resolved}
@@ -148,7 +149,7 @@ async def deactivate_product_category(
     """Baja lógica reversible (D3): deja de ofrecerse en los selectores de
     altas nuevas; los productos ya imputados conservan su category_id y su
     nombre sigue siendo legible. Requiere owner/admin."""
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     record = await repo.deactivate(category_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
@@ -166,7 +167,7 @@ async def delete_product_category(
     """Soft delete como maestro (soft-delete-policy RN-B1/RN-B2): deleted_at +
     deleted_by vía el helper centralizado. Nunca DELETE físico — la FK
     ON DELETE RESTRICT de products.category_id lo impediría igual."""
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     deleted = await repo.soft_delete("product_categories", category_id, account_id, auth["user_id"])
     if not deleted:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")

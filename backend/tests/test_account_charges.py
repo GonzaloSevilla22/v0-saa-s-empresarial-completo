@@ -196,7 +196,7 @@ class TestAccountChargeServiceCustomer:
         repo = AsyncMock()
         repo.update_customer_charge_due_date = AsyncMock(return_value=CUSTOMER_RPC_RESULT)
         auth = _make_auth(None)
-        conn = _make_conn(fallback_role="owner")
+        conn = _make_conn(fallback_role=["owner"])
 
         result = await update_customer_charge_due_date(
             repo, auth,

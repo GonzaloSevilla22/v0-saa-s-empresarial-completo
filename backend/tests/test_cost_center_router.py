@@ -196,7 +196,7 @@ class TestCostCenterCreateEndpoint:
         → 201 igual (camino de transición, sin default permisivo)."""
         pool, conn = mock_pool
         conn.fetchrow = AsyncMock(return_value=CC_ROW)
-        conn.fetchval = AsyncMock(return_value="owner")  # fallback DB de require_account_role
+        conn.fetchval = AsyncMock(return_value=["owner"])  # fallback DB de require_account_role (v3-rbac-multirole Parte B: rpc_my_active_account_roles devuelve un array)
         legacy_token = make_token({})  # sin app_metadata.account_role
 
         with patch("backend.core.database.pool", pool):

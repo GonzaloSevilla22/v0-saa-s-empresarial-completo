@@ -17,12 +17,24 @@ class ClaimsStatusOut(BaseModel):
     account_role_claim_present: bool = Field(
         ..., description="True si app_metadata.account_role viajó en el JWT."
     )
+    account_roles_claim_present: bool = Field(
+        ..., description="True si app_metadata.account_roles (conjunto) viajó en el JWT."
+    )
     plan_claim_present: bool = Field(
         ..., description="True si app_metadata.plan viajó en el JWT."
     )
     effective_role: str = Field(..., description="Rol de plataforma efectivo (claim o fallback).")
     effective_account_role: str | None = Field(
         None, description="Rol de tenant efectivo (claim; sin fallback en el JWT — None si ausente)."
+    )
+    effective_account_roles: list[str] | None = Field(
+        None,
+        description=(
+            "Conjunto de roles de tenant efectivos (claim account_roles; sin fallback en el JWT "
+            "— None si ausente). Bug fix humo v3-rbac-multirole 2026-09-12: get_claims_status ya "
+            "devolvía este campo, pero ClaimsStatusOut no lo declaraba y FastAPI lo descartaba al "
+            "serializar la respuesta HTTP real."
+        ),
     )
     effective_plan: str = Field(..., description="Plan efectivo (claim o fallback de transición 'pro').")
     source: str = Field(

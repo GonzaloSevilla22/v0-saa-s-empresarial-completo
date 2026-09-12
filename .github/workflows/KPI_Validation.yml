@@ -812,6 +812,19 @@ jobs:
           # fantasma en ninguna de las 4 funciones reescritas + 3 nuevas.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261049000001_v3_rbac_multirole_parte_c.sql
 
+          # membership-quota-effective-plan (2026-09-12, fix de un humo de
+          # aceptación de v3-rbac-multirole -- bug 1 HIGH): idempotente --
+          # CREATE OR REPLACE puro en las 3 funciones de arriba (rpc_invite_
+          # member × 2, rpc_accept_invitation), MISMAS firmas, MISMAS ACLs --
+          # el único cambio de comportamiento es resolver el cupo contra
+          # public.get_effective_plan(account_id) en vez de accounts.
+          # billing_plan crudo (toda cuenta nueva nace 'gratis' + trial
+          # 'pro' vigente, y con el cupo crudo no podía invitar a nadie
+          # durante el trial). Reaplicada localmente 2 veces consecutivas:
+          # EXIT=0 las dos, mismo fingerprint de las 3 funciones y mismas
+          # ACLs, sin overload fantasma.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261050000001_membership_quota_effective_plan.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar

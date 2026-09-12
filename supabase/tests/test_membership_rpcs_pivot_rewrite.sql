@@ -423,6 +423,18 @@ END $$;
 --    Fase 13c sólo mira el backfill del pivot, que la Parte C no toca).
 \i supabase/migrations/20261049000001_v3_rbac_multirole_parte_c.sql
 
+-- ── Fase 13b-reconverge-2 (membership-quota-effective-plan, humo
+--    v3-rbac-multirole bug 1, 2026-09-12): el \i de la Parte C de arriba
+--    reaplica el CUERPO ORIGINAL de rpc_invite_member (ambos overloads) y
+--    rpc_accept_invitation -- el mismo que leía accounts.billing_plan
+--    CRUDO en vez de public.get_effective_plan() para el cupo. Sin este
+--    reconverge, correr ESTE gate en cualquier momento DESPUÉS de que el
+--    fix esté aplicado revierte las 3 funciones al bug (cupo contra el
+--    plan crudo, toda cuenta nueva sin poder invitar durante el trial)
+--    para el resto de la corrida de CI -- mismo mecanismo exacto que el
+--    reconverge de la Parte C de arriba.
+\i supabase/migrations/20261050000001_membership_quota_effective_plan.sql
+
 -- ── Fase 13c: assert contra lo que la migración REAL dejó ───────────────────
 DO $$
 DECLARE

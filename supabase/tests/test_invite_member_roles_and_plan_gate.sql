@@ -31,6 +31,34 @@
 --   (12) rpc_accept_invitation: el caller YA es miembro de la cuenta de la
 --        invitación -> P0409 (ronda 1 adversarial, finding NIT: P0001 ->
 --        P0409, texto conservado).
+--
+-- membership-quota-effective-plan (humo v3-rbac-multirole, bug 1,
+-- 2026-09-12) -- el cupo se evalúa contra el plan EFECTIVO
+-- (public.get_effective_plan), no accounts.billing_plan crudo:
+--   (13) Cuenta 'gratis' con trial 'pro' VIGENTE (estado real de TODA
+--        cuenta nueva, billing-pro-trial): invitar al 2º miembro PASA --
+--        el cupo es el del trial (10), no el de 'gratis' (1, ya ocupado
+--        por el owner).
+--   (13b) Ronda 3 adversarial (finding NIT): el mismo cupo EFECTIVO,
+--        ejercitado EN CONDUCTA sobre el overload de 2 args de
+--        rpc_invite_member (el que invoca de verdad TeamSection.tsx) -- el
+--        overload de 3 args ya se ejercita en conducta en (13); el de 2
+--        args sólo estaba cubierto por el candado de texto (16).
+--   (14) Cuenta 'gratis' con trial VENCIDO (o sin trial): el efectivo
+--        degrada a 'gratis' -> cupo 1, ya a tope con el owner -> P0402 al
+--        invitar.
+--   (15) rpc_accept_invitation respeta el MISMO cupo efectivo, evaluado de
+--        nuevo al aceptar (no heredado del momento de invitar): una
+--        invitación creada mientras el trial estaba vigente se rechaza con
+--        P0402 si el trial vence ANTES de que se acepte.
+--   (16) Ninguna de las 4 funciones (rpc_invite_member × 2, rpc_accept_
+--        invitation, rpc_create_branch) lee accounts.billing_plan crudo --
+--        candado de texto (regex sobre pg_get_functiondef sin comentarios)
+--        que asegura que el fix no se revierta en silencio en una
+--        reescritura futura. rpc_create_branch sumada en ronda 3 adversarial
+--        (finding MINOR): mismo bug lateral, misma migración
+--        (20261050000001) -- ver también supabase/tests/
+--        test_sucursal_guard_vaciado.sql (G3a/G3b) para la conducta.
 -- =============================================================================
 
 DO $$
@@ -49,11 +77,21 @@ DECLARE
   v_a4_owner_uid  uuid := gen_random_uuid();
   v_a4_filler_uid uuid := gen_random_uuid();
   v_a4_account    uuid;
+  -- A5: plan 'gratis' con trial 'pro' VIGENTE (estado real de TODA cuenta
+  -- nueva, billing-pro-trial) -- bloques 13 y 15 (membership-quota-
+  -- effective-plan).
+  v_a5_owner_uid   uuid := gen_random_uuid();
+  v_a5_invitee_uid uuid := gen_random_uuid();
+  v_a5_account     uuid;
+  -- A6: plan 'gratis' con trial VENCIDO -- bloque 14.
+  v_a6_owner_uid  uuid := gen_random_uuid();
+  v_a6_account    uuid;
   v_result        jsonb;
   v_result_json   json;
   v_caught_code   text;
   v_caught_msg    text;
   v_inv_token     text;
+  v_def           text;
   v_account_ids   uuid[];
   v_orphans       int;
 BEGIN
@@ -63,6 +101,9 @@ BEGIN
     INSERT INTO auth.users (id, email) VALUES (v_a2_admin_uid, 'gate-invite-a2-admin@test.local');
     INSERT INTO auth.users (id, email) VALUES (v_a4_owner_uid, 'gate-invite-a4-owner@test.local');
     INSERT INTO auth.users (id, email) VALUES (v_a4_filler_uid, 'gate-invite-a4-filler@test.local');
+    INSERT INTO auth.users (id, email) VALUES (v_a5_owner_uid, 'gate-invite-a5-owner@test.local');
+    INSERT INTO auth.users (id, email) VALUES (v_a5_invitee_uid, 'gate-invite-a5-invitee@test.local');
+    INSERT INTO auth.users (id, email) VALUES (v_a6_owner_uid, 'gate-invite-a6-owner@test.local');
   EXCEPTION WHEN OTHERS THEN
     RAISE NOTICE 'GATE DEGRADED: no se pudieron crear los usuarios ancla (%). Se aborta el gate.', SQLERRM;
     RETURN;
@@ -71,15 +112,35 @@ BEGIN
   SELECT account_id INTO v_a1_account FROM account_members WHERE user_id = v_a1_owner_uid;
   SELECT account_id, id INTO v_a2_account, v_a2_owner_member FROM account_members WHERE user_id = v_a2_owner_uid;
   SELECT account_id INTO v_a4_account FROM account_members WHERE user_id = v_a4_owner_uid;
+  SELECT account_id INTO v_a5_account FROM account_members WHERE user_id = v_a5_owner_uid;
+  SELECT account_id INTO v_a6_account FROM account_members WHERE user_id = v_a6_owner_uid;
 
-  IF v_a1_account IS NULL OR v_a2_account IS NULL OR v_a4_account IS NULL THEN
+  IF v_a1_account IS NULL OR v_a2_account IS NULL OR v_a4_account IS NULL
+     OR v_a5_account IS NULL OR v_a6_account IS NULL THEN
     RAISE NOTICE 'GATE DEGRADED: handle_new_user no aprovisionó alguna cuenta ancla. Se aborta el gate.';
     RETURN;
   END IF;
 
-  UPDATE accounts SET billing_plan = 'gratis'   WHERE id = v_a1_account;
-  UPDATE accounts SET billing_plan = 'avanzado' WHERE id = v_a2_account;
-  UPDATE accounts SET billing_plan = 'inicial'  WHERE id = v_a4_account;
+  -- membership-quota-effective-plan (bug 1, 2026-09-12): handle_new_user
+  -- siembra TODA cuenta nueva con trial_plan='pro' vigente (30 días) --
+  -- ahora que el cupo se evalúa contra el plan EFECTIVO (get_effective_
+  -- plan), un trial vigente le ganaría a billing_plan y estas 3 cuentas
+  -- dejarían de comportarse como 'gratis'(1)/'avanzado'(5)/'inicial'(2)
+  -- crudos. Se apaga el trial explícitamente en las 3 -- A1/A2/A4 siguen
+  -- probando billing_plan puro (sin trial); A5/A6 (abajo) son las únicas
+  -- que ejercitan el trial a propósito.
+  UPDATE accounts SET billing_plan = 'gratis',   trial_plan = NULL, trial_expires_at = NULL WHERE id = v_a1_account;
+  UPDATE accounts SET billing_plan = 'avanzado', trial_plan = NULL, trial_expires_at = NULL WHERE id = v_a2_account;
+  UPDATE accounts SET billing_plan = 'inicial',  trial_plan = NULL, trial_expires_at = NULL WHERE id = v_a4_account;
+  -- A5: 'gratis' + trial 'pro' vigente (10 días) -- exactamente el estado
+  -- con el que handle_new_user aprovisiona toda cuenta nueva (no hace
+  -- falta simularlo -- ya nace así; se fija el vencimiento explícito para
+  -- que el gate no dependa de la ventana de 30 días real).
+  UPDATE accounts SET billing_plan = 'gratis', trial_plan = 'pro',
+    trial_expires_at = now() + interval '10 days' WHERE id = v_a5_account;
+  -- A6: 'gratis' con trial VENCIDO -- el efectivo degrada a 'gratis' (cupo 1).
+  UPDATE accounts SET billing_plan = 'gratis', trial_plan = 'pro',
+    trial_expires_at = now() - interval '1 day' WHERE id = v_a6_account;
 
   -- A2: 2º miembro real con rol admin (para el bloque 6).
   INSERT INTO account_members (id, account_id, user_id, role)
@@ -240,6 +301,144 @@ BEGIN
     END IF;
   END IF;
 
+  -- ═══ membership-quota-effective-plan (humo v3-rbac-multirole, bug 1, ══════
+  --     2026-09-12) -- bloques 13-15: A5 (gratis + trial pro vigente) y A6
+  --     (gratis + trial vencido).
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a5_owner_uid::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_a5_owner_uid THEN
+    RAISE NOTICE 'GATE DEGRADED: auth.uid() no resuelve al owner de A5 -- se omiten los bloques 13 y 15.';
+  ELSE
+    -- ── (13) 'gratis' + trial 'pro' VIGENTE: invitar al 2º miembro PASA ────
+    --    (cupo del trial efectivo = 10, no el de 'gratis' crudo = 1, ya
+    --    ocupado por el owner). Sin este fix, TODA cuenta nueva quedaba sin
+    --    poder invitar durante los 30 días de trial.
+    v_result_json := public.rpc_invite_member('gate-invite-a5-invitee@test.local'::text, v_a5_account, ARRAY['viewer']::text[]);
+    IF v_result_json IS NULL THEN
+      RAISE EXCEPTION 'GATE FAILED (13): invitar en una cuenta gratis con trial pro VIGENTE fue rechazado -- el cupo debe ser el del plan EFECTIVO (bug 1, membership-quota-effective-plan).';
+    END IF;
+    v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
+    v_blocks_run := v_blocks_run + 1;
+    RAISE NOTICE 'PASS (13): rpc_invite_member -- cuenta gratis con trial pro vigente invita sin cupo agotado (plan EFECTIVO, no billing_plan crudo).';
+
+    -- ── (13b) rpc_invite_member(2-arg, TeamSection.tsx): MISMO trial VIGENTE ──
+    --    Ronda 3 adversarial (finding NIT): el overload de 3 args ya se
+    --    ejercita EN CONDUCTA arriba (13); el de 2 args -- el que invoca de
+    --    verdad TeamSection.tsx -- sólo estaba cubierto por el candado de
+    --    texto (16): si mañana alguien reescribe este overload llamando a
+    --    get_effective_plan y DESCARTA el resultado, (16) seguiría en verde
+    --    por texto aunque la conducta se rompa. Se invita un email DISTINTO,
+    --    todavía con el trial de A5 vigente (antes del UPDATE de (15) que lo
+    --    vence).
+    v_result_json := public.rpc_invite_member('gate-invite-a5-quick@test.local'::text, v_a5_account);
+    IF v_result_json IS NULL THEN
+      RAISE EXCEPTION 'GATE FAILED (13b): rpc_invite_member(2-arg) con trial pro VIGENTE fue rechazado -- debería usar el cupo EFECTIVO igual que el overload de 3 args.';
+    END IF;
+    v_blocks_run := v_blocks_run + 1;
+    RAISE NOTICE 'PASS (13b): rpc_invite_member(2-arg, TeamSection.tsx) también invita con el cupo EFECTIVO (trial pro vigente) -- en CONDUCTA, no sólo por candado de texto.';
+
+    -- ── (15) rpc_accept_invitation reevalúa el cupo EFECTIVO al aceptar ────
+    --    (no lo hereda del momento de invitar): se deja vencer el trial de
+    --    A5 ENTRE la invitación de arriba y la aceptación -- el efectivo
+    --    degrada a 'gratis' (cupo 1, ya a tope con el owner) -> P0402.
+    --    Prueba que rpc_accept_invitation llama a get_effective_plan() de
+    --    NUEVO, no reutiliza un valor cacheado de rpc_invite_member.
+    UPDATE accounts SET trial_expires_at = now() - interval '1 day' WHERE id = v_a5_account;
+
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a5_invitee_uid::text, 'role', 'authenticated')::text, true);
+    IF auth.uid() IS DISTINCT FROM v_a5_invitee_uid THEN
+      RAISE NOTICE 'GATE DEGRADED: auth.uid() no resuelve al aceptante del bloque 15.';
+    ELSE
+      BEGIN
+        PERFORM public.rpc_accept_invitation(v_inv_token);
+        RAISE EXCEPTION 'GATE FAILED (15): aceptar tras vencer el trial (efectivo degradado a gratis, cupo agotado) no fue rechazado.';
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS v_caught_code = RETURNED_SQLSTATE, v_caught_msg = MESSAGE_TEXT;
+        IF v_caught_code <> 'P0402' THEN
+          RAISE EXCEPTION 'GATE FAILED (15): esperaba P0402, dio % (%)', v_caught_code, v_caught_msg;
+        END IF;
+        IF v_caught_msg NOT ILIKE '%member quota reached%' THEN
+          RAISE EXCEPTION 'GATE FAILED (15): el texto del mensaje de cupo no se conservó: %', v_caught_msg;
+        END IF;
+      END;
+      v_blocks_run := v_blocks_run + 1;
+      RAISE NOTICE 'PASS (15): rpc_accept_invitation reevalúa el plan EFECTIVO al aceptar (no lo hereda del momento de invitar) -> P0402 cuando el trial venció entretanto.';
+    END IF;
+  END IF;
+
+  -- ── (14) 'gratis' + trial VENCIDO: el efectivo degrada a 'gratis' ─────────
+  --    (cupo 1, ya a tope con el owner) -> P0402 al invitar.
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a6_owner_uid::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_a6_owner_uid THEN
+    RAISE NOTICE 'GATE DEGRADED: auth.uid() no resuelve al owner de A6 -- se omite el bloque 14.';
+  ELSE
+    BEGIN
+      PERFORM public.rpc_invite_member('gate-invite-a6-x@test.local'::text, v_a6_account, ARRAY['viewer']::text[]);
+      RAISE EXCEPTION 'GATE FAILED (14): invitar con el trial VENCIDO (efectivo gratis, cupo agotado) no fue rechazado.';
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_caught_code = RETURNED_SQLSTATE, v_caught_msg = MESSAGE_TEXT;
+      IF v_caught_code <> 'P0402' THEN
+        RAISE EXCEPTION 'GATE FAILED (14): esperaba P0402, dio % (%)', v_caught_code, v_caught_msg;
+      END IF;
+      IF v_caught_msg NOT ILIKE '%member quota reached%' THEN
+        RAISE EXCEPTION 'GATE FAILED (14): el texto del mensaje de cupo no se conservó: %', v_caught_msg;
+      END IF;
+    END;
+    v_blocks_run := v_blocks_run + 1;
+    RAISE NOTICE 'PASS (14): rpc_invite_member -- trial vencido degrada el efectivo a gratis (cupo 1) -> P0402.';
+  END IF;
+
+  -- ── (16) candado de texto: ninguna de las 3 lee billing_plan crudo ────────
+  --    (regex sobre pg_get_functiondef SIN comentarios -- una mención del
+  --    identificador dentro de un comentario no es una lectura; mismo
+  --    patrón que ya usa test_tenancy_guard_caja_outbox.sql). Cada una debe,
+  --    además, llamar a get_effective_plan.
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_invite_member' AND p.pronargs = 2;
+  IF position('billing_plan' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(2-arg) todavía lee billing_plan crudo -- el fix de membership-quota-effective-plan se revirtió.';
+  END IF;
+  IF position('get_effective_plan' in v_def) = 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(2-arg) no llama a get_effective_plan.';
+  END IF;
+
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_invite_member' AND p.pronargs = 3;
+  IF position('billing_plan' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(3-arg) todavía lee billing_plan crudo -- el fix de membership-quota-effective-plan se revirtió.';
+  END IF;
+  IF position('get_effective_plan' in v_def) = 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_invite_member(3-arg) no llama a get_effective_plan.';
+  END IF;
+
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_accept_invitation';
+  IF position('billing_plan' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_accept_invitation todavía lee billing_plan crudo -- el fix de membership-quota-effective-plan se revirtió.';
+  END IF;
+  IF position('get_effective_plan' in v_def) = 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_accept_invitation no llama a get_effective_plan.';
+  END IF;
+
+  -- Ronda 3 adversarial (finding MINOR): rpc_create_branch tenía la MISMA
+  -- clase de bug lateral (max_branches/has_branches_module contra
+  -- billing_plan crudo) -- sumada al mismo candado de texto, misma
+  -- migración (20261050000001).
+  SELECT regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_create_branch';
+  IF position('billing_plan' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_create_branch todavía lee billing_plan crudo -- el fix de membership-quota-effective-plan (hallazgo lateral MINOR, ronda 3 adversarial) se revirtió.';
+  END IF;
+  IF position('get_effective_plan' in v_def) = 0 THEN
+    RAISE EXCEPTION 'GATE FAILED (16): rpc_create_branch no llama a get_effective_plan.';
+  END IF;
+
+  v_blocks_run := v_blocks_run + 1;
+  RAISE NOTICE 'PASS (16): ninguna de las 4 funciones lee billing_plan crudo -- las 4 resuelven el cupo/módulo contra get_effective_plan.';
+
   -- ═══ Sesión: admin de A2 -- bloque 6 ═══════════════════════════════════
   PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a2_admin_uid::text, 'role', 'authenticated')::text, true);
   IF auth.uid() IS DISTINCT FROM v_a2_admin_uid THEN
@@ -341,7 +540,7 @@ BEGIN
   -- (mismo patrón que #521 en test_admin_kpis.sql).
   RESET request.jwt.claims;
   SELECT array_agg(id) INTO v_account_ids
-  FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
+  FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
 
   SET session_replication_role = replica;
   DELETE FROM account_invitations WHERE account_id = ANY(v_account_ids);
@@ -355,9 +554,9 @@ BEGIN
   DELETE FROM product_categories WHERE account_id = ANY(v_account_ids);
   DELETE FROM accounts WHERE id = ANY(v_account_ids);
   SET session_replication_role = DEFAULT;
-  DELETE FROM profiles WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
-  DELETE FROM email_logs WHERE user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
-  DELETE FROM auth.users WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
+  DELETE FROM profiles WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
+  DELETE FROM email_logs WHERE user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
+  DELETE FROM auth.users WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
 
   -- Ronda 2 adversarial: assertear saldo CERO contra el array CAPTURADO
   -- (mismo patrón que el bloque de #521 en test_admin_kpis.sql).
@@ -372,45 +571,45 @@ BEGIN
     RAISE EXCEPTION 'GATE INVITE-MEMBER-ROLES-AND-PLAN-GATE: quedaron % filas huérfanas tras el cleanup (account_member_roles/payment_methods/product_categories)', v_orphans;
   END IF;
 
-  IF v_blocks_run <> 12 THEN
-    RAISE EXCEPTION 'GATE INVITE-MEMBER-ROLES-AND-PLAN-GATE FAILED (conteo): se ejercitaron % de 12 bloques esperados.', v_blocks_run;
+  IF v_blocks_run <> 17 THEN
+    RAISE EXCEPTION 'GATE INVITE-MEMBER-ROLES-AND-PLAN-GATE FAILED (conteo): se ejercitaron % de 17 bloques esperados.', v_blocks_run;
   END IF;
 
-  RAISE NOTICE 'GATE INVITE-MEMBER-ROLES-AND-PLAN-GATE: %/12 bloques PASS.', v_blocks_run;
+  RAISE NOTICE 'GATE INVITE-MEMBER-ROLES-AND-PLAN-GATE: %/17 bloques PASS.', v_blocks_run;
 EXCEPTION
   WHEN OTHERS THEN
     RESET request.jwt.claims;
     SET session_replication_role = replica;
     DELETE FROM account_invitations WHERE account_id IN (
-      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
     );
     DELETE FROM account_member_roles WHERE account_id IN (
-      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
     );
     DELETE FROM account_members WHERE account_id IN (
-      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
     );
     DELETE FROM cashboxes WHERE branch_id IN (
       SELECT id FROM branches WHERE account_id IN (
-        SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+        SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
       )
     );
     DELETE FROM branches WHERE account_id IN (
-      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
     );
     -- Ronda 2 adversarial: mismo cleanup de payment_methods/product_categories
     -- que el camino feliz -- subquery evaluada ANTES del DELETE FROM
     -- accounts de abajo, todavía resuelve filas reales acá.
     DELETE FROM payment_methods WHERE account_id IN (
-      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
     );
     DELETE FROM product_categories WHERE account_id IN (
-      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid)
+      SELECT id FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid)
     );
-    DELETE FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
-    DELETE FROM profiles WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
-    DELETE FROM email_logs WHERE user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
-    DELETE FROM auth.users WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid);
+    DELETE FROM accounts WHERE owner_user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
+    DELETE FROM profiles WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
+    DELETE FROM email_logs WHERE user_id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
+    DELETE FROM auth.users WHERE id IN (v_a1_owner_uid, v_a2_owner_uid, v_a2_admin_uid, v_a4_owner_uid, v_a4_filler_uid, v_a5_owner_uid, v_a5_invitee_uid, v_a6_owner_uid);
     SET session_replication_role = DEFAULT;
     RAISE;
 END $$;

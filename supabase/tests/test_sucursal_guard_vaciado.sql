@@ -45,6 +45,14 @@
 --          (handle_new_user) lo deja NULL; la baja registra
 --          deactivated_at/deactivated_by; el ciclo de vida deja rastro en
 --          audit_logs (entity_type='branch') sin generar notificaciones.
+--   G3   — membership-quota-effective-plan (ronda 3 adversarial, finding
+--          MINOR, 2026-09-12): rpc_create_branch gatea max_branches/
+--          has_branches_module contra el plan EFECTIVO de la cuenta, no
+--          accounts.billing_plan crudo. (G3a) cuenta gratis con trial pro
+--          VIGENTE crea sucursal (cupo/módulo efectivo = pro), pese a que
+--          billing_plan crudo es gratis. (G3b) la MISMA cuenta con el
+--          trial VENCIDO es rechazada (branch_limit_exceeded, P0403) — el
+--          efectivo degrada a gratis.
 --
 -- Degrade-don't-fail: si el anchor sintético no resuelve cuenta, o si el
 -- plan de la cuenta no habilita el módulo de sucursales (rpc_create_branch
@@ -75,6 +83,13 @@ DECLARE
   v_account_solo   uuid;
   v_branch_solo    uuid;
   v_product_solo   uuid;
+
+  -- ── Tenant plan-efectivo: rpc_create_branch usa el cupo/módulo EFECTIVO,
+  --    no billing_plan crudo (G3, ronda 3 adversarial, finding MINOR) ─────
+  v_email_plan     text := 'sucursal-guard-vaciado-plan-efectivo@test.local';
+  v_user_plan      uuid := gen_random_uuid();
+  v_account_plan   uuid;
+  v_branch_plan    uuid;
 
   -- ── Scratch ──────────────────────────────────────────────────────────
   v_rejected       boolean;
@@ -489,12 +504,74 @@ BEGIN
     END IF;
   END IF;
 
-  RAISE NOTICE 'GATE SUCURSAL-GUARD-VACIADO-AUDITORIA OK: los 4 caminos de baja rechazan con P0428 (existencias/caja/DELETE), el borrado físico está SIEMPRE prohibido, la matriz de evasión no se ve afectada, la autoría de alta/baja queda escrita, y el ciclo de vida completo queda en audit_logs sin notificaciones.';
+  -- ═══ TENANT PLAN-EFECTIVO — G3: rpc_create_branch usa el plan EFECTIVO ═══
+  -- Ronda 3 adversarial (finding MINOR, membership-quota-effective-plan,
+  -- 2026-09-12): mismo mecanismo y misma migración (20261050000001) que ya
+  -- corrige rpc_invite_member/rpc_accept_invitation -- acá se ejercita EN
+  -- CONDUCTA (no sólo por candado de texto en el otro gate) que
+  -- rpc_create_branch resuelve max_branches/has_branches_module contra
+  -- public.get_effective_plan, no accounts.billing_plan crudo. Tercer
+  -- tenant AISLADO (no v_account/v_account_solo) porque necesita manipular
+  -- trial_expires_at sin interferir con el resto del gate.
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_user_plan, 'authenticated', 'authenticated', v_email_plan, now(), now(),
+          jsonb_build_object('name', 'Gate Sucursal Guard Plan Efectivo'))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_plan FROM public.account_members WHERE user_id = v_user_plan ORDER BY created_at LIMIT 1;
+
+  IF v_account_plan IS NULL OR v_account_plan IN (v_account, v_account_solo) THEN
+    RAISE NOTICE 'SKIP (G3): no se pudo provisionar un TERCER tenant independiente para el gate de plan efectivo.';
+  ELSE
+    -- handle_new_user siembra TODA cuenta nueva 'gratis' + trial 'pro'
+    -- vigente (30 días, billing-pro-trial) -- se fija el vencimiento
+    -- explícito para que el gate no dependa de la ventana real.
+    UPDATE public.accounts SET billing_plan = 'gratis', trial_plan = 'pro',
+      trial_expires_at = now() + interval '10 days' WHERE id = v_account_plan;
+
+    PERFORM set_config('request.jwt.claims', json_build_object('sub', v_user_plan::text, 'role', 'authenticated')::text, true);
+    IF auth.uid() IS DISTINCT FROM v_user_plan THEN
+      RAISE NOTICE 'SKIP (G3): auth.uid() no resuelve al owner del tenant de plan efectivo.';
+    ELSE
+      -- (G3a) trial VIGENTE: el efectivo es 'pro' (cupo 3, módulo
+      -- habilitado) -- crear una 2ª sucursal (la default ya cuenta como 1ª)
+      -- pasa, pese a que billing_plan CRUDO ('gratis') no tiene el módulo.
+      BEGIN
+        SELECT (public.rpc_create_branch(v_account_plan, '__gate_sgv_plan_vigente__', NULL)).id
+        INTO v_branch_plan;
+      EXCEPTION WHEN OTHERS THEN
+        RAISE EXCEPTION 'GATE SUCURSAL-GUARD FAILED (G3a): crear una sucursal en una cuenta gratis con trial pro VIGENTE debería pasar (cupo/módulo EFECTIVO), falló con % (%).', SQLSTATE, SQLERRM;
+      END;
+      RAISE NOTICE 'PASS (G3a): rpc_create_branch habilita el módulo de sucursales con el plan EFECTIVO (trial pro vigente), pese a que billing_plan crudo es gratis.';
+
+      -- (G3b) trial VENCIDO: el efectivo degrada a 'gratis' (módulo
+      -- apagado) -- la MISMA cuenta, que recién pudo crear una sucursal,
+      -- ahora es rechazada con branch_limit_exceeded (P0403).
+      UPDATE public.accounts SET trial_expires_at = now() - interval '1 day' WHERE id = v_account_plan;
+
+      v_sqlstate := NULL;
+      v_message  := NULL;
+      BEGIN
+        PERFORM public.rpc_create_branch(v_account_plan, '__gate_sgv_plan_vencido__', NULL);
+      EXCEPTION WHEN OTHERS THEN v_sqlstate := SQLSTATE; v_message := SQLERRM;
+      END;
+      IF v_sqlstate IS DISTINCT FROM 'P0403' THEN
+        RAISE EXCEPTION 'GATE SUCURSAL-GUARD FAILED (G3b): con el trial VENCIDO (efectivo degradado a gratis, módulo apagado) crear otra sucursal debería fallar con P0403, falló con % (%).', COALESCE(v_sqlstate, 'NINGÚN error'), v_message;
+      END IF;
+      IF v_message NOT LIKE '%branch_limit_exceeded%' THEN
+        RAISE EXCEPTION 'GATE SUCURSAL-GUARD FAILED (G3b-mensaje): el rechazo debe conservar el token branch_limit_exceeded; el mensaje fue: %', v_message;
+      END IF;
+      RAISE NOTICE 'PASS (G3b): con el trial vencido, el plan efectivo degrada a gratis y rpc_create_branch vuelve a rechazar (branch_limit_exceeded, P0403).';
+    END IF;
+  END IF;
+
+  RAISE NOTICE 'GATE SUCURSAL-GUARD-VACIADO-AUDITORIA OK: los 4 caminos de baja rechazan con P0428 (existencias/caja/DELETE), el borrado físico está SIEMPRE prohibido, la matriz de evasión no se ve afectada, la autoría de alta/baja queda escrita, el ciclo de vida completo queda en audit_logs sin notificaciones, y rpc_create_branch gatea el módulo de sucursales contra el plan EFECTIVO (G3).';
 END $$;
 
 -- ── Fase de cleanup ──────────────────────────────────────────────────────────
 -- DO block SEPARADO que resuelve por email (cubre corridas cortadas por un
--- camino degrade-don't-fail) y borra los dos tenants sintéticos hijo→padre.
+-- camino degrade-don't-fail) y borra los tres tenants sintéticos hijo→padre
+-- (el tercero, plan-efectivo, sumado por G3 -- ronda 3 adversarial).
 DO $$
 DECLARE
   v_users    uuid[];
@@ -502,7 +579,7 @@ DECLARE
 BEGIN
   SELECT COALESCE(array_agg(id), ARRAY[]::uuid[]) INTO v_users
   FROM auth.users
-  WHERE email IN ('sucursal-guard-vaciado@test.local', 'sucursal-guard-vaciado-solo@test.local');
+  WHERE email IN ('sucursal-guard-vaciado@test.local', 'sucursal-guard-vaciado-solo@test.local', 'sucursal-guard-vaciado-plan-efectivo@test.local');
 
   IF array_length(v_users, 1) IS NULL THEN
     RAISE NOTICE 'GATE SUCURSAL-GUARD: cleanup sin anchors que limpiar.';
@@ -545,7 +622,7 @@ BEGIN
   DELETE FROM public.profiles        WHERE id = ANY(v_users);
   DELETE FROM public.email_logs
    WHERE user_id = ANY(v_users)
-      OR recipient IN ('sucursal-guard-vaciado@test.local', 'sucursal-guard-vaciado-solo@test.local');
+      OR recipient IN ('sucursal-guard-vaciado@test.local', 'sucursal-guard-vaciado-solo@test.local', 'sucursal-guard-vaciado-plan-efectivo@test.local');
   DELETE FROM auth.users             WHERE id = ANY(v_users);
 
   RAISE NOTICE 'GATE SUCURSAL-GUARD: cleanup completo (% anchors) — el gate vuelve a correr en verde sobre la misma base.', array_length(v_users, 1);

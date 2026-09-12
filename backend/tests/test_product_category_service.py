@@ -160,7 +160,7 @@ class TestProductCategoryServiceCreate:
         from backend.services.product_categories import create_product_category
 
         repo = _make_repo()
-        conn = _make_conn(fallback_role="owner")
+        conn = _make_conn(fallback_role=["owner"])
         result = await create_product_category(repo, _make_auth(None), ACCOUNT_ID, name="Ropa", sort_order=None, conn=conn)
 
         assert result is not None

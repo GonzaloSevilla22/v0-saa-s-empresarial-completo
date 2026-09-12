@@ -782,6 +782,21 @@ jobs:
           # cantidad, sin overload en ninguna de las 5 funciones, mismas ACLs.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261047000001_v3_rbac_multirole_parte_a.sql
 
+          # v3-rbac-multirole Parte B (2026-09-11): idempotente — CREATE OR
+          # REPLACE puro en is_account_writer/custom_access_token_hook/
+          # record_status_transition (mismas firmas, mismas ACLs); el ALTER
+          # de document_status_transitions.allowed_role va guardado (DO $$
+          # ... IF data_type = 'text' ...) para no envolver un text[] ya
+          # migrado en un array anidado en la 2da pasada; la matriz 14/19 se
+          # puebla con UPDATE (mismo resultado en cada pasada); el pivot
+          # (rpc_my_active_account_roles, _produce_role_expiry_audit_sweep)
+          # es CREATE OR REPLACE nuevo; cron.schedule va precedido de su
+          # propio cron.unschedule condicional. Reaplicada localmente 3
+          # veces consecutivas: EXIT=0 las tres, gate de introspección
+          # embebido en verde las tres, 14/19 pobladas estable (nunca crece
+          # ni se corrompe), 0 overloads en las 5 funciones tocadas.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261048000001_v3_rbac_multirole_parte_b.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1782,3 +1797,161 @@ jobs:
       # y el candado anti-overload (gotcha 42725).
       - name: Run v3-rbac-multirole membership RPCs pivot rewrite gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_membership_rpcs_pivot_rewrite.sql
+
+      # v3-rbac-multirole Parte B, grupo 8 (D11): is_account_writer sobre el
+      # pivot -- firma y las 48 policies/20 tablas intactas; un rol writer
+      # (seller) escribe, viewer no, un rol vencido no cuenta aunque exista
+      # la fila (fail-closed), otro rol vigente entre varios alcanza, y un
+      # miembro de otra cuenta no escribe acá.
+      - name: Run v3-rbac-multirole is_account_writer pivot gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_is_account_writer_pivot.sql
+
+      # v3-rbac-multirole Parte B, grupo 9 (D8): claim nuevo account_roles del
+      # hook -- singular intacto, el conjunto trae sólo los roles ACTIVOS
+      # (vencidos excluidos), usuario sin membresía sin account_roles
+      # fabricado, y el blindaje D8: sin el GRANT necesario sobre
+      # member_active_roles el hook entero degrada (claims intactos), con el
+      # GRANT restituido vuelve a emitir.
+      - name: Run v3-rbac-multirole custom access token hook account_roles gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_custom_access_token_hook_account_roles.sql
+
+      # v3-rbac-multirole Parte B -- ronda 1 adversarial (minor 1): el bloque
+      # (5) del gate de arriba corre vía `SET LOCAL ROLE supabase_auth_admin`,
+      # que en este runner (igual que en local) SIEMPRE degrada por falta de
+      # membresía de rol -- así que NUNCA ejercita de verdad el blindaje D8
+      # ("sin el GRANT sobre member_active_roles, el hook entero degrada,
+      # nunca rompe el login"). Ese bloque ya NO cuenta como PASS cuando
+      # degrada (ver el propio archivo). Este step SÍ lo ejercita de verdad:
+      # se conecta como supabase_auth_admin REAL vía TCP con password (el rol
+      # SÍ tiene LOGIN en el stack de Supabase, verificado -- es el mismo rol
+      # que usa GoTrue en prod para invocar el hook), primero CON el GRANT
+      # (debe emitir account_roles normalmente) y después SIN él (debe
+      # degradar TODO el app_metadata -- claims EXACTAMENTE como entraron,
+      # con WARNING en el log de Postgres y SIN excepción), y por último con
+      # el GRANT restituido (debe volver a emitir) -- confirma que la
+      # degradación fue del bloque protegido y no de un estado roto.
+      - name: Run v3-rbac-multirole hook D8 degrade probe (real supabase_auth_admin role)
+        run: |
+          set -e
+          ADMIN_DSN="postgresql://supabase_auth_admin:postgres@127.0.0.1:54322/postgres"
+          OWNER_DSN="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          PROBE_USER="11112222-3333-4444-5555-666677778888"
+
+          # Ronda 2 adversarial (nit 5, corregido): cleanup como trap EXIT --
+          # corre SIEMPRE (éxito o cualquiera de los 3 caminos de fallo de
+          # abajo), no sólo al final del camino feliz. Antes, un fallo en
+          # (1)/(2)/(3) hacía `exit 1` sin pasar por el DELETE final (los de
+          # (2) sí restituían el GRANT, pero ninguno limpiaba el fixture) y
+          # dejaba el usuario sintético + su cuenta/membresía/pivot vivos en
+          # la base compartida. La función corre en una SUBSHELL ( ... ) para
+          # que su `set +e` interno no debilite el `set -e` del script
+          # padre una vez que `cleanup` retorna.
+          cleanup() {
+            (
+              set +e
+              psql -v ON_ERROR_STOP=1 "$OWNER_DSN" -c "GRANT EXECUTE ON FUNCTION public.member_active_roles(uuid) TO supabase_auth_admin;"
+              psql -v ON_ERROR_STOP=1 "$OWNER_DSN" -c "
+                BEGIN;
+                DELETE FROM public.account_member_roles WHERE member_id IN (SELECT id FROM public.account_members WHERE user_id = '$PROBE_USER'::uuid);
+                DELETE FROM public.account_members WHERE user_id = '$PROBE_USER'::uuid;
+                SET session_replication_role = replica;
+                DELETE FROM public.accounts WHERE owner_user_id = '$PROBE_USER'::uuid;
+                SET session_replication_role = DEFAULT;
+                DELETE FROM public.profiles WHERE id = '$PROBE_USER'::uuid;
+                DELETE FROM public.email_logs WHERE user_id = '$PROBE_USER'::uuid;
+                DELETE FROM auth.users WHERE id = '$PROBE_USER'::uuid;
+                COMMIT;
+              "
+            )
+          }
+          trap cleanup EXIT
+
+          # Pre-cleanup idempotente (residuo de una corrida previa que no
+          # llegó a ejecutar su propio trap -- p.ej. el runner matado por
+          # timeout/cancelación, que un trap EXIT normal de bash no cubre).
+          cleanup
+
+          # Fixture: usuario sintético -- handle_new_user crea account_members
+          # + account_member_roles('owner') automáticamente. NO se toca esa
+          # fila (evita por completo el invariante de propietario único, D6
+          # de la Parte A, que es ortogonal a lo que este probe verifica): el
+          # probe usa 'owner' como el rol activo esperado en el claim.
+          psql -v ON_ERROR_STOP=1 "$OWNER_DSN" -c "
+            INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+            VALUES ('$PROBE_USER'::uuid, 'authenticated', 'authenticated', 'v3-rbac-hook-d8-probe@test.local', now(), now(),
+                    jsonb_build_object('name', 'Hook D8 Probe', 'phone', '', 'locality', '', 'province', ''));
+          "
+
+          # (1) CON el GRANT (estado normal): debe emitir account_roles=['owner'].
+          NORMAL_OK=$(psql -tA -v ON_ERROR_STOP=1 "$ADMIN_DSN" -c "SELECT (public.custom_access_token_hook(jsonb_build_object('user_id','$PROBE_USER'::uuid,'claims',jsonb_build_object('app_metadata', jsonb_build_object('provider','email')))) #> '{claims,app_metadata,account_roles}' = '[\"owner\"]'::jsonb)::text")
+          if [ "$NORMAL_OK" != "true" ]; then
+            echo "GATE D8-PROBE FAILED (1): con el GRANT, el hook (como supabase_auth_admin real) no emitió account_roles=['owner']."
+            exit 1
+          fi
+          echo "PASS (1): con el GRANT, el hook (supabase_auth_admin real) emite account_roles=['owner']."
+
+          # Revocar EXECUTE sobre member_active_roles (como postgres --
+          # REVOKE exige ser dueño o superusuario, supabase_auth_admin no es
+          # dueño de esta función).
+          psql -v ON_ERROR_STOP=1 "$OWNER_DSN" -c "REVOKE EXECUTE ON FUNCTION public.member_active_roles(uuid) FROM supabase_auth_admin;"
+
+          # (2) SIN el GRANT: el hook debe degradar TODO el app_metadata
+          # (claims EXACTAMENTE como entraron) + WARNING en el log, sin
+          # excepción (D8) -- comparación por igualdad jsonb en el propio
+          # SQL (no por texto, para no depender del formato de impresión de
+          # psql).
+          set +e
+          DEGRADED_OK=$(psql -tA -v ON_ERROR_STOP=1 "$ADMIN_DSN" -c "SELECT (public.custom_access_token_hook(jsonb_build_object('user_id','$PROBE_USER'::uuid,'claims',jsonb_build_object('sub','d8-probe'))) = jsonb_build_object('claims', jsonb_build_object('sub','d8-probe')))::text" 2>/tmp/d8_probe_stderr.log)
+          DEGRADED_RC=$?
+          set -e
+          cat /tmp/d8_probe_stderr.log
+          if [ "$DEGRADED_RC" -ne 0 ]; then
+            echo "GATE D8-PROBE FAILED (2): el hook lanzó una excepción en vez de degradar -- el blindaje D8 está ROTO de verdad, no sólo sin ejercitar."
+            exit 1
+          fi
+          if [ "$DEGRADED_OK" != "true" ]; then
+            echo "GATE D8-PROBE FAILED (2): sin el GRANT, el hook no devolvió los claims EXACTAMENTE como entraron."
+            exit 1
+          fi
+          if ! grep -qi 'custom_access_token_hook degradado' /tmp/d8_probe_stderr.log; then
+            echo "GATE D8-PROBE FAILED (2): no apareció el WARNING de degradación en el log de Postgres."
+            exit 1
+          fi
+          echo "PASS (2): sin el GRANT, el hook (supabase_auth_admin real) degrada TODO el app_metadata (claims intactos) con WARNING, sin excepción."
+
+          # Restituir el GRANT (el trap de arriba también lo restituye al
+          # salir, pero acá lo hacemos explícito porque (3) necesita
+          # verificar el comportamiento CON el GRANT ya restituido, no sólo
+          # limpiar al final).
+          psql -v ON_ERROR_STOP=1 "$OWNER_DSN" -c "GRANT EXECUTE ON FUNCTION public.member_active_roles(uuid) TO supabase_auth_admin;"
+
+          # (3) con el GRANT restituido, vuelve a emitir -- confirma que la
+          # degradación fue del bloque protegido, no de un estado roto.
+          RESTORED_OK=$(psql -tA -v ON_ERROR_STOP=1 "$ADMIN_DSN" -c "SELECT (public.custom_access_token_hook(jsonb_build_object('user_id','$PROBE_USER'::uuid,'claims','{}'::jsonb)) #> '{claims,app_metadata,account_roles}' = '[\"owner\"]'::jsonb)::text")
+          if [ "$RESTORED_OK" != "true" ]; then
+            echo "GATE D8-PROBE FAILED (3): con el GRANT restituido, el hook no volvió a emitir account_roles=['owner']."
+            exit 1
+          fi
+          echo "PASS (3): con el GRANT restituido, el hook (supabase_auth_admin real) vuelve a emitir account_roles=['owner']."
+
+          echo "GATE D8-PROBE: 3/3 bloques PASS (rol supabase_auth_admin real -- blindaje D8 verificado de verdad, no sólo declarado). El fixture se limpia en el trap EXIT, corra este script como corra."
+
+      # v3-rbac-multirole Parte B, grupo 11 (D13, D14, D15): allowed_role
+      # text[] con el reparto EXACTO 14/19 pobladas (las 5 NULL son
+      # fiscal_document x3 + quote->expired x2); segregación de funciones
+      # real (cashier confirma pero no anula, stock transfiere, accountant
+      # abre y cierra conciliación, un rol vencido no habilita nada); las 2
+      # exenciones de D14 (actor NULL salta el chequeo de rol -- el único
+      # bloqueo real es el NOT NULL preexistente de document_status_history,
+      # nunca P0403 --, y allowed_role NULL sin restricción con cualquier
+      # actor); y el caso negativo real (rol sin intersección -> P0403).
+      - name: Run v3-rbac-multirole document status transition role matrix gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_document_status_transition_role_matrix.sql
+
+      # v3-rbac-multirole Parte B, grupo 12 (D16): barrido diario de
+      # vencimientos -- idempotente (nunca un 2º role.expired para la misma
+      # asignación), no borra la fila ni cambia ningún permiso (sólo
+      # audita), y el corte lo produce el predicado de rol activo (D4) con
+      # el barrido en 0 corridas -- nunca el cron.
+      - name: Run v3-rbac-multirole role expiry audit sweep gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_role_expiry_audit_sweep.sql

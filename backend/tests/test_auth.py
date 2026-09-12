@@ -126,6 +126,67 @@ async def test_get_current_user_keys_include_account_role():
     assert result["account_role"] == "owner"
 
 
+# ── v3-rbac-multirole Parte B, grupo 10 (D8, D10): claim del CONJUNTO ───────
+# `account_roles` -- superset de `account_role`, mismo namespace de TENANT.
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_keys_include_account_roles():
+    """RED (10.4): AuthContext gana `account_roles` (el conjunto) — el
+    contrato anti-deriva debe seguir cumpliéndose con la clave nueva. Debía
+    fallar mientras `account_roles` no existiera ni en el TypedDict ni en
+    get_current_user (antes de este change, `set(result.keys())` tenía una
+    clave de menos que `AuthContext.__annotations__`)."""
+    token = make_token({
+        "sub": "user-998",
+        "role": "authenticated",
+        "app_metadata": {"role": "user", "account_role": "owner", "account_roles": ["owner"], "plan": "gratis"},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_current_user(token=token)
+
+    assert set(result.keys()) == set(AuthContext.__annotations__.keys())
+    assert "account_roles" in AuthContext.__annotations__
+    assert result["account_roles"] == ["owner"]
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_account_roles_absent_defaults_to_none():
+    """GREEN complementario: sin el claim `account_roles` en el token (token
+    viejo, emitido antes de este change, o el hook degradado por D8's
+    EXCEPTION WHEN OTHERS), la clave sigue presente con valor None — nunca
+    se inventa un array vacío que un guard podría confundir con "sin roles
+    activos resueltos por el hook" (D9: [] presente != ausente)."""
+    token = make_token({"sub": "user-997", "role": "authenticated"})
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_current_user(token=token)
+
+    assert result["account_roles"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_current_user_account_roles_empty_list_is_preserved_not_coerced_to_none():
+    """TRIANGULATE: un claim `account_roles: []` presente (hook resolvió la
+    membresía pero sin roles activos) debe preservarse como lista vacía —
+    NO convertirse en None, porque None dispara el fallback a la DB en
+    require_account_role y [] no debe (D9)."""
+    token = make_token({
+        "sub": "user-996",
+        "role": "authenticated",
+        "app_metadata": {"account_roles": []},
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_current_user(token=token)
+
+    assert result["account_roles"] == []
+
+
 @pytest.mark.asyncio
 async def test_get_current_user_account_role_absent_defaults_to_none():
     """GREEN complementario: sin el claim `account_role` en el token (token
@@ -206,9 +267,11 @@ async def test_claims_status_all_present_reports_source_token():
     assert result == {
         "role_claim_present": True,
         "account_role_claim_present": True,
+        "account_roles_claim_present": False,
         "plan_claim_present": True,
         "effective_role": "admin",
         "effective_account_role": "owner",
+        "effective_account_roles": None,
         "effective_plan": "avanzado",
         "source": "token",
     }
@@ -230,9 +293,11 @@ async def test_claims_status_none_present_reports_fallback_values():
 
     assert result["role_claim_present"] is False
     assert result["account_role_claim_present"] is False
+    assert result["account_roles_claim_present"] is False
     assert result["plan_claim_present"] is False
     assert result["effective_role"] == "user"
     assert result["effective_account_role"] is None
+    assert result["effective_account_roles"] is None
     assert result["effective_plan"] == "pro"
     assert result["source"] == "fallback"
 
@@ -259,6 +324,33 @@ async def test_claims_status_partial_claims_reports_fallback_source():
 
 
 @pytest.mark.asyncio
+async def test_claims_status_reports_account_roles_set_claim_presence_and_value():
+    """Ronda 1 adversarial (minor 4): con `account_roles` presente en el
+    JWT (D8 de la Parte B), el diagnóstico debe reportarlo -- es el único
+    instrumento que distingue "el hook corrió" (auth_logs) de "el hook
+    emitió account_roles" (este endpoint). `source` NO cambia por este
+    claim -- se sigue calculando sólo sobre los 3 claims legacy."""
+    token = make_token({
+        "sub": "user-555",
+        "role": "authenticated",
+        "app_metadata": {
+            "role": "user",
+            "account_role": "seller",
+            "account_roles": ["seller", "stock"],
+            "plan": "pro",
+        },
+    })
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        result = await get_claims_status(token=token)
+
+    assert result["account_roles_claim_present"] is True
+    assert result["effective_account_roles"] == ["seller", "stock"]
+    assert result["source"] == "token"
+
+
+@pytest.mark.asyncio
 async def test_claims_status_never_exposes_raw_token_or_payload():
     """7.3c: la respuesta NUNCA debe contener el token ni el payload crudo —
     solo las 7 claves del contrato de diagnóstico."""
@@ -275,9 +367,11 @@ async def test_claims_status_never_exposes_raw_token_or_payload():
     assert set(result.keys()) == {
         "role_claim_present",
         "account_role_claim_present",
+        "account_roles_claim_present",
         "plan_claim_present",
         "effective_role",
         "effective_account_role",
+        "effective_account_roles",
         "effective_plan",
         "source",
     }

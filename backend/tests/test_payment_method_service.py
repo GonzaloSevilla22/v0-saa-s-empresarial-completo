@@ -628,7 +628,7 @@ class TestPaymentMethodServiceTriangulate:
 
         repo = _make_repo(create_result=PM_ROW)
         auth = _make_auth(None)
-        conn = _make_conn(fallback_role="owner")
+        conn = _make_conn(fallback_role=["owner"])
 
         result = await create_payment_method(
             repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=conn

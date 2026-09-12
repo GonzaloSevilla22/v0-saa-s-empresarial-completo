@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 from backend.core.guards import require_account_role
+from backend.core.rbac import CAN_CONFIGURE
 from backend.repositories.cost_center_repository import CostCenterRepository
 
 
@@ -38,7 +39,7 @@ async def create_cost_center(
     Defence-in-depth: require_account_role acá + RLS is_account_writer en la
     DB. Name is normalised (strip) before persistence.
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     normalised_name = name.strip()
     record = await repo.create(account_id, name=normalised_name, code=code)
     if record is None:
@@ -57,7 +58,7 @@ async def update_cost_center(
     conn,
 ) -> dict:
     """Update name/code of a cost center. Requires TENANT role owner or admin (D9)."""
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     normalised_name = name.strip()
     record = await repo.update(cost_center_id, account_id, name=normalised_name, code=code)
     if record is None:
@@ -78,7 +79,7 @@ async def deactivate_cost_center(
     Preserves historical references: existing expenses/purchases that point to
     this center retain their cost_center_id — the name is still readable via JOIN.
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     record = await repo.deactivate(cost_center_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Centro de costo no encontrado")
@@ -98,7 +99,7 @@ async def reactivate_cost_center(
     Espejo exacto de deactivate_cost_center. Historical expenses/purchases
     are unaffected either way — reactivating only restores selector visibility.
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     record = await repo.reactivate(cost_center_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Centro de costo no encontrado")

@@ -381,7 +381,7 @@ class TestCostCenterServiceTriangulate:
 
         repo = _make_repo(create_result=CC_ROW)
         auth = _make_auth(None)  # sin claim — token emitido antes del hook
-        conn = _make_conn(fallback_role="owner")
+        conn = _make_conn(fallback_role=["owner"])
 
         result = await create_cost_center(repo, auth, ACCOUNT_ID, name="Marketing", code=None, conn=conn)
 

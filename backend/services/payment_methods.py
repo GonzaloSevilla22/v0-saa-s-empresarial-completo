@@ -5,6 +5,7 @@ import datetime
 from fastapi import HTTPException
 
 from backend.core.guards import require_account_role
+from backend.core.rbac import CAN_CONFIGURE
 from backend.repositories.payment_method_repository import PaymentMethodRepository
 from backend.schemas.payment_methods import PAYMENT_METHOD_KINDS
 
@@ -43,7 +44,7 @@ async def create_payment_method(
     el rol de TENANT (account_members.role), con defence-in-depth vía RLS
     is_account_writer en la DB.
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     if kind not in PAYMENT_METHOD_KINDS:
         raise HTTPException(
             status_code=422,
@@ -103,7 +104,7 @@ async def update_payment_method(
     (422): ese destino nunca se usaría (spec `payment-method`, requirement
     "Destino bancario sobre un kind no bancario es rechazado").
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     normalised_name = name.strip()
 
     if bank_account_provided and bank_account_id is not None:
@@ -151,7 +152,7 @@ async def deactivate_payment_method(
     Preserva imputaciones históricas: ventas/compras existentes conservan su
     payment_method_id (el nombre sigue siendo legible vía JOIN).
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     record = await repo.deactivate(payment_method_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Forma de pago no encontrada")
@@ -171,7 +172,7 @@ async def reactivate_payment_method(
     Espejo exacto de deactivate_payment_method. Historical imputations are
     unaffected either way — reactivating only restores selector visibility.
     """
-    await require_account_role(conn, auth, ["owner", "admin"])
+    await require_account_role(conn, auth, CAN_CONFIGURE)
     record = await repo.reactivate(payment_method_id, account_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Forma de pago no encontrada")

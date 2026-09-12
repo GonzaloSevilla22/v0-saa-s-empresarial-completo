@@ -27,11 +27,21 @@ class AuthContext(TypedDict):
     el claim, o usuario sin membresía) se resuelve en el guard
     (`require_account_role`, backend/core/guards.py), nunca acá con un
     default optimista.
+
+    `account_roles` (v3-rbac-multirole Parte B, D8): el CONJUNTO de roles de
+    TENANT activos (vencidos ya excluidos por el hook al momento de emitir
+    el token) — mismo namespace que `account_role`, del que es el superset.
+    `list[str] | None`: `None` significa "el claim no viaja en este token"
+    (token emitido antes de este change, o usuario sin membresía resuelta
+    por el hook) y dispara el fallback en `require_account_role`; una lista
+    VACÍA presente SÍ es una respuesta válida (sin roles activos) y NO cae
+    al fallback — distinción deliberada, ver `require_account_role`.
     """
 
     user_id: str
     role: str
     account_role: str | None
+    account_roles: list[str] | None
     plan: str
 
 
@@ -109,11 +119,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthContext:
     # permisivo acá — su ausencia se resuelve en require_account_role
     # (DB fallback o 403), nunca con un default optimista en este punto.
     app_account_role = app_metadata.get("account_role")
+    # account_roles (v3-rbac-multirole Parte B, D8): el CONJUNTO, si el hook
+    # ya lo emite. `.get(...)` sin default: ausente -> None (dispara
+    # fallback en el guard); presente -> la lista tal cual llegó del JWT
+    # (jwt.decode ya la deserializa como list[str] desde el array JSON),
+    # incluida una lista vacía real (sin roles activos).
+    app_account_roles = app_metadata.get("account_roles")
 
     return {
         "user_id": payload["sub"],
         "role": app_role,
         "account_role": app_account_role,
+        "account_roles": app_account_roles,
         "plan": app_plan,
     }
 
@@ -139,6 +156,16 @@ async def get_claims_status(token: str = Depends(oauth2_scheme)) -> dict:
     role_present = "role" in app_metadata
     account_role_present = "account_role" in app_metadata
     plan_present = "plan" in app_metadata
+    # v3-rbac-multirole Parte B, ronda 1 adversarial (minor 4): el claim
+    # nuevo del CONJUNTO (D8) — sin esto, la task 13.6 (verificar post-merge
+    # que "el claim nuevo está presente") no tenía ningún instrumento de
+    # primera mano: auth_logs sólo dice que el hook CORRIÓ, no qué claims
+    # emitió, que es exactamente la distinción para la que se construyó este
+    # endpoint (v31-authz-token-hook D8). NO se suma a `source` -- ese
+    # cálculo se queda igual que antes (basado en los 3 claims legacy), para
+    # no cambiar su semántica con tokens viejos que nunca van a tener
+    # `account_roles`.
+    account_roles_present = "account_roles" in app_metadata
 
     jwt_role = payload.get("role", "authenticated")
     effective_role = app_metadata.get("role") or (
@@ -146,13 +173,16 @@ async def get_claims_status(token: str = Depends(oauth2_scheme)) -> dict:
     )
     effective_plan = app_metadata.get("plan", "pro")
     effective_account_role = app_metadata.get("account_role")
+    effective_account_roles = app_metadata.get("account_roles")
 
     return {
         "role_claim_present": role_present,
         "account_role_claim_present": account_role_present,
+        "account_roles_claim_present": account_roles_present,
         "plan_claim_present": plan_present,
         "effective_role": effective_role,
         "effective_account_role": effective_account_role,
+        "effective_account_roles": effective_account_roles,
         "effective_plan": effective_plan,
         # "token": los tres claims viajan en el JWT (hook activo para este
         # usuario). "fallback": al menos uno se resolvió sin el claim — token

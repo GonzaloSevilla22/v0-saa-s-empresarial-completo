@@ -797,6 +797,21 @@ jobs:
           # ni se corrompe), 0 overloads en las 5 funciones tocadas.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261048000001_v3_rbac_multirole_parte_b.sql
 
+          # v3-rbac-multirole Parte C (2026-09-11): idempotente — 2 RPCs
+          # nuevas (rpc_assign_member_role, rpc_revoke_member_role) CREATE OR
+          # REPLACE puro; rpc_list_account_members ídem; rpc_change_member_role
+          # CREATE OR REPLACE sin cambio de firma (retira el gate de plan,
+          # D17); rpc_invite_member(text,uuid) CREATE OR REPLACE sin cambio de
+          # firma (sólo ERRCODEs); rpc_invite_member(text,uuid,text) se DROPea
+          # (no-op en la 2da pasada, "does not exist, skipping") y se recrea
+          # como (text,uuid,text[]) vía CREATE OR REPLACE (misma firma nueva en
+          # cada pasada); account_invitations.roles vía ADD COLUMN IF NOT
+          # EXISTS; rpc_accept_invitation CREATE OR REPLACE sin cambio de
+          # firma. Reaplicada localmente 2 veces consecutivas: EXIT=0 las dos,
+          # gate de introspección embebido en verde las dos, sin overload
+          # fantasma en ninguna de las 4 funciones reescritas + 3 nuevas.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261049000001_v3_rbac_multirole_parte_c.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -1955,3 +1970,30 @@ jobs:
       # el barrido en 0 corridas -- nunca el cron.
       - name: Run v3-rbac-multirole role expiry audit sweep gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_role_expiry_audit_sweep.sql
+
+      # v3-rbac-multirole Parte C, grupo 14 (org-roles "Cambio de rol
+      # controlado por jerarquía"): rpc_assign_member_role/
+      # rpc_revoke_member_role -- autoridad por JERARQUÍA sobre el rol
+      # pedido (owner: cualquiera; admin: nunca owner/admin -- P0403),
+      # tenencia (P0404), catálogo (P0400), owner con vencimiento (P0406,
+      # trigger reutilizado de la Parte A), idempotencia (reasignar el mismo
+      # rol renueva expires_at sin duplicar), el invariante de propietario
+      # (P0405) disparado a través de la RPC nueva, y rpc_list_account_members
+      # (conjunto completo vigente+vencida, fail-closed por tenencia).
+      - name: Run v3-rbac-multirole member role assignment RPCs gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_member_role_assignment_rpcs.sql
+
+      # v3-rbac-multirole Parte C, grupo 15 (D17, D18, account-membership-
+      # roles "La invitación de un miembro admite el conjunto de roles"):
+      # el gate "admin requiere plan pro" retirado de rpc_change_member_role
+      # y de AMBOS overloads de rpc_invite_member; el cupo cuenta MIEMBROS,
+      # no asignaciones (un miembro con 4 roles consume un solo lugar);
+      # cupo agotado -> P0402 (ambos overloads, texto conservado);
+      # invitación pendiente duplicada -> P0407 (texto conservado); el
+      # administrador no puede invitar con el rol de administrador en el
+      # conjunto; invitación sin roles resuelve a {viewer}; invitación con
+      # un conjunto concede TODOS los roles al aceptarse; y
+      # rpc_accept_invitation rechaza con P0402 si el cupo se agotó entre
+      # invitar y aceptar.
+      - name: Run v3-rbac-multirole invite member roles and plan gate removal gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_invite_member_roles_and_plan_gate.sql

@@ -28,6 +28,7 @@ from backend.routers import (
     fiscal,
     health,
     journal_entries,
+    members,
     outbox,
     payment_methods,
     payments,
@@ -188,3 +189,5 @@ app.include_router(bank_accounts.router)
 app.include_router(bank_reconciliation.router)
 # banco-caja-historial-ajustes (D3) — historial paginado de movimientos bancarios
 app.include_router(bank_movements.router)
+# v3-rbac-multirole Parte C (grupo 14): administración de miembros y sus roles
+app.include_router(members.router)

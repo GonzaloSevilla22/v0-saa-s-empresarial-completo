@@ -154,15 +154,23 @@ BEGIN
     v_blocks_run := v_blocks_run + 1;
     RAISE NOTICE 'PASS (4): degradar al único owner sigue rechazado con el mismo {error} de siempre';
 
-    -- ── (5) admin sigue exigiendo plan pro (D17: sin cambios en Parte A) ───
+    -- ── (5) SUPERADO por v3-rbac-multirole Parte C (D17, sign-off PO 6.2):
+    --      esta aserción decía "admin sigue exigiendo plan pro (D17: sin
+    --      cambios en Parte A)" -- cierto mientras sólo A estaba en prod. La
+    --      Parte C retira ese gate por diseño (todos los roles en todos los
+    --      planes); la aserción se actualiza para reflejar el comportamiento
+    --      YA CORRECTO desde la Parte C, no un texto histórico. Cobertura
+    --      completa de D17 vive en test_invite_member_roles_and_plan_gate.sql
+    --      (Parte C, bloques 1-2) -- este bloque sólo verifica que ESTA RPC
+    --      en particular (rpc_change_member_role) no reintroduzca el gate.
     UPDATE accounts SET billing_plan = 'gratis' WHERE id = v_account;
     v_result := rpc_change_member_role(v_account, v_member_uid, 'admin');
-    IF v_result <> jsonb_build_object('error', 'El rol admin requiere plan pro') THEN
-      RAISE EXCEPTION 'GATE FAILED (5): el gate de plan para admin cambió de mensaje/comportamiento: %', v_result;
+    IF (v_result->>'ok') IS DISTINCT FROM 'true' THEN
+      RAISE EXCEPTION 'GATE FAILED (5): promover a admin en plan gratis fue rechazado (el gate de plan de D17 debía estar retirado desde la Parte C): %', v_result;
     END IF;
     UPDATE accounts SET billing_plan = 'pro' WHERE id = v_account;
     v_blocks_run := v_blocks_run + 1;
-    RAISE NOTICE 'PASS (5): promover a admin sigue exigiendo plan pro, byte a byte';
+    RAISE NOTICE 'PASS (5): v3-rbac-multirole Parte C (D17) -- promover a admin YA NO exige plan pro.';
 
     -- ── (6) rpc_remove_member cascada al pivot ─────────────────────────────
     v_result := rpc_remove_member(v_account, v_member_uid);
@@ -399,6 +407,21 @@ END $$;
 
 -- ── Fase 13b: reapply REAL — ejercita el backfill de la sección 5 ──────────
 \i supabase/migrations/20261047000001_v3_rbac_multirole_parte_a.sql
+
+-- ── Fase 13b-reconverge (v3-rbac-multirole Parte C, hallazgo real de su
+--    propio apply): el \i de arriba reaplica el ARCHIVO de la Parte A
+--    completo -- CREATE OR REPLACE incluido para rpc_change_member_role Y
+--    rpc_accept_invitation, las MISMAS dos funciones que la Parte C
+--    modifica (D17: retira el gate de plan; grupo 15: conjunto de roles).
+--    Sin este reconverge, correr ESTE gate en cualquier momento DESPUÉS de
+--    que la Parte C esté aplicada revierte esas dos funciones a su cuerpo
+--    de la Parte A (gate de plan reintroducido, `roles` perdida) -- exacto
+--    mismo mecanismo que ya obliga al `supabase db reset` final del paso
+--    "Verify G1/G4 migrations are idempotent on reapply" de
+--    KPI_Validation.yml. Reaplicar acá el archivo de la Parte C reconverge
+--    al estado verdadero SIN pisar lo que la Fase 13c va a verificar (la
+--    Fase 13c sólo mira el backfill del pivot, que la Parte C no toca).
+\i supabase/migrations/20261049000001_v3_rbac_multirole_parte_c.sql
 
 -- ── Fase 13c: assert contra lo que la migración REAL dejó ───────────────────
 DO $$

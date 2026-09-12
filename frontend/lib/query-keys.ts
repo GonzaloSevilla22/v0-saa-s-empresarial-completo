@@ -196,6 +196,11 @@ export const queryKeys = {
     // sin categoría de la carga masiva.
     default: () => ["productCategories", "default"] as const,
   },
+  // v3-rbac-multirole Parte C (grupo 14): administración de miembros y roles
+  members: {
+    all:  () => ["members"] as const,
+    list: (accountId: string | null) => ["members", "list", accountId] as const,
+  },
   // bank-payment-routing C2 (V2.5 BankReconciliation)
   bankAccounts: {
     all:    () => ["bankAccounts"] as const,

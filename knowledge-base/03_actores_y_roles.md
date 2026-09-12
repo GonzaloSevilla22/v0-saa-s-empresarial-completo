@@ -77,11 +77,13 @@ plan  TEXT  DEFAULT 'pro'    -- valores: 'free' | 'pro'
 | Consejos IA/mes | 3 | 15 | 60 | 150 |
 | Rentabilidad por producto | ❌ | ❌ | ✅ | ✅ |
 | Reportes comparativos | ❌ | ❌ | ✅ | ✅ |
-| Roles internos | ❌ | ❌ | Básicos | Avanzados |
+| Roles internos ⁽¹⁾ | Todos | Todos | Todos | Todos |
 | Sucursales (módulo) | ❌ | ❌ | ❌ | ✅ |
 | Sesión análisis mensual | ❌ | ❌ | ❌ | ✅ |
 
 > ⭐ Plan recomendado en la propuesta comercial.
+>
+> ⁽¹⁾ **Roles internos** — v3-rbac-multirole Parte C (D17, sign-off del PO 2026-09-11, pregunta 6.2): el catálogo completo de 8 roles (`owner`, `admin`, `seller`, `cashier`, `stock`, `purchases`, `accountant`, `viewer`) está disponible en **todos** los planes. Esta fila decía antes "❌ / ❌ / Básicos / Avanzados" — esa restricción por plan quedó derogada; el único límite comercial que sigue vigente es la **cantidad de usuarios** (fila "Usuarios" arriba, `plan_limits.max_users`), no qué rol se les puede asignar.
 
 > **Nota sobre el schema actual**: `profiles.plan` solo tiene `'free'` y `'pro'`. Deberá migrarse a los 4 valores reales al implementar billing. Los valores actuales de `lib/constants.ts` (maxProducts: 20 para free, Infinity para pro) serán reemplazados por la tabla anterior.
 

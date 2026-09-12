@@ -85,11 +85,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .select("*")
           .eq("id", authUser.id)
           .single(),
+        // v3-rbac-multirole Parte C (ronda 3, MAJOR-1): `.single()` devolvía
+        // 406/PGRST116 en cuanto el usuario tenía 2+ membresías (todo
+        // invitado a una cuenta ajena, porque handle_new_user ya le dio una
+        // propia) -- membership quedaba null, accountId "" y todos los hooks
+        // `enabled: !!accountId` se apagaban en silencio. Mismo criterio
+        // determinístico que backend/core/deps.py::get_account_id y el hook
+        // de auth (20260827000001): la membresía más antigua por
+        // created_at, desempatada por id. `.maybeSingle()` además nunca
+        // lanza con 0 filas (el otro borde que `.single()` rompía igual).
         supabase
           .from("account_members")
           .select("account_id, role, accounts(billing_plan, billing_status, trial_plan, trial_started_at, trial_expires_at, billing_exempt)")
           .eq("user_id", authUser.id)
-          .single(),
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .limit(1)
+          .maybeSingle(),
       ])
 
       // ── Resolve billing state from account (C-05 D5, billing-pro-trial D4) ─

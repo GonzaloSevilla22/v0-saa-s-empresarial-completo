@@ -78,6 +78,13 @@ def _body(resp) -> dict:
         # v3-rbac-multirole Parte A (D5): owner con expires_at — 422
         # (validación de payload, el vencimiento no debía venir).
         ("P0406", 422),
+        # v3-rbac-multirole Parte C (D18): cupo de usuarios agotado en
+        # rpc_invite_member/rpc_accept_invitation — 403, regla de negocio del
+        # plan (misma familia que P0B10).
+        ("P0402", 403),
+        # v3-rbac-multirole Parte C (D18): invitación pendiente duplicada —
+        # 409, conflicto de ESTADO.
+        ("P0407", 409),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

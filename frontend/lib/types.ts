@@ -39,8 +39,18 @@ export interface Account {
  * Membership of a user in an account.
  * Source of truth: account_members table.
  */
-/** Role of a user within an account. 'admin' requires plan 'pro'. */
-export type OrgRole = "owner" | "admin" | "member"
+/**
+ * Role of a user within an account.
+ *
+ * v3-rbac-multirole Parte C (D19): pasa de la tríada legacy
+ * (owner|admin|member) al catálogo cerrado de 8 códigos de
+ * account_role_catalog — "member" sobrevive como el valor heredado que
+ * puede seguir llegando de una sesión o caché anterior al cambio de modelo
+ * (mapea a "viewer" en el catálogo, pero el guard de UI de useOrgRole lo
+ * trata igual que "viewer": solo-lectura). Ningún rol requiere un plan
+ * específico (el gate "admin sólo en plan pro" se derogó, D17).
+ */
+export type OrgRole = "owner" | "admin" | "seller" | "cashier" | "stock" | "purchases" | "accountant" | "viewer" | "member"
 
 export interface AccountMember {
   id: string

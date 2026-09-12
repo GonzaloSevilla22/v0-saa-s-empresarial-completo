@@ -186,6 +186,16 @@ _BUSINESS_ERRCODE_STATUS = {
     # dueño por el mero paso del tiempo. 422 porque es un error de
     # VALIDACIÓN de payload (expires_at no debía venir), no de estado.
     "P0406": 422,
+    # v3-rbac-multirole Parte C (D18): normalización de los P0001 de
+    # rpc_invite_member (ambos overloads) y rpc_accept_invitation — cupo de
+    # usuarios agotado. 403 porque es una regla de negocio (cupo del plan),
+    # no una falta de autoridad puntual ni un error de payload — misma
+    # familia que P0B10 (límite de proveedores por plan).
+    "P0402": 403,
+    # v3-rbac-multirole Parte C (D18): invitación pendiente duplicada para el
+    # mismo email — 409, conflicto de ESTADO (ya existe una invitación viva),
+    # misma familia que P0409/P0423/P0428.
+    "P0407": 409,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

@@ -825,6 +825,18 @@ jobs:
           # ACLs, sin overload fantasma.
           psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261050000001_membership_quota_effective_plan.sql
 
+          # auth-hardening-jwt-cookies Parte A (2026-09-16, grupo 8 / D14):
+          # idempotente -- DROP FUNCTION IF EXISTS + CREATE sobre
+          # rpc_accept_invitation con la MISMA firma (el DROP es deliberado
+          # para re-emitir las ACLs de forma explicita, no un cambio de
+          # firma: sin overload fantasma 42725), REVOKE/GRANT y COMMENT
+          # re-emitidos identicos en cada pasada, y el ALTER PUBLICATION de
+          # public.fiscal_documents GUARDADO contra pg_publication_tables (sin
+          # el guard, la 2da pasada seria 42710). Reaplicada localmente dos
+          # veces consecutivas: EXIT=0 las dos, una sola definicion viva,
+          # mismas ACLs, y la tabla una sola vez en la publicacion.
+          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261051000001_accept_invitation_binding_realtime_fiscal.sql
+
           # fix-ci-idempotencia-reapply-firmas (2026-09-02, capa 2):
           # RECONVERGENCIA ESTRUCTURAL, no puntual. La cadena de arriba
           # reaplica migraciones VIEJAS fuera de orden para probar
@@ -2010,3 +2022,32 @@ jobs:
       # invitar y aceptar.
       - name: Run v3-rbac-multirole invite member roles and plan gate removal gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_invite_member_roles_and_plan_gate.sql
+      # auth-hardening-jwt-cookies Parte A, grupo 8 (D14, spec
+      # account-membership-roles "La aceptacion de una invitacion exige la
+      # identidad invitada" / "... toma lock sobre la invitacion"): la
+      # aceptacion exige que la identidad autenticada corresponda al email de
+      # la invitacion (lower() en ambos lados), con el email resuelto contra
+      # auth.users y NO solo contra el claim -- el backend propio empuja a
+      # Postgres solo {"sub","role"}, asi que un guard keyeado en el claim
+      # rechazaria el 100% de las aceptaciones por FastAPI (el bloque (4) fija
+      # esa forma exacta de claims y exige que la aceptacion legitima igual se
+      # complete). Ademas: rechazo indistinguible del token invalido/vencido,
+      # comparacion insensible a mayusculas, doble canje sin 2da membresia,
+      # candado del cuerpo vivo (FOR UPDATE + auth.users + binding, los tres
+      # ANTES del primer INSERT), cero overloads y ACLs exactas (sin EXECUTE
+      # para PUBLIC ni anon).
+      - name: Run auth-hardening accept invitation email binding gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_accept_invitation_binding.sql
+
+      # auth-hardening-jwt-cookies Parte A, grupo 8 (D14, spec
+      # afip-fiscal-document "El cambio de estado del comprobante llega a la
+      # interfaz en tiempo real"): fiscal_documents Y notifications en la
+      # publicacion supabase_realtime, RLS de fiscal_documents activa (es lo
+      # que acota el flujo por cuenta -- el filtro del canal es optimizacion
+      # de red, no el limite), e idempotencia del patron del ALTER guardado
+      # probada dos veces sobre una publicacion de sondeo (para no dejar la
+      # tabla publicada como efecto secundario y volver ciego al bloque que
+      # lo verifica). Una suscripcion a una tabla fuera de la publicacion no
+      # falla ni avisa: se queda muda, por eso necesita gate.
+      - name: Run auth-hardening realtime publication gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_realtime_publication.sql

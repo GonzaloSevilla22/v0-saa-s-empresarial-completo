@@ -435,6 +435,19 @@ END $$;
 --    reconverge de la Parte C de arriba.
 \i supabase/migrations/20261050000001_membership_quota_effective_plan.sql
 
+-- ── Fase 13b-reconverge-3 (auth-hardening-jwt-cookies Parte A, D14): el \i
+--    de arriba reaplica el cuerpo de rpc_accept_invitation ANTERIOR al
+--    binding de email -- el que dejaba que cualquier sesión autenticada con
+--    el token en la mano canjeara una invitación dirigida a otra persona
+--    (hallazgo F13). Sin este reconverge, correr ESTE gate después de que
+--    20261051000001 esté aplicada revierte el guard para el RESTO de la
+--    corrida de CI, y test_accept_invitation_binding.sql (que corre después,
+--    step 78) falla en su bloque (1) -- MEDIDO, no hipotético: así se
+--    descubrió, corriendo los 79 gates en el orden real del workflow.
+--    Tercer eslabón de la misma cadena que los dos reconverges de arriba:
+--    toda migración que redefina rpc_accept_invitation debe sumar el suyo.
+\i supabase/migrations/20261051000001_accept_invitation_binding_realtime_fiscal.sql
+
 -- ── Fase 13c: assert contra lo que la migración REAL dejó ───────────────────
 DO $$
 DECLARE

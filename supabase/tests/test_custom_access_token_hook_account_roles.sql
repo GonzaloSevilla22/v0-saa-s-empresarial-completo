@@ -209,3 +209,29 @@ EXCEPTION
     DELETE FROM auth.users WHERE id = v_user1;
     RAISE;
 END $$;
+
+-- ── (6) ACLs del hook: la mitad POSITIVA, que nadie asserteaba ───────────────
+-- auth-hardening-jwt-cookies Parte A (grupo 8, task 8.7b). Hoy la única
+-- aserción de ACL sobre custom_access_token_hook vive embebida en
+-- 20261048000001:690-694 y es sólo NEGATIVA (anon/authenticated NO pueden
+-- ejecutarlo). Nadie verificaba que `supabase_auth_admin` —el rol con el que
+-- GoTrue lo invoca en cada login— SÍ conserve EXECUTE: perderlo no rompe
+-- nada ruidosamente, vacía `app_metadata` EN SILENCIO, y D12 de este change
+-- vuelve los claims más load-bearing que antes (el enforcement de rol de las
+-- acciones de configuración los usa como caché).
+--
+-- Vive en este archivo —el gate dedicado del hook, que corre en CADA PR— y no
+-- en el bloque embebido de esa migración: editar una migración que producción
+-- ya aplicó la haría divergir de lo que realmente corrió, y la aserción sólo
+-- se ejecutaría en un `db reset`. Acá corre siempre.
+DO $$
+BEGIN
+  IF NOT has_function_privilege('supabase_auth_admin', 'public.custom_access_token_hook(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE CUSTOM-ACCESS-TOKEN-HOOK-ACCOUNT-ROLES FAILED (6): supabase_auth_admin perdió EXECUTE sobre custom_access_token_hook -- GoTrue dejaría de poder invocarlo y app_metadata quedaría vacío en SILENCIO (sin account_role, account_roles ni plan) en cada login.';
+  END IF;
+  IF has_function_privilege('anon', 'public.custom_access_token_hook(jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.custom_access_token_hook(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'GATE CUSTOM-ACCESS-TOKEN-HOOK-ACCOUNT-ROLES FAILED (6): el hook quedó ejecutable por anon/authenticated -- cualquier sesión podría fabricarse claims.';
+  END IF;
+  RAISE NOTICE 'PASS (6): supabase_auth_admin conserva EXECUTE sobre el hook (mitad positiva) y anon/authenticated siguen sin poder ejecutarlo.';
+END $$;

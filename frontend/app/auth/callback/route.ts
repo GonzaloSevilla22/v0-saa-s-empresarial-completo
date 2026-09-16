@@ -1,17 +1,18 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
-import { safeNext } from '@/lib/auth/safe-next'
+import { resolveSafeRedirect } from '@/lib/auth/safe-next'
 import { authCookieOptions } from '@/lib/supabase/cookie-options'
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
     const code = searchParams.get('code')
     // auth-hardening-jwt-cookies (D5): el destino de retorno se valida con el
-    // MISMO helper que usa el middleware. Antes se concatenaba crudo a la URL
-    // base (`${siteUrl}${next}`), así que `//evil.example` o `@evil.example/`
-    // cambiaban el host del redirect — open redirect latente.
-    const next = safeNext(searchParams.get('next'))
+    // MISMO helper que usan el middleware y el formulario de login. Antes se
+    // concatenaba crudo a la URL base (`${siteUrl}${next}`), así que
+    // `//evil.example` o `@evil.example/` cambiaban el host del redirect — open
+    // redirect latente.
+    const rawNext = searchParams.get('next')
 
     if (code) {
         const cookieStore = await cookies()
@@ -42,17 +43,21 @@ export async function GET(request: NextRequest) {
 
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (!error) {
-            console.log(`[Auth Callback] Sesión intercambiada con éxito. Redirigiendo a: ${origin}${next}`)
-            // Usamos primariamente el origin request actual. Evitamos quemar el redirect local 
+            // Usamos primariamente el origin request actual. Evitamos quemar el redirect local
             // de `.env.local` usando NEXT_PUBLIC_SITE_URL que podría pisar producción.
-            const siteUrl = origin.includes('localhost') 
-                ? (process.env.NEXT_PUBLIC_SITE_URL || origin) 
+            const siteUrl = origin.includes('localhost')
+                ? (process.env.NEXT_PUBLIC_SITE_URL || origin)
                 : origin
 
-            // `new URL(next, siteUrl)` en vez de concatenar: el origen lo fija
-            // el sitio, nunca el parámetro, y una eventual query del destino
-            // sobrevive en vez de quedar codificada dentro del path.
-            return NextResponse.redirect(new URL(next, siteUrl))
+            // `resolveSafeRedirect` en vez de concatenar: el origen lo fija el
+            // sitio, nunca el parámetro; una eventual query del destino sobrevive
+            // en vez de quedar codificada dentro del path; y el origen de la URL
+            // ya resuelta se comprueba antes de emitirla (BLOCKER 1 de la
+            // revisión: un tabulador en el destino colapsaba `new URL()` en otro
+            // host).
+            const destination = resolveSafeRedirect(rawNext, siteUrl)
+            console.log(`[Auth Callback] Sesión intercambiada con éxito. Redirigiendo a: ${destination.href}`)
+            return NextResponse.redirect(destination)
         } else {
             console.error(`[Auth Callback] Error intercambiando sesión:`, error.message)
         }

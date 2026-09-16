@@ -279,9 +279,11 @@ Las rutas de interfaz de programación del propio dominio SHALL quedar fuera del
 
 ### Requirement: El destino de retorno se valida en un único lugar
 
-El sistema SHALL validar el parámetro de destino de retorno con **una sola** implementación compartida, consumida tanto por el middleware como por el manejador de la ruta de retorno de los enlaces por email.
+El sistema SHALL validar el parámetro de destino de retorno con **una sola** implementación compartida, consumida por **todos** los caminos que resuelven ese destino: el middleware, el manejador de la ruta de retorno de los enlaces por email y el formulario de inicio de sesión.
 
 Un destino que no sea una ruta interna del propio sitio SHALL reemplazarse por la ruta principal del área autenticada. Ningún camino de la aplicación SHALL concatenar el destino recibido a la URL base sin validarlo.
+
+La validación SHALL rechazar los caracteres de control, y el camino que resuelve el destino contra la URL base SHALL comprobar que el origen de la URL resultante es el propio antes de emitirla. Comprobar únicamente los primeros caracteres de la cadena no alcanza: el analizador de URL del navegador **elimina** el tabulador, el salto de línea y el retorno de carro antes de analizar, de modo que un destino con uno de esos caracteres en segunda posición se resuelve contra otro host aunque empiece por una sola barra.
 
 Ningún componente ni manejador SHALL redirigir a una ruta de inicio de sesión que no exista: el destino SHALL ser siempre la ruta real de inicio de sesión, con el destino de retorno adjunto.
 
@@ -290,10 +292,21 @@ Ningún componente ni manejador SHALL redirigir a una ruta de inicio de sesión 
 - **WHEN** llega un destino de retorno que apunta a otro host o que no empieza por una barra
 - **THEN** el redireccionamiento resuelve a la ruta principal del área autenticada, no al destino recibido
 
+#### Scenario: Un destino con caracteres de control se descarta
+
+- **WHEN** llega un destino de retorno que contiene un tabulador, un salto de línea o un retorno de carro
+- **THEN** se descarta y el redireccionamiento resuelve a la ruta principal del área autenticada, dentro del propio origen
+
 #### Scenario: El retorno de un enlace por email valida igual que el middleware
 
 - **WHEN** el manejador de la ruta de retorno recibe un destino manipulado
 - **THEN** aplica exactamente la misma validación que el middleware y no redirige fuera del sitio
+
+#### Scenario: El formulario de inicio de sesión valida igual que el middleware
+
+- **GIVEN** un visitante sin sesión, para quien el middleware no evalúa el destino de retorno porque la página de inicio de sesión es pública
+- **WHEN** inicia sesión con éxito y el destino de retorno recibido apunta a otro host
+- **THEN** la navegación posterior resuelve a la ruta principal del área autenticada, nunca fuera del sitio
 
 #### Scenario: Ningún componente apunta a una ruta de login inexistente
 

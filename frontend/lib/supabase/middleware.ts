@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
 import { isProtectedPath as isProtectedRoute, isApiPath as isApiRoute } from "@/lib/auth/route-access"
-import { safeNext } from "@/lib/auth/safe-next"
+import { resolveSafeRedirect } from "@/lib/auth/safe-next"
 import { authCookieOptions } from "@/lib/supabase/cookie-options"
 
 // ── Security Headers ───────────────────────────────────────────────────────
@@ -242,10 +242,13 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // Authenticated + verified → skip auth pages
   if (isAuthRoute && user?.email_confirmed_at) {
     // D5: el destino de retorno se valida con el helper compartido — el mismo
-    // que consume `app/auth/callback/route.ts`. `new URL(next, request.url)`
-    // en vez de asignar a `url.pathname`: fija el origen desde el request y
-    // conserva la query del destino en vez de codificarla dentro del path.
-    const url = new URL(safeNext(request.nextUrl.searchParams.get("next")), request.url)
+    // que consumen `app/auth/callback/route.ts` y el formulario de login.
+    // `resolveSafeRedirect` fija el origen desde el request, conserva la query
+    // del destino en vez de codificarla dentro del path y **comprueba el origen
+    // de la URL resuelta** (BLOCKER 1 de la revisión: `new URL(next, base)` sí
+    // puede cambiar el host, a diferencia del setter de `pathname` que había
+    // antes de esta parte).
+    const url = resolveSafeRedirect(request.nextUrl.searchParams.get("next"), request.url)
     return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
   }
 

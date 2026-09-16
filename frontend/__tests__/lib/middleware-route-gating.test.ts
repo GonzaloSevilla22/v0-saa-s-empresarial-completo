@@ -169,7 +169,18 @@ describe("updateSession — atributos de cookie", () => {
 describe("updateSession — destino de retorno del redirect de ruta de auth", () => {
   const CONFIRMED = { id: "u1", email_confirmed_at: "2026-01-01T00:00:00Z" }
 
-  it.each(["//evil.example", "https://evil.example/", "@evil.example/", "/\\evil.example"])(
+  it.each([
+    "//evil.example",
+    "https://evil.example/",
+    "@evil.example/",
+    "/\\evil.example",
+    // Revisión adversarial (BLOCKER 1): el parser de URL borra estos tres
+    // caracteres, así que `/\t/evil.example` colapsa en `//evil.example` dentro
+    // de `new URL(next, request.url)` y salía del sitio con un 307.
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
+  ])(
     "descarta %j y manda al dashboard",
     async (next) => {
       harness.user = CONFIRMED

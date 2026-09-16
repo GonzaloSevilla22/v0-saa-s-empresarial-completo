@@ -11,7 +11,8 @@
  * Es superficie visible al usuario: entra por la regla del PO del 2026-08-02.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 
 const loginMock = vi.fn()
 const pushMock = vi.fn()
@@ -37,6 +38,26 @@ vi.mock("next/link", () => ({
 
 vi.mock("@/components/auth/MagicLinkForm", () => ({
   MagicLinkForm: () => <div data-testid="magic-link-form" />,
+}))
+
+/**
+ * Doble de la compuerta de captcha: `submit(run)` corre `run` con un token
+ * fresco, que es lo único que este archivo necesita para llegar a la
+ * navegación posterior al login. El ciclo real de renovación lo cubren los
+ * tests de `captcha-freshness`.
+ */
+vi.mock("@/hooks/auth", () => ({
+  useCaptchaGate: () => ({
+    captchaRef: { current: null },
+    captchaProps: { onVerify: () => {}, onExpire: () => {}, onError: () => {} },
+    token: "captcha-token",
+    phase: "ready",
+    isRenewing: false,
+    isLoading: false,
+    submitButtonProps: { disabled: false },
+    statusMessage: "",
+    submit: <T,>(run: (token: string) => Promise<T>) => run("captcha-token"),
+  }),
 }))
 
 import { useSearchParams } from "next/navigation"
@@ -108,5 +129,73 @@ describe("LoginPage — los dos motivos no se pisan", () => {
 
     expect(screen.getByText(EXPIRED)).toBeInTheDocument()
     expect(screen.queryByText(IDLE)).not.toBeInTheDocument()
+  })
+})
+
+// ── Revisión adversarial de la Parte B (BLOCKER 2) ─────────────────────────
+// `safeNext()` nació en D5 con dos consumidores declarados (middleware y
+// callback), pero el **tercero** —y el único que corre en el caso real— quedó
+// afuera: el formulario de login hacía `router.push(searchParams.get("next"))`
+// crudo. Un usuario **anónimo** no dispara la rama `isAuthRoute` del middleware
+// (la página de login es pública), así que nadie más valida ese destino.
+//
+// `router.push` con un origen ajeno hace navegación dura (`isExternalURL` de
+// `next@16.1.6`: `url.origin !== window.location.origin` →
+// `handleExternalUrl`), así que la víctima tipea sus credenciales en el dominio
+// real y aterriza en el del atacante.
+describe("LoginPage — el destino de retorno se valida también en el formulario", () => {
+  async function submitLogin() {
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText(/correo|email/i), "duenio@test.local")
+    await user.type(screen.getByLabelText(/contraseña/i), "secreto-123")
+    await user.click(screen.getByRole("button", { name: /iniciar sesión/i }))
+  }
+
+  it.each([
+    "https://evil.example/",
+    "//evil.example",
+    "@evil.example/",
+    "/\\evil.example",
+    "/\t/evil.example",
+  ])("descarta %j y navega a la ruta principal", async (next) => {
+    withParams({ next })
+    loginMock.mockResolvedValue(undefined)
+
+    render(<LoginPage />)
+    await submitLogin()
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalled())
+    expect(pushMock).toHaveBeenCalledWith("/dashboard")
+  })
+
+  it("conserva un destino interno", async () => {
+    withParams({ next: "/caja?turno=2" })
+    loginMock.mockResolvedValue(undefined)
+
+    render(<LoginPage />)
+    await submitLogin()
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/caja?turno=2"))
+  })
+
+  it("sin destino va a la ruta principal", async () => {
+    withParams({})
+    loginMock.mockResolvedValue(undefined)
+
+    render(<LoginPage />)
+    await submitLogin()
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"))
+  })
+
+  it("un login fallido no navega a ningún lado", async () => {
+    withParams({ next: "/caja" })
+    loginMock.mockRejectedValue(new Error("credenciales inválidas"))
+
+    render(<LoginPage />)
+    await submitLogin()
+
+    await waitFor(() => expect(loginMock).toHaveBeenCalled())
+    expect(pushMock).not.toHaveBeenCalled()
   })
 })

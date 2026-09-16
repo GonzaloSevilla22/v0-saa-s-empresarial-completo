@@ -16,6 +16,7 @@ import { CaptchaWidget } from "@/components/auth/CaptchaWidget"
 import { CaptchaRenewalStatus } from "@/components/auth/CaptchaRenewalStatus"
 import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
 import { useCaptchaGate } from "@/hooks/auth"
+import { safeNext } from "@/lib/auth/safe-next"
 import { AuthSceneMount } from "@/components/three/AuthSceneMount"
 
 export default function LoginPage() {
@@ -27,8 +28,17 @@ export default function LoginPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const captchaGate = useCaptchaGate()
-  // Restore the destination the user was trying to reach before being redirected to login
-  const nextPath = searchParams.get("next") ?? "/dashboard"
+  // Restore the destination the user was trying to reach before being redirected to login.
+  //
+  // auth-hardening-jwt-cookies (D5, BLOCKER 2 de la revisión adversarial): el
+  // destino pasa por `safeNext()`, el MISMO helper que usan el middleware y el
+  // manejador del callback. Este es el consumidor que corre en el caso real —un
+  // visitante **anónimo** no dispara la rama de ruta de auth del middleware,
+  // porque la página de login es pública—, y hacía `router.push()` del valor
+  // crudo: con un origen ajeno `next@16.1.6` hace navegación dura
+  // (`isExternalURL` → `handleExternalUrl`), así que el usuario tipeaba sus
+  // credenciales en el dominio real y aterrizaba en el del atacante.
+  const nextPath = safeNext(searchParams.get("next"))
   // reason=idle: session was closed automatically due to inactivity
   const isIdleLogout = searchParams.get("reason") === "idle"
   // auth-hardening-jwt-cookies (D7, task 14.10): reason=expired llega cuando una

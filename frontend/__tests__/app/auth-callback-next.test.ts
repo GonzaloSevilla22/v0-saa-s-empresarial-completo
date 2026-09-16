@@ -45,6 +45,11 @@ describe("GET /auth/callback — el destino de retorno se valida", () => {
     "//evil.example",
     "https://evil.example/",
     "/\\evil.example",
+    // Revisión adversarial (BLOCKER 1): tabulador, salto de línea y retorno de
+    // carro los borra el parser de URL, así que colapsan en `//evil.example`.
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
   ])("descarta el destino externo %j y vuelve al dashboard", async (next) => {
     const response = await GET(
       callbackRequest(`?code=abc&next=${encodeURIComponent(next)}`),

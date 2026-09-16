@@ -41,18 +41,35 @@ export const sessionNavigation = {
   },
 }
 
-/** Token de acceso vigente, o `null` si no hay sesión. Nunca lanza. */
-async function resolveAccessToken(): Promise<string | null> {
+/**
+ * Resultado de consultar el estado de sesión.
+ *
+ * Revisión adversarial (MINOR 4): hasta esta ronda la consulta devolvía
+ * `string | null` y **conflaba** dos estados distintos — "no hay sesión" y "no
+ * pude averiguarlo". El requirement dice *"consultando el estado de sesión y,
+ * **cuando no exista sesión**, SHALL navegar"*: un fallo transitorio de la
+ * consulta (refresh token perfectamente válido, almacenamiento bloqueado) no es
+ * "no existe sesión", y producía una navegación dura que tira el estado de la
+ * pantalla en curso — un formulario de venta a medio cargar.
+ */
+export type SessionProbe =
+  | { status: "active"; token: string }
+  | { status: "absent" }
+  | { status: "unknown" }
+
+/** Consulta el estado de sesión. Nunca lanza. */
+async function probeSession(): Promise<SessionProbe> {
   try {
     const supabase = createClient()
     const {
       data: { session },
     } = await supabase.auth.getSession()
-    return session?.access_token || null
+    const token = session?.access_token
+    return token ? { status: "active", token } : { status: "absent" }
   } catch {
-    // Una sesión que no se puede resolver es, para el transporte, una sesión
-    // ausente: la llamada sale sin encabezado y el backend responde 401.
-    return null
+    // No se pudo determinar: la llamada sale sin encabezado, pero esto NO es
+    // una sesión ausente y no habilita a navegar.
+    return { status: "unknown" }
   }
 }
 
@@ -66,25 +83,62 @@ async function resolveAccessToken(): Promise<string | null> {
 export async function getAuthHeaders(
   extraHeaders?: Record<string, string>,
 ): Promise<Record<string, string>> {
-  const token = await resolveAccessToken()
+  const probe = await probeSession()
   return {
     ...(extraHeaders ?? {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(probe.status === "active" ? { Authorization: `Bearer ${probe.token}` } : {}),
   }
 }
+
+/** Prefijo del esquema de autorización. El formato vive sólo en este módulo. */
+const BEARER_PREFIX = "Bearer "
+
+/**
+ * Token que viaja en unos encabezados ya armados, o `null`.
+ *
+ * Lo consume `python-client` para poder comparar el token que **envió** con el
+ * que la consulta devuelve después del 401: sin esa comparación no se puede
+ * distinguir "el token venció mientras la pantalla estaba abierta" —el caso más
+ * frecuente, que `getSession()` resuelve auto-refrescando— de un problema real
+ * de autorización.
+ */
+export function tokenFromHeaders(headers: Record<string, string>): string | null {
+  const header = headers.Authorization
+  if (!header?.startsWith(BEARER_PREFIX)) return null
+  return header.slice(BEARER_PREFIX.length) || null
+}
+
+/**
+ * Qué se hizo con un 401 del backend propio.
+ *
+ * - `navigated`: no había sesión → se navegó al login (D7).
+ * - `session-renewed`: hay sesión y el token **cambió** respecto del que se
+ *   envió → el 401 fue por frescura y ya se resolvió; reintentar es del usuario,
+ *   no del transporte (reintentar automáticamente una mutación no es seguro).
+ * - `session-active`: hay sesión con el mismo token → el 401 es de autorización.
+ * - `session-unknown`: no se pudo determinar el estado → NO se navega.
+ */
+export type UnauthorizedOutcome =
+  | "navigated"
+  | "session-renewed"
+  | "session-active"
+  | "session-unknown"
 
 /**
  * Reacción compartida a un 401 del backend propio (D7).
  *
- * Consulta el estado de sesión: si no hay, navega al login con el motivo de
- * vencimiento y la ruta actual como destino de retorno. Si la sesión sigue
- * viva, el 401 fue por otra razón y el caller conserva su manejo de error.
- *
- * @returns `true` si navegó (no había sesión).
+ * @param sentToken token que el caller envió en la llamada que recibió el 401,
+ *   si lo tiene a mano. Sin él no se puede reconocer una renovación.
  */
-export async function handleUnauthorized(): Promise<boolean> {
-  const token = await resolveAccessToken()
-  if (token) return false
+export async function handleUnauthorized(
+  sentToken?: string | null,
+): Promise<UnauthorizedOutcome> {
+  const probe = await probeSession()
+
+  if (probe.status === "unknown") return "session-unknown"
+  if (probe.status === "active") {
+    return sentToken && probe.token !== sentToken ? "session-renewed" : "session-active"
+  }
 
   const current =
     typeof window === "undefined"
@@ -94,5 +148,25 @@ export async function handleUnauthorized(): Promise<boolean> {
   sessionNavigation.assign(
     `/auth/login?reason=expired&next=${encodeURIComponent(current)}`,
   )
-  return true
+  return "navigated"
+}
+
+/**
+ * Idioma compartido de los `fetch` a mano: *"si el 401 ya se manejó navegando,
+ * cortar acá"*.
+ *
+ * Revisión adversarial (MINOR 2 de seguridad). Los dos call sites que no pasan
+ * por un cliente hacían `if (res.status === 401) { await handleUnauthorized() }`
+ * y en la línea siguiente `if (!res.ok) throw …`. `window.location.assign()` es
+ * asíncrono, así que el usuario veía el cartel de error mientras la navegación
+ * salía. El idioma vive acá en vez de copiado en cada call site.
+ *
+ * @returns `true` si el 401 se resolvió navegando (el caller debe cortar).
+ */
+export async function redirectedOnUnauthorized(
+  response: Response,
+  sentToken?: string | null,
+): Promise<boolean> {
+  if (response.status !== 401) return false
+  return (await handleUnauthorized(sentToken)) === "navigated"
 }

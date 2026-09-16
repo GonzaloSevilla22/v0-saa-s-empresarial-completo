@@ -34,6 +34,10 @@ const freshActivity = () => String(Date.now())
 
 beforeEach(() => {
   resetHarness()
+  // Sin esto, un `vi.spyOn(console, "warn")` de un caso anterior sigue vivo y su
+  // historial se acumula: el control negativo de la revocación fallida lo
+  // detectó (veía 2 llamadas de los casos previos).
+  vi.restoreAllMocks()
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co")
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key")
 })
@@ -98,6 +102,58 @@ describe("corte por inactividad del servidor — revoca contra el proveedor", ()
     for (const line of lines) {
       expect(line, `no es un borrado: ${line}`).toSatisfy(isCookieDeletion)
     }
+  })
+})
+
+// ── Revisión adversarial (MINOR 3) ─────────────────────────────────────────
+// El `try/catch` cubría sólo el caso en que `signOut` **lanza**, y auth-js no
+// lanza en el caso normal de fallo: `_signOut` se come 401/403/404 y **devuelve**
+// `{ error }` para el resto (p. ej. un 5xx de GoTrue). Sin destructurar ese
+// error, la sesión quedaba viva en el emisor sin una sola línea de log —
+// justo el estado que D6 existe para cerrar. `performIdleLogout` sí inspecciona
+// el error y loguea: el contraste vivía dentro del mismo change.
+describe("corte por inactividad — una revocación fallida no queda en silencio", () => {
+  it("avisa cuando el proveedor devuelve error sin lanzar", async () => {
+    harness.user = CONFIRMED_USER
+    harness.signOutReturnsError = true
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    await updateSession(
+      buildRequest("/caja", { ...SESSION_COOKIE, "auth:last-activity": staleActivity() }),
+    )
+
+    expect(warn).toHaveBeenCalled()
+    const logueado = warn.mock.calls.flat().map(String).join(" ")
+    expect(logueado).toMatch(/503|Service Unavailable/)
+  })
+
+  it("y borra y redirige igual: el corte no queda condicionado al proveedor", async () => {
+    harness.user = CONFIRMED_USER
+    harness.signOutReturnsError = true
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    const response = await updateSession(
+      buildRequest("/caja", { ...SESSION_COOKIE, "auth:last-activity": staleActivity() }),
+    )
+
+    expect(isRedirect(response)).toBe(true)
+    const lines = sessionCookieLines(response)
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) {
+      expect(line, `no es un borrado: ${line}`).toSatisfy(isCookieDeletion)
+    }
+  })
+
+  it("control negativo: una revocación exitosa NO emite ninguna advertencia", async () => {
+    harness.user = CONFIRMED_USER
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    await updateSession(
+      buildRequest("/caja", { ...SESSION_COOKIE, "auth:last-activity": staleActivity() }),
+    )
+
+    expect(harness.signOutCalls).toHaveLength(1)
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 

@@ -184,8 +184,20 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
       // El cierre NO queda condicionado a que el proveedor conteste: si GoTrue
       // está caído igual borramos y redirigimos, porque de lo contrario una
       // caída del proveedor desactivaría el corte por inactividad entero.
+      //
+      // Revisión adversarial (MINOR 3): hay que mirar las DOS formas de fallo.
+      // auth-js **no lanza** en el caso normal: `_signOut` se come 401/403/404 y
+      // **devuelve** `{ error }` para el resto (p. ej. un 5xx de GoTrue). Sin
+      // destructurarlo, la sesión quedaba viva en el emisor sin una sola línea de
+      // log — exactamente el estado que esta rama existe para cerrar.
       try {
-        await supabase.auth.signOut({ scope: "local" })
+        const { error: signOutError } = await supabase.auth.signOut({ scope: "local" })
+        if (signOutError) {
+          console.warn(
+            "[middleware] idle signOut returned an error (proceeding to clear cookies):",
+            signOutError.message,
+          )
+        }
       } catch (signOutError) {
         console.warn(
           "[middleware] idle signOut failed (proceeding to clear cookies):",

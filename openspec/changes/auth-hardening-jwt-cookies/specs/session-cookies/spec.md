@@ -370,6 +370,8 @@ El sistema SHALL reaccionar a una respuesta de no autorizado del backend propio 
 
 NOT SHALL limitarse a mostrar un mensaje que sugiera recargar la página, porque la renovación por navegación no ocurre en toda ruta.
 
+La consulta del estado de sesión SHALL distinguir tres desenlaces —sesión presente, sesión ausente y estado indeterminado— y SHALL navegar **únicamente** cuando la sesión esté ausente: un fallo transitorio de la consulta no es una sesión ausente, y navegar en ese caso descarta el estado de la pantalla en curso. Cuando la sesión esté presente, el mensaje NOT SHALL afirmar un problema de permisos si el token vigente difiere del que se envió en la llamada rechazada: en ese caso el rechazo fue por frescura y ya está resuelto.
+
 La página de inicio de sesión SHALL explicar ese motivo al usuario, con el mismo mecanismo con que ya explica el cierre por inactividad: un motivo de vencimiento que llega sin mensaje visible deja al usuario frente a un formulario que no pidió, sin saber por qué.
 
 #### Scenario: La página de inicio de sesión explica el vencimiento
@@ -388,6 +390,18 @@ La página de inicio de sesión SHALL explicar ese motivo al usuario, con el mis
 - **GIVEN** una sesión válida
 - **WHEN** una llamada responde no autorizado por una razón distinta del vencimiento
 - **THEN** la aplicación muestra el error sin cerrar la sesión ni navegar
+
+#### Scenario: Un estado de sesión indeterminado no expulsa al usuario
+
+- **GIVEN** una consulta del estado de sesión que falla sin poder determinarlo
+- **WHEN** una llamada al backend propio responde no autorizado
+- **THEN** la aplicación conserva la pantalla en curso, no navega, y el mensaje no afirma un problema de permisos
+
+#### Scenario: Un no autorizado cuya sesión se renovó no se informa como falta de permisos
+
+- **GIVEN** un token que venció mientras la pantalla estaba abierta y una consulta de sesión que lo renueva
+- **WHEN** la llamada rechazada se compara con el token vigente y difieren
+- **THEN** el mensaje indica que la sesión se renovó y que la operación puede reintentarse, sin navegar
 
 ### Requirement: El modelo declara qué protege y qué no
 

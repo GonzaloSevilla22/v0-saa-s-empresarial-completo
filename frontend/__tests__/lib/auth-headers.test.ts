@@ -28,7 +28,13 @@ vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({ auth: { getSession: getSessionMock } }),
 }))
 
-import { getAuthHeaders, handleUnauthorized, sessionNavigation } from "@/lib/api/auth-headers"
+import {
+  getAuthHeaders,
+  handleUnauthorized,
+  redirectedOnUnauthorized,
+  tokenFromHeaders,
+  sessionNavigation,
+} from "@/lib/api/auth-headers"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND = path.resolve(HERE, "..", "..")
@@ -107,9 +113,9 @@ describe("handleUnauthorized — D7", () => {
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     window.history.pushState({}, "", "/caja?turno=2")
 
-    const navigated = await handleUnauthorized()
+    const outcome = await handleUnauthorized()
 
-    expect(navigated).toBe(true)
+    expect(outcome).toBe("navigated")
     expect(assign).toHaveBeenCalledTimes(1)
     const url = new URL(assign.mock.calls[0][0], "https://app.test")
     expect(url.pathname).toBe("/auth/login")
@@ -121,20 +127,119 @@ describe("handleUnauthorized — D7", () => {
     withSession("tok-vivo")
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
 
-    const navigated = await handleUnauthorized()
+    const outcome = await handleUnauthorized("tok-vivo")
 
-    expect(navigated).toBe(false)
+    expect(outcome).toBe("session-active")
     expect(assign).not.toHaveBeenCalled()
   })
 
-  it("si la consulta de sesión falla, trata la sesión como ausente y navega", async () => {
-    getSessionMock.mockRejectedValue(new Error("red caída"))
+  // ── Revisión adversarial (MINOR 4): "no hay sesión" ≠ "no pude averiguarlo" ──
+  // El requirement dice "consultando el estado de sesión y, **cuando no exista
+  // sesión**, SHALL navegar". Un fallo transitorio de la consulta —refresh token
+  // perfectamente válido— no es "no existe sesión", y hasta esta revisión
+  // producía una navegación dura que tira el estado de la pantalla en curso (un
+  // formulario de venta a medio cargar). El test anterior fijaba esa conflación
+  // como comportamiento deseado.
+  it("si la consulta de sesión falla, NO navega: no saber no es no tener", async () => {
+    getSessionMock.mockRejectedValue(new Error("almacenamiento bloqueado"))
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
 
-    const navigated = await handleUnauthorized()
+    const outcome = await handleUnauthorized()
 
-    expect(navigated).toBe(true)
-    expect(assign).toHaveBeenCalled()
+    expect(outcome).toBe("session-unknown")
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  // ── Revisión adversarial (MINOR 1 de seguridad): el caso más común ──────────
+  // `getSession()` **auto-refresca** contra el proveedor, así que en el caso que
+  // el usuario vive de verdad —"el access token venció mientras la pantalla
+  // estaba abierta"— la consulta devuelve un token NUEVO. Sin distinguirlo, el
+  // transporte informaba un problema de permisos para un problema de frescura ya
+  // resuelto.
+  it("distingue una sesión renovada de un problema de permisos", async () => {
+    withSession("tok-nuevo")
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    const outcome = await handleUnauthorized("tok-viejo")
+
+    expect(outcome).toBe("session-renewed")
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it("sin saber qué token se envió no inventa una renovación", async () => {
+    withSession("tok-vivo")
+    vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    // Los `fetch` a mano no llevan cuenta del token enviado: para ellos la
+    // sesión viva es simplemente viva.
+    expect(await handleUnauthorized()).toBe("session-active")
+    expect(await handleUnauthorized(null)).toBe("session-active")
+  })
+
+  it("una sesión ausente navega aunque el caller informe el token que envió", async () => {
+    withoutSession()
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    expect(await handleUnauthorized("tok-viejo")).toBe("navigated")
+    expect(assign).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── Revisión adversarial (MINOR 2 de seguridad) ─────────────────────────────
+// Los dos `fetch` a mano hacían `if (res.status === 401) { await
+// handleUnauthorized() }` y en la línea siguiente `if (!res.ok) throw …`:
+// `window.location.assign()` es asíncrono, así que el usuario veía el cartel de
+// error mientras la navegación salía. El idioma correcto —"si ya se manejó
+// navegando, cortar"— vive acá, no copiado en cada call site.
+describe("redirectedOnUnauthorized — el idioma de los fetch a mano", () => {
+  const response = (status: number) => ({ status }) as Response
+
+  it("con 401 y sin sesión, informa que ya se manejó navegando", async () => {
+    withoutSession()
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    expect(await redirectedOnUnauthorized(response(401))).toBe(true)
+    expect(assign).toHaveBeenCalledTimes(1)
+  })
+
+  it("con 401 y sesión viva, NO corta: el caller muestra su error", async () => {
+    withSession("tok-vivo")
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    expect(await redirectedOnUnauthorized(response(401))).toBe(false)
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it("con 401 y consulta fallida tampoco corta", async () => {
+    getSessionMock.mockRejectedValue(new Error("almacenamiento bloqueado"))
+    expect(await redirectedOnUnauthorized(response(401))).toBe(false)
+  })
+
+  it.each([200, 403, 404, 500])("un %i no consulta la sesión ni corta", async (status) => {
+    withoutSession()
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    expect(await redirectedOnUnauthorized(response(status))).toBe(false)
+    expect(getSessionMock).not.toHaveBeenCalled()
+    expect(assign).not.toHaveBeenCalled()
+  })
+})
+
+describe("tokenFromHeaders — el formato del Bearer vive en un solo sitio", () => {
+  it("extrae el token de los encabezados que armó el helper", async () => {
+    withSession("tok-123")
+    const headers = await getAuthHeaders()
+    expect(tokenFromHeaders(headers)).toBe("tok-123")
+  })
+
+  it("devuelve null cuando no hay encabezado", async () => {
+    withoutSession()
+    const headers = await getAuthHeaders({ "Content-Type": "application/json" })
+    expect(tokenFromHeaders(headers)).toBeNull()
+  })
+
+  it("no confunde otro esquema de autorización", () => {
+    expect(tokenFromHeaders({ Authorization: "Basic dXNlcjpwYXNz" })).toBeNull()
   })
 })
 
@@ -170,5 +275,35 @@ describe("D21 — los transportes de la Parte B no arman el Bearer a mano", () =
   it("y el único sitio que compone el encabezado es el helper compartido", () => {
     const helper = fs.readFileSync(path.join(FRONTEND, "lib/api/auth-headers.ts"), "utf8")
     expect(/Bearer\s*\$\{/.test(helper)).toBe(true)
+  })
+
+  // ── Revisión adversarial (MINOR 2 de seguridad) ───────────────────────────
+  // Los dos `fetch` a mano no tienen test de componente (ninguno de los dos
+  // archivos tiene suite propia), así que el candado del flujo de control es
+  // textual: lo que se exige es que consuman el idioma compartido —cuya unidad
+  // sí está testeada arriba— **cortando** con un `return`, y que ya no quede el
+  // patrón viejo de llamar y seguir.
+  const RAW_FETCH_CALL_SITES = [
+    "components/ventas/sale-receipt-button.tsx",
+    "app/(dashboard)/admin/pagos/page.tsx",
+  ]
+
+  it.each(RAW_FETCH_CALL_SITES)("%s corta cuando el 401 ya se manejó navegando", (relative) => {
+    const source = fs.readFileSync(path.join(FRONTEND, relative), "utf8")
+    expect(source).toMatch(/if\s*\(await redirectedOnUnauthorized\(.*\)\)\s*return/)
+  })
+
+  it.each(RAW_FETCH_CALL_SITES)("%s ya no llama y sigue de largo", (relative) => {
+    const source = fs.readFileSync(path.join(FRONTEND, relative), "utf8")
+    const viejo = source
+      .split(/\r?\n/)
+      .filter((line) => !line.trimStart().startsWith("//"))
+      .filter((line) => /status === 401.*await handleUnauthorized\(\)/.test(line))
+    expect(viejo, `patrón viejo en ${relative}: ${viejo.join(" | ")}`).toEqual([])
+  })
+
+  it("el detector del patrón viejo no es vacuo", () => {
+    const ofensivo = "      if (res.status === 401) { await handleUnauthorized() }"
+    expect(/status === 401.*await handleUnauthorized\(\)/.test(ofensivo)).toBe(true)
   })
 })

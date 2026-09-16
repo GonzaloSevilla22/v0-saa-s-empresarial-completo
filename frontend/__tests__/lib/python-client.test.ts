@@ -185,6 +185,50 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
     expect(assign).not.toHaveBeenCalled()
   })
 
+  // ── Revisión adversarial (MINOR 1 de seguridad) ───────────────────────────
+  // `getSession()` auto-refresca, así que el caso más frecuente —"el token venció
+  // mientras la pantalla estaba abierta"— devuelve un token NUEVO: la consulta
+  // dice "hay sesión" y el mensaje afirmaba un problema de PERMISOS para un
+  // problema de FRESCURA que ya se resolvió, sin insinuar ninguna salida.
+  it("un 401 cuya sesión se renovó en el camino no habla de permisos", async () => {
+    let entregados = 0
+    getSessionMock.mockImplementation(async () => ({
+      data: { session: { access_token: entregados++ === 0 ? "token-vencido" : "token-renovado" } },
+    }))
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
+
+    const error = await pythonClient
+      .get("/cash-sessions")
+      .then(() => null)
+      .catch((e: unknown) => e as Error)
+
+    expect(error!.message).toMatch(/renov/i)
+    expect(error!.message).not.toMatch(/No autorizado/i)
+    // No se navega: la sesión está viva y la pantalla del usuario sobrevive.
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it("un 401 con el estado de sesión indeterminado no afirma un problema de permisos ni navega", async () => {
+    // Primera consulta (armado de encabezados) con token; la del 401 falla.
+    let llamadas = 0
+    getSessionMock.mockImplementation(async () => {
+      if (llamadas++ === 0) return { data: { session: { access_token: "token-vivo" } } }
+      throw new Error("almacenamiento bloqueado")
+    })
+    const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+    mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
+
+    const error = await pythonClient
+      .get("/cash-sessions")
+      .then(() => null)
+      .catch((e: unknown) => e as Error)
+
+    expect(error!.message).not.toMatch(/No autorizado/i)
+    expect(error!.message).toMatch(/autorizar/i)
+    expect(assign).not.toHaveBeenCalled()
+  })
+
   it("ya no recomienda recargar la página (esa recomendación no recuperaba nada)", async () => {
     getSessionMock.mockResolvedValue({ data: { session: { access_token: "token-vivo" } } })
     vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})

@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { getAuthHeaders, handleUnauthorized } from "@/lib/api/auth-headers"
+import { getAuthHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
 import { pythonClient } from "@/lib/api/python-client"
 import { Receipt, Download, FileText, AlertTriangle, Send, CheckCircle2, FileCheck } from "lucide-react"
 import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
@@ -153,7 +153,10 @@ export default function AdminPagosPage() {
         { headers },
       )
       // D7: un 401 sin sesión lleva al login en vez de morir en un cartel.
-      if (res.status === 401) { await handleUnauthorized() }
+      // Revisión adversarial (MINOR 2 de seguridad): hay que CORTAR cuando ya se
+      // navegó. `window.location.assign()` es asíncrono, así que sin el `return`
+      // el usuario veía el cartel de error mientras la navegación salía.
+      if (await redirectedOnUnauthorized(res, tokenFromHeaders(headers))) return
       if (!res.ok) throw new Error("No se pudo generar el PDF del recibo.")
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)

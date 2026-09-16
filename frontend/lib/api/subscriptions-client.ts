@@ -59,12 +59,19 @@ async function authHeaders(): Promise<Record<string, string>> {
  * con el motivo de vencimiento y el destino de retorno.
  */
 async function unauthorizedError(): Promise<Error> {
-  const navigated = await handleUnauthorized()
-  return new Error(
-    navigated
+  // Revisión adversarial (MINOR 1 de seguridad): los cuatro desenlaces, con el
+  // mismo vocabulario que `python-client` — "no autorizado" es un veredicto de
+  // permisos y no corresponde cuando la sesión se renovó ni cuando no se pudo
+  // determinar. Este transporte no lleva cuenta del token enviado, así que nunca
+  // observa `session-renewed`.
+  const outcome = await handleUnauthorized()
+  const message =
+    outcome === "navigated"
       ? "Tu sesión venció. Te llevamos al inicio de sesión."
-      : "No autorizado para esta operación.",
-  )
+      : outcome === "session-unknown"
+        ? "No se pudo autorizar la operación. Reintentá."
+        : "No autorizado para esta operación."
+  return new Error(message)
 }
 
 async function parseErrorDetail(response: Response): Promise<string> {

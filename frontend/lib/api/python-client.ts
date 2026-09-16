@@ -1,4 +1,4 @@
-import { getAuthHeaders, handleUnauthorized } from "@/lib/api/auth-headers";
+import { getAuthHeaders, handleUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
@@ -22,19 +22,28 @@ function jsonAuthHeaders(extra?: Record<string, string>): Promise<Record<string,
   return getAuthHeaders({ ...JSON_HEADERS, ...(extra ?? {}) });
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
+/**
+ * auth-hardening-jwt-cookies (D7): antes se lanzaba "recargá la página". Esa
+ * recomendación delegaba la renovación en un redirect del middleware que en las
+ * 12 rutas de F1 nunca ocurría.
+ *
+ * Revisión adversarial (MINOR 1 de seguridad): los cuatro desenlaces tienen
+ * mensajes distintos porque `getSession()` **auto-refresca**, así que el caso más
+ * frecuente —"el token venció mientras la pantalla estaba abierta"— devuelve un
+ * token NUEVO y caía en el mensaje de permisos: un veredicto de autorización
+ * para un problema de frescura ya resuelto, y sin insinuar ninguna salida.
+ */
+const UNAUTHORIZED_MESSAGES = {
+  navigated: "Tu sesión venció. Te llevamos al inicio de sesión.",
+  "session-renewed": "Tu sesión se renovó. Reintentá la operación.",
+  "session-active": "No autorizado para esta operación.",
+  "session-unknown": "No se pudo autorizar la operación. Reintentá.",
+} as const;
+
+async function handleResponse<T>(response: Response, sentToken?: string | null): Promise<T> {
   if (response.status === 401) {
-    // auth-hardening-jwt-cookies (D7): antes se lanzaba "recargá la página".
-    // Esa recomendación delegaba la renovación en un redirect del middleware
-    // que en las 12 rutas de F1 nunca ocurría. Ahora se consulta el estado de
-    // sesión: si no hay, se navega al login con el motivo y el destino de
-    // retorno; si la hay, el 401 fue por otra razón y se conserva el error.
-    const navigated = await handleUnauthorized();
-    throw new Error(
-      navigated
-        ? "Tu sesión venció. Te llevamos al inicio de sesión."
-        : "No autorizado para esta operación."
-    );
+    const outcome = await handleUnauthorized(sentToken);
+    throw new Error(UNAUTHORIZED_MESSAGES[outcome]);
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({ detail: response.statusText }));
@@ -52,7 +61,7 @@ export const pythonClient = {
   async get<T>(path: string): Promise<T> {
     const headers = await jsonAuthHeaders();
     const response = await fetch(`${BACKEND_URL as string}${path}`, { method: "GET", headers });
-    return handleResponse<T>(response);
+    return handleResponse<T>(response, tokenFromHeaders(headers));
   },
 
   async post<T>(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<T> {
@@ -67,7 +76,7 @@ export const pythonClient = {
       headers,
       body: JSON.stringify(body),
     });
-    return handleResponse<T>(response);
+    return handleResponse<T>(response, tokenFromHeaders(headers));
   },
 
   async put<T>(path: string, body: unknown): Promise<T> {
@@ -77,7 +86,7 @@ export const pythonClient = {
       headers,
       body: JSON.stringify(body),
     });
-    return handleResponse<T>(response);
+    return handleResponse<T>(response, tokenFromHeaders(headers));
   },
 
   async patch<T>(path: string, body: unknown): Promise<T> {
@@ -87,7 +96,7 @@ export const pythonClient = {
       headers,
       body: JSON.stringify(body),
     });
-    return handleResponse<T>(response);
+    return handleResponse<T>(response, tokenFromHeaders(headers));
   },
 
   async delete<T>(path: string, body?: unknown): Promise<T> {
@@ -101,6 +110,6 @@ export const pythonClient = {
       headers,
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-    return handleResponse<T>(response);
+    return handleResponse<T>(response, tokenFromHeaders(headers));
   },
 };

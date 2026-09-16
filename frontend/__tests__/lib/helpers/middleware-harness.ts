@@ -43,6 +43,15 @@ interface HarnessState {
   signOutCalls: unknown[]
   /** Si es true, `auth.signOut()` **lanza** (proveedor caído / red rota). */
   signOutRejects: boolean
+  /**
+   * Si es true, `auth.signOut()` **no lanza** y devuelve `{ error }`.
+   *
+   * Es el modo de falla real de auth-js y el que faltaba en este banco: `_signOut`
+   * se come 401/403/404 y **devuelve** el error para el resto (p. ej. un 5xx de
+   * GoTrue). Un `try/catch` alrededor no lo ve (MINOR 3 de la revisión
+   * adversarial).
+   */
+  signOutReturnsError: boolean
   /** Orden de eventos observados ("signOut", "getUser"), para aserciones de secuencia. */
   events: string[]
 }
@@ -54,6 +63,7 @@ export const harness: HarnessState = {
   cookiesToRotate: [],
   signOutCalls: [],
   signOutRejects: false,
+  signOutReturnsError: false,
   events: [],
 }
 
@@ -64,6 +74,7 @@ export function resetHarness(): void {
   harness.cookiesToRotate = []
   harness.signOutCalls = []
   harness.signOutRejects = false
+  harness.signOutReturnsError = false
   harness.events = []
 }
 
@@ -107,6 +118,10 @@ export function createServerClientMock(
         harness.signOutCalls.push(signOutOptions)
         if (harness.signOutRejects) {
           throw new Error("GoTrue no responde")
+        }
+        if (harness.signOutReturnsError) {
+          // Forma real de auth-js: devuelve el error, no lo lanza.
+          return { error: { message: "AuthApiError: 503 Service Unavailable", status: 503 } }
         }
         return { error: null }
       },

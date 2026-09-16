@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
-import { getAuthHeaders, handleUnauthorized } from "@/lib/api/auth-headers"
+import { getAuthHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
 import {
   generateReceiptHTML,
   generateReceiptText,
@@ -138,7 +138,10 @@ export function SaleReceiptButton({
         body: JSON.stringify(payload),
       })
       // D7: un 401 sin sesión lleva al login en vez de morir en un toast.
-      if (res.status === 401) { await handleUnauthorized() }
+      // Revisión adversarial (MINOR 2 de seguridad): hay que CORTAR cuando ya se
+      // navegó. `window.location.assign()` es asíncrono, así que sin el `return`
+      // el usuario veía el toast de error mientras la navegación salía.
+      if (await redirectedOnUnauthorized(res, tokenFromHeaders(headers))) return
       if (!res.ok) throw new Error("pdf")
 
       const blob = await res.blob()

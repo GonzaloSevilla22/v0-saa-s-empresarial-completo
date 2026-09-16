@@ -66,11 +66,11 @@
 
 ## 5. Parte A — Retiro del canal WebSocket (D11)
 
-- [ ] 5.1 RED→GREEN: `backend/tests/test_no_websocket_surface.py::test_openapi_has_no_ws_route` y `::test_no_ws_router_registered` — el candado que impide que el canal vuelva por descuido
-- [ ] 5.2 GREEN: eliminar `backend/routers/ws.py`, `backend/core/ws_manager.py` y `backend/tests/test_ws.py`; quitar `app.include_router(ws.router)` de `backend/main.py:143` y el import correspondiente
-- [ ] 5.3 TRIANGULATE: `::test_no_query_param_token_extraction` — grep programático que falla si algún camino del backend extrae un token de un parámetro de consulta (hoy `ws.py:41` lo hace). Cubre el requirement nuevo "El token viaja únicamente por el encabezado de autorización"
-- [ ] 5.4 Verificar que el retiro no rompe nada: `grep -rn "ws_manager\|routers.ws" backend/` (sin `.venv`) → 0 hits; suite de backend en verde
-- [ ] 5.5 Registrar en el PR que el segundo decoder de JWT (`ws.py:12-34`, sin rama HS256, sin `iss`, sin `aud`, nunca ejercitado) desaparece con el módulo — queda **un solo** decoder canónico
+- [x] 5.1 RED→GREEN: `backend/tests/test_no_websocket_surface.py::test_openapi_has_no_ws_route` y `::test_no_ws_router_registered` — el candado que impide que el canal vuelva por descuido
+- [x] 5.2 GREEN: eliminar `backend/routers/ws.py`, `backend/core/ws_manager.py` y `backend/tests/test_ws.py`; quitar `app.include_router(ws.router)` de `backend/main.py:143` y el import correspondiente
+- [x] 5.3 TRIANGULATE: `::test_no_query_param_token_extraction` — grep programático que falla si algún camino del backend extrae un token de un parámetro de consulta (hoy `ws.py:41` lo hace). Cubre el requirement nuevo "El token viaja únicamente por el encabezado de autorización"
+- [x] 5.4 Verificar que el retiro no rompe nada: `grep -rn "ws_manager\|routers.ws" backend/` (sin `.venv`) → 0 hits; suite de backend en verde
+- [x] 5.5 Registrar en el PR que el segundo decoder de JWT (`ws.py:12-34`, sin rama HS256, sin `iss`, sin `aud`, nunca ejercitado) desaparece con el módulo — queda **un solo** decoder canónico
 
 ## 6. Parte A — Re-chequeo en la base para las acciones de configuración (D12)
 

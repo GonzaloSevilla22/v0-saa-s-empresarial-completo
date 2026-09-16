@@ -43,7 +43,6 @@ from backend.routers import (
     stock,
     supplier_accounts,
     suppliers,
-    ws,
 )
 
 logger = logging.getLogger("app")
@@ -156,7 +155,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 app.include_router(health.router)
-app.include_router(ws.router)
+# auth-hardening-jwt-cookies D11 — acá se registraba `ws.router` (`/ws/{room_id}`).
+# Se retiró: autenticaba el handshake pero NO autorizaba la sala (nunca comparaba
+# `room_id` contra la cuenta del portador), recibía el JWT por query string —que
+# queda escrito en los registros de Render— y validaba una sola vez para toda la
+# vida de la conexión. Sin productor ni consumidor: cero `new WebSocket` en el
+# frontend, DEC-16 lo declaraba fuera de producción y la spec de notificaciones
+# prohibía usarlo. El tiempo real es Supabase Realtime sobre tablas con RLS.
+# Candado: backend/tests/test_no_websocket_surface.py
 # v31-authz-token-hook (D8) — diagnóstico permanente de claims del JWT
 app.include_router(auth_router.router)
 # cost-center-dimension (V2.5 Finanzas)

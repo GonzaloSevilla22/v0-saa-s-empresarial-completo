@@ -3,15 +3,16 @@
 import { Suspense, useState, useEffect, useRef, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
-// auth-hardening-jwt-cookies (Parte C, D1, task 18.4d): el reenvío del email de
-// verificación corre en el servidor. El cooldown de 30 s se conserva acá, donde
-// estaba: es de experiencia.
-//
-// ⚠️ Las otras cuatro operaciones de esta pantalla (`refreshSession`,
-// `getSession` x2 y `onAuthStateChange`) siguen en el navegador **a propósito**:
-// las reemplazan `GET /api/auth/status` (task 19.4b, D18) y el bus de sesión
-// (task 20.3), no este grupo.
+// auth-hardening-jwt-cookies (Parte C, D1 + D18, tasks 18.4d y 19.4b). Esta
+// pantalla no le habla al proveedor desde el navegador: el reenvío corre en una
+// acción de servidor y la detección de la verificación consulta
+// `GET /api/auth/status`. Las cuatro operaciones que tenía acá
+// (`refreshSession`, `getSession` ×2, `onAuthStateChange`) **lanzarían** con el
+// cliente configurado con `accessToken` (`supabase-js/index.mjs:389`), así que la
+// pantalla que mira todo usuario nuevo se quedaría en "Esperando confirmación…"
+// para siempre. El cooldown de 30 s se conserva acá, donde estaba: es de
+// experiencia.
+import { fetchAuthStatus } from "@/lib/auth/session-status"
 import { resendVerificationEmailAction } from "@/app/auth/actions"
 import { unwrapAuthResult } from "@/lib/auth/auth-result"
 import { Button } from "@/components/ui/button"
@@ -30,8 +31,6 @@ function VerifyEmailContent() {
   const router      = useRouter()
   const params      = useSearchParams()
   const emailParam  = params.get("email") ?? ""
-
-  const supabase = createClient()
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [email,      setEmail]      = useState(emailParam)
@@ -65,70 +64,43 @@ function VerifyEmailContent() {
     setTimeout(() => router.push("/dashboard"), 1500)
   }, [router, stopPolling])
 
-  // Core check: ask Supabase for a fresh token and inspect email_confirmed_at
+  // Core check: preguntarle al servidor por el estado REAL del email.
+  //
+  // `GET /api/auth/status` lee la cookie `HttpOnly` y consulta al proveedor, así
+  // que ve el `email_confirmed_at` recién cambiado incluso cuando el enlace se
+  // abrió en otro navegador — el caso que ni `getSession()` ni un refresh de esta
+  // pestaña podían detectar. Nunca lanza: un fallo de red deja la pantalla
+  // esperando, que es lo que el usuario está haciendo de todos modos.
   const checkVerification = useCallback(async () => {
     if (redirectingRef.current) return
 
-    try {
-      // refreshSession() hits the Supabase server and returns the latest user data.
-      // Unlike getSession() which uses cached local state, this reflects real-time
-      // email_confirmed_at changes made by the verification link click.
-      const { data, error } = await supabase.auth.refreshSession()
-      if (!error && data.session?.user?.email_confirmed_at) {
-        handleVerified()
-        return
-      }
-    } catch {
-      // refreshSession() throws when there is no refresh token (Supabase returned
-      // session = null on signup). Fall through to getSession() fallback.
-    }
+    const status = await fetchAuthStatus()
 
-    try {
-      // Fallback: check the locally-cached session (works for same-tab scenarios)
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user?.email_confirmed_at) {
-        handleVerified()
-      }
-    } catch {
-      // Silent — polling will retry
-    }
-  }, [supabase, handleVerified])
+    // El email puede no venir en la URL (p. ej. se llegó acá por el redirect del
+    // middleware, no desde el registro). El servidor es el único que lo sabe.
+    if (status.email) setEmail((current) => current || status.email!)
 
-  // ── Effect 1: resolve email from session if not in URL ───────────────────
-  useEffect(() => {
-    if (email) return
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.email) setEmail(session.user.email)
-    })
-  }, [email, supabase])
+    if (status.email_confirmed_at) handleVerified()
+  }, [handleVerified])
 
-  // ── Effect 2: immediate check on mount (already verified?) ───────────────
+  // ── Effect 1: immediate check on mount (already verified?) ───────────────
   useEffect(() => {
     checkVerification()
   }, [checkVerification])
 
-  // ── Effect 3: periodic polling ────────────────────────────────────────────
+  // ── Effect 2: periodic polling ────────────────────────────────────────────
+  //
+  // Con el sondeo contra el servidor este es el mecanismo **principal** de
+  // detección, no un respaldo: el `onAuthStateChange` que cumplía ese papel
+  // desaparece con D1 (con `accessToken` configurado ni se instala,
+  // `supabase-js/index.mjs:407`). La propagación entre pestañas la retoma el bus
+  // de sesión (task 20.3).
   useEffect(() => {
     pollingRef.current = setInterval(checkVerification, POLL_INTERVAL)
     return stopPolling
   }, [checkVerification, stopPolling])
 
-  // ── Effect 4: onAuthStateChange — primary real-time detection ────────────
-  // Fires when the verification link is clicked in the same browser.
-  // The /auth/callback route creates a new session → SIGNED_IN event propagates
-  // across tabs via localStorage, triggering this listener in the waiting tab.
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (session?.user?.email_confirmed_at) {
-          handleVerified()
-        }
-      },
-    )
-    return () => subscription.unsubscribe()
-  }, [supabase, handleVerified])
-
-  // ── Effect 5: Page Visibility API — force re-check when tab regains focus ─
+  // ── Effect 3: Page Visibility API — force re-check when tab regains focus ─
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") checkVerification()
@@ -137,7 +109,7 @@ function VerifyEmailContent() {
     return () => document.removeEventListener("visibilitychange", onVisible)
   }, [checkVerification])
 
-  // ── Effect 6: countdown timer ─────────────────────────────────────────────
+  // ── Effect 4: countdown timer ─────────────────────────────────────────────
   // Each render of this effect decrements cooldown by 1 after 1 second.
   // Setting cooldown to RESEND_COOLDOWN restarts it (used after resend).
   useEffect(() => {

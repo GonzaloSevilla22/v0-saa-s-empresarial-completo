@@ -60,15 +60,26 @@ if (typeof globalThis.IntersectionObserver === 'undefined') {
 // "target.hasPointerCapture is not a function" (cuentas-billetera-tipo,
 // __tests__/pages/BancoPage.test.tsx). Polyfill mínimo, mismo criterio que
 // los de arriba: solo si el entorno no lo implementa.
-if (typeof Element.prototype.hasPointerCapture === 'undefined') {
-  Element.prototype.hasPointerCapture = () => false
-}
-if (typeof Element.prototype.setPointerCapture === 'undefined') {
-  Element.prototype.setPointerCapture = () => {}
-}
-if (typeof Element.prototype.releasePointerCapture === 'undefined') {
-  Element.prototype.releasePointerCapture = () => {}
-}
-if (typeof Element.prototype.scrollIntoView === 'undefined') {
-  Element.prototype.scrollIntoView = () => {}
+//
+// auth-hardening-jwt-cookies (Parte C, grupo 19): el guard `typeof Element !==
+// 'undefined'` es lo que permite que un archivo de test declare
+// `@vitest-environment node`. Los cuatro polyfills de arriba ya se auto-guardan
+// contra un entorno sin DOM; estos cuatro accedían a `Element.prototype` de
+// entrada y hacían fallar la RECOLECCIÓN de cualquier suite que corra en node
+// (`ReferenceError: Element is not defined`), aunque no toque un solo
+// componente. El manejador de `/api/auth/token` corre en el servidor y en jsdom
+// auth-js se cree un cliente de navegador, así que ese archivo necesita node.
+if (typeof Element !== 'undefined') {
+  if (typeof Element.prototype.hasPointerCapture === 'undefined') {
+    Element.prototype.hasPointerCapture = () => false
+  }
+  if (typeof Element.prototype.setPointerCapture === 'undefined') {
+    Element.prototype.setPointerCapture = () => {}
+  }
+  if (typeof Element.prototype.releasePointerCapture === 'undefined') {
+    Element.prototype.releasePointerCapture = () => {}
+  }
+  if (typeof Element.prototype.scrollIntoView === 'undefined') {
+    Element.prototype.scrollIntoView = () => {}
+  }
 }

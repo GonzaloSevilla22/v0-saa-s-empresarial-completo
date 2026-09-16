@@ -24,11 +24,20 @@ from backend.core.cors import (
 
 PROD_ORIGIN = "https://www.aliadata.com.ar"
 PROD_ORIGIN_APEX = "https://aliadata.com.ar"
-# Las tres formas REALES observadas del proyecto en Vercel (el slug del
-# proyecto va primero y el del equipo, `eie`, al final — no al revés):
-VERCEL_ALIAS = "https://v0-saa-s-empresarial-completo.vercel.app"
+# Las tres formas REALES del proyecto en Vercel, **medidas anónimamente el
+# 2026-09-16** (el slug del proyecto va primero y el del equipo, `eie`, al
+# final — nunca al revés). El sufijo `-eie` está en las tres:
+#   https://v0-saa-s-empresarial-completo-eie.vercel.app           -> 200 (alias vivo)
+#   https://v0-saa-s-empresarial-completo-git-main-eie.vercel.app  -> 200
+#   https://v0-saa-s-empresarial-completo-<hash>-eie.vercel.app    -> deploy puntual
+VERCEL_ALIAS = "https://v0-saa-s-empresarial-completo-eie.vercel.app"
 VERCEL_DEPLOY = "https://v0-saa-s-empresarial-completo-j0csgp0yn-eie.vercel.app"
 VERCEL_BRANCH = "https://v0-saa-s-empresarial-completo-git-main-eie.vercel.app"
+# Y la que NO es del proyecto, aunque lo parezca: sin el sufijo del equipo
+# responde `404 DEPLOYMENT_NOT_FOUND` (medido el mismo día), es decir que no
+# sirve esta app, y al no estar asignada la podría reclamar un proyecto
+# homónimo de otro equipo. Se trata como `lookalike`, no como origen propio.
+VERCEL_UNASSIGNED = "https://v0-saa-s-empresarial-completo.vercel.app"
 FOREIGN_ORIGIN = "https://evil.example"
 
 
@@ -107,7 +116,9 @@ async def test_production_origin_allowed_with_and_without_www(origin):
 async def test_vercel_preview_origin_allowed(origin):
     """4.2: los previews tienen host variable, por eso van por expresión
     regular y no por lista. Los tres valores son formas reales observadas del
-    proyecto, no inventadas."""
+    proyecto, no inventadas — `VERCEL_ALIAS` es el **alias vivo** (200 medido
+    el 2026-09-16) y es justo el que la primera versión de la regex dejaba
+    afuera mientras admitía el host sin asignar (hallazgo M1)."""
     response = await _preflight(origin)
 
     assert response.headers.get("access-control-allow-origin") == origin
@@ -123,8 +134,14 @@ async def test_vercel_preview_origin_allowed(origin):
         "https://aliadata.com.ar.co",
         "https://sub.aliadata.com.ar",
         "http://www.aliadata.com.ar",  # sin TLS
-        "https://v0-saa-s-empresarial-completo.vercel.app.evil.example",
+        "https://v0-saa-s-empresarial-completo-eie.vercel.app.evil.example",
         "https://otro-proyecto-eie.vercel.app",
+        # Sin el sufijo del equipo: 404 DEPLOYMENT_NOT_FOUND, no es esta app y
+        # al no estar asignada la podría tomar un proyecto homónimo ajeno.
+        VERCEL_UNASSIGNED,
+        # Y el ancla `-eie` no puede ser sólo "que aparezca en algún lugar".
+        "https://v0-saa-s-empresarial-completo-eie.evil.example",
+        "https://eie-v0-saa-s-empresarial-completo.vercel.app",
     ],
 )
 def test_lookalike_origins_are_rejected(origin):

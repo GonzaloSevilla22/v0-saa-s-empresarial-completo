@@ -14,16 +14,31 @@ exactamente el mismo criterio de origen permitido que el middleware"*. La
 **Por qué expresión regular y no lista.** Los despliegues de vista previa de
 Vercel tienen host variable (uno por commit): enumerarlos es imposible.
 
-**Desvío declarado respecto del design (D10).** El design proponía
-`^https://v0-saa-s-empresarial-completo-eie(-[a-z0-9-]+)?\\.vercel\\.app$`, que
-**no matchea ninguna** de las formas reales del proyecto: el slug del equipo
-(`eie`) va al FINAL del host, después del hash o de la rama, no pegado al
-nombre del proyecto. Las tres formas realmente observadas son
-`v0-saa-s-empresarial-completo.vercel.app`,
-`v0-saa-s-empresarial-completo-<hash>-eie.vercel.app` y
-`v0-saa-s-empresarial-completo-git-<rama>-eie.vercel.app`. La regex de acá las
-cubre y además exige el sufijo `-eie` en la parte variable, para que un
-proyecto ajeno con un nombre parecido no entre.
+**Desvío declarado respecto del design (D10), corregido por el hallazgo M1 de
+la revisión adversarial del apply.** El design proponía
+`^https://v0-saa-s-empresarial-completo-eie(-[a-z0-9-]+)?\\.vercel\\.app$`: el
+slug del equipo (`eie`) va al FINAL del host, después del hash o de la rama, no
+pegado al nombre del proyecto, así que esa forma no existe. Pero la primera
+corrección de este archivo **invirtió la medición** —dejaba afuera el alias
+vivo y adentro un host que no sirve la app—; las formas medidas anónimamente el
+2026-09-16 son:
+
+- `https://v0-saa-s-empresarial-completo-eie.vercel.app` → **200**, es el alias
+  vivo del proyecto (`<title>Potenciá tu Negocio con ALIADATA</title>`);
+- `https://v0-saa-s-empresarial-completo-git-main-eie.vercel.app` → **200**;
+- `https://v0-saa-s-empresarial-completo-<hash>-eie.vercel.app` → el deploy
+  puntual de cada commit;
+- `https://v0-saa-s-empresarial-completo.vercel.app` → **404
+  `DEPLOYMENT_NOT_FOUND`**: NO sirve esta app y, al no estar asignada, la podría
+  reclamar un proyecto homónimo de otro equipo. Queda **fuera** de la
+  allow-list, con su caso en la tabla de `lookalike` del test.
+
+Por eso el sufijo `-eie` es obligatorio y la parte variable —hash o
+`git-<rama>`— es la opcional: es el ancla que impide que entre un proyecto
+ajeno con un nombre parecido. La consecuencia concreta de haberlo tenido al
+revés: una sesión servida por el alias vivo perdía **todas** las llamadas al
+backend (que es otro origen, `emprende-smart-backend.onrender.com`) en cuanto
+este change retira la reflexión del comodín.
 """
 from __future__ import annotations
 
@@ -38,7 +53,7 @@ _PRODUCTION_ORIGIN = r"https://(?:www\.)?aliadata\.com\.ar"
 # Despliegues de vista previa del proyecto en Vercel — ver el desvío declarado
 # en el docstring.
 _VERCEL_PREVIEW_ORIGIN = (
-    r"https://v0-saa-s-empresarial-completo(?:-[a-z0-9-]+-eie)?\.vercel\.app"
+    r"https://v0-saa-s-empresarial-completo(?:-[a-z0-9-]+)?-eie\.vercel\.app"
 )
 
 # Anclada en los dos extremos a propósito: sin `^`/`$` una allow-list de

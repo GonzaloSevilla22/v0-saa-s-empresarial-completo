@@ -1,3 +1,24 @@
+# ─────────────────────────────────────────────────────────────────────────
+# auth-hardening-jwt-cookies D9 (bloqueante B2 de la revisión adversarial).
+# ESTO TIENE QUE IR ARRIBA DE TODO, por encima del bloque de imports.
+#
+# `settings = Settings()` es la ÚLTIMA línea de `backend/core/config.py` y
+# se ejecuta en el **import** del módulo. El validator de D9 aborta cuando no
+# hay `SUPABASE_URL` y la palanca está apagada — que es exactamente el
+# entorno de esta suite (`mock_settings.supabase_url = ""`) y el del job de
+# CI. Sin esta línea, el primer test que importe `backend.*` revienta durante
+# la RECOLECCIÓN: 0 tests recolectados y `--cov-fail-under=87` nunca
+# evaluado, es decir CI y local en rojo por algo que no es un test fallando.
+#
+# Un fixture NO alcanza: corre mucho después del import. `setdefault` y no
+# `=` para que un entorno que ya la declare (o un test que quiera probar el
+# camino contrario) gane. El candado automático de esto vive en
+# `backend/tests/test_config_auth_failfast.py::test_pytest_still_collects_from_a_clean_environment`.
+# ─────────────────────────────────────────────────────────────────────────
+import os
+
+os.environ.setdefault("AUTH_ALLOW_HS256_FALLBACK", "true")
+
 import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -122,6 +143,9 @@ async def async_client():
     ):
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        # D9: explícito, no por la verdad accidental de un atributo de
+        # MagicMock. Este fixture declara que corre por la rama HS256.
+        mock_settings.auth_allow_hs256_fallback = True
         app.dependency_overrides[get_account_id] = _mock_account_id
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"

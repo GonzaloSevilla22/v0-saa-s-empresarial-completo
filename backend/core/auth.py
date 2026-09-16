@@ -123,8 +123,11 @@ def _decode_supabase_jwt(token: str) -> dict:
                 leeway=_JWT_CLOCK_LEEWAY_SECONDS,
                 options={"verify_aud": True, "require": _REQUIRED_CLAIMS},
             )
-        else:
-            # Test/dev fallback: HS256 with shared secret
+        elif settings.auth_allow_hs256_fallback:
+            # Camino de desarrollo y de tests: HS256 con secreto compartido.
+            # D9: ya NO se alcanza por omisión de `SUPABASE_URL` — exige la
+            # palanca explícita. Sin emisor: esta rama corre justamente
+            # cuando no hay URL de proveedor configurada.
             payload = pyjwt.decode(
                 token,
                 settings.supabase_jwt_secret,
@@ -133,6 +136,18 @@ def _decode_supabase_jwt(token: str) -> dict:
                 leeway=_JWT_CLOCK_LEEWAY_SECONDS,
                 options={"verify_aud": True, "require": _REQUIRED_CLAIMS},
             )
+        else:
+            # Inalcanzable en un proceso bien configurado: el validator de
+            # `Settings` aborta el arranque en esta combinación. Queda como
+            # fail-closed por si alguien parchea `settings` en runtime — la
+            # ausencia de una forma de verificar NUNCA se resuelve
+            # verificando de una forma más débil.
+            logger.critical(
+                "Configuración de auth incoherente en runtime: sin SUPABASE_URL "
+                "y sin AUTH_ALLOW_HS256_FALLBACK no hay forma válida de "
+                "verificar el token. Se rechaza."
+            )
+            raise HTTPException(status_code=401, detail="Invalid token")
     except PyJWKClientError as exc:
         # D8: `PyJWKClientError` hereda de `PyJWTError`, así que sin este
         # `except` propio —y ANTES del genérico— una caída del proveedor de

@@ -3,13 +3,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    supabase_jwt_secret: str = "dev-secret"
+    # ── Auth — verificación del JWT (auth-hardening-jwt-cookies D8/D9) ──
+    # `supabase_url` es la variable que ELIGE la rama de verificación:
+    # presente y `https://` -> JWKS (ES256/RS256), que es lo que corre en
+    # producción; ausente -> secreto compartido HS256, que es un camino de
+    # desarrollo y de tests. Vivía documentada bajo el header de *pagos*, que
+    # escondía justamente eso (D15).
+    supabase_jwt_secret: str = "dev-secret"   # sólo rama HS256 (dev/CI)
+    supabase_url: str = ""                    # https://<ref>.supabase.co
+    # D9 — palanca EXPLÍCITA de la rama HS256, APAGADA por defecto. Sin ella,
+    # un `SUPABASE_URL` ausente o mal puesto no degrada de forma visible:
+    # cae a HS256 con `supabase_jwt_secret="dev-secret"`, un secreto que está
+    # publicado en el repo. Eso da 401 a todo el tráfico legítimo (visible)
+    # pero además ACEPTA cualquier token forjado con ese secreto — y el `sub`
+    # forjado se convierte en `auth.uid()` aguas abajo
+    # (backend/core/database.py), es decir impersonación completa. Encenderla
+    # es la única forma de correr sin JWKS, y es una decisión declarada.
+    auth_allow_hs256_fallback: bool = False
     app_env: str = "development"
     database_url: str = ""
     redis_url: str = ""
     backend_allowed_origin: str = "*"
     # Payments — webhook MercadoPago (server-to-server)
-    supabase_url: str = ""           # https://<ref>.supabase.co
     # fix/service-role-key-env-alias (bug de prod 2026-09-04): el nombre
     # implícito del campo (`SERVICE_ROLE_KEY`) NO existe en Render — la
     # variable real es `SUPABASE_SERVICE_ROLE_KEY`, consistente con
@@ -139,6 +154,26 @@ class Settings(BaseSettings):
                 "rol se pierde de inmediato y el backend sigue bypaseando RLS en "
                 "silencio. Encendé también TENANCY_TX_SCOPE_ENABLED, o apagá "
                 "TENANCY_RLS_ROLE_ENABLED."
+            )
+        return self
+
+    # auth-hardening-jwt-cookies D9 — fail-fast de configuración de auth.
+    # Corre al construir `Settings()`, que es la ÚLTIMA línea de este módulo:
+    # por eso aborta el ARRANQUE del proceso y no el primer request. Es
+    # deliberado — un backend que atiende tráfico con la verificación de JWT
+    # degradada es peor que un backend que no levanta.
+    @model_validator(mode="after")
+    def _validate_jwt_verification_is_coherent(self) -> "Settings":
+        if self.auth_allow_hs256_fallback:
+            return self
+        if not (self.supabase_url or "").strip().startswith("https://"):
+            raise ValueError(
+                "SUPABASE_URL ausente o no-https: sin ella el backend cae a la "
+                "rama HS256 con el secreto por default, que acepta tokens "
+                "forjados (impersonación completa). Poné SUPABASE_URL con su "
+                "valor https:// exacto —una barra final también rompe—, o "
+                "declará explícitamente el camino de desarrollo con "
+                "AUTH_ALLOW_HS256_FALLBACK=true."
             )
         return self
 

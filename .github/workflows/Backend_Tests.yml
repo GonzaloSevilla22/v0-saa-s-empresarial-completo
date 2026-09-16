@@ -51,14 +51,26 @@ jobs:
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
-      # requirements.txt = deps de la app (PyJWT incluido). Los tests además
-      # necesitan python-jose (forja de JWTs en conftest) — está en las deps
-      # del pyproject pero no en requirements.txt, que es el contrato de
-      # deploy de Render.
+      # requirements.txt = deps de la app, incluido PyJWT[crypto] — que es lo
+      # que usan la app (backend/core/auth.py) y también los tests para forjar
+      # JWTs (backend/tests/conftest.py). El extra `[crypto]` es el que trae
+      # `cryptography`, necesario para la rama ES256 de producción y para la
+      # clave EC que genera backend/tests/test_auth_jwks.py.
       - name: Install dependencies
         run: pip install -r backend/requirements.txt pytest pytest-asyncio pytest-cov
 
       - name: Run pytest with coverage floor
+        # auth-hardening-jwt-cookies D9: este job no declaraba NINGUNA
+        # variable de entorno. Con el fail-fast de configuración puesto, un
+        # entorno sin `SUPABASE_URL` aborta al importar `backend.core.config`
+        # —que ocurre durante la RECOLECCIÓN—, así que sin esta declaración
+        # el gate quedaría en rojo con 0 tests recolectados y el umbral de
+        # cobertura nunca evaluado. La suite corre a propósito por la rama
+        # HS256 (no hay JWKS que alcanzar desde CI), y declararlo acá lo
+        # vuelve una decisión visible en vez de un default silencioso.
+        # `conftest.py` hace el mismo `setdefault` para las corridas locales.
+        env:
+          AUTH_ALLOW_HS256_FALLBACK: "true"
         run: >
           python -m pytest backend/tests -m "not integration"
           --cov=backend

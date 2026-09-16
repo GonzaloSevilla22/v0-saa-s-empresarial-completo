@@ -1,5 +1,6 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { authCookieOptions } from '@/lib/supabase/cookie-options'
 
 export function createClient() {
   const cookieStore = cookies()
@@ -7,6 +8,9 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // auth-hardening-jwt-cookies (F3): atributos desde la definición
+      // compartida — sin esto regía el default de la librería, sin `secure`.
+      cookieOptions: authCookieOptions(),
       cookies: {
         async getAll() {
           return (await cookieStore).getAll()

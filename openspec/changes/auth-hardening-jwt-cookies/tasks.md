@@ -155,11 +155,11 @@
 
 ## 15. Parte B — Atributo `Secure` y comentarios que mienten
 
-- [ ] 15.1 RED→GREEN: `frontend/__tests__/lib/cookie-options.test.ts` — el objeto compartido emite `secure: true` cuando el entorno es producción y `false` fuera. GREEN: crear `frontend/lib/supabase/cookie-options.ts`
-- [ ] 15.2 GREEN: consumirlo desde los cuatro sitios que construyen cliente — `frontend/lib/supabase/client.ts:4`, `server.ts:6`, `middleware.ts:69`, `frontend/app/auth/callback/route.ts:13`. **En esta parte `httpOnly` sigue en `false`**: cambiarlo rompe el Bearer de FastAPI hasta que exista el token handler (D16)
-- [ ] 15.3 TRIANGULATE: `::test_all_four_call_sites_share_the_options` — grep programático que falla si un sitio declara sus propios atributos
-- [ ] 15.3b RED→GREEN: `frontend/__tests__/lib/cookie-attributes-emitted.test.ts` — **assertear el `Set-Cookie` realmente emitido**, no el objeto de opciones: manejar `createServerClient` con un almacén de cookies falso y verificar los atributos que llegan a la respuesta (`Path=/`, `SameSite=Lax`, `Secure` en producción). §10 de la auditoría pide exactamente eso; un test que sólo mira la constante pasa igual si un call site se olvida de pasarla
-- [ ] 15.4 GREEN: corregir los comentarios falsos — `frontend/lib/cookies.ts:5` ("tokens stay in Supabase httpOnly cookies"), `frontend/lib/api/python-client.ts:14` ("reads from local storage"), `frontend/lib/auth/idle-logout.ts:25` y `:42` ("local scope", que recién ahora será cierto)
+- [x] 15.1 RED→GREEN: `frontend/__tests__/lib/cookie-options.test.ts` — el objeto compartido emite `secure: true` cuando el entorno es producción y `false` fuera. GREEN: crear `frontend/lib/supabase/cookie-options.ts`
+- [x] 15.2 GREEN: consumirlo desde los cuatro sitios que construyen cliente — `frontend/lib/supabase/client.ts:4`, `server.ts:6`, `middleware.ts:69`, `frontend/app/auth/callback/route.ts:13`. **En esta parte `httpOnly` sigue en `false`**: cambiarlo rompe el Bearer de FastAPI hasta que exista el token handler (D16)
+- [x] 15.3 TRIANGULATE: `::test_all_four_call_sites_share_the_options` — grep programático que falla si un sitio declara sus propios atributos
+- [x] 15.3b RED→GREEN: `frontend/__tests__/lib/cookie-attributes-emitted.test.ts` — **assertear el `Set-Cookie` realmente emitido**, no el objeto de opciones: manejar `createServerClient` con un almacén de cookies falso y verificar los atributos que llegan a la respuesta (`Path=/`, `SameSite=Lax`, `Secure` en producción). §10 de la auditoría pide exactamente eso; un test que sólo mira la constante pasa igual si un call site se olvida de pasarla
+- [x] 15.4 GREEN: corregir los comentarios falsos — `frontend/lib/cookies.ts:5` ("tokens stay in Supabase httpOnly cookies"), `frontend/lib/api/python-client.ts:14` ("reads from local storage"), `frontend/lib/auth/idle-logout.ts:25` y `:42` ("local scope", que recién ahora será cierto)
 
 ## 16. Parte B — Verificación y cierre
 

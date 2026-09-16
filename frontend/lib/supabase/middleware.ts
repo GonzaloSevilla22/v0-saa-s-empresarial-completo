@@ -4,6 +4,7 @@ import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
 import { isProtectedPath as isProtectedRoute } from "@/lib/auth/route-access"
 import { safeNext } from "@/lib/auth/safe-next"
+import { authCookieOptions } from "@/lib/supabase/cookie-options"
 
 // ── Security Headers ───────────────────────────────────────────────────────
 // Applied to every response. Tune CSP per feature (e.g., add blob: for file previews).
@@ -98,6 +99,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // auth-hardening-jwt-cookies (F3): atributos desde la definición
+      // compartida — sin esto regía el default de la librería, sin `secure`.
+      cookieOptions: authCookieOptions(),
       cookies: {
         getAll() {
           return request.cookies.getAll()

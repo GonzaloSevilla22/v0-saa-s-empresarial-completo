@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 import { safeNext } from '@/lib/auth/safe-next'
+import { authCookieOptions } from '@/lib/supabase/cookie-options'
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
@@ -18,6 +19,10 @@ export async function GET(request: NextRequest) {
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             {
+                // auth-hardening-jwt-cookies (F3): atributos desde la
+                // definición compartida — sin esto regía el default de la
+                // librería, sin `secure`.
+                cookieOptions: authCookieOptions(),
                 cookies: {
                     getAll() {
                         return cookieStore.getAll()

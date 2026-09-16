@@ -16,6 +16,12 @@
  * sostiene es `__tests__/lib/protected-routes-coverage.test.ts`, que lee
  * `app/(dashboard)/` del sistema de archivos.
  *
+ * Ese mismo archivo trae el **candado simétrico** (MAJOR 1 de la revisión
+ * adversarial): con protección por defecto, el modo de falla inverso es que una
+ * superficie pública nueva nazca **detrás del login** para todo visitante
+ * anónimo. Así que también lee los árboles de `app/` que no son el área
+ * autenticada y exige que estén declarados acá.
+ *
  * Módulo puro a propósito (sin `next/server`, sin `@supabase/ssr`): la decisión
  * se puede testear sin construir un request.
  */
@@ -58,6 +64,50 @@ export const PUBLIC_EXACT_PATHS = [
 const API_PREFIX = "/api"
 
 /**
+ * Extensiones de archivo estático que la allow-list reconoce como públicas.
+ *
+ * Revisión adversarial (MINOR 2). D4 enumera la allow-list como "`/`, `/auth/*`,
+ * `/legal/*`, landing, **assets**", pero acá no había ninguna regla de assets:
+ * lo único que salvaba a `public/` era el matcher del middleware, que excluye
+ * **sólo** `svg|png|jpg|jpeg|gif|webp`. Los archivos de `public/` de hoy son
+ * todos de esas extensiones, así que no había regresión viva — pero el primer
+ * `.woff2`, `.glb`, `.ktx2`, `.hdr`, `.wasm` o `.pdf` que alguien pusiera ahí
+ * quedaba con un 307 al login para cualquier visitante anónimo, y `public/3d/`
+ * es justo donde caería un decoder de R3F/drei.
+ *
+ * Es un conjunto **cerrado**, no "cualquier segmento con punto": con la regla
+ * abierta, un identificador con punto en una ruta dinámica volvería pública esa
+ * ruta. Con el conjunto cerrado, el peor caso es una ruta dinámica cuyo
+ * identificador termine en una de estas extensiones — un identificador que no
+ * corresponde a ninguna fila real, así que la pantalla no muestra datos, y el
+ * gate del propio Server Component sigue aplicando.
+ */
+const STATIC_ASSET_EXTENSIONS = [
+  // tipografías
+  "woff", "woff2", "ttf", "otf", "eot",
+  // imágenes: las seis que el matcher del middleware ya excluye van igual, para
+  // que este predicado sea verdadero por sí mismo y no dependa de que el matcher
+  // siga teniendo esa lista — el mismo criterio de causa raíz de D4
+  "svg", "png", "jpg", "jpeg", "gif", "webp",
+  "ico", "avif", "bmp",
+  // 3D y binarios de los decoders (v4-visual-3d-refresh)
+  "glb", "gltf", "ktx2", "hdr", "bin", "wasm",
+  // multimedia
+  "mp4", "webm", "ogg", "mp3", "wav",
+  // documentos y datos estáticos servidos desde public/
+  "pdf", "csv", "txt", "xml", "json", "map", "webmanifest",
+] as const
+
+/** ¿Es la ruta de un archivo estático de `public/`? */
+function isStaticAssetPath(pathname: string): boolean {
+  const lastSegment = pathname.slice(pathname.lastIndexOf("/") + 1)
+  const dot = lastSegment.lastIndexOf(".")
+  if (dot <= 0) return false
+  const extension = lastSegment.slice(dot + 1).toLowerCase()
+  return (STATIC_ASSET_EXTENSIONS as readonly string[]).includes(extension)
+}
+
+/**
  * ¿Es una ruta de API del propio dominio?
  *
  * Tercera categoría, ni pública ni protegida-por-redirect: **ninguna** ruta bajo
@@ -75,6 +125,7 @@ export function isApiPath(pathname: string): boolean {
 /** ¿Está la ruta en la allow-list pública? */
 export function isPublicPath(pathname: string): boolean {
   if ((PUBLIC_EXACT_PATHS as readonly string[]).includes(pathname)) return true
+  if (isStaticAssetPath(pathname)) return true
   return (PUBLIC_PREFIXES as readonly string[]).some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   )

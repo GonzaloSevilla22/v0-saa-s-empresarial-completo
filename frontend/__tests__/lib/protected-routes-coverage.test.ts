@@ -132,6 +132,122 @@ describe("D4 — cobertura de rutas del área autenticada por construcción", ()
   })
 })
 
+// ── Revisión adversarial (MAJOR 1): el candado simétrico ───────────────────
+// El candado de arriba cubre UNA dirección: que ningún árbol del área
+// autenticada nazca sin gate. Con "protección por defecto" existe el modo de
+// falla inverso, igual de silencioso: un árbol **público** nuevo
+// (`app/precios/page.tsx`, una landing de precios) nace **detrás del login para
+// todo visitante anónimo** y ningún test falla. Este describe lo cierra leyendo
+// `app/` del filesystem y exigiendo que cada árbol público real esté declarado
+// en la allow-list.
+//
+// `api` queda fuera a propósito: es la tercera categoría (ni pública ni
+// gateada por redirect), ya cubierta por su propio describe más abajo.
+const APP_DIR = path.resolve(HERE, "..", "..", "app")
+
+/** ¿Tiene ese directorio al menos un archivo de ruta del App Router? */
+function hasRouteFile(dir: string): boolean {
+  return fs.readdirSync(dir, { withFileTypes: true }).some((entry) => {
+    if (entry.isDirectory()) return hasRouteFile(path.join(dir, entry.name))
+    return /^(page|route)\.(tsx?|jsx?)$/.test(entry.name)
+  })
+}
+
+/**
+ * Árboles de ruta de `app/` que NO pertenecen al área autenticada: candidatos a
+ * superficie pública. Se excluyen los grupos de ruta (`(dashboard)` es el área
+ * autenticada y tiene su propio candado), los privados, `api` y los
+ * directorios que no contienen ninguna ruta (`actions/` sólo tiene módulos de
+ * Server Actions, no rutea).
+ */
+function listNonDashboardRouteTrees(dir: string): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .filter((name) => !name.startsWith("_") && !name.startsWith("(") && name !== "api")
+    .filter((name) => hasRouteFile(path.join(dir, name)))
+    .sort()
+}
+
+describe("D4 — candado simétrico: ningún árbol público nace gateado", () => {
+  it("lee los árboles reales de app/ que no son el área autenticada", () => {
+    const trees = listNonDashboardRouteTrees(APP_DIR)
+    // Los cuatro de hoy: auth, dev-harness, landing, legal.
+    expect(trees).toEqual(["auth", "dev-harness", "landing", "legal"])
+  })
+
+  it("todos están declarados en la allow-list pública", () => {
+    const trees = listNonDashboardRouteTrees(APP_DIR)
+    const gated = trees.filter((tree) => !isPublicPath(`/${tree}`))
+    expect(
+      gated,
+      `Árboles fuera de app/(dashboard) que quedaron detrás del login: ${gated.join(", ")}. ` +
+        `Con protección por defecto, una superficie pública nueva hay que declararla ` +
+        `en PUBLIC_PREFIXES (${PUBLIC_PREFIXES.join(", ")}) o queda invisible para ` +
+        `todo visitante anónimo.`,
+    ).toEqual([])
+  })
+
+  it("el detector no es vacuo: un árbol público nuevo sin declarar aparece gateado (fixture en disco)", () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "public-coverage-"))
+    try {
+      // Una landing de precios nueva, con su page.tsx, no declarada.
+      fs.mkdirSync(path.join(fixture, "precios"))
+      fs.writeFileSync(path.join(fixture, "precios", "page.tsx"), "export default () => null")
+      // Un árbol ya declarado, para el contraste.
+      fs.mkdirSync(path.join(fixture, "legal"))
+      fs.writeFileSync(path.join(fixture, "legal", "page.tsx"), "export default () => null")
+      // Un directorio sin ruta: no es superficie, no debe pedir declaración.
+      fs.mkdirSync(path.join(fixture, "actions"))
+      fs.writeFileSync(path.join(fixture, "actions", "landing.ts"), "export const noop = 1")
+
+      const trees = listNonDashboardRouteTrees(fixture)
+      expect(trees).toEqual(["legal", "precios"])
+      expect(trees.filter((t) => !isPublicPath(`/${t}`))).toEqual(["precios"])
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+})
+
+// ── Revisión adversarial (MINOR 2): los assets que D4 declara ──────────────
+// D4 enumera la allow-list como "`/`, `/auth/*`, `/legal/*`, landing, **assets**",
+// pero la allow-list no tenía ninguna regla de assets: lo único que salvaba a
+// `public/` era el matcher del middleware, que excluye SÓLO
+// svg|png|jpg|jpeg|gif|webp. Los 16 archivos de `public/` de hoy son todos de
+// esas extensiones (sin regresión viva), pero el primer .woff2, .glb, .ktx2,
+// .hdr, .wasm o .pdf que alguien ponga ahí queda con un 307 al login para
+// cualquier visitante anónimo — y `public/3d/` es justo donde caería un decoder.
+describe("D4 — los archivos estáticos no quedan detrás del login", () => {
+  it.each([
+    "/fonts/inter-latin.woff2",
+    "/fonts/inter.ttf",
+    "/3d/draco_decoder.wasm",
+    "/3d/modelo.glb",
+    "/3d/entorno.hdr",
+    "/3d/textura.ktx2",
+    "/documentos/instructivo.pdf",
+    "/aliadata-logo.png",
+    "/videos/tutorial.mp4",
+  ])("%s es público", (pathname) => {
+    expect(isProtectedPath(pathname)).toBe(false)
+  })
+
+  it("pero una ruta con un punto que NO es un asset sigue protegida", () => {
+    // La regla es un conjunto CERRADO de extensiones de archivo estático, no
+    // "cualquier segmento con punto": si no, un identificador con punto en una
+    // ruta dinámica abriría la ruta entera.
+    expect(isProtectedPath("/ventas/ordenes/2b9f4f5e.v2")).toBe(true)
+    expect(isProtectedPath("/clientes/juan.perez")).toBe(true)
+    expect(isProtectedPath("/estadisticas/productos/abc.def")).toBe(true)
+  })
+
+  it("y la extensión se mira en el último segmento, no en cualquier parte", () => {
+    expect(isProtectedPath("/reportes/marzo.png/detalle")).toBe(true)
+  })
+})
+
 // ── 12.3 TRIANGULATE: /auth/* nunca entra en el conjunto protegido ──────────
 describe("D4 — las rutas de autenticación nunca se gatean", () => {
   it.each([

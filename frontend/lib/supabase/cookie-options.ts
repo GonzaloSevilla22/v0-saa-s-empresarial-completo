@@ -26,6 +26,14 @@
  *
  * No se fijan `maxAge` ni `name`: conservan el default de la librería, para que
  * este módulo cambie atributos y no identidad ni vida de la cookie.
+ *
+ * ⚠️ CONSECUENCIA PARA EL DESARROLLO LOCAL (MINOR 2 de la revisión adversarial):
+ * `secure` se decide por `NODE_ENV`, **no** por el transporte de la petición —
+ * misma convención que ya usa `lib/cookies.ts`. Así que un `pnpm build &&
+ * pnpm start` sobre `http://localhost:3000` emite cookies `Secure` que el
+ * navegador **descarta**, y el login no funciona en ese modo. `pnpm dev` (donde
+ * `NODE_ENV` es `development`) y el humo real sobre HTTPS no se ven afectados; el
+ * humo local de la task 16.3 se corre con `pnpm dev`.
  */
 import type { CookieOptions } from "@supabase/ssr"
 

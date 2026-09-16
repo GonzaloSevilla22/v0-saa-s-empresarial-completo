@@ -2,9 +2,10 @@
 -- auth-hardening-jwt-cookies — Parte A, grupo 8 (D14). Governance CRÍTICO
 -- (auth): enfoque firmado por el PO el 2026-09-16.
 --
--- Dos piezas independientes entre sí, ninguna con backfill, ambas de la
+-- Tres piezas independientes entre sí, ninguna con backfill, todas de la
 -- Parte A. Van juntas porque partirlas multiplica el riesgo de renumerado
 -- (ya ocurrió tres veces en cuenta-corriente-party-guard) sin ganar nada.
+-- La tercera —un COMMENT— entró en la ronda adversarial de cierre (m3).
 --
 -- ─── (1) rpc_accept_invitation(text): binding de email + lock ───────────────
 --
@@ -99,9 +100,23 @@
 -- entorno donde la tabla ya pertenece a la publicación no falla (Postgres
 -- respondería 42710 sin el guard) y no la duplica.
 --
--- CANDADOS: supabase/tests/test_accept_invitation_binding.sql (7 bloques:
+-- ─── (3) COMMENT de rpc_my_active_account_roles: sus DOS consumidores ───────
+--
+-- Hallazgo m3 de la revisión adversarial del apply. El COMMENT que dejó
+-- 20261048000001 (v3-rbac-multirole Parte B) afirma "Único consumidor: el
+-- fallback a DB de require_account_role … CUANDO NI EL CLAIM DEL CONJUNTO NI
+-- EL SINGULAR VIAJAN EN EL JWT". Desde D12 de ESTE change eso es falso: para
+-- toda capacidad sensible (backend/core/rbac.py::SENSITIVE_CAPABILITIES, hoy
+-- CAN_CONFIGURE = owner/admin) esa misma función es el camino PRIMARIO — se la
+-- consulta con claim o sin claim, porque ahí el claim es un caché y la base es
+-- la autoridad. Es la misma clase de defecto documental que D15 existe para
+-- borrar, y justo sobre la función que D12 vuelve load-bearing. Una sentencia,
+-- idempotente (COMMENT reescribe), sin tocar el cuerpo ni las ACLs.
+--
+-- CANDADOS: supabase/tests/test_accept_invitation_binding.sql (9 bloques:
 -- conducta del binding en las dos formas de claims, mayúsculas, doble canje,
--- integridad del cuerpo vivo, overloads y ACLs) y
+-- integridad del cuerpo vivo, overloads, ACLs, fail-closed con email NULL y el
+-- COMMENT de (3) asserteado sobre el texto VIVO) y
 -- supabase/tests/test_realtime_publication.sql (las dos tablas en la
 -- publicación + idempotencia del ALTER probada dos veces), los dos cableados
 -- a .github/workflows/KPI_Validation.yml.
@@ -348,6 +363,34 @@ BEGIN
     RAISE NOTICE 'auth-hardening-jwt-cookies (D14): public.fiscal_documents ya pertenecía a supabase_realtime -- no-op.';
   END IF;
 END $$;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- (3) COMMENT de rpc_my_active_account_roles — sus DOS consumidores (m3)
+-- ─────────────────────────────────────────────────────────────────────────────
+--
+-- No se toca el cuerpo ni las ACLs de esa función: sólo su descripción, que
+-- desde D12 describía la mitad de sus consumidores y mandaba a leer el lugar
+-- equivocado. El gate lo assertea sobre el COMMENT VIVO (bloque 9), no sobre
+-- este archivo: un COMMENT posterior lo reescribiría sin que el archivo se
+-- enterara.
+
+COMMENT ON FUNCTION public.rpc_my_active_account_roles() IS
+  'v3-rbac-multirole Parte B (D10, R6): roles ACTIVOS del CALLER en su '
+  'membresía más antigua (mismo criterio determinístico que get_account_id '
+  '/ el hook, D4 de v31-authz-token-hook) -- SIN parámetro, no hay ningún '
+  'member_id que un tercero pueda pasar. DOS consumidores, los dos en '
+  'require_account_role (backend/core/guards.py): (1) el fallback a DB '
+  'cuando ni el claim del conjunto ni el singular viajan en el JWT, y '
+  '(2) desde auth-hardening-jwt-cookies D12, el camino PRIMARIO de toda '
+  'capacidad sensible (rbac.py::SENSITIVE_CAPABILITIES, hoy CAN_CONFIGURE '
+  '= owner/admin): ahí se la consulta AUNQUE el claim esté presente, porque '
+  'para las acciones de configuración el claim es un caché y la base es la '
+  'autoridad -- un rol revocado o vencido deja de autorizar sin esperar a '
+  'la próxima emisión de token. Array vacío (no NULL) si el caller no es '
+  'miembro de ninguna cuenta -- COALESCE explícito (ronda 1 adversarial, '
+  'nit 7), mismo contrato que member_active_roles/'
+  'account_user_active_roles de la Parte A.';
 
 
 -- =============================================================================

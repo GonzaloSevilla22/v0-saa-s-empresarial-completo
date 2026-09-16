@@ -558,3 +558,43 @@ EXCEPTION
     ALTER TABLE public.account_invitations ALTER COLUMN email SET NOT NULL;
     RAISE;
 END $$;
+
+
+-- =============================================================================
+-- (9) El COMMENT vivo de rpc_my_active_account_roles describe a SUS DOS
+--     consumidores (hallazgo m3 de la revisión adversarial del apply).
+--
+-- El COMMENT que dejó v3-rbac-multirole Parte B
+-- (20261048000001_v3_rbac_multirole_parte_b.sql) afirma: "Único consumidor: el
+-- fallback a DB de require_account_role … CUANDO NI EL CLAIM DEL CONJUNTO NI EL
+-- SINGULAR VIAJAN EN EL JWT". Desde D12 de este change eso es falso: para toda
+-- capacidad sensible (`backend/core/rbac.py::SENSITIVE_CAPABILITIES`) esa misma
+-- función es el camino PRIMARIO — se la consulta con claim o sin claim, porque
+-- ahí el claim es un caché y la base es la autoridad. Es la misma clase de
+-- defecto documental que D15 existe para borrar, sobre la función que D12
+-- vuelve load-bearing.
+--
+-- Se assertea sobre el COMMENT VIVO, no sobre el archivo de migración: un
+-- `COMMENT ON FUNCTION` posterior lo reescribe y el archivo no se enteraría.
+-- =============================================================================
+
+DO $$
+DECLARE
+  v_comment text;
+BEGIN
+  v_comment := obj_description('public.rpc_my_active_account_roles()'::regprocedure, 'pg_proc');
+
+  IF v_comment IS NULL OR length(v_comment) = 0 THEN
+    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (9): rpc_my_active_account_roles quedó sin COMMENT. Es la función que D12 vuelve el camino primario de las acciones de configuración: sin descripción, el próximo que la lea no sabe quién depende de ella.';
+  END IF;
+
+  IF v_comment ILIKE '%nico consumidor%' THEN
+    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (9): el COMMENT vivo sigue declarando un ÚNICO consumidor. Desde auth-hardening-jwt-cookies D12, require_account_role la consulta TAMBIÉN con el claim presente para las capacidades sensibles, así que esa afirmación es falsa. Re-emitir el COMMENT (20261051000001).';
+  END IF;
+
+  IF position('D12' in v_comment) = 0 THEN
+    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (9): el COMMENT vivo no menciona el consumidor nuevo (D12: re-chequeo en base para las capacidades sensibles). Un COMMENT que describe la mitad de sus consumidores manda a leer el lugar equivocado.';
+  END IF;
+
+  RAISE NOTICE 'PASS (9): el COMMENT vivo de rpc_my_active_account_roles describe sus DOS consumidores (fallback por claim ausente + re-chequeo de D12).';
+END $$;

@@ -39,9 +39,9 @@
 
 ### Backend Python — `backend/` (EN PRODUCCIÓN — Fase 5 ✅, ya no es "planificado")
 
-> **Modelo híbrido**: el frontend consume FastAPI para datos (mutaciones + lecturas) y sigue hablando directo con Supabase para Auth y Storage. Realtime: Supabase (DEC-16) **+** WebSocket propio del backend (`routers/ws.py` + `core/ws_manager.py`). Ver `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI".
+> **Modelo híbrido**: el frontend consume FastAPI para datos (mutaciones + lecturas) y sigue hablando directo con Supabase para Auth y Storage. Realtime: **sólo Supabase** (DEC-16) — el canal WebSocket propio del backend se **retiró** (`auth-hardening-jwt-cookies`, D11: `/ws/{room_id}` leía el token de la query string y jamás tuvo un consumidor en `frontend/`). Ver `knowledge-base/08_arquitectura_propuesta.md` §"Evolución Arquitectónica: Backend Python/FastAPI".
 >
-> **Superficie real**: 26 routers / 26 services / 30 repositories + `core/` (`auth`, `client_activity`, `config`, `database`, `deps`, `errors`, `guards`, `idempotency`, `redis_client`, `ws_manager`).
+> **Superficie real** (verificada el 2026-09-16): 28 routers / 27 services / 33 repositories + `core/` (`auth`, `client_activity`, `config`, `cors`, `database`, `deps`, `errors`, `guards`, `idempotency`, `rbac`, `redis_client`). `ws_manager` **ya no existe** (retirado en D11); `cors` y `rbac` son nuevos de `auth-hardening-jwt-cookies` (D10 allow-list anclada, D12 rol de tenant con respaldo en la base).
 
 | Capa | Tecnología | Notas |
 |------|------------|-------|
@@ -49,7 +49,7 @@
 | **Framework API** | FastAPI ≥0.111 + Uvicorn[standard] ≥0.29 | Arquitectura 3 capas: routers → services → repositories |
 | **Validación** | Pydantic v2 + `pydantic-settings` ≥2.2 | Nada de payloads sin schema |
 | **DB driver** | asyncpg ≥0.29 | Pool con JWT-passthrough (RLS org-based activa como red, NO como guard único) |
-| **Auth** | `PyJWT[crypto]` ≥2.8 (`PyJWKClient`) | Los tests usan `python-jose` — ver nota ⚠️ abajo |
+| **Auth** | `PyJWT[crypto]` ≥2.8 (`PyJWKClient`) | Verificación contra las JWKS de Supabase (`ES256`/`RS256`) con emisor, audiencia, `exp`/`sub` y tolerancia de reloj. `HS256` con secreto compartido es **sólo** dev/test y exige la palanca `AUTH_ALLOW_HS256_FALLBACK=true`; sin `SUPABASE_URL` y sin palanca, el arranque **aborta** |
 | **Cache / rate-limit / idempotencia** | Redis ≥5.0 (Upstash free) | Instancia por env var; no declarada en el repo |
 | **Reintentos** | `tenacity` ≥8.2 | — |
 | **HTTP client** | `httpx` ≥0.27 | — |
@@ -59,7 +59,7 @@
 | **Testing** | pytest ≥8 + pytest-asyncio (`asyncio_mode=auto`) + httpx + asyncpg-stubs | Coverage ≥87% en CI; `omit` de `tests/` y `.venv/` |
 | **Deploy backend** | Render (free tier) | Cold start ~50s; el workflow `keep-backend-warm` pingea `/health` cada 10 min para que el webhook de MP no dé 502 |
 
-> ⚠️ **Divergencia conocida de manifiestos**: `pyproject.toml` declara `python-jose` y NO `PyJWT`; `requirements.txt` declara `PyJWT[crypto]` y NO `python-jose`. El código de app importa **PyJWT** (`core/auth.py`), los tests importan **jose** (`tests/conftest.py`). Hoy funciona porque CI instala ambos caminos; si tocás dependencias, no "limpies" uno de los dos sin verificar quién lo importa.
+> ⚠️ **`SUPABASE_URL` es una variable de AUTH, no de pagos**: es la que **elige la rama de verificación** del JWT. Configurada (y `https://`) → JWKS; ausente → el arranque aborta salvo que `AUTH_ALLOW_HS256_FALLBACK=true`. **Una barra final la normaliza el código** (`rstrip("/")`), pero no dependas de eso: el `issuer` que se exige es `<SUPABASE_URL>/auth/v1`.
 
 ### Datos e infraestructura
 

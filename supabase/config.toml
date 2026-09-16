@@ -391,9 +391,29 @@ s3_access_key = "env(S3_ACCESS_KEY)"
 s3_secret_key = "env(S3_SECRET_KEY)"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# `verify_jwt` en TODA la flota: false (auth-hardening-jwt-cookies, D15).
+#
+# No es una relajación: es dejar de afirmar una protección que producción no
+# tiene. El deploy sube la flota COMPLETA con `--no-verify-jwt`
+# (.github/workflows/deploy.yml:63), así que un `verify_jwt = true` acá no
+# describía prod — sólo cambiaba `supabase functions serve` en local, y de
+# paso escondía que la verificación del gateway no existe del otro lado.
+# Declararlo mal es peor que no declararlo: invita a apoyarse en un control
+# ausente.
+#
+# Quién autentica, entonces: CADA función, en código y fail-closed. Las cinco
+# ai-* construyen su cliente con el `Authorization` del request, llaman
+# `supabase.auth.getUser()` y responden 401 si no resuelve un usuario
+# (verificado función por función el 2026-09-16); además las RPCs que consumen
+# vuelven a verificar la membresía (P0401), así que el límite real es la RLS y
+# no el gateway. `send-email` ya estaba en false: la invoca un DB webhook, sin
+# sesión de usuario, y se defiende con su propio secreto compartido.
+# ─────────────────────────────────────────────────────────────────────────────
+
 [functions.ai-insights]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/ai-insights/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -404,7 +424,7 @@ entrypoint = "./functions/ai-insights/index.ts"
 
 [functions.ai-resumen]
 enabled = true
-verify_jwt = true
+verify_jwt = false   # ver la nota de `verify_jwt` sobre [functions.ai-insights]
 import_map = "./functions/ai-resumen/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -415,7 +435,7 @@ entrypoint = "./functions/ai-resumen/index.ts"
 
 [functions.ai-prediccion]
 enabled = true
-verify_jwt = true
+verify_jwt = false   # ver la nota de `verify_jwt` sobre [functions.ai-insights]
 import_map = "./functions/ai-prediccion/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -426,7 +446,7 @@ entrypoint = "./functions/ai-prediccion/index.ts"
 
 [functions.ai-simulador]
 enabled = true
-verify_jwt = true
+verify_jwt = false   # ver la nota de `verify_jwt` sobre [functions.ai-insights]
 import_map = "./functions/ai-simulador/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -446,7 +466,7 @@ entrypoint = "./functions/send-email/index.ts"
 # sube junto con el resto al mergear.
 [functions.ai-estadisticas]
 enabled = true
-verify_jwt = true
+verify_jwt = false   # ver la nota de `verify_jwt` sobre [functions.ai-insights]
 import_map = "./functions/ai-estadisticas/deno.json"
 entrypoint = "./functions/ai-estadisticas/index.ts"
 

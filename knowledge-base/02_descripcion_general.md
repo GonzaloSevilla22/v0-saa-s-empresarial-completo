@@ -30,7 +30,7 @@
 | Row Level Security (RLS) | Autorización a nivel de fila |
 | Edge Functions (Deno) | Lógica de negocio, IA, email, OCR |
 | Storage (S3-compatible) | Archivos: avatars, facturas |
-| Realtime (Supabase) | No usado en MVP actual |
+| Realtime (Supabase) | **Único** canal de tiempo real (DEC-16; el WebSocket propio del backend se retiró en `auth-hardening-jwt-cookies` D11). Publicación `supabase_realtime`: `notifications` (avisos in-app) y `fiscal_documents` (estado del CAE, desde 2026-09-16). El alcance por cuenta lo impone la RLS de cada tabla, no el filtro del canal |
 | Webhooks (Supabase) | Trigger email en INSERT de email_logs |
 | RPCs (PostgreSQL Functions) | Operaciones atómicas de negocio |
 

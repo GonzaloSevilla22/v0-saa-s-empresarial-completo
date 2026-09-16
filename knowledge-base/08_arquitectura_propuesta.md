@@ -129,7 +129,9 @@ NEXT_PUBLIC_SUPABASE_URL          # URL del proyecto Supabase
 NEXT_PUBLIC_SUPABASE_ANON_KEY     # Clave anónima (RLS restricta)
 
 # Solo servidor (NO exponer al cliente)
-SUPABASE_SERVICE_ROLE_KEY         # Service role (bypasa RLS — solo Edge Functions)
+SUPABASE_SERVICE_ROLE_KEY         # Service role (bypasa RLS — Edge Functions Y backend Python:
+                                  #   backend/services/payments.py lo usa para el webhook de MP,
+                                  #   que llega sin sesión de usuario. NO es "solo Edge Functions")
 OPENAI_API_KEY                    # OpenAI para Edge Functions
 RESEND_API_KEY                    # Resend para Edge Functions
 ```
@@ -235,7 +237,7 @@ RESEND_API_KEY                    # Resend para Edge Functions
 
 ## Evolución Arquitectónica: Backend Python/FastAPI (en curso)
 
-> Estado: **parcialmente implementado**. El **scaffolding ya está hecho y archivado** (change `fastapi-backend-monorepo`, 2026-06-06): monorepo `frontend/` + `backend/`, FastAPI (`backend/main.py`), auth JWT de Supabase (`core/auth.py`, HS256), WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`), `pnpm-workspace.yaml`, y 8 tests. Lo **pendiente** (CHANGES.md FASE 5): capa de datos (asyncpg + repositories), migración de la API de datos, pagos, migración de realtime a WebSocket y desacople del `DataContext`.
+> Estado: **parcialmente implementado**. El **scaffolding ya está hecho y archivado** (change `fastapi-backend-monorepo`, 2026-06-06): monorepo `frontend/` + `backend/`, FastAPI (`backend/main.py`), auth JWT de Supabase (`core/auth.py`), `pnpm-workspace.yaml`, y 8 tests. **Dos piezas de ese scaffolding ya no describen el estado actual** (`auth-hardening-jwt-cookies`, 2026-09-16): el WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`) se **retiró** (D11), y la verificación del JWT dejó de ser `HS256` por default — corre contra las **JWKS de Supabase** (`ES256`/`RS256`) y `HS256` quedó como camino de dev/test detrás de una palanca explícita (D8/D9). Lo **pendiente** (CHANGES.md FASE 5): capa de datos (asyncpg + repositories), migración de la API de datos, pagos, migración de realtime a WebSocket y desacople del `DataContext`.
 
 ### Motivación
 La lógica de negocio hoy está dispersa entre el `DataContext` (God Object en el cliente), los RPCs PostgreSQL y las Edge Functions. Con el multi-tenant ya implementado (organizations, organization_members, roles, sucursales), la autorización se volvió compleja (org + rol + plan + sucursal) y conviene centralizarla en un service layer real, testeable y fuera del browser.
@@ -307,7 +309,7 @@ Ambas palancas se apagan de forma independiente (variable de entorno en Render, 
 | Redis (cache + rate limit) | **Upstash** (free 10k cmds/día) | — |
 | DB / Auth / Realtime / Storage | **Supabase** (free, sin cambios) | Realtime se mantiene acá |
 
-Variables de entorno nuevas del backend: `SUPABASE_JWT_SECRET` (verificación HS256), `DATABASE_URL` (pool asyncpg), `REDIS_URL` (Upstash), más `OPENAI_API_KEY` / `RESEND_API_KEY` solo si se migran esos servicios.
+Variables de entorno nuevas del backend: **`SUPABASE_URL`** (la que **elige la rama de verificación** del JWT: presente y `https://` → JWKS de Supabase, el camino que corre en producción; también fija el `issuer` exigido, `<SUPABASE_URL>/auth/v1`), `SUPABASE_JWT_SECRET` (secreto compartido del camino `HS256`, **sólo** dev/test), `AUTH_ALLOW_HS256_FALLBACK` (palanca explícita de ese camino, default **deshabilitado**: sin `SUPABASE_URL` y sin palanca el arranque **aborta**), `DATABASE_URL` (pool asyncpg), `REDIS_URL` (Upstash), más `OPENAI_API_KEY` / `RESEND_API_KEY` solo si se migran esos servicios.
 
 ---
 

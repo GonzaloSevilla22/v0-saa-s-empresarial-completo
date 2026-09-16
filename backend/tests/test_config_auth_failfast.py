@@ -430,7 +430,11 @@ def test_production_starts_with_the_field_default_origin(monkeypatch):
     reales ya están en la allow-list de `backend/core/cors.py`. Hoy explota."""
     monkeypatch.delenv("BACKEND_ALLOWED_ORIGIN", raising=False)
 
-    settings = Settings(supabase_url=VALID_URL, app_env="production")
+    # `_env_file=None` además del `delenv`: el campo es el único que este caso
+    # NO pasa explícito —es el punto del test—, así que sin esto un `.env` en el
+    # cwd de quien corre la suite podría poblarlo y el caso dejaría de probar el
+    # default del campo. Hermético por construcción, no por suerte del entorno.
+    settings = Settings(supabase_url=VALID_URL, app_env="production", _env_file=None)
 
     assert settings.app_env == "production"
     assert settings.backend_allowed_origin != "*"

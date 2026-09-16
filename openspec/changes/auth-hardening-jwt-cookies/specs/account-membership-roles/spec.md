@@ -2,11 +2,11 @@
 
 ### Requirement: La aceptación de una invitación exige la identidad invitada
 
-Cuando una invitación declara el email del invitado, la operación de aceptación SHALL exigir que la identidad autenticada que la canjea corresponda a ese email, comparando ambos valores sin distinguir mayúsculas de minúsculas, y SHALL rechazar la aceptación cuando no coincidan.
+La operación de aceptación SHALL exigir que la identidad autenticada que canjea el token corresponda al email declarado en la invitación, comparando ambos valores sin distinguir mayúsculas de minúsculas, y SHALL rechazar la aceptación cuando no coincidan.
 
-Una invitación que NO declara email SHALL seguir siendo canjeable por cualquier identidad autenticada que presente el token, porque ese es el caso de un enlace compartido deliberadamente.
+El email de la identidad que acepta SHALL resolverse **contra el registro de identidades del proveedor**, a partir del identificador del usuario autenticado, y NOT SHALL depender exclusivamente de un claim del token: el backend propio empuja a la base una reconstrucción mínima de claims que NO incluye el email, de modo que una comprobación keyeada sólo en el claim rechazaría toda aceptación que llegara por ese camino. El claim SHALL usarse, cuando esté presente, únicamente como atajo equivalente.
 
-El rechazo SHALL usar el mismo contrato de error que el resto de las validaciones de la operación, de modo que el consumidor no necesite distinguir este caso de los demás.
+El rechazo SHALL usar el mismo contrato de error —mismo código y mismo texto— que el rechazo por token inexistente o vencido, de modo que el consumidor no necesite distinguir este caso y la respuesta no confirme que el token es válido para otra identidad.
 
 #### Scenario: Otra identidad no puede canjear una invitación dirigida
 
@@ -26,11 +26,18 @@ El rechazo SHALL usar el mismo contrato de error que el resto de las validacione
 - **WHEN** la identidad autenticada correspondiente, escrita en minúsculas, presenta el token
 - **THEN** la aceptación se completa
 
-#### Scenario: Una invitación sin email declarado sigue siendo canjeable
+#### Scenario: La aceptación funciona con el conjunto de claims que empuja el backend propio
 
-- **GIVEN** una invitación vigente que no declara email
-- **WHEN** una identidad autenticada presenta el token
-- **THEN** la aceptación se completa
+- **GIVEN** una invitación vigente dirigida a un email concreto
+- **AND** un contexto de base de datos cuyos claims contienen únicamente el sujeto y el rol de conexión, sin email, que es la forma exacta que empuja el backend propio
+- **WHEN** la identidad invitada presenta el token
+- **THEN** la aceptación se completa, porque el email se resuelve desde el registro de identidades del proveedor
+
+#### Scenario: El rechazo no revela que el token es válido para otra identidad
+
+- **GIVEN** una invitación vigente dirigida a un email concreto
+- **WHEN** una identidad distinta presenta el token
+- **THEN** el error devuelto es indistinguible del que produce un token inexistente o vencido
 
 ### Requirement: La aceptación de una invitación toma lock sobre la invitación
 

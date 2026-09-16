@@ -41,28 +41,6 @@ La verificación con **secreto compartido y algoritmo `HS256`** SHALL ser un cam
 - **WHEN** se revisa la suite del backend
 - **THEN** existe al menos un test que ejercita la verificación por JWKS con una clave asimétrica, además de los que ejercitan el camino del secreto compartido
 
-### Requirement: Sin verificación de audience
-
-El middleware SHALL verificar la audiencia del token contra el valor que emite el proveedor para usuarios autenticados, y SHALL verificar además el emisor contra la URL del proveedor configurada.
-
-La verificación de audiencia SHALL realizarse declarando el valor esperado, no desactivando la comprobación: un token cuya audiencia no coincida SHALL rechazarse, y un token con la audiencia esperada NOT SHALL rechazarse por el hecho de que ese valor no sea una URL.
-
-#### Scenario: Token con la audiencia esperada se acepta
-
-- **GIVEN** un token válido cuyo claim de audiencia es el valor que el proveedor emite para usuarios autenticados
-- **WHEN** se decodifica
-- **THEN** la verificación de audiencia pasa y el token se acepta si el resto de las validaciones son correctas
-
-#### Scenario: Token con otra audiencia se rechaza
-
-- **WHEN** llega un token correctamente firmado cuya audiencia es distinta de la esperada
-- **THEN** la verificación lo rechaza con no autorizado
-
-#### Scenario: Token de otro emisor se rechaza
-
-- **WHEN** llega un token correctamente firmado cuyo emisor no corresponde al proveedor configurado
-- **THEN** la verificación lo rechaza con no autorizado
-
 ### Requirement: Resolución del rol de tenant con respaldo en la base durante la transición
 
 Cuando un guard requiera el rol de tenant, el backend SHALL evaluar el **conjunto** de roles activos del usuario y SHALL autorizar si alguno de ellos figura entre los permitidos por el guard.
@@ -130,6 +108,36 @@ El backend SHALL exponer los conjuntos de roles permitidos como **capacidades no
 
 ## ADDED Requirements
 
+### Requirement: Verificación de emisor y audiencia
+
+El middleware SHALL verificar la audiencia del token contra el valor que emite el proveedor para usuarios autenticados, y SHALL verificar además el emisor contra la URL del proveedor configurada.
+
+La verificación de audiencia SHALL realizarse declarando el valor esperado, no desactivando la comprobación: un token cuya audiencia no coincida SHALL rechazarse, y un token con la audiencia esperada NOT SHALL rechazarse por el hecho de que ese valor no sea una URL.
+
+La URL del proveedor SHALL normalizarse **una sola vez**, removiendo una barra final si la hubiera, y esa misma URL normalizada SHALL usarse tanto para construir el emisor esperado como para construir la dirección de las claves públicas. Una barra final en la configuración NOT SHALL alterar el emisor esperado: hoy es invisible, y sin normalizar convertiría el endurecimiento en un rechazo de todo el tráfico legítimo.
+
+#### Scenario: Token con la audiencia esperada se acepta
+
+- **GIVEN** un token válido cuyo claim de audiencia es el valor que el proveedor emite para usuarios autenticados
+- **WHEN** se decodifica
+- **THEN** la verificación de audiencia pasa y el token se acepta si el resto de las validaciones son correctas
+
+#### Scenario: Token con otra audiencia se rechaza
+
+- **WHEN** llega un token correctamente firmado cuya audiencia es distinta de la esperada
+- **THEN** la verificación lo rechaza con no autorizado
+
+#### Scenario: Token de otro emisor se rechaza
+
+- **WHEN** llega un token correctamente firmado cuyo emisor no corresponde al proveedor configurado
+- **THEN** la verificación lo rechaza con no autorizado
+
+#### Scenario: Una barra final en la URL configurada no rompe la verificación
+
+- **GIVEN** la URL del proveedor configurada con una barra final
+- **WHEN** llega un token legítimo del proveedor
+- **THEN** la verificación lo acepta, porque el emisor esperado se construye sobre la URL normalizada
+
 ### Requirement: El token viaja únicamente por el encabezado de autorización
 
 El backend SHALL aceptar el token de usuario final **exclusivamente** por el encabezado de autorización con esquema Bearer, y NOT SHALL aceptarlo por parámetro de consulta, por cuerpo de la petición ni por cookie.
@@ -182,6 +190,12 @@ Un fallo de disponibilidad del proveedor de claves NOT SHALL ser indistinguible 
 - **THEN** el backend responde no autorizado sin registrar el fallo de obtención de claves
 
 ## REMOVED Requirements
+
+### Requirement: Sin verificación de audience
+
+**Reason**: El nombre del requisito afirma exactamente lo contrario de la regla que ahora rige. Su contenido justificaba desactivar la comprobación de audiencia argumentando que el valor emitido es un string no-URL y produciría falsos rechazos — lo cual sólo es cierto si no se declara el valor esperado. Mantenerlo como requisito modificado dejaría en la spec principal, de forma permanente, un requisito llamado "Sin verificación de audience" cuyo cuerpo exige verificar la audiencia: el mismo defecto documental que este change viene a eliminar.
+
+**Migration**: La regla vigente vive en el requisito nuevo "Verificación de emisor y audiencia", que declara el valor esperado en lugar de desactivar la comprobación y añade la verificación de emisor y la normalización de la URL configurada.
 
 ### Requirement: Header Bearer en HTTP, query param en WebSocket
 

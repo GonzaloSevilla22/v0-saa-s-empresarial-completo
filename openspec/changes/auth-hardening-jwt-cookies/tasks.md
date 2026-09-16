@@ -74,13 +74,13 @@
 
 ## 6. Parte A — Re-chequeo en la base para las acciones de configuración (D12)
 
-- [ ] 6.1 RED→GREEN: `backend/tests/test_guards_config_recheck.py::test_configuration_guard_queries_db_even_with_claim` — con el claim presente, el guard debe consultar `rpc_my_active_account_roles()`. GREEN: rama en `require_account_role` (`backend/core/guards.py:49-75`) que reconoce el conjunto permitido por **capacidad nombrada**, no por identidad ni por igualdad de lista: las constantes de `backend/core/rbac.py` pasan a `frozenset` y existe un registro explícito (p. ej. `SENSITIVE_CAPABILITIES = frozenset({CAN_CONFIGURE})`) contra el que el guard decide por pertenencia
-- [ ] 6.1b RED→GREEN: `::test_equal_but_distinct_list_does_not_trigger_the_recheck` — un caller que pasa `["owner","admin"]` literal (igual al contenido de `CAN_CONFIGURE`, pero otro objeto) **no** activa el re-chequeo, y sólo lo activa la capacidad nombrada. Candado contra las dos implementaciones ingenuas: `allowed is CAN_CONFIGURE` se rompe con cualquier copia, `allowed == CAN_CONFIGURE` engancha cualquier literal coincidente
-- [ ] 6.2 RED→GREEN: `::test_revoked_role_denied_before_token_expiry` — claim que declara el rol, base que ya no lo tiene → 403. Es el hallazgo de staleness de la fila 2 de §8 de la auditoría
-- [ ] 6.3 TRIANGULATE: `::test_non_configuration_guard_still_short_circuits_on_claim` — el hot path **no** paga la query. Candado contra la alternativa rechazada de OQ-4
-- [ ] 6.4 TRIANGULATE: `::test_configuration_guard_denies_when_db_returns_empty` — sin roles vigentes, deniega; nunca concede por ausencia de información
-- [ ] 6.5 GREEN: refrescar el docstring envejecido de `backend/core/guards.py:81` ("no existe custom access token hook" — el hook **sí** copia `profiles.role` a `app_metadata.role`, `20260827000001:151-153`)
-- [ ] 6.6 Correr la suite de los 4 services que consumen `require_account_role` (`cost_centers`, `payment_methods`, `product_categories`, `account_charges`) y confirmar cero regresiones
+- [x] 6.1 RED→GREEN: `backend/tests/test_guards_config_recheck.py::test_configuration_guard_queries_db_even_with_claim` — con el claim presente, el guard debe consultar `rpc_my_active_account_roles()`. GREEN: rama en `require_account_role` (`backend/core/guards.py:49-75`) que reconoce el conjunto permitido por **capacidad nombrada**, no por identidad ni por igualdad de lista: las constantes de `backend/core/rbac.py` pasan a `frozenset` y existe un registro explícito (p. ej. `SENSITIVE_CAPABILITIES = frozenset({CAN_CONFIGURE})`) contra el que el guard decide por pertenencia
+- [x] 6.1b RED→GREEN: `::test_equal_but_distinct_list_does_not_trigger_the_recheck` — un caller que pasa `["owner","admin"]` literal (igual al contenido de `CAN_CONFIGURE`, pero otro objeto) **no** activa el re-chequeo, y sólo lo activa la capacidad nombrada. Candado contra las dos implementaciones ingenuas: `allowed is CAN_CONFIGURE` se rompe con cualquier copia, `allowed == CAN_CONFIGURE` engancha cualquier literal coincidente
+- [x] 6.2 RED→GREEN: `::test_revoked_role_denied_before_token_expiry` — claim que declara el rol, base que ya no lo tiene → 403. Es el hallazgo de staleness de la fila 2 de §8 de la auditoría
+- [x] 6.3 TRIANGULATE: `::test_non_configuration_guard_still_short_circuits_on_claim` — el hot path **no** paga la query. Candado contra la alternativa rechazada de OQ-4
+- [x] 6.4 TRIANGULATE: `::test_configuration_guard_denies_when_db_returns_empty` — sin roles vigentes, deniega; nunca concede por ausencia de información
+- [x] 6.5 GREEN: refrescar el docstring envejecido de `backend/core/guards.py:81` ("no existe custom access token hook" — el hook **sí** copia `profiles.role` a `app_metadata.role`, `20260827000001:151-153`)
+- [x] 6.6 Correr la suite de los 4 services que consumen `require_account_role` (`cost_centers`, `payment_methods`, `product_categories`, `account_charges`) y confirmar cero regresiones
 
 ## 7. Parte A — Edge Function `invoice-ocr` (D13)
 

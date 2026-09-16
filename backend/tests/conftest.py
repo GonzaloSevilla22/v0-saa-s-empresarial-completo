@@ -89,6 +89,35 @@ class FakeAsyncpgRecord:
         return self._data.keys()
 
 
+def account_roles_fetchval(roles, *, otherwise=None):
+    """Doble de `conn.fetchval` que distingue las consultas que lo comparten.
+
+    auth-hardening-jwt-cookies D12: con el re-chequeo en base para las
+    acciones de configuración, `fetchval` atiende ahora DOS consultas
+    distintas en el mismo request — `rpc_my_active_account_roles()` (el
+    guard) y la que el endpoint ya hacía (típicamente `get_account_id`). Un
+    `return_value` único no puede servir a las dos, y un `side_effect`
+    posicional ata el test al ORDEN en que se emiten, que es un detalle de
+    implementación: cualquier reordenamiento lo rompería sin que cambie el
+    comportamiento.
+
+    Despachar por el texto de la consulta hace el doble independiente del
+    orden y explícito sobre qué responde a quién.
+
+    `otherwise` admite una lista/tupla cuando el endpoint hace VARIAS
+    consultas distintas con `fetchval` (p. ej. escribir y releer): se
+    consumen en orden, sin contar la del guard.
+    """
+    rest = iter(otherwise) if isinstance(otherwise, (list, tuple)) else None
+
+    async def _fetchval(query, *args, **kwargs):
+        if "rpc_my_active_account_roles" in query:
+            return roles
+        return next(rest) if rest is not None else otherwise
+
+    return AsyncMock(side_effect=_fetchval)
+
+
 @pytest.fixture
 def valid_token():
     return make_token()

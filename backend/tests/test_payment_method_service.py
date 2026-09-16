@@ -115,7 +115,7 @@ class TestPaymentMethodServiceCreate:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_payment_method(
-                repo, auth, ACCOUNT_ID, name="Mercado Pago", kind="wallet", sort_order=0, conn=_make_conn()
+                repo, auth, ACCOUNT_ID, name="Mercado Pago", kind="wallet", sort_order=0, conn=_make_conn(["member"])
             )
 
         assert exc_info.value.status_code == 403
@@ -128,7 +128,7 @@ class TestPaymentMethodServiceCreate:
         auth = _make_auth("owner")
 
         result = await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=1, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=1, conn=_make_conn(["owner"])
         )
 
         assert result["kind"] == "cash"
@@ -142,7 +142,7 @@ class TestPaymentMethodServiceCreate:
         auth = _make_auth("admin")
 
         result = await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=_make_conn(["admin"])
         )
 
         assert result is not None
@@ -155,7 +155,7 @@ class TestPaymentMethodServiceCreate:
         auth = _make_auth("owner")
 
         await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="  Efectivo  ", kind="cash", sort_order=0, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="  Efectivo  ", kind="cash", sort_order=0, conn=_make_conn(["owner"])
         )
 
         call_kwargs = repo.create.call_args
@@ -173,25 +173,30 @@ class TestPaymentMethodServiceCreate:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_payment_method(
-                repo, auth, ACCOUNT_ID, name="Cripto", kind="crypto", sort_order=0, conn=_make_conn()
+                repo, auth, ACCOUNT_ID, name="Cripto", kind="crypto", sort_order=0, conn=_make_conn(["owner"])
             )
 
         assert exc_info.value.status_code == 422
         repo.create.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_create_claim_present_never_touches_conn(self):
+    async def test_create_claim_present_still_rechecks_the_db(self):
+        """auth-hardening-jwt-cookies D12 — invertido, no borrado: para una
+        acción de configuración la base es la autoridad aunque el claim esté.
+        El camino caliente sigue sin pagar la query, y eso lo cubre
+        `test_guards_config_recheck.py::test_non_configuration_guard_still_short_circuits_on_claim`."""
         from backend.services.payment_methods import create_payment_method
 
         repo = _make_repo(create_result=PM_ROW)
         auth = _make_auth("owner")
-        conn = _make_conn()
+        conn = _make_conn(["owner"])
 
         await create_payment_method(
             repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=conn
         )
 
-        conn.fetchval.assert_not_awaited()
+        conn.fetchval.assert_awaited_once()
+        assert "rpc_my_active_account_roles" in conn.fetchval.await_args.args[0]
 
 
 # ── bank-default-destination (cobranzas-catalogo-pagos OQ-5): RED ────────────
@@ -224,7 +229,7 @@ class TestPaymentMethodServiceCreateBankDefaultDestination:
         auth = _make_auth("owner")
 
         result = await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn(["owner"])
         )
 
         assert result["bank_account_id"] == BANK_ACCOUNT_ID
@@ -247,7 +252,7 @@ class TestPaymentMethodServiceCreateBankDefaultDestination:
         auth = _make_auth("owner")
 
         result = await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn(["owner"])
         )
 
         assert result["bank_account_id"] is None
@@ -263,7 +268,7 @@ class TestPaymentMethodServiceCreateBankDefaultDestination:
         auth = _make_auth("owner")
 
         await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="Efectivo", kind="cash", sort_order=0, conn=_make_conn(["owner"])
         )
 
         repo.get_sole_active_bank_account.assert_not_awaited()
@@ -283,7 +288,7 @@ class TestPaymentMethodServiceCreateBankDefaultDestination:
         auth = _make_auth("owner")
 
         result = await create_payment_method(
-            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, name="Transferencia", kind="transfer", sort_order=0, conn=_make_conn(["owner"])
         )
 
         assert result["bank_account_id"] == BANK_ACCOUNT_ID
@@ -303,7 +308,7 @@ class TestPaymentMethodServiceUpdate:
 
         with pytest.raises(HTTPException) as exc_info:
             await update_payment_method(
-                repo, auth, ACCOUNT_ID, PM_ID, name="X", sort_order=None, conn=_make_conn()
+                repo, auth, ACCOUNT_ID, PM_ID, name="X", sort_order=None, conn=_make_conn(["member"])
             )
 
         assert exc_info.value.status_code == 403
@@ -316,7 +321,7 @@ class TestPaymentMethodServiceUpdate:
         auth = _make_auth("owner")
 
         result = await update_payment_method(
-            repo, auth, ACCOUNT_ID, PM_ID, name="Banco Nación", sort_order=None, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, PM_ID, name="Banco Nación", sort_order=None, conn=_make_conn(["owner"])
         )
 
         assert result["name"] == "Banco Nación"
@@ -330,7 +335,7 @@ class TestPaymentMethodServiceUpdate:
 
         with pytest.raises(HTTPException) as exc_info:
             await update_payment_method(
-                repo, auth, ACCOUNT_ID, "nonexistent", name="X", sort_order=None, conn=_make_conn()
+                repo, auth, ACCOUNT_ID, "nonexistent", name="X", sort_order=None, conn=_make_conn(["owner"])
             )
 
         assert exc_info.value.status_code == 404
@@ -347,7 +352,7 @@ class TestPaymentMethodServiceDeactivate:
         auth = _make_auth("member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+            await deactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -358,7 +363,7 @@ class TestPaymentMethodServiceDeactivate:
         repo = _make_repo(deactivate_result={**PM_ROW, "is_active": False})
         auth = _make_auth("owner")
 
-        result = await deactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+        result = await deactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn(["owner"]))
 
         assert result["is_active"] is False
 
@@ -370,7 +375,7 @@ class TestPaymentMethodServiceDeactivate:
         auth = _make_auth("admin")
 
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_payment_method(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
+            await deactivate_payment_method(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn(["admin"]))
 
         assert exc_info.value.status_code == 404
 
@@ -386,7 +391,7 @@ class TestPaymentMethodServiceReactivate:
         auth = _make_auth("member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await reactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+            await reactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -397,7 +402,7 @@ class TestPaymentMethodServiceReactivate:
         repo = _make_repo(reactivate_result={**PM_ROW, "is_active": True})
         auth = _make_auth("owner")
 
-        result = await reactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+        result = await reactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn(["owner"]))
 
         assert result["is_active"] is True
 
@@ -409,7 +414,7 @@ class TestPaymentMethodServiceReactivate:
         auth = _make_auth("admin")
 
         with pytest.raises(HTTPException) as exc_info:
-            await reactivate_payment_method(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
+            await reactivate_payment_method(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn(["admin"]))
 
         assert exc_info.value.status_code == 404
 
@@ -465,7 +470,7 @@ class TestPaymentMethodServiceBankAccount:
 
         result = await update_payment_method(
             repo, auth, ACCOUNT_ID, PM_ID, name="Transferencia bancaria", sort_order=None,
-            bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+            bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(["owner"]),
         )
 
         assert result["bank_account_id"] == BANK_ACCOUNT_ID
@@ -485,7 +490,7 @@ class TestPaymentMethodServiceBankAccount:
 
         await update_payment_method(
             repo, auth, ACCOUNT_ID, PM_ID, name="Efectivo", sort_order=None,
-            bank_account_id=None, bank_account_provided=False, conn=_make_conn(),
+            bank_account_id=None, bank_account_provided=False, conn=_make_conn(["owner"]),
         )
 
         repo.get_by_id.assert_not_awaited()
@@ -507,7 +512,7 @@ class TestPaymentMethodServiceBankAccount:
 
         result = await update_payment_method(
             repo, auth, ACCOUNT_ID, PM_ID, name="Transferencia bancaria", sort_order=None,
-            bank_account_id=None, bank_account_provided=True, conn=_make_conn(),
+            bank_account_id=None, bank_account_provided=True, conn=_make_conn(["owner"]),
         )
 
         assert result["bank_account_id"] is None
@@ -532,7 +537,7 @@ class TestPaymentMethodServiceBankAccount:
         with pytest.raises(HTTPException) as exc_info:
             await update_payment_method(
                 repo, auth, ACCOUNT_ID, PM_ID, name="Efectivo", sort_order=None,
-                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(["owner"]),
             )
 
         assert exc_info.value.status_code == 422
@@ -549,7 +554,7 @@ class TestPaymentMethodServiceBankAccount:
         with pytest.raises(HTTPException) as exc_info:
             await update_payment_method(
                 repo, auth, ACCOUNT_ID, PM_ID, name="Transferencia bancaria", sort_order=None,
-                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(["owner"]),
             )
 
         assert exc_info.value.status_code == 404
@@ -565,7 +570,7 @@ class TestPaymentMethodServiceBankAccount:
         with pytest.raises(HTTPException) as exc_info:
             await update_payment_method(
                 repo, auth, ACCOUNT_ID, "nonexistent", name="X", sort_order=None,
-                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(["owner"]),
             )
 
         assert exc_info.value.status_code == 404
@@ -583,7 +588,7 @@ class TestPaymentMethodServiceBankAccount:
         with pytest.raises(HTTPException) as exc_info:
             await update_payment_method(
                 repo, auth, ACCOUNT_ID, PM_ID, name="X", sort_order=None,
-                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(),
+                bank_account_id=BANK_ACCOUNT_ID, bank_account_provided=True, conn=_make_conn(["member"]),
             )
 
         assert exc_info.value.status_code == 403
@@ -606,7 +611,7 @@ class TestPaymentMethodServiceTriangulate:
 
         with pytest.raises(HTTPException) as exc_info:
             await create_payment_method(
-                repo, member, ACCOUNT_ID, name="Test", kind="other", sort_order=0, conn=_make_conn()
+                repo, member, ACCOUNT_ID, name="Test", kind="other", sort_order=0, conn=_make_conn(["member"])
             )
         assert exc_info.value.status_code == 403
 
@@ -617,7 +622,7 @@ class TestPaymentMethodServiceTriangulate:
         repo = _make_repo(deactivate_result={**PM_ROW, "is_active": False})
         auth = _make_auth("admin")
 
-        result = await deactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn())
+        result = await deactivate_payment_method(repo, auth, ACCOUNT_ID, PM_ID, conn=_make_conn(["admin"]))
 
         assert result["is_active"] is False
         repo.deactivate.assert_awaited_once_with(PM_ID, ACCOUNT_ID)

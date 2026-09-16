@@ -103,7 +103,7 @@ class TestProductCategoryServiceCreate:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await create_product_category(repo, _make_auth("member"), ACCOUNT_ID, name="Ferretería", sort_order=None, conn=_make_conn())
+            await create_product_category(repo, _make_auth("member"), ACCOUNT_ID, name="Ferretería", sort_order=None, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.create.assert_not_awaited()
@@ -114,7 +114,7 @@ class TestProductCategoryServiceCreate:
 
         repo = _make_repo(create_result={**CAT_ROW, "name": "Ferretería"})
         result = await create_product_category(
-            repo, _make_auth("owner"), ACCOUNT_ID, name="  Ferretería  ", sort_order=None, conn=_make_conn()
+            repo, _make_auth("owner"), ACCOUNT_ID, name="  Ferretería  ", sort_order=None, conn=_make_conn(["owner"])
         )
 
         assert result["name"] == "Ferretería"
@@ -125,7 +125,7 @@ class TestProductCategoryServiceCreate:
         from backend.services.product_categories import create_product_category
 
         repo = _make_repo()
-        result = await create_product_category(repo, _make_auth("admin"), ACCOUNT_ID, name="Ropa", sort_order=1, conn=_make_conn())
+        result = await create_product_category(repo, _make_auth("admin"), ACCOUNT_ID, name="Ropa", sort_order=1, conn=_make_conn(["admin"]))
 
         assert result is not None
 
@@ -135,7 +135,7 @@ class TestProductCategoryServiceCreate:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await create_product_category(repo, _make_auth("owner"), ACCOUNT_ID, name="   ", sort_order=None, conn=_make_conn())
+            await create_product_category(repo, _make_auth("owner"), ACCOUNT_ID, name="   ", sort_order=None, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 422
         repo.create.assert_not_awaited()
@@ -150,7 +150,7 @@ class TestProductCategoryServiceCreate:
         repo.create = AsyncMock(side_effect=asyncpg.UniqueViolationError("duplicate key"))
 
         with pytest.raises(HTTPException) as exc_info:
-            await create_product_category(repo, _make_auth("owner"), ACCOUNT_ID, name="ropa", sort_order=None, conn=_make_conn())
+            await create_product_category(repo, _make_auth("owner"), ACCOUNT_ID, name="ropa", sort_order=None, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 409
         assert "ropa" in exc_info.value.detail.lower()
@@ -176,7 +176,7 @@ class TestProductCategoryServiceUpdate:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await update_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, name="X", sort_order=None, is_active=None, conn=_make_conn())
+            await update_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, name="X", sort_order=None, is_active=None, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.update.assert_not_awaited()
@@ -187,7 +187,7 @@ class TestProductCategoryServiceUpdate:
 
         repo = _make_repo(update_result={**CAT_ROW, "name": "Indumentaria"})
         result = await update_product_category(
-            repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, name=" Indumentaria ", sort_order=None, is_active=None, conn=_make_conn()
+            repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, name=" Indumentaria ", sort_order=None, is_active=None, conn=_make_conn(["owner"])
         )
 
         assert result["name"] == "Indumentaria"
@@ -199,7 +199,7 @@ class TestProductCategoryServiceUpdate:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await update_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, name="  ", sort_order=None, is_active=None, conn=_make_conn())
+            await update_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, name="  ", sort_order=None, is_active=None, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 422
 
@@ -209,7 +209,7 @@ class TestProductCategoryServiceUpdate:
 
         repo = _make_repo(update_result={**CAT_ROW, "is_active": True})
         result = await update_product_category(
-            repo, _make_auth("admin"), ACCOUNT_ID, CAT_ID, name=None, sort_order=None, is_active=True, conn=_make_conn()
+            repo, _make_auth("admin"), ACCOUNT_ID, CAT_ID, name=None, sort_order=None, is_active=True, conn=_make_conn(["admin"])
         )
 
         assert result["is_active"] is True
@@ -223,7 +223,7 @@ class TestProductCategoryServiceUpdate:
 
         repo = _make_repo(update_result=None)
         with pytest.raises(HTTPException) as exc_info:
-            await update_product_category(repo, _make_auth("owner"), ACCOUNT_ID, "other-tenant-id", name="X", sort_order=None, is_active=None, conn=_make_conn())
+            await update_product_category(repo, _make_auth("owner"), ACCOUNT_ID, "other-tenant-id", name="X", sort_order=None, is_active=None, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 404
         assert "otra cuenta" not in exc_info.value.detail.lower()
@@ -235,7 +235,7 @@ class TestProductCategoryServiceUpdate:
         repo = _make_repo()
         repo.update = AsyncMock(side_effect=asyncpg.UniqueViolationError("duplicate key"))
         with pytest.raises(HTTPException) as exc_info:
-            await update_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, name="Hogar", sort_order=None, is_active=None, conn=_make_conn())
+            await update_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, name="Hogar", sort_order=None, is_active=None, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 409
 
@@ -249,7 +249,7 @@ class TestProductCategoryServiceDeactivateDelete:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+            await deactivate_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -258,7 +258,7 @@ class TestProductCategoryServiceDeactivateDelete:
         from backend.services.product_categories import deactivate_product_category
 
         repo = _make_repo()
-        result = await deactivate_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+        result = await deactivate_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["owner"]))
 
         assert result["is_active"] is False
         repo.deactivate.assert_awaited_once_with(CAT_ID, ACCOUNT_ID)
@@ -269,7 +269,7 @@ class TestProductCategoryServiceDeactivateDelete:
 
         repo = _make_repo(deactivate_result=None)
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_product_category(repo, _make_auth("admin"), ACCOUNT_ID, "nonexistent", conn=_make_conn())
+            await deactivate_product_category(repo, _make_auth("admin"), ACCOUNT_ID, "nonexistent", conn=_make_conn(["admin"]))
 
         assert exc_info.value.status_code == 404
 
@@ -280,7 +280,7 @@ class TestProductCategoryServiceDeactivateDelete:
         from backend.services.product_categories import delete_product_category
 
         repo = _make_repo()
-        await delete_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+        await delete_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["owner"]))
 
         repo.soft_delete.assert_awaited_once_with("product_categories", CAT_ID, ACCOUNT_ID, USER_ID)
 
@@ -290,7 +290,7 @@ class TestProductCategoryServiceDeactivateDelete:
 
         repo = _make_repo(soft_delete_result=False)
         with pytest.raises(HTTPException) as exc_info:
-            await delete_product_category(repo, _make_auth("owner"), ACCOUNT_ID, "nonexistent", conn=_make_conn())
+            await delete_product_category(repo, _make_auth("owner"), ACCOUNT_ID, "nonexistent", conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 404
 
@@ -300,7 +300,7 @@ class TestProductCategoryServiceDeactivateDelete:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await delete_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+            await delete_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.soft_delete.assert_not_awaited()
@@ -334,7 +334,7 @@ class TestProductCategoryServiceDefault:
 
         repo = _make_repo()
         with pytest.raises(HTTPException) as exc_info:
-            await set_default_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+            await set_default_product_category(repo, _make_auth("member"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.set_default_category_id.assert_not_awaited()
@@ -351,7 +351,7 @@ class TestProductCategoryServiceDefault:
         from backend.services.product_categories import set_default_product_category
 
         repo = _make_repo(default_category_id=CAT_ID)
-        result = await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+        result = await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["owner"]))
 
         assert result == {"default_category_id": CAT_ID}
         repo.set_default_category_id.assert_awaited_once_with(CAT_ID)
@@ -362,7 +362,7 @@ class TestProductCategoryServiceDefault:
         from backend.services.product_categories import set_default_product_category
 
         repo = _make_repo(default_category_id=None)
-        result = await set_default_product_category(repo, _make_auth("admin"), ACCOUNT_ID, None, conn=_make_conn())
+        result = await set_default_product_category(repo, _make_auth("admin"), ACCOUNT_ID, None, conn=_make_conn(["admin"]))
 
         assert result == {"default_category_id": None}
         repo.set_default_category_id.assert_awaited_once_with(None)
@@ -378,7 +378,7 @@ class TestProductCategoryServiceDefault:
         from backend.services.product_categories import set_default_product_category
 
         repo = _make_repo(default_category_id=None)  # la cuenta de LECTURA no tiene default
-        result = await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+        result = await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["owner"]))
 
         assert result == {"default_category_id": None}
         repo.get_default_category_id.assert_awaited_once_with(ACCOUNT_ID)
@@ -397,7 +397,7 @@ class TestProductCategoryServiceDefault:
         repo.set_default_category_id = AsyncMock(side_effect=err)
 
         with pytest.raises(asyncpg.PostgresError) as exc_info:
-            await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn())
+            await set_default_product_category(repo, _make_auth("owner"), ACCOUNT_ID, CAT_ID, conn=_make_conn(["owner"]))
 
         assert exc_info.value.sqlstate == "P0404"
         repo.get_default_category_id.assert_not_awaited()

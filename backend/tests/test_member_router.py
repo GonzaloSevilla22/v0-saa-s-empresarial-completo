@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import account_roles_fetchval, make_token
 
 ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 USER_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -48,7 +48,7 @@ class TestMembersListEndpoint:
         """Cualquier miembro (incluso solo-lectura) puede listar."""
         pool, conn = mock_pool
         conn.fetch = AsyncMock(return_value=[MEMBER_ROW])
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)  # get_account_id
+        conn.fetchval = account_roles_fetchval(["member"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -74,7 +74,7 @@ class TestMembersAssignRoleEndpoint:
     @pytest.mark.asyncio
     async def test_owner_assigns_role_returns_201(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)  # get_account_id
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         conn.fetchrow = AsyncMock(
             return_value={"result": '{"account_id": "%s", "user_id": "%s", "role": "seller", "expires_at": null}' % (ACCOUNT_ID, USER_ID)}
         )
@@ -93,7 +93,7 @@ class TestMembersAssignRoleEndpoint:
     @pytest.mark.asyncio
     async def test_member_assigns_role_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)  # get_account_id
+        conn.fetchval = account_roles_fetchval(["member"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -108,7 +108,7 @@ class TestMembersAssignRoleEndpoint:
     @pytest.mark.asyncio
     async def test_invalid_payload_returns_422(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         token = _account_role_token("owner")
 
         with patch("backend.core.database.pool", pool):
@@ -127,7 +127,7 @@ class TestMembersAssignRoleEndpoint:
         import asyncpg
 
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["admin"], otherwise=ACCOUNT_ID)  # get_account_id + D12
 
         class _FakeError(asyncpg.PostgresError):
             def __init__(self):
@@ -155,7 +155,7 @@ class TestMembersRevokeRoleEndpoint:
     @pytest.mark.asyncio
     async def test_owner_revokes_role_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         conn.fetchrow = AsyncMock(
             return_value={"result": '{"account_id": "%s", "user_id": "%s", "role": "seller"}' % (ACCOUNT_ID, USER_ID)}
         )
@@ -186,7 +186,7 @@ class TestMembersRevokeRoleEndpoint:
         import asyncpg
 
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
 
         class _FakeError(asyncpg.PostgresError):
             def __init__(self):
@@ -208,7 +208,7 @@ class TestMembersRevokeRoleEndpoint:
     @pytest.mark.asyncio
     async def test_member_revokes_role_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["member"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -227,7 +227,7 @@ class TestMembersRemoveEndpoint:
     @pytest.mark.asyncio
     async def test_owner_removes_member_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         conn.fetchrow = AsyncMock(return_value={"result": '{"ok": true}'})
         token = _account_role_token("owner")
 
@@ -243,7 +243,7 @@ class TestMembersRemoveEndpoint:
     @pytest.mark.asyncio
     async def test_legacy_error_contract_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         conn.fetchrow = AsyncMock(return_value={"result": '{"error": "No se puede expulsar al owner"}'})
         token = _account_role_token("owner")
 
@@ -258,7 +258,7 @@ class TestMembersRemoveEndpoint:
     @pytest.mark.asyncio
     async def test_member_removes_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)
+        conn.fetchval = account_roles_fetchval(["member"], otherwise=ACCOUNT_ID)  # get_account_id + D12
         token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -278,7 +278,7 @@ class TestMembersRemoveEndpoint:
         dan 404/P0404. El pre-chequeo de tenencia ni siquiera debe llegar a
         invocar rpc_remove_member."""
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=ACCOUNT_ID)  # get_account_id
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=ACCOUNT_ID)  # get_account_id + D12
 
         async def _fetchrow(sql, *args):
             if "rpc_remove_member" in sql:

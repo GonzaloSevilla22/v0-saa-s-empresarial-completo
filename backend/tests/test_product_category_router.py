@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.tests.conftest import make_token
+from backend.tests.conftest import account_roles_fetchval, make_token
 
 ACCOUNT_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 CAT_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc"
@@ -34,6 +34,7 @@ class TestProductCategoryListEndpoint:
     @pytest.mark.asyncio
     async def test_get_list_ok_for_member(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[CAT_ROW])
 
         with patch("backend.core.database.pool", pool):
@@ -50,6 +51,7 @@ class TestProductCategoryListEndpoint:
     @pytest.mark.asyncio
     async def test_get_list_include_inactive(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[CAT_ROW, CAT_ROW_INACTIVE])
 
         with patch("backend.core.database.pool", pool):
@@ -74,6 +76,7 @@ class TestProductCategoryCreateEndpoint:
     @pytest.mark.asyncio
     async def test_create_owner_returns_201(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CAT_ROW)
 
         with patch("backend.core.database.pool", pool):
@@ -89,6 +92,7 @@ class TestProductCategoryCreateEndpoint:
     @pytest.mark.asyncio
     async def test_create_member_returns_403_rfc7807(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         with patch("backend.core.database.pool", pool):
             resp = await async_client.post(
                 "/product-categories", json={"name": "Ferretería"},
@@ -103,6 +107,7 @@ class TestProductCategoryCreateEndpoint:
     @pytest.mark.asyncio
     async def test_create_missing_name_returns_422(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         with patch("backend.core.database.pool", pool):
             resp = await async_client.post(
                 "/product-categories", json={"sort_order": 3},
@@ -115,6 +120,8 @@ class TestProductCategoryCreateEndpoint:
         import asyncpg as _asyncpg
 
         pool, conn = mock_pool
+
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(side_effect=_asyncpg.UniqueViolationError("dup"))
 
         with patch("backend.core.database.pool", pool):
@@ -131,6 +138,7 @@ class TestProductCategoryUpdateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_rename_owner_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**CAT_ROW, "name": "Indumentaria"})
 
         with patch("backend.core.database.pool", pool):
@@ -145,6 +153,7 @@ class TestProductCategoryUpdateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_reorder_only(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["admin"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**CAT_ROW, "sort_order": 9})
 
         with patch("backend.core.database.pool", pool):
@@ -159,6 +168,7 @@ class TestProductCategoryUpdateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         with patch("backend.core.database.pool", pool):
             resp = await async_client.patch(
                 f"/product-categories/{CAT_ID}", json={"name": "X"},
@@ -170,6 +180,7 @@ class TestProductCategoryUpdateEndpoint:
     async def test_patch_other_account_returns_404(self, async_client, mock_pool):
         """TRIANGULATE 8.6: categoría de otra cuenta → 404 sin revelar existencia."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=None)
 
         with patch("backend.core.database.pool", pool):
@@ -186,6 +197,7 @@ class TestProductCategoryDeactivateDeleteEndpoints:
     @pytest.mark.asyncio
     async def test_deactivate_owner_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CAT_ROW_INACTIVE)
 
         with patch("backend.core.database.pool", pool):
@@ -200,6 +212,7 @@ class TestProductCategoryDeactivateDeleteEndpoints:
     @pytest.mark.asyncio
     async def test_deactivate_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         with patch("backend.core.database.pool", pool):
             resp = await async_client.patch(
                 f"/product-categories/{CAT_ID}/deactivate",
@@ -210,6 +223,7 @@ class TestProductCategoryDeactivateDeleteEndpoints:
     @pytest.mark.asyncio
     async def test_delete_owner_soft_deletes_204(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.execute = AsyncMock(return_value="UPDATE 1")
 
         with patch("backend.core.database.pool", pool):
@@ -227,6 +241,7 @@ class TestProductCategoryDeactivateDeleteEndpoints:
     @pytest.mark.asyncio
     async def test_delete_not_found_returns_404(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.execute = AsyncMock(return_value="UPDATE 0")
 
         with patch("backend.core.database.pool", pool):
@@ -271,9 +286,12 @@ class TestProductCategoryDefaultEndpoints:
     async def test_patch_default_owner_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
         # F5 (revisor adversarial): el service escribe (rpc_set_default_product_category,
-        # 1er fetchval, resultado descartado) y RELEE (get_default_category_id, 2do
-        # fetchval) — el 2do call es el que decide la respuesta del PATCH.
-        conn.fetchval = AsyncMock(side_effect=[None, CAT_ID])
+        # resultado descartado) y RELEE (get_default_category_id) — la RELECTURA es la
+        # que decide la respuesta del PATCH.
+        # D12: el guard suma una consulta propia (`rpc_my_active_account_roles`) ANTES
+        # de las dos del service, así que el doble despacha por consulta en vez de por
+        # posición — atar el test al orden lo volvía frágil sin ganar nada.
+        conn.fetchval = account_roles_fetchval(["owner"], otherwise=[None, CAT_ID])
 
         with patch("backend.core.database.pool", pool):
             resp = await async_client.patch(
@@ -284,14 +302,18 @@ class TestProductCategoryDefaultEndpoints:
 
         assert resp.status_code == 200
         assert resp.json()["default_category_id"] == CAT_ID
-        assert conn.fetchval.await_count == 2
-        write_sql = conn.fetchval.call_args_list[0][0][0].lower()
-        assert "rpc_set_default_product_category" in write_sql
+        service_sql = [
+            call.args[0].lower()
+            for call in conn.fetchval.call_args_list
+            if "rpc_my_active_account_roles" not in call.args[0]
+        ]
+        assert len(service_sql) == 2, "el service escribe y relee"
+        assert "rpc_set_default_product_category" in service_sql[0]
 
     @pytest.mark.asyncio
     async def test_patch_default_null_clears(self, async_client, mock_pool):
         pool, conn = mock_pool
-        conn.fetchval = AsyncMock(return_value=None)
+        conn.fetchval = account_roles_fetchval(["admin"], otherwise=None)
 
         with patch("backend.core.database.pool", pool):
             resp = await async_client.patch(
@@ -306,6 +328,7 @@ class TestProductCategoryDefaultEndpoints:
     @pytest.mark.asyncio
     async def test_patch_default_member_returns_403_rfc7807(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = account_roles_fetchval(["member"], otherwise=None)
         with patch("backend.core.database.pool", pool):
             resp = await async_client.patch(
                 "/product-categories/default",
@@ -315,7 +338,13 @@ class TestProductCategoryDefaultEndpoints:
 
         assert resp.status_code == 403
         assert resp.headers["content-type"].startswith("application/problem+json")
-        conn.fetchval.assert_not_awaited()
+        # D12: el guard SÍ consulta la base ahora (es el punto del change), así
+        # que "no tocó la conexión" dejó de ser la forma de decir "el service
+        # nunca corrió". Se assertea lo que de verdad importa: la única
+        # consulta emitida fue la del guard, ninguna escritura llegó a la base.
+        emitted = [call.args[0] for call in conn.fetchval.call_args_list]
+        assert len(emitted) == 1
+        assert "rpc_my_active_account_roles" in emitted[0]
 
     @pytest.mark.asyncio
     async def test_patch_default_p0404_maps_to_404(self, async_client, mock_pool):

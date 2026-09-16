@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import Collection
+
 from fastapi import HTTPException
 
 from backend.core.auth import AuthContext
+from backend.core.rbac import is_sensitive_capability
 
 
 def require_role(auth: AuthContext, allowed: list[str]) -> None:
@@ -19,7 +22,7 @@ def require_plan(auth: AuthContext, allowed_plans: list[str]) -> None:
         raise HTTPException(status_code=403, detail="Límite de plan alcanzado")
 
 
-async def require_account_role(conn, auth: AuthContext, allowed: list[str]) -> None:
+async def require_account_role(conn, auth: AuthContext, allowed: Collection[str]) -> None:
     """Gating de rol de TENANT, evaluando el CONJUNTO de roles activos del
     actor (v3-rbac-multirole Parte B, D10) — autoriza si INTERSECA `allowed`
     con al menos un rol.
@@ -40,12 +43,31 @@ async def require_account_role(conn, auth: AuthContext, allowed: list[str]) -> N
          nunca un member_id arbitrario — D3/D10 de la Parte A, "si se
          expone, con su propio guard de tenencia, nunca un GRANT desnudo").
 
+    EXCEPCIÓN — acciones de configuración (auth-hardening-jwt-cookies D12):
+    cuando `allowed` es una capacidad SENSIBLE declarada en
+    `backend/core/rbac.py::SENSITIVE_CAPABILITIES`, el orden de arriba NO
+    aplica: se consulta la base AUNQUE el claim esté presente, y se decide
+    con lo que devuelve la base. Para esas acciones el claim es un caché y la
+    base es la autoridad, así que un rol revocado o vencido deja de autorizar
+    sin esperar a la próxima emisión de token.
+
+    Por qué sólo ahí (OQ-4): consultar siempre sería más seguro y más caro —
+    una query por request en el hot path del POS para cerrar una ventana que
+    el PO ya aceptó con sign-off para el resto de las superficies. Las
+    acciones de configuración son pocas, poco frecuentes y las de mayor daño.
+
     Sin ninguna de las tres vías (o con roles resueltos que no intersecan
     `allowed`) → 403. La ausencia de información NUNCA se resuelve
     concediendo un rol permisivo — mismo principio que `require_platform_admin`
     aplica para el rol de plataforma cuando ese claim tampoco viaja en el
     token.
     """
+    if is_sensitive_capability(allowed):
+        row = await conn.fetchval("SELECT public.rpc_my_active_account_roles()")
+        account_roles = list(row) if row else []
+        _assert_intersects(account_roles, allowed)
+        return
+
     account_roles = auth.get("account_roles")
 
     # Ronda 1 adversarial (nit 8): el claim `account_roles` debe ser una
@@ -68,23 +90,42 @@ async def require_account_role(conn, auth: AuthContext, allowed: list[str]) -> N
         row = await conn.fetchval("SELECT public.rpc_my_active_account_roles()")
         account_roles = list(row) if row else []
 
+    _assert_intersects(account_roles, allowed)
+
+
+def _assert_intersects(account_roles: list[str], allowed: Collection[str]) -> None:
+    """Decisión final compartida por los dos caminos de `require_account_role`.
+
+    Existe para que el camino sensible (D12) y el normal no puedan divergir en
+    *cómo deciden* — sólo difieren en de dónde sacan `account_roles`.
+
+    `sorted(allowed)`: las capacidades son `frozenset` desde D12 y el orden de
+    iteración de un conjunto no es estable entre procesos. Sin ordenar, el
+    mensaje que ve el usuario cambiaría de una corrida a otra.
+    """
     if not any(role in allowed for role in account_roles):
         raise HTTPException(
             status_code=403,
-            detail=f"Rol de cuenta insuficiente: se requiere {' o '.join(allowed)}",
+            detail=f"Rol de cuenta insuficiente: se requiere {' o '.join(sorted(allowed))}",
         )
 
 
 async def require_platform_admin(conn, auth: AuthContext) -> None:
     """Gating de admin de PLATAFORMA verificado contra la DB (profiles.role = 'admin').
 
-    El rol app-level NO viaja en el JWT (no existe custom access token hook), así que
-    auth['role'] siempre cae al fallback 'user' y `require_role(auth, ['admin'])`
-    nunca puede pasar — ni siquiera para el admin real. El admin de plataforma vive
-    en profiles.role, así que se verifica contra la DB, igual que payments.require_admin.
+    auth-hardening-jwt-cookies D12 (task 6.5) — este docstring estaba
+    ENVEJECIDO y afirmaba lo contrario del código vivo. Decía "no existe
+    custom access token hook", y el hook existe y está activo en producción:
+    copia `profiles.role` a `app_metadata.role`
+    (`20260827000001:151-153`), verificado en `auth_logs` desde el
+    2026-08-01. La "Opción B" que este texto daba por pendiente YA ocurrió.
 
-    (Opción A del fix v22: usar la fuente de verdad correcta. La Opción B —un hook que
-    copie profiles.role al JWT— queda como follow-up porque exige re-login.)
+    Por qué el guard sigue consultando la base de todas formas, que es la
+    parte que sí sigue siendo verdad y el motivo de que no se borre este
+    texto: es el mismo principio de D12 llevado al rol de plataforma — el
+    claim es un caché y la base es la autoridad para la decisión de mayor
+    daño del sistema. Un `profiles.role` degradado deja de autorizar de
+    inmediato, sin esperar a que venza el token que todavía lo declara.
     """
     role = await conn.fetchval(
         "SELECT role FROM profiles WHERE id = $1::uuid", auth["user_id"]

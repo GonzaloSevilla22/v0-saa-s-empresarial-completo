@@ -47,6 +47,7 @@ class TestCostCenterListEndpoint:
     async def test_get_list_ok_for_member(self, async_client, mock_pool):
         """Any authenticated member can list cost centers."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[CC_ROW])
         member_token = _account_role_token("member")
 
@@ -65,6 +66,7 @@ class TestCostCenterListEndpoint:
     async def test_get_list_active_only_by_default(self, async_client, mock_pool):
         """GET /cost-centers returns active centers only by default."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[CC_ROW])
         owner_token = _account_role_token("owner")
 
@@ -80,6 +82,7 @@ class TestCostCenterListEndpoint:
     async def test_get_list_all_with_include_inactive(self, async_client, mock_pool):
         """GET /cost-centers?include_inactive=true returns all centers."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[CC_ROW, CC_ROW_DEACTIVATED])
         owner_token = _account_role_token("owner")
 
@@ -112,6 +115,7 @@ class TestCostCenterCreateEndpoint:
         """POST /cost-centers returns 201 with the created resource for owner
         (account_role) — antes de este change daba 403 universal (criterio (a))."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CC_ROW)
         owner_token = _account_role_token("owner")
 
@@ -131,6 +135,7 @@ class TestCostCenterCreateEndpoint:
     async def test_create_admin_returns_201(self, async_client, mock_pool):
         """POST /cost-centers returns 201 for admin (account_role)."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["admin"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CC_ROW)
         admin_token = _account_role_token("admin")
 
@@ -147,6 +152,7 @@ class TestCostCenterCreateEndpoint:
     async def test_create_member_returns_403(self, async_client, mock_pool):
         """POST /cost-centers returns 403 for member (account_role, no write access)."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -162,6 +168,7 @@ class TestCostCenterCreateEndpoint:
     async def test_create_invalid_payload_returns_422(self, async_client, mock_pool):
         """POST /cost-centers with missing required fields returns 422."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         owner_token = _account_role_token("owner")
 
         with patch("backend.core.database.pool", pool):
@@ -177,6 +184,7 @@ class TestCostCenterCreateEndpoint:
     async def test_create_without_code_ok(self, async_client, mock_pool):
         """POST /cost-centers without optional 'code' field returns 201."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**CC_ROW, "code": None})
         owner_token = _account_role_token("owner")
 
@@ -233,6 +241,7 @@ class TestCostCenterUpdateEndpoint:
     async def test_patch_owner_ok(self, async_client, mock_pool):
         """PATCH /cost-centers/{id} updates name for owner (account_role)."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**CC_ROW, "name": "Marketing Digital"})
         owner_token = _account_role_token("owner")
 
@@ -250,6 +259,7 @@ class TestCostCenterUpdateEndpoint:
     async def test_patch_member_returns_403(self, async_client, mock_pool):
         """PATCH /cost-centers/{id} returns 403 for member (account_role)."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -269,6 +279,7 @@ class TestCostCenterDeactivateEndpoint:
     async def test_deactivate_owner_ok(self, async_client, mock_pool):
         """PATCH /cost-centers/{id}/deactivate sets is_active=false."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CC_ROW_DEACTIVATED)
         owner_token = _account_role_token("owner")
 
@@ -285,6 +296,7 @@ class TestCostCenterDeactivateEndpoint:
     async def test_deactivate_member_returns_403(self, async_client, mock_pool):
         """PATCH /cost-centers/{id}/deactivate returns 403 for member (account_role)."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -303,6 +315,7 @@ class TestCostCenterReactivateEndpoint:
     async def test_reactivate_owner_ok(self, async_client, mock_pool):
         """PATCH /cost-centers/{id}/reactivate sets is_active=true."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         # Parte del estado desactivado: la observación es el flip a True.
         conn.fetchrow = AsyncMock(return_value={**CC_ROW_DEACTIVATED, "is_active": True})
         owner_token = _account_role_token("owner")
@@ -320,6 +333,7 @@ class TestCostCenterReactivateEndpoint:
     async def test_reactivate_member_returns_403(self, async_client, mock_pool):
         """PATCH /cost-centers/{id}/reactivate returns 403 for member (account_role)."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -338,6 +352,7 @@ class TestCostCenterRouterTriangulate:
     async def test_create_returns_201_with_out_schema(self, async_client, mock_pool):
         """TRIANGULATE: create returns 201 with full CostCenterOut schema."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CC_ROW)
         owner_token = _account_role_token("owner")
 
@@ -359,6 +374,7 @@ class TestCostCenterRouterTriangulate:
     async def test_deactivate_returns_is_active_false_in_response(self, async_client, mock_pool):
         """TRIANGULATE: deactivate → is_active=false in response."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=CC_ROW_DEACTIVATED)
         owner_token = _account_role_token("owner")
 
@@ -375,6 +391,7 @@ class TestCostCenterRouterTriangulate:
     async def test_invalid_payload_422(self, async_client, mock_pool):
         """TRIANGULATE: payload missing 'name' → 422."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         owner_token = _account_role_token("owner")
 
         with patch("backend.core.database.pool", pool):

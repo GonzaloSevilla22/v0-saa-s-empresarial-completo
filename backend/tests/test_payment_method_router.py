@@ -39,6 +39,7 @@ class TestPaymentMethodListEndpoint:
     @pytest.mark.asyncio
     async def test_get_list_ok_for_member(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[PM_ROW])
         member_token = _account_role_token("member")
 
@@ -57,6 +58,7 @@ class TestPaymentMethodListEndpoint:
     @pytest.mark.asyncio
     async def test_get_list_all_with_include_inactive(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[PM_ROW, PM_ROW_DEACTIVATED])
         owner_token = _account_role_token("owner")
 
@@ -86,6 +88,7 @@ class TestPaymentMethodCreateEndpoint:
     @pytest.mark.asyncio
     async def test_create_owner_returns_201(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=PM_ROW)
         owner_token = _account_role_token("owner")
 
@@ -104,6 +107,7 @@ class TestPaymentMethodCreateEndpoint:
     @pytest.mark.asyncio
     async def test_create_admin_returns_201(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["admin"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=PM_ROW)
         admin_token = _account_role_token("admin")
 
@@ -119,6 +123,7 @@ class TestPaymentMethodCreateEndpoint:
     @pytest.mark.asyncio
     async def test_create_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -134,6 +139,7 @@ class TestPaymentMethodCreateEndpoint:
     async def test_create_invalid_payload_returns_422(self, async_client, mock_pool):
         """Falta 'kind' (requerido) → 422."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         owner_token = _account_role_token("owner")
 
         with patch("backend.core.database.pool", pool):
@@ -149,6 +155,7 @@ class TestPaymentMethodCreateEndpoint:
     async def test_create_invalid_kind_returns_422(self, async_client, mock_pool):
         """kind fuera del vocabulario cerrado (D2) → 422, sin tocar la base."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         owner_token = _account_role_token("owner")
 
         with patch("backend.core.database.pool", pool):
@@ -168,6 +175,7 @@ class TestPaymentMethodUpdateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_owner_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**PM_ROW, "name": "Banco Nación"})
         owner_token = _account_role_token("owner")
 
@@ -184,6 +192,7 @@ class TestPaymentMethodUpdateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -200,6 +209,7 @@ class TestPaymentMethodUpdateEndpoint:
         """D2: kind es inmutable — un kind en el body se ignora (Pydantic
         extra field ignorado por default), el nombre igual se actualiza."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**PM_ROW, "name": "Banco Nación"})
         owner_token = _account_role_token("owner")
 
@@ -220,6 +230,7 @@ class TestPaymentMethodUpdateBankAccountEndpoint:
     @pytest.mark.asyncio
     async def test_patch_assigns_bank_account_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         pm_transfer = {**PM_ROW, "kind": "transfer"}
         bank_account_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         # Orden real de llamadas en el service: get_by_id (kind) →
@@ -246,6 +257,7 @@ class TestPaymentMethodUpdateBankAccountEndpoint:
         """Ausencia de la clave en el JSON = tri-estado 'preservar' — un
         único fetchrow (el UPDATE liso), sin tocar la validación bancaria."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={**PM_ROW, "name": "Banco Nación"})
         owner_token = _account_role_token("owner")
 
@@ -262,6 +274,7 @@ class TestPaymentMethodUpdateBankAccountEndpoint:
     @pytest.mark.asyncio
     async def test_patch_bank_account_on_cash_kind_returns_422(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         bank_account_id = "dddddddd-dddd-dddd-dddd-dddddddddddd"
         conn.fetchrow = AsyncMock(return_value=PM_ROW)  # kind='cash'
         owner_token = _account_role_token("owner")
@@ -282,6 +295,7 @@ class TestPaymentMethodDeactivateEndpoint:
     @pytest.mark.asyncio
     async def test_deactivate_owner_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=PM_ROW_DEACTIVATED)
         owner_token = _account_role_token("owner")
 
@@ -297,6 +311,7 @@ class TestPaymentMethodDeactivateEndpoint:
     @pytest.mark.asyncio
     async def test_deactivate_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -314,6 +329,7 @@ class TestPaymentMethodReactivateEndpoint:
     @pytest.mark.asyncio
     async def test_reactivate_owner_ok(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         # Parte del estado desactivado: la observación es el flip a True.
         conn.fetchrow = AsyncMock(return_value={**PM_ROW_DEACTIVATED, "is_active": True})
         owner_token = _account_role_token("owner")
@@ -330,6 +346,7 @@ class TestPaymentMethodReactivateEndpoint:
     @pytest.mark.asyncio
     async def test_reactivate_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -348,6 +365,7 @@ class TestPaymentMethodReportEndpoint:
     async def test_report_ok_for_member(self, async_client, mock_pool):
         """Sin gate de plan (D10): cualquier miembro puede leer el reporte."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[
             {
                 "payment_method_id": PM_ID,
@@ -390,6 +408,7 @@ class TestPaymentMethodReportEndpoint:
         sólo de valor pasaría igual con el bug adentro.
         """
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetch = AsyncMock(return_value=[
             {
                 "payment_method_id": PM_ID,
@@ -424,6 +443,7 @@ class TestPaymentMethodReportEndpoint:
     @pytest.mark.asyncio
     async def test_report_missing_range_returns_422(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         owner_token = _account_role_token("owner")
 
         with patch("backend.core.database.pool", pool):
@@ -452,6 +472,7 @@ class TestPaymentMethodRouterTriangulate:
     @pytest.mark.asyncio
     async def test_create_returns_201_with_out_schema(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=PM_ROW)
         owner_token = _account_role_token("owner")
 
@@ -472,6 +493,7 @@ class TestPaymentMethodRouterTriangulate:
     @pytest.mark.asyncio
     async def test_deactivate_returns_is_active_false_in_response(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value=PM_ROW_DEACTIVATED)
         owner_token = _account_role_token("owner")
 

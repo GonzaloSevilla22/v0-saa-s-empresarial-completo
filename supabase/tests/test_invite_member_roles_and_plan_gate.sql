@@ -211,7 +211,12 @@ BEGIN
     RAISE NOTICE 'PASS (5): invitación duplicada -> P0407 con el texto original conservado (D18).';
 
     -- ── (8) invitación sin roles declarados -> {viewer} al aceptar ────────
-    v_result_json := public.rpc_invite_member('gate-invite-a2-noroles@test.local'::text, v_a2_account, NULL::text[]);
+    -- auth-hardening-jwt-cookies Parte A (D14): rpc_accept_invitation exige
+    -- que la identidad que canjea corresponda al email de la invitacion, asi
+    -- que el email invitado pasa a ser el del aceptante de este bloque (antes
+    -- era un email cualquiera y el canje funcionaba igual -- ese era el
+    -- agujero). Lo que el bloque prueba no cambia.
+    v_result_json := public.rpc_invite_member('gate-invite-a4-filler@test.local'::text, v_a2_account, NULL::text[]);
     v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_filler_uid::text, 'role', 'authenticated')::text, true);
@@ -232,7 +237,12 @@ BEGIN
 
     -- ── (9) invitación con {seller, cashier} concede ambos ────────────────
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a2_owner_uid::text, 'role', 'authenticated')::text, true);
-    v_result_json := public.rpc_invite_member('gate-invite-a2-tworoles@test.local'::text, v_a2_account, ARRAY['seller','cashier']::text[]);
+    -- auth-hardening-jwt-cookies Parte A (D14): rpc_accept_invitation exige
+    -- que la identidad que canjea corresponda al email de la invitacion, asi
+    -- que el email invitado pasa a ser el del aceptante de este bloque (antes
+    -- era un email cualquiera y el canje funcionaba igual -- ese era el
+    -- agujero). Lo que el bloque prueba no cambia.
+    v_result_json := public.rpc_invite_member('gate-invite-a4-owner@test.local'::text, v_a2_account, ARRAY['seller','cashier']::text[]);
     v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_owner_uid::text, 'role', 'authenticated')::text, true);
@@ -277,7 +287,14 @@ BEGIN
   IF auth.uid() IS DISTINCT FROM v_a2_owner_uid THEN
     RAISE NOTICE 'GATE DEGRADED: auth.uid() no resuelve al owner de A2 -- se omite el setup del bloque 12.';
   ELSE
-    v_result_json := public.rpc_invite_member('gate-invite-a2-alreadymember@test.local'::text, v_a2_account, ARRAY['viewer']::text[]);
+    -- auth-hardening-jwt-cookies Parte A (D14): rpc_accept_invitation exige
+    -- que la identidad que canjea corresponda al email de la invitacion, asi
+    -- que el email invitado pasa a ser el del aceptante de este bloque (antes
+    -- era un email cualquiera y el canje funcionaba igual -- ese era el
+    -- agujero). Lo que el bloque prueba no cambia.
+    -- La invitacion del bloque 9 para este mismo email quedo 'accepted', asi
+    -- que el chequeo de invitacion pendiente duplicada no interfiere.
+    v_result_json := public.rpc_invite_member('gate-invite-a4-owner@test.local'::text, v_a2_account, ARRAY['viewer']::text[]);
     v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
 
     PERFORM set_config('request.jwt.claims', json_build_object('sub', v_a4_owner_uid::text, 'role', 'authenticated')::text, true);
@@ -497,7 +514,12 @@ BEGIN
   IF auth.uid() IS DISTINCT FROM v_a4_owner_uid THEN
     RAISE NOTICE 'GATE DEGRADED: auth.uid() no resuelve al owner de A4 -- se omite el bloque 10.';
   ELSE
-    v_result_json := public.rpc_invite_member('gate-invite-a4-late@test.local'::text, v_a4_account, ARRAY['viewer']::text[]);
+    -- auth-hardening-jwt-cookies Parte A (D14): rpc_accept_invitation exige
+    -- que la identidad que canjea corresponda al email de la invitacion, asi
+    -- que el email invitado pasa a ser el del aceptante de este bloque (antes
+    -- era un email cualquiera y el canje funcionaba igual -- ese era el
+    -- agujero). Lo que el bloque prueba no cambia.
+    v_result_json := public.rpc_invite_member('gate-invite-a2-owner@test.local'::text, v_a4_account, ARRAY['viewer']::text[]);
     v_inv_token := (SELECT token FROM account_invitations WHERE id = (v_result_json->>'id')::uuid);
 
     -- Entre la invitación y la aceptación, la cuenta se llena con otro

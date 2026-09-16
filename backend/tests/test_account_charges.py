@@ -144,7 +144,7 @@ class TestAccountChargeServiceCustomer:
             await update_customer_charge_due_date(
                 repo, auth,
                 movement_id=MOVEMENT_ID, due_date=None, reason=None,
-                conn=_make_conn(),
+                conn=_make_conn(["member"]),
             )
 
         assert exc_info.value.status_code == 403
@@ -162,7 +162,7 @@ class TestAccountChargeServiceCustomer:
         result = await update_customer_charge_due_date(
             repo, auth,
             movement_id=MOVEMENT_ID, due_date="2026-10-15", reason="motivo",
-            conn=_make_conn(),
+            conn=_make_conn(["owner"]),
         )
 
         assert result["movement_id"] == MOVEMENT_ID
@@ -182,7 +182,7 @@ class TestAccountChargeServiceCustomer:
         result = await update_customer_charge_due_date(
             repo, auth,
             movement_id=MOVEMENT_ID, due_date="2026-10-15", reason=None,
-            conn=_make_conn(),
+            conn=_make_conn(["admin"]),
         )
 
         assert result is not None
@@ -224,7 +224,7 @@ class TestAccountChargeServiceCustomer:
             await update_customer_charge_due_date(
                 repo, auth,
                 movement_id=MOVEMENT_ID, due_date=None, reason=None,
-                conn=_make_conn(),
+                conn=_make_conn(["owner"]),
             )
 
         assert exc_info.value.sqlstate == "P0404"
@@ -243,7 +243,7 @@ class TestAccountChargeServiceSupplier:
             await update_supplier_charge_due_date(
                 repo, auth,
                 movement_id=MOVEMENT_ID, due_date=None, reason=None,
-                conn=_make_conn(),
+                conn=_make_conn(["member"]),
             )
 
         assert exc_info.value.status_code == 403
@@ -261,7 +261,7 @@ class TestAccountChargeServiceSupplier:
         result = await update_supplier_charge_due_date(
             repo, auth,
             movement_id=MOVEMENT_ID, due_date="2026-10-20", reason="motivo",
-            conn=_make_conn(),
+            conn=_make_conn(["owner"]),
         )
 
         assert result["due_date"] == "2026-10-20"
@@ -279,6 +279,7 @@ class TestCustomerChargeDueDateEndpoint:
     async def test_patch_owner_ok(self, async_client, mock_pool):
         """GREEN: owner → 200 con el jsonb de la RPC."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={"result": json.dumps(CUSTOMER_RPC_RESULT)})
         owner_token = _account_role_token("owner")
 
@@ -298,6 +299,7 @@ class TestCustomerChargeDueDateEndpoint:
     async def test_patch_member_returns_403(self, async_client, mock_pool):
         """RED: member (account_role) → 403, sin tocar la DB de negocio."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -314,6 +316,7 @@ class TestCustomerChargeDueDateEndpoint:
         """El P0404 del RPC (cargo de otra cuenta / inexistente) llega al
         cliente como 404 vía el asyncpg_error_handler GLOBAL."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         err = asyncpg.PostgresError(f"charge_not_found: {MOVEMENT_ID}")
         err.sqlstate = "P0404"
         conn.fetchrow = AsyncMock(side_effect=err)
@@ -332,6 +335,7 @@ class TestCustomerChargeDueDateEndpoint:
     async def test_patch_charge_already_settled_returns_400(self, async_client, mock_pool):
         """El P0400 del RPC (cargo saldado / no-cargo) llega como 400."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         err = asyncpg.PostgresError("charge_fully_settled: el cargo no tiene saldo abierto")
         err.sqlstate = "P0400"
         conn.fetchrow = AsyncMock(side_effect=err)
@@ -351,6 +355,7 @@ class TestCustomerChargeDueDateEndpoint:
         """Pydantic (ChargeDueDateIn._reason_max_len) rechaza ANTES de tocar
         la DB — 422 sin llamar al RPC."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={"result": json.dumps(CUSTOMER_RPC_RESULT)})
         owner_token = _account_role_token("owner")
 
@@ -368,6 +373,7 @@ class TestCustomerChargeDueDateEndpoint:
     async def test_patch_null_due_date_clears(self, async_client, mock_pool):
         """due_date=null en el body limpia el vencimiento — no es un error."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         cleared = {**CUSTOMER_RPC_RESULT, "due_date": None}
         conn.fetchrow = AsyncMock(return_value={"result": json.dumps(cleared)})
         owner_token = _account_role_token("owner")
@@ -388,6 +394,7 @@ class TestSupplierChargeDueDateEndpoint:
     async def test_patch_owner_ok(self, async_client, mock_pool):
         """GREEN: espejo exacto del lado cliente."""
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         conn.fetchrow = AsyncMock(return_value={"result": json.dumps(SUPPLIER_RPC_RESULT)})
         owner_token = _account_role_token("owner")
 
@@ -404,6 +411,7 @@ class TestSupplierChargeDueDateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_member_returns_403(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["member"])  # D12: la base reporta el mismo rol que declara el token
         member_token = _account_role_token("member")
 
         with patch("backend.core.database.pool", pool):
@@ -418,6 +426,7 @@ class TestSupplierChargeDueDateEndpoint:
     @pytest.mark.asyncio
     async def test_patch_not_found_returns_404(self, async_client, mock_pool):
         pool, conn = mock_pool
+        conn.fetchval = AsyncMock(return_value=["owner"])  # D12: la base reporta el mismo rol que declara el token
         err = asyncpg.PostgresError(f"charge_not_found: {MOVEMENT_ID}")
         err.sqlstate = "P0404"
         conn.fetchrow = AsyncMock(side_effect=err)

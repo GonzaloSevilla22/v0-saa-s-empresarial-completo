@@ -133,7 +133,7 @@ class TestCostCenterServiceCreate:
         auth = _make_auth("member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await create_cost_center(repo, auth, ACCOUNT_ID, name="Logística", code=None, conn=_make_conn())
+            await create_cost_center(repo, auth, ACCOUNT_ID, name="Logística", code=None, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -146,7 +146,7 @@ class TestCostCenterServiceCreate:
         repo = _make_repo(create_result=CC_ROW)
         auth = _make_auth("owner")
 
-        result = await create_cost_center(repo, auth, ACCOUNT_ID, name="Marketing", code="MKTO", conn=_make_conn())
+        result = await create_cost_center(repo, auth, ACCOUNT_ID, name="Marketing", code="MKTO", conn=_make_conn(["owner"]))
 
         assert result["name"] == "Marketing"
         repo.create.assert_awaited_once()
@@ -159,7 +159,7 @@ class TestCostCenterServiceCreate:
         repo = _make_repo(create_result=CC_ROW)
         auth = _make_auth("admin")
 
-        result = await create_cost_center(repo, auth, ACCOUNT_ID, name="Marketing", code=None, conn=_make_conn())
+        result = await create_cost_center(repo, auth, ACCOUNT_ID, name="Marketing", code=None, conn=_make_conn(["admin"]))
 
         assert result is not None
         repo.create.assert_awaited_once()
@@ -172,7 +172,7 @@ class TestCostCenterServiceCreate:
         repo = _make_repo(create_result={**CC_ROW, "name": "Marketing"})
         auth = _make_auth("owner")
 
-        await create_cost_center(repo, auth, ACCOUNT_ID, name="  Marketing  ", code=None, conn=_make_conn())
+        await create_cost_center(repo, auth, ACCOUNT_ID, name="  Marketing  ", code=None, conn=_make_conn(["owner"]))
 
         # Verify the name passed to repo.create was trimmed
         call_kwargs = repo.create.call_args
@@ -180,18 +180,29 @@ class TestCostCenterServiceCreate:
         assert name_arg == "Marketing"
 
     @pytest.mark.asyncio
-    async def test_create_claim_present_never_touches_conn(self):
-        """6.1 (defensa): con el claim account_role presente, require_account_role
-        NUNCA debe tocar la conexión — camino caliente sin query extra (D6)."""
+    async def test_create_claim_present_still_rechecks_the_db(self):
+        """auth-hardening-jwt-cookies D12 — este test se INVIERTE, no se borra.
+
+        Verificaba que, con el claim presente, `require_account_role` nunca
+        tocara la conexión. Para una acción de CONFIGURACIÓN eso es
+        exactamente lo que el change corrige: el claim es un caché y la base
+        es la autoridad, así que un rol revocado dejaba de autorizar recién
+        al vencer el token.
+
+        La propiedad vieja sigue viva donde corresponde —el camino caliente
+        NO paga la query— y está cubierta por
+        `test_guards_config_recheck.py::test_non_configuration_guard_still_short_circuits_on_claim`.
+        """
         from backend.services.cost_centers import create_cost_center
 
         repo = _make_repo(create_result=CC_ROW)
         auth = _make_auth("owner")
-        conn = _make_conn()
+        conn = _make_conn(["owner"])
 
         await create_cost_center(repo, auth, ACCOUNT_ID, name="Marketing", code=None, conn=conn)
 
-        conn.fetchval.assert_not_awaited()
+        conn.fetchval.assert_awaited_once()
+        assert "rpc_my_active_account_roles" in conn.fetchval.await_args.args[0]
 
 
 # ── 6.1 RED: update requires account_role owner/admin (tenant) ─────────────
@@ -207,7 +218,7 @@ class TestCostCenterServiceUpdate:
         auth = _make_auth("member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_cost_center(repo, auth, ACCOUNT_ID, CC_ID, name="X", code=None, conn=_make_conn())
+            await update_cost_center(repo, auth, ACCOUNT_ID, CC_ID, name="X", code=None, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -220,7 +231,7 @@ class TestCostCenterServiceUpdate:
         auth = _make_auth("owner")
 
         result = await update_cost_center(
-            repo, auth, ACCOUNT_ID, CC_ID, name="Marketing Digital", code=None, conn=_make_conn()
+            repo, auth, ACCOUNT_ID, CC_ID, name="Marketing Digital", code=None, conn=_make_conn(["owner"])
         )
 
         assert result["name"] == "Marketing Digital"
@@ -234,7 +245,7 @@ class TestCostCenterServiceUpdate:
         auth = _make_auth("owner")
 
         with pytest.raises(HTTPException) as exc_info:
-            await update_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", name="X", code=None, conn=_make_conn())
+            await update_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", name="X", code=None, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 404
 
@@ -252,7 +263,7 @@ class TestCostCenterServiceDeactivate:
         auth = _make_auth("member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+            await deactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -264,7 +275,7 @@ class TestCostCenterServiceDeactivate:
         repo = _make_repo(deactivate_result={**CC_ROW, "is_active": False})
         auth = _make_auth("owner")
 
-        result = await deactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+        result = await deactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn(["owner"]))
 
         assert result["is_active"] is False
 
@@ -277,7 +288,7 @@ class TestCostCenterServiceDeactivate:
         auth = _make_auth("admin")
 
         with pytest.raises(HTTPException) as exc_info:
-            await deactivate_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
+            await deactivate_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn(["admin"]))
 
         assert exc_info.value.status_code == 404
 
@@ -295,7 +306,7 @@ class TestCostCenterServiceReactivate:
         auth = _make_auth("member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await reactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+            await reactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
 
@@ -307,7 +318,7 @@ class TestCostCenterServiceReactivate:
         repo = _make_repo(reactivate_result={**CC_ROW, "is_active": True})
         auth = _make_auth("owner")
 
-        result = await reactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+        result = await reactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn(["owner"]))
 
         assert result["is_active"] is True
 
@@ -320,7 +331,7 @@ class TestCostCenterServiceReactivate:
         auth = _make_auth("admin")
 
         with pytest.raises(HTTPException) as exc_info:
-            await reactivate_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn())
+            await reactivate_cost_center(repo, auth, ACCOUNT_ID, "nonexistent", conn=_make_conn(["admin"]))
 
         assert exc_info.value.status_code == 404
 
@@ -343,7 +354,7 @@ class TestCostCenterServiceTriangulate:
 
         # create: forbidden
         with pytest.raises(HTTPException) as exc_info:
-            await create_cost_center(repo, member, ACCOUNT_ID, name="Test", code=None, conn=_make_conn())
+            await create_cost_center(repo, member, ACCOUNT_ID, name="Test", code=None, conn=_make_conn(["member"]))
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -354,7 +365,7 @@ class TestCostCenterServiceTriangulate:
         repo = _make_repo(create_result=CC_ROW)
         auth = _make_auth("owner")
 
-        await create_cost_center(repo, auth, ACCOUNT_ID, name="  Logística  ", code=None, conn=_make_conn())
+        await create_cost_center(repo, auth, ACCOUNT_ID, name="  Logística  ", code=None, conn=_make_conn(["owner"]))
 
         call_args = repo.create.call_args
         name_arg = call_args[1].get("name") or call_args[0][1]
@@ -368,7 +379,7 @@ class TestCostCenterServiceTriangulate:
         repo = _make_repo(deactivate_result={**CC_ROW, "is_active": False})
         auth = _make_auth("admin")
 
-        result = await deactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn())
+        result = await deactivate_cost_center(repo, auth, ACCOUNT_ID, CC_ID, conn=_make_conn(["admin"]))
 
         assert result["is_active"] is False
         repo.deactivate.assert_awaited_once_with(CC_ID, ACCOUNT_ID)

@@ -1,3 +1,24 @@
+# ─────────────────────────────────────────────────────────────────────────
+# auth-hardening-jwt-cookies D9 (bloqueante B2 de la revisión adversarial).
+# ESTO TIENE QUE IR ARRIBA DE TODO, por encima del bloque de imports.
+#
+# `settings = Settings()` es la ÚLTIMA línea de `backend/core/config.py` y
+# se ejecuta en el **import** del módulo. El validator de D9 aborta cuando no
+# hay `SUPABASE_URL` y la palanca está apagada — que es exactamente el
+# entorno de esta suite (`mock_settings.supabase_url = ""`) y el del job de
+# CI. Sin esta línea, el primer test que importe `backend.*` revienta durante
+# la RECOLECCIÓN: 0 tests recolectados y `--cov-fail-under=87` nunca
+# evaluado, es decir CI y local en rojo por algo que no es un test fallando.
+#
+# Un fixture NO alcanza: corre mucho después del import. `setdefault` y no
+# `=` para que un entorno que ya la declare (o un test que quiera probar el
+# camino contrario) gane. El candado automático de esto vive en
+# `backend/tests/test_config_auth_failfast.py::test_pytest_still_collects_from_a_clean_environment`.
+# ─────────────────────────────────────────────────────────────────────────
+import os
+
+os.environ.setdefault("AUTH_ALLOW_HS256_FALLBACK", "true")
+
 import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,9 +33,20 @@ TEST_ACCOUNT_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
 
 def make_token(extra: dict = {}) -> str:
+    """Token de test por el camino HS256 (dev/CI).
+
+    auth-hardening-jwt-cookies D8: el payload incluye `aud="authenticated"`
+    porque la verificación pasa a declarar la audiencia esperada en vez de
+    apagar la comprobación. No es un ajuste para "que pasen los tests": es
+    la forma real del token que emite GoTrue —los 40 usuarios de producción
+    tienen `auth.users.aud='authenticated'`, columna que GoTrue copia al
+    claim—, así que el doble se vuelve MÁS fiel, no menos. `extra` sigue
+    pudiendo sobreescribir cualquier claim, incluido `aud`.
+    """
     payload = {
         "sub": TEST_USER_ID,
         "role": "authenticated",
+        "aud": "authenticated",
         "exp": int(time.time()) + 3600,
     }
     payload.update(extra)
@@ -55,6 +87,35 @@ class FakeAsyncpgRecord:
 
     def keys(self):
         return self._data.keys()
+
+
+def account_roles_fetchval(roles, *, otherwise=None):
+    """Doble de `conn.fetchval` que distingue las consultas que lo comparten.
+
+    auth-hardening-jwt-cookies D12: con el re-chequeo en base para las
+    acciones de configuración, `fetchval` atiende ahora DOS consultas
+    distintas en el mismo request — `rpc_my_active_account_roles()` (el
+    guard) y la que el endpoint ya hacía (típicamente `get_account_id`). Un
+    `return_value` único no puede servir a las dos, y un `side_effect`
+    posicional ata el test al ORDEN en que se emiten, que es un detalle de
+    implementación: cualquier reordenamiento lo rompería sin que cambie el
+    comportamiento.
+
+    Despachar por el texto de la consulta hace el doble independiente del
+    orden y explícito sobre qué responde a quién.
+
+    `otherwise` admite una lista/tupla cuando el endpoint hace VARIAS
+    consultas distintas con `fetchval` (p. ej. escribir y releer): se
+    consumen en orden, sin contar la del guard.
+    """
+    rest = iter(otherwise) if isinstance(otherwise, (list, tuple)) else None
+
+    async def _fetchval(query, *args, **kwargs):
+        if "rpc_my_active_account_roles" in query:
+            return roles
+        return next(rest) if rest is not None else otherwise
+
+    return AsyncMock(side_effect=_fetchval)
 
 
 @pytest.fixture
@@ -111,6 +172,9 @@ async def async_client():
     ):
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        # D9: explícito, no por la verdad accidental de un atributo de
+        # MagicMock. Este fixture declara que corre por la rama HS256.
+        mock_settings.auth_allow_hs256_fallback = True
         app.dependency_overrides[get_account_id] = _mock_account_id
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"

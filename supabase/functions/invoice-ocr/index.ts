@@ -1,4 +1,9 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import {
+  parseInvoiceOcrRequest,
+  resolveInvoiceDownload,
+  type InvoiceOcrRequestBody,
+} from '../_shared/invoice-ocr-core.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -101,24 +106,31 @@ Deno.serve(async (req) => {
     }
 
     // ── Parse body ──────────────────────────────────────────────────────────────
-    const { document_id, storage_path } = await req.json()
-    if (!document_id || !storage_path) {
-      return jsonResponse({ ok: false, error: 'Faltan document_id o storage_path' }, 400)
+    // D13: `storage_path` del body se sigue aceptando por compatibilidad (el
+    // caller vivo lo manda, invoiceOcrService.ts:117-119) pero NO sale del
+    // parseo: el objeto a descargar lo decide la fila, no el cliente.
+    const body: InvoiceOcrRequestBody | null = await req.json()
+    // (nombre propio: más abajo, en el mismo scope, `parsed` es la respuesta de la IA)
+    const parsedRequest = parseInvoiceOcrRequest(body)
+    if (!parsedRequest.ok) {
+      return jsonResponse({ ok: false, error: parsedRequest.error }, parsedRequest.status)
     }
+    const document_id = parsedRequest.documentId
 
     // Verify document belongs to this user
     const { data: doc, error: docErr } = await supabase
       .from('invoice_documents')
-      .select('id, mime_type, status')
+      .select('id, mime_type, status, storage_path')
       .eq('id', document_id)
       .eq('user_id', user.id)
       .single()
 
-    if (docErr || !doc) {
-      return jsonResponse({ ok: false, error: 'Documento no encontrado' }, 404)
-    }
-    if (doc.status === 'completed') {
-      return jsonResponse({ ok: false, error: 'Documento ya fue procesado' }, 409)
+    // D13: 404 / 409 y —sobre todo— QUÉ objeto se descarga son decisiones del
+    // núcleo puro (_shared/invoice-ocr-core.ts), cubiertas por vitest en
+    // frontend/__tests__/invoice-ocr-core.test.ts.
+    const download = resolveInvoiceDownload(docErr ? null : doc, body ?? {})
+    if (!download.ok) {
+      return jsonResponse({ ok: false, error: download.error }, download.status)
     }
 
     // Mark as processing
@@ -128,11 +140,14 @@ Deno.serve(async (req) => {
       .eq('id', document_id)
 
     // ── Download file from storage ──────────────────────────────────────────────
-    console.log('[invoice-ocr] Downloading:', storage_path)
+    // El path viene de la fila autorizada por user_id, nunca del body: el
+    // cliente de service role bypasea RLS, así que elegir el objeto con un
+    // valor del cliente era un confused deputy (D13).
+    console.log('[invoice-ocr] Downloading:', download.storagePath)
     const { data: fileData, error: downloadErr } = await adminClient
       .storage
       .from('invoices')
-      .download(storage_path)
+      .download(download.storagePath)
 
     if (downloadErr || !fileData) {
       await supabase.from('invoice_documents').update({
@@ -147,7 +162,7 @@ Deno.serve(async (req) => {
     const arrayBuffer = await fileData.arrayBuffer()
     const uint8Array  = new Uint8Array(arrayBuffer)
     const base64      = btoa(String.fromCharCode(...uint8Array))
-    const mimeType    = doc.mime_type || 'image/jpeg'
+    const mimeType    = download.mimeType
 
     if (!mimeType.startsWith('image/')) {
       await supabase.from('invoice_documents').update({

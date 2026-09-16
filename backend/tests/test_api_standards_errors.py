@@ -114,19 +114,46 @@ async def test_constraint_codes_keep_existing_mapping_as_problem_json():
 
 
 @pytest.mark.asyncio
-async def test_asyncpg_handler_preserves_cors_headers(monkeypatch):
-    from backend.core import errors as errors_module
+async def test_asyncpg_handler_preserves_cors_headers():
+    """auth-hardening-jwt-cookies D10 — este test se ACTUALIZA, no se borra:
+    el comportamiento que verificaba (preservar los encabezados de CORS en un
+    handler que responde por fuera de `CORSMiddleware`) sigue siendo el
+    correcto; lo que cambia es el criterio y el juego de encabezados.
+
+    Antes parcheaba `errors.settings.backend_allowed_origin` con un origen
+    arbitrario y exigía `access-control-allow-credentials: true`. Las dos
+    cosas dejaron de ser ciertas: el criterio ya no es una comparación contra
+    esa variable sino la allow-list única de `backend/core/cors.py`, y el
+    backend NO declara credenciales (era la mitad de F5 que volvía
+    aprovechable la reflexión)."""
 
     class _RequestWithOrigin:
-        headers = {"origin": "https://allowed.example"}
-
-    monkeypatch.setattr(errors_module.settings, "backend_allowed_origin", "https://allowed.example")
+        def __init__(self, origin: str):
+            self.headers = {"origin": origin}
 
     exc = _FakePgError("conflict", "P0409")
-    resp = await asyncpg_error_handler(_RequestWithOrigin(), exc)
+    resp = await asyncpg_error_handler(
+        _RequestWithOrigin("https://www.aliadata.com.ar"), exc
+    )
 
-    assert resp.headers.get("access-control-allow-origin") == "https://allowed.example"
-    assert resp.headers.get("access-control-allow-credentials") == "true"
+    assert resp.headers.get("access-control-allow-origin") == "https://www.aliadata.com.ar"
+    assert "access-control-allow-credentials" not in resp.headers
+
+
+@pytest.mark.asyncio
+async def test_asyncpg_handler_does_not_reflect_a_foreign_origin():
+    """D10 TRIANGULATE: el handler de asyncpg es uno de los caminos que
+    responden por fuera del middleware de CORS. Sin este caso, el test de
+    arriba no distinguiría "aplica la allow-list" de "refleja lo que venga"."""
+
+    class _RequestWithOrigin:
+        def __init__(self, origin: str):
+            self.headers = {"origin": origin}
+
+    exc = _FakePgError("conflict", "P0409")
+    resp = await asyncpg_error_handler(_RequestWithOrigin("https://evil.example"), exc)
+
+    assert "access-control-allow-origin" not in resp.headers
 
 
 # ── 1.3 / 1.4 / 1.5 — handlers registrados en main.py, end-to-end ──────────

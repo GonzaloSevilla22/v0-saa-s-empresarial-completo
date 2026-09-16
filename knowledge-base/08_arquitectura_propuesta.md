@@ -129,7 +129,9 @@ NEXT_PUBLIC_SUPABASE_URL          # URL del proyecto Supabase
 NEXT_PUBLIC_SUPABASE_ANON_KEY     # Clave anónima (RLS restricta)
 
 # Solo servidor (NO exponer al cliente)
-SUPABASE_SERVICE_ROLE_KEY         # Service role (bypasa RLS — solo Edge Functions)
+SUPABASE_SERVICE_ROLE_KEY         # Service role (bypasa RLS — Edge Functions Y backend Python:
+                                  #   backend/services/payments.py lo usa para el webhook de MP,
+                                  #   que llega sin sesión de usuario. NO es "solo Edge Functions")
 OPENAI_API_KEY                    # OpenAI para Edge Functions
 RESEND_API_KEY                    # Resend para Edge Functions
 ```
@@ -235,7 +237,7 @@ RESEND_API_KEY                    # Resend para Edge Functions
 
 ## Evolución Arquitectónica: Backend Python/FastAPI (en curso)
 
-> Estado: **parcialmente implementado**. El **scaffolding ya está hecho y archivado** (change `fastapi-backend-monorepo`, 2026-06-06): monorepo `frontend/` + `backend/`, FastAPI (`backend/main.py`), auth JWT de Supabase (`core/auth.py`, HS256), WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`), `pnpm-workspace.yaml`, y 8 tests. Lo **pendiente** (CHANGES.md FASE 5): capa de datos (asyncpg + repositories), migración de la API de datos, pagos, migración de realtime a WebSocket y desacople del `DataContext`.
+> Estado: **parcialmente implementado**. El **scaffolding ya está hecho y archivado** (change `fastapi-backend-monorepo`, 2026-06-06): monorepo `frontend/` + `backend/`, FastAPI (`backend/main.py`), auth JWT de Supabase (`core/auth.py`), `pnpm-workspace.yaml`, y 8 tests. **Dos piezas de ese scaffolding ya no describen el estado actual** (`auth-hardening-jwt-cookies`, 2026-09-16): el WebSocket manager (`core/ws_manager.py`, `/ws/{room_id}`) se **retiró** (D11), y la verificación del JWT dejó de ser `HS256` por default — corre contra las **JWKS de Supabase** (`ES256`/`RS256`) y `HS256` quedó como camino de dev/test detrás de una palanca explícita (D8/D9). Lo **pendiente** (CHANGES.md FASE 5): capa de datos (asyncpg + repositories), migración de la API de datos, pagos y desacople del `DataContext`. La **migración de realtime a WebSocket quedó sin objeto** con el retiro del canal propio: el tiempo real es Supabase Realtime y nada más (DEC-16).
 
 ### Motivación
 La lógica de negocio hoy está dispersa entre el `DataContext` (God Object en el cliente), los RPCs PostgreSQL y las Edge Functions. Con el multi-tenant ya implementado (organizations, organization_members, roles, sucursales), la autorización se volvió compleja (org + rol + plan + sucursal) y conviene centralizarla en un service layer real, testeable y fuera del browser.
@@ -247,7 +249,7 @@ Frontend (Next.js) ─┼─→ REALTIME (suscripciones) → Supabase directo (R
                     ├─→ AUTH (login/signup)      → Supabase directo
                     └─→ STORAGE (upload facturas)→ Supabase directo (signed URL)
 ```
-El frontend se adelgaza a UI pura; consume FastAPI para datos y sigue hablando directo con Supabase para Realtime, Auth y Storage. **Decisión (DEC-16):** el realtime se mantiene en Supabase Realtime. El "server-push" (insight de IA listo, OCR terminado, alerta de stock) ya se resuelve gratis con el patrón **tabla→Realtime** (el backend inserta en una tabla y Supabase lo emite al cliente suscrito, con filtrado RLS automático). El WebSocket que ya está scaffoldeado (`core/ws_manager.py`) queda como **infra lista para el futuro**, sin uso en producción por ahora.
+El frontend se adelgaza a UI pura; consume FastAPI para datos y sigue hablando directo con Supabase para Realtime, Auth y Storage. **Decisión (DEC-16):** el realtime se mantiene en Supabase Realtime. El "server-push" (insight de IA listo, OCR terminado, alerta de stock) ya se resuelve gratis con el patrón **tabla→Realtime** (el backend inserta en una tabla y Supabase lo emite al cliente suscrito, con filtrado RLS automático). El WebSocket propio del backend que este documento describía como "infra lista para el futuro" **se retiró** el 2026-09-16 (`auth-hardening-jwt-cookies` D11): no existen `core/ws_manager.py`, `routers/ws.py` ni la ruta `/ws/{room_id}`, y el candado `backend/tests/test_no_websocket_surface.py` impide que vuelvan por descuido. La publicación `supabase_realtime` cubre hoy `notifications` y `fiscal_documents`, con el alcance por cuenta impuesto por la RLS de cada tabla.
 
 ### Arquitectura del backend Python (3 capas)
 ```
@@ -298,7 +300,7 @@ Ambas palancas se apagan de forma independiente (variable de entorno en Render, 
 | Mutaciones + lecturas de datos | FastAPI (routers/services/repositories) |
 | Webhook de pagos | FastAPI (governance CRÍTICO) |
 
-> El WebSocket del backend (`core/ws_manager.py`, `/ws/{room_id}`) ya está scaffoldeado pero **NO se usa en producción**: queda reservado para una necesidad futura que Supabase no cubra bien (presencia, mensajes efímeros, latencia sub-segundo). Migrar el realtime a WS exigiría un proceso always-on (Render paid) y reimplementar el filtrado por room — costo alto sin beneficio actual.
+> El WebSocket propio del backend (`core/ws_manager.py`, `routers/ws.py`, `/ws/{room_id}`) **ya no existe**: se **retiró** el 2026-09-16 (`auth-hardening-jwt-cookies` D11). Autenticaba el handshake pero no autorizaba la sala (`room_id` nunca se comparaba contra la cuenta del portador), recibía el JWT por **query string** (donde queda en logs) y no tenía ni productor ni consumidor — cero `new WebSocket` en el frontend. El tiempo real es **Supabase Realtime** y nada más: migrarlo a un WS propio exigiría un proceso always-on (Render paid) y reimplementar el filtrado por sala, costo alto sin beneficio, y por eso la migración quedó **sin objeto**, no pendiente.
 
 ### Infraestructura (tier gratis)
 | Componente | Servicio | Caveat |
@@ -307,7 +309,7 @@ Ambas palancas se apagan de forma independiente (variable de entorno en Render, 
 | Redis (cache + rate limit) | **Upstash** (free 10k cmds/día) | — |
 | DB / Auth / Realtime / Storage | **Supabase** (free, sin cambios) | Realtime se mantiene acá |
 
-Variables de entorno nuevas del backend: `SUPABASE_JWT_SECRET` (verificación HS256), `DATABASE_URL` (pool asyncpg), `REDIS_URL` (Upstash), más `OPENAI_API_KEY` / `RESEND_API_KEY` solo si se migran esos servicios.
+Variables de entorno nuevas del backend: **`SUPABASE_URL`** (la que **elige la rama de verificación** del JWT: presente y `https://` → JWKS de Supabase, el camino que corre en producción; también fija el `issuer` exigido, `<SUPABASE_URL>/auth/v1`), `SUPABASE_JWT_SECRET` (secreto compartido del camino `HS256`, **sólo** dev/test), `AUTH_ALLOW_HS256_FALLBACK` (palanca explícita de ese camino, default **deshabilitado**: sin `SUPABASE_URL` y sin palanca el arranque **aborta**), `DATABASE_URL` (pool asyncpg), `REDIS_URL` (Upstash), más `OPENAI_API_KEY` / `RESEND_API_KEY` solo si se migran esos servicios.
 
 ---
 

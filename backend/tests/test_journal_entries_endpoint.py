@@ -43,6 +43,9 @@ def _make_token(account_id: str | None = None) -> str:
     payload = {
         "sub": USER_ID,
         "role": "authenticated",
+        # auth-hardening-jwt-cookies D8: la audiencia se verifica declarando
+        # el valor esperado (ver backend/tests/conftest.py::make_token).
+        "aud": "authenticated",
         "exp": int(time.time()) + 3600,
     }
     return jwt.encode(payload, TEST_SECRET, algorithm="HS256")

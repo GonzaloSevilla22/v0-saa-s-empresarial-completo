@@ -40,8 +40,18 @@ def _auth(account_role: str | None = None, account_roles=None) -> dict:
     }
 
 
-def _make_conn(fallback_role=object()) -> AsyncMock:
+def _make_conn(fallback_role=None) -> AsyncMock:
+    """Conexión doble que declara QUÉ ROLES REPORTA LA BASE.
+
+    auth-hardening-jwt-cookies D12: el parámetro existía pero el helper lo
+    ignoraba, así que `fetchval` devolvía un `AsyncMock` pelado. Eso alcanzaba
+    mientras el guard cortaba en el claim; desde D12 las acciones de
+    configuración deciden con lo que devuelve la base, así que un doble que no
+    puede expresar "la base dice owner" no puede describir un caller
+    autorizado.
+    """
     conn = AsyncMock()
+    conn.fetchval = AsyncMock(return_value=fallback_role)
     return conn
 
 
@@ -115,7 +125,7 @@ class TestMembersServiceAssignRole:
         auth = _auth(account_role="member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", None, conn=_make_conn())
+            await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", None, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.assign_role.assert_not_awaited()
@@ -127,7 +137,7 @@ class TestMembersServiceAssignRole:
         repo = _make_repo()
         auth = _auth(account_role="owner")
 
-        result = await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", None, conn=_make_conn())
+        result = await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", None, conn=_make_conn(["owner"]))
 
         assert result["role"] == "seller"
         repo.assign_role.assert_awaited_once_with(ACCOUNT_ID, USER_ID, "seller", None)
@@ -139,7 +149,7 @@ class TestMembersServiceAssignRole:
         repo = _make_repo()
         auth = _auth(account_role="admin")
 
-        result = await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "cashier", None, conn=_make_conn())
+        result = await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "cashier", None, conn=_make_conn(["admin"]))
 
         assert result is not None
 
@@ -150,7 +160,7 @@ class TestMembersServiceAssignRole:
         repo = _make_repo()
         auth = _auth(account_role="owner")
 
-        await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "cashier", "2026-12-01T00:00:00+00:00", conn=_make_conn())
+        await assign_role(repo, auth, ACCOUNT_ID, USER_ID, "cashier", "2026-12-01T00:00:00+00:00", conn=_make_conn(["owner"]))
 
         repo.assign_role.assert_awaited_once_with(ACCOUNT_ID, USER_ID, "cashier", "2026-12-01T00:00:00+00:00")
 
@@ -167,7 +177,7 @@ class TestMembersServiceRevokeRole:
         auth = _auth(account_role="member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await revoke_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", conn=_make_conn())
+            await revoke_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.revoke_role.assert_not_awaited()
@@ -179,7 +189,7 @@ class TestMembersServiceRevokeRole:
         repo = _make_repo()
         auth = _auth(account_role="owner")
 
-        result = await revoke_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", conn=_make_conn())
+        result = await revoke_role(repo, auth, ACCOUNT_ID, USER_ID, "seller", conn=_make_conn(["owner"]))
 
         assert result["role"] == "seller"
         repo.revoke_role.assert_awaited_once_with(ACCOUNT_ID, USER_ID, "seller")
@@ -197,7 +207,7 @@ class TestMembersServiceRemoveMember:
         auth = _auth(account_role="member")
 
         with pytest.raises(HTTPException) as exc_info:
-            await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn())
+            await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn(["member"]))
 
         assert exc_info.value.status_code == 403
         repo.remove_member.assert_not_awaited()
@@ -209,7 +219,7 @@ class TestMembersServiceRemoveMember:
         repo = _make_repo(remove_result={"ok": True})
         auth = _auth(account_role="owner")
 
-        result = await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn())
+        result = await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn(["owner"]))
 
         assert result == {"ok": True}
 
@@ -223,7 +233,7 @@ class TestMembersServiceRemoveMember:
         auth = _auth(account_role="owner")
 
         with pytest.raises(HTTPException) as exc_info:
-            await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn())
+            await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 403
         assert "expulsar" in exc_info.value.detail
@@ -242,7 +252,7 @@ class TestMembersServiceRemoveMember:
         auth = _auth(account_role="owner")
 
         with pytest.raises(HTTPException) as exc_info:
-            await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn())
+            await remove_member(repo, auth, ACCOUNT_ID, USER_ID, conn=_make_conn(["owner"]))
 
         assert exc_info.value.status_code == 404
         assert getattr(exc_info.value, "code", None) == "P0404"
@@ -264,7 +274,7 @@ class TestMembersServiceTriangulate:
         assert isinstance(result, list)
 
         with pytest.raises(HTTPException) as exc_info:
-            await assign_role(repo, member, ACCOUNT_ID, USER_ID, "seller", None, conn=_make_conn())
+            await assign_role(repo, member, ACCOUNT_ID, USER_ID, "seller", None, conn=_make_conn(["member"]))
         assert exc_info.value.status_code == 403
 
     def test_service_module_uses_require_account_role_not_platform_role(self):

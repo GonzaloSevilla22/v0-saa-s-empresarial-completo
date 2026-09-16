@@ -77,3 +77,25 @@ El valor comodín `"*"` SHALL estar prohibido cuando el entorno es producción, 
 - **GIVEN** el entorno declarado como producción y el origen permitido configurado como comodín
 - **WHEN** se inicia la aplicación
 - **THEN** el arranque falla con un error de configuración, en lugar de admitir cualquier origen
+
+### Requirement: Ejecutable con uvicorn
+
+El servicio SHALL poder iniciarse con `uvicorn backend.main:app --reload` desde la raíz del proyecto **cuando su configuración de verificación de identidad está declarada**: la dirección del proveedor sobre `https://`, o la palanca explícita del camino de desarrollo.
+
+Sin ninguna de las dos, el arranque SHALL abortar nombrando la variable faltante y la salida documentada. Un proceso que atiende tráfico con la verificación del token degradada es peor que un proceso que no levanta: el camino degradado acepta tokens firmados con un secreto por default que está publicado en el repositorio, y el sujeto de un token forjado se convierte en la identidad efectiva aguas abajo.
+
+#### Scenario: `uvicorn backend.main:app --reload` levanta la app con la configuración declarada
+
+- **WHEN** se ejecuta `uvicorn backend.main:app --reload` desde la raíz del repo, con `uvicorn[standard]` instalado (declarado en `backend/pyproject.toml`), `backend/main.py` exponiendo el objeto `app` de FastAPI y la configuración de verificación de identidad declarada (dirección del proveedor sobre `https://`, o la palanca de desarrollo encendida)
+- **THEN** el proceso arranca sin errores de import, ejecuta el `lifespan` (`init_pool`, `init_service_pool`, `init_redis`) y sirve la API en el puerto por defecto
+
+#### Scenario: Sin configuración de verificación de identidad el arranque aborta nombrando la variable
+
+- **GIVEN** un entorno sin la dirección del proveedor de identidad (o con una dirección que no es `https://`) y con la palanca de desarrollo apagada
+- **WHEN** se intenta iniciar el servicio
+- **THEN** el proceso aborta durante la carga de su configuración —no en el primer request— con un mensaje que nombra la variable faltante y la palanca que habilita el camino de desarrollo
+
+#### Scenario: Los entornos de integración continua declaran su camino de verificación
+
+- **WHEN** un workflow de integración continua arranca el proceso o corre la suite del backend
+- **THEN** ese workflow declara en su propio archivo la palanca de desarrollo encendida o una dirección de proveedor sobre `https://`, y un valor que sólo exista en tiempo de ejecución no cuenta como declaración

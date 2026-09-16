@@ -1,3 +1,5 @@
+import time
+
 import pytest
 from fastapi import HTTPException
 from unittest.mock import patch
@@ -7,6 +9,24 @@ TEST_SECRET = "test-secret-key-de-32-bytes-o-mas!!"
 
 
 def make_token(payload: dict, secret: str = TEST_SECRET) -> str:
+    """Token de test con los claims que el proveedor real SIEMPRE emite.
+
+    auth-hardening-jwt-cookies D8: `aud` y `exp` se completan por default
+    porque la verificación pasa a declarar la audiencia esperada y a exigir
+    `exp`/`sub`. Cualquier test puede sobreescribirlos —`payload` gana— y el
+    que necesite un token con un claim AUSENTE usa `make_raw_token`.
+    """
+    import jwt
+    claims = {"aud": "authenticated", "exp": int(time.time()) + 3600}
+    claims.update(payload)
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def make_raw_token(payload: dict, secret: str = TEST_SECRET) -> str:
+    """Token SIN ningún claim completado: firma exactamente lo que se le pasa.
+
+    Es lo que hace falta para probar que un claim OBLIGATORIO ausente se
+    rechaza — con `make_token` sería imposible, porque los completa."""
     import jwt
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -378,3 +398,128 @@ async def test_claims_status_never_exposes_raw_token_or_payload():
     assert token not in str(result)
     assert "sub" not in result
     assert "user_id" not in result
+
+
+# ── auth-hardening-jwt-cookies Parte A, grupo 2 (D8) ──────────────────────
+# `exp` y `sub` obligatorios, y tolerancia de reloj. Los tres casos de abajo
+# describen comportamiento que HOY no existe: `require` está vacío y `leeway`
+# es 0.
+#
+# Los bloques de este grupo fijan `auth_allow_hs256_fallback = True` de forma
+# EXPLÍCITA (hallazgo m2 de la revisión adversarial del apply): sin eso corren
+# por la rama del secreto compartido sólo porque
+# `MagicMock().auth_allow_hs256_fallback` es truthy, así que no declaran por
+# qué camino verifican y quitar la palanca los dejaría igual de verdes. Es el
+# estándar que este mismo change fijó en `conftest.py`, `test_auth_jwks.py` y
+# `test_config_auth_failfast.py`. Los 17 bloques PREEXISTENTES del archivo no
+# se tocan: D9 decidió no reescribirlos, y su cobertura de la rama que corre
+# en producción vive ahora en `test_auth_jwks.py` (2.4/2.5/2.6 en ES256).
+
+
+@pytest.mark.asyncio
+async def test_token_without_exp_is_rejected():
+    """2.4 RED: hoy un token válidamente firmado SIN `exp` se acepta — es una
+    credencial sin vencimiento. `make_raw_token` firma exactamente lo que se
+    le pasa, sin completar claims."""
+    token = make_raw_token({"sub": "user-123", "role": "authenticated", "aud": "authenticated"})
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=token)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_token_without_sub_returns_401_not_500():
+    """2.5 RED: hoy `payload["sub"]` da KeyError y sale como 500 por el
+    catch-all de `backend/main.py`. Un token sin sujeto es un token inválido,
+    no una falla del servidor. La aserción sobre el TIPO de excepción es la
+    que distingue el 401 del 500: un KeyError es justamente lo que el
+    catch-all convierte en "Error interno del servidor"."""
+    token = make_raw_token(
+        {"role": "authenticated", "aud": "authenticated", "exp": int(time.time()) + 3600}
+    )
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=token)
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_token_without_sub_is_401_over_http_not_500():
+    """2.5 TRIANGULATE — la mitad que prueba el hallazgo REAL de la auditoría:
+    el 500 no lo producía `get_current_user`, lo producía el catch-all de
+    `backend/main.py` al recibir el KeyError. Este caso monta una ruta mínima
+    sobre los MISMOS manejadores de excepción de la app real, así que si
+    alguien reintrodujera el acceso crudo al claim, el 500 volvería a verse
+    acá y no sólo en producción."""
+    from fastapi import Depends, FastAPI
+    from httpx import ASGITransport, AsyncClient
+
+    from backend.main import http_exception_handler, unhandled_exception_handler
+
+    probe = FastAPI()
+    probe.add_exception_handler(HTTPException, http_exception_handler)
+    probe.add_exception_handler(Exception, unhandled_exception_handler)
+
+    @probe.get("/probe")
+    async def _probe(auth: dict = Depends(get_current_user)):  # pragma: no cover
+        return auth
+
+    token = make_raw_token(
+        {"role": "authenticated", "aud": "authenticated", "exp": int(time.time()) + 3600}
+    )
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        async with AsyncClient(
+            transport=ASGITransport(app=probe, raise_app_exceptions=False),
+            base_url="http://test",
+        ) as client:
+            response = await client.get(
+                "/probe", headers={"Authorization": f"Bearer {token}"}
+            )
+
+    assert response.status_code == 401
+    assert response.status_code != 500
+
+
+@pytest.mark.asyncio
+async def test_clock_skew_within_leeway_is_accepted():
+    """2.6 RED: hoy `leeway` es 0 con `verify_iat` activo, así que un host
+    levemente atrasado respecto del emisor rechaza con 401 tokens recién
+    emitidos (PyJWT levanta `ImmatureSignatureError` con un `iat` futuro —
+    verificado contra PyJWT 2.13.0)."""
+    now = int(time.time())
+    token = make_token(
+        {"sub": "user-123", "role": "authenticated", "iat": now + 10, "nbf": now + 10}
+    )
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        result = await get_current_user(token=token)
+    assert result["user_id"] == "user-123"
+
+
+@pytest.mark.asyncio
+async def test_clock_skew_beyond_leeway_is_still_rejected():
+    """2.6 TRIANGULATE: la tolerancia es ACOTADA. Sin este caso, un `leeway`
+    desmedido (o `verify_iat: False`) pasaría 2.6 sin conservar el control."""
+    now = int(time.time())
+    token = make_token(
+        {"sub": "user-123", "role": "authenticated", "iat": now + 3600, "nbf": now + 3600}
+    )
+    with patch("backend.core.auth.settings") as mock_settings:
+        mock_settings.supabase_url = ""
+        mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=token)
+    assert exc.value.status_code == 401

@@ -46,9 +46,21 @@
 --       el consumidor no necesita distinguir el caso.
 --
 -- `account_invitations.email` es NOT NULL en producción (verificado el
--- 2026-09-16 contra information_schema.columns y reconfirmado en el
--- checkpoint 1.7), así que este archivo NO declara ninguna rama "invitación
--- sin email": esa fila no puede existir.
+-- 2026-09-16 contra information_schema.columns, reconfirmado en el checkpoint
+-- 1.7 y una tercera vez en la revisión del grupo 10), así que la fila
+-- "invitación sin email" no puede existir hoy.
+--
+-- AUN ASÍ el guard la contempla, y no por prolijidad. La revisión adversarial
+-- del grupo 10 MIDIÓ que, sin una comprobación explícita de NULL, el guard
+-- degradaba **fail-OPEN**: con `email` NULL, `lower(v_inv.email) <>
+-- lower(v_caller_email)` da NULL, la condición del IF queda NULL, la rama no
+-- se toma y un desconocido entra. Se reprodujo en la base local aflojando el
+-- NOT NULL: la RPC le devolvió `{"role":"member","roles":["viewer"]}` a un
+-- usuario que no era el invitado. La versión anterior de este archivo
+-- razonaba —correctamente— que el caso era imposible, y sacaba de ahí la
+-- conclusión equivocada: que no hacía falta escribirlo. Lo que importaba no
+-- era el caso sino la DIRECCIÓN de la degradación ante un cambio de schema
+-- futuro. Un guard de auth falla cerrado.
 --
 -- INTEGRIDAD DE FUNCIÓN — el cuerpo de abajo parte del cuerpo VIVO DE PROD,
 -- capturado por pg_get_functiondef el 2026-09-16 vía MCP (sólo lectura):
@@ -166,8 +178,23 @@ BEGIN
   -- recibió. Comparación insensible a mayúsculas en ambos lados; MISMO
   -- ERRCODE y MISMO texto que el rechazo por token inexistente/vencido, para
   -- que la respuesta no confirme que el token es válido para otra identidad.
-  -- Fail-closed: sin email resoluble no hay forma de verificar la identidad.
+  --
+  -- Fail-closed por los DOS lados, y el de la invitación NO es decorativo
+  -- (revisión adversarial del grupo 10, hallazgo MEDIDO en la base local):
+  -- sin `v_inv.email IS NULL` explícito, una invitación con email NULL hacía
+  -- que `lower(v_inv.email) <> lower(v_caller_email)` evaluara a NULL —
+  -- lógica de tres valores — la condición del IF quedara NULL, la rama NO se
+  -- tomara, y **un desconocido entrara a la cuenta**. Reproducido: aflojando
+  -- el NOT NULL en local, `rpc_accept_invitation` le devolvió membresía con
+  -- rol a un usuario ajeno al email invitado.
+  -- `account_invitations.email` es NOT NULL en prod (re-verificado hoy), así
+  -- que hoy esa fila no puede existir y esta cláusula es inalcanzable. Se
+  -- declara igual porque lo que estaba en juego no era el caso, era la
+  -- DIRECCIÓN en que degrada el guard si ese constraint se cayera algún día:
+  -- un guard de auth debe fallar cerrado, no abierto, y la cláusula cuesta
+  -- una línea. Candado: bloque (8) de test_accept_invitation_binding.sql.
   IF v_caller_email IS NULL
+     OR v_inv.email IS NULL
      OR lower(v_inv.email) <> lower(v_caller_email) THEN
     RAISE EXCEPTION 'P404: invalid or expired invitation token'
       USING ERRCODE = 'P0404';
@@ -279,7 +306,11 @@ COMMENT ON FUNCTION public.rpc_accept_invitation(text) IS
   'el claim rechazaría toda aceptación que llegue por FastAPI. El rechazo usa '
   'el MISMO contrato que el token inexistente/vencido (P0404 + "P404: invalid '
   'or expired invitation token") para no confirmar que el token es válido '
-  'para otra identidad. Y la fila de la invitación se toma con SELECT ... FOR '
+  'para otra identidad. El rechazo es fail-closed por los DOS lados (email '
+  'del aceptante NULL y email de la invitación NULL): sin la comprobación '
+  'explícita de NULL sobre la invitación, la lógica de tres valores dejaba la '
+  'condición en NULL y el guard degradaba FAIL-OPEN -- medido en la base '
+  'local, no hipotético. Y la fila de la invitación se toma con SELECT ... FOR '
   'UPDATE ANTES de validar estado y vigencia, así que dos aceptaciones '
   'concurrentes del mismo token no pueden observar ambas el estado pendiente. '
   'Candado: supabase/tests/test_accept_invitation_binding.sql. '

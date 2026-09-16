@@ -49,6 +49,11 @@
 --       PostgreSQL, no Supabase, el que lo otorga por default en toda función
 --       nueva -- revocar sólo `anon` dejaría el permiso vivo por esa vía) ni
 --       para anon; CON EXECUTE para authenticated y service_role.
+--   (8) FAIL-CLOSED ante una invitación con email NULL (bloque de conducta,
+--       corre en su propio DO al final del archivo -- ver su encabezado). Hoy
+--       el caso es inalcanzable (`email` es NOT NULL en prod); lo que el
+--       bloque fija no es el caso sino la DIRECCIÓN de la degradación, que se
+--       midió FAIL-OPEN antes de agregar la comprobación explícita de NULL.
 -- =============================================================================
 
 DO $$
@@ -85,6 +90,7 @@ DECLARE
   v_pos_lock       int;
   v_pos_users      int;
   v_pos_email      int;
+  v_pos_invnull    int;
   v_pos_write      int;
   v_claims         jsonb;
   v_count          int;
@@ -294,6 +300,11 @@ BEGIN
   v_pos_users := position('auth.users' in v_def);
   v_pos_email := position('lower(v_inv.email)' in v_def);
   v_pos_write := position('INSERT INTO public.account_members' in v_def);
+  -- La comprobación explícita de NULL sobre el email de la INVITACIÓN (no sólo
+  -- sobre el del aceptante): es lo que hace que el guard degrade fail-CLOSED.
+  -- Sin ella la lógica de tres valores deja la condición del IF en NULL y el
+  -- desconocido entra — medido, ver el bloque (8).
+  v_pos_invnull := position('v_inv.email IS NULL' in v_def);
 
   IF v_pos_lock = 0 THEN
     RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (6-lock): rpc_accept_invitation perdió el SELECT … FOR UPDATE sobre la invitación (dos aceptaciones concurrentes volverían a competir).';
@@ -303,6 +314,9 @@ BEGIN
   END IF;
   IF v_pos_email = 0 THEN
     RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (6-binding): el cuerpo vivo ya no compara el email de la invitación con lower() en ambos lados.';
+  END IF;
+  IF v_pos_invnull = 0 THEN
+    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (6-fail-closed): el cuerpo vivo perdió la comprobación explícita `v_inv.email IS NULL`. Sin ella el guard degrada FAIL-OPEN por lógica de tres valores: con email NULL en la invitación, lower(NULL) <> lower(x) da NULL, la rama del rechazo no se toma y un desconocido entra (reproducido en la base local, ver el bloque (8)).';
   END IF;
   IF v_pos_write = 0 THEN
     RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (6-ancla): no se encontró el INSERT en account_members -- el ancla de orden dejó de existir, revisar este gate.';
@@ -314,7 +328,7 @@ BEGIN
     RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (6-orden-binding): el binding de email debe evaluarse ANTES de la primera escritura. Posiciones: binding=%, insert=%.', v_pos_email, v_pos_write;
   END IF;
   v_blocks_run := v_blocks_run + 1;
-  RAISE NOTICE 'PASS (6): el cuerpo vivo conserva el lock, la resolución contra auth.users y la comparación insensible a mayúsculas, todo ANTES de la primera escritura.';
+  RAISE NOTICE 'PASS (6): el cuerpo vivo conserva el lock, la resolución contra auth.users, la comparación insensible a mayúsculas y el fail-closed explícito ante email NULL, todo ANTES de la primera escritura.';
 
   -- ═══ (7) cero overloads + ACLs exactas ═══════════════════════════════════
   SELECT COUNT(*) INTO v_count
@@ -384,10 +398,10 @@ BEGIN
   END IF;
 
   IF v_blocks_run <> 7 THEN
-    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (conteo): se ejercitaron % de 7 bloques esperados.', v_blocks_run;
+    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (conteo): se ejercitaron % de 7 bloques esperados (el (8) corre por separado más abajo, ver su encabezado).', v_blocks_run;
   END IF;
 
-  RAISE NOTICE 'GATE ACCEPT-INVITATION-BINDING: %/7 bloques PASS.', v_blocks_run;
+  RAISE NOTICE 'GATE ACCEPT-INVITATION-BINDING: %/7 bloques PASS (fase principal). El bloque (8) corre por separado más abajo.', v_blocks_run;
 EXCEPTION
   WHEN OTHERS THEN
     RESET request.jwt.claims;
@@ -406,5 +420,141 @@ EXCEPTION
     DELETE FROM email_logs WHERE user_id = ANY(v_all_uids);
     DELETE FROM auth.users WHERE id = ANY(v_all_uids);
     SET session_replication_role = DEFAULT;
+    RAISE;
+END $$;
+
+-- =============================================================================
+-- (8) FAIL-CLOSED ante una invitación con email NULL — bloque de CONDUCTA,
+--     separado del DO principal.
+--
+-- POR QUÉ EXISTE. `account_invitations.email` es NOT NULL en producción, así
+-- que esta fila no puede existir hoy y el caso es inalcanzable. El bloque no
+-- está acá por el caso: está por la DIRECCIÓN en que degrada el guard si ese
+-- constraint se cayera. La revisión adversarial del grupo 10 MIDIÓ que, sin
+-- una comprobación explícita de NULL sobre el email de la invitación, el
+-- guard de D14 degradaba **fail-OPEN**: `lower(NULL) <> lower(x)` da NULL, la
+-- condición del IF queda NULL, la rama del rechazo NO se toma, y
+-- `rpc_accept_invitation` le devolvió membresía con rol a un usuario que no
+-- era el invitado. Un guard de auth debe fallar cerrado.
+--
+-- POR QUÉ AFLOJA EL CONSTRAINT Y POR QUÉ ES SEGURO. La única forma de probar
+-- la conducta es fabricar la fila, y para eso hay que aflojar el NOT NULL.
+-- Va en su propio DO con handler que lo restaura, y además: si algo falla, el
+-- DO entero es una transacción que revierte el ALTER junto con todo lo demás
+-- (verificado: el sondeo original abortó en su cleanup y la base quedó con el
+-- NOT NULL intacto y cero filas residuales). El bloque corre FUERA del DO
+-- principal para que su contabilidad de 7 bloques no dependa de esto — mismo
+-- criterio que la Fase 13 de test_membership_rpcs_pivot_rewrite.sql y que el
+-- bloque (4) de test_realtime_publication.sql.
+-- =============================================================================
+
+DO $$
+DECLARE
+  v_owner    uuid := gen_random_uuid();
+  v_stranger uuid := gen_random_uuid();
+  v_account  uuid;
+  v_token       text := 'gate-accept-bind-nullmail-' || gen_random_uuid()::text;
+  v_uids        uuid[];
+  v_account_ids uuid[];
+  v_got_in      boolean := false;
+BEGIN
+  v_uids := ARRAY[v_owner, v_stranger];
+
+  BEGIN
+    INSERT INTO auth.users (id, email) VALUES (v_owner,    'gate-accept-bind-nullmail-owner@test.local');
+    INSERT INTO auth.users (id, email) VALUES (v_stranger, 'gate-accept-bind-nullmail-stranger@test.local');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'GATE DEGRADED (8): no se pudieron crear los usuarios ancla (%). Se omite el bloque 8.', SQLERRM;
+    RETURN;
+  END;
+
+  SELECT account_id INTO v_account FROM account_members WHERE user_id = v_owner;
+  IF v_account IS NULL THEN
+    RAISE NOTICE 'GATE DEGRADED (8): handle_new_user no aprovisionó la cuenta ancla. Se omite el bloque 8.';
+    DELETE FROM auth.users WHERE id = ANY(v_uids);
+    RETURN;
+  END IF;
+
+  UPDATE accounts SET billing_plan = 'pro', trial_plan = NULL, trial_expires_at = NULL WHERE id = v_account;
+
+  -- Se afloja el NOT NULL para poder fabricar la fila imposible.
+  ALTER TABLE public.account_invitations ALTER COLUMN email DROP NOT NULL;
+
+  INSERT INTO public.account_invitations
+    (id, account_id, email, token, role, roles, status, expires_at, invited_by)
+  VALUES
+    (gen_random_uuid(), v_account, NULL, v_token, 'member', ARRAY['viewer'], 'pending', now() + interval '7 days', v_owner);
+
+  PERFORM set_config('request.jwt.claims', json_build_object('sub', v_stranger::text, 'role', 'authenticated')::text, true);
+  IF auth.uid() IS DISTINCT FROM v_stranger THEN
+    RAISE NOTICE 'GATE DEGRADED (8): auth.uid() no resuelve al desconocido -- se omite la aserción.';
+  ELSE
+    BEGIN
+      PERFORM public.rpc_accept_invitation(v_token);
+      v_got_in := true;
+    EXCEPTION WHEN OTHERS THEN
+      NULL;  -- rechazó: es lo que se espera. El ERRCODE exacto ya lo fija (1).
+    END;
+
+    IF v_got_in THEN
+      RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (8): con email NULL en la invitación, una identidad ajena CANJEÓ y entró a la cuenta -- el guard degrada FAIL-OPEN. Falta la comprobación explícita `v_inv.email IS NULL` (lógica de tres valores: lower(NULL) <> lower(x) da NULL, no TRUE).';
+    END IF;
+    IF EXISTS (SELECT 1 FROM account_members WHERE account_id = v_account AND user_id = v_stranger) THEN
+      RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (8): el desconocido quedó como miembro de la cuenta.';
+    END IF;
+    RAISE NOTICE 'PASS (8): una invitación con email NULL NO se puede canjear -- el guard falla CERRADO, no abierto.';
+  END IF;
+
+  -- Cleanup + restauración del constraint. Se borran las cuentas de LOS DOS
+  -- usuarios, no sólo la del owner: handle_new_user aprovisiona una cuenta
+  -- propia para CADA auth.users, así que el desconocido también tiene la suya
+  -- y su `accounts.owner_user_id` impide borrarlo de auth.users mientras viva
+  -- (medido: el primer intento de este bloque falló con
+  -- accounts_owner_user_id_fkey justamente por eso). El array se captura ANTES
+  -- de borrar accounts -- una subquery evaluada después no devolvería nada.
+  RESET request.jwt.claims;
+  SELECT array_agg(id) INTO v_account_ids FROM accounts WHERE owner_user_id = ANY(v_uids);
+  SET session_replication_role = replica;
+  DELETE FROM account_invitations  WHERE account_id = ANY(v_account_ids);
+  DELETE FROM account_member_roles WHERE account_id = ANY(v_account_ids);
+  DELETE FROM account_members      WHERE account_id = ANY(v_account_ids);
+  DELETE FROM cashboxes WHERE branch_id IN (SELECT id FROM branches WHERE account_id = ANY(v_account_ids));
+  DELETE FROM branches             WHERE account_id = ANY(v_account_ids);
+  DELETE FROM payment_methods      WHERE account_id = ANY(v_account_ids);
+  DELETE FROM product_categories   WHERE account_id = ANY(v_account_ids);
+  DELETE FROM accounts             WHERE id = ANY(v_account_ids);
+  SET session_replication_role = DEFAULT;
+  DELETE FROM profiles   WHERE id = ANY(v_uids);
+  DELETE FROM email_logs WHERE user_id = ANY(v_uids);
+  DELETE FROM auth.users WHERE id = ANY(v_uids);
+  ALTER TABLE public.account_invitations ALTER COLUMN email SET NOT NULL;
+
+  IF (SELECT is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'account_invitations' AND column_name = 'email') <> 'NO' THEN
+    RAISE EXCEPTION 'GATE ACCEPT-INVITATION-BINDING FAILED (8-restore): el NOT NULL de account_invitations.email no quedó restaurado.';
+  END IF;
+
+  RAISE NOTICE 'GATE ACCEPT-INVITATION-BINDING: bloque (8) PASS, NOT NULL restaurado y fixtures limpios.';
+EXCEPTION
+  WHEN OTHERS THEN
+    RESET request.jwt.claims;
+    SET session_replication_role = replica;
+    DELETE FROM account_invitations  WHERE token = v_token;
+    DELETE FROM account_member_roles WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
+    DELETE FROM account_members      WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
+    DELETE FROM cashboxes WHERE branch_id IN (
+      SELECT id FROM branches WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids))
+    );
+    DELETE FROM branches           WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
+    DELETE FROM payment_methods    WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
+    DELETE FROM product_categories WHERE account_id IN (SELECT id FROM accounts WHERE owner_user_id = ANY(v_uids));
+    DELETE FROM accounts           WHERE owner_user_id = ANY(v_uids);
+    SET session_replication_role = DEFAULT;
+    DELETE FROM profiles   WHERE id = ANY(v_uids);
+    DELETE FROM email_logs WHERE user_id = ANY(v_uids);
+    DELETE FROM auth.users WHERE id = ANY(v_uids);
+    -- Se restaura incluso si el ALTER no llegó a correr (SET NOT NULL sobre una
+    -- columna que ya lo tiene es un no-op).
+    ALTER TABLE public.account_invitations ALTER COLUMN email SET NOT NULL;
     RAISE;
 END $$;

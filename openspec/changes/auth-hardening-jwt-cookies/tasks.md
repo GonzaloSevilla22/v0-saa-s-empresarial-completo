@@ -168,6 +168,7 @@
 - [ ] 16.3 Humo en el stack local: login → dashboard → navegar a una de las 12 rutas antes descubiertas → cerrar sesión → verificar que una segunda pestaña abierta se entera; y que cerrar sesión en el navegador A **no** desloguea al navegador B
 - [ ] 16.4 **Verificación post-merge en prod**: `curl` anónimo sobre los 12 árboles de 11.3 → **307** a `/auth/login?next=…`; `curl` anónimo sobre `/planes` → 307 sin `/login` en el stream
 - [x] 16.5 Ronda de revisión adversarial pre-merge; aplicar findings y re-verificar
+- [x] 16.5b Hallazgos de la ronda del 2026-09-16 (2 bloqueantes, 1 mayor, 6 menores) aplicados con TDD: `safeNext()` rechaza caracteres de control + `resolveSafeRedirect()` comprueba el origen resuelto (BLOCKER 1, regresión introducida por 13.x); el formulario de login consume `safeNext()` (BLOCKER 2, tercer consumidor); candado simétrico de árboles públicos (MAJOR 1); assets en la allow-list; guarda de producción del arnés verificada; el 401 distingue sesión ausente de estado indeterminado y reconoce la renovación; la revocación fallida de la rama idle deja de ser silenciosa. **Rechazados** con su razón en `CHANGES.md`: el orden A → B (la 11.4 sigue abierta, no es del agente de la parte) y `.claude/settings.local.json` (configuración del entorno, no del change: no se commitea)
 - [ ] 16.6 Registrar la ficha de la Parte B en `CHANGES.md`; sign-off del PO antes de empezar la Parte C
 
 ## 17. Parte C — Checkpoint y red de seguridad

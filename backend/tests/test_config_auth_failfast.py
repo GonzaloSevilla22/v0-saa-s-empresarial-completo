@@ -410,3 +410,46 @@ def test_production_starts_with_a_concrete_origin():
     )
 
     assert settings.app_env == "production"
+
+
+# ── 4.7 — el DEFAULT del campo, no un valor que el test elige ────────────
+#
+# Hallazgo B2 de la revisión adversarial del apply: el default del campo era
+# `"*"`, y el validator de 4.6 prohíbe justamente ese valor en producción. La
+# combinación producía un backend que **no levanta** en el estado que el
+# design, el proposal y la task 4.7 declaran como el real de Render
+# (`BACKEND_ALLOWED_ORIGIN` sin definir) si `APP_ENV=production` — con un
+# mensaje que además mandaba a "dejá la variable sin definir", que es el estado
+# que lo disparaba. Los tests de CORS esquivaban la interacción construyendo el
+# doble con `""` en vez del default real.
+
+
+def test_production_starts_with_the_field_default_origin(monkeypatch):
+    """4.7 RED (B2): sin `BACKEND_ALLOWED_ORIGIN` en el entorno y con
+    `APP_ENV=production`, el arranque tiene que ser normal — los orígenes
+    reales ya están en la allow-list de `backend/core/cors.py`. Hoy explota."""
+    monkeypatch.delenv("BACKEND_ALLOWED_ORIGIN", raising=False)
+
+    settings = Settings(supabase_url=VALID_URL, app_env="production")
+
+    assert settings.app_env == "production"
+    assert settings.backend_allowed_origin != "*"
+
+
+def test_the_default_origin_is_not_the_wildcard():
+    """4.7 TRIANGULATE (B2): el default **es** la parte que importa. Sin esta
+    aserción, alguien puede volver a poner `"*"` y el test de arriba se
+    "arregla" pasando un valor explícito, que es exactamente el atajo que la
+    revisión encontró."""
+    assert Settings.model_fields["backend_allowed_origin"].default == ""
+
+
+def test_the_wildcard_is_still_rejected_when_written_by_hand():
+    """4.7 TRIANGULATE (B2): sacar el comodín del default NO afloja el control
+    de 4.6 — escribirlo a mano en producción sigue abortando el arranque."""
+    with pytest.raises(ValidationError) as exc:
+        _settings(
+            supabase_url=VALID_URL, app_env="production", backend_allowed_origin="*"
+        )
+
+    assert "BACKEND_ALLOWED_ORIGIN" in str(exc.value)

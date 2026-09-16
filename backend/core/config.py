@@ -23,7 +23,16 @@ class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = ""
     redis_url: str = ""
-    backend_allowed_origin: str = "*"
+    # auth-hardening-jwt-cookies D10 — default VACÍO, no `"*"` (hallazgo B2 de
+    # la revisión adversarial del apply). "Sin definir" significa "la allow-list
+    # de backend/core/cors.py alcanza": los orígenes reales (dominio de
+    # producción con y sin `www`, previews de Vercel, y localhost fuera de
+    # producción) ya están ahí. El comodín pasa a ser una elección EXPLÍCITA, y
+    # el validator de abajo la rechaza en producción — con el default anterior,
+    # ese mismo validator convertía el estado real de Render (variable sin
+    # definir) en un backend que no levanta, y su mensaje mandaba justamente a
+    # "dejá la variable sin definir".
+    backend_allowed_origin: str = ""
     # Payments — webhook MercadoPago (server-to-server)
     # fix/service-role-key-env-alias (bug de prod 2026-09-04): el nombre
     # implícito del campo (`SERVICE_ROLE_KEY`) NO existe en Render — la

@@ -32,16 +32,22 @@ VERCEL_BRANCH = "https://v0-saa-s-empresarial-completo-git-main-eie.vercel.app"
 FOREIGN_ORIGIN = "https://evil.example"
 
 
+# El default REAL del campo, no un valor que este archivo elija (hallazgo B2 de
+# la revisión adversarial: el doble usaba `""` mientras el campo tenía `"*"`, así
+# que los tests "de default" probaban un estado que el código no producía).
+DEFAULT_ALLOWED_ORIGIN = Settings.model_fields["backend_allowed_origin"].default
+
+
 def _settings(**overrides) -> Settings:
-    # `backend_allowed_origin` por default VACÍO — el estado real de Render
-    # hoy (F5 lo prueba indirectamente). No se usa `"*"` como default acá
-    # porque con `app_env="production"` el arranque lo rechaza (4.6), así que
-    # el caso del comodín se declara explícitamente en el test que lo trata.
+    # `backend_allowed_origin` con el default del campo — que es el estado real
+    # de Render hoy: la variable sin definir (F5 lo prueba indirectamente). Se
+    # pasa explícito para que el caso no dependa de lo que haya en el entorno de
+    # la máquina que corre los tests, pero el VALOR sale del campo.
     values = {
         "supabase_url": "https://gxdhpxvdjjkmxhdkkwyb.supabase.co",
         "auth_allow_hs256_fallback": False,
         "app_env": "development",
-        "backend_allowed_origin": "",
+        "backend_allowed_origin": DEFAULT_ALLOWED_ORIGIN,
     }
     values.update(overrides)
     return Settings(**values)
@@ -220,9 +226,14 @@ def test_defaults_are_safe_without_backend_allowed_origin_configured():
     """4.7: el estado REAL de Render hoy es la variable sin definir (F5 lo
     prueba indirectamente: por eso el comodín estaba activo). Producción
     tiene que seguir funcionando por la regex, no por el comodín — y el
-    comodín no debe entrar nunca a la lista."""
-    prod = _settings(app_env="production", backend_allowed_origin="")
+    comodín no debe entrar nunca a la lista.
 
+    El caso se construye con el **default del campo** (B2): con un `""`
+    elegido por el test, esto pasaba mientras el default real era `"*"` y el
+    arranque en producción fallaba."""
+    prod = _settings(app_env="production")
+
+    assert prod.backend_allowed_origin == DEFAULT_ALLOWED_ORIGIN
     assert allowed_origins(prod) == []
     assert is_origin_allowed(PROD_ORIGIN, prod) is True
     assert is_origin_allowed(VERCEL_BRANCH, prod) is True
@@ -230,9 +241,10 @@ def test_defaults_are_safe_without_backend_allowed_origin_configured():
 
 
 def test_wildcard_is_never_an_allowed_origin_entry():
-    """4.7 TRIANGULATE: `"*"` es el default del campo. Aunque en producción el
-    arranque lo rechaza (4.6), fuera de producción no puede colarse en la
-    lista como si fuera un origen literal."""
+    """4.7 TRIANGULATE: el comodín ya no es el default (B2) pero sigue siendo un
+    valor que alguien puede escribir. En producción el arranque lo rechaza
+    (4.6); fuera de producción no puede colarse en la lista como si fuera un
+    origen literal."""
     dev = _settings(app_env="development", backend_allowed_origin="*")
 
     assert "*" not in allowed_origins(dev)

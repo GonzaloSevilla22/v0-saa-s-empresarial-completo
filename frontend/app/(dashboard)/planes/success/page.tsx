@@ -24,7 +24,9 @@ export default async function PlanesSuccessPage() {
 
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
-    redirect("/login")
+    // auth-hardening-jwt-cookies (D5/F2): `/login` no existe (404); el login
+    // vive en `/auth/login`.
+    redirect(`/auth/login?next=${encodeURIComponent("/planes/success")}`)
   }
 
   // Read current plan (webhook may already have updated it)

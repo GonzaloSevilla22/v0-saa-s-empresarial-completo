@@ -75,7 +75,9 @@ export default async function FacturacionPage() {
   // ── Auth ─────────────────────────────────────────────────────────────────────
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
-    redirect("/login")
+    // auth-hardening-jwt-cookies (D5/F2): `/login` no existe (404); el login
+    // vive en `/auth/login`.
+    redirect(`/auth/login?next=${encodeURIComponent("/facturacion")}`)
   }
 
   // ── Account billing state ──────────────────────────────────────────────────

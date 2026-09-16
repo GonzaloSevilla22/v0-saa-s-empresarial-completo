@@ -109,6 +109,43 @@ describe("updateSession — /api/** no recibe redirect", () => {
   })
 })
 
+// ── D5: el middleware valida el destino de retorno con `safeNext()` ────────
+describe("updateSession — destino de retorno del redirect de ruta de auth", () => {
+  const CONFIRMED = { id: "u1", email_confirmed_at: "2026-01-01T00:00:00Z" }
+
+  it.each(["//evil.example", "https://evil.example/", "@evil.example/", "/\\evil.example"])(
+    "descarta %j y manda al dashboard",
+    async (next) => {
+      harness.user = CONFIRMED
+      const response = await updateSession(
+        buildRequest(`/auth/login?next=${encodeURIComponent(next)}`),
+      )
+
+      const target = new URL(redirectTarget(response)!)
+      expect(target.origin).toBe("https://app.test")
+      expect(target.pathname).toBe("/dashboard")
+    },
+  )
+
+  it("conserva un destino interno", async () => {
+    harness.user = CONFIRMED
+    const response = await updateSession(buildRequest("/auth/login?next=%2Fcaja"))
+    expect(new URL(redirectTarget(response)!).pathname).toBe("/caja")
+  })
+
+  it("conserva la query del destino interno", async () => {
+    harness.user = CONFIRMED
+    const response = await updateSession(
+      buildRequest(
+        `/auth/login?next=${encodeURIComponent("/reportes/comparativo?desde=2026-01-01")}`,
+      ),
+    )
+    const target = new URL(redirectTarget(response)!)
+    expect(target.pathname).toBe("/reportes/comparativo")
+    expect(target.searchParams.get("desde")).toBe("2026-01-01")
+  })
+})
+
 // ── 12.3 / 12.8: rutas públicas ────────────────────────────────────────────
 describe("updateSession — rutas públicas", () => {
   it.each([

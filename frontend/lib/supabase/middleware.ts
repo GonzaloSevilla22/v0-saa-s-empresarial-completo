@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server"
 import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
 import { isProtectedPath as isProtectedRoute } from "@/lib/auth/route-access"
+import { safeNext } from "@/lib/auth/safe-next"
 
 // ── Security Headers ───────────────────────────────────────────────────────
 // Applied to every response. Tune CSP per feature (e.g., add blob: for file previews).
@@ -64,6 +65,31 @@ export { isProtectedPath, isApiPath, isPublicPath, PUBLIC_PREFIXES } from "@/lib
 
 const AUTH_ROUTES = ["/auth/login", "/auth/register"]
 
+/**
+ * Copia a `redirect` las cookies que el servidor escribió durante la petición
+ * (`setAll` sobre `supabaseResponse`).
+ *
+ * auth-hardening-jwt-cookies (D5). Cada salida por redirect construye su propia
+ * `NextResponse`, así que la renovación de sesión que ocurrió dentro de
+ * `getUser()` se perdía. Hoy es autocurativo —el redirect vuelve a entrar por
+ * el matcher dentro de la ventana de `refresh_token_reuse_interval`— pero la
+ * receta de `@supabase/ssr` es copiarlas.
+ *
+ * ⚠️ SÓLO para los redirects que NO cierran la sesión. Las dos ramas cuyo
+ * trabajo **es** destruirla (la purga de "Refresh Token Not Found" y el corte
+ * por inactividad) NUNCA deben recibir esta copia: reponerles encima las
+ * cookies recién escritas anula en silencio la recuperación y el propio corte
+ * (B3 de la revisión adversarial). El test negativo que lo fija vive en
+ * `__tests__/lib/middleware-redirect-cookies.test.ts`.
+ */
+function withRotatedSessionCookies(
+  redirect: NextResponse,
+  source: NextResponse,
+): NextResponse {
+  source.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie))
+  return redirect
+}
+
 // ── Core session update + route protection ────────────────────────────────
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let supabaseResponse = NextResponse.next({ request })
@@ -123,7 +149,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   if (isProtected && user && !user.email_confirmed_at) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/verify-email"
-    return applySecurityHeaders(NextResponse.redirect(url))
+    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
   }
 
   // ── Server-side idle enforcement (defense-in-depth) ─────────────────────
@@ -179,17 +205,18 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     if (!profile || profile.role !== "admin") {
       const url = request.nextUrl.clone()
       url.pathname = "/dashboard"
-      return applySecurityHeaders(NextResponse.redirect(url))
+      return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
     }
   }
 
   // Authenticated + verified → skip auth pages
   if (isAuthRoute && user?.email_confirmed_at) {
-    const next = request.nextUrl.searchParams.get("next") ?? "/dashboard"
-    const url  = request.nextUrl.clone()
-    url.pathname = next.startsWith("/") ? next : "/dashboard"
-    url.search   = ""
-    return applySecurityHeaders(NextResponse.redirect(url))
+    // D5: el destino de retorno se valida con el helper compartido — el mismo
+    // que consume `app/auth/callback/route.ts`. `new URL(next, request.url)`
+    // en vez de asignar a `url.pathname`: fija el origen desde el request y
+    // conserva la query del destino en vez de codificarla dentro del path.
+    const url = new URL(safeNext(request.nextUrl.searchParams.get("next")), request.url)
+    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
   }
 
   return applySecurityHeaders(supabaseResponse)

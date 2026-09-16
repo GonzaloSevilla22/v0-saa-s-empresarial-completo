@@ -1,12 +1,16 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
+import { safeNext } from '@/lib/auth/safe-next'
 
 export async function GET(request: NextRequest) {
     const { searchParams, origin } = new URL(request.url)
     const code = searchParams.get('code')
-    // 'next' param lets you redirect after confirm (if used)
-    const next = searchParams.get('next') ?? '/dashboard'
+    // auth-hardening-jwt-cookies (D5): el destino de retorno se valida con el
+    // MISMO helper que usa el middleware. Antes se concatenaba crudo a la URL
+    // base (`${siteUrl}${next}`), así que `//evil.example` o `@evil.example/`
+    // cambiaban el host del redirect — open redirect latente.
+    const next = safeNext(searchParams.get('next'))
 
     if (code) {
         const cookieStore = await cookies()
@@ -40,7 +44,10 @@ export async function GET(request: NextRequest) {
                 ? (process.env.NEXT_PUBLIC_SITE_URL || origin) 
                 : origin
 
-            return NextResponse.redirect(`${siteUrl}${next}`)
+            // `new URL(next, siteUrl)` en vez de concatenar: el origen lo fija
+            // el sitio, nunca el parámetro, y una eventual query del destino
+            // sobrevive en vez de quedar codificada dentro del path.
+            return NextResponse.redirect(new URL(next, siteUrl))
         } else {
             console.error(`[Auth Callback] Error intercambiando sesión:`, error.message)
         }
@@ -51,5 +58,5 @@ export async function GET(request: NextRequest) {
     const fallbackUrl = origin.includes('localhost') 
         ? (process.env.NEXT_PUBLIC_SITE_URL || origin) 
         : origin
-    return NextResponse.redirect(`${fallbackUrl}/auth/login?error=auth_callback_error`)
+    return NextResponse.redirect(new URL('/auth/login?error=auth_callback_error', fallbackUrl))
 }

@@ -64,6 +64,17 @@ def foreign_ec_keypair():
     return private_key, private_key.public_key()
 
 
+def make_raw_es256_token(private_key, claims: dict) -> str:
+    """Token ES256 con EXACTAMENTE los claims que se le pasan.
+
+    Hace falta para probar que un claim **obligatorio ausente** se rechaza: con
+    `make_es256_token` sería imposible, porque los completa.
+    """
+    return pyjwt.encode(
+        claims, private_key, algorithm="ES256", headers={"kid": TEST_KID}
+    )
+
+
 def make_es256_token(private_key, **overrides) -> str:
     """Token ES256 con la forma real que emite GoTrue.
 
@@ -245,6 +256,99 @@ async def test_audience_array_without_the_expected_value_is_rejected(ec_keypair)
     cualquier array."""
     private_key, public_key = ec_keypair
     token = make_es256_token(private_key, aud=["anon", "otra-audiencia"])
+
+    with jwks_env(public_key):
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=token)
+
+    assert exc.value.status_code == 401
+
+
+# ── 2.4 / 2.5 / 2.6 EN LA RAMA DE PRODUCCIÓN ─────────────────────────────
+#
+# Hallazgo M1 de la revisión adversarial del apply, medido con una sonda de
+# mutación en runtime: los cinco casos de `exp`/`sub`/`leeway` vivían sólo en
+# `test_auth.py`, es decir **todos** con `supabase_url=""` — la rama HS256, que
+# D9 vuelve inalcanzable en producción. Se podía quitar `require` y poner
+# `leeway=0` en la rama JWKS y la suite entera quedaba verde (2363 passed), con
+# control positivo del método: quitar `issuer` de la misma rama sí rompía 3
+# tests. Justo el hueco que este change existe para cerrar (§10 de la
+# auditoría: "la única rama de verificación que corre en producción no tiene ni
+# un test").
+
+
+@pytest.mark.asyncio
+async def test_es256_token_without_exp_is_rejected(ec_keypair):
+    """2.4 en la rama de producción: una credencial sin vencimiento no se
+    acepta. `require=["exp","sub"]` es lo único que lo impide — sin él, PyJWT
+    valida `exp` sólo cuando está presente."""
+    private_key, public_key = ec_keypair
+    token = make_raw_es256_token(
+        private_key,
+        {
+            "sub": TEST_USER_ID,
+            "role": "authenticated",
+            "aud": "authenticated",
+            "iss": EXPECTED_ISSUER,
+            "iat": int(time.time()),
+        },
+    )
+
+    with jwks_env(public_key):
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=token)
+
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_es256_token_without_sub_is_rejected(ec_keypair):
+    """2.5 en la rama de producción: sin `sub` el acceso crudo al claim daba
+    KeyError y salía como **500** por el catch-all de `main.py`. Un token sin
+    sujeto es un token inválido, no una falla del servidor."""
+    private_key, public_key = ec_keypair
+    now = int(time.time())
+    token = make_raw_es256_token(
+        private_key,
+        {
+            "role": "authenticated",
+            "aud": "authenticated",
+            "iss": EXPECTED_ISSUER,
+            "iat": now,
+            "exp": now + 3600,
+        },
+    )
+
+    with jwks_env(public_key):
+        with pytest.raises(HTTPException) as exc:
+            await get_current_user(token=token)
+
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_es256_clock_skew_within_leeway_is_accepted(ec_keypair):
+    """2.6 en la rama de producción: un host levemente atrasado respecto del
+    emisor recibe tokens con `iat`/`nbf` futuros. Con `leeway=0` eso es un 401
+    al tráfico legítimo (`ImmatureSignatureError`)."""
+    private_key, public_key = ec_keypair
+    now = int(time.time())
+    token = make_es256_token(private_key, iat=now + 10, nbf=now + 10)
+
+    with jwks_env(public_key):
+        result = await get_current_user(token=token)
+
+    assert result["user_id"] == TEST_USER_ID
+
+
+@pytest.mark.asyncio
+async def test_es256_clock_skew_beyond_leeway_is_still_rejected(ec_keypair):
+    """2.6 TRIANGULATE en la rama de producción: la tolerancia es ACOTADA. Sin
+    este caso, un `leeway` desmedido —o `verify_iat: False`— pasaría el anterior
+    sin conservar ningún control."""
+    private_key, public_key = ec_keypair
+    now = int(time.time())
+    token = make_es256_token(private_key, iat=now + 3600, nbf=now + 3600)
 
     with jwks_env(public_key):
         with pytest.raises(HTTPException) as exc:

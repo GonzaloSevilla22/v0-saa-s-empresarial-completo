@@ -404,6 +404,16 @@ async def test_claims_status_never_exposes_raw_token_or_payload():
 # `exp` y `sub` obligatorios, y tolerancia de reloj. Los tres casos de abajo
 # describen comportamiento que HOY no existe: `require` está vacío y `leeway`
 # es 0.
+#
+# Los bloques de este grupo fijan `auth_allow_hs256_fallback = True` de forma
+# EXPLÍCITA (hallazgo m2 de la revisión adversarial del apply): sin eso corren
+# por la rama del secreto compartido sólo porque
+# `MagicMock().auth_allow_hs256_fallback` es truthy, así que no declaran por
+# qué camino verifican y quitar la palanca los dejaría igual de verdes. Es el
+# estándar que este mismo change fijó en `conftest.py`, `test_auth_jwks.py` y
+# `test_config_auth_failfast.py`. Los 17 bloques PREEXISTENTES del archivo no
+# se tocan: D9 decidió no reescribirlos, y su cobertura de la rama que corre
+# en producción vive ahora en `test_auth_jwks.py` (2.4/2.5/2.6 en ES256).
 
 
 @pytest.mark.asyncio
@@ -415,6 +425,7 @@ async def test_token_without_exp_is_rejected():
     with patch("backend.core.auth.settings") as mock_settings:
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token=token)
     assert exc.value.status_code == 401
@@ -433,6 +444,7 @@ async def test_token_without_sub_returns_401_not_500():
     with patch("backend.core.auth.settings") as mock_settings:
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token=token)
     assert exc.value.status_code == 401
@@ -465,6 +477,7 @@ async def test_token_without_sub_is_401_over_http_not_500():
     with patch("backend.core.auth.settings") as mock_settings:
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
         async with AsyncClient(
             transport=ASGITransport(app=probe, raise_app_exceptions=False),
             base_url="http://test",
@@ -490,6 +503,7 @@ async def test_clock_skew_within_leeway_is_accepted():
     with patch("backend.core.auth.settings") as mock_settings:
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
         result = await get_current_user(token=token)
     assert result["user_id"] == "user-123"
 
@@ -505,6 +519,7 @@ async def test_clock_skew_beyond_leeway_is_still_rejected():
     with patch("backend.core.auth.settings") as mock_settings:
         mock_settings.supabase_url = ""
         mock_settings.supabase_jwt_secret = TEST_SECRET
+        mock_settings.auth_allow_hs256_fallback = True
         with pytest.raises(HTTPException) as exc:
             await get_current_user(token=token)
     assert exc.value.status_code == 401

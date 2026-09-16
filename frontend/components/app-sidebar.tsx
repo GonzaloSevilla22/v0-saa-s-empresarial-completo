@@ -28,6 +28,36 @@ import { getFirstName, capitalizeName } from "@/lib/helpers/user-helpers"
 // posición/href/icono de la entrada "Proveedores" sin montar el árbol
 // completo de Sidebar (que requiere SidebarProvider) — ver
 // __tests__/components/app-sidebar-nav-groups.test.ts.
+/**
+ * Cierre de sesión del botón del riel.
+ *
+ * auth-hardening-jwt-cookies (D6, task 14.9): el `onClick` lanzaba `logout()`
+ * y en la línea siguiente forzaba `window.location.href = "/"`, así que la
+ * navegación salía **antes** de que la revocación contra el proveedor y el
+ * borrado de cookies terminaran; y `logout()` relanza su error, que sin
+ * `.catch()` quedaba como promesa rechazada sin manejar.
+ *
+ * Extraído del JSX para poder fijar el orden sin montar el árbol completo del
+ * Sidebar (que exige `SidebarProvider` y el contexto de auth).
+ *
+ * @param navigate seam de navegación — jsdom no implementa la navegación real.
+ */
+export async function handleSidebarLogout(
+  logout: () => Promise<void>,
+  navigate: (url: string) => void = (url) => {
+    window.location.href = url
+  },
+): Promise<void> {
+  try {
+    await logout()
+  } catch (error) {
+    // El cierre visual no puede quedar condicionado a que el proveedor
+    // conteste: se registra y se navega igual.
+    console.error("[app-sidebar] logout failed (navigating anyway):", error)
+  }
+  navigate("/")
+}
+
 export const navGroups = [
   {
     label: "Principal",
@@ -351,8 +381,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={() => {
-                logout()
-                window.location.href = "/"
+                void handleSidebarLogout(logout)
               }}
               tooltip="Cerrar sesion"
               data-testid="logout-button"

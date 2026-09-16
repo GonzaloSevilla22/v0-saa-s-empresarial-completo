@@ -38,11 +38,13 @@ test.describe('Auth — sin sesion', () => {
 })
 
 test.describe('Auth — con sesion', () => {
-  // signOut() sin opciones usa scope 'global' por defecto: revoca TODOS los
-  // refresh tokens del usuario (todas las sesiones, no solo la actual). Por
-  // eso este test usa un usuario QA dedicado (QA_LOGOUT_USER_*) en vez del
-  // usuario compartido — de lo contrario invalidaria tambien la sesion que
-  // reutilizan los demas specs (p.ej. dashboard.spec.ts) via storageState.
+  // auth-hardening-jwt-cookies (D6): `logout()` pasa a `signOut({ scope:
+  // 'local' })`, asi que YA NO revoca los refresh tokens de las demas
+  // sesiones. El comentario anterior describia el default de la libreria
+  // (`signOut()` pelado es global) y dejo de ser cierto para este boton.
+  // El usuario QA dedicado (QA_LOGOUT_USER_*) y el storageState vacio se
+  // conservan igual: aislan este spec de los demas sin costo, y protegen
+  // contra que alguien vuelva a ampliar el alcance sin darse cuenta.
   test.use({ storageState: { cookies: [], origins: [] } })
 
   test('logout cierra sesion', async ({ page }) => {

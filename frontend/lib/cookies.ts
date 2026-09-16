@@ -2,9 +2,18 @@
  * Centralized cookie management for UX preferences.
  *
  * Rules:
- * - Never store sensitive data here (tokens stay in Supabase httpOnly cookies)
+ * - Never store sensitive data here.
  * - All UX cookies: SameSite=Lax, Secure in production, readable client-side for hydration
  * - 1-year max-age for persistent preferences, 7-day for UI state
+ *
+ * auth-hardening-jwt-cookies (task 15.4): la regla decía "tokens stay in
+ * Supabase httpOnly cookies". Era **falsa** y desviaba a quien auditara: el
+ * default de `@supabase/ssr` es `httpOnly: false`
+ * (`dist/main/utils/constants.js`) y es estructural mientras el Bearer de
+ * FastAPI salga de leer esas cookies desde el navegador. La Parte C de este
+ * change es la que las vuelve `httpOnly` de verdad, junto con el token handler
+ * (D1/D16). Los atributos de las cookies de sesión viven en
+ * `lib/supabase/cookie-options.ts`, no acá.
  */
 
 const IS_PROD = process.env.NODE_ENV === "production"
@@ -62,6 +71,24 @@ export function getClientCookie(key: CookieKey): string | null {
     .split("; ")
     .find((row) => row.startsWith(`${key}=`))
   return match ? decodeURIComponent(match.split("=")[1]) : null
+}
+
+/**
+ * Borra TODAS las cookies de experiencia asociadas a la sesión.
+ *
+ * auth-hardening-jwt-cookies (D6). Antes cada camino de cierre borraba una cosa
+ * distinta: `logout()` y `performIdleLogout()` sólo `tenant:active`,
+ * `closeAllSessions()` ninguna, y el único lugar que borraba
+ * `auth:last-activity` era el middleware. De esa divergencia salía el bounce
+ * del **primer** re-login después de un cierre por inactividad: la cookie de
+ * actividad sobrevivía con `max-age` de una semana, el middleware la leía
+ * vencida y descartaba las cookies `sb-*` recién emitidas.
+ *
+ * Los tres caminos de cierre llaman a este helper.
+ */
+export function clearAuthUxCookies(): void {
+  deleteCookie(COOKIE_KEYS.LAST_ACTIVITY)
+  deleteCookie(COOKIE_KEYS.TENANT)
 }
 
 // ── Server-side helpers (for Server Components and middleware) ─────────────

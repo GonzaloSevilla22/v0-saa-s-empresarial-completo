@@ -57,7 +57,11 @@ export default async function SalesOrderDetailPage({
     error: authError,
   } = await supabase.auth.getUser()
   if (authError || !user) {
-    redirect("/login")
+    // auth-hardening-jwt-cookies (D5/F2): `/login` no existe (404); el login
+    // vive en `/auth/login`. Esta rama es hoy código muerto (el middleware
+    // intercepta `/ventas` antes), pero dejar el literal roto es lo que hace
+    // que reaparezca cuando el gate cambia.
+    redirect(`/auth/login?next=${encodeURIComponent(`/ventas/ordenes/${id}`)}`)
   }
 
   const { data: order } = (await supabase

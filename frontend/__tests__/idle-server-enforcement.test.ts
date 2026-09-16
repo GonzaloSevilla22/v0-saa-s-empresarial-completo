@@ -166,18 +166,20 @@ describe("evaluateIdle — middleware idle decision (pure, no request)", () => {
 })
 
 // ── Scoping checks (task 5.3 / 5.4) ─────────────────────────────────────────
-// These are structural assertions: we verify that the PROTECTED_PREFIXES list
-// used in the middleware does NOT include /auth paths, ensuring the idle check
-// is never triggered on the redirect target. These are tested at the import level.
+// These are structural assertions: we verify that the route-protection decision
+// used in the middleware does NOT cover /auth paths, ensuring the idle check is
+// never triggered on the redirect target. Tested at the import level.
+//
+// auth-hardening-jwt-cookies (D4, task 12.6): la aserción es la misma; cambia la
+// forma. `PROTECTED_PREFIXES` (lista enumerada) se retiró — era el mecanismo que
+// produjo F1 — y la decisión pasa a `isProtectedPath()`, por exclusión.
 
-describe("PROTECTED_PREFIXES scoping — auth routes are not idle-gated", () => {
-  it("'/auth/login' is NOT in PROTECTED_PREFIXES (no idle check on the redirect target)", async () => {
-    // Import the list from the middleware — kept as a named export for testability
-    const { PROTECTED_PREFIXES } = await import("@/lib/supabase/middleware")
+describe("route scoping — auth routes are not idle-gated", () => {
+  it("'/auth/*' is NOT protected (no idle check on the redirect target)", async () => {
+    const { isProtectedPath } = await import("@/lib/supabase/middleware")
     const authPaths = ["/auth/login", "/auth/register", "/auth/verify-email", "/auth"]
     for (const path of authPaths) {
-      const isGated = PROTECTED_PREFIXES.some((p: string) => path.startsWith(p))
-      expect(isGated, `${path} must not be gated`).toBe(false)
+      expect(isProtectedPath(path), `${path} must not be gated`).toBe(false)
     }
   })
 })

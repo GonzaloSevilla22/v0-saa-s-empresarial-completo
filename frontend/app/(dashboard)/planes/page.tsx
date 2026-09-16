@@ -27,7 +27,10 @@ export default async function PlanesPage() {
   // ── Auth ─────────────────────────────────────────────────────────────────────
   const { data: { user }, error: authError } = await supabase.auth.getUser()
   if (authError || !user) {
-    redirect("/login")
+    // auth-hardening-jwt-cookies (D5/F2): `/login` no existe — el login vive en
+    // `/auth/login`. Esta rama era alcanzable de verdad porque `/planes` estaba
+    // fuera del gate del middleware (F1), y terminaba en un 404.
+    redirect(`/auth/login?next=${encodeURIComponent("/planes")}`)
   }
 
   // ── Current account billing state ─────────────────────────────────────────

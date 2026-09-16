@@ -2,6 +2,9 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
+import { isProtectedPath as isProtectedRoute, isApiPath as isApiRoute } from "@/lib/auth/route-access"
+import { resolveSafeRedirect } from "@/lib/auth/safe-next"
+import { authCookieOptions } from "@/lib/supabase/cookie-options"
 
 // ── Security Headers ───────────────────────────────────────────────────────
 // Applied to every response. Tune CSP per feature (e.g., add blob: for file previews).
@@ -52,15 +55,41 @@ export function buildContentSecurityPolicy(): string {
 }
 
 // ── Protected routes ───────────────────────────────────────────────────────
-// Exported for testability (idle-server-enforcement.test.ts verifies that
-// /auth/* routes are not in this list, ensuring no idle-check loop is possible).
-export const PROTECTED_PREFIXES = [
-  "/dashboard", "/ventas", "/compras", "/productos", "/stock",
-  "/clientes", "/proveedores", "/gastos", "/insights", "/simulador", "/comunidad",
-  "/cursos", "/configuracion", "/copiloto-ia", "/ferias", "/seguros", "/admin",
-]
+// auth-hardening-jwt-cookies (D4): la lista enumerada `PROTECTED_PREFIXES` se
+// retiró. La decisión vive ahora en `lib/auth/route-access.ts`, por exclusión:
+// allow-list de rutas públicas + protección por defecto de todo lo demás, y un
+// test que lee `app/(dashboard)/` del filesystem para que una ruta nueva sin
+// cobertura rompa CI en vez de nacer sin gate (F1).
+// Re-exportado acá para que los consumidores existentes sigan importando la
+// decisión de protección desde el módulo del middleware.
+export { isProtectedPath, isApiPath, isPublicPath, PUBLIC_PREFIXES } from "@/lib/auth/route-access"
 
 const AUTH_ROUTES = ["/auth/login", "/auth/register"]
+
+/**
+ * Copia a `redirect` las cookies que el servidor escribió durante la petición
+ * (`setAll` sobre `supabaseResponse`).
+ *
+ * auth-hardening-jwt-cookies (D5). Cada salida por redirect construye su propia
+ * `NextResponse`, así que la renovación de sesión que ocurrió dentro de
+ * `getUser()` se perdía. Hoy es autocurativo —el redirect vuelve a entrar por
+ * el matcher dentro de la ventana de `refresh_token_reuse_interval`— pero la
+ * receta de `@supabase/ssr` es copiarlas.
+ *
+ * ⚠️ SÓLO para los redirects que NO cierran la sesión. Las dos ramas cuyo
+ * trabajo **es** destruirla (la purga de "Refresh Token Not Found" y el corte
+ * por inactividad) NUNCA deben recibir esta copia: reponerles encima las
+ * cookies recién escritas anula en silencio la recuperación y el propio corte
+ * (B3 de la revisión adversarial). El test negativo que lo fija vive en
+ * `__tests__/lib/middleware-redirect-cookies.test.ts`.
+ */
+function withRotatedSessionCookies(
+  redirect: NextResponse,
+  source: NextResponse,
+): NextResponse {
+  source.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie))
+  return redirect
+}
 
 // ── Core session update + route protection ────────────────────────────────
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
@@ -70,6 +99,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // auth-hardening-jwt-cookies (F3): atributos desde la definición
+      // compartida — sin esto regía el default de la librería, sin `secure`.
+      cookieOptions: authCookieOptions(),
       cookies: {
         getAll() {
           return request.cookies.getAll()
@@ -92,18 +124,27 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     error: authError,
   } = await supabase.auth.getUser()
 
-  // Stale session after DB reset / token rotation failure
-  if (authError?.message.includes("Refresh Token Not Found")) {
-    const redirect = NextResponse.redirect(new URL("/auth/login", request.url))
-    request.cookies.getAll().forEach((cookie) => {
-      if (cookie.name.startsWith("sb-")) redirect.cookies.delete(cookie.name)
-    })
-    return applySecurityHeaders(redirect)
-  }
-
   const { pathname } = request.nextUrl
 
-  const isProtected    = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))
+  // Stale session after DB reset / token rotation failure
+  if (authError?.message.includes("Refresh Token Not Found")) {
+    // D4: `/api/**` nunca recibe redirect. Esta rama corre ANTES de calcular la
+    // ruta y redirigía para cualquier path, así que el manejador de token de la
+    // Parte C habría recibido un 307 hacia HTML donde espera JSON. Las cookies
+    // muertas se borran igual: lo que cambia es la forma de la respuesta, no el
+    // efecto sobre la sesión.
+    const purge = isApiRoute(pathname)
+      ? NextResponse.next({ request })
+      : NextResponse.redirect(new URL("/auth/login", request.url))
+    request.cookies.getAll().forEach((cookie) => {
+      if (cookie.name.startsWith("sb-")) purge.cookies.delete(cookie.name)
+    })
+    return applySecurityHeaders(purge)
+  }
+
+  // D4: protegido por exclusión (allow-list pública + `/api/**` nunca gateada
+  // por redirect), no por una lista enumerada a mano.
+  const isProtected    = isProtectedRoute(pathname)
   const isAuthRoute    = AUTH_ROUTES.some((p) => pathname.startsWith(p))
   const isAdminRoute   = pathname.startsWith("/admin")
 
@@ -119,20 +160,51 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   if (isProtected && user && !user.email_confirmed_at) {
     const url = request.nextUrl.clone()
     url.pathname = "/auth/verify-email"
-    return applySecurityHeaders(NextResponse.redirect(url))
+    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
   }
 
   // ── Server-side idle enforcement (defense-in-depth) ─────────────────────
   // Only runs on the protected + authenticated + email-verified happy path.
   // The client timer writes the auth:last-activity cookie on interaction;
   // we only read it here (Decision 1). Background traffic never resets the clock.
-  // Scoping: PROTECTED_PREFIXES excludes /auth/*, so /auth/login is never
-  // idle-gated and the redirect cannot loop (Decision 5).
+  // Scoping: la allow-list pública incluye /auth/*, así que /auth/login nunca
+  // queda idle-gated y el redirect no puede entrar en loop (Decision 5).
   if (isProtected && user && user.email_confirmed_at) {
     const rawCookie = request.cookies.get(COOKIE_KEYS.LAST_ACTIVITY)?.value
     const idleResult = evaluateIdle(rawCookie, Date.now())
 
     if (idleResult.action === "logout") {
+      // auth-hardening-jwt-cookies (D6): revocar contra el proveedor ANTES de
+      // borrar. Hasta este change esta rama borraba las cookies `sb-*` y la
+      // sesión seguía viva en GoTrue, con su refresh token utilizable desde
+      // cualquier copia — el caso exacto que el resto del change vuelve
+      // imposible de explotar. `scope: 'local'`: el corte por inactividad de un
+      // dispositivo no cierra los demás.
+      //
+      // El cierre NO queda condicionado a que el proveedor conteste: si GoTrue
+      // está caído igual borramos y redirigimos, porque de lo contrario una
+      // caída del proveedor desactivaría el corte por inactividad entero.
+      //
+      // Revisión adversarial (MINOR 3): hay que mirar las DOS formas de fallo.
+      // auth-js **no lanza** en el caso normal: `_signOut` se come 401/403/404 y
+      // **devuelve** `{ error }` para el resto (p. ej. un 5xx de GoTrue). Sin
+      // destructurarlo, la sesión quedaba viva en el emisor sin una sola línea de
+      // log — exactamente el estado que esta rama existe para cerrar.
+      try {
+        const { error: signOutError } = await supabase.auth.signOut({ scope: "local" })
+        if (signOutError) {
+          console.warn(
+            "[middleware] idle signOut returned an error (proceeding to clear cookies):",
+            signOutError.message,
+          )
+        }
+      } catch (signOutError) {
+        console.warn(
+          "[middleware] idle signOut failed (proceeding to clear cookies):",
+          signOutError,
+        )
+      }
+
       // Session is stale: clear auth cookies, lastActivity, and tenant:active
       // (parity with the client logout() path), then redirect to login.
       const url = request.nextUrl.clone()
@@ -175,17 +247,21 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     if (!profile || profile.role !== "admin") {
       const url = request.nextUrl.clone()
       url.pathname = "/dashboard"
-      return applySecurityHeaders(NextResponse.redirect(url))
+      return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
     }
   }
 
   // Authenticated + verified → skip auth pages
   if (isAuthRoute && user?.email_confirmed_at) {
-    const next = request.nextUrl.searchParams.get("next") ?? "/dashboard"
-    const url  = request.nextUrl.clone()
-    url.pathname = next.startsWith("/") ? next : "/dashboard"
-    url.search   = ""
-    return applySecurityHeaders(NextResponse.redirect(url))
+    // D5: el destino de retorno se valida con el helper compartido — el mismo
+    // que consumen `app/auth/callback/route.ts` y el formulario de login.
+    // `resolveSafeRedirect` fija el origen desde el request, conserva la query
+    // del destino en vez de codificarla dentro del path y **comprueba el origen
+    // de la URL resuelta** (BLOCKER 1 de la revisión: `new URL(next, base)` sí
+    // puede cambiar el host, a diferencia del setter de `pathname` que había
+    // antes de esta parte).
+    const url = resolveSafeRedirect(request.nextUrl.searchParams.get("next"), request.url)
+    return applySecurityHeaders(withRotatedSessionCookies(NextResponse.redirect(url), supabaseResponse))
   }
 
   return applySecurityHeaders(supabaseResponse)

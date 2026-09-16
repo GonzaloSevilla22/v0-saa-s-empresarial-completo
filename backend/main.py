@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.core.config import settings
+from backend.core.cors import CORS_ORIGIN_REGEX, allowed_origins
 from backend.core.database import close_pool, close_service_pool, init_pool, init_service_pool
 from backend.core.errors import asyncpg_error_handler, cors_error_headers, problem_response
 from backend.core.redis_client import close_redis, init_redis
@@ -61,10 +62,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Aliadata Backend", version="0.1.0", lifespan=lifespan)
 
+# auth-hardening-jwt-cookies D10 — cierra F5. La combinación anterior
+# (`allow_origins=["*"]` + `allow_credentials=True`) hacía que Starlette
+# REFLEJARA el Origin del llamador: medido en prod, un preflight con
+# `Origin: https://evil.example` volvía con ese mismo origen y con
+# `access-control-allow-credentials: true`.
+#
+# `allow_credentials=False` es lo que permite dejar de reflejar, y no cuesta
+# nada: ninguna credencial ambiental viaja hacia el backend — cero lecturas de
+# cookie en `backend/`, todo es `Authorization: Bearer`, y ningún caller del
+# frontend manda `credentials:'include'`.
+#
+# El criterio de origen permitido vive en `backend/core/cors.py`, compartido
+# con `cors_error_headers` — los cuerpos de problema salen por fuera de este
+# middleware y antes replicaban la reflexión a mano.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.backend_allowed_origin],
-    allow_credentials=True,
+    allow_origins=allowed_origins(),
+    allow_origin_regex=CORS_ORIGIN_REGEX,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

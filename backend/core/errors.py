@@ -6,7 +6,7 @@ import asyncpg
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from backend.core.config import settings
+from backend.core.cors import is_origin_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +72,20 @@ def problem_response(
 def cors_error_headers(request: Request) -> dict[str, str]:
     """Return CORS headers for error responses.
 
-    @app.exception_handler responses bypass Starlette's CORSMiddleware, so
-    we inject the headers manually here.
+    El catch-all de `backend/main.py` vive en el middleware de errores del
+    servidor, por FUERA de `CORSMiddleware`, así que sus respuestas inyectan
+    los encabezados acá.
+
+    auth-hardening-jwt-cookies D10 — cierra la segunda mitad de F5. El
+    criterio anterior era `allowed == "*" or origin == allowed` sobre un
+    default `"*"`: es decir, reflejaba cualquier origen, y encima declaraba
+    credenciales. Ahora delega en el criterio ÚNICO de `backend/core/cors.py`,
+    el mismo que configura el middleware — dos criterios divergen, uno no
+    puede. Y no se declaran credenciales, porque el middleware tampoco.
     """
     origin = request.headers.get("origin", "")
-    allowed = settings.backend_allowed_origin
-    if origin and (allowed == "*" or origin == allowed):
-        return {
-            "access-control-allow-origin": origin,
-            "access-control-allow-credentials": "true",
-        }
+    if is_origin_allowed(origin):
+        return {"access-control-allow-origin": origin}
     return {}
 
 

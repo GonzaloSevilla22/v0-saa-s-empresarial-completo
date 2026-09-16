@@ -51,18 +51,18 @@
 - [x] 3.4 GREEN: activar la palanca **a nivel de entorno, antes de cualquier import de `backend.*`** — `os.environ.setdefault("AUTH_ALLOW_HS256_FALLBACK", "true")` en el **tope** de `backend/tests/conftest.py`, por encima del bloque de imports (`import jwt`…), **y** `AUTH_ALLOW_HS256_FALLBACK: "true"` en el `env:` del job de `.github/workflows/Backend_Tests.yml` (que hoy no define **ninguna** variable, `:60-75`). Un fixture **NO** alcanza: `settings = Settings()` corre en el import del módulo (última línea de `backend/core/config.py`) y `conftest.py:104` parchea `backend.core.auth.settings` dentro de un fixture, mucho después. Con los 17 bloques de patch de `test_auth.py` y el `jwt.encode(..., algorithm="HS256")` de `conftest.py:5`/`:21` **sin reescribirse**
 - [x] 3.4b RED→GREEN del punto anterior, literal: `pytest backend/tests --collect-only` **desde un entorno limpio** (sin variables) se completa. Sin esta task, el validator de 3.1 deja 0 tests recolectados y `--cov-fail-under=87` nunca se evalúa — CI y local en rojo
 - [x] 3.5 TRIANGULATE: correr la suite entera de backend y confirmar cero regresiones sobre el baseline de 1.1
-- [ ] 3.6 Verificar que `app_env` (declarado en `config.py:7` y hoy **no leído en ninguna línea de la app**) queda leído al menos en el validator de CORS de 4.x — o documentar por qué sigue sin lectores
+- [x] 3.6 Verificar que `app_env` (declarado en `config.py:7` y hoy **no leído en ninguna línea de la app**) queda leído al menos en el validator de CORS de 4.x — o documentar por qué sigue sin lectores
 - [x] 3.7 GREEN: documentar el arranque local en `backend/.env.example` (o el README del backend) — `uvicorn` sin `SUPABASE_URL` deja de levantar, y la salida es `AUTH_ALLOW_HS256_FALLBACK=true`. Documentar también que un despliegue deliberado sobre `http://` aborta por el mismo validator, y que esa es la salida
 
 ## 4. Parte A — CORS por allow-list, sin credenciales (D10)
 
-- [ ] 4.1 RED→GREEN: `backend/tests/test_cors_allowlist.py::test_foreign_origin_gets_no_acao` — preflight con `Origin: https://evil.example` → sin `access-control-allow-origin`. Reproduce **F5** medido en prod
-- [ ] 4.2 RED→GREEN: `::test_production_origin_allowed_with_and_without_www` y `::test_vercel_preview_origin_allowed` — GREEN: `allow_origin_regex` con `^https://(www\.)?aliadata\.com\.ar$` y `^https://v0-saa-s-empresarial-completo-eie(-[a-z0-9-]+)?\.vercel\.app$` en `backend/main.py:64-70`
-- [ ] 4.3 RED→GREEN: `::test_localhost_allowed_only_outside_production` — `http://localhost:3000` permitido cuando `app_env != "production"`
-- [ ] 4.4 RED→GREEN: `::test_allow_credentials_is_false` — GREEN: `allow_credentials=False`. Justificación en el design (D10): cero lecturas de cookie en `backend/`, ningún caller manda `credentials:'include'`
-- [ ] 4.5 RED→GREEN: `::test_problem_body_does_not_reflect_foreign_origin` — un 404/422 con formato de problema hacia un origen ajeno tampoco lleva encabezados de CORS. GREEN: `backend/core/errors.py:78-85` (`cors_error_headers`) usa el mismo criterio que el middleware, no `allowed == "*"`
-- [ ] 4.6 RED→GREEN: `test_config_auth_failfast.py::test_wildcard_origin_forbidden_in_production` — con `app_env == "production"` y `backend_allowed_origin == "*"` el arranque falla
-- [ ] 4.7 GREEN: defaults seguros verificados — con `BACKEND_ALLOWED_ORIGIN` **sin definir** (el estado real de Render hoy), prod sigue funcionando por el regex, no por el comodín
+- [x] 4.1 RED→GREEN: `backend/tests/test_cors_allowlist.py::test_foreign_origin_gets_no_acao` — preflight con `Origin: https://evil.example` → sin `access-control-allow-origin`. Reproduce **F5** medido en prod
+- [x] 4.2 RED→GREEN: `::test_production_origin_allowed_with_and_without_www` y `::test_vercel_preview_origin_allowed` — GREEN: `allow_origin_regex` con `^https://(www\.)?aliadata\.com\.ar$` y `^https://v0-saa-s-empresarial-completo-eie(-[a-z0-9-]+)?\.vercel\.app$` en `backend/main.py:64-70`
+- [x] 4.3 RED→GREEN: `::test_localhost_allowed_only_outside_production` — `http://localhost:3000` permitido cuando `app_env != "production"`
+- [x] 4.4 RED→GREEN: `::test_allow_credentials_is_false` — GREEN: `allow_credentials=False`. Justificación en el design (D10): cero lecturas de cookie en `backend/`, ningún caller manda `credentials:'include'`
+- [x] 4.5 RED→GREEN: `::test_problem_body_does_not_reflect_foreign_origin` — un 404/422 con formato de problema hacia un origen ajeno tampoco lleva encabezados de CORS. GREEN: `backend/core/errors.py:78-85` (`cors_error_headers`) usa el mismo criterio que el middleware, no `allowed == "*"`
+- [x] 4.6 RED→GREEN: `test_config_auth_failfast.py::test_wildcard_origin_forbidden_in_production` — con `app_env == "production"` y `backend_allowed_origin == "*"` el arranque falla
+- [x] 4.7 GREEN: defaults seguros verificados — con `BACKEND_ALLOWED_ORIGIN` **sin definir** (el estado real de Render hoy), prod sigue funcionando por el regex, no por el comodín
 
 ## 5. Parte A — Retiro del canal WebSocket (D11)
 

@@ -226,3 +226,41 @@ def test_pytest_still_collects_from_a_clean_environment():
         f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
     assert "error" not in result.stdout.lower()
+
+
+# ── 4.6 — el comodín está prohibido en producción ────────────────────────
+
+
+def test_wildcard_origin_forbidden_in_production():
+    """4.6 RED: `backend_allowed_origin` tiene default `"*"` y `app_env` se
+    declara pero HOY no se lee en ninguna línea de la app. Un despliegue de
+    producción que no defina la variable queda con el comodín activo, que es
+    exactamente el estado que produjo F5."""
+    with pytest.raises(ValidationError) as exc:
+        _settings(
+            supabase_url=VALID_URL, app_env="production", backend_allowed_origin="*"
+        )
+
+    assert "BACKEND_ALLOWED_ORIGIN" in str(exc.value)
+
+
+def test_wildcard_origin_allowed_outside_production():
+    """4.6 TRIANGULATE: fuera de producción el default no rompe el arranque
+    (aunque tampoco se use como origen — ver test_cors_allowlist.py)."""
+    settings = _settings(
+        supabase_url=VALID_URL, app_env="development", backend_allowed_origin="*"
+    )
+
+    assert settings.backend_allowed_origin == "*"
+
+
+def test_production_starts_with_a_concrete_origin():
+    """4.6 TRIANGULATE: producción con un origen concreto arranca normal — sin
+    este caso, un validator que rechazara SIEMPRE en producción pasaría."""
+    settings = _settings(
+        supabase_url=VALID_URL,
+        app_env="production",
+        backend_allowed_origin="https://www.aliadata.com.ar",
+    )
+
+    assert settings.app_env == "production"

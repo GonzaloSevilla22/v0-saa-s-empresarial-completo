@@ -177,5 +177,22 @@ class Settings(BaseSettings):
             )
         return self
 
+    # auth-hardening-jwt-cookies D10 — el comodín de CORS está prohibido en
+    # producción. Junto con `backend/core/cors.py::allowed_origins`, éste es
+    # el primer lector real de `app_env`: el campo se declaraba desde siempre
+    # y NO se leía en ninguna línea de la app, así que "es producción" no
+    # cambiaba ningún comportamiento. Un flag que nadie lee no es un gate.
+    @model_validator(mode="after")
+    def _forbid_wildcard_cors_origin_in_production(self) -> "Settings":
+        if self.app_env == "production" and (self.backend_allowed_origin or "").strip() == "*":
+            raise ValueError(
+                "BACKEND_ALLOWED_ORIGIN='*' está prohibido con APP_ENV=production: "
+                "el comodín combinado con credenciales hace que el backend refleje "
+                "cualquier origen (hallazgo F5). Dejá la variable sin definir —los "
+                "orígenes reales ya están en la allow-list de backend/core/cors.py— "
+                "o poné un origen concreto."
+            )
+        return self
+
 
 settings = Settings()

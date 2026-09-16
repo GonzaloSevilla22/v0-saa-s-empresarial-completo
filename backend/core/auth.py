@@ -1,3 +1,4 @@
+import logging
 from typing import TypedDict
 
 from fastapi import HTTPException, Depends
@@ -6,6 +7,8 @@ import jwt as pyjwt
 from jwt import PyJWKClient, PyJWTError
 from jwt.exceptions import PyJWKClientError
 from backend.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class AuthContext(TypedDict):
@@ -47,11 +50,41 @@ class AuthContext(TypedDict):
 
 _jwks_client: PyJWKClient | None = None
 
+# auth-hardening-jwt-cookies D8 — parámetros de verificación del JWT.
+# `aud`: valor que emite GoTrue para usuarios autenticados. NO es una
+# suposición heredada de la spec vieja (que lo citaba como razón para APAGAR
+# la comprobación): en producción los 40 usuarios de `auth.users` tienen
+# `aud='authenticated'` (medido 2026-09-16), y esa columna es la que GoTrue
+# copia al claim. PyJWT acepta tanto un string como un array que lo contenga.
+_SUPABASE_AUDIENCE = "authenticated"
+# Tolerancia de reloj. Hoy es 0 con `verify_iat` activo, así que un host
+# levemente atrasado respecto del emisor rechaza con 401 tokens recién
+# emitidos (`iat`/`nbf` futuros -> ImmatureSignatureError).
+_JWT_CLOCK_LEEWAY_SECONDS = 30
+# `exp` y `sub` dejan de ser opcionales: hoy `require` está vacío, así que un
+# token válidamente firmado SIN `exp` se acepta por tiempo indefinido, y uno
+# sin `sub` explota más tarde en `payload["sub"]` (KeyError -> 500 por el
+# catch-all de main.py) en vez de ser un 401 honesto.
+_REQUIRED_CLAIMS = ["exp", "sub"]
+
+
+def _normalized_supabase_url() -> str:
+    """URL del proveedor, normalizada **una sola vez** (D8).
+
+    La misma URL gobierna DOS cosas: el emisor esperado del token y la
+    dirección de las claves públicas. Hoy una barra final es invisible porque
+    la URL de JWKS la tolera; en cuanto se verifica el emisor, convierte el
+    `iss` esperado en `https://…supabase.co//auth/v1` y produce **401 para el
+    100% del tráfico legítimo**. Normalizar acá —y no en cada punto de uso—
+    es lo que impide que una de las dos quede sin normalizar.
+    """
+    return (settings.supabase_url or "").rstrip("/")
+
 
 def get_jwks_client() -> PyJWKClient:
     global _jwks_client
     if _jwks_client is None:
-        jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        jwks_url = f"{_normalized_supabase_url()}/auth/v1/.well-known/jwks.json"
         _jwks_client = PyJWKClient(jwks_url, cache_keys=True)
     return _jwks_client
 
@@ -67,20 +100,28 @@ def _decode_supabase_jwt(token: str) -> dict:
 
     Production: uses JWKS (ES256/RS256) when supabase_url is configured.
     Dev/test: falls back to HS256 with supabase_jwt_secret when supabase_url is absent.
-    verify_aud disabled: Supabase emits aud="authenticated" (non-URL string).
+
+    auth-hardening-jwt-cookies D8 — la verificación exige ahora **emisor**
+    (sólo en la rama JWKS: la rama del secreto compartido corre justamente
+    cuando NO hay URL de proveedor configurada, así que no hay emisor contra
+    el cual comparar), **audiencia** declarada en vez de comprobación
+    apagada, `exp` y `sub` obligatorios, y una tolerancia de reloj acotada.
     """
     if not token:
         raise HTTPException(status_code=401, detail="Invalid token")
+    base_url = _normalized_supabase_url()
     try:
-        supabase_url = settings.supabase_url
-        if isinstance(supabase_url, str) and supabase_url.startswith("http"):
+        if base_url.startswith("http"):
             client = get_jwks_client()
             signing_key = client.get_signing_key_from_jwt(token)
             payload = pyjwt.decode(
                 token,
                 signing_key,
                 algorithms=["ES256", "RS256"],
-                options={"verify_aud": False},
+                audience=_SUPABASE_AUDIENCE,
+                issuer=f"{base_url}/auth/v1",
+                leeway=_JWT_CLOCK_LEEWAY_SECONDS,
+                options={"verify_aud": True, "require": _REQUIRED_CLAIMS},
             )
         else:
             # Test/dev fallback: HS256 with shared secret
@@ -88,9 +129,23 @@ def _decode_supabase_jwt(token: str) -> dict:
                 token,
                 settings.supabase_jwt_secret,
                 algorithms=["HS256"],
-                options={"verify_aud": False},
+                audience=_SUPABASE_AUDIENCE,
+                leeway=_JWT_CLOCK_LEEWAY_SECONDS,
+                options={"verify_aud": True, "require": _REQUIRED_CLAIMS},
             )
-    except (PyJWTError, PyJWKClientError):
+    except PyJWKClientError as exc:
+        # D8: `PyJWKClientError` hereda de `PyJWTError`, así que sin este
+        # `except` propio —y ANTES del genérico— una caída del proveedor de
+        # claves es indistinguible en los registros de un token forjado.
+        # Son dos incidentes con respuestas operativas distintas. La
+        # respuesta al cliente NO cambia: sigue siendo 401.
+        logger.warning(
+            "JWKS: no se pudo resolver la clave de firma del proveedor (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
     return payload
 

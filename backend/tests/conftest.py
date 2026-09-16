@@ -12,9 +12,20 @@ TEST_ACCOUNT_ID = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
 
 def make_token(extra: dict = {}) -> str:
+    """Token de test por el camino HS256 (dev/CI).
+
+    auth-hardening-jwt-cookies D8: el payload incluye `aud="authenticated"`
+    porque la verificación pasa a declarar la audiencia esperada en vez de
+    apagar la comprobación. No es un ajuste para "que pasen los tests": es
+    la forma real del token que emite GoTrue —los 40 usuarios de producción
+    tienen `auth.users.aud='authenticated'`, columna que GoTrue copia al
+    claim—, así que el doble se vuelve MÁS fiel, no menos. `extra` sigue
+    pudiendo sobreescribir cualquier claim, incluido `aud`.
+    """
     payload = {
         "sub": TEST_USER_ID,
         "role": "authenticated",
+        "aud": "authenticated",
         "exp": int(time.time()) + 3600,
     }
     payload.update(extra)

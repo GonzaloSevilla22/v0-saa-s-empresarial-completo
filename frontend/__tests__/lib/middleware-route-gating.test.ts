@@ -20,6 +20,7 @@ vi.mock("@supabase/ssr", async () => {
   return { createServerClient: mod.createServerClientMock }
 })
 
+import * as middlewareHarness from "./helpers/middleware-harness"
 import {
   harness,
   resetHarness,
@@ -102,10 +103,65 @@ describe("updateSession — /api/** no recibe redirect", () => {
     expect(isRedirect(response)).toBe(false)
   })
 
+  // Hallazgo de la revisión adversarial de la Parte B: la purga de sesión
+  // muerta corre ANTES de calcular la ruta y redirigía para cualquier path,
+  // `/api/**` incluido — es decir, el propio manejador de token de la Parte C
+  // habría recibido un 307 a HTML donde espera JSON, que es exactamente lo que
+  // D4 declara que no puede pasar.
+  it("la purga de sesión muerta NO redirige una ruta de API, pero igual borra las cookies", async () => {
+    harness.user = null
+    harness.authError = { message: "AuthApiError: Refresh Token Not Found" }
+
+    const response = await updateSession(
+      buildRequest("/api/auth/token", { "sb-project-auth-token": "base64-muerta" }),
+    )
+
+    expect(isRedirect(response)).toBe(false)
+    expect(redirectTarget(response)).toBeNull()
+    const sessionLines = response.headers
+      .getSetCookie()
+      .filter((line) => line.startsWith("sb-"))
+    expect(sessionLines.length).toBeGreaterThan(0)
+    for (const line of sessionLines) {
+      expect(line, `no es un borrado: ${line}`).toMatch(/max-age=0|expires=thu, 01 jan 1970/i)
+    }
+  })
+
+  it("contraste: la misma purga en una página SÍ redirige al login", async () => {
+    harness.user = null
+    harness.authError = { message: "AuthApiError: Refresh Token Not Found" }
+
+    const response = await updateSession(
+      buildRequest("/caja", { "sb-project-auth-token": "base64-muerta" }),
+    )
+
+    expect(isRedirect(response)).toBe(true)
+    expect(new URL(redirectTarget(response)!).pathname).toBe("/auth/login")
+  })
+
   it("contraste: la misma falta de sesión en una página SÍ redirige", async () => {
     harness.user = null
     const response = await updateSession(buildRequest("/caja"))
     expect(isRedirect(response)).toBe(true)
+  })
+})
+
+// ── F3: el middleware construye el cliente con las opciones compartidas ────
+describe("updateSession — atributos de cookie", () => {
+  it("pasa `cookieOptions` al construir el cliente (no el default de la librería)", async () => {
+    harness.user = null
+    await updateSession(buildRequest("/caja"))
+
+    // Lo que llegó al `createServerClient` real en producción, medido acá sobre
+    // el doble: sin esto regía el default de `@supabase/ssr`, que NO tiene
+    // clave `secure`.
+    expect(middlewareHarness.lastCookieOptions).toBeDefined()
+    expect(middlewareHarness.lastCookieOptions).toMatchObject({
+      path: "/",
+      sameSite: "lax",
+      httpOnly: false,
+    })
+    expect(middlewareHarness.lastCookieOptions).toHaveProperty("secure")
   })
 })
 

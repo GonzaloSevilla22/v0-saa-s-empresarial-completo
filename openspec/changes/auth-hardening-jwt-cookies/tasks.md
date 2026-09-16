@@ -163,11 +163,11 @@
 
 ## 16. Parte B — Verificación y cierre
 
-- [ ] 16.1 `pnpm vitest run` completo: cero regresiones sobre el baseline de 11.1
-- [ ] 16.2 `pnpm tsc --noEmit`: sin errores nuevos sobre 11.2
+- [x] 16.1 `pnpm vitest run` completo: cero regresiones sobre el baseline de 11.1
+- [x] 16.2 `pnpm tsc --noEmit`: sin errores nuevos sobre 11.2
 - [ ] 16.3 Humo en el stack local: login → dashboard → navegar a una de las 12 rutas antes descubiertas → cerrar sesión → verificar que una segunda pestaña abierta se entera; y que cerrar sesión en el navegador A **no** desloguea al navegador B
 - [ ] 16.4 **Verificación post-merge en prod**: `curl` anónimo sobre los 12 árboles de 11.3 → **307** a `/auth/login?next=…`; `curl` anónimo sobre `/planes` → 307 sin `/login` en el stream
-- [ ] 16.5 Ronda de revisión adversarial pre-merge; aplicar findings y re-verificar
+- [x] 16.5 Ronda de revisión adversarial pre-merge; aplicar findings y re-verificar
 - [ ] 16.6 Registrar la ficha de la Parte B en `CHANGES.md`; sign-off del PO antes de empezar la Parte C
 
 ## 17. Parte C — Checkpoint y red de seguridad

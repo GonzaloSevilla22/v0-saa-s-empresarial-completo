@@ -19,7 +19,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { isProtectedPath, PUBLIC_PREFIXES } from "@/lib/auth/route-access"
+import { isProtectedPath, isApiPath, isPublicPath, PUBLIC_PREFIXES } from "@/lib/auth/route-access"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DASHBOARD_DIR = path.resolve(HERE, "..", "..", "app", "(dashboard)")
@@ -158,9 +158,18 @@ describe("D4 — las rutas de API del propio dominio no se redirigen", () => {
     expect(isProtectedPath(pathname)).toBe(false)
   })
 
-  it("pero una ruta de API sigue reconociéndose como tal (no es 'pública')", () => {
-    expect(isProtectedPath("/api/auth/token")).toBe(false)
+  it("pero una ruta de API NO es 'pública': es una tercera categoría", () => {
+    // La distinción importa: `/api/**` queda fuera del redirect, no fuera del
+    // control de acceso. Declararla pública invitaría a tratarla como la
+    // landing, y cada handler tiene que seguir exigiendo sesión por su cuenta.
+    expect(isApiPath("/api/auth/token")).toBe(true)
+    expect(isPublicPath("/api/auth/token")).toBe(false)
     expect(PUBLIC_PREFIXES).not.toContain("/api")
+  })
+
+  it("no confunde una ruta del dashboard que empiece con las mismas letras", () => {
+    expect(isApiPath("/apiarios")).toBe(false)
+    expect(isProtectedPath("/apiarios")).toBe(true)
   })
 })
 

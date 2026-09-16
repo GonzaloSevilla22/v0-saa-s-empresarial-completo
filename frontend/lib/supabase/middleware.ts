@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
-import { isProtectedPath as isProtectedRoute } from "@/lib/auth/route-access"
+import { isProtectedPath as isProtectedRoute, isApiPath as isApiRoute } from "@/lib/auth/route-access"
 import { safeNext } from "@/lib/auth/safe-next"
 import { authCookieOptions } from "@/lib/supabase/cookie-options"
 
@@ -124,16 +124,23 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     error: authError,
   } = await supabase.auth.getUser()
 
+  const { pathname } = request.nextUrl
+
   // Stale session after DB reset / token rotation failure
   if (authError?.message.includes("Refresh Token Not Found")) {
-    const redirect = NextResponse.redirect(new URL("/auth/login", request.url))
+    // D4: `/api/**` nunca recibe redirect. Esta rama corre ANTES de calcular la
+    // ruta y redirigía para cualquier path, así que el manejador de token de la
+    // Parte C habría recibido un 307 hacia HTML donde espera JSON. Las cookies
+    // muertas se borran igual: lo que cambia es la forma de la respuesta, no el
+    // efecto sobre la sesión.
+    const purge = isApiRoute(pathname)
+      ? NextResponse.next({ request })
+      : NextResponse.redirect(new URL("/auth/login", request.url))
     request.cookies.getAll().forEach((cookie) => {
-      if (cookie.name.startsWith("sb-")) redirect.cookies.delete(cookie.name)
+      if (cookie.name.startsWith("sb-")) purge.cookies.delete(cookie.name)
     })
-    return applySecurityHeaders(redirect)
+    return applySecurityHeaders(purge)
   }
-
-  const { pathname } = request.nextUrl
 
   // D4: protegido por exclusión (allow-list pública + `/api/**` nunca gateada
   // por redirect), no por una lista enumerada a mano.

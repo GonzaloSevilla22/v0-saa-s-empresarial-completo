@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
+import { isProtectedPath as isProtectedRoute } from "@/lib/auth/route-access"
 
 // ── Security Headers ───────────────────────────────────────────────────────
 // Applied to every response. Tune CSP per feature (e.g., add blob: for file previews).
@@ -52,13 +53,14 @@ export function buildContentSecurityPolicy(): string {
 }
 
 // ── Protected routes ───────────────────────────────────────────────────────
-// Exported for testability (idle-server-enforcement.test.ts verifies that
-// /auth/* routes are not in this list, ensuring no idle-check loop is possible).
-export const PROTECTED_PREFIXES = [
-  "/dashboard", "/ventas", "/compras", "/productos", "/stock",
-  "/clientes", "/proveedores", "/gastos", "/insights", "/simulador", "/comunidad",
-  "/cursos", "/configuracion", "/copiloto-ia", "/ferias", "/seguros", "/admin",
-]
+// auth-hardening-jwt-cookies (D4): la lista enumerada `PROTECTED_PREFIXES` se
+// retiró. La decisión vive ahora en `lib/auth/route-access.ts`, por exclusión:
+// allow-list de rutas públicas + protección por defecto de todo lo demás, y un
+// test que lee `app/(dashboard)/` del filesystem para que una ruta nueva sin
+// cobertura rompa CI en vez de nacer sin gate (F1).
+// Re-exportado acá para que los consumidores existentes sigan importando la
+// decisión de protección desde el módulo del middleware.
+export { isProtectedPath, isApiPath, isPublicPath, PUBLIC_PREFIXES } from "@/lib/auth/route-access"
 
 const AUTH_ROUTES = ["/auth/login", "/auth/register"]
 
@@ -103,7 +105,9 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
 
   const { pathname } = request.nextUrl
 
-  const isProtected    = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p))
+  // D4: protegido por exclusión (allow-list pública + `/api/**` nunca gateada
+  // por redirect), no por una lista enumerada a mano.
+  const isProtected    = isProtectedRoute(pathname)
   const isAuthRoute    = AUTH_ROUTES.some((p) => pathname.startsWith(p))
   const isAdminRoute   = pathname.startsWith("/admin")
 
@@ -126,8 +130,8 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
   // Only runs on the protected + authenticated + email-verified happy path.
   // The client timer writes the auth:last-activity cookie on interaction;
   // we only read it here (Decision 1). Background traffic never resets the clock.
-  // Scoping: PROTECTED_PREFIXES excludes /auth/*, so /auth/login is never
-  // idle-gated and the redirect cannot loop (Decision 5).
+  // Scoping: la allow-list pública incluye /auth/*, así que /auth/login nunca
+  // queda idle-gated y el redirect no puede entrar en loop (Decision 5).
   if (isProtected && user && user.email_confirmed_at) {
     const rawCookie = request.cookies.get(COOKIE_KEYS.LAST_ACTIVITY)?.value
     const idleResult = evaluateIdle(rawCookie, Date.now())

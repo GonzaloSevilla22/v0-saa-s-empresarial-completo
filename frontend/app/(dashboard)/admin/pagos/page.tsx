@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { getAuthHeaders, handleUnauthorized } from "@/lib/api/auth-headers"
 import { pythonClient } from "@/lib/api/python-client"
 import { Receipt, Download, FileText, AlertTriangle, Send, CheckCircle2, FileCheck } from "lucide-react"
 import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
@@ -143,13 +144,16 @@ export default function AdminPagosPage() {
     setDownloadingId(r.id)
     setError(null)
     try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token ?? ""
+      // auth-hardening-jwt-cookies (D21/14.8): antes se mandaba
+      // `Bearer ` VACÍO cuando no había sesión. Los encabezados los arma el
+      // helper compartido, que omite el encabezado si no hay token.
+      const headers = await getAuthHeaders()
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_BACKEND_URL}/payments/receipt/${r.id}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers },
       )
+      // D7: un 401 sin sesión lleva al login en vez de morir en un cartel.
+      if (res.status === 401) { await handleUnauthorized() }
       if (!res.ok) throw new Error("No se pudo generar el PDF del recibo.")
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)

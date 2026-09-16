@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 const signOutMock = vi.fn()
 const pushMock = vi.fn()
 const deleteCookieMock = vi.fn()
+const clearAuthUxCookiesMock = vi.fn()
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(() => ({
@@ -22,9 +23,14 @@ vi.mock("@/lib/supabase/client", () => ({
   })),
 }))
 
+// auth-hardening-jwt-cookies (task 14.2): el doble de `@/lib/cookies` tiene que
+// exponer `clearAuthUxCookies`. Sin esta línea, en cuanto `performIdleLogout`
+// lo importa el módulo devuelve `undefined` y el archivo entero muere con un
+// `TypeError` que no es el RED buscado.
 vi.mock("@/lib/cookies", () => ({
-  COOKIE_KEYS: { TENANT: "tenant:active" },
+  COOKIE_KEYS: { TENANT: "tenant:active", LAST_ACTIVITY: "auth:last-activity" },
   deleteCookie: (...args: unknown[]) => deleteCookieMock(...args),
+  clearAuthUxCookies: (...args: unknown[]) => clearAuthUxCookiesMock(...args),
 }))
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -36,6 +42,7 @@ describe("performIdleLogout", () => {
     signOutMock.mockReset()
     pushMock.mockReset()
     deleteCookieMock.mockReset()
+    clearAuthUxCookiesMock.mockReset()
     signOutMock.mockResolvedValue({ error: null })
   })
 
@@ -46,9 +53,36 @@ describe("performIdleLogout", () => {
     expect(signOutMock).toHaveBeenCalledTimes(1)
   })
 
-  it("deletes the tenant:active cookie", async () => {
+  // auth-hardening-jwt-cookies (task 14.2): la aserción es la misma —el cierre
+  // por inactividad limpia `tenant:active`— pero pasa por el mecanismo
+  // compartido. Que `clearAuthUxCookies()` borre esa cookie lo fija
+  // `__tests__/lib/clear-auth-ux-cookies.test.ts`.
+  it("clears the session UX cookies (tenant:active included)", async () => {
     await performIdleLogout({ push: pushMock }, "/dashboard")
-    expect(deleteCookieMock).toHaveBeenCalledWith("tenant:active")
+    expect(clearAuthUxCookiesMock).toHaveBeenCalledTimes(1)
+  })
+
+  // ── 14.2 ::clears_last_activity_cookie ────────────────────────────────────
+  it("clears auth:last-activity — sin esto el primer re-login rebota", async () => {
+    await performIdleLogout({ push: pushMock }, "/dashboard")
+
+    // El cierre por inactividad NO puede dejar viva la cookie de actividad:
+    // sobrevive una semana y el middleware, al leerla vencida, descarta las
+    // cookies `sb-*` recién emitidas por el login siguiente.
+    expect(clearAuthUxCookiesMock).toHaveBeenCalled()
+    // Y no vuelve al borrado suelto de una sola cookie.
+    expect(deleteCookieMock).not.toHaveBeenCalled()
+  })
+
+  // ── 14.3 ::uses_local_scope ───────────────────────────────────────────────
+  it("uses local scope — cerrar por inactividad no desloguea los otros dispositivos", async () => {
+    await performIdleLogout({ push: pushMock }, "/dashboard")
+
+    // `signOut()` pelado es GLOBAL por default de la librería
+    // (GoTrueClient.js:3150): revocaba los refresh tokens de todos los
+    // dispositivos, así que el POS del mostrador se caía cuando el dueño
+    // dejaba el celular quieto veinte minutos.
+    expect(signOutMock).toHaveBeenCalledWith({ scope: "local" })
   })
 
   it("redirects to /auth/login with reason=idle and next param", async () => {

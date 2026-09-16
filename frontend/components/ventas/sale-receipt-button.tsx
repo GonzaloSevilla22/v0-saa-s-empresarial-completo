@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/auth-context"
-import { createClient } from "@/lib/supabase/client"
+import { getAuthHeaders, handleUnauthorized } from "@/lib/api/auth-headers"
 import {
   generateReceiptHTML,
   generateReceiptText,
@@ -128,16 +128,17 @@ export function SaleReceiptButton({
     setLoadingWa(true)
     try {
       const payload = buildSalesReceiptPdfPayload(op, receiptOpts)
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
+      // auth-hardening-jwt-cookies (D21/14.8): antes se mandaba
+      // `Bearer ` VACÍO cuando no había sesión, en vez de omitir el
+      // encabezado. Los encabezados los arma ahora el helper compartido.
+      const headers = await getAuthHeaders({ "Content-Type": "application/json" })
       const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sales/receipt-pdf`, {
         method:  "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization:  `Bearer ${session?.access_token ?? ""}`,
-        },
+        headers,
         body: JSON.stringify(payload),
       })
+      // D7: un 401 sin sesión lleva al login en vez de morir en un toast.
+      if (res.status === 401) { await handleUnauthorized() }
       if (!res.ok) throw new Error("pdf")
 
       const blob = await res.blob()

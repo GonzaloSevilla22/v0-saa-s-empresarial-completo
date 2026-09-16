@@ -41,6 +41,8 @@ interface HarnessState {
   cookiesToRotate: RotatedCookie[]
   /** Opciones con las que se llamó a `auth.signOut()`, en orden. */
   signOutCalls: unknown[]
+  /** Si es true, `auth.signOut()` **lanza** (proveedor caído / red rota). */
+  signOutRejects: boolean
   /** Orden de eventos observados ("signOut", "getUser"), para aserciones de secuencia. */
   events: string[]
 }
@@ -51,6 +53,7 @@ export const harness: HarnessState = {
   profileRole: null,
   cookiesToRotate: [],
   signOutCalls: [],
+  signOutRejects: false,
   events: [],
 }
 
@@ -60,6 +63,7 @@ export function resetHarness(): void {
   harness.profileRole = null
   harness.cookiesToRotate = []
   harness.signOutCalls = []
+  harness.signOutRejects = false
   harness.events = []
 }
 
@@ -101,6 +105,9 @@ export function createServerClientMock(
       async signOut(signOutOptions?: unknown) {
         harness.events.push("signOut")
         harness.signOutCalls.push(signOutOptions)
+        if (harness.signOutRejects) {
+          throw new Error("GoTrue no responde")
+        }
         return { error: null }
       },
     },

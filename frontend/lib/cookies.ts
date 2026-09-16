@@ -64,6 +64,24 @@ export function getClientCookie(key: CookieKey): string | null {
   return match ? decodeURIComponent(match.split("=")[1]) : null
 }
 
+/**
+ * Borra TODAS las cookies de experiencia asociadas a la sesión.
+ *
+ * auth-hardening-jwt-cookies (D6). Antes cada camino de cierre borraba una cosa
+ * distinta: `logout()` y `performIdleLogout()` sólo `tenant:active`,
+ * `closeAllSessions()` ninguna, y el único lugar que borraba
+ * `auth:last-activity` era el middleware. De esa divergencia salía el bounce
+ * del **primer** re-login después de un cierre por inactividad: la cookie de
+ * actividad sobrevivía con `max-age` de una semana, el middleware la leía
+ * vencida y descartaba las cookies `sb-*` recién emitidas.
+ *
+ * Los tres caminos de cierre llaman a este helper.
+ */
+export function clearAuthUxCookies(): void {
+  deleteCookie(COOKIE_KEYS.LAST_ACTIVITY)
+  deleteCookie(COOKIE_KEYS.TENANT)
+}
+
 // ── Server-side helpers (for Server Components and middleware) ─────────────
 // Usage: import { cookies } from "next/headers"; getServerCookie(await cookies(), "ui:theme")
 

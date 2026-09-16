@@ -163,6 +163,25 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     const idleResult = evaluateIdle(rawCookie, Date.now())
 
     if (idleResult.action === "logout") {
+      // auth-hardening-jwt-cookies (D6): revocar contra el proveedor ANTES de
+      // borrar. Hasta este change esta rama borraba las cookies `sb-*` y la
+      // sesión seguía viva en GoTrue, con su refresh token utilizable desde
+      // cualquier copia — el caso exacto que el resto del change vuelve
+      // imposible de explotar. `scope: 'local'`: el corte por inactividad de un
+      // dispositivo no cierra los demás.
+      //
+      // El cierre NO queda condicionado a que el proveedor conteste: si GoTrue
+      // está caído igual borramos y redirigimos, porque de lo contrario una
+      // caída del proveedor desactivaría el corte por inactividad entero.
+      try {
+        await supabase.auth.signOut({ scope: "local" })
+      } catch (signOutError) {
+        console.warn(
+          "[middleware] idle signOut failed (proceeding to clear cookies):",
+          signOutError,
+        )
+      }
+
       // Session is stale: clear auth cookies, lastActivity, and tenant:active
       // (parity with the client logout() path), then redirect to login.
       const url = request.nextUrl.clone()

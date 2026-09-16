@@ -3,9 +3,10 @@
  *
  * Design decision (design.md §Decision 1 + §Decision 8):
  *   Idle logout uses the same sign-out path as the regular logout in
- *   auth-context.tsx: supabase.auth.signOut() + clear tenant:active cookie.
- *   It adds `?reason=idle&next=<pathname>` to the redirect so the login page
- *   can explain the session was closed due to inactivity.
+ *   auth-context.tsx: `supabase.auth.signOut({ scope: 'local' })` +
+ *   `clearAuthUxCookies()`. It adds `?reason=idle&next=<pathname>` to the
+ *   redirect so the login page can explain the session was closed due to
+ *   inactivity.
  *
  * This function is intentionally extracted from the React hook/provider so it
  * can be unit-tested without a DOM or React context, and so the transport
@@ -13,7 +14,7 @@
  */
 
 import { createClient } from "@/lib/supabase/client"
-import { deleteCookie, COOKIE_KEYS } from "@/lib/cookies"
+import { clearAuthUxCookies } from "@/lib/cookies"
 
 /** Minimal router interface — matches the object returned by `useRouter()`. */
 export interface RouterLike {
@@ -22,8 +23,9 @@ export interface RouterLike {
 
 /**
  * Performs the idle logout sequence:
- *   1. Sign out from Supabase (local scope, matching the existing `logout()`).
- *   2. Clear the `tenant:active` cookie.
+ *   1. Sign out from Supabase con `scope: 'local'` (igual que `logout()`).
+ *   2. Borrar TODAS las cookies de experiencia de la sesión
+ *      (`auth:last-activity` y `tenant:active`).
  *   3. Redirect to `/auth/login?reason=idle&next=<currentPath>`.
  *
  * The function is idempotent: if Supabase returns an error (e.g. session already
@@ -39,15 +41,22 @@ export async function performIdleLogout(
 ): Promise<void> {
   const supabase = createClient()
 
-  // Sign out (local scope — same as auth-context.tsx logout())
-  const { error } = await supabase.auth.signOut()
+  // auth-hardening-jwt-cookies (D6): `scope: 'local'` explícito. El
+  // `signOut()` pelado es GLOBAL por default de la librería
+  // (`GoTrueClient.js:3150`), así que cerrar por inactividad en el celular
+  // deslogueaba la tablet del mostrador. Ese comentario decía "local scope"
+  // desde antes de ser cierto; ahora lo es.
+  const { error } = await supabase.auth.signOut({ scope: "local" })
   if (error) {
     // Session may already be gone; log but do not throw — always redirect.
     console.warn("[idle-logout] signOut error (proceeding to redirect):", error.message)
   }
 
-  // Clear tenant cookie (same as auth-context.tsx logout())
-  deleteCookie(COOKIE_KEYS.TENANT)
+  // D6: borra `auth:last-activity` **y** `tenant:active`. Antes borraba sólo la
+  // segunda, y la de actividad sobrevivía una semana: el middleware la leía
+  // vencida en el re-login y descartaba las cookies `sb-*` recién emitidas —
+  // el bounce del primer reingreso.
+  clearAuthUxCookies()
 
   // Redirect with idle context so the login page can explain and return the user.
   const next = encodeURIComponent(currentPath)

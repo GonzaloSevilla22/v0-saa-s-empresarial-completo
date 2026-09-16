@@ -31,6 +31,10 @@ export default function LoginPage() {
   const nextPath = searchParams.get("next") ?? "/dashboard"
   // reason=idle: session was closed automatically due to inactivity
   const isIdleLogout = searchParams.get("reason") === "idle"
+  // auth-hardening-jwt-cookies (D7, task 14.10): reason=expired llega cuando una
+  // llamada al backend responde 401 y ya no hay sesión. Sin este aviso el
+  // usuario queda frente a un formulario que no pidió, sin saber por qué.
+  const isExpiredSession = searchParams.get("reason") === "expired"
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -67,6 +71,15 @@ export default function LoginPage() {
             className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
           >
             Tu sesión se cerró por inactividad. Por favor, iniciá sesión nuevamente.
+          </div>
+        )}
+
+        {isExpiredSession && (
+          <div
+            role="alert"
+            className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          >
+            Tu sesión venció. Por favor, iniciá sesión nuevamente para continuar.
           </div>
         )}
 

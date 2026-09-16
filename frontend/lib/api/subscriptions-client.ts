@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client"
+import { getAuthHeaders, handleUnauthorized } from "@/lib/api/auth-headers"
 
 // mp-real-subscriptions (D2bis, PR4) — cliente del flujo de suscripciones
 // reales del backend. `billing_subscriptions_enabled` es una palanca de
@@ -44,16 +44,27 @@ export type SubscriptionsFeatureResult<T> =
   | { enabled: true; data: T }
   | { enabled: false }
 
-async function authHeaders(): Promise<HeadersInit> {
-  const supabase = createClient()
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  const token = session?.access_token ?? ""
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
+/**
+ * auth-hardening-jwt-cookies (D21): este transporte tenía su propia copia de
+ * "armar los encabezados". Ahora delega en la implementación compartida, que es
+ * la única que compone el Bearer y la que decide omitirlo sin token.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  return getAuthHeaders({ "Content-Type": "application/json" })
+}
+
+/**
+ * auth-hardening-jwt-cookies (D7): un 401 de este transporte recibe el mismo
+ * tratamiento que el de `python-client` — si no hay sesión, se navega al login
+ * con el motivo de vencimiento y el destino de retorno.
+ */
+async function unauthorizedError(): Promise<Error> {
+  const navigated = await handleUnauthorized()
+  return new Error(
+    navigated
+      ? "Tu sesión venció. Te llevamos al inicio de sesión."
+      : "No autorizado para esta operación.",
+  )
 }
 
 async function parseErrorDetail(response: Response): Promise<string> {
@@ -97,6 +108,9 @@ export async function createSubscription(
   if (response.status === 503) {
     return { enabled: false }
   }
+  if (response.status === 401) {
+    throw await unauthorizedError()
+  }
   if (!response.ok) {
     const detail = await parseErrorDetail(response)
     if (response.status === 409) {
@@ -123,6 +137,9 @@ export async function cancelSubscription(): Promise<
   if (response.status === 503) {
     return { enabled: false }
   }
+  if (response.status === 401) {
+    throw await unauthorizedError()
+  }
   if (!response.ok) {
     throw new Error(await parseErrorDetail(response))
   }
@@ -144,6 +161,9 @@ export async function getSubscriptionStatus(): Promise<
 
   if (response.status === 503) {
     return { enabled: false }
+  }
+  if (response.status === 401) {
+    throw await unauthorizedError()
   }
   if (response.status === 404) {
     return { enabled: true, data: null }

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
 import { getEffectivePlan } from "@/lib/plan-utils"
 import { buildProfileUpdatePayload, type ProfileUpdateData } from "@/lib/profile-update"
+import { clearAuthUxCookies } from "@/lib/cookies"
 
 // G11 (H9): el tipo y el armado del payload viven en la capa canónica
 // (lib/profile-update.ts) — null limpia la columna, undefined la omite.
@@ -292,10 +293,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase])
 
   const logout = useCallback(async () => {
-    const { error } = await supabase.auth.signOut()
+    // auth-hardening-jwt-cookies (D6): `scope: 'local'` explícito. El
+    // `signOut()` pelado es GLOBAL por default de la librería
+    // (`GoTrueClient.js:3150`), así que cerrar sesión en el celular revocaba
+    // los refresh tokens de TODOS los dispositivos y tiraba abajo el POS del
+    // mostrador. `closeAllSessions()` es la acción explícita para eso.
+    const { error } = await supabase.auth.signOut({ scope: 'local' })
     if (error) throw error
-    // Clear tenant cookie on logout so a different user doesn't inherit the workspace
-    document.cookie = "tenant:active=; path=/; max-age=0"
+    // D6: borra todas las cookies de experiencia de la sesión
+    // (`auth:last-activity` además de `tenant:active`) por el mecanismo
+    // compartido con `performIdleLogout()` y `closeAllSessions()`.
+    clearAuthUxCookies()
     router.push("/auth/login")
   }, [supabase, router])
 
@@ -340,9 +348,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const closeAllSessions = useCallback(async () => {
     // scope: 'global' revokes all refresh tokens including the current device.
-    // The user will be redirected to login by the auth state change listener.
+    // Es la ÚNICA acción que conserva el alcance global (D6).
     const { error } = await supabase.auth.signOut({ scope: 'global' })
     if (error) throw error
+    // D6: antes de este change no borraba ninguna cookie de experiencia.
+    clearAuthUxCookies()
     router.push("/auth/login")
   }, [supabase, router])
 

@@ -102,6 +102,19 @@ jobs:
           BACKEND_ALLOWED_ORIGIN: http://localhost:3000
           REDIS_URL: ''
           WSFE_ADAPTER_MODE: stub
+          # auth-hardening-jwt-cookies D9 (hallazgo B1 de la revisión
+          # adversarial del apply): el paso "Export local Supabase env" escribe
+          # `SUPABASE_URL=$API_URL`, y el `API_URL` del Supabase local es
+          # `http://127.0.0.1:54321` — **http**, no https. El validator de
+          # `Settings` exige `https://` cuando esta palanca está apagada, y
+          # corre en el IMPORT de `backend.core.config`, así que uvicorn moría
+          # en el arranque y "Wait for backend health" fallaba a los 60 s.
+          # Declararla acá NO cambia la rama de verificación que se ejercita:
+          # la elección sigue siendo por `startswith("http")`, así que el
+          # backend de CI verifica contra el JWKS del GoTrue local (que sirve
+          # una clave ES256 y declara `issuer` http://127.0.0.1:54321/auth/v1).
+          # La palanca sólo desactiva el fail-fast para este entorno de `http`.
+          AUTH_ALLOW_HS256_FALLBACK: 'true'
         run: |
           nohup python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 > backend-uvicorn.log 2>&1 &
 

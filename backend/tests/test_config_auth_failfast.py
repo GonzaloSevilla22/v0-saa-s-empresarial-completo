@@ -228,6 +228,152 @@ def test_pytest_still_collects_from_a_clean_environment():
     assert "error" not in result.stdout.lower()
 
 
+# ── 3.4c — TODOS los workflows que arrancan el proceso, no sólo uno ──────
+#
+# Hallazgo B1 de las dos revisiones adversariales del apply (2026-09-16), y la
+# regla del proyecto que lo explica: **al endurecer un contrato, migrar TODOS
+# los callers**. La task 3.4 migró el `env:` de `Backend_Tests.yml` y el design
+# no nombraba el otro caller: `E2E_Tests.yml` levanta `uvicorn backend.main:app`
+# con `SUPABASE_URL=$API_URL` del Supabase local, que es **`http://`**
+# 127.0.0.1:54321 — y sin la palanca el validator de D9 aborta el arranque, así
+# que el paso "Wait for backend health" moría a los 60 s. Un workflow que lanza
+# el proceso es un caller del contrato de `Settings`.
+#
+# El criterio es deliberadamente **estático y visible**: sirve lo que está
+# escrito en el archivo del workflow, no lo que un paso anterior haya escrito
+# en `$GITHUB_ENV` (que es justamente cómo el valor `http://` entraba sin que
+# nadie lo viera). Si el valor no se puede leer en el workflow, hay que
+# declarar la palanca.
+
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+
+# Marcadores de "este paso importa `backend.core.config`" — que es donde corre
+# el validator de D9, porque `settings = Settings()` es la última línea del
+# módulo.
+_BACKEND_BOOT_MARKERS = (
+    "backend.main:app",
+    "pytest backend/tests",
+    "import backend.core",
+)
+
+_TRUTHY = {"true", "1", "yes", "on"}
+
+
+def _boots_the_backend(run: str) -> bool:
+    return any(marker in run for marker in _BACKEND_BOOT_MARKERS)
+
+
+def _declares_a_verification_path(*envs: dict | None) -> bool:
+    """¿El entorno declarado ALCANZA para que `Settings()` no aborte?
+
+    Dos formas válidas, las dos explícitas: la palanca de D9 encendida, o un
+    `SUPABASE_URL` literal `https://` escrito en el propio workflow.
+    """
+    merged: dict[str, object] = {}
+    for env in envs:
+        if env:
+            merged.update(env)
+
+    if str(merged.get("AUTH_ALLOW_HS256_FALLBACK", "")).strip().lower() in _TRUTHY:
+        return True
+    return str(merged.get("SUPABASE_URL", "")).strip().startswith("https://")
+
+
+def workflow_steps_missing_a_verification_path(workflow: dict) -> list[str]:
+    """Pasos que arrancan el backend sin declarar cómo verifica los tokens.
+
+    Función pura sobre el YAML ya parseado: así la matriz de evasión del
+    detector se ejercita con workflows sintéticos, sin tocar los reales.
+    """
+    offenders: list[str] = []
+    workflow_env = workflow.get("env")
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        job_env = (job or {}).get("env")
+        for step in (job or {}).get("steps") or []:
+            run = str((step or {}).get("run") or "")
+            if not _boots_the_backend(run):
+                continue
+            if _declares_a_verification_path(workflow_env, job_env, (step or {}).get("env")):
+                continue
+            offenders.append(f"{job_name} / {(step or {}).get('name') or run.strip()[:60]}")
+    return offenders
+
+
+def test_every_workflow_that_boots_the_backend_declares_its_verification_path():
+    """3.4c RED (hallazgo B1): hoy `E2E_Tests.yml` arranca el backend sin la
+    palanca y con una `SUPABASE_URL` de `http://` que le llega por
+    `$GITHUB_ENV` — el proceso no levanta y el gate E2E queda en rojo."""
+    import yaml  # llega con uvicorn[standard], que ya es dependencia del backend
+
+    offenders: dict[str, list[str]] = {}
+    workflows = sorted(WORKFLOWS_DIR.glob("*.yml")) + sorted(WORKFLOWS_DIR.glob("*.yaml"))
+    assert workflows, "no se encontró ningún workflow: el detector no puede probar nada"
+
+    for path in workflows:
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        missing = workflow_steps_missing_a_verification_path(workflow)
+        if missing:
+            offenders[path.name] = missing
+
+    assert offenders == {}, (
+        "estos pasos arrancan el backend sin declarar cómo verifica los tokens "
+        "(palanca AUTH_ALLOW_HS256_FALLBACK o un SUPABASE_URL https:// literal "
+        f"en el propio workflow): {offenders}"
+    )
+
+
+def test_the_boot_detector_catches_the_ways_of_evading_it():
+    """3.4c TRIANGULATE — matriz de evasión del detector, EJECUTADA (lección
+    registrada del proyecto: un detector sin su matriz no prueba nada).
+
+    Los cinco primeros casos deben disparar; los tres últimos, no.
+    """
+    def _wf(step_env=None, job_env=None, top_env=None, run="python -m uvicorn backend.main:app"):
+        return {
+            "env": top_env,
+            "jobs": {"j": {"env": job_env, "steps": [{"name": "boot", "run": run, "env": step_env}]}},
+        }
+
+    # Dispara: sin nada declarado.
+    assert workflow_steps_missing_a_verification_path(_wf()) != []
+    # Dispara: la palanca en "false" no es una declaración válida.
+    assert workflow_steps_missing_a_verification_path(
+        _wf(step_env={"AUTH_ALLOW_HS256_FALLBACK": "false"})
+    ) != []
+    # Dispara: una URL de `http://` (el caso REAL del Supabase local) no alcanza.
+    assert workflow_steps_missing_a_verification_path(
+        _wf(step_env={"SUPABASE_URL": "http://127.0.0.1:54321"})
+    ) != []
+    # Dispara: el valor que llega por $GITHUB_ENV no es visible en el archivo,
+    # y es exactamente así como el `http://` se colaba sin que nadie lo viera.
+    assert workflow_steps_missing_a_verification_path(
+        _wf(step_env={"SUPABASE_URL": "${{ env.API_URL }}"})
+    ) != []
+    # Dispara también cuando lo que arranca es pytest (mismo import, mismo validator).
+    assert workflow_steps_missing_a_verification_path(
+        _wf(run="python -m pytest backend/tests -q")
+    ) != []
+
+    # No dispara: la palanca encendida, en cualquiera de los tres niveles.
+    assert workflow_steps_missing_a_verification_path(
+        _wf(step_env={"AUTH_ALLOW_HS256_FALLBACK": "true"})
+    ) == []
+    assert workflow_steps_missing_a_verification_path(
+        _wf(job_env={"AUTH_ALLOW_HS256_FALLBACK": "true"})
+    ) == []
+    assert workflow_steps_missing_a_verification_path(
+        _wf(top_env={"AUTH_ALLOW_HS256_FALLBACK": "TRUE"})
+    ) == []
+    # No dispara: una URL `https://` literal es la otra declaración válida.
+    assert workflow_steps_missing_a_verification_path(
+        _wf(step_env={"SUPABASE_URL": VALID_URL})
+    ) == []
+    # No dispara: un paso que no arranca el backend queda fuera de alcance.
+    assert workflow_steps_missing_a_verification_path(
+        _wf(run="pnpm -C frontend exec playwright test")
+    ) == []
+
+
 # ── 4.6 — el comodín está prohibido en producción ────────────────────────
 
 

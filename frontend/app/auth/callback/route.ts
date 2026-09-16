@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse, type NextRequest } from 'next/server'
 import { resolveSafeRedirect } from '@/lib/auth/safe-next'
+import { resolveSiteUrl } from '@/lib/auth/site-url'
 import { authCookieOptions } from '@/lib/supabase/cookie-options'
 
 export async function GET(request: NextRequest) {
@@ -43,11 +44,14 @@ export async function GET(request: NextRequest) {
 
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (!error) {
-            // Usamos primariamente el origin request actual. Evitamos quemar el redirect local
-            // de `.env.local` usando NEXT_PUBLIC_SITE_URL que podría pisar producción.
-            const siteUrl = origin.includes('localhost')
-                ? (process.env.NEXT_PUBLIC_SITE_URL || origin)
-                : origin
+            // Usamos primariamente el origin request actual; en local se prefiere
+            // NEXT_PUBLIC_SITE_URL para no quemar el redirect del stack de
+            // desarrollo. auth-hardening-jwt-cookies (Parte C, task 18.7): esa
+            // regla vive ahora en `lib/auth/site-url.ts`, compartida con las
+            // Server Actions de auth, en vez de repetida acá y en tres pantallas
+            // (y con la comprobación de "es local" por hostname, no por
+            // `origin.includes('localhost')`).
+            const siteUrl = resolveSiteUrl(origin, process.env.NEXT_PUBLIC_SITE_URL)
 
             // `resolveSafeRedirect` en vez de concatenar: el origen lo fija el
             // sitio, nunca el parámetro; una eventual query del destino sobrevive
@@ -65,8 +69,6 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Auth Callback] Redirigiendo con error auth_callback_error a: ${origin}/auth/login`)
     // If something went wrong, redirect to login with error
-    const fallbackUrl = origin.includes('localhost') 
-        ? (process.env.NEXT_PUBLIC_SITE_URL || origin) 
-        : origin
+    const fallbackUrl = resolveSiteUrl(origin, process.env.NEXT_PUBLIC_SITE_URL)
     return NextResponse.redirect(new URL('/auth/login?error=auth_callback_error', fallbackUrl))
 }

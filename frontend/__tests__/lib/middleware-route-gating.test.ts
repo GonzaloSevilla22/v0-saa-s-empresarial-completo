@@ -155,11 +155,17 @@ describe("updateSession — atributos de cookie", () => {
     // Lo que llegó al `createServerClient` real en producción, medido acá sobre
     // el doble: sin esto regía el default de `@supabase/ssr`, que NO tiene
     // clave `secure`.
+    //
+    // auth-hardening-jwt-cookies (Parte C, task 18.1): `httpOnly` pasa a `true`.
+    // El middleware es **el** camino que rota las cookies en cada petición
+    // autenticada, así que es el que efectivamente marca la sesión de un usuario
+    // que ya estaba dentro: si acá llegara el default de la librería, la sesión
+    // seguiría legible por JavaScript por más que el resto del change esté puesto.
     expect(middlewareHarness.lastCookieOptions).toBeDefined()
     expect(middlewareHarness.lastCookieOptions).toMatchObject({
       path: "/",
       sameSite: "lax",
-      httpOnly: false,
+      httpOnly: true,
     })
     expect(middlewareHarness.lastCookieOptions).toHaveProperty("secure")
   })

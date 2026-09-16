@@ -14,8 +14,10 @@
  * (`lib/cookies.ts:11`, `lib/supabase/middleware.ts:161`). Lo tapaba HSTS, que
  * está vivo, pero era una línea que faltaba.
  *
- * `httpOnly` sigue en `false` en esta parte a propósito: cambiarlo rompe el
- * Bearer de FastAPI hasta que exista el token handler (D16, Parte C).
+ * auth-hardening-jwt-cookies Parte C (task 18.1): `httpOnly` pasa a `true`. En la
+ * Parte B era `false` a propósito —el Bearer de FastAPI salía de leer estas
+ * cookies desde el navegador (D16)—; la Parte C reemplaza esa lectura por el
+ * token handler (`GET /api/auth/token`, grupo 19).
  */
 import { describe, it, expect, vi, afterEach } from "vitest"
 import fs from "node:fs"
@@ -54,8 +56,34 @@ describe("authCookieOptions — el resto de los atributos", () => {
     expect(options.sameSite).toBe("lax")
   })
 
-  it("httpOnly sigue en false en la Parte B (lo cambia la Parte C con el token handler)", () => {
-    expect(authCookieOptions().httpOnly).toBe(false)
+  // ── 18.1 ::emits_http_only ───────────────────────────────────────────────
+  //
+  // auth-hardening-jwt-cookies Parte C (D1, task 18.1). Hasta la Parte B esta
+  // aserción era `toBe(false)` a propósito: el Bearer de FastAPI salía de leer
+  // la cookie desde el navegador. La Parte C mueve esa lectura al token handler
+  // (`GET /api/auth/token`, grupo 19), así que el refresh token deja de estar
+  // al alcance de JavaScript — que es **el** objetivo del change.
+  it("emite httpOnly: true (Parte C — la sesión deja de ser legible por JS)", () => {
+    expect(authCookieOptions().httpOnly).toBe(true)
+  })
+
+  it("y sigue en SameSite=Lax, no Strict (D2)", () => {
+    // El par httpOnly+sameSite viaja junto: `Strict` dejaría sin cookie PKCE al
+    // retorno de los enlaces por email. La razón vive en el módulo.
+    const options = authCookieOptions()
+    expect(options.httpOnly).toBe(true)
+    expect(options.sameSite).toBe("lax")
+  })
+
+  it("el módulo documenta por qué Lax y no Strict (18.2)", () => {
+    const source = fs.readFileSync(
+      path.join(FRONTEND, "lib/supabase/cookie-options.ts"),
+      "utf8",
+    )
+    // No es cosmético: sin esta explicación el próximo endurecimiento
+    // "obvio" (Lax → Strict) rompe los cuatro flujos por email.
+    expect(source).toMatch(/Strict/)
+    expect(source).toMatch(/PKCE|code-verifier|verificador/i)
   })
 
   it("no fija maxAge ni name: conserva los defaults de la librería", () => {

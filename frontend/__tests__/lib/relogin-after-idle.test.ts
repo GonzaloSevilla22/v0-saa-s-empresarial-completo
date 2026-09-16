@@ -19,8 +19,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const signOutMock = vi.fn()
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({ auth: { signOut: signOutMock } }),
+// auth-hardening-jwt-cookies (Parte C, task 18.4g): `performIdleLogout` cierra
+// la sesión por una acción de servidor. El doble sigue al seam.
+vi.mock("@/app/auth/actions", () => ({
+  signOutAction: (...args: unknown[]) => signOutMock(...args),
 }))
 
 vi.mock("@supabase/ssr", async () => {
@@ -46,7 +48,7 @@ const staleActivity = () => String(Date.now() - IDLE_TIMEOUT_MS - 1_000)
 
 beforeEach(() => {
   resetHarness()
-  signOutMock.mockReset().mockResolvedValue({ error: null })
+  signOutMock.mockReset().mockResolvedValue({ ok: true })
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co")
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key")
 })

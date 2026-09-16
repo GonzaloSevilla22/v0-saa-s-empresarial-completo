@@ -22,11 +22,23 @@ const getUserMock = vi.fn().mockResolvedValue({ data: { user: null }, error: nul
 const pushMock = vi.fn()
 const clearAuthUxCookiesMock = vi.fn()
 
+// auth-hardening-jwt-cookies (Parte C, task 18.4g): el cierre de sesión pasó a
+// una acción de SERVIDOR (es el único que puede borrar las cookies `sb-*`
+// httpOnly). El doble se mueve con él; la aserción que importa —el **alcance**—
+// es exactamente la misma, ahora sobre el argumento de la acción.
+vi.mock("@/app/auth/actions", () => ({
+  signOutAction: (...args: unknown[]) => signOutMock(...args),
+  signInWithPasswordAction: vi.fn().mockResolvedValue({ ok: true }),
+  signInWithMagicLinkAction: vi.fn().mockResolvedValue({ ok: true }),
+  signUpAction: vi.fn().mockResolvedValue({ ok: true }),
+  updatePasswordAction: vi.fn().mockResolvedValue({ ok: true }),
+  requestEmailChangeAction: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     auth: {
       getUser: getUserMock,
-      signOut: signOutMock,
       onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
     },
     from: () => ({
@@ -73,7 +85,7 @@ function renderWithAuth() {
 beforeEach(() => {
   vi.clearAllMocks()
   getUserMock.mockResolvedValue({ data: { user: null }, error: null })
-  signOutMock.mockResolvedValue({ error: null })
+  signOutMock.mockResolvedValue({ ok: true })
 })
 
 // ── 14.3 ::uses_local_scope ────────────────────────────────────────────────

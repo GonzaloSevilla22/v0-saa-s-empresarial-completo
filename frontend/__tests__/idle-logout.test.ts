@@ -17,10 +17,12 @@ const pushMock = vi.fn()
 const deleteCookieMock = vi.fn()
 const clearAuthUxCookiesMock = vi.fn()
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: vi.fn(() => ({
-    auth: { signOut: signOutMock },
-  })),
+// auth-hardening-jwt-cookies (Parte C, task 18.4g): el cierre de sesión pasó a
+// una acción de SERVIDOR — el navegador ya no puede borrar las cookies `sb-*`
+// httpOnly. El doble se mueve de seam con él: mockear `@/lib/supabase/client`
+// dejaría este archivo verde mientras `performIdleLogout` no revoca nada.
+vi.mock("@/app/auth/actions", () => ({
+  signOutAction: (...args: unknown[]) => signOutMock(...args),
 }))
 
 // auth-hardening-jwt-cookies (task 14.2): el doble de `@/lib/cookies` tiene que
@@ -43,12 +45,12 @@ describe("performIdleLogout", () => {
     pushMock.mockReset()
     deleteCookieMock.mockReset()
     clearAuthUxCookiesMock.mockReset()
-    signOutMock.mockResolvedValue({ error: null })
+    signOutMock.mockResolvedValue({ ok: true })
   })
 
   // ── 4.1 RED / 4.2 GREEN: signs out, clears cookie, redirects ──────────────
 
-  it("calls supabase.auth.signOut()", async () => {
+  it("delega el cierre en la acción de servidor (18.4g)", async () => {
     await performIdleLogout({ push: pushMock }, "/dashboard")
     expect(signOutMock).toHaveBeenCalledTimes(1)
   })
@@ -111,7 +113,7 @@ describe("performIdleLogout", () => {
   })
 
   it("handles signOut error gracefully (still redirects)", async () => {
-    signOutMock.mockResolvedValue({ error: new Error("session expired") })
+    signOutMock.mockResolvedValue({ ok: false, error: "session expired" })
     await expect(
       performIdleLogout({ push: pushMock }, "/dashboard"),
     ).resolves.not.toThrow()

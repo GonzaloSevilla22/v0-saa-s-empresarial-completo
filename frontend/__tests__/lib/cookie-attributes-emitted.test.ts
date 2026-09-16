@@ -48,17 +48,16 @@ const FAKE_USER = {
   created_at: "2026-01-01T00:00:00Z",
 }
 
-/** Escribe una sesión con el cliente real y devuelve las líneas `Set-Cookie`. */
-async function emittedSetCookieLines(
+/** Cliente de servidor real sobre un tarro de cookies de mentira. */
+function serverClientOn(
+  jar: Record<string, string>,
+  response: ReturnType<typeof NextResponse.next>,
   // `null` = construir SIN `cookieOptions` (el estado que medía la auditoría).
   // El centinela no puede ser `undefined`: pasar `undefined` a un parámetro con
   // valor por defecto vuelve a aplicar el default.
   cookieOptions: ReturnType<typeof authCookieOptions> | null = authCookieOptions(),
-): Promise<string[]> {
-  const response = NextResponse.next()
-  const jar: Record<string, string> = {}
-
-  const supabase = createServerClient(SUPABASE_URL, ANON_KEY, {
+) {
+  return createServerClient(SUPABASE_URL, ANON_KEY, {
     ...(cookieOptions ? { cookieOptions } : {}),
     cookies: {
       getAll() {
@@ -80,6 +79,16 @@ async function emittedSetCookieLines(
         }),
     },
   })
+}
+
+/** Escribe una sesión con el cliente real y devuelve las líneas `Set-Cookie`. */
+async function emittedSetCookieLines(
+  cookieOptions: ReturnType<typeof authCookieOptions> | null = authCookieOptions(),
+): Promise<string[]> {
+  const response = NextResponse.next()
+  const jar: Record<string, string> = {}
+
+  const supabase = serverClientOn(jar, response, cookieOptions)
 
   const { error } = await supabase.auth.setSession({
     access_token: unexpiredJwt(),
@@ -145,11 +154,97 @@ describe("atributos realmente emitidos en el Set-Cookie de sesión", () => {
     }
   })
 
-  it("SIN HttpOnly en la Parte B: el Bearer de FastAPI todavía sale de leerlas", async () => {
-    // D16: ponerlo en true sin el token handler de la Parte C deja la app sin
-    // forma de autenticarse contra el backend propio. Esta aserción es el
-    // recordatorio ejecutable de que el cambio es de la Parte C, no un olvido.
+  // ── 18.1, la mitad que importa: el atributo REALMENTE emitido ────────────
+  //
+  // Parte C (D1). El objeto de opciones puede decir `httpOnly: true` y el
+  // `Set-Cookie` salir sin el atributo si un call site no pasa las opciones:
+  // eso es justo lo que este archivo existe para detectar (15.3b). La aserción
+  // se invierte respecto de la Parte B porque el token handler del grupo 19
+  // reemplaza la lectura desde el navegador.
+  it("HttpOnly en todas las cookies de sesión", async () => {
     const lines = await emittedSetCookieLines()
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) {
+      expect(line, line).toMatch(/;\s*HttpOnly/i)
+    }
+  })
+
+  // ── 18.6 ::existing_session_survives_the_switch ──────────────────────────
+  //
+  // El requisito duro de D1: **una carga de página nueva después del deploy no
+  // pide credenciales**. Lo que lo garantiza es que ni el nombre ni el contenido
+  // de las cookies cambian — sólo los atributos—, así que una sesión escrita por
+  // el bundle anterior (sin `HttpOnly`) la sigue leyendo el servidor nuevo, que
+  // la reescribe marcada en la primera rotación.
+  //
+  // La aserción se escribe así y **no** como "cero re-login forzado" absoluto:
+  // una pestaña que quedó abierta con el bundle viejo sí pierde
+  // `document.cookie` y termina en `/auth/login`. Eso está en la tabla de
+  // riesgos y su mitigación es la ventana de deploy (task 24.8), no código.
+  it("una sesión escrita ANTES del cambio sigue siendo válida después", async () => {
+    // 1. Sesión escrita como la escribía la Parte B: sin `cookieOptions`.
+    const jar: Record<string, string> = {}
+    const before = serverClientOn(jar, NextResponse.next(), null)
+    const written = await before.auth.setSession({
+      access_token: unexpiredJwt(),
+      refresh_token: "refresh-sintetico",
+    })
+    expect(written.error).toBeNull()
+    const legacyNames = Object.keys(jar)
+    expect(legacyNames.length).toBeGreaterThan(0)
+
+    // 2. El servidor nuevo (con httpOnly) lee ESE tarro tal cual.
+    const afterResponse = NextResponse.next()
+    const after = serverClientOn(jar, afterResponse)
+    const { data, error } = await after.auth.getUser()
+
+    expect(error).toBeNull()
+    expect(data.user?.id).toBe(FAKE_USER.id)
+
+    // 3. Y los nombres no cambiaron: la cookie es la misma, no una nueva.
+    expect(Object.keys(jar)).toEqual(legacyNames)
+  })
+
+  it("el test anterior no es vacuo: con el tarro VACÍO no hay usuario", async () => {
+    // El `fetch` del arnés devuelve el usuario siempre, así que sin este control
+    // no se sabría si la sesión salió de la cookie heredada o del doble de red.
+    const { data, error } = await serverClientOn({}, NextResponse.next()).auth.getUser()
+
+    expect(data.user).toBeNull()
+    expect(error).not.toBeNull()
+  })
+
+  it("y al reescribirla el servidor nuevo la marca HttpOnly", async () => {
+    const jar: Record<string, string> = {}
+    await serverClientOn(jar, NextResponse.next(), null).auth.setSession({
+      access_token: unexpiredJwt(),
+      refresh_token: "refresh-sintetico",
+    })
+
+    // La rotación real la dispara un refresh; acá se fuerza la reescritura con
+    // el mismo camino de escritura que usa el refresh (`setSession`), que es lo
+    // que este archivo puede observar sin un GoTrue de verdad.
+    const response = NextResponse.next()
+    await serverClientOn(jar, response).auth.setSession({
+      access_token: unexpiredJwt(),
+      refresh_token: "refresh-sintetico-rotado",
+    })
+
+    const lines = response.headers.getSetCookie().filter((line) => line.startsWith("sb-"))
+    expect(lines.length).toBeGreaterThan(0)
+    for (const line of lines) {
+      expect(line, line).toMatch(/;\s*HttpOnly/i)
+    }
+  })
+
+  it("sin cookieOptions el mismo camino NO emite HttpOnly (el atributo es nuestro)", async () => {
+    // Control negativo hermano del de `Secure`: el default de la librería
+    // declara `httpOnly: false`, así que el atributo sale de NUESTRA
+    // definición y no de la librería. Sin este control, el test de arriba
+    // pasaría igual si `@supabase/ssr` decidiera marcarlas por su cuenta.
+    const lines = await emittedSetCookieLines(null)
+
+    expect(lines.length).toBeGreaterThan(0)
     for (const line of lines) {
       expect(line, line).not.toMatch(/;\s*HttpOnly/i)
     }

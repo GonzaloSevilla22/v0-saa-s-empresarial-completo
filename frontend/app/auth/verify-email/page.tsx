@@ -4,6 +4,16 @@ import { Suspense, useState, useEffect, useRef, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D1, task 18.4d): el reenvío del email de
+// verificación corre en el servidor. El cooldown de 30 s se conserva acá, donde
+// estaba: es de experiencia.
+//
+// ⚠️ Las otras cuatro operaciones de esta pantalla (`refreshSession`,
+// `getSession` x2 y `onAuthStateChange`) siguen en el navegador **a propósito**:
+// las reemplazan `GET /api/auth/status` (task 19.4b, D18) y el bus de sesión
+// (task 20.3), no este grupo.
+import { resendVerificationEmailAction } from "@/app/auth/actions"
+import { unwrapAuthResult } from "@/lib/auth/auth-result"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Mail, Loader2, CheckCircle2, RefreshCw } from "lucide-react"
@@ -36,10 +46,8 @@ function VerifyEmailContent() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  const getSiteUrl = () =>
-    typeof window !== "undefined"
-      ? window.location.origin
-      : (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000")
+  // El `getSiteUrl()` que vivía acá se retiró con el reenvío: el
+  // `emailRedirectTo` lo resuelve el servidor (`lib/auth/site-url.ts`).
 
   const stopPolling = useCallback(() => {
     if (pollingRef.current) {
@@ -144,12 +152,7 @@ function VerifyEmailContent() {
 
     setResending(true)
     try {
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email,
-        options: { emailRedirectTo: `${getSiteUrl()}/auth/callback` },
-      })
-      if (error) throw error
+      unwrapAuthResult(await resendVerificationEmailAction({ email }))
       toast.success("Email reenviado. Revisá tu bandeja o spam.")
       setCooldown(RESEND_COOLDOWN) // restart countdown
     } catch (err: unknown) {

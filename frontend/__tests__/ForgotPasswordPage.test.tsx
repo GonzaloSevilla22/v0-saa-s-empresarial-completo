@@ -1,7 +1,12 @@
 /**
  * Tests de recuperación de contraseña — change register-name-terms-captcha.
- * El captcha (Turnstile) gatea el submit; el token viaja a resetPasswordForEmail
- * vía options.captchaToken (llamada directa a Supabase, sin pasar por el context).
+ * El captcha (Turnstile) gatea el submit; el token viaja con el pedido.
+ *
+ * auth-hardening-jwt-cookies (Parte C, task 18.4c): la pantalla ya no llama a
+ * Supabase directo — llama a `requestPasswordResetAction`, que corre en el
+ * servidor y es la única que ve el `redirectTo`. El ciclo de frescura del
+ * captcha que estos tests fijan no cambió: sigue pasando por
+ * `captchaGate.submit` → `submitWithFreshCaptcha`.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest"
@@ -35,10 +40,14 @@ const captchaHandlers = vi.hoisted(() => {
   }
 })
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    auth: { resetPasswordForEmail: resetPasswordForEmailMock },
-  }),
+// auth-hardening-jwt-cookies (Parte C, task 18.4c): el pedido de recuperación
+// pasó a una acción de SERVIDOR. El doble se mueve de seam con él — mockear
+// `@/lib/supabase/client` dejaría este archivo verde mientras la pantalla no
+// manda nada. Todo lo que estos tests fijan (el ciclo de frescura del captcha:
+// reintento único, refresh del token viejo, cola de renovación) se conserva
+// intacto: lo único que cambia es la forma del argumento.
+vi.mock("@/app/auth/actions", () => ({
+  requestPasswordResetAction: (...args: unknown[]) => resetPasswordForEmailMock(...args),
 }))
 
 vi.mock("next/link", () => ({
@@ -77,7 +86,7 @@ vi.mock("@/components/auth/CaptchaWidget", () => ({
 }))
 
 beforeEach(() => {
-  resetPasswordForEmailMock.mockReset().mockResolvedValue({ error: null })
+  resetPasswordForEmailMock.mockReset().mockResolvedValue({ ok: true })
   toastErrorMock.mockReset()
   captchaResetMock.mockReset()
   captchaIsStaleMock.mockReset().mockReturnValue(false)
@@ -96,17 +105,17 @@ describe("ForgotPasswordPage — captcha gate", () => {
     expect(submitBtn).toBeEnabled()
   })
 
-  it("llama a resetPasswordForEmail con options.captchaToken", async () => {
+  it("llama a la acción de recuperación con el email y el captchaToken", async () => {
     render(<ForgotPasswordPage />)
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "susana@test.com" } })
     fireEvent.click(screen.getByText("solve-captcha"))
     fireEvent.click(screen.getByRole("button", { name: /enviar enlace/i }))
 
     await waitFor(() => expect(resetPasswordForEmailMock).toHaveBeenCalled())
-    expect(resetPasswordForEmailMock).toHaveBeenCalledWith(
-      "susana@test.com",
-      expect.objectContaining({ captchaToken: "reset-captcha" }),
-    )
+    expect(resetPasswordForEmailMock).toHaveBeenCalledWith({
+      email: "susana@test.com",
+      captchaToken: "reset-captcha",
+    })
   })
 })
 
@@ -119,8 +128,8 @@ describe("ForgotPasswordPage — frescura del captcha (change captcha-token-fres
 
   it("captcha rechazado: reintenta una vez y resetPasswordForEmail recibe el token fresco en el 2º intento", async () => {
     resetPasswordForEmailMock
-      .mockResolvedValueOnce({ error: { message: "captcha protection: request disallowed" } })
-      .mockResolvedValueOnce({ error: null })
+      .mockResolvedValueOnce({ ok: false, error: "captcha protection: request disallowed" })
+      .mockResolvedValueOnce({ ok: true })
 
     fillAndSolve()
     fireEvent.click(screen.getByRole("button", { name: /enviar enlace/i }))
@@ -128,20 +137,21 @@ describe("ForgotPasswordPage — frescura del captcha (change captcha-token-fres
     await waitFor(() => expect(resetPasswordForEmailMock).toHaveBeenCalledTimes(2))
     expect(resetPasswordForEmailMock).toHaveBeenNthCalledWith(
       1,
-      "susana@test.com",
-      expect.objectContaining({ captchaToken: "reset-captcha" }),
+      expect.objectContaining({ email: "susana@test.com", captchaToken: "reset-captcha" }),
     )
     expect(resetPasswordForEmailMock).toHaveBeenNthCalledWith(
       2,
-      "susana@test.com",
-      expect.objectContaining({ captchaToken: "refreshed-reset-captcha" }),
+      expect.objectContaining({
+        email: "susana@test.com",
+        captchaToken: "refreshed-reset-captcha",
+      }),
     )
     expect(toastErrorMock).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByText(/revisá tu bandeja/i)).toBeInTheDocument())
   })
 
   it("(triangulate) error que no es de captcha: un solo intento, sin refresh", async () => {
-    resetPasswordForEmailMock.mockResolvedValue({ error: { message: "Network error" } })
+    resetPasswordForEmailMock.mockResolvedValue({ ok: false, error: "Network error" })
 
     fillAndSolve()
     fireEvent.click(screen.getByRole("button", { name: /enviar enlace/i }))
@@ -160,8 +170,7 @@ describe("ForgotPasswordPage — frescura del captcha (change captcha-token-fres
 
     await waitFor(() => {
       expect(resetPasswordForEmailMock).toHaveBeenCalledWith(
-        "susana@test.com",
-        expect.objectContaining({ captchaToken: "fresh-before-reset" }),
+        expect.objectContaining({ email: "susana@test.com", captchaToken: "fresh-before-reset" }),
       )
     })
     expect(resetPasswordForEmailMock).toHaveBeenCalledTimes(1)
@@ -190,8 +199,7 @@ describe("ForgotPasswordPage — estado de renovación del captcha (change captc
 
     await waitFor(() => expect(resetPasswordForEmailMock).toHaveBeenCalledTimes(1))
     expect(resetPasswordForEmailMock).toHaveBeenCalledWith(
-      "susana@test.com",
-      expect.objectContaining({ captchaToken: "reset-captcha" }),
+      expect.objectContaining({ email: "susana@test.com", captchaToken: "reset-captcha" }),
     )
   })
 })

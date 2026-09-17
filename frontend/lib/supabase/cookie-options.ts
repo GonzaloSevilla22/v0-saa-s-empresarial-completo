@@ -46,13 +46,25 @@
  * No se fijan `maxAge` ni `name`: conservan el default de la librería, para que
  * este módulo cambie atributos y no identidad ni vida de la cookie.
  *
- * ⚠️ CONSECUENCIA PARA EL DESARROLLO LOCAL (MINOR 2 de la revisión adversarial):
- * `secure` se decide por `NODE_ENV`, **no** por el transporte de la petición —
- * misma convención que ya usa `lib/cookies.ts`. Así que un `pnpm build &&
- * pnpm start` sobre `http://localhost:3000` emite cookies `Secure` que el
- * navegador **descarta**, y el login no funciona en ese modo. `pnpm dev` (donde
- * `NODE_ENV` es `development`) y el humo real sobre HTTPS no se ven afectados; el
- * humo local de la task 16.3 se corre con `pnpm dev`.
+ * NOTA PARA EL DESARROLLO LOCAL: `secure` se decide por `NODE_ENV`, **no** por el
+ * transporte de la petición — misma convención que ya usa `lib/cookies.ts`. Eso
+ * **no** impide trabajar contra un build de producción en local: los navegadores
+ * tratan `http://localhost` como origen **potencialmente confiable** (*potentially
+ * trustworthy*, HTML Standard / W3C Secure Contexts) y aceptan y devuelven cookies
+ * `Secure` ahí, así que `pnpm build && pnpm start` sobre `http://localhost:3000`
+ * loguea igual.
+ *
+ * Medido en el humo local del **2026-09-18** (H-1): registro, login, cierre de
+ * sesión, corte por inactividad, cambio de contraseña y recuperación por email
+ * corrieron completos contra `pnpm start`, con las cookies de sesión emitidas como
+ * `Secure; HttpOnly; SameSite=lax` (evidencia: `C1-cookies.json`,
+ * `C6-renovacion.txt`).
+ *
+ * La revisión adversarial de la Parte C había anotado lo contrario —que el
+ * navegador descartaría esas cookies y que no se podría iniciar sesión así— y la
+ * medición lo desmintió. Queda escrito porque esa nota tenía un costo real:
+ * empujaba a verificar sólo con `pnpm dev`, que es justo donde la CSP es más laxa y
+ * el captcha está stubeado, o sea a **no** probar la política real.
  */
 import type { CookieOptions } from "@supabase/ssr"
 

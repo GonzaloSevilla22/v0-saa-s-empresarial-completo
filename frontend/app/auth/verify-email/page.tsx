@@ -32,6 +32,18 @@ const RESEND_COOLDOWN = 30  // seconds before resend is allowed
 const POLL_INTERVAL   = 4000 // ms between server checks
 /** Cuánto se muestra el cartel de "Email verificado" antes de navegar. */
 const SUCCESS_DWELL   = 1500 // ms
+/**
+ * Techo de espera de la renovación de la sesión antes de resolver por el destino
+ * honesto.
+ *
+ * `fetchFromHandler()` pide el token **sin** `AbortSignal.timeout` ni watchdog
+ * (`lib/auth/access-token-store.ts`), así que una petición colgada no resuelve
+ * nunca. Sin este techo la navegación tampoco ocurre nunca y el estado verificado
+ * —que no renderiza ningún link ni botón— deja al usuario sin salida, con el
+ * spinner girando. Generoso a propósito: una renovación lenta que llega igual tiene
+ * que ganarle al techo, porque su destino (`/dashboard`) es el bueno.
+ */
+const REFRESH_WATCHDOG = 8000 // ms
 
 /** Los dos únicos destinos de esta pantalla una vez verificado el email. */
 type Destination = "/dashboard" | "/auth/login"
@@ -60,8 +72,36 @@ function VerifyEmailContent() {
   // ── Internal refs (don't cause re-renders) ────────────────────────────────
   const redirectingRef = useRef(false)
   const pollingRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  /**
+   * Si esta instancia sigue montada. El camino de éxito corre fuera de React (un
+   * `async` suelto), y con H-5 su ventana pasó de los 1,5 s fijos del `setTimeout`
+   * viejo a `max(1,5 s, lo que tarde la renovación)`: sin techo propio. Navegar o
+   * tocar estado después de que el usuario se fue (botón atrás, enlace externo) es
+   * secuestrarle la navegación.
+   */
+  const aliveRef  = useRef(true)
+  /** Temporizadores del camino de éxito, para limpiarlos al desmontar. */
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  // Se reafirma `true` en el montaje, no sólo en la inicialización del ref: en
+  // StrictMode (dev) el efecto se limpia y se vuelve a ejecutar sobre la MISMA
+  // instancia, y un `aliveRef` que sólo se apaga dejaría la pantalla sin navegar
+  // nunca en desarrollo.
+  useEffect(() => {
+    aliveRef.current = true
+    return () => {
+      aliveRef.current = false
+      timersRef.current.forEach(clearTimeout)
+      timersRef.current = []
+    }
+  }, [])
+
+  /** `setTimeout` cuyo id queda registrado para el desmontaje. */
+  const scheduleTimer = useCallback((ms: number, onElapsed: () => void) => {
+    timersRef.current.push(setTimeout(onElapsed, ms))
+  }, [])
 
   // El `getSiteUrl()` que vivía acá se retiró con el reenvío: el
   // `emailRedirectTo` lo resuelve el servidor (`lib/auth/site-url.ts`).
@@ -88,6 +128,19 @@ function VerifyEmailContent() {
    * `refreshSession()` ya cuenta `unknown` como "no hay": mandar al dashboard a
    * alguien cuya sesión no se pudo confirmar es exactamente el síntoma H-5 que este
    * arreglo cierra.
+   *
+   * **Qué produce realmente el destino `/auth/login`** (las tres causas alcanzables;
+   * la explicación "el enlace se abrió en otro dispositivo" que tenía este archivo
+   * era falsa, y está corregida acá: sin cookie de sesión en este navegador,
+   * `GET /api/auth/status` corta en `hasSessionCookie()` antes de preguntarle al
+   * proveedor, así que nunca llega a informar `email_confirmed_at` y esta función no
+   * se llama — ese caso se manifiesta como "Esperando confirmación…", que es otro
+   * hueco, preexistente y ajeno a este arreglo):
+   *
+   *  1. `unknown` del manejador de token: hipo de red, 5xx, cuerpo ilegible.
+   *  2. Sesión revocada o cortada por inactividad entre el sondeo y la renovación
+   *     (`isIdleSession` en `GET /api/auth/token`, que además la revoca).
+   *  3. El techo de espera de `REFRESH_WATCHDOG` (petición colgada).
    */
   const resolveDestination = useCallback(async (): Promise<Destination> => {
     try {
@@ -118,20 +171,26 @@ function VerifyEmailContent() {
     setVerified(true)
 
     void (async () => {
-      const renovada = resolveDestination().then((target) => {
-        setDestination(target)
+      // El techo de espera: sin él, una renovación que no settlea nunca (petición
+      // colgada, sin `AbortSignal` en el store) deja esta pantalla sin salida.
+      const porTecho = new Promise<Destination>((resolve) => {
+        scheduleTimer(REFRESH_WATCHDOG, () => resolve("/auth/login"))
+      })
+      const renovada = Promise.race([resolveDestination(), porTecho]).then((target) => {
+        if (aliveRef.current) setDestination(target)
         return target
       })
       const [target] = await Promise.all([
         renovada,
-        new Promise<void>((resolve) => setTimeout(resolve, SUCCESS_DWELL)),
+        new Promise<void>((resolve) => scheduleTimer(SUCCESS_DWELL, resolve)),
       ])
-      // Sin sesión en ESTE navegador (el enlace se abrió en otro dispositivo) el
-      // dashboard no puede leer nada: el destino honesto es el login. La
-      // verificación igual ocurrió, y el cartel lo sigue diciendo.
+      if (!aliveRef.current) return
+      // Sin sesión viva en ESTE navegador el dashboard no puede leer nada: el destino
+      // honesto es el login. La verificación igual ocurrió, y el cartel lo sigue
+      // diciendo.
       router.push(target)
     })()
-  }, [router, stopPolling, resolveDestination])
+  }, [router, stopPolling, resolveDestination, scheduleTimer])
 
   // Core check: preguntarle al servidor por el estado REAL del email.
   //
@@ -243,8 +302,9 @@ function VerifyEmailContent() {
               <h2 className="text-xl font-bold text-foreground">Email verificado</h2>
               <p className="text-sm text-muted-foreground">
                 {destination === "/auth/login"
-                  // El email quedó verificado igual: lo que falta es la sesión en
-                  // ESTE navegador (el enlace se abrió en otro dispositivo).
+                  // El email quedó verificado igual: lo que falta es una sesión viva
+                  // en este navegador. Las tres causas alcanzables están enumeradas
+                  // en `resolveDestination`.
                   ? "Iniciá sesión para entrar a tu cuenta…"
                   : "Redirigiendo al dashboard…"}
               </p>

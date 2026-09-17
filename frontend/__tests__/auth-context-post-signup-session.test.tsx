@@ -29,7 +29,7 @@
  *       next/navigation
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React from "react"
 import { AuthProvider, useAuth } from "@/contexts/auth-context"
@@ -64,10 +64,20 @@ const CON_SESION: Resolucion = {
 const bitacora: string[] = []
 let resolucion: Resolucion = SIN_SESION
 
-const refreshAccessTokenMock = vi.fn(async (): Promise<Resolucion> => {
+/**
+ * Implementación por defecto: anota el paso y resuelve en el acto.
+ *
+ * Se declara con nombre para poder **restaurarla** en `beforeEach`: el primer caso
+ * la reemplaza por una que retiene la resolución, y `mockClear()` no deshace una
+ * implementación (sólo borra las llamadas registradas), así que sin esto la
+ * renovación diferida se filtraría a los seis casos siguientes.
+ */
+async function renovacionInmediata(): Promise<Resolucion> {
   bitacora.push("refresh")
   return resolucion
-})
+}
+
+const refreshAccessTokenMock = vi.fn(renovacionInmediata)
 const signUpMock = vi.fn()
 
 vi.mock("@/lib/auth/access-token-store", () => ({
@@ -193,7 +203,7 @@ async function montar() {
 beforeEach(() => {
   bitacora.length = 0
   resolucion = SIN_SESION
-  refreshAccessTokenMock.mockClear()
+  refreshAccessTokenMock.mockReset().mockImplementation(renovacionInmediata)
   signUpMock.mockReset().mockResolvedValue({ ok: true })
 })
 
@@ -201,12 +211,38 @@ describe("auth-context register() — adopta la sesión recién nacida (H-5)", (
   it("fuerza la renovación del token ANTES de devolverle el control al llamador", async () => {
     const boton = await montar()
 
+    // La renovación se RETIENE en vuelo a propósito. Con la implementación que
+    // resuelve en el acto, `"refresh"` se anota en el mismo tick en que se la llama
+    // (la primera sentencia del doble corre antes de su primer `await`), así que la
+    // bitácora `["refresh", "navigate"]` sale idéntica con `await refreshSession()`
+    // y con `void refreshSession()`: medido contra el mutante, los 8 casos de este
+    // archivo quedaban verdes. O sea que el punto 1 del contrato del encabezado
+    // —"no devuelve el control hasta que ocurrió"— era lo único que este archivo NO
+    // podía probar, y es justo el defecto H-5 en el camino del registro: el llamador
+    // navega con el pedido del token todavía en vuelo.
+    //
+    // Reteniendo la resolución, la aserción es la AUSENCIA de "navigate".
+    let liberar: (r: Resolucion) => void = () => {}
+    refreshAccessTokenMock.mockImplementation(
+      () =>
+        new Promise<Resolucion>((resolve) => {
+          bitacora.push("refresh")
+          liberar = resolve
+        }),
+    )
+
     fireEvent.click(boton)
 
-    await waitFor(() => expect(bitacora).toContain("navigate"))
+    await waitFor(() => expect(bitacora).toContain("refresh"))
+    expect(bitacora).not.toContain("navigate")
+
+    await act(async () => {
+      liberar(SIN_SESION)
+    })
+
     // El orden es el arreglo: con la renovación después de la navegación, el
     // dashboard abre con la anon key y devuelve 401 (H-5).
-    expect(bitacora).toEqual(["refresh", "navigate"])
+    await waitFor(() => expect(bitacora).toEqual(["refresh", "navigate"]))
   })
 
   it("(triangulate) con la confirmación de email apagada la sesión queda adoptada, no sólo pedida", async () => {

@@ -303,6 +303,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // captchaToken: el proveedor lo valida server-side cuando el captcha está
     // habilitado a nivel proyecto (Turnstile). Sin habilitar, se ignora.
     unwrapAuthResult(await signInWithPasswordAction({ email, password, captchaToken }))
+    // El booleano se ignora **a propósito**, y es un residuo conocido: si la
+    // renovación vuelve `unknown` (hipo de red, 5xx del manejador de token) el login
+    // entra al dashboard sin token en memoria, o sea el síntoma H-5 exacto en el
+    // camino más transitado. No se cierra acá por elección: las cookies de sesión ya
+    // las escribió el servidor en la respuesta de la acción, así que mandar a
+    // `/auth/login` a alguien que acaba de autenticarse bien —mostrándole el
+    // formulario mientras tiene sesión válida— es un modo de falla peor y más visible
+    // que el transitorio que evitaría. Preexistente a H-5 y fuera de su alcance.
     await refreshSession()
     // task 20.3: las otras pestañas de este navegador comparten la cookie de
     // sesión, pero no el token en memoria ni el estado de React: sin el aviso se

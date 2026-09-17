@@ -22,7 +22,7 @@ import {
   updatePasswordAction,
 } from "@/app/auth/actions"
 import { unwrapAuthResult } from "@/lib/auth/auth-result"
-import { refreshAccessToken } from "@/lib/auth/access-token-store"
+import { clearAccessToken, refreshAccessToken } from "@/lib/auth/access-token-store"
 
 // G11 (H9): el tipo y el armado del payload viven en la capa canónica
 // (lib/profile-update.ts) — null limpia la columna, undefined la omite.
@@ -307,6 +307,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // ocurren en el servidor, en la misma respuesta de la acción — que es lo que
     // pide el escenario "El cierre de sesión revoca del lado del servidor".
     unwrapAuthResult(await signOutAction({ scope: 'local' }))
+    // Parte C (D1, task 19.5): el access token vive en memoria del modulo y el
+    // servidor no puede borrarlo. `router.push` NO recarga la pagina, asi que el
+    // modulo sigue vivo: sin esto la pestana se queda con una credencial que el
+    // servidor ya revoco, valida hasta su `exp`, y cualquier refetch pendiente
+    // de React Query la usa.
+    clearAccessToken()
     // D6: borra todas las cookies de experiencia de la sesión
     // (`auth:last-activity` además de `tenant:active`) por el mecanismo
     // compartido con `performIdleLogout()` y `closeAllSessions()`. Éstas NO son
@@ -352,6 +358,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // scope: 'global' revokes all refresh tokens including the current device.
     // Es la ÚNICA acción que conserva el alcance global (D6).
     unwrapAuthResult(await signOutAction({ scope: 'global' }))
+    // Con alcance global importa mas todavia: el usuario pidio cerrar en TODOS
+    // los dispositivos y este es el unico token que el servidor no alcanza.
+    clearAccessToken()
     // D6: antes de este change no borraba ninguna cookie de experiencia.
     clearAuthUxCookies()
     router.push("/auth/login")

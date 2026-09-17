@@ -18,6 +18,11 @@
 // httpOnly. Este módulo ya no construye cliente de Supabase.
 import { signOutAction } from "@/app/auth/actions"
 import { clearAuthUxCookies } from "@/lib/cookies"
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.5): el access token vive en
+// memoria del modulo del navegador y el servidor no puede borrarlo. Olvidarlo es
+// parte del cierre de sesion: sin eso la pestana queda con una credencial que el
+// servidor ya revoco, valida hasta su `exp`.
+import { clearAccessToken } from "@/lib/auth/access-token-store"
 
 /** Minimal router interface — matches the object returned by `useRouter()`. */
 export interface RouterLike {
@@ -58,6 +63,11 @@ export async function performIdleLogout(
   // vencida en el re-login y descartaba las cookies `sb-*` recién emitidas —
   // el bounce del primer reingreso.
   clearAuthUxCookies()
+
+  // Parte C (D1, task 19.5): se olvida SIEMPRE, incluso si el cierre en el
+  // servidor fallo. Que el servidor no haya podido revocar la sesion es
+  // justamente la razon para no seguir usando el token que quedo en memoria.
+  clearAccessToken()
 
   // Redirect with idle context so the login page can explain and return the user.
   const next = encodeURIComponent(currentPath)

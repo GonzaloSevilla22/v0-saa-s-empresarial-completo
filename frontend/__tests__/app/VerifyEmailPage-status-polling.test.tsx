@@ -257,6 +257,35 @@ describe("/auth/verify-email — H-5: la sesión se renueva antes de navegar", (
     expect(screen.getByText(/iniciá sesión/i)).toBeInTheDocument()
   })
 
+  it("(triangulate) si la renovación falla no queda colgada en el cartel: va al login", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    // `refreshSession()` no rechaza por contrato (captura todo adentro), pero
+    // quedarse para siempre en "Email verificado" —sin navegar nunca— sería el peor
+    // modo de falla posible en la primerísima pantalla de una cuenta nueva. Y el
+    // destino del rechazo no puede ser el dashboard: una renovación que no se pudo
+    // confirmar no es una sesión viva, que es justo lo que H-5 cierra.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    refreshSessionMock.mockRejectedValue(new Error("red caída"))
+
+    render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1600)
+    })
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/auth/login"))
+    expect(pushMock).not.toHaveBeenCalledWith("/dashboard")
+    // El cartel no promete un dashboard al que no va a llevar, igual que en el caso
+    // de "no hay sesión".
+    expect(screen.getByText(/iniciá sesión/i)).toBeInTheDocument()
+    // El fallo no se traga en silencio: sin rastro, una renovación que rechaza
+    // siempre se vería desde afuera como "este navegador no tenía sesión".
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
   it("sin verificar no renueva nada (la renovación no es un efecto de montaje)", async () => {
     render(<VerifyEmailPage />)
 

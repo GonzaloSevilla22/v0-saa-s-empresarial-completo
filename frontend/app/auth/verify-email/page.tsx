@@ -33,6 +33,9 @@ const POLL_INTERVAL   = 4000 // ms between server checks
 /** Cuánto se muestra el cartel de "Email verificado" antes de navegar. */
 const SUCCESS_DWELL   = 1500 // ms
 
+/** Los dos únicos destinos de esta pantalla una vez verificado el email. */
+type Destination = "/dashboard" | "/auth/login"
+
 // ─── Inner content (uses useSearchParams — must be inside Suspense) ───────────
 
 function VerifyEmailContent() {
@@ -52,7 +55,7 @@ function VerifyEmailContent() {
    * renovación está en vuelo: recién su resultado lo decide, y prometer un
    * dashboard al que no se va a llegar es una mentira que el usuario cobra.
    */
-  const [destination, setDestination] = useState<"/dashboard" | "/auth/login" | null>(null)
+  const [destination, setDestination] = useState<Destination | null>(null)
 
   // ── Internal refs (don't cause re-renders) ────────────────────────────────
   const redirectingRef = useRef(false)
@@ -69,6 +72,31 @@ function VerifyEmailContent() {
       pollingRef.current = null
     }
   }, [])
+
+  /**
+   * Renueva la sesión de la app y decide adónde llevar.
+   *
+   * `refreshSession()` fuerza `refreshAccessToken()` y además vuelve a resolver
+   * perfil, cuenta y plan: el dashboard se monta con el contexto ya poblado.
+   *
+   * **Una renovación que no se pudo confirmar no es una sesión viva.** Por contrato
+   * `refreshSession()` no rechaza (captura todo adentro), pero si alguna vez lo
+   * hiciera, dejar que el rechazo se propague deja la pantalla en "Email
+   * verificado" **para siempre**, sin navegar nunca: el peor modo de falla posible
+   * en la primerísima pantalla de una cuenta nueva. El destino del rechazo es el
+   * mismo que el de "no hay sesión", por el mismo criterio con que
+   * `refreshSession()` ya cuenta `unknown` como "no hay": mandar al dashboard a
+   * alguien cuya sesión no se pudo confirmar es exactamente el síntoma H-5 que este
+   * arreglo cierra.
+   */
+  const resolveDestination = useCallback(async (): Promise<Destination> => {
+    try {
+      return (await refreshSession()) ? "/dashboard" : "/auth/login"
+    } catch (error) {
+      console.error("[verify-email] no se pudo renovar la sesión:", error)
+      return "/auth/login"
+    }
+  }, [refreshSession])
 
   // Called once verification is confirmed — show success then redirect
   //
@@ -90,10 +118,7 @@ function VerifyEmailContent() {
     setVerified(true)
 
     void (async () => {
-      // `refreshSession()` fuerza `refreshAccessToken()` y además vuelve a resolver
-      // perfil, cuenta y plan: el dashboard se monta con el contexto ya poblado.
-      const renovada = refreshSession().then((haySesion) => {
-        const target = haySesion ? "/dashboard" : "/auth/login"
+      const renovada = resolveDestination().then((target) => {
         setDestination(target)
         return target
       })
@@ -106,7 +131,7 @@ function VerifyEmailContent() {
       // verificación igual ocurrió, y el cartel lo sigue diciendo.
       router.push(target)
     })()
-  }, [router, stopPolling, refreshSession])
+  }, [router, stopPolling, resolveDestination])
 
   // Core check: preguntarle al servidor por el estado REAL del email.
   //

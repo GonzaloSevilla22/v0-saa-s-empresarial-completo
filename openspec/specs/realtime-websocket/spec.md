@@ -2,8 +2,10 @@
 
 ## Purpose
 
-Canal WebSocket para broadcast de eventos en tiempo real. Los clientes se suscriben a una "room" (por tenant/empresa) y reciben mensajes cuando ocurren eventos en el sistema.
+**Capability retirada.** El backend propio expuso un canal `WebSocket /ws/{room_id}` desde la Fase 5; `auth-hardening-jwt-cookies` lo **retiró** (2026-09-17): autenticaba el handshake leyendo el token de la **cadena de consulta** —donde queda en logs, en el `Referer` y en el historial—, no comprobaba vigencia, no autorizaba la sala y **nunca tuvo un consumidor** (cero referencias en `frontend/`). Lo que queda documentado acá no es un canal sino su **invariante negativo**: el candado que impide que esa superficie vuelva por descuido, y la regla de que el token viaje únicamente por el encabezado de autorización. El tiempo real de la aplicación es **Supabase Realtime** sobre la publicación `supabase_realtime` (`notifications` y `fiscal_documents`), con el alcance impuesto por la RLS de cada tabla y el filtro del canal como optimización de red, no como límite de seguridad (ver `in-app-notifications` y `afip-fiscal-document`).
+
 ## Requirements
+
 ### Requirement: El backend no expone un canal WebSocket propio
 
 El backend NOT SHALL exponer ningún endpoint WebSocket, NOT SHALL registrar un router de WebSocket en la aplicación y NOT SHALL mantener un gestor de conexiones por salas.

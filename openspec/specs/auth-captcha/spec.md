@@ -1,8 +1,11 @@
 # auth-captcha Specification
 
 ## Purpose
-TBD - created by archiving change register-name-terms-captcha. Update Purpose after archive.
+
+Captcha de Cloudflare Turnstile en **todos** los puntos de entrada de autenticación (inicio de sesión, registro, enlace mágico y recuperación de contraseña), con un único camino de envío que siempre resuelve un token **fresco** para que una pestaña suspendida no mande un token zombi, con estado visible durante la renovación y encolado del envío mientras el token se renueva, y con el host del widget habilitado en la política de seguridad de contenido — que desde `auth-hardening-jwt-cookies` confía en los scripts que el widget inyecta por **propagación desde el nonce** (`'strict-dynamic'`), no por `'unsafe-inline'`. El stub local de QA queda exento del manejo de frescura, y el efecto real del captcha depende de que el proyecto lo tenga habilitado en su Dashboard.
+
 ## Requirements
+
 ### Requirement: Captcha gate on every auth entry point
 
 Every authentication entry point that Supabase Auth gates with captcha SHALL require a successful Cloudflare Turnstile challenge before calling Supabase. This covers account creation (`signUp`), password login (`signInWithPassword`), password recovery (`resetPasswordForEmail`), and magic-link/OTP login (`signInWithOtp`) if used. The Turnstile token SHALL be passed via `options.captchaToken` so Supabase validates it server-side; no custom backend validation is added.

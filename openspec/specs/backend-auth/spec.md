@@ -2,8 +2,10 @@
 
 ## Purpose
 
-Middleware de autenticación para FastAPI que valida JWTs emitidos por Supabase. FastAPI no emite tokens propios — actúa como resource server que verifica la firma del token.
+Middleware de autenticación para FastAPI que valida los JWT emitidos por Supabase. FastAPI no emite tokens propios — actúa como *resource server*. Desde `auth-hardening-jwt-cookies`, verificar la firma es sólo una parte del contrato: el camino que corre en **producción** valida contra las **JWKS** de Supabase (`ES256`/`RS256`) exigiendo **emisor** (`<SUPABASE_URL>/auth/v1`), **audiencia** (`authenticated`, en forma de cadena o de lista), la presencia de `exp` y `sub`, y con una tolerancia de reloj acotada; un fallo de las JWKS se distingue en los registros de un token forjado. El `HS256` con secreto compartido queda **sólo** como fallback de desarrollo y detrás de una palanca explícita, apagada por default, porque sin ella una `SUPABASE_URL` ausente degradaba en silencio a un secreto publicado en el repo — es decir, aceptaba tokens forjados. El token viaja **únicamente** por el encabezado de autorización, y para las acciones de configuración el rol de tenant se resuelve contra la base y no contra el claim.
+
 ## Requirements
+
 ### Requirement: Validación de JWT de Supabase
 
 El middleware SHALL verificar los tokens contra las **JWKS públicas de Supabase** (`ES256`/`RS256`), que es el camino que corre en producción, y SHALL rechazar el token si su firma, su emisor, su audiencia o su vigencia no son válidos.

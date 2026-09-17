@@ -3,7 +3,9 @@
 ## Purpose
 
 Server-side (middleware) enforcement of the idle-session timeout as defense-in-depth: a client-writable `lastActivity` cookie lets the middleware force a logout on protected routes when the client-side idle timer never fires, without introducing a new hard security boundary.
+
 ## Requirements
+
 ### Requirement: Client writes a lastActivity cookie as the server activity signal
 
 The client idle timer SHALL persist the timestamp of the user's last real interaction into a non-httpOnly `lastActivity` cookie so that server-side code (middleware) can observe inactivity without depending on client JavaScript executing on the navigation request. The cookie SHALL be defined through the centralized cookie utility (`COOKIE_KEYS` / the cookie config in `frontend/lib/cookies.ts`) with `SameSite=Lax`, `Secure` in production, and `path=/`, and SHALL NOT be `httpOnly` (client JS must be able to update it). The cookie SHALL be updated on the SAME throttled cadence (at most ~once per second) as the in-memory `lastActivity` timer, and SHALL NOT be written by background/automated requests (token refresh, polling, prefetch).

@@ -1,8 +1,11 @@
 # session-cookies Specification
 
 ## Purpose
-TBD - created by archiving change auth-hardening-jwt-cookies. Update Purpose after archive.
+
+La sesión del navegador vive **sólo** en cookies `httpOnly` que escribe el servidor, y el código de navegador **nunca** ve el refresh token: las operaciones que crean, modifican o destruyen la sesión corren en Server Actions, y la página obtiene un **access token efímero en memoria** a través de un único token handler (`GET /api/auth/token`) con `Cache-Control: no-store`, `Vary: Cookie`, sin `Access-Control-Allow-Origin`, rechazo de las peticiones cross-site, el **mismo** corte por inactividad que aplica el middleware y una sola renovación en vuelo. Alrededor de eso viven las piezas sin las que ese modelo no se sostiene: cobertura de rutas **por construcción** (allow-list pública más protección por defecto, con `/api/**` como tercera categoría que responde 401 con cuerpo JSON en vez de redirigir), un único `safeNext()` para el destino de retorno, cookies renovadas sólo en los redireccionamientos que **no** cierran la sesión, un cierre de sesión uniforme y sin residuos, un bus de eventos de sesión propio entre pestañas, una política de seguridad de contenido con **nonce por petición** y `'strict-dynamic'` en producción, y un tratamiento único del 401 del backend propio. Nace en `auth-hardening-jwt-cookies` (2026-09-17), a partir de la auditoría de JWT y cookies del 2026-09-14, y declara explícitamente qué protege y qué no: cierra la **exfiltración del refresh token** (credencial renovable, usable fuera del navegador de la víctima), no la actuación de un XSS mientras la pestaña está abierta.
+
 ## Requirements
+
 ### Requirement: La sesión del navegador vive sólo en cookies httpOnly escritas por el servidor
 
 El sistema SHALL persistir la sesión de autenticación (access token y refresh token) exclusivamente en cookies marcadas `HttpOnly`, `Secure` en producción, `SameSite=Lax` y `Path=/`, escritas **únicamente** desde código de servidor (middleware, Route Handlers y Server Actions).

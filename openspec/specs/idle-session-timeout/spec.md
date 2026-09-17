@@ -3,7 +3,9 @@
 ## Purpose
 
 Client-side idle-session timeout: a fixed 20-minute inactivity threshold with a 1-minute warning modal, activity tracking, idle logout matching the existing sign-out flow, and cross-tab synchronization.
+
 ## Requirements
+
 ### Requirement: Fixed idle threshold and warning lead time
 
 The system SHALL define the inactivity threshold and the warning lead time as fixed, hardcoded constants exposed from a single client configuration module (e.g. `lib/auth/idle-config.ts`). The idle threshold SHALL be 20 minutes (`IDLE_TIMEOUT_MS`) and the warning SHALL appear `WARNING_BEFORE_MS` (1 minute) before the threshold. These values SHALL NOT be configurable at runtime, per plan, or per role in this change.

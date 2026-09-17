@@ -3,7 +3,9 @@
 ## Purpose
 
 Ciclo de vida del comprobante fiscal electronico con CAE de AFIP: emision sincrona que reserva numero y persiste `pending_cae` sin tocar AFIP, mas proceso de background idempotente (`CAERelayProcessor` via `pg_cron`) que obtiene el CAE con backoff. El port `FiscalDocumentPort` (con `WSFEAdapter` real y `WSFEStubAdapter` para tests) encapsula el SOAP/XML de AFIP del dominio. Tambien provee la funcion pura `resolve_invoice_type` para determinar el tipo de comprobante (A/B/C). Depende de `fiscal-profile` y `document-sequence`.
+
 ## Requirements
+
 ### Requirement: Persistencia del comprobante fiscal con maquina de estados de CAE
 
 El sistema SHALL persistir cada comprobante emitido en la tabla `fiscal_documents` (`id` UUID PK, `account_id` UUID FK, `fiscal_profile_id` UUID FK, `point_of_sale_id` UUID FK `points_of_sale`, `comprobante_type` TEXT, `punto_de_venta` INTEGER (snapshot del `numero` del PV al emitir), `number` BIGINT, `client_id` UUID FK NULL, `total` NUMERIC, `status` TEXT NOT NULL, `cae` TEXT NULL, `cae_due_date` DATE NULL, `attempts` INTEGER NOT NULL DEFAULT 0, `next_attempt_at` TIMESTAMPTZ NULL, `last_error` TEXT NULL, `created_at` TIMESTAMPTZ). `status` MUST estar restringida por CHECK a `'pending_cae'`, `'authorized'`, `'rejected'`. La tabla SHALL tener RLS por `account_id`.

@@ -2,8 +2,10 @@
 
 ## Purpose
 
-Servicio FastAPI independiente del frontend Next.js. Corre como proceso separado, expone una API HTTP + WebSocket, y se integra con Supabase como fuente de verdad de la base de datos.
+Servicio FastAPI independiente del frontend Next.js. Corre como proceso separado, expone una API **HTTP y nada más** —el canal WebSocket propio se retiró en `auth-hardening-jwt-cookies`, ver la capability `realtime-websocket`, así que el tiempo real de la aplicación es Supabase Realtime— y se integra con Supabase como fuente de verdad de la base de datos. Su arranque **no es incondicional**: desde ese mismo change, una configuración de autenticación incoherente (sin `SUPABASE_URL` sobre `https://` y sin la palanca explícita del fallback `HS256`) **aborta el proceso nombrando la variable** en vez de degradar en silencio a un secreto compartido.
+
 ## Requirements
+
 ### Requirement: Estructura de proyecto
 
 El backend SHALL organizarse en: `backend/main.py` (punto de entrada FastAPI), `backend/routers/` (handlers HTTP), `backend/core/` (config, auth, guards, database, errors) y `backend/tests/` (suite pytest).

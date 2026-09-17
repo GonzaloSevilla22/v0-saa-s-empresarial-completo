@@ -3,7 +3,9 @@
 ## Purpose
 
 Pivot multi-rol de la membresía de cuenta (Modelo V3 §5): un catálogo cerrado y global de ocho roles (propietario, administrador, vendedor, cajero, depósito, compras, contable, observador), donde cada membresía puede tener varios roles activos a la vez, cada uno con autoría (quién lo asignó y cuándo) y vigencia opcional. El rol único heredado de la membresía ("owner"/"admin"/"member") se conserva como valor derivado por precedencia, mantenido automáticamente por la base, para que los consumidores existentes no cambien. La cuenta nunca queda sin un propietario activo mientras conserve miembros, toda asignación y revocación queda auditada, y la gestión de miembros y roles tiene su propia superficie en /organizacion/roles.
+
 ## Requirements
+
 ### Requirement: Catálogo de roles cerrado, global y consultable como datos
 
 El sistema SHALL declarar el conjunto de roles asignables como un catálogo global de solo lectura almacenado como datos, y NOT como una lista repetida en restricciones, en código de aplicación o en la interfaz. El catálogo SHALL ser el mismo para todas las cuentas: una cuenta NOT SHALL poder definir roles propios ni redefinir el significado de un rol existente.

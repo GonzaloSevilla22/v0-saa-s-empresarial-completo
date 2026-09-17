@@ -14,6 +14,11 @@ import Link from "next/link"
 // experiencia.
 import { fetchAuthStatus } from "@/lib/auth/session-status"
 import { subscribeToSessionEvents } from "@/lib/auth/session-bus"
+// H-5 (humo local del 2026-09-18): de acá sale la renovación FORZADA de la sesión
+// de la app. Se destructura `refreshSession` a propósito: un `const auth =
+// useAuth()` y después `auth.refreshSession()` dispararía el candado
+// `__tests__/lib/no-browser-auth-calls.test.ts`, que barre por `auth.<operación>`.
+import { useAuth } from "@/contexts/auth-context"
 import { resendVerificationEmailAction } from "@/app/auth/actions"
 import { unwrapAuthResult } from "@/lib/auth/auth-result"
 import { Button } from "@/components/ui/button"
@@ -25,6 +30,8 @@ import { toast } from "sonner"
 
 const RESEND_COOLDOWN = 30  // seconds before resend is allowed
 const POLL_INTERVAL   = 4000 // ms between server checks
+/** Cuánto se muestra el cartel de "Email verificado" antes de navegar. */
+const SUCCESS_DWELL   = 1500 // ms
 
 // ─── Inner content (uses useSearchParams — must be inside Suspense) ───────────
 
@@ -32,6 +39,7 @@ function VerifyEmailContent() {
   const router      = useRouter()
   const params      = useSearchParams()
   const emailParam  = params.get("email") ?? ""
+  const { refreshSession } = useAuth()
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [email,      setEmail]      = useState(emailParam)
@@ -39,6 +47,12 @@ function VerifyEmailContent() {
   const [resending,  setResending]  = useState(false)
   const [checking,   setChecking]   = useState(false)
   const [verified,   setVerified]   = useState(false)
+  /**
+   * Adónde va esta pantalla una vez renovada la sesión. `null` mientras la
+   * renovación está en vuelo: recién su resultado lo decide, y prometer un
+   * dashboard al que no se va a llegar es una mentira que el usuario cobra.
+   */
+  const [destination, setDestination] = useState<"/dashboard" | "/auth/login" | null>(null)
 
   // ── Internal refs (don't cause re-renders) ────────────────────────────────
   const redirectingRef = useRef(false)
@@ -57,13 +71,42 @@ function VerifyEmailContent() {
   }, [])
 
   // Called once verification is confirmed — show success then redirect
+  //
+  // H-5 (humo local del 2026-09-18). Acá había un `setTimeout(() =>
+  // router.push("/dashboard"), 1500)` pelado, y ése era el defecto: esta pantalla es
+  // —junto al login y al registro— uno de los puntos que SABEN que la sesión acaba
+  // de nacer, y el store del access token cachea a propósito el estado "no hay
+  // sesión" (regla 3 de `lib/auth/access-token-store.ts`). Sin forzar la renovación,
+  // el primer render del dashboard de la cuenta nueva sale con la anon key:
+  // "permission denied for function get_dashboard_financials" más cuatro 401.
+  //
+  // La renovación corre EN PARALELO con el cartel de éxito (no lo alarga), pero la
+  // navegación espera a las dos cosas: si se navegara con la renovación en vuelo, el
+  // arreglo no arreglaría nada.
   const handleVerified = useCallback(() => {
     if (redirectingRef.current) return
     redirectingRef.current = true
     stopPolling()
     setVerified(true)
-    setTimeout(() => router.push("/dashboard"), 1500)
-  }, [router, stopPolling])
+
+    void (async () => {
+      // `refreshSession()` fuerza `refreshAccessToken()` y además vuelve a resolver
+      // perfil, cuenta y plan: el dashboard se monta con el contexto ya poblado.
+      const renovada = refreshSession().then((haySesion) => {
+        const target = haySesion ? "/dashboard" : "/auth/login"
+        setDestination(target)
+        return target
+      })
+      const [target] = await Promise.all([
+        renovada,
+        new Promise<void>((resolve) => setTimeout(resolve, SUCCESS_DWELL)),
+      ])
+      // Sin sesión en ESTE navegador (el enlace se abrió en otro dispositivo) el
+      // dashboard no puede leer nada: el destino honesto es el login. La
+      // verificación igual ocurrió, y el cartel lo sigue diciendo.
+      router.push(target)
+    })()
+  }, [router, stopPolling, refreshSession])
 
   // Core check: preguntarle al servidor por el estado REAL del email.
   //
@@ -174,7 +217,11 @@ function VerifyEmailContent() {
             <div className="flex flex-col gap-1">
               <h2 className="text-xl font-bold text-foreground">Email verificado</h2>
               <p className="text-sm text-muted-foreground">
-                Redirigiendo al dashboard…
+                {destination === "/auth/login"
+                  // El email quedó verificado igual: lo que falta es la sesión en
+                  // ESTE navegador (el enlace se abrió en otro dispositivo).
+                  ? "Iniciá sesión para entrar a tu cuenta…"
+                  : "Redirigiendo al dashboard…"}
               </p>
             </div>
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

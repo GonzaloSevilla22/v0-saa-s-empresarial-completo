@@ -3,7 +3,11 @@
 import { useState, useMemo } from "react"
 import { useProducts } from "@/hooks/data/use-products"
 import { useSales } from "@/hooks/data/use-sales"
-import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D21 + tasks 19.8d/19.11): el Bearer de la
+// Edge Function lo arma el helper compartido, que resuelve el token del store en
+// memoria. El `supabase.auth.getSession()` que había acá LANZA con `accessToken`
+// configurado (`supabase-js/index.mjs:389`).
+import { getAuthHeaders } from "@/lib/api/auth-headers"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -114,10 +118,11 @@ export default function SimuladorPage() {
       `¿Vale la pena este cambio de precio? ¿Cuál sería el precio óptimo y por qué? Sé concreto.`
 
     try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-
-      if (!session?.access_token) {
+      const headers = await getAuthHeaders({
+        'apikey':       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        'Content-Type': 'application/json',
+      })
+      if (!headers.Authorization) {
         throw new Error('Tu sesión expiró. Recargá la página e iniciá sesión de nuevo.')
       }
 
@@ -133,11 +138,7 @@ export default function SimuladorPage() {
           `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-simulador`,
           {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${session.access_token}`,
-              'apikey':         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-              'Content-Type':   'application/json',
-            },
+            headers,
             body:   JSON.stringify({ scenario }),
             signal: controller.signal,
           },

@@ -22,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/contexts/auth-context"
 import { queryKeys } from "@/lib/query-keys"
+import { getAuthHeaders } from "@/lib/api/auth-headers"
 import { STATISTICS_INSIGHT_TYPE } from "@/lib/sales-statistics"
 
 export interface StatisticsInsight {
@@ -52,17 +53,22 @@ const FALLBACK_MESSAGE = "El análisis no estuvo disponible. Intentá de nuevo."
  *  que la superficie no interprete JSON crudo. */
 export async function analyzeStatistics(
   input: AnalyzeStatisticsInput,
-  accessToken: string,
 ): Promise<AnalyzeStatisticsResult> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!supabaseUrl) return { status: "error", message: "missing_supabase_url" }
 
+  // auth-hardening-jwt-cookies (Parte C, D21 + tasks 19.8c/19.8f/19.11): el
+  // Bearer lo arma el helper compartido, que resuelve el token del store en
+  // memoria. Antes esta función recibía el token por parámetro y componía el
+  // encabezado a mano — el 5º de los ocho sitios que lo hacían.
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" })
+  // Sin encabezado de autorización no hay a quién atribuir el análisis: se
+  // informa sin gastar la llamada (ni la cuota de IA del usuario).
+  if (!headers.Authorization) return { status: "error", message: "Sin sesión activa" }
+
   const res = await fetch(`${supabaseUrl}/functions/v1/ai-estadisticas`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers,
     body: JSON.stringify({ start: input.start, end: input.end, branch_id: input.branchId, canal: input.canal }),
   })
 
@@ -114,10 +120,7 @@ export function useAnalyzeStatistics() {
 
   return useMutation<AnalyzeStatisticsResult, Error, AnalyzeStatisticsInput>({
     mutationFn: async (input) => {
-      const { data: session } = await supabase.auth.getSession()
-      const token = session?.session?.access_token
-      if (!token) return { status: "error", message: "Sin sesión activa" }
-      return analyzeStatistics(input, token)
+      return analyzeStatistics(input)
     },
     onSuccess: async (result) => {
       // Sólo un insight generado cambia lo persistido y el contador de uso.

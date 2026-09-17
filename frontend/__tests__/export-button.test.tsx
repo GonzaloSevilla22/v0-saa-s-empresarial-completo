@@ -32,7 +32,7 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
-    auth: { getSession: vi.fn().mockResolvedValue({ data: { session: { access_token: "tok" } } }) },
+    // task 19.7b: el token lo resuelve `triggerExport` con `getAuthHeaders()`.
   }),
 }))
 

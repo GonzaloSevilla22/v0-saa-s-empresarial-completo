@@ -37,9 +37,13 @@ export default function CopilotoPage() {
   }, [messages])
 
   async function loadHistory() {
+    if (!user) return
     try {
       const supabase = createClient()
-      const history = await aiCopilotService.getConversationHistory(supabase)
+      // La identidad sale de `useAuth()` (auth-hardening-jwt-cookies, Parte C): el
+      // servicio ya no la resuelve por su cuenta, porque su otro caller es un
+      // Route Handler donde el store del token no puede resolverla.
+      const history = await aiCopilotService.getConversationHistory(supabase, user.id)
       const formatted = history.flatMap((h: any) => [
         { role: 'user' as const, content: h.question, created_at: h.created_at },
         { role: 'assistant' as const, content: h.answer, created_at: h.created_at }

@@ -14,8 +14,10 @@
  * (`lib/cookies.ts:11`, `lib/supabase/middleware.ts:161`). Lo tapaba HSTS, que
  * está vivo, pero era una línea que faltaba.
  *
- * `httpOnly` sigue en `false` en esta parte a propósito: cambiarlo rompe el
- * Bearer de FastAPI hasta que exista el token handler (D16, Parte C).
+ * auth-hardening-jwt-cookies Parte C (task 18.1): `httpOnly` pasa a `true`. En la
+ * Parte B era `false` a propósito —el Bearer de FastAPI salía de leer estas
+ * cookies desde el navegador (D16)—; la Parte C reemplaza esa lectura por el
+ * token handler (`GET /api/auth/token`, grupo 19).
  */
 import { describe, it, expect, vi, afterEach } from "vitest"
 import fs from "node:fs"
@@ -54,8 +56,34 @@ describe("authCookieOptions — el resto de los atributos", () => {
     expect(options.sameSite).toBe("lax")
   })
 
-  it("httpOnly sigue en false en la Parte B (lo cambia la Parte C con el token handler)", () => {
-    expect(authCookieOptions().httpOnly).toBe(false)
+  // ── 18.1 ::emits_http_only ───────────────────────────────────────────────
+  //
+  // auth-hardening-jwt-cookies Parte C (D1, task 18.1). Hasta la Parte B esta
+  // aserción era `toBe(false)` a propósito: el Bearer de FastAPI salía de leer
+  // la cookie desde el navegador. La Parte C mueve esa lectura al token handler
+  // (`GET /api/auth/token`, grupo 19), así que el refresh token deja de estar
+  // al alcance de JavaScript — que es **el** objetivo del change.
+  it("emite httpOnly: true (Parte C — la sesión deja de ser legible por JS)", () => {
+    expect(authCookieOptions().httpOnly).toBe(true)
+  })
+
+  it("y sigue en SameSite=Lax, no Strict (D2)", () => {
+    // El par httpOnly+sameSite viaja junto: `Strict` dejaría sin cookie PKCE al
+    // retorno de los enlaces por email. La razón vive en el módulo.
+    const options = authCookieOptions()
+    expect(options.httpOnly).toBe(true)
+    expect(options.sameSite).toBe("lax")
+  })
+
+  it("el módulo documenta por qué Lax y no Strict (18.2)", () => {
+    const source = fs.readFileSync(
+      path.join(FRONTEND, "lib/supabase/cookie-options.ts"),
+      "utf8",
+    )
+    // No es cosmético: sin esta explicación el próximo endurecimiento
+    // "obvio" (Lax → Strict) rompe los cuatro flujos por email.
+    expect(source).toMatch(/Strict/)
+    expect(source).toMatch(/PKCE|code-verifier|verificador/i)
   })
 
   it("no fija maxAge ni name: conserva los defaults de la librería", () => {
@@ -66,9 +94,21 @@ describe("authCookieOptions — el resto de los atributos", () => {
 })
 
 // ── 15.3 ::test_all_four_call_sites_share_the_options ──────────────────────
-describe("los cuatro sitios que construyen cliente comparten la definición", () => {
+//
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.6): eran CUATRO y quedan TRES.
+// El cliente de navegador salió de la lista porque dejó de escribir cookies: pasó
+// a `createClient(url, anonKey, { accessToken })` y la sesión la escribe
+// únicamente el servidor, que es literalmente lo que el requirement pide
+// ("escritas **únicamente** desde código de servidor"). Pasarle `cookieOptions`
+// era, desde el principio, un no-op —`@supabase/ssr` escribe con
+// `document.cookie`, que no puede emitir `HttpOnly`— pero mientras existía era la
+// única forma de que los atributos no divergieran entre caminos.
+//
+// El caso de abajo lo assertea al revés para ese archivo: si alguien le devolviera
+// la escritura de cookies al navegador, la lista de tres seguiría verde y el
+// candado no lo vería.
+describe("los tres sitios de SERVIDOR que construyen cliente comparten la definición", () => {
   const CALL_SITES = [
-    "lib/supabase/client.ts",
     "lib/supabase/server.ts",
     "lib/supabase/middleware.ts",
     "app/auth/callback/route.ts",
@@ -90,6 +130,24 @@ describe("los cuatro sitios que construyen cliente comparten la definición", ()
   it("el detector reconoce un literal (no es vacuo)", () => {
     const offending = "cookieOptions: { secure: true, sameSite: 'strict' },"
     expect(/cookieOptions:\s*\{/.test(offending)).toBe(true)
+  })
+
+  // ── task 19.6 ──────────────────────────────────────────────────────────────
+  it("el cliente de NAVEGADOR no escribe cookies de sesión en absoluto", () => {
+    const source = fs.readFileSync(path.join(FRONTEND, "lib/supabase/client.ts"), "utf8")
+    const code = source
+      .split(/\r?\n/)
+      .filter((line) => {
+        const trimmed = line.trimStart()
+        return !trimmed.startsWith("//") && !trimmed.startsWith("*") && !trimmed.startsWith("/*")
+      })
+      .join("\n")
+
+    // Ni opciones de cookie, ni el constructor que las usaba.
+    expect(code).not.toContain("cookieOptions")
+    expect(code).not.toContain("createBrowserClient")
+    // Y sí el callback: es de dónde saca el token ahora.
+    expect(code).toContain("accessToken")
   })
 
   it("y el único sitio que declara los atributos es el módulo compartido", () => {

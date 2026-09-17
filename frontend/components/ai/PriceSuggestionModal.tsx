@@ -1,7 +1,11 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D21 + tasks 19.8d/19.11): el Bearer de la
+// Edge Function lo arma el helper compartido, que resuelve el token del store en
+// memoria. El `supabase.auth.getSession()` que había acá LANZA con `accessToken`
+// configurado (`supabase-js/index.mjs:389`).
+import { getAuthHeaders } from "@/lib/api/auth-headers"
 import {
   Dialog,
   DialogContent,
@@ -65,10 +69,8 @@ export function PriceSuggestionModal({
 
     async function fetchSuggestion() {
       try {
-        const supabase = createClient()
-        const { data: session } = await supabase.auth.getSession()
-        const token = session?.session?.access_token
-        if (!token) {
+        const headers = await getAuthHeaders({ "Content-Type": "application/json" })
+        if (!headers.Authorization) {
           setState({ status: "error_generic", message: "Sin sesión activa" })
           return
         }
@@ -77,10 +79,7 @@ export function PriceSuggestionModal({
           `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-precio`,
           {
             method:  "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization:  `Bearer ${token}`,
-            },
+            headers,
             body: JSON.stringify({ product_id: productId }),
           }
         )

@@ -122,6 +122,34 @@ export function isApiPath(pathname: string): boolean {
   return pathname === API_PREFIX || pathname.startsWith(`${API_PREFIX}/`)
 }
 
+/** Prefijo de los manejadores de sesión del propio dominio. */
+const API_AUTH_PREFIX = "/api/auth"
+
+/**
+ * ¿Es uno de los manejadores de sesión (`/api/auth/token`, `/api/auth/status`)?
+ *
+ * auth-hardening-jwt-cookies (Parte C, D19-5; revisión adversarial pre-merge). Son
+ * las dos rutas para las que el middleware **no tiene nada que hacer** y donde
+ * hacer algo es contraproducente:
+ *
+ *  - no reciben redirect (son `/api/**`, D4) ni corte por inactividad (sólo corre
+ *    sobre rutas protegidas);
+ *  - leen la sesión, aplican el **mismo** `evaluateIdle` y rotan sus propias
+ *    cookies (`lib/auth/route-session.ts`), así que el `getUser()` del middleware
+ *    es una llamada de red repetida a GoTrue;
+ *  - y como `getUser()` **renueva** cuando faltan menos de 90 s
+ *    (`auth-js/GoTrueClient.js:2341-2371`) mientras el navegador pide el token con
+ *    ≤ 60 s de margen (`access-token-store.ts:62`), la renovación ocurría siempre
+ *    en el middleware —otro runtime— y dejaba **inerte** el single-flight del
+ *    manejador, que es la única defensa contra la carrera de rotación de refresh
+ *    tokens (D19-5).
+ *
+ * El conjunto es angosto a propósito: el resto de `/api/**` conserva su camino.
+ */
+export function isApiAuthPath(pathname: string): boolean {
+  return pathname === API_AUTH_PREFIX || pathname.startsWith(`${API_AUTH_PREFIX}/`)
+}
+
 /** ¿Está la ruta en la allow-list pública? */
 export function isPublicPath(pathname: string): boolean {
   if ((PUBLIC_EXACT_PATHS as readonly string[]).includes(pathname)) return true

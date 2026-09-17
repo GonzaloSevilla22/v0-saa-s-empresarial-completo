@@ -2,7 +2,11 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D1, task 18.4e): el cambio de contraseña
+// corre en el servidor, sobre la sesión que dejó el intercambio del código PKCE
+// en `/auth/callback`. Esta pantalla ya no construye cliente de Supabase.
+import { updatePasswordAction } from "@/app/auth/actions"
+import { unwrapAuthResult } from "@/lib/auth/auth-result"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -26,7 +30,6 @@ export default function ResetPasswordPage() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClient()
 
   const isPasswordSecure = passwordRequirements.every((r) => r.test(password))
   const passwordsMatch = password === confirmPassword && confirmPassword !== ""
@@ -43,8 +46,7 @@ export default function ResetPasswordPage() {
     }
     setIsLoading(true)
     try {
-      const { error } = await supabase.auth.updateUser({ password })
-      if (error) throw error
+      unwrapAuthResult(await updatePasswordAction({ password }))
       toast.success("Contraseña actualizada correctamente")
       router.push("/dashboard")
     } catch (error: any) {

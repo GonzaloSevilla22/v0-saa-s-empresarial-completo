@@ -8,12 +8,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-const { getSessionMock } = vi.hoisted(() => ({
-  getSessionMock: vi.fn(),
+// auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8f): el seam de la sesión
+// pasa del cliente de navegador al store del token. El doble ya no puede ofrecer
+// `auth`: con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`), y un doble que lo siga ofreciendo deja la suite
+// verde mientras producción explota. El store devuelve los TRES estados que el
+// helper necesita, así que "la consulta lanzó" pasa a ser un valor de retorno.
+const { resolveAccessTokenMock } = vi.hoisted(() => ({
+  resolveAccessTokenMock: vi.fn(),
 }))
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({ auth: { getSession: getSessionMock } }),
+vi.mock("@/lib/auth/access-token-store", () => ({
+  resolveAccessToken: () => resolveAccessTokenMock(),
 }))
 
 const mockFetch = vi.fn()
@@ -43,7 +49,7 @@ describe("subscriptions-client — encabezados y 401", () => {
   })
 
   it("con token manda el encabezado", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "tok-1" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "tok-1" })
     mockFetch.mockReturnValueOnce(response({ init_point: "x" }))
 
     await createSubscription("pro")
@@ -55,7 +61,7 @@ describe("subscriptions-client — encabezados y 401", () => {
 
   // ::omits_authorization_header_when_token_is_empty
   it("sin sesión NO manda `Bearer ` vacío: omite el encabezado", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: null } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "absent" })
     mockFetch.mockReturnValueOnce(response({ init_point: "x" }))
 
     await createSubscription("pro")
@@ -66,7 +72,7 @@ describe("subscriptions-client — encabezados y 401", () => {
   })
 
   it("un 401 sin sesión navega al login con reason=expired", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: null } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "absent" })
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     mockFetch.mockReturnValueOnce(response({ detail: "no" }, 401))
 
@@ -77,7 +83,7 @@ describe("subscriptions-client — encabezados y 401", () => {
   })
 
   it("un 401 con sesión viva no navega", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "tok-vivo" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "tok-vivo" })
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     mockFetch.mockReturnValueOnce(response({ detail: "no" }, 401))
 
@@ -87,14 +93,14 @@ describe("subscriptions-client — encabezados y 401", () => {
   })
 
   it("el 503 de la palanca apagada sigue siendo 'no habilitado', no un error", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "tok-1" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "tok-1" })
     mockFetch.mockReturnValueOnce(response({}, 503))
 
     await expect(getSubscriptionStatus()).resolves.toEqual({ enabled: false })
   })
 
   it("el 404 sigue siendo 'sin suscripción', no un error", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "tok-1" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "tok-1" })
     mockFetch.mockReturnValueOnce(response({}, 404))
 
     await expect(getSubscriptionStatus()).resolves.toEqual({ enabled: true, data: null })

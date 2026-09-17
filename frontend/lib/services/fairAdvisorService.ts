@@ -1,4 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b).
+import { getSessionUser } from '@/lib/auth/access-token-store'
 
 export interface FairRecommendation {
   product: string
@@ -43,7 +45,7 @@ export const fairAdvisorService = {
    */
   async getLastRecommendation() {
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser()
     if (!user) throw new Error("Not authenticated")
 
     const { data, error } = await supabase

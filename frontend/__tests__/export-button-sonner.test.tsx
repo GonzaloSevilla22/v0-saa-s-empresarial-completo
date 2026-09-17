@@ -42,12 +42,11 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries }),
 }))
 
-const getSessionMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ data: { session: { access_token: "tok" } } }),
-)
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({ auth: { getSession: getSessionMock } }),
-}))
+// auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8d): el botón ya no
+// resuelve la sesión — el token lo arma `triggerExport` con `getAuthHeaders()`, y
+// "no hay sesión" llega como el código `no_session` de su resultado. El doble del
+// cliente ya no ofrece `auth` (con `accessToken` configurado LANZA,
+// `supabase-js/index.mjs:389`).
 
 const triggerExportMock = vi.hoisted(() => vi.fn())
 vi.mock("@/hooks/auth/use-export-usage", () => ({
@@ -77,7 +76,6 @@ beforeEach(() => {
   sonnerToast.error.mockClear()
   invalidateQueries.mockClear()
   triggerExportMock.mockReset()
-  getSessionMock.mockResolvedValue({ data: { session: { access_token: "tok" } } })
 })
 
 describe("ExportButton — todas las ramas avisan por sonner (G7/H7)", () => {
@@ -128,12 +126,13 @@ describe("ExportButton — todas las ramas avisan por sonner (G7/H7)", () => {
   })
 
   it("sin sesión: toast de 'No autenticado'", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: null } })
+    // El transporte es el que sabe que no hay con qué autorizar, y lo dice con un
+    // código propio en vez de con el nombre de un error interno.
+    triggerExportMock.mockResolvedValue({ ok: false, error: "no_session" })
     const user = await renderButton()
     await clickExport(user)
 
     await waitFor(() => expect(sonnerToast.error).toHaveBeenCalledWith("No autenticado"))
-    expect(triggerExportMock).not.toHaveBeenCalled()
   })
 
   it("excepción inesperada: toast de error genérico", async () => {

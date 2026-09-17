@@ -75,8 +75,20 @@ export interface BusinessSnapshot {
 
 // ─── Builder ─────────────────────────────────────────────────────────────────
 
+/**
+ * @param supabase cliente que lee los datos. Su único caller es
+ *   `app/api/ai/copilot/route.ts`, que le pasa el cliente de **servidor**.
+ * @param userId identidad ya autenticada por el caller (`supabase.auth.getUser()`
+ *   del cliente de servidor). Viaja por parámetro y **no** se resuelve acá
+ *   adentro: la revisión adversarial de la Parte C encontró que resolverla con el
+ *   store del navegador (`getSessionUser()`) devolvía `null` en el 100% de las
+ *   peticiones, porque este código corre en un Route Handler y el store necesita
+ *   `window` (`lib/auth/access-token-store.ts:208-212`). `null` = degradar el
+ *   bloque de top productos, nunca inventar una identidad.
+ */
 export async function buildBusinessSnapshot(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  userId: string | null
 ): Promise<BusinessSnapshot> {
   const now = new Date()
 
@@ -226,10 +238,9 @@ export async function buildBusinessSnapshot(
   // bloque se omite (nunca se reconstruye con la suma local vieja, D4).
   let topRentables: BusinessSnapshot['productos']['top_rentables'] = []
   try {
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (!authUser) throw new Error('no_authenticated_user')
+    if (!userId) throw new Error('no_authenticated_user')
 
-    const accountId = await resolveActiveAccountId(supabase, authUser.id)
+    const accountId = await resolveActiveAccountId(supabase, userId)
     if (!accountId) throw new Error('no_active_account')
 
     const ranked = await fetchTopProducts(supabase, accountId, {

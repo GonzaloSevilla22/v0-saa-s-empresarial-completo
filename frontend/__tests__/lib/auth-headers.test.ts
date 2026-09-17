@@ -22,10 +22,21 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-const getSessionMock = vi.fn()
+/**
+ * Parte C, task 19.8f: el seam pasa de `supabase.auth.getSession()` al store del
+ * token (`lib/auth/access-token-store.ts`). Mockear `@/lib/supabase/client` acá
+ * dejaría el test verde mientras producción lanza: con `accessToken` configurado
+ * `supabase.auth` es un Proxy que tira en cualquier acceso
+ * (`supabase-js/index.mjs:389`). El candado de 19.7b prohíbe ese doble.
+ *
+ * El store ya devuelve los **tres** estados que este módulo necesita (`active` /
+ * `absent` / `unknown`), así que la traducción desaparece: lo que antes era "la
+ * consulta lanzó" ahora es un valor de retorno.
+ */
+const resolveAccessTokenMock = vi.fn()
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({ auth: { getSession: getSessionMock } }),
+vi.mock("@/lib/auth/access-token-store", () => ({
+  resolveAccessToken: (options?: { force?: boolean }) => resolveAccessTokenMock(options),
 }))
 
 import {
@@ -40,15 +51,19 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND = path.resolve(HERE, "..", "..")
 
 function withSession(token: string) {
-  getSessionMock.mockResolvedValue({ data: { session: { access_token: token } } })
+  resolveAccessTokenMock.mockResolvedValue({ status: "active", token })
 }
 function withoutSession() {
-  getSessionMock.mockResolvedValue({ data: { session: null } })
+  resolveAccessTokenMock.mockResolvedValue({ status: "absent" })
+}
+/** "No pude averiguarlo": el store nunca lanza, lo informa. */
+function withUnknownSession() {
+  resolveAccessTokenMock.mockResolvedValue({ status: "unknown" })
 }
 
 beforeEach(() => {
   vi.restoreAllMocks()
-  getSessionMock.mockReset()
+  resolveAccessTokenMock.mockReset()
 })
 
 // ── 14.8 ::omits_authorization_header_when_token_is_empty ──────────────────
@@ -61,13 +76,13 @@ describe("getAuthHeaders — nunca manda un Bearer vacío", () => {
   })
 
   it("omite el encabezado cuando el token es una cadena vacía", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "" })
     const headers = await getAuthHeaders()
     expect(headers.Authorization).toBeUndefined()
   })
 
   it("omite el encabezado cuando la consulta de sesión falla", async () => {
-    getSessionMock.mockRejectedValue(new Error("red caída"))
+    withUnknownSession()
     const headers = await getAuthHeaders()
     expect(headers.Authorization).toBeUndefined()
   })
@@ -141,7 +156,7 @@ describe("handleUnauthorized — D7", () => {
   // formulario de venta a medio cargar). El test anterior fijaba esa conflación
   // como comportamiento deseado.
   it("si la consulta de sesión falla, NO navega: no saber no es no tener", async () => {
-    getSessionMock.mockRejectedValue(new Error("almacenamiento bloqueado"))
+    withUnknownSession()
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
 
     const outcome = await handleUnauthorized()
@@ -183,6 +198,32 @@ describe("handleUnauthorized — D7", () => {
     expect(await handleUnauthorized("tok-viejo")).toBe("navigated")
     expect(assign).toHaveBeenCalledTimes(1)
   })
+
+  // ── Parte C, task 19.8f ────────────────────────────────────────────────────
+  // El auto-refresh de `getSession()` era lo que hacía posible `session-renewed`:
+  // la consulta devolvía un token NUEVO sin que nadie lo pidiera. El store, en
+  // cambio, cachea por el TTL del token, así que la consulta cacheada devolvería
+  // el MISMO token que acaba de recibir el 401 y el resultado sería
+  // `session-active` — un problema de permisos informado para un problema de
+  // frescura. El 401 es la evidencia de que lo cacheado no sirve: acá se fuerza.
+  it("el 401 fuerza la renovación en vez de creerle al caché", async () => {
+    withSession("tok-nuevo")
+    vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
+
+    await handleUnauthorized("tok-viejo")
+
+    expect(resolveAccessTokenMock).toHaveBeenCalledWith({ force: true })
+  })
+
+  it("armar los encabezados, en cambio, NO fuerza nada", async () => {
+    // Si forzara, cada llamada al backend propio sería un `GET /api/auth/token`
+    // extra: el camino caliente pasa por el caché en memoria.
+    withSession("tok-123")
+
+    await getAuthHeaders()
+
+    expect(resolveAccessTokenMock).not.toHaveBeenCalledWith({ force: true })
+  })
 })
 
 // ── Revisión adversarial (MINOR 2 de seguridad) ─────────────────────────────
@@ -211,7 +252,7 @@ describe("redirectedOnUnauthorized — el idioma de los fetch a mano", () => {
   })
 
   it("con 401 y consulta fallida tampoco corta", async () => {
-    getSessionMock.mockRejectedValue(new Error("almacenamiento bloqueado"))
+    withUnknownSession()
     expect(await redirectedOnUnauthorized(response(401))).toBe(false)
   })
 
@@ -220,7 +261,7 @@ describe("redirectedOnUnauthorized — el idioma de los fetch a mano", () => {
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
 
     expect(await redirectedOnUnauthorized(response(status))).toBe(false)
-    expect(getSessionMock).not.toHaveBeenCalled()
+    expect(resolveAccessTokenMock).not.toHaveBeenCalled()
     expect(assign).not.toHaveBeenCalled()
   })
 })
@@ -244,12 +285,26 @@ describe("tokenFromHeaders — el formato del Bearer vive en un solo sitio", () 
 })
 
 // ── D21: una sola implementación arma los encabezados ──────────────────────
-describe("D21 — los transportes de la Parte B no arman el Bearer a mano", () => {
+describe("D21 — los transportes no arman el Bearer a mano", () => {
+  /**
+   * Los OCHO sitios que D21 enumera. La Parte B migró los cuatro que hablan con
+   * FastAPI; la Parte C (task 19.8f) migra los cuatro que hablan con Edge
+   * Functions, más los dos módulos donde vive el `fetch` de esos cuatro
+   * (`use-export-usage` y `use-statistics-ai` reciben la llamada de
+   * `ExportButton` y del panel de estadísticas) y las dos pantallas de IA que
+   * llamaban a mano.
+   */
   const TRANSPORTS = [
     "lib/api/python-client.ts",
     "lib/api/subscriptions-client.ts",
     "components/ventas/sale-receipt-button.tsx",
     "app/(dashboard)/admin/pagos/page.tsx",
+    "hooks/auth/use-export-usage.ts",
+    "hooks/data/use-statistics-ai.ts",
+    "app/(dashboard)/simulador/page.tsx",
+    "components/ai/PriceSuggestionModal.tsx",
+    "app/(dashboard)/rentabilidad/page.tsx",
+    "app/(dashboard)/reportes/comparativo/page.tsx",
   ]
 
   it.each(TRANSPORTS)("%s consume getAuthHeaders()", (relative) => {
@@ -275,6 +330,83 @@ describe("D21 — los transportes de la Parte B no arman el Bearer a mano", () =
   it("y el único sitio que compone el encabezado es el helper compartido", () => {
     const helper = fs.readFileSync(path.join(FRONTEND, "lib/api/auth-headers.ts"), "utf8")
     expect(/Bearer\s*\$\{/.test(helper)).toBe(true)
+  })
+
+  // ── Parte C, tasks 19.8f y 19.11 ──────────────────────────────────────────
+  // La lista de arriba envejece: nombra los sitios que HABÍA. Este caso barre el
+  // árbol entero, así que un noveno transporte que nazca mañana armando su propio
+  // Bearer lo encuentra sin que nadie se acuerde de agregarlo a la lista.
+  describe("barrido del árbol: nadie más compone un Bearer", () => {
+    const ROOTS = ["app", "components", "hooks", "lib", "contexts", "providers"]
+    /**
+     * `auth-headers.ts` es el helper: es el único que compone el encabezado de la
+     * sesión del usuario.
+     *
+     * `app/api/ai/copilot/route.ts` compone un Bearer que **no es la sesión**: es
+     * la clave de OpenAI, en el servidor, hacia un tercero. Va nombrado en vez de
+     * afinar la expresión para que no cuente como sesión: una expresión que
+     * distinga "clave de tercero" de "token de usuario" por el nombre de la
+     * variable es la clase de detector que después deja pasar el caso real.
+     */
+    const ALLOWED = ["lib/api/auth-headers.ts", "app/api/ai/copilot/route.ts"]
+
+    function walk(dir: string, found: string[] = []): string[] {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === "node_modules" || entry.name === ".next") continue
+          walk(full, found)
+        } else if (/\.tsx?$/.test(entry.name)) {
+          found.push(full)
+        }
+      }
+      return found
+    }
+
+    const SOURCES = ROOTS.flatMap((root) => walk(path.join(FRONTEND, root)))
+    const relative = (absolute: string) =>
+      path.relative(FRONTEND, absolute).replace(/\\/g, "/")
+
+    /** Líneas de código (sin comentarios) que componen un Bearer. */
+    function composingLines(absolute: string): string[] {
+      return fs
+        .readFileSync(absolute, "utf8")
+        .split(/\r?\n/)
+        .filter((line) => {
+          const trimmed = line.trimStart()
+          return (
+            !trimmed.startsWith("//") && !trimmed.startsWith("*") && !trimmed.startsWith("/*")
+          )
+        })
+        .filter((line) => /Bearer\s*\$\{/.test(line))
+    }
+
+    const OFFENDERS = SOURCES.map((absolute) => ({
+      file: relative(absolute),
+      lines: composingLines(absolute),
+    })).filter((entry) => entry.lines.length > 0)
+
+    it("el barrido lee el árbol (no es vacuo por no encontrar archivos)", () => {
+      expect(SOURCES.length).toBeGreaterThan(200)
+      // Y encuentra el del helper: si esto fuera 0, el detector estaría roto.
+      expect(OFFENDERS.map((o) => o.file)).toContain("lib/api/auth-headers.ts")
+    })
+
+    it("cada excepción de la lista sigue existiendo y sigue componiendo un Bearer", () => {
+      // Una excepción que dejó de aplicar es una excepción que tapa al próximo que
+      // ocupe ese nombre de archivo.
+      for (const allowed of ALLOWED) {
+        expect(OFFENDERS.map((o) => o.file), allowed).toContain(allowed)
+      }
+    })
+
+    it("ningún archivo fuera del helper compone un Bearer", () => {
+      const detail = OFFENDERS.map((o) => `${o.file}: ${o.lines.map((l) => l.trim()).join(" | ")}`)
+      expect(
+        OFFENDERS.map((o) => o.file).filter((file) => !ALLOWED.includes(file)),
+        `\n${detail.join("\n")}`,
+      ).toEqual([])
+    })
   })
 
   // ── Revisión adversarial (MINOR 2 de seguridad) ───────────────────────────

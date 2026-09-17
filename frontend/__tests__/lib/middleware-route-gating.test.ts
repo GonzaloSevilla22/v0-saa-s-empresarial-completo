@@ -108,12 +108,20 @@ describe("updateSession — /api/** no recibe redirect", () => {
   // `/api/**` incluido — es decir, el propio manejador de token de la Parte C
   // habría recibido un 307 a HTML donde espera JSON, que es exactamente lo que
   // D4 declara que no puede pasar.
+  // Se mide sobre `/api/ai/copilot` y no sobre `/api/auth/token`: desde la revisión
+  // adversarial de la Parte C, `/api/auth/*` **no llega** a esta rama porque el
+  // middleware la cortocircuita antes de `getUser()` (D19-5, ver
+  // `middleware-api-auth-shortcircuit.test.ts`). La garantía de D4 que este caso
+  // fija —purga sin redirect en `/api/**`— sigue aplicando a las demás rutas de
+  // API, y el manejador de token borra sus propias cookies muertas
+  // (`route.ts:170-182` devuelve "sin sesión" con las cookies que `_removeSession`
+  // ya borró).
   it("la purga de sesión muerta NO redirige una ruta de API, pero igual borra las cookies", async () => {
     harness.user = null
     harness.authError = { message: "AuthApiError: Refresh Token Not Found" }
 
     const response = await updateSession(
-      buildRequest("/api/auth/token", { "sb-project-auth-token": "base64-muerta" }),
+      buildRequest("/api/ai/copilot", { "sb-project-auth-token": "base64-muerta" }),
     )
 
     expect(isRedirect(response)).toBe(false)
@@ -155,11 +163,17 @@ describe("updateSession — atributos de cookie", () => {
     // Lo que llegó al `createServerClient` real en producción, medido acá sobre
     // el doble: sin esto regía el default de `@supabase/ssr`, que NO tiene
     // clave `secure`.
+    //
+    // auth-hardening-jwt-cookies (Parte C, task 18.1): `httpOnly` pasa a `true`.
+    // El middleware es **el** camino que rota las cookies en cada petición
+    // autenticada, así que es el que efectivamente marca la sesión de un usuario
+    // que ya estaba dentro: si acá llegara el default de la librería, la sesión
+    // seguiría legible por JavaScript por más que el resto del change esté puesto.
     expect(middlewareHarness.lastCookieOptions).toBeDefined()
     expect(middlewareHarness.lastCookieOptions).toMatchObject({
       path: "/",
       sameSite: "lax",
-      httpOnly: false,
+      httpOnly: true,
     })
     expect(middlewareHarness.lastCookieOptions).toHaveProperty("secure")
   })

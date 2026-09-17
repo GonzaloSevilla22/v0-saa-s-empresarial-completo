@@ -41,10 +41,7 @@ const schemaSpy = vi.fn(() => ({ from: communityFrom }))
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(() => ({
-    auth: {
-      getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "u-1" } } }, error: null }),
-      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "u-1" } }, error: null }),
-    },
+    // task 19.7b: este hook no consulta la sesión por el cliente.
     schema: schemaSpy,
     from: publicFrom,
   })),

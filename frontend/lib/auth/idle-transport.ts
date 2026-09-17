@@ -12,6 +12,29 @@
  * Messages:
  *   activity  — { type: "activity"; lastActivity: number }
  *   logout    — { type: "logout" }
+ *
+ * ── auth-hardening-jwt-cookies (Parte C, D1, grupo 20) ──────────────────────
+ *
+ * Este transporte es el **único** mecanismo entre pestañas del proyecto, y ahora
+ * lo comparten dos consumidores: el temporizador de inactividad y el **bus de
+ * eventos de sesión** (`lib/auth/session-bus.ts`), que existe porque con el
+ * cliente configurado con `accessToken` el observador del proveedor
+ * (`supabase.auth.onAuthStateChange`) ni se instala (`supabase-js/index.mjs:407`)
+ * y cualquier acceso a `supabase.auth` lanza (`:389`).
+ *
+ * Dos cosas cambiaron acá para que apoyarse encima sea seguro, y las dos tienen
+ * un candado en `__tests__/idle-transport.test.ts`:
+ *
+ * 1. **Varios suscriptores.** `onMessage` guardaba **un solo** handler
+ *    (`handler = h`, sobrescribiendo) en las dos implementaciones. Montar el bus
+ *    sobre la misma instancia habría **desuscrito en silencio** al temporizador de
+ *    inactividad: ni aviso previo ni corte, sin un solo error en consola. Hoy es
+ *    una lista y `onMessage` devuelve su función de baja.
+ * 2. **Tipos propios para la sesión.** `{type:"logout"}` ya **significa** "cierre
+ *    por inactividad" para su único consumidor (`components/auth/IdleTimeoutProvider.tsx`,
+ *    que muestra `?reason=idle`). El bus **NO** lo reutiliza: emite
+ *    `session:signed-in`, `session:signed-out` y `session:token-refreshed`, que el
+ *    temporizador ignora porque no pertenecen a su unión.
  */
 
 // ── Message types ─────────────────────────────────────────────────────────────
@@ -25,7 +48,34 @@ export interface LogoutMessage {
   type: "logout"
 }
 
+/** Mensajes del temporizador de inactividad. Unión cerrada, no la amplíes. */
 export type IdleMessage = ActivityMessage | LogoutMessage
+
+export interface SessionSignedInMessage {
+  type: "session:signed-in"
+}
+
+export interface SessionSignedOutMessage {
+  type: "session:signed-out"
+}
+
+export interface SessionTokenRefreshedMessage {
+  type: "session:token-refreshed"
+}
+
+/**
+ * Mensajes del bus de sesión. **Nunca** llevan el access token: el canal cae a
+ * `localStorage` cuando `BroadcastChannel` no existe, y escribir el token ahí
+ * anularía el motivo del cambio entero (la credencial vive sólo en memoria).
+ * Son **señales**: la pestaña que las recibe le pide el token al manejador.
+ */
+export type SessionMessage =
+  | SessionSignedInMessage
+  | SessionSignedOutMessage
+  | SessionTokenRefreshedMessage
+
+/** Todo lo que puede viajar por el canal compartido. */
+export type TabMessage = IdleMessage | SessionMessage
 
 // ── Transport interface ────────────────────────────────────────────────────────
 
@@ -34,10 +84,56 @@ export interface IdleTransport {
   postActivity(lastActivity: number): void
   /** Broadcast that the local tab is performing an idle logout. */
   postLogout(): void
-  /** Register a callback for incoming messages from other tabs. */
-  onMessage(handler: (msg: IdleMessage) => void): void
+  /** Publica cualquier mensaje del canal compartido (lo usa el bus de sesión). */
+  post(msg: TabMessage): void
+  /**
+   * Registra un receptor de los mensajes de las otras pestañas.
+   *
+   * Admite **varios** suscriptores simultáneos y devuelve la función de baja del
+   * que se acaba de registrar.
+   */
+  onMessage(handler: (msg: TabMessage) => void): () => void
   /** Clean up all listeners and close the channel. */
   close(): void
+}
+
+// ── Lista de suscriptores (compartida por las dos implementaciones) ──────────
+
+interface SubscriberList {
+  add(handler: (msg: TabMessage) => void): () => void
+  emit(msg: TabMessage): void
+  clear(): void
+}
+
+function createSubscriberList(): SubscriberList {
+  const handlers = new Set<(msg: TabMessage) => void>()
+
+  return {
+    add(handler) {
+      handlers.add(handler)
+      return () => {
+        handlers.delete(handler)
+      }
+    },
+    emit(msg) {
+      // Copia: un handler que se da de baja (o que suscribe otro) mientras se
+      // reparte el mensaje no puede romper el recorrido.
+      for (const handler of [...handlers]) {
+        try {
+          handler(msg)
+        } catch (handlerError) {
+          // El temporizador de inactividad y el bus de sesión comparten la
+          // instancia: si el primero de la lista explota, el segundo NO puede
+          // quedarse sin el mensaje. Un corte por inactividad que no llega es
+          // justamente el modo de falla que este transporte existe para evitar.
+          console.warn("[idle-transport] un suscriptor falló al recibir el mensaje:", handlerError)
+        }
+      }
+    },
+    clear() {
+      handlers.clear()
+    },
+  }
 }
 
 // ── BroadcastChannel implementation ──────────────────────────────────────────
@@ -47,10 +143,10 @@ const LS_KEY = "idle:sync"
 
 function createBroadcastTransport(): IdleTransport {
   const channel = new BroadcastChannel(CHANNEL_NAME)
-  let handler: ((msg: IdleMessage) => void) | null = null
+  const subscribers = createSubscriberList()
 
-  channel.addEventListener("message", (ev: MessageEvent<IdleMessage>) => {
-    handler?.(ev.data)
+  channel.addEventListener("message", (ev: MessageEvent<TabMessage>) => {
+    subscribers.emit(ev.data)
   })
 
   return {
@@ -60,10 +156,14 @@ function createBroadcastTransport(): IdleTransport {
     postLogout() {
       channel.postMessage({ type: "logout" } satisfies LogoutMessage)
     },
-    onMessage(h) {
-      handler = h
+    post(msg) {
+      channel.postMessage(msg)
+    },
+    onMessage(handler) {
+      return subscribers.add(handler)
     },
     close() {
+      subscribers.clear()
       channel.close()
     },
   }
@@ -72,13 +172,13 @@ function createBroadcastTransport(): IdleTransport {
 // ── localStorage fallback ─────────────────────────────────────────────────────
 
 function createLocalStorageTransport(): IdleTransport {
-  let handler: ((msg: IdleMessage) => void) | null = null
+  const subscribers = createSubscriberList()
 
   const storageListener = (ev: StorageEvent) => {
     if (ev.key !== LS_KEY || !ev.newValue) return
     try {
-      const msg = JSON.parse(ev.newValue) as IdleMessage
-      handler?.(msg)
+      const msg = JSON.parse(ev.newValue) as TabMessage
+      subscribers.emit(msg)
     } catch {
       // ignore malformed values
     }
@@ -86,7 +186,7 @@ function createLocalStorageTransport(): IdleTransport {
 
   window.addEventListener("storage", storageListener)
 
-  const post = (msg: IdleMessage) => {
+  const post = (msg: TabMessage) => {
     // Write → the storage event fires in OTHER tabs (not the current one).
     const payload = JSON.stringify({ ...msg, _t: Date.now() })
     localStorage.setItem(LS_KEY, payload)
@@ -99,10 +199,12 @@ function createLocalStorageTransport(): IdleTransport {
     postLogout() {
       post({ type: "logout" })
     },
-    onMessage(h) {
-      handler = h
+    post,
+    onMessage(handler) {
+      return subscribers.add(handler)
     },
     close() {
+      subscribers.clear()
       window.removeEventListener("storage", storageListener)
     },
   }

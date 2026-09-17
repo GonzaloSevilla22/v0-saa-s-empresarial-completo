@@ -2,6 +2,11 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D21 + tasks 19.8d/19.11): el Bearer de la
+// Edge Function lo arma el helper compartido, que resuelve el token del store en
+// memoria. El `supabase.auth.getSession()` que había acá LANZA con `accessToken`
+// configurado (`supabase-js/index.mjs:389`).
+import { getAuthHeaders } from "@/lib/api/auth-headers"
 import { useAuth } from "@/contexts/auth-context"
 import { usePlanLimits } from "./use-plan-limits"
 import type { ExportType } from "@/lib/types"
@@ -76,18 +81,21 @@ export type ExportParams = Record<string, string | number | boolean | null>
 /** Calls the generate-export Edge Function and triggers a browser download. */
 export async function triggerExport(
   exportType: ExportType,
-  accessToken: string,
   params?: ExportParams,
 ): Promise<ExportResult> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!supabaseUrl) return { ok: false, error: "missing_supabase_url" }
 
+  // El token ya no llega por parámetro: lo resuelve el helper compartido (D21).
+  // Sin encabezado no hay a quién atribuir el export, y `no_session` es un código
+  // propio para que las dos pantallas puedan decirlo con sus palabras en vez de
+  // mostrar el nombre de un error interno.
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" })
+  if (!headers.Authorization) return { ok: false, error: "no_session" }
+
   const res = await fetch(`${supabaseUrl}/functions/v1/generate-export`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers,
     body: JSON.stringify({ export_type: exportType, ...(params ?? {}) }),
   })
 

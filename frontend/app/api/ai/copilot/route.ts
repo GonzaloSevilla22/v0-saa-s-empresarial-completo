@@ -81,7 +81,11 @@ export async function POST(req: Request) {
     }
 
     // ── Snapshot de negocio (pre-calcula métricas server-side) ───────────────
-    const snapshot = await buildBusinessSnapshot(supabase)
+    // auth-hardening-jwt-cookies (Parte C, revisión adversarial): la identidad se
+    // pasa explícita. La tiene este handler, autenticada contra el proveedor tres
+    // líneas arriba; el snapshot no puede resolverla por su cuenta porque acá no
+    // hay `window` y el store del token del navegador devolvería `null` siempre.
+    const snapshot = await buildBusinessSnapshot(supabase, user.id)
     console.log('[Copilot] Snapshot built, top products:', snapshot.productos.top_rentables.length)
 
     // ── Contexto adaptativo (solo lo relevante para la pregunta) ─────────────
@@ -162,7 +166,7 @@ Respondé directo y accionable. Si podés dar un número concreto o una acción 
     }
 
     // ── Persistir conversación (no bloquea la respuesta) ─────────────────────
-    aiCopilotService.saveConversation(supabase, sanitized, answer).catch((err: any) => {
+    aiCopilotService.saveConversation(supabase, user.id, sanitized, answer).catch((err: any) => {
       console.error('[Copilot] Failed to save conversation:', err.message)
     })
 

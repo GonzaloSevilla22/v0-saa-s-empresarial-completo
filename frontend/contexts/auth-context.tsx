@@ -8,6 +8,29 @@ import type { User, Plan, UserRole, BillingStatus } from "@/lib/types"
 import { getEffectivePlan } from "@/lib/plan-utils"
 import { buildProfileUpdatePayload, type ProfileUpdateData } from "@/lib/profile-update"
 import { clearAuthUxCookies } from "@/lib/cookies"
+// auth-hardening-jwt-cookies (Parte C, D1, grupo 18): las siete operaciones que
+// crean, modifican o destruyen la sesión corren en el servidor. Este contexto
+// deja de hablarle al proveedor y le habla a las acciones; su API pública
+// (`useAuth()`) no cambia, así que `/auth/login`, `MagicLinkForm`,
+// `/auth/register` y `components/settings/AccountForm.tsx` conservan su UI.
+import {
+  requestEmailChangeAction,
+  signInWithMagicLinkAction,
+  signInWithPasswordAction,
+  signOutAction,
+  signUpAction,
+  updatePasswordAction,
+} from "@/app/auth/actions"
+import { unwrapAuthResult } from "@/lib/auth/auth-result"
+import { clearAccessToken, refreshAccessToken } from "@/lib/auth/access-token-store"
+// auth-hardening-jwt-cookies (Parte C, D1, task 20.3): el reemplazo de
+// `supabase.auth.onAuthStateChange`, que con `accessToken` configurado ni se
+// instala. El bus corre sobre el único transporte entre pestañas del proyecto.
+import {
+  announceSignedIn,
+  announceSignedOut,
+  subscribeToSessionEvents,
+} from "@/lib/auth/session-bus"
 
 // G11 (H9): el tipo y el armado del payload viven en la capa canónica
 // (lib/profile-update.ts) — null limpia la columna, undefined la omite.
@@ -68,12 +91,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     try {
-      // getUser() validates the JWT server-side (network call).
-      // getSession() only trusts the local cookie — never use it as an auth check.
-      // The middleware already calls getUser() on every request, so this
-      // client-side call is for hydrating the React state after confirmed auth.
-      const { data: { user: authUser }, error } = await supabase.auth.getUser()
-      if (error || !authUser) {
+      // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): la identidad sale
+      // del token handler y no de `supabase.auth.getUser()`, que con `accessToken`
+      // configurado LANZA (`supabase-js/index.mjs:389`).
+      //
+      // **`refreshAccessToken()` y no `getAccessToken()`**, o sea FORZANDO: esta
+      // función se llama justo después de `signInWithPasswordAction()`, y el store
+      // viene de la pantalla de login —una página anónima— donde ya cacheó "no hay
+      // sesión". Sin forzar, el login terminaría bien en el servidor y la app
+      // quedaría anónima hasta que el usuario recargue.
+      //
+      // El token que devuelve el manejador lo emitió el proveedor y lo verifica
+      // quien lo recibe (PostgREST y FastAPI comprueban la firma): la garantía que
+      // daba `getUser()` —"esto no es una cookie que alguien escribió"— la sigue
+      // dando el servidor, que es el único que puede leer la sesión.
+      const resolution = await refreshAccessToken()
+      const authUser = resolution.status === "active" ? resolution.user : null
+      if (!authUser) {
         setUser(null)
         return
       }
@@ -148,7 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           aiQueriesUsed:  profile.ai_queries_used ?? 0,
           aiAdviceUsed:   profile.ai_advice_used  ?? 0,
           role:           profile.role as UserRole,
-          name:           profile.name || authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          name:           profile.name || authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
           lastName:       profile.last_name     ?? undefined,
           avatar:         profile.avatar_url    ?? undefined,
           businessName:   profile.business_name ?? undefined,
@@ -180,7 +214,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           aiQueriesUsed: 0,
           aiAdviceUsed:  0,
           role:          "user",
-          name:          authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          name:          authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
           currency:      "ARS",
           timezone:      "America/Argentina/Buenos_Aires",
           dateFormat:    "DD/MM/YYYY",
@@ -199,54 +233,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshSession()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      // TOKEN_REFRESHED fires every ~hour — middleware already rotates the cookie,
-      // no need to re-query the DB. Only react to events that change user state.
-      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
-        refreshSession()
-      } else if (event === "SIGNED_OUT") {
+    // auth-hardening-jwt-cookies (Parte C, D1, tasks 19.8a y 20.3): acá vivía un
+    // `supabase.auth.onAuthStateChange`. Con `accessToken` configurado
+    // `_listenForAuthEvents()` NO se instala (`supabase-js/index.mjs:407`) y
+    // cualquier acceso a `supabase.auth` lanza (`:389`), así que el listener no es
+    // código que se pueda dejar "por si acaso": no existe.
+    //
+    // Lo que hacía para ESTA pestaña ya está cubierto: cada operación de sesión
+    // llama `refreshSession()` o navega. Lo que sólo él daba es la propagación
+    // CROSS-TAB, y eso lo restituye el bus de sesión: cerrar sesión en el celular
+    // tiene que dejar a la tablet del mostrador sin sesión, no mostrando datos
+    // como si siguiera viva hasta que algo devuelva 401.
+    //
+    // El bus NO reutiliza el mensaje `logout` del temporizador de inactividad
+    // (que significa "cierre por inactividad" y lleva a `?reason=idle`): tiene
+    // tipos propios, y los del temporizador no llegan acá.
+    const unsubscribe = subscribeToSessionEvents((event) => {
+      if (event === "session:signed-out") {
+        // El token en memoria ya lo olvidó el bus; las cookies las borró la
+        // pestaña que cerró (son del navegador, no de la pestaña). Lo que le queda
+        // a ESTA pestaña es dejar de mostrarse autenticada e irse al login, sin
+        // `reason=idle`: no fue inactividad.
         setUser(null)
+        router.push("/auth/login")
+        return
       }
+      // Sesión iniciada o token rotado en otra pestaña: el bus ya adoptó el token
+      // nuevo, así que esto sólo vuelve a resolver identidad, perfil y plan.
+      void refreshSession()
     })
 
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [refreshSession, supabase.auth])
+    return unsubscribe
+  }, [refreshSession, router])
 
-  // Función helper para obtener la URL dinámica robusta
-  const getSiteUrl = () => {
-    if (typeof window !== 'undefined') {
-      return window.location.origin
-    }
-    let url = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_VERCEL_URL ?? 'http://localhost:3000'
-    url = url.includes('http') ? url : `https://${url}`
-    return url.replace(/\/$/, '')
-  }
+  // auth-hardening-jwt-cookies (Parte C, grupo 18): el `getSiteUrl()` que vivía
+  // acá se retiró. El `emailRedirectTo` lo resuelve el servidor con
+  // `lib/auth/site-url.ts` desde los encabezados de la petición — una sola
+  // definición en vez de las cuatro copias que había.
 
   const login = useCallback(async (email: string, password: string, captchaToken?: string) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
-    // captchaToken: Supabase Auth lo valida server-side cuando el captcha está
+    // captchaToken: el proveedor lo valida server-side cuando el captcha está
     // habilitado a nivel proyecto (Turnstile). Sin habilitar, se ignora.
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-      options: { captchaToken },
-    })
-    if (error) throw error
+    unwrapAuthResult(await signInWithPasswordAction({ email, password, captchaToken }))
     await refreshSession()
+    // task 20.3: las otras pestañas de este navegador comparten la cookie de
+    // sesión, pero no el token en memoria ni el estado de React: sin el aviso se
+    // quedan mostrando el login hasta que se recarguen a mano.
+    announceSignedIn()
     router.push("/dashboard")
-  }, [supabase, router, refreshSession])
+  }, [router, refreshSession])
 
   const loginWithMagicLink = useCallback(async (email: string, captchaToken?: string) => {
-    const siteUrl = getSiteUrl()
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${siteUrl}/auth/callback`, captchaToken },
-    })
-    if (error) throw error
-  }, [supabase])
+    unwrapAuthResult(await signInWithMagicLinkAction({ email, captchaToken }))
+  }, [])
 
   const register = useCallback(async (
     name: string,
@@ -263,34 +303,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
   ) => {
     if (password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres")
-    const siteUrl = getSiteUrl()
-    console.log("[Auth] Iniciando registro. URL callback configurada a:", `${siteUrl}/auth/callback`)
-
-    // name/last_name/phone/locality + consentimiento viajan en el user_metadata
-    // del signUp; el trigger handle_new_user los copia a profiles al crear el perfil.
-    // captchaToken lo valida Supabase server-side cuando el captcha está habilitado.
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name,
-          last_name: extras?.lastName || null,
-          phone: extras?.phone || null,
-          locality: extras?.locality || null,
-          province: extras?.province || null,
-          terms_version: extras?.termsVersion || null,
-          // Default false: nadie queda suscripto por accidente (espeja el default de la columna).
-          email_notifications_opt_in: extras?.emailOptIn ?? false,
-        },
-        emailRedirectTo: `${siteUrl}/auth/callback`,
+    // El user_metadata (name/last_name/phone/locality + consentimiento) y el
+    // `emailRedirectTo` los arma la acción de servidor; el trigger
+    // handle_new_user los copia a profiles al crear el perfil.
+    unwrapAuthResult(
+      await signUpAction({
+        email,
+        password,
         captchaToken: extras?.captchaToken,
-      },
-    })
-    if (error) throw error
+        profile: {
+          name,
+          lastName: extras?.lastName,
+          phone: extras?.phone,
+          locality: extras?.locality,
+          province: extras?.province,
+          termsVersion: extras?.termsVersion,
+          emailOptIn: extras?.emailOptIn,
+        },
+      }),
+    )
     // Navigation is handled by the caller (register/page.tsx) so this function
     // remains a pure auth operation, reusable from any context without side-effects.
-  }, [supabase])
+  }, [])
 
   const logout = useCallback(async () => {
     // auth-hardening-jwt-cookies (D6): `scope: 'local'` explícito. El
@@ -298,14 +332,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // (`GoTrueClient.js:3150`), así que cerrar sesión en el celular revocaba
     // los refresh tokens de TODOS los dispositivos y tiraba abajo el POS del
     // mostrador. `closeAllSessions()` es la acción explícita para eso.
-    const { error } = await supabase.auth.signOut({ scope: 'local' })
-    if (error) throw error
+    //
+    // Parte C (grupo 18): la revocación y el borrado de las cookies `sb-*`
+    // ocurren en el servidor, en la misma respuesta de la acción — que es lo que
+    // pide el escenario "El cierre de sesión revoca del lado del servidor".
+    unwrapAuthResult(await signOutAction({ scope: 'local' }))
+    // Parte C (D1, task 19.5): el access token vive en memoria del modulo y el
+    // servidor no puede borrarlo. `router.push` NO recarga la pagina, asi que el
+    // modulo sigue vivo: sin esto la pestana se queda con una credencial que el
+    // servidor ya revoco, valida hasta su `exp`, y cualquier refetch pendiente
+    // de React Query la usa.
+    clearAccessToken()
     // D6: borra todas las cookies de experiencia de la sesión
     // (`auth:last-activity` además de `tenant:active`) por el mecanismo
-    // compartido con `performIdleLogout()` y `closeAllSessions()`.
+    // compartido con `performIdleLogout()` y `closeAllSessions()`. Éstas NO son
+    // httpOnly: son de experiencia y el navegador las escribe y las borra.
     clearAuthUxCookies()
+    // task 20.3: cierre MANUAL, con el tipo propio del bus. Nunca el `logout` del
+    // temporizador de inactividad, que haría que las otras pestañas mostraran
+    // "tu sesión se cerró por inactividad" cuando no es cierto.
+    announceSignedOut()
     router.push("/auth/login")
-  }, [supabase, router])
+  }, [router])
 
   const updateProfile = useCallback(async (data: ProfileUpdateData) => {
     if (!user) throw new Error("No hay sesión activa")
@@ -332,29 +380,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, user, refreshSession])
 
   const changePassword = useCallback(async (newPassword: string) => {
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    if (error) throw error
-  }, [supabase])
+    unwrapAuthResult(await updatePasswordAction({ password: newPassword }))
+  }, [])
 
   const changeEmail = useCallback(async (newEmail: string) => {
-    const siteUrl = getSiteUrl()
-    const { error } = await supabase.auth.updateUser(
-      { email: newEmail },
-      { emailRedirectTo: `${siteUrl}/auth/callback` }
-    )
-    if (error) throw error
+    unwrapAuthResult(await requestEmailChangeAction({ email: newEmail }))
     // Session remains valid. User must click the link sent to newEmail to confirm.
-  }, [supabase])
+  }, [])
 
   const closeAllSessions = useCallback(async () => {
     // scope: 'global' revokes all refresh tokens including the current device.
     // Es la ÚNICA acción que conserva el alcance global (D6).
-    const { error } = await supabase.auth.signOut({ scope: 'global' })
-    if (error) throw error
+    unwrapAuthResult(await signOutAction({ scope: 'global' }))
+    // Con alcance global importa mas todavia: el usuario pidio cerrar en TODOS
+    // los dispositivos y este es el unico token que el servidor no alcanza.
+    clearAccessToken()
     // D6: antes de este change no borraba ninguna cookie de experiencia.
     clearAuthUxCookies()
+    // task 20.3: con alcance global las demás pestañas de ESTE navegador también
+    // quedaron sin sesión válida; el aviso es lo que se las hace notar ya.
+    announceSignedOut()
     router.push("/auth/login")
-  }, [supabase, router])
+  }, [router])
 
   const upgradePlan = useCallback(async () => {
     if (!user) return

@@ -16,11 +16,22 @@ const signOutMock = vi.fn()
 const pushMock = vi.fn()
 const deleteCookieMock = vi.fn()
 const clearAuthUxCookiesMock = vi.fn()
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.5): el access token vive en
+// memoria del modulo y el servidor no puede borrarlo. Si nadie lo olvida, la
+// pestana sigue operando con una credencial que el servidor ya revoco -- hasta
+// una hora, lo que dure el token.
+const clearAccessTokenMock = vi.fn()
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: vi.fn(() => ({
-    auth: { signOut: signOutMock },
-  })),
+// auth-hardening-jwt-cookies (Parte C, task 18.4g): el cierre de sesión pasó a
+// una acción de SERVIDOR — el navegador ya no puede borrar las cookies `sb-*`
+// httpOnly. El doble se mueve de seam con él: mockear `@/lib/supabase/client`
+// dejaría este archivo verde mientras `performIdleLogout` no revoca nada.
+vi.mock("@/app/auth/actions", () => ({
+  signOutAction: (...args: unknown[]) => signOutMock(...args),
+}))
+
+vi.mock("@/lib/auth/access-token-store", () => ({
+  clearAccessToken: (...args: unknown[]) => clearAccessTokenMock(...args),
 }))
 
 // auth-hardening-jwt-cookies (task 14.2): el doble de `@/lib/cookies` tiene que
@@ -43,12 +54,31 @@ describe("performIdleLogout", () => {
     pushMock.mockReset()
     deleteCookieMock.mockReset()
     clearAuthUxCookiesMock.mockReset()
-    signOutMock.mockResolvedValue({ error: null })
+    clearAccessTokenMock.mockReset()
+    signOutMock.mockResolvedValue({ ok: true })
+  })
+
+  // ── Parte C, D1 (task 19.5) ───────────────────────────────────────────────
+
+  it("olvida el access token de memoria", async () => {
+    await performIdleLogout({ push: pushMock }, "/dashboard")
+    expect(clearAccessTokenMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("lo olvida tambien cuando el cierre en el servidor falla", async () => {
+    // El token en memoria es del NAVEGADOR: que el servidor no haya podido
+    // revocar la sesion es justamente la razon para no seguir usandolo.
+    signOutMock.mockResolvedValue({ ok: false, error: "sesion ya vencida" })
+
+    await performIdleLogout({ push: pushMock }, "/dashboard")
+
+    expect(clearAccessTokenMock).toHaveBeenCalledTimes(1)
+    expect(pushMock).toHaveBeenCalledTimes(1)
   })
 
   // ── 4.1 RED / 4.2 GREEN: signs out, clears cookie, redirects ──────────────
 
-  it("calls supabase.auth.signOut()", async () => {
+  it("delega el cierre en la acción de servidor (18.4g)", async () => {
     await performIdleLogout({ push: pushMock }, "/dashboard")
     expect(signOutMock).toHaveBeenCalledTimes(1)
   })
@@ -111,7 +141,7 @@ describe("performIdleLogout", () => {
   })
 
   it("handles signOut error gracefully (still redirects)", async () => {
-    signOutMock.mockResolvedValue({ error: new Error("session expired") })
+    signOutMock.mockResolvedValue({ ok: false, error: "session expired" })
     await expect(
       performIdleLogout({ push: pushMock }, "/dashboard"),
     ).resolves.not.toThrow()

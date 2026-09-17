@@ -82,13 +82,15 @@ export default function ExportacionesPage() {
 
   // ── Regenerate an expired export ──────────────────────────────────────────
   async function handleRegenerate(exportType: ExportType) {
-    const { data: session } = await supabase.auth.getSession()
-    const token = session?.session?.access_token
-    if (!token) return
-
-    const result = await triggerExport(exportType, token)
+    // auth-hardening-jwt-cookies (Parte C, D21 + task 19.8d): `triggerExport` arma
+    // el encabezado con el helper compartido. Antes, sin sesión, esta función
+    // volvía en SILENCIO: el usuario apretaba "regenerar" y no pasaba nada.
+    const result = await triggerExport(exportType)
     if (!result.ok) {
-      toast.error("No se pudo regenerar", { description: result.error })
+      toast.error(
+        result.error === "no_session" ? "No autenticado" : "No se pudo regenerar",
+        result.error === "no_session" ? undefined : { description: result.error },
+      )
       return
     }
     if (result.signedUrl) {

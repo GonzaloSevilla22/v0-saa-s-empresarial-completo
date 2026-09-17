@@ -2,7 +2,11 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D1, task 18.4c): el pedido de
+// recuperación corre en el servidor. Esta pantalla ya no construye cliente de
+// Supabase ni resuelve la URL del sitio: el `redirectTo` lo fija la acción.
+import { requestPasswordResetAction } from "@/app/auth/actions"
+import { unwrapAuthResult } from "@/lib/auth/auth-result"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,14 +22,6 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
   const captchaGate = useCaptchaGate()
-  const supabase = createClient()
-
-  const getSiteUrl = () => {
-    if (typeof window !== "undefined") return window.location.origin
-    let url = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_VERCEL_URL ?? "http://localhost:3000"
-    url = url.includes("http") ? url : `https://${url}`
-    return url.replace(/\/$/, "")
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -34,12 +30,12 @@ export default function ForgotPasswordPage() {
       return
     }
     try {
-      const redirectTo = `${getSiteUrl()}/auth/callback?next=/auth/reset-password`
-      // captchaToken: Supabase valida el token server-side cuando el captcha está
-      // habilitado a nivel proyecto (esta página llama a Supabase directo).
+      // `captchaGate.submit` sigue siendo el ÚNICO camino de envío (regla del
+      // proyecto): el token se renueva si está viejo antes de que la acción
+      // salga. El proveedor valida el token server-side cuando el captcha está
+      // habilitado a nivel proyecto.
       await captchaGate.submit(async (token) => {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo, captchaToken: token })
-        if (error) throw error
+        unwrapAuthResult(await requestPasswordResetAction({ email, captchaToken: token }))
       })
       setSent(true)
     } catch (error: any) {

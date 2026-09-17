@@ -45,12 +45,18 @@ const communityFrom = vi.fn((table: string) => chainable(communityResults[table]
 const publicFrom = vi.fn(() => chainable())
 const schemaSpy = vi.fn(() => ({ from: communityFrom }))
 
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8c): el doble ya no ofrece
+// `auth`. Las cuatro llamadas de este hook querían el `user.id` de la sesión, y
+// con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`): la identidad viene del store del token.
+const getSessionUserMock = vi.fn()
+
+vi.mock("@/lib/auth/access-token-store", () => ({
+  getSessionUser: () => getSessionUserMock(),
+}))
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(() => ({
-    auth: {
-      getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: "u-1" } } }, error: null }),
-      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "u-1" } }, error: null }),
-    },
     schema: schemaSpy,
     from: publicFrom,
   })),
@@ -64,6 +70,7 @@ function makeWrapper() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getSessionUserMock.mockResolvedValue({ id: "u-1", email: "duenio@test.local" })
   for (const k of Object.keys(communityResults)) delete communityResults[k]
 })
 

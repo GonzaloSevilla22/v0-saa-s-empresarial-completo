@@ -45,6 +45,10 @@ vi.mock("@/app/auth/actions", () => ({
 
 vi.mock("@/lib/auth/access-token-store", () => ({
   refreshAccessToken: () => refreshAccessTokenMock(),
+  // task 20.3: el contexto monta el bus de sesión, que se apoya en el almacén
+  // del token para anunciar sus renovaciones. Sin este doble el módulo real del
+  // bus no resuelve su import y la suite entera muere en la recolección.
+  subscribeToAccessToken: () => () => {},
 }))
 
 vi.mock("@/lib/supabase/client", () => ({

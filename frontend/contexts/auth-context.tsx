@@ -23,6 +23,14 @@ import {
 } from "@/app/auth/actions"
 import { unwrapAuthResult } from "@/lib/auth/auth-result"
 import { clearAccessToken, refreshAccessToken } from "@/lib/auth/access-token-store"
+// auth-hardening-jwt-cookies (Parte C, D1, task 20.3): el reemplazo de
+// `supabase.auth.onAuthStateChange`, que con `accessToken` configurado ni se
+// instala. El bus corre sobre el único transporte entre pestañas del proyecto.
+import {
+  announceSignedIn,
+  announceSignedOut,
+  subscribeToSessionEvents,
+} from "@/lib/auth/session-bus"
 
 // G11 (H9): el tipo y el armado del payload viven en la capa canónica
 // (lib/profile-update.ts) — null limpia la columna, undefined la omite.
@@ -225,20 +233,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshSession()
-    // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): acá vivía un
+    // auth-hardening-jwt-cookies (Parte C, D1, tasks 19.8a y 20.3): acá vivía un
     // `supabase.auth.onAuthStateChange`. Con `accessToken` configurado
     // `_listenForAuthEvents()` NO se instala (`supabase-js/index.mjs:407`) y
     // cualquier acceso a `supabase.auth` lanza (`:389`), así que el listener no es
     // código que se pueda dejar "por si acaso": no existe.
     //
     // Lo que hacía para ESTA pestaña ya está cubierto: cada operación de sesión
-    // llama `refreshSession()` o navega (login, logout, updateProfile,
-    // closeAllSessions). Lo que se pierde hasta el grupo 20 es la propagación
-    // CROSS-TAB —cerrar sesión en una pestaña y que las otras se enteren—, que es
-    // exactamente lo que el bus de eventos de sesión de la task 20.3 restituye
-    // sobre `lib/auth/idle-transport.ts`. Queda dicho acá para que la ausencia sea
-    // una etapa declarada y no un olvido.
-  }, [refreshSession])
+    // llama `refreshSession()` o navega. Lo que sólo él daba es la propagación
+    // CROSS-TAB, y eso lo restituye el bus de sesión: cerrar sesión en el celular
+    // tiene que dejar a la tablet del mostrador sin sesión, no mostrando datos
+    // como si siguiera viva hasta que algo devuelva 401.
+    //
+    // El bus NO reutiliza el mensaje `logout` del temporizador de inactividad
+    // (que significa "cierre por inactividad" y lleva a `?reason=idle`): tiene
+    // tipos propios, y los del temporizador no llegan acá.
+    const unsubscribe = subscribeToSessionEvents((event) => {
+      if (event === "session:signed-out") {
+        // El token en memoria ya lo olvidó el bus; las cookies las borró la
+        // pestaña que cerró (son del navegador, no de la pestaña). Lo que le queda
+        // a ESTA pestaña es dejar de mostrarse autenticada e irse al login, sin
+        // `reason=idle`: no fue inactividad.
+        setUser(null)
+        router.push("/auth/login")
+        return
+      }
+      // Sesión iniciada o token rotado en otra pestaña: el bus ya adoptó el token
+      // nuevo, así que esto sólo vuelve a resolver identidad, perfil y plan.
+      void refreshSession()
+    })
+
+    return unsubscribe
+  }, [refreshSession, router])
 
   // auth-hardening-jwt-cookies (Parte C, grupo 18): el `getSiteUrl()` que vivía
   // acá se retiró. El `emailRedirectTo` lo resuelve el servidor con
@@ -251,6 +277,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // habilitado a nivel proyecto (Turnstile). Sin habilitar, se ignora.
     unwrapAuthResult(await signInWithPasswordAction({ email, password, captchaToken }))
     await refreshSession()
+    // task 20.3: las otras pestañas de este navegador comparten la cookie de
+    // sesión, pero no el token en memoria ni el estado de React: sin el aviso se
+    // quedan mostrando el login hasta que se recarguen a mano.
+    announceSignedIn()
     router.push("/dashboard")
   }, [router, refreshSession])
 
@@ -318,6 +348,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // compartido con `performIdleLogout()` y `closeAllSessions()`. Éstas NO son
     // httpOnly: son de experiencia y el navegador las escribe y las borra.
     clearAuthUxCookies()
+    // task 20.3: cierre MANUAL, con el tipo propio del bus. Nunca el `logout` del
+    // temporizador de inactividad, que haría que las otras pestañas mostraran
+    // "tu sesión se cerró por inactividad" cuando no es cierto.
+    announceSignedOut()
     router.push("/auth/login")
   }, [router])
 
@@ -363,6 +397,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearAccessToken()
     // D6: antes de este change no borraba ninguna cookie de experiencia.
     clearAuthUxCookies()
+    // task 20.3: con alcance global las demás pestañas de ESTE navegador también
+    // quedaron sin sesión válida; el aviso es lo que se las hace notar ya.
+    announceSignedOut()
     router.push("/auth/login")
   }, [router])
 

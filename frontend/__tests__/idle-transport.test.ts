@@ -196,3 +196,157 @@ describe("idle-transport — localStorage fallback", () => {
     transport.close()
   })
 })
+
+// ── 20.0 (auth-hardening-jwt-cookies, Parte C): varios suscriptores ──────────
+//
+// El bus de eventos de sesión (task 20.1) se monta sobre ESTE transporte, que es
+// el único mecanismo cross-tab del proyecto. Hasta este change `onMessage`
+// guardaba **un solo** handler (`handler = h`, sobrescribiendo), así que montar el
+// bus sobre la misma instancia habría **desuscrito en silencio** al temporizador
+// de inactividad: el aviso de "tu sesión va a cerrarse" y el corte por
+// inactividad dejaban de recibir los mensajes de las otras pestañas sin un solo
+// error. El candado es este bloque.
+
+describe("idle-transport — varios suscriptores (BroadcastChannel)", () => {
+  beforeEach(() => {
+    // El bloque del respaldo por localStorage corre antes que éste y termina con
+    // `vi.unstubAllGlobals()`, que también deshace el `stubGlobal` de módulo: sin
+    // volver a poner el doble, acá regiría el `BroadcastChannel` de jsdom, que
+    // entrega de forma asíncrona y haría fallar estas aserciones por una razón
+    // que no es la que están midiendo.
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel)
+    FakeBroadcastChannel.reset()
+  })
+
+  afterEach(() => {
+    FakeBroadcastChannel.reset()
+  })
+
+  it("supports_multiple_subscribers: entrega el mensaje a TODOS los handlers registrados", () => {
+    const transportA = createIdleTransport()
+    const transportB = createIdleTransport()
+
+    const first: unknown[] = []
+    const second: unknown[] = []
+    transportB.onMessage((msg) => first.push(msg))
+    transportB.onMessage((msg) => second.push(msg))
+
+    transportA.postActivity(4242)
+
+    // Sin multi-suscriptor el segundo `onMessage` reemplaza al primero y `first`
+    // queda vacío: exactamente el modo de falla del temporizador de inactividad.
+    expect(first).toEqual([{ type: "activity", lastActivity: 4242 }])
+    expect(second).toEqual([{ type: "activity", lastActivity: 4242 }])
+
+    transportA.close()
+    transportB.close()
+  })
+
+  it("onMessage devuelve una función de baja que deja de recibir sin afectar a los demás", () => {
+    const transportA = createIdleTransport()
+    const transportB = createIdleTransport()
+
+    const kept: unknown[] = []
+    const dropped: unknown[] = []
+    transportB.onMessage((msg) => kept.push(msg))
+    const unsubscribe = transportB.onMessage((msg) => dropped.push(msg))
+
+    transportA.postActivity(1)
+    unsubscribe()
+    transportA.postActivity(2)
+
+    expect(kept).toHaveLength(2)
+    expect(dropped).toHaveLength(1)
+
+    transportA.close()
+    transportB.close()
+  })
+
+  it("close() corta a todos los suscriptores de esa instancia", () => {
+    const transportA = createIdleTransport()
+    const transportB = createIdleTransport()
+
+    const received: unknown[] = []
+    transportB.onMessage((msg) => received.push(msg))
+    transportB.onMessage((msg) => received.push(msg))
+
+    transportB.close()
+    transportA.postActivity(7)
+
+    expect(received).toHaveLength(0)
+
+    transportA.close()
+  })
+
+  it("un handler que lanza no impide que los siguientes reciban el mensaje", () => {
+    const transportA = createIdleTransport()
+    const transportB = createIdleTransport()
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const received: unknown[] = []
+    transportB.onMessage(() => {
+      throw new Error("un consumidor roto")
+    })
+    transportB.onMessage((msg) => received.push(msg))
+
+    transportA.postLogout()
+
+    // El corte por inactividad y el bus de sesión comparten la instancia: si el
+    // primero de la lista explota, el segundo NO puede quedarse sin el mensaje.
+    expect(received).toEqual([{ type: "logout" }])
+    expect(warn).toHaveBeenCalled()
+
+    warn.mockRestore()
+    transportA.close()
+    transportB.close()
+  })
+})
+
+describe("idle-transport — varios suscriptores (localStorage)", () => {
+  let originalBC: typeof BroadcastChannel
+
+  beforeEach(() => {
+    originalBC = global.BroadcastChannel
+    // @ts-expect-error intentionally removing to trigger fallback
+    delete global.BroadcastChannel
+    const store: Record<string, string> = {}
+    vi.stubGlobal("localStorage", {
+      setItem(k: string, v: string) { store[k] = v },
+      getItem(k: string) { return store[k] ?? null },
+      removeItem(k: string) { delete store[k] },
+    })
+  })
+
+  afterEach(() => {
+    global.BroadcastChannel = originalBC
+    vi.unstubAllGlobals()
+  })
+
+  it("supports_multiple_subscribers: el respaldo por localStorage también entrega a todos", () => {
+    const transport = createIdleTransport()
+
+    const first: unknown[] = []
+    const second: unknown[] = []
+    transport.onMessage((msg) => first.push(msg))
+    const unsubscribe = transport.onMessage((msg) => second.push(msg))
+
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "idle:sync",
+      newValue: JSON.stringify({ type: "activity", lastActivity: 555, _t: Date.now() }),
+    }))
+
+    expect(first).toHaveLength(1)
+    expect(second).toHaveLength(1)
+
+    unsubscribe()
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "idle:sync",
+      newValue: JSON.stringify({ type: "logout", _t: Date.now() }),
+    }))
+
+    expect(first).toHaveLength(2)
+    expect(second).toHaveLength(1)
+
+    transport.close()
+  })
+})

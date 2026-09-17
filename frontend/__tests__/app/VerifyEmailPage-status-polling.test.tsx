@@ -23,8 +23,14 @@ vi.mock("@/app/auth/actions", () => ({
   resendVerificationEmailAction: vi.fn().mockResolvedValue({ ok: true }),
 }))
 
+// Objeto ESTABLE: `useRouter()` real lo es, y un doble que devuelva uno nuevo en
+// cada render cambia la identidad de `checkVerification` y hace que el efecto de
+// montaje vuelva a consultar en cada re-render. Eso convertía en vacua cualquier
+// aserción sobre "cuántas veces consultó" (task 20.3).
+const routerDoble = { push: pushMock }
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock }),
+  useRouter: () => routerDoble,
   useSearchParams: () => new URLSearchParams(""),
 }))
 
@@ -39,6 +45,9 @@ vi.mock("sonner", () => ({
 }))
 
 import VerifyEmailPage from "@/app/auth/verify-email/page"
+import { FakeBroadcastChannel } from "../lib/fake-broadcast-channel"
+import { closeSessionBus } from "@/lib/auth/session-bus"
+import { createIdleTransport } from "@/lib/auth/idle-transport"
 
 function statusResponse(body: Record<string, unknown>): Response {
   return {
@@ -146,5 +155,59 @@ describe("/auth/verify-email — sondeo contra GET /api/auth/status", () => {
     })
 
     expect(fetchMock.mock.calls.length).toBeGreaterThan(iniciales)
+  })
+})
+
+// ── task 20.3: la segunda suscripción a `onAuthStateChange` pasa al bus ───────
+//
+// Esta pantalla tenía la otra de las dos suscripciones que el change retira
+// (`app/auth/verify-email/page.tsx:113`). El sondeo de 4 s es el mecanismo
+// PRINCIPAL de detección (D18) y no cambia; lo que el bus agrega es que un evento
+// de sesión de otra pestaña se mire **ya**, sin esperar el próximo tic.
+
+describe("/auth/verify-email — bus de eventos de sesión (task 20.3)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel)
+    FakeBroadcastChannel.reset()
+    closeSessionBus()
+  })
+
+  afterEach(() => {
+    closeSessionBus()
+    FakeBroadcastChannel.reset()
+  })
+
+  /** Sólo las consultas de estado: el bus también pide el token, y esa no cuenta. */
+  function statusCalls(): number {
+    return requestedUrls().filter((url) => url.includes("/api/auth/status")).length
+  }
+
+  it("un evento de sesión de otra pestaña dispara una consulta inmediata de estado", async () => {
+    render(<VerifyEmailPage />)
+    await waitFor(() => expect(statusCalls()).toBeGreaterThan(0))
+    const antes = statusCalls()
+
+    const peer = createIdleTransport()
+    peer.post({ type: "session:signed-in" })
+
+    await waitFor(() => expect(statusCalls()).toBeGreaterThan(antes))
+
+    peer.close()
+  })
+
+  it("un mensaje del temporizador de inactividad no dispara nada acá", async () => {
+    render(<VerifyEmailPage />)
+    await waitFor(() => expect(statusCalls()).toBeGreaterThan(0))
+    const antes = statusCalls()
+
+    const peer = createIdleTransport()
+    peer.postActivity(Date.now())
+    peer.postLogout()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    // `activity` y `logout` son del temporizador: esta pantalla no los interpreta.
+    expect(statusCalls()).toBe(antes)
+
+    peer.close()
   })
 })

@@ -18,7 +18,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import React from "react"
 
 const signOutMock = vi.fn()
-const getUserMock = vi.fn().mockResolvedValue({ data: { user: null }, error: null })
+// Parte C (task 19.8a): la identidad del contexto viene del store del token, no
+// de `supabase.auth.getUser()` (que con `accessToken` configurado LANZA,
+// `supabase-js/index.mjs:389`). Sin sesión: la resolución dice "absent".
+const refreshAccessTokenMock = vi.fn().mockResolvedValue({ status: "absent" })
 const pushMock = vi.fn()
 const clearAuthUxCookiesMock = vi.fn()
 
@@ -35,12 +38,12 @@ vi.mock("@/app/auth/actions", () => ({
   requestEmailChangeAction: vi.fn().mockResolvedValue({ ok: true }),
 }))
 
+vi.mock("@/lib/auth/access-token-store", () => ({
+  refreshAccessToken: () => refreshAccessTokenMock(),
+}))
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
-    auth: {
-      getUser: getUserMock,
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
-    },
     from: () => ({
       select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null }) }) }),
     }),
@@ -84,7 +87,7 @@ function renderWithAuth() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  getUserMock.mockResolvedValue({ data: { user: null }, error: null })
+  refreshAccessTokenMock.mockResolvedValue({ status: "absent" })
   signOutMock.mockResolvedValue({ ok: true })
 })
 

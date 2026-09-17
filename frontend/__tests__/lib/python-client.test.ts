@@ -5,17 +5,18 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
-// auth-hardening-jwt-cookies (task 14.7): el doble de la sesión pasa a ser
-// controlable por caso — hasta acá siempre devolvía un token, así que la rama
-// "401 sin sesión" no era alcanzable.
-const { getSessionMock } = vi.hoisted(() => ({
-  getSessionMock: vi.fn(async () => ({
-    data: { session: { access_token: "test-token" } as { access_token: string } | null },
-  })),
+// auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8f): el seam de la sesión
+// pasa del cliente de navegador al store del token. El doble ya no puede ofrecer
+// `auth`: con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`), y un doble que lo siga ofreciendo deja la suite
+// verde mientras producción explota. El store devuelve los TRES estados que el
+// helper necesita, así que "la consulta lanzó" pasa a ser un valor de retorno.
+const { resolveAccessTokenMock } = vi.hoisted(() => ({
+  resolveAccessTokenMock: vi.fn(),
 }))
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({ auth: { getSession: getSessionMock } }),
+vi.mock("@/lib/auth/access-token-store", () => ({
+  resolveAccessToken: () => resolveAccessTokenMock(),
 }))
 
 const mockFetch = vi.fn()
@@ -40,7 +41,7 @@ describe("pythonClient.post extra headers", () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     vi.resetModules()
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "test-token" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "test-token" })
     vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "http://localhost:8000")
     ;({ pythonClient } = await import("@/lib/api/python-client"))
   })
@@ -115,7 +116,7 @@ describe("pythonClient — extraHeaders no puede sobrescribir Authorization", ()
   beforeEach(async () => {
     vi.clearAllMocks()
     vi.resetModules()
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "token-real" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "token-real" })
     vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "http://localhost:8000")
     ;({ pythonClient } = await import("@/lib/api/python-client"))
   })
@@ -134,7 +135,7 @@ describe("pythonClient — extraHeaders no puede sobrescribir Authorization", ()
   })
 
   it("sin sesión no manda un Bearer vacío", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: null } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "absent" })
     mockFetch.mockResolvedValueOnce(buildFetchResponse({ ok: true }))
 
     await pythonClient.get("/sales")
@@ -159,7 +160,7 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
   })
 
   it("un 401 SIN sesión navega a /auth/login?reason=expired&next=…", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: null } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "absent" })
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     window.history.pushState({}, "", "/caja")
     mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
@@ -174,7 +175,7 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
   })
 
   it("un 401 CON sesión viva conserva el error y NO navega", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "token-vivo" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "token-vivo" })
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
 
@@ -192,8 +193,9 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
   // problema de FRESCURA que ya se resolvió, sin insinuar ninguna salida.
   it("un 401 cuya sesión se renovó en el camino no habla de permisos", async () => {
     let entregados = 0
-    getSessionMock.mockImplementation(async () => ({
-      data: { session: { access_token: entregados++ === 0 ? "token-vencido" : "token-renovado" } },
+    resolveAccessTokenMock.mockImplementation(async () => ({
+      status: "active",
+      token: entregados++ === 0 ? "token-vencido" : "token-renovado",
     }))
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
@@ -212,9 +214,11 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
   it("un 401 con el estado de sesión indeterminado no afirma un problema de permisos ni navega", async () => {
     // Primera consulta (armado de encabezados) con token; la del 401 falla.
     let llamadas = 0
-    getSessionMock.mockImplementation(async () => {
-      if (llamadas++ === 0) return { data: { session: { access_token: "token-vivo" } } }
-      throw new Error("almacenamiento bloqueado")
+    resolveAccessTokenMock.mockImplementation(async () => {
+      if (llamadas++ === 0) return { status: "active", token: "token-vivo" }
+      // El store NO lanza: informa que no pudo averiguarlo, que es distinto de
+      // "no hay sesión" y no habilita a navegar.
+      return { status: "unknown" }
     })
     const assign = vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
@@ -230,7 +234,7 @@ describe("pythonClient — tratamiento del 401 (D7)", () => {
   })
 
   it("ya no recomienda recargar la página (esa recomendación no recuperaba nada)", async () => {
-    getSessionMock.mockResolvedValue({ data: { session: { access_token: "token-vivo" } } })
+    resolveAccessTokenMock.mockResolvedValue({ status: "active", token: "token-vivo" })
     vi.spyOn(sessionNavigation, "assign").mockImplementation(() => {})
     mockFetch.mockResolvedValueOnce(buildFetchResponse({ detail: "no" }, 401))
 

@@ -98,15 +98,21 @@ function buildAccountMembersChain(rows: MembershipFixtureRow[]) {
 }
 
 // ── Supabase client mock ─────────────────────────────────────────────────────
+//
+// auth-hardening-jwt-cookies (Parte C, task 19.8a): el doble ya no ofrece `auth`
+// —con `accessToken` configurado `supabase.auth` es un Proxy que LANZA
+// (`supabase-js/index.mjs:389`)— y la identidad llega por el store del token. La
+// membresía se sigue resolviendo contra la misma cadena real de PostgREST: lo que
+// cambia es de dónde sale el `user.id` con el que se la consulta.
 let membershipRows: MembershipFixtureRow[] = []
-const getUserMock = vi.fn()
+const refreshAccessTokenMock = vi.fn()
+
+vi.mock("@/lib/auth/access-token-store", () => ({
+  refreshAccessToken: () => refreshAccessTokenMock(),
+}))
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
-    auth: {
-      getUser: () => getUserMock(),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
-    },
     from: (table: string) => {
       if (table === "profiles") {
         return { select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }) }
@@ -147,9 +153,11 @@ function renderWithAuth() {
 
 beforeEach(() => {
   membershipRows = []
-  getUserMock.mockReset().mockResolvedValue({
-    data: { user: { id: "user-1", email: "u@test.com", user_metadata: {} } },
-    error: null,
+  refreshAccessTokenMock.mockReset().mockResolvedValue({
+    status: "active",
+    token: "tok-abc",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    user: { id: "user-1", email: "u@test.com", name: null },
   })
 })
 

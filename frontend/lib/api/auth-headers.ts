@@ -19,12 +19,13 @@
  * Los encabezados de auth se aplican **últimos**: el orden de merge deja de ser
  * una decisión de cada call site.
  *
- * NOTA PARA LA PARTE C: `resolveAccessToken()` es el único punto que hay que
- * cambiar cuando exista el token handler (`GET /api/auth/token`, D1). Hoy lee
- * la sesión con el cliente de navegador, que es de donde sale el Bearer de
- * todas las llamadas a FastAPI.
+ * PARTE C (task 19.8f): la consulta ya no pasa por el cliente de navegador. El
+ * token sale de `lib/auth/access-token-store.ts`, que lo tiene en memoria y lo
+ * obtiene del token handler (`GET /api/auth/token`, D1). Era el único punto que
+ * había que cambiar, y por eso la Parte B lo centralizó primero: con los ocho
+ * transportes armando su propio Bearer, este cambio habría sido ocho cambios.
  */
-import { createClient } from "@/lib/supabase/client"
+import { resolveAccessToken } from "@/lib/auth/access-token-store"
 
 /**
  * Seam de navegación.
@@ -57,20 +58,26 @@ export type SessionProbe =
   | { status: "absent" }
   | { status: "unknown" }
 
-/** Consulta el estado de sesión. Nunca lanza. */
-async function probeSession(): Promise<SessionProbe> {
-  try {
-    const supabase = createClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-    const token = session?.access_token
-    return token ? { status: "active", token } : { status: "absent" }
-  } catch {
-    // No se pudo determinar: la llamada sale sin encabezado, pero esto NO es
-    // una sesión ausente y no habilita a navegar.
-    return { status: "unknown" }
+/**
+ * Consulta el estado de sesión. Nunca lanza.
+ *
+ * Los tres estados son los **mismos** que resuelve el store, que ya distingue
+ * "el servidor dijo que no hay sesión" de "no pude averiguarlo": la traducción
+ * que antes hacía un `try/catch` acá desapareció.
+ *
+ * @param force ignora el token cacheado. Es el camino del 401 y sólo ése: el 401
+ *   es la evidencia de que lo cacheado ya no sirve. Armar los encabezados de una
+ *   llamada cualquiera **no** fuerza nada, o cada llamada al backend propio
+ *   costaría un `GET /api/auth/token` extra.
+ */
+async function probeSession(force = false): Promise<SessionProbe> {
+  const resolution = await resolveAccessToken({ force })
+  if (resolution.status === "active") {
+    // Un token vacío no es un token: el encabezado se omite igual que sin sesión
+    // (era uno de los tres Bearer vacíos que D21 vino a cerrar).
+    return resolution.token ? { status: "active", token: resolution.token } : { status: "absent" }
   }
+  return { status: resolution.status }
 }
 
 /**
@@ -133,7 +140,11 @@ export type UnauthorizedOutcome =
 export async function handleUnauthorized(
   sentToken?: string | null,
 ): Promise<UnauthorizedOutcome> {
-  const probe = await probeSession()
+  // `force`: hasta la Parte C esto lo daba gratis el auto-refresh de
+  // `getSession()`. Con el token en memoria y cacheado por su TTL, preguntar sin
+  // forzar devolvería el MISMO token que acaba de recibir el 401 — y el
+  // transporte informaría un problema de permisos por un problema de frescura.
+  const probe = await probeSession(true)
 
   if (probe.status === "unknown") return "session-unknown"
   if (probe.status === "active") {

@@ -18,7 +18,13 @@ type Store = typeof import("@/lib/auth/access-token-store")
 
 const TOKEN = "access-token-1"
 const NEXT_TOKEN = "access-token-2"
-const USER = { id: "11111111-1111-4111-8111-111111111111", email: "duenio@test.local" }
+const USER = {
+  id: "11111111-1111-4111-8111-111111111111",
+  email: "duenio@test.local",
+  // task 19.8a: el nombre de `user_metadata` viaja con el token para que el
+  // contexto de sesión pueda armar su cascada de nombre a mostrar.
+  name: "Daniel",
+}
 
 /** Segundos epoch a los que vence un token que dura `seconds` más. */
 const expiresIn = (seconds: number) => Math.floor(Date.now() / 1000) + seconds
@@ -318,6 +324,19 @@ describe("access-token-store — identidad para los módulos sin hooks", () => {
     const store = await loadStore()
 
     expect(await store.getSessionUser()).toEqual(USER)
+  })
+
+  it("un usuario sin nombre en el token llega con el campo en null", async () => {
+    // El contexto de sesión decide qué mostrar con la cascada completa; acá lo
+    // que importa es no inventar un nombre ni perder el campo.
+    respondWith({
+      access_token: TOKEN,
+      expires_at: expiresIn(3600),
+      user: { id: USER.id, email: USER.email, name: null },
+    })
+    const store = await loadStore()
+
+    expect(await store.getSessionUser()).toEqual({ id: USER.id, email: USER.email, name: null })
   })
 
   it("sin sesión el usuario es null", async () => {

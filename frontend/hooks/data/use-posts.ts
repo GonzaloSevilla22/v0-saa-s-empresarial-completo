@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
+import { getSessionUser } from "@/lib/auth/access-token-store"
 import { queryKeys } from "@/lib/query-keys"
 import type { Post, Reply } from "@/lib/types"
 
@@ -38,9 +39,12 @@ export function usePosts() {
   const query = useQuery({
     queryKey: queryKeys.posts.all(),
     queryFn: async (): Promise<Post[]> => {
-      // getSession() is cache-backed — no network round-trip needed
-      const { data: { session } } = await supabase.auth.getSession()
-      const userId = session?.user?.id || ""
+      // auth-hardening-jwt-cookies (Parte C, D1, task 19.8c): el `getSession()`
+      // que había acá LANZA con `accessToken` configurado
+      // (`supabase-js/index.mjs:389`). La identidad viene del store, que la tiene
+      // en memoria junto al token — sigue sin costar una ida y vuelta.
+      const sessionUser = await getSessionUser()
+      const userId = sessionUser?.id || ""
 
       const { data, error } = await supabase
         .schema("community")
@@ -56,7 +60,7 @@ export function usePosts() {
 
   const addPostMutation = useMutation({
     mutationFn: async (post: Omit<Post, "id">) => {
-      const { data: { user } } = await supabase.auth.getUser()
+      const user = await getSessionUser()
       if (!user) throw new Error("No autenticado")
 
       const { data, error } = await supabase.schema("community").from("posts").insert([{
@@ -109,8 +113,7 @@ export function usePosts() {
 
   const toggleLikeMutation = useMutation({
     mutationFn: async (postId: string) => {
-      const { data: { session } } = await supabase.auth.getSession()
-      const userId = session?.user?.id
+      const userId = (await getSessionUser())?.id
       if (!userId) throw new Error("No autenticado")
 
       const { data: existing, error: findError } = await supabase
@@ -176,8 +179,7 @@ export function usePosts() {
   }
 
   async function addReply(postId: string, content: string): Promise<void> {
-    const { data: { session } } = await supabase.auth.getSession()
-    const userId = session?.user?.id
+    const userId = (await getSessionUser())?.id
     if (!userId) return
 
     const { error } = await supabase.schema("community").from("replies").insert([{

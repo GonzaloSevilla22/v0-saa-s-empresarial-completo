@@ -1,7 +1,12 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8d): el gate de admin ya no
+// hace `supabase.auth.getUser()` + `SELECT role FROM profiles` (con
+// `accessToken` configurado el primero LANZA, `supabase-js/index.mjs:389`). La
+// decisión vive en un solo hook sobre el contexto de sesión, que ya tiene las dos
+// cosas resueltas del arranque de la app.
+import { useAdminGate } from '@/hooks/auth/use-admin-gate'
 import Link from 'next/link'
 import {
     Activity,
@@ -40,22 +45,15 @@ interface AdminAnalyticsData {
 }
 
 export default function AdminAnalyticsPage() {
+    const gate = useAdminGate()
     const [data, setData] = useState<AdminAnalyticsData | null>(null)
     const [loading, setLoading] = useState(true)
-    const [unauthorized, setUnauthorized] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     const loadData = async () => {
         setLoading(true)
         setError(null)
         try {
-            const supabase = createClient()
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) { window.location.href = '/auth'; return }
-
-            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-            if (!profile || profile.role !== 'admin') { setUnauthorized(true); setLoading(false); return }
-
             const dateTo = new Date().toISOString()
             const dateFrom = new Date(new Date().setDate(new Date().getDate() - 30)).toISOString()
             const retentionDateFrom = new Date(new Date().setDate(new Date().getDate() - 90)).toISOString()
@@ -77,10 +75,13 @@ export default function AdminAnalyticsPage() {
     }
 
     useEffect(() => {
+        if (gate !== "allowed") return
         loadData()
-    }, [])
+    }, [gate])
 
-    if (unauthorized) return (
+    // El panel se conserva: el hook ya disparó la navegación, y mientras sale es
+    // mejor decir por qué que mostrar un spinner que no va a terminar nunca.
+    if (gate !== "allowed") return (
         <div className="flex flex-col items-center justify-center gap-4 py-20">
             <p className="text-slate-400">Acceso restringido a administradores.</p>
             <Link href="/dashboard" className="text-emerald-500 underline">Volver al dashboard</Link>

@@ -7,6 +7,11 @@ import { es } from "date-fns/locale"
 import { usePlanGate } from "@/hooks/auth/use-plan-gate"
 import { usePeriodComparison } from "@/hooks/use-period-comparison"
 import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D21 + tasks 19.8d/19.11): el Bearer de la
+// Edge Function lo arma el helper compartido, que resuelve el token del store en
+// memoria. El `supabase.auth.getSession()` que había acá LANZA con `accessToken`
+// configurado (`supabase-js/index.mjs:389`).
+import { getAuthHeaders } from "@/lib/api/auth-headers"
 import { useAuth } from "@/contexts/auth-context"
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -219,18 +224,14 @@ export default function ComparativoPage() {
     if (isAnalyzing) return
     setIsAnalyzing(true)
     try {
-      const { data: session } = await supabase.auth.getSession()
-      const token = session?.session?.access_token
-      if (!token) throw new Error("Sin sesión activa")
+      const headers = await getAuthHeaders({ "Content-Type": "application/json" })
+      if (!headers.Authorization) throw new Error("Sin sesión activa")
 
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/ai-comparativo`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
+          headers,
           body: JSON.stringify({
             period_a_start: aStart,
             period_a_end:   aEnd,

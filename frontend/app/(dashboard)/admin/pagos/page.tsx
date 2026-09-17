@@ -19,7 +19,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8d): el gate de admin sale de
+// un solo hook sobre el contexto de sesión. El `supabase.auth.getUser()` que
+// había acá LANZA con `accessToken` configurado (`supabase-js/index.mjs:389`), y
+// el `SELECT role FROM profiles` era la cuarta copia de un dato que `useAuth()`
+// ya tiene. Este archivo ya no necesita cliente de Supabase para nada.
+import { useAdminGate } from "@/hooks/auth/use-admin-gate"
 import { getAuthHeaders, redirectedOnUnauthorized, tokenFromHeaders } from "@/lib/api/auth-headers"
 import { pythonClient } from "@/lib/api/python-client"
 import { Receipt, Download, FileText, AlertTriangle, Send, CheckCircle2, FileCheck } from "lucide-react"
@@ -71,6 +76,7 @@ function formatDate(iso: string): string {
 }
 
 export default function AdminPagosPage() {
+  const gate = useAdminGate()
   const [receipts, setReceipts] = useState<PaymentReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -91,14 +97,6 @@ export default function AdminPagosPage() {
     setLoading(true)
     setError(null)
     try {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { window.location.href = "/auth/login"; return }
-
-      const { data: profile } = await supabase
-        .from("profiles").select("role").eq("id", user.id).single()
-      if (!profile || profile.role !== "admin") { window.location.href = "/dashboard"; return }
-
       const data = await pythonClient.get<ReceiptsPage>("/payments/receipts")
       setReceipts(data.items)
 
@@ -138,7 +136,10 @@ export default function AdminPagosPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => {
+    if (gate !== "allowed") return
+    loadData()
+  }, [gate, loadData])
 
   const downloadReceipt = useCallback(async (r: PaymentReceipt) => {
     setDownloadingId(r.id)

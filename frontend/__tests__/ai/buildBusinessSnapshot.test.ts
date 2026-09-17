@@ -8,6 +8,18 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
+
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b): la identidad ya no sale
+// del cliente que el snapshot recibe por parámetro — ese cliente es el de
+// NAVEGADOR y con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`). El doble deja de ofrecer un `auth` que no va a
+// existir y el seam pasa al store del token.
+const getSessionUserMock = vi.fn()
+
+vi.mock("@/lib/auth/access-token-store", () => ({
+  getSessionUser: () => getSessionUserMock(),
+}))
+
 import {
   buildBusinessSnapshot,
   snapshotToText,
@@ -149,7 +161,7 @@ function makeSupabaseDouble(cfg: {
     error: { message: string } | null
   }
   // migrar-top-productos-canon: doble de rpc_product_ranking + resolución
-  // de cuenta activa (auth.getUser + account_members). Defaults = camino
+  // de cuenta activa (identidad de la sesión + account_members). Defaults = camino
   // feliz (usuario autenticado, una membresía, ranking vacío) para no
   // romper los tests que no ejercitan top_rentables.
   ranking?: { data: RankingRowFixture[] | null; error: { message: string } | null }
@@ -210,10 +222,12 @@ function makeSupabaseDouble(cfg: {
     }
   })
 
+  // La identidad viaja por el store, no por el cliente: el doble la configura
+  // igual desde `cfg.authUser` para no reescribir los casos que ya existían.
   const authUser = cfg.authUser === undefined ? { id: "u1" } : cfg.authUser
-  const auth = { getUser: vi.fn().mockResolvedValue({ data: { user: authUser }, error: null }) }
+  getSessionUserMock.mockResolvedValue(authUser === null ? null : { ...authUser, email: null })
 
-  return { rpc: rpcMock, from: fromMock, auth } as unknown as SupabaseClient
+  return { rpc: rpcMock, from: fromMock } as unknown as SupabaseClient
 }
 
 // ─── app-timezone-argentina, task 3.2: ventanas ancladas al día argentino ──────

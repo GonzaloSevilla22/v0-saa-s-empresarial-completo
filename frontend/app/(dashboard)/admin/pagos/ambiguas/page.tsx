@@ -23,8 +23,8 @@
  * dinero real) — fuera de alcance de este follow-up de UI; ver tasks.md 8.8.
  */
 
-import { useCallback, useEffect, useState } from "react"
-import { createClient } from "@/lib/supabase/client"
+import { useCallback, useState } from "react"
+import { useAdminGate } from "@/hooks/auth/use-admin-gate"
 import { toast } from "sonner"
 import { AlertTriangle, CheckCircle2, HelpCircle, Loader2, RotateCw, ShieldAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -76,38 +76,17 @@ function formatDate(iso: string): string {
   })
 }
 
-type AdminGateState = "checking" | "denied" | "allowed"
-
 export default function SuscripcionesAmbiguasPage() {
-  const [gate, setGate] = useState<AdminGateState>("checking")
+  // auth-hardening-jwt-cookies (Parte C, D1, task 19.8d): la copia local del gate
+  // —con su `supabase.auth.getUser()`, que LANZA con `accessToken` configurado
+  // (`supabase-js/index.mjs:389`), y su `SELECT role FROM profiles`— se fue al
+  // hook compartido. Desaparece también el estado `"checking"`: `AuthProvider` no
+  // renderiza a sus hijos hasta terminar la comprobación inicial de sesión, así
+  // que cuando esta pantalla corre el usuario ya está resuelto.
+  const gate = useAdminGate()
 
-  useEffect(() => {
-    let active = true
-
-    async function checkAdmin() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        window.location.href = "/auth/login"
-        return
-      }
-      const { data: profile } = await supabase
-        .from("profiles").select("role").eq("id", user.id).single()
-      if (!active) return
-      if (!profile || profile.role !== "admin") {
-        setGate("denied")
-        window.location.href = "/dashboard"
-        return
-      }
-      setGate("allowed")
-    }
-
-    checkAdmin()
-    return () => { active = false }
-  }, [])
-
-  // No-admin (o todavía chequeando): degrada limpio, sin renderizar nada —
-  // mismo patrón que /admin/pagos (redirect ya disparado en el effect).
+  // No-admin: degrada limpio, sin renderizar nada — el hook ya disparó la
+  // navegación.
   if (gate !== "allowed") {
     return null
   }

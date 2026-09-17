@@ -26,10 +26,7 @@ vi.mock("@/lib/api/python-client", () => ({
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: vi.fn(() => ({
-    auth: {
-      getUser:    vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
-      getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
-    },
+    // task 19.7b: ninguno de estos hooks consulta la sesión por el cliente.
     from: vi.fn().mockReturnValue({
       select: vi.fn().mockReturnThis(),
       eq:     vi.fn().mockReturnThis(),

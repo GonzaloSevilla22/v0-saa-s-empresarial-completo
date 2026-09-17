@@ -3,7 +3,6 @@
 import { useState } from "react"
 import Link from "next/link"
 import { Download, Crown, Loader2 } from "lucide-react"
-import { createClient } from "@/lib/supabase/client"
 import { useExportUsage, triggerExport, type ExportParams } from "@/hooks/auth/use-export-usage"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth-context"
@@ -44,7 +43,6 @@ export function ExportButton({
   const { user } = useAuth()
   const { exportsRemaining, exportsLimit, isLoading, canExport } = useExportUsage()
   const queryClient = useQueryClient()
-  const supabase = createClient()
   const [loading, setLoading] = useState(false)
 
   if (isLoading || !user) return null
@@ -73,16 +71,16 @@ export function ExportButton({
 
     setLoading(true)
     try {
-      const { data: session } = await supabase.auth.getSession()
-      const token = session?.session?.access_token
-      if (!token) {
-        toast.error("No autenticado")
-        return
-      }
-
-      const result = await triggerExport(exportType, token, params)
+      // auth-hardening-jwt-cookies (Parte C, D21 + task 19.8d): el token ya no se
+      // resuelve acá ni se pasa a mano — `triggerExport` arma el encabezado con el
+      // helper compartido y devuelve `no_session` si no hay con qué.
+      const result = await triggerExport(exportType, params)
 
       if (!result.ok) {
+        if (result.error === "no_session") {
+          toast.error("No autenticado")
+          return
+        }
         if (result.error === "quota_exceeded") {
           toast.error("Cuota agotada", {
             description: "Ya usaste todas tus exportaciones del mes.",

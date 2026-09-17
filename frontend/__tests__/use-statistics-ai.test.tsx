@@ -19,12 +19,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { renderHook, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
-const supabaseMock = vi.hoisted(() => ({
-  auth: { getSession: vi.fn(async () => ({ data: { session: { access_token: "tok-abc" } } })) },
-  from: vi.fn(),
-}))
+// auth-hardening-jwt-cookies (Parte C, D1, tasks 19.8c/19.8f/19.11): el doble ya
+// no ofrece `auth` —con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`)— y el Bearer de la Edge Function lo arma el
+// helper compartido `getAuthHeaders()` (D21), que resuelve el token del store.
+const supabaseMock = vi.hoisted(() => ({ from: vi.fn() }))
+const resolveAccessTokenMock = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/supabase/client", () => ({ createClient: () => supabaseMock }))
+vi.mock("@/lib/auth/access-token-store", () => ({
+  resolveAccessToken: () => resolveAccessTokenMock(),
+}))
 vi.mock("@/contexts/auth-context", () => ({ useAuth: () => ({ user: { id: "u-1", accountId: "a-1" } }) }))
+
+const withToken = (token = "tok-abc") =>
+  resolveAccessTokenMock.mockResolvedValue({ status: "active", token })
+const withoutSession = () => resolveAccessTokenMock.mockResolvedValue({ status: "absent" })
 
 import {
   analyzeStatistics,
@@ -45,13 +54,15 @@ describe("analyzeStatistics (fetch a ai-estadisticas)", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321"
     fetchMock.mockReset()
+    resolveAccessTokenMock.mockReset()
+    withToken()
     vi.stubGlobal("fetch", fetchMock)
   })
   afterEach(() => vi.unstubAllGlobals())
 
   it("manda período y sucursal de la pantalla con el token de la sesión", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { insight: "Vendés más los sábados.", recommendations: ["a", "b", "c"] } }))
-    const r = await analyzeStatistics(INPUT, "tok-abc")
+    const r = await analyzeStatistics(INPUT)
     expect(r).toEqual({ status: "ok", insight: "Vendés más los sábados.", recommendations: ["a", "b", "c"] })
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe("http://127.0.0.1:54321/functions/v1/ai-estadisticas")
@@ -63,29 +74,29 @@ describe("analyzeStatistics (fetch a ai-estadisticas)", () => {
   // Edge Function todavía no lo lee, pero el cableado queda listo.
   it("manda también el canal cuando la pantalla lo tiene filtrado", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { insight: "x", recommendations: [] } }))
-    await analyzeStatistics({ ...INPUT, canal: "whatsapp" }, "tok-abc")
+    await analyzeStatistics({ ...INPUT, canal: "whatsapp" })
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toEqual({ start: "2026-08-01", end: "2026-08-31", branch_id: "b-9", canal: "whatsapp" })
   })
 
   it("429 → quota_exceeded", async () => {
     fetchMock.mockResolvedValue(jsonResponse(429, { ok: false, error: "quota_exceeded", used: 5, limit: 5 }))
-    expect(await analyzeStatistics(INPUT, "t")).toEqual({ status: "quota_exceeded" })
+    expect(await analyzeStatistics(INPUT)).toEqual({ status: "quota_exceeded" })
   })
 
   it("fallback (el modelo no respondió a tiempo) → fallback con su mensaje, sin insight", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, fallback: true, message: "El análisis tardó demasiado. Intentá de nuevo." }))
-    expect(await analyzeStatistics(INPUT, "t")).toEqual({ status: "fallback", message: "El análisis tardó demasiado. Intentá de nuevo." })
+    expect(await analyzeStatistics(INPUT)).toEqual({ status: "fallback", message: "El análisis tardó demasiado. Intentá de nuevo." })
   })
 
   it("error HTTP → error con el detalle del servidor; 422 sin ventas también", async () => {
     fetchMock.mockResolvedValue(jsonResponse(422, { ok: false, error: "Sin ventas en el período seleccionado" }))
-    expect(await analyzeStatistics(INPUT, "t")).toEqual({ status: "error", message: "Sin ventas en el período seleccionado" })
+    expect(await analyzeStatistics(INPUT)).toEqual({ status: "error", message: "Sin ventas en el período seleccionado" })
   })
 
   it("una respuesta ok sin recomendaciones válidas las normaliza a lista vacía", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { ok: true, data: { insight: "x", recommendations: "no-array" } }))
-    expect(await analyzeStatistics(INPUT, "t")).toEqual({ status: "ok", insight: "x", recommendations: [] })
+    expect(await analyzeStatistics(INPUT)).toEqual({ status: "ok", insight: "x", recommendations: [] })
   })
 })
 
@@ -97,6 +108,8 @@ describe("useAnalyzeStatistics (invalidación sólo cuando se generó el insight
   beforeEach(() => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321"
     fetchMock.mockReset()
+    resolveAccessTokenMock.mockReset()
+    withToken()
     vi.stubGlobal("fetch", fetchMock)
   })
   afterEach(() => vi.unstubAllGlobals())
@@ -128,7 +141,7 @@ describe("useAnalyzeStatistics (invalidación sólo cuando se generó el insight
   })
 
   it("sin sesión activa devuelve error sin llamar a la Edge Function", async () => {
-    supabaseMock.auth.getSession.mockResolvedValueOnce({ data: { session: null } } as never)
+    withoutSession()
     const client = new QueryClient()
     const { result } = renderHook(() => useAnalyzeStatistics(), { wrapper: wrapper(client) })
     const r = await result.current.mutateAsync(INPUT)

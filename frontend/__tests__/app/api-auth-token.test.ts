@@ -40,6 +40,7 @@ import {
   USER_ID,
   gotrueDouble,
   jarWithSession,
+  makeJwt,
   makeSession,
   type GoTrueDouble,
   type SessionJson,
@@ -96,6 +97,31 @@ describe("GET /api/auth/token — nunca entrega el refresh token", () => {
     expect(body.access_token).toBe(session.access_token)
     expect(body.expires_at).toBe(session.expires_at)
     expect(body.user).toMatchObject({ id: USER_ID, email: USER_EMAIL })
+  })
+
+  // ── task 19.8a ──────────────────────────────────────────────────────────────
+  // El contexto de sesión de la app arma el nombre a mostrar con la cascada
+  // `profiles.name || user_metadata.name || prefijo del email` (la del trigger
+  // `handle_new_user`, migración 20260613000005). Sin el nombre acá, el usuario
+  // cuyo perfil quedó sin nombre pasaría a verse como el prefijo de su email sin
+  // que nadie lo haya decidido.
+  it("el usuario trae el nombre de `user_metadata`, para la cascada del contexto", async () => {
+    const session = makeSession({
+      accessToken: makeJwt({ user_metadata: { name: "Daniel" } }),
+    })
+    const response = await GET(buildRequest(activeJar(session)))
+
+    expect((await bodyOf(response)).user).toMatchObject({ id: USER_ID, name: "Daniel" })
+  })
+
+  it("sin nombre en el token el campo viaja nulo, no ausente ni inventado", async () => {
+    // Control: `makeJwt()` no pone `user_metadata`. Un `undefined` desaparecería
+    // al serializar y el consumidor no podría distinguir "no vino" de "no hay".
+    const response = await GET(buildRequest(activeJar(makeSession())))
+    const body = await bodyOf(response)
+
+    expect((body.user as Record<string, unknown>).name).toBeNull()
+    expect(Object.keys(body.user as Record<string, unknown>)).toContain("name")
   })
 
   it("el cuerpo no contiene el refresh token bajo ningún nombre", async () => {

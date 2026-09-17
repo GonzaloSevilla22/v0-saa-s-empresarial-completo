@@ -17,11 +17,7 @@ const rpcMock = vi.fn()
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     rpc: rpcMock,
-    auth: {
-      getSession: async () => ({
-        data: { session: { user: { id: "user-1", user_metadata: {} } } },
-      }),
-    },
+    // task 19.7b: estas pantallas no consultan la sesión por el cliente.
   }),
 }))
 

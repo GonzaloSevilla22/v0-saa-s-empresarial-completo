@@ -1,5 +1,10 @@
 import { createClient } from './client'
 import type { Insight } from '@/lib/types'
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b): la identidad ya no sale
+// de `supabase.auth.getUser()` — con `accessToken` configurado ese acceso LANZA
+// (`supabase-js/index.mjs:389`). Viene del `user` que acompaña al token, así que
+// no cuesta una llamada extra.
+import { getSessionUser } from '@/lib/auth/access-token-store'
 
 const supabase = createClient()
 
@@ -45,7 +50,7 @@ export const services = {
 
   // Clients
   async createClient(client: any) {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser()
     if (!user) throw new Error("Not authenticated")
     const { data, error } = await supabase.from('clients').insert([{
       user_id: user.id,
@@ -61,7 +66,7 @@ export const services = {
 
   // Expenses
   async createExpense(expense: any) {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser()
     if (!user) throw new Error("Not authenticated")
     const { data, error } = await supabase.from('expenses').insert([{ ...expense, user_id: user.id }]).select().single()
     if (error) throw error

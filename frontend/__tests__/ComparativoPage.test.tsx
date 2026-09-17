@@ -104,7 +104,7 @@ vi.mock("@/lib/supabase/client", () => ({
         }),
       }),
     }),
-    auth: { getSession: async () => ({ data: { session: null } }) },
+    // task 19.7b: el token de la Edge Function lo resuelve `getAuthHeaders()`.
   }),
 }))
 

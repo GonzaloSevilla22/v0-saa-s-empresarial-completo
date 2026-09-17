@@ -74,22 +74,26 @@ const RECENT_1: RecentSubscription = {
   updatedAt: "2026-08-01T12:00:00.000Z",
 }
 
-let profileRole: string | null = "admin"
-let authUser: { id: string } | null = { id: "user-1" }
+// auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8d): el gate de esta
+// pantalla dejó de hacer `supabase.auth.getUser()` + `SELECT role FROM profiles`
+// —con `accessToken` configurado el primero LANZA
+// (`supabase-js/index.mjs:389`)— y pasó al hook compartido `useAdminGate()`, que
+// lee el contexto de sesión ya resuelto. El doble del cliente desaparece entero:
+// esta pantalla ya no lo usa para nada.
+//
+// Las tres aserciones de gating se conservan tal cual; lo que cambia es de dónde
+// sale la respuesta y que la navegación va por el router (un `href` recargaba la
+// app entera y tiraba el estado de la sesión en curso).
+let isAdmin = true
+let sessionUser: { id: string } | null = { id: "user-1" }
+const routerReplace = vi.hoisted(() => vi.fn())
 
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    auth: {
-      getUser: vi.fn(async () => ({ data: { user: authUser } })),
-    },
-    from: vi.fn(() => ({
-      select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          single: vi.fn(async () => ({ data: profileRole ? { role: profileRole } : null })),
-        })),
-      })),
-    })),
-  }),
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: routerReplace, push: vi.fn() }),
+}))
+
+vi.mock("@/contexts/auth-context", () => ({
+  useAuth: () => ({ user: sessionUser, isAdmin }),
 }))
 
 vi.mock("@/components/billing/AccountSearchCombobox", () => ({
@@ -170,8 +174,8 @@ vi.mock("@/hooks/data/use-ambiguous-subscriptions", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  profileRole = "admin"
-  authUser = { id: "user-1" }
+  isAdmin = true
+  sessionUser = { id: "user-1" }
   mockHookState.data = [AMBIGUOUS_1, AMBIGUOUS_2]
   mockHookState.isLoading = false
   mockHookState.isError = false
@@ -184,12 +188,10 @@ beforeEach(() => {
   replaySubscriptionChargesMock.mockReset()
   toastSuccessMock.mockReset()
   toastErrorMock.mockReset()
-  // jsdom no implementa navegación real — silenciar el "Not implemented" y
-  // permitir asignar window.location.href sin que la suite aborte.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (window as any).location
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ;(window as any).location = { href: "" }
+  routerReplace.mockReset()
+  // El apaño de `window.location` que había acá (borrarlo y reemplazarlo por un
+  // objeto con `href`) se retiró junto con el `window.location.href` de la
+  // pantalla: la navegación va por el router, que sí es espiable (task 19.8d).
 })
 
 // qa-integral-modulos (revisión post-apply): esta función es ASÍNCRONA — el
@@ -211,18 +213,18 @@ async function renderPage() {
 
 describe("SuscripcionesAmbiguasPage — gating", () => {
   it("§1 RED: a non-admin sees nothing and gets redirected away", async () => {
-    profileRole = "user"
+    isAdmin = false
     await renderPage()
 
-    await waitFor(() => expect(window.location.href).toBe("/dashboard"))
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith("/dashboard"))
     expect(screen.queryByText(/suscripciones ambiguas/i)).not.toBeInTheDocument()
   })
 
   it("§1 TRIANGULATE: an unauthenticated user is redirected to login without rendering", async () => {
-    authUser = null
+    sessionUser = null
     await renderPage()
 
-    await waitFor(() => expect(window.location.href).toBe("/auth/login"))
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith("/auth/login"))
     expect(screen.queryByText(/suscripciones ambiguas/i)).not.toBeInTheDocument()
   })
 

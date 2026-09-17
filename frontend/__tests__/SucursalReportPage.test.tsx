@@ -17,16 +17,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 const rpcMock = vi.fn()
 
+// auth-hardening-jwt-cookies (Parte C, task 19.7b): el doble ya no ofrece `auth`.
+// Esta pantalla toma la cuenta de `useAuth()` (mockeado abajo) desde el fix del
+// camino viejo que leía `user_metadata.account_id` y devolvía [] en silencio; el
+// `getSession()` del doble quedó de esa época y no lo llama nadie.
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
     rpc: rpcMock,
-    auth: {
-      // Realista: ningún usuario tiene account_id en user_metadata (nada lo
-      // escribe). El camino viejo que leía de acá devolvía [] en silencio.
-      getSession: async () => ({
-        data: { session: { user: { id: "user-1", user_metadata: { name: "QA" } } } },
-      }),
-    },
   }),
 }))
 

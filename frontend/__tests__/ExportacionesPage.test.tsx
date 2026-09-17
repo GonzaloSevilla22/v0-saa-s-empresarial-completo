@@ -51,11 +51,13 @@ vi.mock("@/hooks/auth/use-export-usage", () => ({
   triggerExport: triggerExportMock,
 }))
 
-const getSessionMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue({ data: { session: { access_token: "tok" } } }),
-)
+// auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8d): la pantalla ya no
+// resuelve la sesión para regenerar — el token lo arma `triggerExport` con
+// `getAuthHeaders()`, y "no hay sesión" llega como el código `no_session` de su
+// resultado (antes esta función volvía en SILENCIO). El doble ya no ofrece `auth`:
+// con `accessToken` configurado `supabase.auth` LANZA (`index.mjs:389`).
 vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({ auth: { getSession: getSessionMock } }),
+  createClient: () => ({}),
 }))
 
 const invalidateQueries = vi.hoisted(() => vi.fn())
@@ -84,7 +86,6 @@ beforeEach(() => {
   sonnerToast.error.mockClear()
   invalidateQueries.mockClear()
   triggerExportMock.mockReset()
-  getSessionMock.mockResolvedValue({ data: { session: { access_token: "tok" } } })
 })
 
 describe("ExportacionesPage — Regenerar avisa por sonner (G7/H7)", () => {
@@ -101,6 +102,18 @@ describe("ExportacionesPage — Regenerar avisa por sonner (G7/H7)", () => {
         expect.objectContaining({ description: "Edge Function 503" }),
       ),
     )
+  })
+
+  // task 19.8d: antes de este change, "sin sesión" hacía `return` sin decir nada
+  // — el usuario apretaba Regenerar y no pasaba absolutamente nada.
+  it("sin sesión: lo dice, en vez de volver en silencio", async () => {
+    triggerExportMock.mockResolvedValue({ ok: false, error: "no_session" })
+    const user = userEvent.setup()
+    render(<ExportacionesPage />)
+
+    await user.click(screen.getByRole("button", { name: /regenerar/i }))
+
+    await waitFor(() => expect(sonnerToast.error).toHaveBeenCalledWith("No autenticado", undefined))
   })
 
   it("regeneración exitosa: toast.success de sonner", async () => {

@@ -4,6 +4,11 @@ import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
 import { fetchCriticalStockCount, fetchCriticalStockItems, type CriticalStockItem } from '@/lib/reporting/critical-stock'
 import { fetchTopProducts, resolveActiveAccountId } from '@/lib/reporting/product-ranking'
 import { argentinaToday, argentinaDaysAgo } from '@/lib/date-range'
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b): la identidad viene del
+// contexto de sesión de la app y no del cliente que llega por parámetro (que es
+// el de navegador, donde `supabase.auth` lanza). El parámetro sigue siendo quien
+// lee los datos.
+import { getSessionUser } from '@/lib/auth/access-token-store'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -226,7 +231,7 @@ export async function buildBusinessSnapshot(
   // bloque se omite (nunca se reconstruye con la suma local vieja, D4).
   let topRentables: BusinessSnapshot['productos']['top_rentables'] = []
   try {
-    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const authUser = await getSessionUser()
     if (!authUser) throw new Error('no_authenticated_user')
 
     const accountId = await resolveActiveAccountId(supabase, authUser.id)

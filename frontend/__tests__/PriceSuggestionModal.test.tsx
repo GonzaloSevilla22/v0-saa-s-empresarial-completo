@@ -17,15 +17,12 @@ import "@testing-library/jest-dom"
 
 // ─── Mock dependencies that are not available in jsdom ───────────────────────
 
-// Mock Supabase client
-vi.mock("@/lib/supabase/client", () => ({
-  createClient: () => ({
-    auth: {
-      getSession: async () => ({
-        data: { session: { access_token: "test-token" } },
-      }),
-    },
-  }),
+// auth-hardening-jwt-cookies (Parte C, tasks 19.7b/19.8d/19.11): el Bearer de la
+// Edge Function lo arma `getAuthHeaders()` sobre el store del token. El doble del
+// cliente ya no ofrece `auth`: con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`).
+vi.mock("@/lib/auth/access-token-store", () => ({
+  resolveAccessToken: async () => ({ status: "active", token: "test-token" }),
 }))
 
 // Mock Next.js Link
@@ -89,6 +86,25 @@ describe("PriceSuggestionModal — loading state (task 5.4)", () => {
 })
 
 // ─── task 5.5: insufficient_data message ─────────────────────────────────────
+
+// ─── auth-hardening-jwt-cookies, Parte C, task 19.11 ─────────────────────────
+describe("PriceSuggestionModal — el fetch a mano lleva el Bearer del store", () => {
+  beforeEach(() => {
+    mockFetch.mockReturnValue(buildFetchResponse({ ok: true, data: { suggested_price: 1000 } }))
+  })
+
+  it("la llamada a ai-precio viaja con el token de la sesión", async () => {
+    await renderModal()
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled())
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toContain("/functions/v1/ai-precio")
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer test-token")
+    // Y el `Content-Type` del caller sobrevive al merge: los de auth van ÚLTIMOS,
+    // no en lugar de los del caller.
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json")
+  })
+})
 
 describe("PriceSuggestionModal — insufficient_data fallback (task 5.5)", () => {
   beforeEach(() => {

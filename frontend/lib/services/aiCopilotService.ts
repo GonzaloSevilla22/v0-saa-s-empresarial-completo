@@ -1,5 +1,10 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { pricingService } from './pricingService'
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b): la identidad ya no sale
+// del cliente que recibe por parámetro. Ese cliente es el de NAVEGADOR y con
+// `accessToken` configurado `supabase.auth` lanza (`index.mjs:389`); el
+// parámetro se conserva porque sigue siendo el que lee y escribe los datos.
+import { getSessionUser } from '@/lib/auth/access-token-store'
 
 export const aiCopilotService = {
   /**
@@ -31,7 +36,7 @@ export const aiCopilotService = {
    * Retrieves conversation history for the user.
    */
   async getConversationHistory(supabase: SupabaseClient) {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser()
     if (!user) throw new Error("Unauthorized")
 
     const { data, error } = await supabase
@@ -48,7 +53,7 @@ export const aiCopilotService = {
    * Stores a new conversation in the database.
    */
   async saveConversation(supabase: SupabaseClient, question: string, answer: string) {
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser()
     if (!user) throw new Error("Unauthorized")
 
     const { data, error } = await supabase

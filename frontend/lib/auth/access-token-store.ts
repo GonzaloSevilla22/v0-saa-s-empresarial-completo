@@ -36,6 +36,14 @@ export const AUTH_TOKEN_PATH = "/api/auth/token"
 export interface SessionUser {
   id: string
   email: string | null
+  /**
+   * Nombre de `user_metadata`, tal como lo entrega el manejador. Existe por la
+   * cascada de nombre a mostrar del contexto de sesión (`profiles.name ||
+   * user_metadata.name || prefijo del email`): sin él, el usuario cuyo perfil
+   * quedó sin nombre pasaría a verse como el prefijo de su email sin que nadie lo
+   * haya decidido.
+   */
+  name: string | null
 }
 
 export type AccessTokenResolution =
@@ -119,7 +127,11 @@ function parseUser(raw: unknown): SessionUser | null {
   if (!raw || typeof raw !== "object") return null
   const candidate = raw as Record<string, unknown>
   if (typeof candidate.id !== "string" || candidate.id === "") return null
-  return { id: candidate.id, email: typeof candidate.email === "string" ? candidate.email : null }
+  return {
+    id: candidate.id,
+    email: typeof candidate.email === "string" ? candidate.email : null,
+    name: typeof candidate.name === "string" && candidate.name !== "" ? candidate.name : null,
+  }
 }
 
 async function fetchFromHandler(): Promise<AccessTokenResolution> {

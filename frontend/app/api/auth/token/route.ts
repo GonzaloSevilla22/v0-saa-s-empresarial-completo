@@ -63,6 +63,13 @@ export const dynamic = "force-dynamic"
 export interface TokenHandlerUser {
   id: string
   email: string | null
+  /**
+   * Nombre de `user_metadata`, para la cascada de nombre a mostrar del contexto
+   * de sesión (`profiles.name || user_metadata.name || prefijo del email`, la del
+   * trigger `handle_new_user`). `null` cuando el token no lo trae: sin el campo
+   * explícito, el consumidor no puede distinguir "no vino" de "no hay".
+   */
+  name: string | null
 }
 
 export interface TokenHandlerPayload {
@@ -109,7 +116,16 @@ function userFromAccessToken(token: string): TokenHandlerUser | null {
   const id = claims?.sub
   if (typeof id !== "string" || id === "") return null
   const email = claims?.email
-  return { id, email: typeof email === "string" ? email : null }
+  const metadata = claims?.user_metadata
+  const name =
+    metadata && typeof metadata === "object"
+      ? (metadata as Record<string, unknown>).name
+      : undefined
+  return {
+    id,
+    email: typeof email === "string" ? email : null,
+    name: typeof name === "string" && name !== "" ? name : null,
+  }
 }
 
 // ── Single-flight por sesión (D19-5) ────────────────────────────────────────

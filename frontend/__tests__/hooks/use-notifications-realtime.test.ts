@@ -47,8 +47,20 @@ const NEXT_TOKEN = "access-token-2"
 type ClientModule = typeof import("@/lib/supabase/client")
 type Store = typeof import("@/lib/auth/access-token-store")
 
+/**
+ * Detalle interno de `realtime-js` que el control de no-vacuidad necesita: es
+ * cómo la librería recuerda que el token está pinneado (`RealtimeClient.js:479`
+ * condiciona la renovación automática a que NO lo esté). No está en los tipos
+ * públicos, así que se declara acá en vez de recurrir a `any`.
+ */
+interface RealtimeTokenInternals {
+  _isManualToken(): boolean
+}
+
+const internalsOf = (realtime: unknown) => realtime as RealtimeTokenInternals
+
 let fetchMock: ReturnType<typeof vi.fn>
-let setAuthSpy: ReturnType<typeof vi.spyOn>
+let setAuthSpy: ReturnType<typeof vi.spyOn<RealtimeClient, "setAuth">>
 
 const expiresIn = (seconds: number) => Math.floor(Date.now() / 1000) + seconds
 
@@ -76,7 +88,7 @@ async function load(): Promise<{ client: ClientModule; store: Store }> {
 
 /** Llamadas a `setAuth` que NO llevaron argumentos. */
 function noArgCalls(): unknown[][] {
-  return setAuthSpy.mock.calls.filter((call) => call.length === 0)
+  return setAuthSpy.mock.calls.filter((call: unknown[]) => call.length === 0)
 }
 
 beforeEach(() => {
@@ -140,7 +152,7 @@ describe("Realtime — la renovación llama setAuth() SIN argumentos", () => {
 
     // El pin del constructor: una llamada CON token.
     await vi.waitFor(() => expect(setAuthSpy).toHaveBeenCalled())
-    expect(setAuthSpy.mock.calls.some((call) => call.length === 1)).toBe(true)
+    expect(setAuthSpy.mock.calls.some((call: unknown[]) => call.length === 1)).toBe(true)
 
     await store.refreshAccessToken()
 
@@ -192,17 +204,17 @@ describe("Realtime — la renovación llama setAuth() SIN argumentos", () => {
 
     // 1. El constructor pinnea con un token explícito (`index.mjs:398`).
     await vi.waitFor(() => expect(bare.realtime.accessTokenValue).toBe(TOKEN))
-    expect(bare.realtime._isManualToken()).toBe(true)
+    expect(internalsOf(bare.realtime)._isManualToken()).toBe(true)
 
     // 2. El token del store cambia, pero nadie vuelve a preguntarle al callback.
     current = NEXT_TOKEN
     await bare.realtime.setAuth("token-pinneado-a-mano")
-    expect(bare.realtime._isManualToken()).toBe(true)
+    expect(internalsOf(bare.realtime)._isManualToken()).toBe(true)
     expect(bare.realtime.accessTokenValue).toBe("token-pinneado-a-mano")
 
     // 3. Sólo la llamada SIN argumentos devuelve el control al callback.
     await bare.realtime.setAuth()
-    expect(bare.realtime._isManualToken()).toBe(false)
+    expect(internalsOf(bare.realtime)._isManualToken()).toBe(false)
     expect(bare.realtime.accessTokenValue).toBe(NEXT_TOKEN)
   })
 

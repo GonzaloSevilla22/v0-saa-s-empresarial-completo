@@ -23,13 +23,16 @@ import { AuthProvider, useAuth } from "@/contexts/auth-context"
 // captchaToken y el user_metadata del registro llegan completos): lo único que
 // cambia es dónde se observan.
 //
-// `getUser`/`onAuthStateChange` siguen en el cliente de navegador **a
-// propósito**: los mueven 19.8a y 20.3, no este grupo.
+// Parte C (task 19.8a): `getUser()` y `onAuthStateChange` también se fueron. La
+// identidad viene del store del token (`refreshAccessToken()`), que es la que
+// invalida un "no hay sesión" cacheado después de un login por acción de
+// servidor, y el doble del cliente **ya no ofrece `auth`** — con `accessToken`
+// configurado es un Proxy que lanza (`supabase-js/index.mjs:389`).
 const signUpMock = vi.fn()
 const signInWithPasswordMock = vi.fn()
 const signInWithOtpMock = vi.fn()
-// Logged-out: getUser returns no user so refreshSession resolves and children render.
-const getUserMock = vi.fn().mockResolvedValue({ data: { user: null }, error: null })
+// Sin sesión: la resolución dice "absent" y los hijos renderizan igual.
+const refreshAccessTokenMock = vi.fn().mockResolvedValue({ status: "absent" })
 
 vi.mock("@/app/auth/actions", () => ({
   signUpAction: (...args: unknown[]) => signUpMock(...args),
@@ -40,12 +43,12 @@ vi.mock("@/app/auth/actions", () => ({
   requestEmailChangeAction: vi.fn().mockResolvedValue({ ok: true }),
 }))
 
+vi.mock("@/lib/auth/access-token-store", () => ({
+  refreshAccessToken: () => refreshAccessTokenMock(),
+}))
+
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
-    auth: {
-      getUser: getUserMock,
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
-    },
     from: () => ({
       select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null }) }) }),
     }),

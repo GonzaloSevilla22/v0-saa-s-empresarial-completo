@@ -44,12 +44,8 @@ import { getAccessToken, subscribeToAccessToken } from "@/lib/auth/access-token-
  * pestaña a la que pertenecer, y un cliente cacheado en un proceso compartido
  * sería estado de un usuario visible para el siguiente.
  */
-let cachedBrowserClient: ReturnType<typeof createSupabaseClient> | null = null
-
-export function createClient() {
-  if (cachedBrowserClient) return cachedBrowserClient
-
-  const client = createSupabaseClient(
+function buildClient() {
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -59,6 +55,20 @@ export function createClient() {
       accessToken: () => getAccessToken(),
     },
   )
+}
+
+/**
+ * El tipo sale de `buildClient` y no de `ReturnType<typeof createSupabaseClient>`:
+ * el segundo evalúa los genéricos con sus **defaults** (`schema: never`) en vez de
+ * con los que el constructor infiere de esta llamada, y el cliente concreto
+ * (`schema: "public"`) no es asignable a eso.
+ */
+let cachedBrowserClient: ReturnType<typeof buildClient> | null = null
+
+export function createClient() {
+  if (cachedBrowserClient) return cachedBrowserClient
+
+  const client = buildClient()
 
   if (typeof window !== "undefined") {
     // SIN argumentos: es lo que despinnea el canal y devuelve el control al

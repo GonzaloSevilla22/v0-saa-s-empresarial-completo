@@ -1,6 +1,8 @@
 "use client"
 
 import { createClient } from "@/lib/supabase/client"
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b).
+import { getSessionUser } from "@/lib/auth/access-token-store"
 import type { InvoiceDocument, ParsedInvoice, OcrStep } from "@/lib/invoice-types"
 
 const BUCKET = "invoices"
@@ -65,7 +67,7 @@ export const invoiceOcrService = {
     const supabase = createClient()
 
     // ── 1. Auth check ─────────────────────────────────────────────────────────
-    const { data: { user } } = await supabase.auth.getUser()
+    const user = await getSessionUser()
     if (!user) throw new Error("No autorizado")
 
     // ── 2. Compress ───────────────────────────────────────────────────────────

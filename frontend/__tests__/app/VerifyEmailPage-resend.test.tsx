@@ -32,11 +32,10 @@ vi.mock("@/app/auth/actions", () => ({
 // `checkVerification()` no encuentra nada y la pantalla queda en espera.
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
-    auth: {
-      refreshSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
-      getSession: vi.fn().mockResolvedValue({ data: { session: null } }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
-    },
+    // task 19.7b: los cuatro mecanismos de auth de esta pantalla se fueron a
+    // `GET /api/auth/status` (19.4b). El doble ya no ofrece `auth`: con
+    // `accessToken` configurado `supabase.auth` LANZA (`index.mjs:389`), y un doble
+    // que lo siga ofreciendo deja la suite verde mientras producción explota.
   }),
 }))
 

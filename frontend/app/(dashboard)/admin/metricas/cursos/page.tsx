@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useAdminGate } from '@/hooks/auth/use-admin-gate'
 import { fetchModuleStats } from '@/lib/adminAnalytics'
 import { ModuleAnalytics } from '@/components/admin/ModuleAnalytics'
 import { Button } from '@/components/ui/button'
@@ -9,17 +9,14 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 export default function AdminCursosAnalytics() {
+    const gate = useAdminGate()
     const [stats, setStats] = useState<any>(null)
     const [loading, setLoading] = useState(true)
 
     useEffect(() => {
-        async function load() {
-            const supabase = createClient()
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) { window.location.href = '/auth'; return }
-            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-            if (!profile || profile.role !== 'admin') { window.location.href = '/dashboard'; return }
+        if (gate !== "allowed") return
 
+        async function load() {
             const dateTo = new Date().toISOString()
             const dateFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
             const data = await fetchModuleStats('cursos', dateFrom, dateTo)
@@ -27,7 +24,7 @@ export default function AdminCursosAnalytics() {
             setLoading(false)
         }
         load().catch(() => setLoading(false))
-    }, [])
+    }, [gate])
 
     if (loading) return <div className="flex items-center justify-center py-20"><div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" /></div>
 

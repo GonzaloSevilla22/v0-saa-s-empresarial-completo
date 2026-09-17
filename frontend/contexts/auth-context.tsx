@@ -22,6 +22,7 @@ import {
   updatePasswordAction,
 } from "@/app/auth/actions"
 import { unwrapAuthResult } from "@/lib/auth/auth-result"
+import { refreshAccessToken } from "@/lib/auth/access-token-store"
 
 // G11 (H9): el tipo y el armado del payload viven en la capa canónica
 // (lib/profile-update.ts) — null limpia la columna, undefined la omite.
@@ -82,12 +83,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = useCallback(async () => {
     try {
-      // getUser() validates the JWT server-side (network call).
-      // getSession() only trusts the local cookie — never use it as an auth check.
-      // The middleware already calls getUser() on every request, so this
-      // client-side call is for hydrating the React state after confirmed auth.
-      const { data: { user: authUser }, error } = await supabase.auth.getUser()
-      if (error || !authUser) {
+      // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): la identidad sale
+      // del token handler y no de `supabase.auth.getUser()`, que con `accessToken`
+      // configurado LANZA (`supabase-js/index.mjs:389`).
+      //
+      // **`refreshAccessToken()` y no `getAccessToken()`**, o sea FORZANDO: esta
+      // función se llama justo después de `signInWithPasswordAction()`, y el store
+      // viene de la pantalla de login —una página anónima— donde ya cacheó "no hay
+      // sesión". Sin forzar, el login terminaría bien en el servidor y la app
+      // quedaría anónima hasta que el usuario recargue.
+      //
+      // El token que devuelve el manejador lo emitió el proveedor y lo verifica
+      // quien lo recibe (PostgREST y FastAPI comprueban la firma): la garantía que
+      // daba `getUser()` —"esto no es una cookie que alguien escribió"— la sigue
+      // dando el servidor, que es el único que puede leer la sesión.
+      const resolution = await refreshAccessToken()
+      const authUser = resolution.status === "active" ? resolution.user : null
+      if (!authUser) {
         setUser(null)
         return
       }
@@ -162,7 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           aiQueriesUsed:  profile.ai_queries_used ?? 0,
           aiAdviceUsed:   profile.ai_advice_used  ?? 0,
           role:           profile.role as UserRole,
-          name:           profile.name || authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          name:           profile.name || authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
           lastName:       profile.last_name     ?? undefined,
           avatar:         profile.avatar_url    ?? undefined,
           businessName:   profile.business_name ?? undefined,
@@ -194,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           aiQueriesUsed: 0,
           aiAdviceUsed:  0,
           role:          "user",
-          name:          authUser.user_metadata?.name || authUser.email?.split("@")[0] || "Emprendedor",
+          name:          authUser.name || authUser.email?.split("@")[0] || "Emprendedor",
           currency:      "ARS",
           timezone:      "America/Argentina/Buenos_Aires",
           dateFormat:    "DD/MM/YYYY",
@@ -213,21 +225,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshSession()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      // TOKEN_REFRESHED fires every ~hour — middleware already rotates the cookie,
-      // no need to re-query the DB. Only react to events that change user state.
-      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
-        refreshSession()
-      } else if (event === "SIGNED_OUT") {
-        setUser(null)
-      }
-    })
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [refreshSession, supabase.auth])
+    // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): acá vivía un
+    // `supabase.auth.onAuthStateChange`. Con `accessToken` configurado
+    // `_listenForAuthEvents()` NO se instala (`supabase-js/index.mjs:407`) y
+    // cualquier acceso a `supabase.auth` lanza (`:389`), así que el listener no es
+    // código que se pueda dejar "por si acaso": no existe.
+    //
+    // Lo que hacía para ESTA pestaña ya está cubierto: cada operación de sesión
+    // llama `refreshSession()` o navega (login, logout, updateProfile,
+    // closeAllSessions). Lo que se pierde hasta el grupo 20 es la propagación
+    // CROSS-TAB —cerrar sesión en una pestaña y que las otras se enteren—, que es
+    // exactamente lo que el bus de eventos de sesión de la task 20.3 restituye
+    // sobre `lib/auth/idle-transport.ts`. Queda dicho acá para que la ausencia sea
+    // una etapa declarada y no un olvido.
+  }, [refreshSession])
 
   // auth-hardening-jwt-cookies (Parte C, grupo 18): el `getSiteUrl()` que vivía
   // acá se retiró. El `emailRedirectTo` lo resuelve el servidor con

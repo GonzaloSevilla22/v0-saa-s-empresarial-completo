@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useAdminGate } from '@/hooks/auth/use-admin-gate'
 import { fetchModuleStats } from '@/lib/adminAnalytics'
 import { ModuleAnalytics } from '@/components/admin/ModuleAnalytics'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 export default function AdminVentasAnalytics() {
+    const gate = useAdminGate()
     const [stats, setStats] = useState<any>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -17,13 +18,6 @@ export default function AdminVentasAnalytics() {
         setLoading(true)
         setError(null)
         try {
-            const supabase = createClient()
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) { window.location.href = '/auth'; return }
-
-            const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
-            if (!profile || profile.role !== 'admin') { window.location.href = '/dashboard'; return }
-
             const dateTo = new Date().toISOString()
             const dateFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
             const data = await fetchModuleStats('ventas', dateFrom, dateTo)
@@ -37,8 +31,9 @@ export default function AdminVentasAnalytics() {
     }
 
     useEffect(() => {
+        if (gate !== "allowed") return
         loadData()
-    }, [])
+    }, [gate])
 
     if (loading) return (
         <div className="flex flex-col items-center justify-center py-32 gap-4">

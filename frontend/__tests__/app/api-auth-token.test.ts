@@ -213,6 +213,27 @@ describe("GET /api/auth/token — sin cookie válida no entrega token", () => {
     expect(gotrue.refreshCalls()).toHaveLength(1)
     expect((await bodyOf(response)).access_token).toBeNull()
   })
+
+  // Revisión adversarial pre-merge: el middleware dejó de pasar por `/api/auth/*`
+  // (el `getUser()` de ahí volvía inerte el single-flight de D19-5), y con eso dejó
+  // de ser el middleware quien purga la cookie muerta en esta ruta. Eso sólo es
+  // seguro si **el manejador** la purga, y era una afirmación sin aserción: el caso
+  // de arriba prueba que no entrega token, no que limpie. Sin la purga, un navegador
+  // parado en una pantalla que sólo sondea el token se queda con una sesión muerta
+  // hasta la próxima navegación.
+  it("y borra la cookie muerta en esa misma respuesta (la purga ya no viene del middleware)", async () => {
+    const vencida = makeSession({ expiresInSeconds: -10 })
+    const response = await GET(buildRequest(activeJar(vencida)))
+
+    const sessionLines = response.headers
+      .getSetCookie()
+      .filter((line) => line.startsWith("sb-"))
+
+    expect(sessionLines.length).toBeGreaterThan(0)
+    for (const line of sessionLines) {
+      expect(line, `no es un borrado: ${line}`).toMatch(/max-age=0|expires=thu, 01 jan 1970/i)
+    }
+  })
 })
 
 // ── 19.3 ::refresh_rotates_cookies ──────────────────────────────────────────

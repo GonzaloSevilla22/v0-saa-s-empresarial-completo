@@ -53,7 +53,7 @@ El navegador NOT SHALL invocar directamente el proveedor de autenticación para 
 
 ### Requirement: La pantalla de verificación de email consulta el estado al servidor
 
-El sistema SHALL exponer un manejador de ruta que informe si la dirección de correo de la sesión actual ya fue confirmada, forzando para ello una renovación contra el proveedor —que es la única forma de observar una confirmación recién ocurrida— y devolviendo únicamente la dirección y el instante de confirmación.
+El sistema SHALL exponer un manejador de ruta que informe si la dirección de correo de la sesión actual ya fue confirmada, consultando el estado del usuario **al proveedor en cada consulta** —nunca la copia cacheada en la cookie, que no puede reflejar una confirmación recién ocurrida— y devolviendo únicamente la dirección y el instante de confirmación.
 
 La pantalla de verificación NOT SHALL sondear al proveedor desde el navegador ni suscribirse a su observador de estado de autenticación: con el token provisto desde el exterior, esas operaciones dejan de estar disponibles. El reenvío del correo de verificación SHALL ocurrir también en el servidor, conservando el límite de frecuencia que hoy aplica la pantalla.
 

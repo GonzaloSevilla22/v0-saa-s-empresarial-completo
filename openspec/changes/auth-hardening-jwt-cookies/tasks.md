@@ -176,6 +176,7 @@
 - [x] 11.2 SAFETY NET: `pnpm tsc --noEmit` y registrar el estado (gotcha: `next-env.d.ts` queda sucio tras un `next dev` previo)
 - [x] 11.3 Medir el estado de hoy que la parte corrige: `curl` anónimo sobre los 12 árboles sin gate (`/caja`, `/cobranzas`, `/banco`, `/estadisticas`, `/exportaciones`, `/facturacion`, `/finanzas`, `/organizacion`, `/planes`, `/rentabilidad`, `/reportes`, `/sucursales`) → registrar cuáles devuelven 200 hoy, para el antes/después de 16.4
 - [ ] 11.4 Confirmar que la Parte A está mergeada y verificada en prod (11.x no arranca antes)
+  > **Mitad confirmada desde la rama de la Parte C (2026-09-17)**: la Parte A está **mergeada** (PR **#564**, commit `a8cfe131` en `main`) y la Parte B también (#563, `6101d621`), así que el orden A → B → C de D16 se cumplió. La rama de la Parte C se rebasó sobre `origin/main` con las dos dentro, sin un solo conflicto. Queda la otra mitad, que no es del agente: la **verificación en prod** de la Parte A (valor exacto de `SUPABASE_URL` y `APP_ENV` en Render, tasks 24.3 y 24.7).
 
 ## 12. Parte B — Cobertura de rutas por construcción (D4)
 

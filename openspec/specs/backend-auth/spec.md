@@ -3,20 +3,47 @@
 ## Purpose
 
 Middleware de autenticación para FastAPI que valida JWTs emitidos por Supabase. FastAPI no emite tokens propios — actúa como resource server que verifica la firma del token.
-
 ## Requirements
-
 ### Requirement: Validación de JWT de Supabase
 
-El middleware SHALL decodificar y verificar tokens usando `SUPABASE_JWT_SECRET` y algoritmo `HS256`.
+El middleware SHALL verificar los tokens contra las **JWKS públicas de Supabase** (`ES256`/`RS256`), que es el camino que corre en producción, y SHALL rechazar el token si su firma, su emisor, su audiencia o su vigencia no son válidos.
 
-#### Scenario: Decodificación HS256 con el secreto compartido cuando no hay `supabase_url`
+La verificación SHALL exigir explícitamente la presencia de los claims `exp` y `sub`: un token válidamente firmado que carezca de cualquiera de los dos SHALL rechazarse, en lugar de aceptarse (`exp`) o de fallar con un error del servidor (`sub`). La verificación SHALL admitir una tolerancia de reloj acotada, de modo que una diferencia menor entre el reloj del host y el del emisor no rechace tokens recién emitidos.
 
-- **GIVEN** `settings.supabase_url` está vacío (entorno de desarrollo o tests, sin JWKS de Supabase disponible)
-- **WHEN** llega un token firmado con `SUPABASE_JWT_SECRET` usando el algoritmo `HS256`
-- **THEN** `get_current_user` lo decodifica con ese secreto y retorna el contexto de autenticación (verificado por `test_valid_token_returns_user` en `backend/tests/test_auth.py`)
+La verificación con **secreto compartido y algoritmo `HS256`** SHALL ser un camino de desarrollo y de tests, habilitado **únicamente** por una palanca de configuración explícita cuyo valor por defecto es "deshabilitado". Con la palanca deshabilitada, el camino `HS256` NOT SHALL ser alcanzable por omisión de una variable de entorno.
 
-> Nota de cobertura: cuando `supabase_url` SÍ está configurado (producción), `get_current_user` valida en cambio contra las JWKS de Supabase con `ES256`/`RS256` (`backend/core/auth.py`, rama `get_jwks_client()`) — un mecanismo que este requisito no menciona. El HS256 con secreto compartido documentado acá es exclusivamente el fallback de dev/test.
+#### Scenario: Token firmado por el proveedor se acepta por el camino JWKS
+
+- **GIVEN** la URL del proveedor configurada y la palanca de `HS256` deshabilitada
+- **WHEN** llega un token firmado con la clave vigente del proveedor, con emisor y audiencia correctos y no vencido
+- **THEN** se decodifica resolviendo la clave de firma por su identificador desde las JWKS y se retorna el contexto de autenticación
+
+#### Scenario: Token sin `exp` se rechaza
+
+- **WHEN** llega un token correctamente firmado que no declara vencimiento
+- **THEN** la verificación lo rechaza con no autorizado, en lugar de aceptarlo por tiempo indefinido
+
+#### Scenario: Token sin `sub` responde no autorizado, no error del servidor
+
+- **WHEN** llega un token correctamente firmado que no declara sujeto
+- **THEN** la respuesta es no autorizado, y no un error interno del servidor
+
+#### Scenario: Una diferencia menor de reloj no rechaza el token
+
+- **GIVEN** un reloj del host levemente atrasado respecto del emisor
+- **WHEN** llega un token recién emitido
+- **THEN** la verificación lo acepta gracias a la tolerancia de reloj declarada
+
+#### Scenario: El camino HS256 exige la palanca explícita
+
+- **GIVEN** la palanca de `HS256` habilitada explícitamente y sin URL del proveedor configurada
+- **WHEN** llega un token firmado con el secreto compartido
+- **THEN** se decodifica por ese camino y se retorna el contexto de autenticación
+
+#### Scenario: La rama que corre en producción está cubierta por tests
+
+- **WHEN** se revisa la suite del backend
+- **THEN** existe al menos un test que ejercita la verificación por JWKS con una clave asimétrica, además de los que ejercitan el camino del secreto compartido
 
 ### Requirement: Claims extraídos
 
@@ -43,30 +70,6 @@ Si el token tiene firma incorrecta, ha expirado, o está malformado, el middlewa
 
 - **WHEN** no se provee ningún token (el `Authorization` header está ausente y `oauth2_scheme` resuelve `token` como vacío)
 - **THEN** `get_current_user` responde HTTP 401 con `{"detail": "Invalid token"}` sin llegar a invocar `pyjwt.decode`
-
-### Requirement: Sin verificación de audience
-
-La verificación de `aud` SHALL estar desactivada (`verify_aud: False`), dado que Supabase emite `aud: "authenticated"` (string no-URL) y de lo contrario se producirían falsos 401.
-
-#### Scenario: Token con `aud: "authenticated"` se acepta sin validar audience
-
-- **GIVEN** un JWT válido cuyo claim `aud` es la cadena `"authenticated"` (no una URL)
-- **WHEN** `get_current_user` lo decodifica, ya sea por el path HS256 (dev/test) o por el path JWKS (producción)
-- **THEN** ambas llamadas a `pyjwt.decode` pasan `options={"verify_aud": False}`, de modo que el token se acepta sin fallar por audience mientras el resto de las validaciones (firma, expiración) sean correctas
-
-### Requirement: Header Bearer en HTTP, query param en WebSocket
-
-El middleware SHALL aceptar el token vía `Authorization: Bearer <token>` en endpoints HTTP y vía query param `?token=<token>` en endpoints WebSocket (los browsers no envían headers custom en el WS handshake).
-
-#### Scenario: Endpoint HTTP recibe el token por el header Authorization
-
-- **WHEN** un cliente llama a un endpoint HTTP protegido con `Authorization: Bearer <token>`
-- **THEN** `oauth2_scheme` (`OAuth2PasswordBearer`) extrae el token del header y lo inyecta como dependencia en `get_current_user`
-
-#### Scenario: Endpoint WebSocket recibe el token por query param
-
-- **WHEN** un cliente abre `WebSocket /ws/{room_id}?token=<token>`
-- **THEN** `backend/routers/ws.py` valida el token recibido por el query param `token` (declarado con `Query(default=None)`) en vez de un header, y cierra la conexión con code 1008 si el token es inválido o está ausente
 
 ### Requirement: Contrato tipado del contexto de autenticación
 
@@ -143,15 +146,29 @@ Cuando un guard requiera el rol de tenant, el backend SHALL evaluar el **conjunt
 
 El conjunto SHALL resolverse por el primero disponible de estos caminos, en orden: el claim del token que transporta el conjunto; el claim singular de rol de tenant, interpretado como un conjunto de un solo elemento —situación esperada mientras sigan vigentes tokens emitidos antes de la ampliación del contrato—; y, si ninguno de los dos claims viaja, la consulta de las asignaciones de rol del usuario en su cuenta activa. Esa consulta SHALL leer las asignaciones vigentes, NOT una columna de rol único que haya dejado de ser la fuente de verdad.
 
-Si no puede determinarse ningún rol de tenant por ninguna de las tres vías, el guard SHALL denegar. La ausencia de información de rol NOT SHALL resolverse asumiendo un rol permisivo.
+**Excepción para las acciones de configuración**: cuando el conjunto permitido por el guard es el conjunto nombrado que habilita configurar la cuenta, el backend SHALL consultar las asignaciones vigentes en la base **aunque el claim esté presente**, y SHALL decidir con lo que devuelve la base. Para esas acciones el claim SHALL tratarse como un caché y la base como la autoridad, de modo que un rol revocado o vencido deje de autorizar sin esperar a la próxima emisión de token.
+
+Si no puede determinarse ningún rol de tenant por ninguna de las vías, el guard SHALL denegar. La ausencia de información de rol NOT SHALL resolverse asumiendo un rol permisivo.
 
 El backend SHALL exponer los conjuntos de roles permitidos como **capacidades nombradas declaradas en un único lugar**, y los puntos de autorización NOT SHALL enumerar roles literales de forma dispersa.
 
 #### Scenario: El claim del conjunto evita la consulta a la base
 
 - **GIVEN** un token que trae el claim con el conjunto de roles de tenant
-- **WHEN** se ejercita un endpoint cuyo guard requiere rol de tenant
+- **WHEN** se ejercita un endpoint cuyo guard requiere rol de tenant y cuyo conjunto permitido no es el de configuración
 - **THEN** la decisión se toma con el valor del claim, sin consultar las asignaciones en la base
+
+#### Scenario: Una acción de configuración consulta la base aunque el claim esté
+
+- **GIVEN** un token que trae el claim con el conjunto de roles de tenant
+- **WHEN** se ejercita un endpoint cuyo guard requiere el conjunto de configuración
+- **THEN** la autorización consulta las asignaciones vigentes en la base y decide con ese resultado
+
+#### Scenario: Un rol revocado deja de configurar antes de que venza el token
+
+- **GIVEN** un usuario cuyo rol de configuración fue revocado y cuyo token todavía lo declara en el claim
+- **WHEN** intenta una acción de configuración
+- **THEN** el acceso se deniega, porque la base ya no registra ese rol como vigente
 
 #### Scenario: Basta un rol del conjunto para autorizar
 
@@ -162,7 +179,7 @@ El backend SHALL exponer los conjuntos de roles permitidos como **capacidades no
 #### Scenario: Un token anterior a la ampliación resuelve por el claim singular
 
 - **GIVEN** un token emitido antes de la ampliación del contrato, que trae el rol de tenant singular y no el conjunto
-- **WHEN** se ejercita un endpoint cuyo guard requiere rol de tenant
+- **WHEN** se ejercita un endpoint cuyo guard requiere rol de tenant y cuyo conjunto permitido no es el de configuración
 - **THEN** el rol singular se interpreta como un conjunto de un elemento y la autorización produce el mismo resultado que antes de la ampliación
 
 #### Scenario: Un token sin ningún claim de rol resuelve contra las asignaciones
@@ -203,3 +220,85 @@ Los endpoints de creación, edición y baja de centros de costo SHALL autorizar 
 - **GIVEN** un usuario autenticado cuyo rol de tenant no habilita escritura
 - **WHEN** intenta crear un centro de costo
 - **THEN** el acceso se deniega
+
+### Requirement: Verificación de emisor y audiencia
+
+El middleware SHALL verificar la audiencia del token contra el valor que emite el proveedor para usuarios autenticados, y SHALL verificar además el emisor contra la URL del proveedor configurada.
+
+La verificación de audiencia SHALL realizarse declarando el valor esperado, no desactivando la comprobación: un token cuya audiencia no coincida SHALL rechazarse, y un token con la audiencia esperada NOT SHALL rechazarse por el hecho de que ese valor no sea una URL.
+
+La URL del proveedor SHALL normalizarse **una sola vez**, removiendo una barra final si la hubiera, y esa misma URL normalizada SHALL usarse tanto para construir el emisor esperado como para construir la dirección de las claves públicas. Una barra final en la configuración NOT SHALL alterar el emisor esperado: hoy es invisible, y sin normalizar convertiría el endurecimiento en un rechazo de todo el tráfico legítimo.
+
+#### Scenario: Token con la audiencia esperada se acepta
+
+- **GIVEN** un token válido cuyo claim de audiencia es el valor que el proveedor emite para usuarios autenticados
+- **WHEN** se decodifica
+- **THEN** la verificación de audiencia pasa y el token se acepta si el resto de las validaciones son correctas
+
+#### Scenario: Token con otra audiencia se rechaza
+
+- **WHEN** llega un token correctamente firmado cuya audiencia es distinta de la esperada
+- **THEN** la verificación lo rechaza con no autorizado
+
+#### Scenario: Token de otro emisor se rechaza
+
+- **WHEN** llega un token correctamente firmado cuyo emisor no corresponde al proveedor configurado
+- **THEN** la verificación lo rechaza con no autorizado
+
+#### Scenario: Una barra final en la URL configurada no rompe la verificación
+
+- **GIVEN** la URL del proveedor configurada con una barra final
+- **WHEN** llega un token legítimo del proveedor
+- **THEN** la verificación lo acepta, porque el emisor esperado se construye sobre la URL normalizada
+
+### Requirement: El token viaja únicamente por el encabezado de autorización
+
+El backend SHALL aceptar el token de usuario final **exclusivamente** por el encabezado de autorización con esquema Bearer, y NOT SHALL aceptarlo por parámetro de consulta, por cuerpo de la petición ni por cookie.
+
+El motivo es que un parámetro de consulta queda escrito en los registros del proveedor de hosting y en cualquier intermediario, mientras que un encabezado no.
+
+#### Scenario: Endpoint HTTP recibe el token por el encabezado de autorización
+
+- **WHEN** un cliente llama a un endpoint protegido con el encabezado de autorización y esquema Bearer
+- **THEN** el token se extrae de ese encabezado y se inyecta en la dependencia de autenticación
+
+#### Scenario: No existe ningún camino que acepte el token por parámetro de consulta
+
+- **WHEN** se revisa la superficie del backend en busca de extracciones de token
+- **THEN** ninguna las obtiene de un parámetro de consulta
+
+### Requirement: Una configuración de autenticación inválida impide el arranque
+
+El backend SHALL validar en el arranque que la configuración de verificación de tokens sea coherente, y SHALL abortar el arranque cuando no lo sea, en lugar de degradar silenciosamente en el primer request.
+
+En particular, cuando la palanca del camino con secreto compartido está deshabilitada y la URL del proveedor está ausente o no es una URL segura, el proceso NOT SHALL levantar. El mensaje de error SHALL nombrar la variable de configuración faltante.
+
+#### Scenario: Sin URL del proveedor y sin palanca, el proceso no levanta
+
+- **GIVEN** la palanca del camino con secreto compartido deshabilitada y la URL del proveedor ausente
+- **WHEN** se inicia la aplicación
+- **THEN** el arranque falla con un error de configuración que nombra la variable faltante, y la aplicación no atiende ningún request
+
+#### Scenario: Con la configuración correcta el arranque es normal
+
+- **GIVEN** la URL del proveedor configurada como URL segura
+- **WHEN** se inicia la aplicación
+- **THEN** el arranque se completa y la verificación usa el camino por JWKS
+
+### Requirement: Un fallo de las JWKS se distingue de un token inválido en los registros
+
+El backend SHALL registrar de forma diferenciada el fallo al obtener o resolver las claves públicas del proveedor, con nivel de advertencia, y SHALL seguir respondiendo no autorizado al cliente.
+
+Un fallo de disponibilidad del proveedor de claves NOT SHALL ser indistinguible en los registros de un token forjado o vencido, porque son incidentes distintos con respuestas operativas distintas.
+
+#### Scenario: Caída del proveedor de claves deja rastro propio
+
+- **GIVEN** el endpoint de claves públicas del proveedor inaccesible
+- **WHEN** llega una petición con un token
+- **THEN** el backend registra una advertencia identificando el fallo de obtención de claves y responde no autorizado
+
+#### Scenario: Un token forjado no genera esa advertencia
+
+- **WHEN** llega un token con firma inválida
+- **THEN** el backend responde no autorizado sin registrar el fallo de obtención de claves
+

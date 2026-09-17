@@ -56,10 +56,17 @@ const AUTH_OPERATIONS = [
 
 const AUTH_CALL = new RegExp(String.raw`auth\s*\.\s*(${AUTH_OPERATIONS.join("|")})\b`)
 
-/** Marcas de que el cliente de ese archivo es de servidor. */
+/**
+ * Marcas de que el archivo **puede** construir un cliente de servidor.
+ *
+ * Es `createServerClient` y no `@supabase/ssr` (revisión adversarial pre-merge): el
+ * paquete exporta también `createBrowserClient`, así que nombrarlo no distingue
+ * servidor de navegador — el `lib/supabase/client.ts` anterior a esta parte, el
+ * ofensor que el change tuvo que migrar, quedaba exento por esa vía.
+ */
 const SERVER_CLIENT_SOURCES = [
+  "createServerClient",
   "@/lib/supabase/server",
-  "@supabase/ssr",
   "@/lib/auth/route-session",
 ]
 
@@ -78,26 +85,42 @@ function walk(dir: string, found: string[] = []): string[] {
 
 const SOURCE_FILES = ROOTS.flatMap((root) => walk(path.join(FRONTEND, root)))
 
+/** Líneas de código (sin comentarios ni strings de doc) de una fuente. */
+function codeOf(source: string): string[] {
+  return source.split(/\r?\n/).filter((line) => {
+    const trimmed = line.trimStart()
+    return (
+      trimmed !== "" &&
+      !trimmed.startsWith("//") &&
+      !trimmed.startsWith("*") &&
+      !trimmed.startsWith("/*")
+    )
+  })
+}
+
 /** Líneas de código (sin comentarios ni strings de doc) de un archivo. */
 function codeLines(absolute: string): string[] {
-  return fs
-    .readFileSync(absolute, "utf8")
-    .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trimStart()
-      return (
-        trimmed !== "" &&
-        !trimmed.startsWith("//") &&
-        !trimmed.startsWith("*") &&
-        !trimmed.startsWith("/*")
-      )
-    })
+  return codeOf(fs.readFileSync(absolute, "utf8"))
+}
+
+/**
+ * ¿La fuente tiene capacidad de servidor?
+ *
+ * Se mira el **código**, no la fuente cruda: los archivos que este change toca
+ * quedan con prosa que nombra el patrón viejo ("antes usaba el cliente de
+ * `@supabase/ssr`"), y un marcador que matchee comentarios exime a un módulo de
+ * navegador por explicar de qué se viene. Cuatro módulos estaban exentos así, uno de
+ * ellos justo donde vivía el `getSession()` del navegador antes de la Parte B
+ * (`lib/api/python-client.ts`).
+ */
+export function hasServerCapability(source: string): boolean {
+  if (/^\s*["']use server["']/m.test(source)) return true
+  const code = codeOf(source).join("\n")
+  return SERVER_CLIENT_SOURCES.some((marker) => code.includes(marker))
 }
 
 function isServerFile(absolute: string): boolean {
-  const source = fs.readFileSync(absolute, "utf8")
-  if (/^\s*["']use server["']/m.test(source)) return true
-  return SERVER_CLIENT_SOURCES.some((marker) => source.includes(marker))
+  return hasServerCapability(fs.readFileSync(absolute, "utf8"))
 }
 
 const relative = (absolute: string) => path.relative(FRONTEND, absolute).replace(/\\/g, "/")
@@ -157,6 +180,70 @@ describe("ningún código de navegador llama a supabase.auth", () => {
       'const { data } = await supabase.from("profiles").select("*")',
     ]
     for (const line of inocentes) expect(AUTH_CALL.test(line), line).toBe(false)
+  })
+
+  // ── Precisión del marcador (revisión adversarial pre-merge) ──────────────
+  //
+  // El marcador era el nombre del **paquete** `@supabase/ssr`, buscado como
+  // substring en la fuente **cruda**. Dos agujeros, los dos reales:
+  //
+  //  1. `@supabase/ssr` exporta también `createBrowserClient`, así que el paquete
+  //     no distingue servidor de navegador. Medido: el `lib/supabase/client.ts`
+  //     anterior a esta parte —el archivo que este change tuvo que migrar— daba
+  //     `server = true`. El candado habría eximido justo al ofensor.
+  //  2. `includes()` matchea comentarios, y estos archivos quedan con prosa que
+  //     nombra el patrón viejo. Cuatro módulos alcanzables desde el navegador
+  //     estaban exentos por mencionarlo en un comentario, uno de ellos
+  //     (`lib/api/python-client.ts`) es exactamente donde vivía el `getSession()`
+  //     del navegador antes de la Parte B.
+  //
+  // El marcador pasa a ser la **capacidad**: `createServerClient` (export que sólo
+  // usa el servidor) o uno de los dos módulos de servidor del repo, en una línea de
+  // código, no en un comentario.
+  it("el marcador de servidor es una capacidad y no una mención", () => {
+    expect(
+      hasServerCapability(`// este módulo NO usa @supabase/ssr ni @/lib/supabase/server\nexport const x = 1`),
+    ).toBe(false)
+    expect(
+      hasServerCapability(` * Convive con @/lib/auth/route-session, que sí es de servidor.\nexport const y = 2`),
+    ).toBe(false)
+
+    // El caso que más importa: el cliente de NAVEGADOR sale del mismo paquete.
+    expect(
+      hasServerCapability(`import { createBrowserClient } from "@supabase/ssr"\nexport const c = createBrowserClient(u, k)`),
+    ).toBe(false)
+
+    expect(
+      hasServerCapability(`import { createServerClient } from "@supabase/ssr"`),
+    ).toBe(true)
+    expect(hasServerCapability(`import { createClient } from "@/lib/supabase/server"`)).toBe(true)
+    expect(
+      hasServerCapability(`import { serverClientForRequest } from "@/lib/auth/route-session"`),
+    ).toBe(true)
+    expect(hasServerCapability(`"use server"\nexport async function a() {}`)).toBe(true)
+  })
+
+  it("los cuatro módulos de navegador que estaban exentos por un comentario ya no lo están", () => {
+    for (const file of [
+      "lib/api/python-client.ts",
+      "lib/cookies.ts",
+      "lib/supabase/cookie-options.ts",
+      "lib/auth/route-access.ts",
+    ]) {
+      expect(isServerFile(path.join(FRONTEND, file)), file).toBe(false)
+    }
+  })
+
+  it("y los que sí son de servidor siguen reconocidos", () => {
+    for (const file of [
+      "lib/supabase/middleware.ts",
+      "lib/auth/route-session.ts",
+      "app/auth/actions.ts",
+      "app/api/auth/token/route.ts",
+      "app/(dashboard)/planes/page.tsx",
+    ]) {
+      expect(isServerFile(path.join(FRONTEND, file)), file).toBe(true)
+    }
   })
 
   it("el cliente de navegador ya no puede construir un `auth`", () => {

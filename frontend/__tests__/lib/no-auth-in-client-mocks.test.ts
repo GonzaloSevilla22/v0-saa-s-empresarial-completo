@@ -71,6 +71,69 @@ function exposesAuth(body: string): boolean {
 }
 
 /**
+ * Identificadores que la fábrica **devuelve** en vez de declarar en línea:
+ * `createClient: () => clienteDoble`, `createClient: vi.fn(() => doble)`,
+ * `default: supabaseDouble`.
+ *
+ * Revisión adversarial pre-merge: el candado leía sólo el texto de adentro del
+ * `vi.mock(...)`, así que con este patrón —el más frecuente entre los dobles que la
+ * Parte C migró— no inspeccionaba nada.
+ */
+export function referencedIdentifiers(body: string): string[] {
+  const names = new Set<string>()
+  for (const match of body.matchAll(/=>\s*([A-Za-z_$][\w$]*)\s*[,)\s}]/g)) names.add(match[1])
+  for (const match of body.matchAll(/:\s*([A-Za-z_$][\w$]*)\s*[,}]/g)) names.add(match[1])
+  for (const match of body.matchAll(/\breturn\s+([A-Za-z_$][\w$]*)\b/g)) names.add(match[1])
+  // `vi`, `undefined` y compañía no son dobles; no declaran nada en el archivo, así
+  // que la resolución de abajo simplemente no los encuentra.
+  return [...names]
+}
+
+/**
+ * Cuerpo de la declaración de un identificador del archivo (`const doble = {…}`),
+ * con paréntesis y llaves balanceados. `null` si no se declara acá.
+ */
+export function declarationBody(source: string, name: string): string | null {
+  const declaration = new RegExp(String.raw`\b(?:const|let|var)\s+${name}\b[^=\n]*=`)
+  const match = declaration.exec(source)
+  if (!match) return null
+
+  let depth = 0
+  let started = false
+  const from = match.index + match[0].length
+  for (let i = from; i < source.length; i += 1) {
+    const char = source[i]
+    if (char === "{" || char === "(" || char === "[") {
+      depth += 1
+      started = true
+    } else if (char === "}" || char === ")" || char === "]") {
+      depth -= 1
+      if (started && depth === 0) return source.slice(from, i + 1)
+    } else if (!started && char === "\n") {
+      // Declaración de una sola línea sin literal (`const x = y`): no hay cuerpo.
+      return source.slice(from, i)
+    }
+  }
+  return source.slice(from)
+}
+
+/**
+ * Todo el texto que hay que inspeccionar por cada `vi.mock` del cliente: el cuerpo
+ * de la fábrica **más** la declaración de los dobles que devuelve por referencia.
+ */
+export function mockScopes(source: string): string[] {
+  const bodies = mockFactoryBodies(source)
+  if (bodies.length === 0) return []
+
+  const scopes = [...bodies]
+  for (const identifier of referencedIdentifiers(bodies.join("\n"))) {
+    const declared = declarationBody(source, identifier)
+    if (declared !== null) scopes.push(declared)
+  }
+  return scopes
+}
+
+/**
  * El archivo del propio candado lleva dobles OFENSIVOS a propósito —son las
  * fixturas de los casos de no-vacuidad de abajo, en literales de plantilla— así
  * que se excluye del barrido. Se excluye por RUTA y no por heurística: una
@@ -83,7 +146,7 @@ const TEST_FILES = walk(TESTS).filter((absolute) => absolute !== SELF)
 
 const MOCKING_FILES = TEST_FILES.map((absolute) => ({
   file: path.relative(FRONTEND, absolute).replace(/\\/g, "/"),
-  bodies: mockFactoryBodies(fs.readFileSync(absolute, "utf8")),
+  bodies: mockScopes(fs.readFileSync(absolute, "utf8")),
 })).filter((entry) => entry.bodies.length > 0)
 
 describe("ningún doble de @/lib/supabase/client expone auth", () => {
@@ -145,5 +208,70 @@ describe("ningún doble de @/lib/supabase/client expone auth", () => {
   it("encuentra los dos estilos de comillas", () => {
     const conSimples = `vi.mock('@/lib/supabase/client', () => ({ createClient: () => ({ auth: {} }) }))`
     expect(exposesAuth(mockFactoryBodies(conSimples)[0])).toBe(true)
+  })
+
+  // ── El doble definido AFUERA de la fábrica (revisión adversarial pre-merge) ─
+  //
+  // El candado leía sólo el texto de adentro del `vi.mock(...)`, así que un doble
+  // declarado afuera y devuelto por la fábrica no se inspeccionaba nunca. Y no es
+  // un patrón hipotético: es el que usan tres de las suites que esta misma Parte C
+  // migró (`auth-context-session-bus.test.tsx:67`,
+  // `session-identity-services.test.ts:83`, `use-statistics-ai.test.tsx:28`). Hoy
+  // ninguna expone `auth`, pero el candado era inerte para la forma más frecuente
+  // entre los dobles que el change dejó.
+  it("detecta un `auth` en un doble declarado afuera y devuelto por la fábrica", () => {
+    const evasivo = `
+      const clienteDoble = {
+        auth: { getSession: vi.fn() },
+        from: vi.fn(),
+      }
+      vi.mock("@/lib/supabase/client", () => ({
+        createClient: () => clienteDoble,
+      }))
+    `
+    const scopes = mockScopes(evasivo)
+    expect(scopes.some(exposesAuth)).toBe(true)
+  })
+
+  it("y no marca el mismo patrón cuando el doble externo no tiene `auth`", () => {
+    const inocente = `
+      const clienteDoble = {
+        from: vi.fn(),
+        channel: vi.fn(),
+      }
+      vi.mock("@/lib/supabase/client", () => ({
+        createClient: () => clienteDoble,
+      }))
+    `
+    expect(mockScopes(inocente).some(exposesAuth)).toBe(false)
+  })
+
+  it("también cuando la fábrica envuelve el doble en `vi.fn()`", () => {
+    const envuelto = `
+      const supabaseMock = { auth: { getUser: vi.fn() } }
+      vi.mock("@/lib/supabase/client", () => ({
+        createClient: vi.fn(() => supabaseMock),
+      }))
+    `
+    expect(mockScopes(envuelto).some(exposesAuth)).toBe(true)
+  })
+
+  it("resuelve la declaración externa de las tres suites reales que usan el patrón", () => {
+    // Sin esto, los casos de arriba podrían pasar con fixturas mientras la
+    // resolución falla contra el árbol real (indentación, tipos, `as never`).
+    const reales: Array<[string, string]> = [
+      ["lib/auth-context-session-bus.test.tsx", "clienteDoble"],
+      ["lib/session-identity-services.test.ts", "supabaseDouble"],
+      ["use-statistics-ai.test.tsx", "supabaseMock"],
+    ]
+    for (const [file, identifier] of reales) {
+      const source = fs.readFileSync(path.join(TESTS, file), "utf8")
+      expect(referencedIdentifiers(mockFactoryBodies(source).join("\n")), file).toContain(
+        identifier,
+      )
+      const scopes = mockScopes(source)
+      // El scope resuelto es más que la fábrica: incluye el cuerpo del doble.
+      expect(scopes.length, file).toBeGreaterThan(mockFactoryBodies(source).length)
+    }
   })
 })

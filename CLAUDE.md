@@ -66,9 +66,9 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 279 migraciones; última `20261030000001_admin_module_operation_counts` (verificado en prod 2026-09-07) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 300 migraciones; última `20261051000001_accept_invitation_binding_realtime_fiscal` (verificado en prod 2026-09-17) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
-| **Edge Functions** | Deno (Supabase) — 11 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
+| **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
 | **Email** | Resend (via Edge Function + DB Webhook) | — |
 | **Pagos** | MercadoPago | Webhook en el backend Python: `POST /payments/webhook` (governance CRÍTICO) |
@@ -315,6 +315,7 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 
 ### Supabase / Auth / Seguridad
 - **SIEMPRE `supabase.auth.getUser()` en server-side** → NUNCA confiar en `getSession()` solo para decisiones de auth. `getSession()` no verifica el JWT.
+- **NUNCA llamar `supabase.auth.*` en código de navegador** → el cliente de navegador se construye con `accessToken` y cualquier acceso a `.auth` **lanza** en runtime (`supabase-js`). Toda operación de auth (login, registro, enlace mágico, recuperación, reenvío, cambio de contraseña/email, logout) va por las **Server Actions** de `frontend/app/auth/actions.ts`. El token para FastAPI o Edge Functions se obtiene con `getAuthHeaders()` / `getAccessToken()` (`frontend/lib/api/`), nunca leyendo cookies. Las cookies de sesión son **`httpOnly`** y las escribe **sólo el servidor**, con las opciones compartidas de `frontend/lib/supabase/cookie-options.ts`. Hay candados de test que lo verifican (`no-browser-auth-calls`, `no-auth-in-client-mocks`).
 - **NUNCA exponer `SUPABASE_SERVICE_ROLE_KEY` al cliente** → Solo en Edge Functions (servidor). La service_role bypasea toda RLS.
 - **NUNCA usar el MCP `apply_migration` para aplicar migrations de producción** → Registra un timestamp diferente al del archivo local y desincroniza el historial. Siempre usar `npx supabase db push` via CLI. Si se usó el MCP accidentalmente, reparar con `npx supabase migration repair --status reverted <timestamp_mcp>` y luego `npx supabase db push`.
 - **Dos proyectos Supabase en este proyecto**: `gxdhpxvdjjkmxhdkkwyb` = proyecto real con usuarios (CLI + MCP). `pudaxiwqhwsxuaofsqda` = proyecto del preview de Vercel (vacío, schema más avanzado). Las migrations se aplican siempre al primero vía CLI.

@@ -1,8 +1,11 @@
 # auth-captcha Specification
 
 ## Purpose
-TBD - created by archiving change register-name-terms-captcha. Update Purpose after archive.
+
+Captcha de Cloudflare Turnstile en **todos** los puntos de entrada de autenticación (inicio de sesión, registro, enlace mágico y recuperación de contraseña), con un único camino de envío que siempre resuelve un token **fresco** para que una pestaña suspendida no mande un token zombi, con estado visible durante la renovación y encolado del envío mientras el token se renueva, y con el host del widget habilitado en la política de seguridad de contenido — que desde `auth-hardening-jwt-cookies` confía en los scripts que el widget inyecta por **propagación desde el nonce** (`'strict-dynamic'`), no por `'unsafe-inline'`. El stub local de QA queda exento del manejo de frescura, y el efecto real del captcha depende de que el proyecto lo tenga habilitado en su Dashboard.
+
 ## Requirements
+
 ### Requirement: Captcha gate on every auth entry point
 
 Every authentication entry point that Supabase Auth gates with captcha SHALL require a successful Cloudflare Turnstile challenge before calling Supabase. This covers account creation (`signUp`), password login (`signInWithPassword`), password recovery (`resetPasswordForEmail`), and magic-link/OTP login (`signInWithOtp`) if used. The Turnstile token SHALL be passed via `options.captchaToken` so Supabase validates it server-side; no custom backend validation is added.
@@ -203,12 +206,25 @@ When the local Playwright QA stub is active, the widget SHALL report its stub to
 
 ### Requirement: Content Security Policy allows Turnstile
 
-The application's Content Security Policy SHALL permit the Cloudflare Turnstile widget to load and render. Specifically, `https://challenges.cloudflare.com` MUST be allowed in `script-src` and `connect-src`, and `frame-src` MUST allow `https://challenges.cloudflare.com`.
+The application's Content Security Policy SHALL permit the Cloudflare Turnstile widget to load and render **without relying on `'unsafe-inline'` in `script-src`**. Specifically, `https://challenges.cloudflare.com` MUST be allowed in `script-src` and `connect-src`, `frame-src` MUST allow `https://challenges.cloudflare.com`, and any script that the widget injects at runtime MUST be permitted through `'strict-dynamic'` rather than through a blanket inline allowance.
+
+In production, `script-src` SHALL be nonce-based: the captcha entry points SHALL keep working with a per-request nonce and `'strict-dynamic'` in place of `'unsafe-inline'` and `'unsafe-eval'`.
 
 #### Scenario: Widget renders under production CSP
 
 - **WHEN** an auth page is served with the production security headers
 - **THEN** the Turnstile script loads and its challenge iframe renders without being blocked by the CSP
+
+#### Scenario: Widget renders with a nonce-based script-src
+
+- **GIVEN** production security headers whose `script-src` carries a per-request nonce and `'strict-dynamic'`, and neither `'unsafe-inline'` nor `'unsafe-eval'`
+- **WHEN** an auth page with the captcha widget is loaded
+- **THEN** the widget renders, solves, and submits its token without any CSP violation in the browser console
+
+#### Scenario: The captcha submit path survives a token renewal under the nonce policy
+
+- **WHEN** the widget renews its token after the tab regains visibility, under the nonce-based policy
+- **THEN** the renewal completes and the auth submit proceeds, with no script blocked by the CSP
 
 ### Requirement: Project-wide enablement sequencing
 

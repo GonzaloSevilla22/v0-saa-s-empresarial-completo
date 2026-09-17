@@ -3,7 +3,9 @@
 ## Purpose
 
 Ciclo de vida del comprobante fiscal electronico con CAE de AFIP: emision sincrona que reserva numero y persiste `pending_cae` sin tocar AFIP, mas proceso de background idempotente (`CAERelayProcessor` via `pg_cron`) que obtiene el CAE con backoff. El port `FiscalDocumentPort` (con `WSFEAdapter` real y `WSFEStubAdapter` para tests) encapsula el SOAP/XML de AFIP del dominio. Tambien provee la funcion pura `resolve_invoice_type` para determinar el tipo de comprobante (A/B/C). Depende de `fiscal-profile` y `document-sequence`.
+
 ## Requirements
+
 ### Requirement: Persistencia del comprobante fiscal con maquina de estados de CAE
 
 El sistema SHALL persistir cada comprobante emitido en la tabla `fiscal_documents` (`id` UUID PK, `account_id` UUID FK, `fiscal_profile_id` UUID FK, `point_of_sale_id` UUID FK `points_of_sale`, `comprobante_type` TEXT, `punto_de_venta` INTEGER (snapshot del `numero` del PV al emitir), `number` BIGINT, `client_id` UUID FK NULL, `total` NUMERIC, `status` TEXT NOT NULL, `cae` TEXT NULL, `cae_due_date` DATE NULL, `attempts` INTEGER NOT NULL DEFAULT 0, `next_attempt_at` TIMESTAMPTZ NULL, `last_error` TEXT NULL, `created_at` TIMESTAMPTZ). `status` MUST estar restringida por CHECK a `'pending_cae'`, `'authorized'`, `'rejected'`. La tabla SHALL tener RLS por `account_id`.
@@ -518,4 +520,29 @@ La compra queda **fuera** de este requirement: no lleva CAE propio, el comproban
 
 - **WHEN** el usuario abre el formulario de edición de una operación con comprobante emitido
 - **THEN** el formulario se presenta en solo lectura, con la explicación del bloqueo y el camino de nota de crédito, y el control de guardado deshabilitado con su motivo accesible
+
+### Requirement: El cambio de estado del comprobante llega a la interfaz en tiempo real
+
+La tabla de comprobantes fiscales SHALL formar parte de la publicación de tiempo real del proveedor, de modo que la transición desde `pending_cae` hacia `authorized` o `rejected` —que ocurre en un proceso de background, fuera del request que emitió el comprobante— alcance a la interfaz sin recargar y sin sondeo periódico.
+
+El alcance de esa entrega SHALL quedar impuesto por la seguridad a nivel de fila ya declarada sobre la tabla: el filtro que declare el cliente en su suscripción SHALL considerarse una optimización de red, NOT el límite de seguridad.
+
+La incorporación a la publicación SHALL ser idempotente: aplicarla sobre un entorno donde la tabla ya pertenece a la publicación NOT SHALL fallar.
+
+#### Scenario: El comprobante autorizado actualiza la interfaz sin recargar
+
+- **GIVEN** una venta con un comprobante en `pending_cae` visible en pantalla
+- **WHEN** el proceso de background obtiene el CAE y la fila pasa a `authorized`
+- **THEN** la interfaz refleja el cambio de estado sin que el usuario recargue la página ni exista un sondeo periódico
+
+#### Scenario: Un comprobante de otra cuenta no llega al cliente
+
+- **GIVEN** dos cuentas distintas con comprobantes en `pending_cae`
+- **WHEN** el comprobante de una de ellas cambia de estado
+- **THEN** el cliente de la otra cuenta no recibe ese cambio, porque la seguridad a nivel de fila filtra el flujo
+
+#### Scenario: La incorporación a la publicación es idempotente
+
+- **WHEN** la migración que incorpora la tabla a la publicación se aplica sobre un entorno donde ya pertenece a ella
+- **THEN** la aplicación se completa sin error y la publicación queda con la tabla una sola vez
 

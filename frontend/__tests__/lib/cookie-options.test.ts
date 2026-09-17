@@ -94,9 +94,21 @@ describe("authCookieOptions — el resto de los atributos", () => {
 })
 
 // ── 15.3 ::test_all_four_call_sites_share_the_options ──────────────────────
-describe("los cuatro sitios que construyen cliente comparten la definición", () => {
+//
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.6): eran CUATRO y quedan TRES.
+// El cliente de navegador salió de la lista porque dejó de escribir cookies: pasó
+// a `createClient(url, anonKey, { accessToken })` y la sesión la escribe
+// únicamente el servidor, que es literalmente lo que el requirement pide
+// ("escritas **únicamente** desde código de servidor"). Pasarle `cookieOptions`
+// era, desde el principio, un no-op —`@supabase/ssr` escribe con
+// `document.cookie`, que no puede emitir `HttpOnly`— pero mientras existía era la
+// única forma de que los atributos no divergieran entre caminos.
+//
+// El caso de abajo lo assertea al revés para ese archivo: si alguien le devolviera
+// la escritura de cookies al navegador, la lista de tres seguiría verde y el
+// candado no lo vería.
+describe("los tres sitios de SERVIDOR que construyen cliente comparten la definición", () => {
   const CALL_SITES = [
-    "lib/supabase/client.ts",
     "lib/supabase/server.ts",
     "lib/supabase/middleware.ts",
     "app/auth/callback/route.ts",
@@ -118,6 +130,24 @@ describe("los cuatro sitios que construyen cliente comparten la definición", ()
   it("el detector reconoce un literal (no es vacuo)", () => {
     const offending = "cookieOptions: { secure: true, sameSite: 'strict' },"
     expect(/cookieOptions:\s*\{/.test(offending)).toBe(true)
+  })
+
+  // ── task 19.6 ──────────────────────────────────────────────────────────────
+  it("el cliente de NAVEGADOR no escribe cookies de sesión en absoluto", () => {
+    const source = fs.readFileSync(path.join(FRONTEND, "lib/supabase/client.ts"), "utf8")
+    const code = source
+      .split(/\r?\n/)
+      .filter((line) => {
+        const trimmed = line.trimStart()
+        return !trimmed.startsWith("//") && !trimmed.startsWith("*") && !trimmed.startsWith("/*")
+      })
+      .join("\n")
+
+    // Ni opciones de cookie, ni el constructor que las usaba.
+    expect(code).not.toContain("cookieOptions")
+    expect(code).not.toContain("createBrowserClient")
+    // Y sí el callback: es de dónde saca el token ahora.
+    expect(code).toContain("accessToken")
   })
 
   it("y el único sitio que declara los atributos es el módulo compartido", () => {

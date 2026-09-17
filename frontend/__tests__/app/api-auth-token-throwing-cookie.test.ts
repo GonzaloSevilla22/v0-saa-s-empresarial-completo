@@ -114,7 +114,9 @@ describe("GET /api/auth/token — una cookie ilegible es una sesión ausente", (
     const body = (await (await GET(buildRequest(activeJar))).json()) as Record<string, unknown>
 
     expect(body.expires_at).toBe(1_800_000_000)
-    expect(body.user).toEqual({ id: "u-1", email: "a@b.c" })
+    // `name` viaja explícitamente en null (task 19.8a): este JWT sintético no
+    // tiene `user_metadata`, y un `undefined` desaparecería al serializar.
+    expect(body.user).toEqual({ id: "u-1", email: "a@b.c", name: null })
   })
 
   it("un access token sin `sub` legible entrega el token con user nulo", async () => {

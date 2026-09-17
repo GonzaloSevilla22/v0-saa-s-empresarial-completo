@@ -66,6 +66,19 @@ interface AuthContextType {
     },
   ) => Promise<void>
   logout: () => Promise<void>
+  /**
+   * Vuelve a resolver identidad, perfil, cuenta y plan **forzando** la renovación
+   * del access token en memoria.
+   *
+   * Está en la API pública por H-5 (humo local del 2026-09-18): la pantalla que
+   * detecta la verificación del email (`/auth/verify-email`) es el otro punto —
+   * además del login y del registro — que SABE que la sesión acaba de nacer, y
+   * sin forzar la renovación navegaba al dashboard con el store todavía en "no hay
+   * sesión". Ver el comentario de `refreshSession` en el proveedor.
+   *
+   * @returns `true` si tras renovar hay sesión viva en este navegador.
+   */
+  refreshSession: () => Promise<boolean>
   upgradePlan: () => Promise<void>
   downgradePlan: () => Promise<void>
   /** Update editable profile fields (name, avatar, business info, etc.) */
@@ -89,7 +102,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  const refreshSession = useCallback(async () => {
+  /**
+   * @returns `true` si tras renovar hay sesión viva. Quien navega por el resultado
+   *   de un alta de sesión lo necesita: `/auth/verify-email` elige entre
+   *   `/dashboard` y `/auth/login` con este booleano (H-5), y mandar a alguien sin
+   *   sesión al dashboard es justo el síntoma que el arreglo cierra.
+   *
+   *   La respuesta sale de la **resolución del token**, no del perfil: si el token
+   *   está activo hay sesión aunque la consulta de perfil falle. `absent` y
+   *   `unknown` cuentan los dos como "no hay" — tratar "no pude averiguarlo" como
+   *   sesión viva deja la app llamando a PostgREST con la anon key.
+   */
+  const refreshSession = useCallback(async (): Promise<boolean> => {
+    let haySesion = false
     try {
       // auth-hardening-jwt-cookies (Parte C, D1, task 19.8a): la identidad sale
       // del token handler y no de `supabase.auth.getUser()`, que con `accessToken`
@@ -109,8 +134,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const authUser = resolution.status === "active" ? resolution.user : null
       if (!authUser) {
         setUser(null)
-        return
+        return false
       }
+      haySesion = true
       // ── Fetch profile + account membership in parallel ─────────────────────
       // Profile: personal data, preferences, legacy billing columns.
       // Membership: account_id, role, and the account's billing state (C-05 D5).
@@ -229,6 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false)
     }
+    return haySesion
   }, [supabase, queryClient])
 
   useEffect(() => {
@@ -322,9 +349,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
       }),
     )
+    // H-5 (humo local del 2026-09-18): la MISMA renovación forzada que hace
+    // `login()`. Cuando la confirmación de email está apagada, `signUpAction` deja
+    // sesión viva en la misma respuesta — y el store viene de `/auth/register`, una
+    // página anónima, donde ya cacheó "no hay sesión" (regla 3 de
+    // `access-token-store.ts`). Sin forzar acá, el llamador navega con el store en
+    // "no hay sesión" y la primera pantalla de la cuenta nueva llama a PostgREST
+    // con la anon key: "permission denied for function get_dashboard_financials"
+    // más cuatro 401 en la consola del primer render.
+    //
+    // Se llama SIEMPRE, no sólo cuando hay sesión: el store es el único que sabe si
+    // la hay, y preguntárselo es exactamente esta llamada. Con la confirmación
+    // encendida vuelve "no hay sesión", que es la verdad, y el destino del registro
+    // no cambia (lo elige `app/auth/register/page.tsx`: `/auth/verify-email`).
+    await refreshSession()
     // Navigation is handled by the caller (register/page.tsx) so this function
     // remains a pure auth operation, reusable from any context without side-effects.
-  }, [])
+  }, [refreshSession])
 
   const logout = useCallback(async () => {
     // auth-hardening-jwt-cookies (D6): `scope: 'local'` explícito. El
@@ -433,6 +474,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loginWithMagicLink,
         register,
         logout,
+        refreshSession,
         upgradePlan,
         downgradePlan,
         updateProfile,

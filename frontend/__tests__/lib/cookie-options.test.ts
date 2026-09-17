@@ -86,6 +86,49 @@ describe("authCookieOptions — el resto de los atributos", () => {
     expect(source).toMatch(/PKCE|code-verifier|verificador/i)
   })
 
+  // ── H-1 del humo local del 2026-09-18 ────────────────────────────────────
+  //
+  // El encabezado del módulo afirmaba que *"un `pnpm build && pnpm start` sobre
+  // `http://localhost:3000` emite cookies `Secure` que el navegador **descarta**,
+  // y el login no funciona en ese modo"*. **Medido: el login funciona.** Chromium
+  // trata `http://localhost` como origen *potentially trustworthy* y acepta esas
+  // cookies; el humo entero (registro, login, cierre de sesión, corte por
+  // inactividad, cambio y recuperación de contraseña) corrió contra el build de
+  // producción con `Secure; HttpOnly; SameSite=lax`.
+  //
+  // No es cosmético, y por eso tiene candado: la nota empujaba a verificar sólo
+  // con `pnpm dev`, que es justo donde la CSP es más laxa y el captcha está
+  // stubeado — desalentaba la verificación más parecida a producción que se puede
+  // hacer en local.
+  it("no afirma que un build de producción sobre localhost no pueda loguear (H-1)", () => {
+    const source = fs.readFileSync(
+      path.join(FRONTEND, "lib/supabase/cookie-options.ts"),
+      "utf8",
+    )
+    expect(source).not.toMatch(/el login no funciona/)
+    expect(source).not.toMatch(/navegador \*\*descarta\*\*/)
+  })
+
+  it("y sí documenta lo medido: localhost es origen de confianza y acepta Secure", () => {
+    const source = fs.readFileSync(
+      path.join(FRONTEND, "lib/supabase/cookie-options.ts"),
+      "utf8",
+    )
+    // Retirar la afirmación falsa sin poner la medida en su lugar deja el módulo
+    // sin decir nada sobre el desarrollo local, que es el vacío que produjo la
+    // nota equivocada.
+    expect(source).toMatch(/localhost/)
+    expect(source).toMatch(/potencialmente confiable|potentially trustworthy/i)
+    expect(source).toMatch(/2026-09-18/)
+  })
+
+  it("el detector reconoce el texto retirado (no es vacuo)", () => {
+    const retirado =
+      "emite cookies `Secure` que el navegador **descarta**, y el login no funciona en ese modo."
+    expect(/el login no funciona/.test(retirado)).toBe(true)
+    expect(/navegador \*\*descarta\*\*/.test(retirado)).toBe(true)
+  })
+
   it("no fija maxAge ni name: conserva los defaults de la librería", () => {
     const options = authCookieOptions() as Record<string, unknown>
     expect(options.maxAge).toBeUndefined()

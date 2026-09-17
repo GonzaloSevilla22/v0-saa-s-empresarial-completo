@@ -28,6 +28,17 @@ vi.mock("@/app/auth/actions", () => ({
   resendVerificationEmailAction: (...args: unknown[]) => resendMock(...args),
 }))
 
+// H-5 (humo local del 2026-09-18): la pantalla pasó a pedirle al contexto la
+// renovación forzada de la sesión antes de navegar. El reenvío no la ejerce —acá el
+// email nunca se verifica—, pero sin el proveedor `useAuth()` lanza. El doble es la
+// función, estable entre renders, y no un objeto nuevo por render: `refreshSession`
+// viaja en las dependencias de `handleVerified`.
+const refreshSessionMock = vi.fn<() => Promise<boolean>>().mockResolvedValue(true)
+
+vi.mock("@/contexts/auth-context", () => ({
+  useAuth: () => ({ refreshSession: refreshSessionMock }),
+}))
+
 // El sondeo de verificación (grupo 19) no es el objeto de este test: sin sesión,
 // `checkVerification()` no encuentra nada y la pantalla queda en espera.
 vi.mock("@/lib/supabase/client", () => ({

@@ -18,6 +18,18 @@ import React from "react"
 
 const pushMock = vi.fn()
 const fetchMock = vi.fn()
+/**
+ * H-5: la pantalla fuerza la renovación de la sesión de la app por el contexto
+ * antes de navegar. El doble es la función, no el objeto: `refreshSession` viaja en
+ * la lista de dependencias de `handleVerified`, así que una identidad nueva por
+ * render volvería a montar los efectos del sondeo y dejaría vacuas las aserciones
+ * de "cuántas veces consultó".
+ */
+const refreshSessionMock = vi.fn<() => Promise<boolean>>()
+
+vi.mock("@/contexts/auth-context", () => ({
+  useAuth: () => ({ refreshSession: refreshSessionMock }),
+}))
 
 vi.mock("@/app/auth/actions", () => ({
   resendVerificationEmailAction: vi.fn().mockResolvedValue({ ok: true }),
@@ -60,6 +72,14 @@ function statusResponse(body: Record<string, unknown>): Response {
 const SIN_VERIFICAR = { email: "susana@test.local", email_confirmed_at: null }
 const VERIFICADO = { email: "susana@test.local", email_confirmed_at: "2026-09-16T12:00:00Z" }
 
+/**
+ * Acompaña a `REFRESH_WATCHDOG` de `app/auth/verify-email/page.tsx`. No se importa
+ * de ahí a propósito: un archivo `page.tsx` del App Router tiene la lista de
+ * exportaciones válidas acotada, y un valor de más ahí sólo para el test no paga el
+ * riesgo. Si el techo de la pantalla se mueve, el caso de abajo lo grita.
+ */
+const REFRESH_WATCHDOG_MS = 8000
+
 /** URLs a las que la pantalla pidió algo. */
 function requestedUrls(): string[] {
   return fetchMock.mock.calls.map(([url]) => String(url))
@@ -67,6 +87,9 @@ function requestedUrls(): string[] {
 
 beforeEach(() => {
   pushMock.mockReset()
+  // Por defecto, tras renovar hay sesión: es el caso frecuente (el usuario
+  // confirmó en este mismo navegador).
+  refreshSessionMock.mockReset().mockResolvedValue(true)
   fetchMock.mockReset().mockResolvedValue(statusResponse(SIN_VERIFICAR))
   vi.stubGlobal("fetch", fetchMock)
 })
@@ -155,6 +178,207 @@ describe("/auth/verify-email — sondeo contra GET /api/auth/status", () => {
     })
 
     expect(fetchMock.mock.calls.length).toBeGreaterThan(iniciales)
+  })
+})
+
+// ── H-5 (humo local del 2026-09-18): renovar ANTES de entrar ─────────────────
+//
+// La pantalla detectaba la verificación y navegaba al dashboard **sin** forzar la
+// renovación del access token en memoria. El store cachea a propósito el estado
+// "no hay sesión" (regla 3 de `lib/auth/access-token-store.ts`), así que el primer
+// render del dashboard de una cuenta nueva salía con la anon key: "permission
+// denied for function get_dashboard_financials" más cuatro 401
+// (`humos/humo-final/R1-registro.txt`). En producción, con la confirmación de email
+// obligatoria, pasa cuando el usuario confirma el mail en OTRA pestaña del mismo
+// navegador: `/auth/callback` escribe las cookies allá y esta pestaña —que sondea
+// `/api/auth/status`— detecta la verificación con su store todavía en "sin sesión".
+//
+// Es transitorio (las cargas siguientes andan), y es la primerísima pantalla de
+// todo usuario nuevo.
+
+describe("/auth/verify-email — H-5: la sesión se renueva antes de navegar", () => {
+  it("no navega hasta que la renovación terminó", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    let liberarRenovacion: (haySesion: boolean) => void = () => {}
+    refreshSessionMock.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          liberarRenovacion = resolve
+        }),
+    )
+
+    render(<VerifyEmailPage />)
+
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+    await waitFor(() => expect(refreshSessionMock).toHaveBeenCalled())
+
+    // El cartel corre su tiempo completo y de sobra: la navegación sigue esperando
+    // la renovación, que es todo el punto del arreglo.
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await act(async () => {
+      liberarRenovacion(true)
+    })
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"))
+  })
+
+  it("con sesión tras renovar entra al dashboard", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    refreshSessionMock.mockResolvedValue(true)
+
+    render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1600)
+    })
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/dashboard"))
+    expect(refreshSessionMock).toHaveBeenCalled()
+  })
+
+  it("(triangulate) sin sesión tras renovar va al login, conservando el cartel de éxito", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    // Los casos reales son un `unknown` del manejador de token (hipo de red, 5xx) y
+    // una sesión revocada o cortada por inactividad entre el sondeo y la renovación.
+    // NO es "el enlace se abrió en otro dispositivo", como decía antes este
+    // comentario: sin cookie de sesión acá, `GET /api/auth/status` corta en
+    // `hasSessionCookie()` y nunca informa `email_confirmed_at`, así que este camino
+    // no se alcanza. En cualquiera de los dos casos reales, mandar al dashboard es
+    // mandar a una pantalla que no puede leer nada.
+    refreshSessionMock.mockResolvedValue(false)
+
+    render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1600)
+    })
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/auth/login"))
+    expect(pushMock).not.toHaveBeenCalledWith("/dashboard")
+    // La verificación SÍ ocurrió: el cartel es el de éxito, no un error.
+    expect(screen.getByText("Email verificado")).toBeInTheDocument()
+    // Y no promete un dashboard al que no va a llevar.
+    expect(screen.getByText(/iniciá sesión/i)).toBeInTheDocument()
+  })
+
+  it("(triangulate) si la renovación falla no queda colgada en el cartel: va al login", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    // `refreshSession()` no rechaza por contrato (captura todo adentro), pero
+    // quedarse para siempre en "Email verificado" —sin navegar nunca— sería el peor
+    // modo de falla posible en la primerísima pantalla de una cuenta nueva. Y el
+    // destino del rechazo no puede ser el dashboard: una renovación que no se pudo
+    // confirmar no es una sesión viva, que es justo lo que H-5 cierra.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    refreshSessionMock.mockRejectedValue(new Error("red caída"))
+
+    render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1600)
+    })
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/auth/login"))
+    expect(pushMock).not.toHaveBeenCalledWith("/dashboard")
+    // El cartel no promete un dashboard al que no va a llevar, igual que en el caso
+    // de "no hay sesión".
+    expect(screen.getByText(/iniciá sesión/i)).toBeInTheDocument()
+    // El fallo no se traga en silencio: sin rastro, una renovación que rechaza
+    // siempre se vería desde afuera como "este navegador no tenía sesión".
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it("(triangulate) si la renovación no resuelve NUNCA, el techo de espera la manda al login", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    // El modo de falla hermano del rechazo, y el ÚNICO de los dos que es una
+    // condición de red normal: `fetchFromHandler()` pide el token sin
+    // `AbortSignal.timeout` ni watchdog (`lib/auth/access-token-store.ts`), así que
+    // una petición colgada no resuelve nunca. Sin techo, `Promise.all` no resuelve,
+    // `router.push` no corre, y el estado verificado de esta pantalla no renderiza
+    // ningún link ni botón: queda sin salida, con el spinner girando. Antes del
+    // arreglo de H-5 la pantalla siempre navegaba a los 1,5 s.
+    refreshSessionMock.mockImplementation(() => new Promise<boolean>(() => {}))
+
+    render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(1600)
+    })
+    // El cartel ya cumplió su tiempo, pero el techo todavía no vence: la renovación
+    // sigue teniendo su chance, que es lo que el arreglo de H-5 protege.
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await act(async () => {
+      vi.advanceTimersByTime(REFRESH_WATCHDOG_MS)
+    })
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/auth/login"))
+    expect(pushMock).not.toHaveBeenCalledWith("/dashboard")
+  })
+
+  it("desmontada antes de que resuelva la renovación, no navega", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+    let liberarRenovacion: (haySesion: boolean) => void = () => {}
+    refreshSessionMock.mockImplementation(
+      () =>
+        new Promise<boolean>((resolve) => {
+          liberarRenovacion = resolve
+        }),
+    )
+
+    const { unmount } = render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+    await waitFor(() => expect(refreshSessionMock).toHaveBeenCalled())
+
+    unmount()
+    await act(async () => {
+      liberarRenovacion(true)
+      vi.advanceTimersByTime(20_000)
+    })
+
+    // El usuario ya se fue de esta pantalla (botón atrás, enlace externo): empujarlo
+    // al dashboard porque una renovación terminó después es secuestrarle la
+    // navegación. El agujero es preexistente en especie —el `setTimeout(…, 1500)`
+    // viejo tampoco se limpiaba— pero con H-5 la ventana pasó de 1,5 s fijos a
+    // `max(1,5 s, lo que tarde la renovación)`, o sea sin techo propio.
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("sin verificar no renueva nada (la renovación no es un efecto de montaje)", async () => {
+    render(<VerifyEmailPage />)
+
+    expect(await screen.findByText(/esperando confirmación/i)).toBeInTheDocument()
+    expect(refreshSessionMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it("renueva una sola vez aunque el sondeo siga corriendo", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    fetchMock.mockResolvedValue(statusResponse(VERIFICADO))
+
+    render(<VerifyEmailPage />)
+    expect(await screen.findByText("Email verificado")).toBeInTheDocument()
+
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+    })
+
+    // `redirectingRef` ya frenaba el sondeo; esto fija que la renovación no se
+    // cuele por fuera de ese guard y dispare un pedido cada 4 s.
+    expect(refreshSessionMock).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -130,41 +130,15 @@ describe("services.ts — createClient y createExpense escriben el user_id de la
   })
 })
 
-// ── lib/services/aiCopilotService.ts:34 / :51 ───────────────────────────────
-describe("aiCopilotService — la identidad ya no sale del cliente que recibe", () => {
-  it("el historial se filtra por el usuario de la sesión", async () => {
-    const { aiCopilotService } = await import("@/lib/services/aiCopilotService")
-
-    await aiCopilotService.getConversationHistory(supabaseDouble as never)
-
-    expect(selectFilters.ai_conversations).toBe(USER.id)
-  })
-
-  it("guardar una conversación la ata al usuario de la sesión", async () => {
-    const { aiCopilotService } = await import("@/lib/services/aiCopilotService")
-
-    await aiCopilotService.saveConversation(supabaseDouble as never, "¿precio?", "así")
-
-    expect(insertPayloads.ai_conversations?.[0]).toMatchObject({
-      user_id: USER.id,
-      question: "¿precio?",
-      answer: "así",
-    })
-  })
-
-  it("sin sesión ninguna de las dos toca la base", async () => {
-    getSessionUserMock.mockResolvedValue(null)
-    const { aiCopilotService } = await import("@/lib/services/aiCopilotService")
-
-    await expect(
-      aiCopilotService.getConversationHistory(supabaseDouble as never),
-    ).rejects.toThrow()
-    await expect(
-      aiCopilotService.saveConversation(supabaseDouble as never, "q", "a"),
-    ).rejects.toThrow()
-    expect(insertPayloads.ai_conversations).toBeUndefined()
-  })
-})
+// ── lib/services/aiCopilotService.ts ────────────────────────────────────────
+//
+// Sus dos métodos NO están acá: la revisión adversarial de la Parte C encontró que
+// el único caller de `saveConversation` es `POST /api/ai/copilot`, un Route Handler
+// sin `window`, donde el store devuelve `null` en el 100% de las peticiones. La
+// identidad pasó a viajar por parámetro y sus casos viven en
+// `__tests__/ai/copilot-server-identity.test.ts`, que corre en entorno **node** y
+// **no** mockea el store — la única forma de que el test observe lo que observa el
+// servidor.
 
 // ── lib/services/fairAdvisorService.ts:46 ──────────────────────────────────
 describe("fairAdvisorService — la última recomendación es la del usuario de la sesión", () => {

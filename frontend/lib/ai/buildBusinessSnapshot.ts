@@ -4,11 +4,6 @@ import { fetchKpiSummary } from '@/lib/reporting/kpi-summary'
 import { fetchCriticalStockCount, fetchCriticalStockItems, type CriticalStockItem } from '@/lib/reporting/critical-stock'
 import { fetchTopProducts, resolveActiveAccountId } from '@/lib/reporting/product-ranking'
 import { argentinaToday, argentinaDaysAgo } from '@/lib/date-range'
-// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b): la identidad viene del
-// contexto de sesión de la app y no del cliente que llega por parámetro (que es
-// el de navegador, donde `supabase.auth` lanza). El parámetro sigue siendo quien
-// lee los datos.
-import { getSessionUser } from '@/lib/auth/access-token-store'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,8 +75,20 @@ export interface BusinessSnapshot {
 
 // ─── Builder ─────────────────────────────────────────────────────────────────
 
+/**
+ * @param supabase cliente que lee los datos. Su único caller es
+ *   `app/api/ai/copilot/route.ts`, que le pasa el cliente de **servidor**.
+ * @param userId identidad ya autenticada por el caller (`supabase.auth.getUser()`
+ *   del cliente de servidor). Viaja por parámetro y **no** se resuelve acá
+ *   adentro: la revisión adversarial de la Parte C encontró que resolverla con el
+ *   store del navegador (`getSessionUser()`) devolvía `null` en el 100% de las
+ *   peticiones, porque este código corre en un Route Handler y el store necesita
+ *   `window` (`lib/auth/access-token-store.ts:208-212`). `null` = degradar el
+ *   bloque de top productos, nunca inventar una identidad.
+ */
 export async function buildBusinessSnapshot(
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  userId: string | null
 ): Promise<BusinessSnapshot> {
   const now = new Date()
 
@@ -231,10 +238,9 @@ export async function buildBusinessSnapshot(
   // bloque se omite (nunca se reconstruye con la suma local vieja, D4).
   let topRentables: BusinessSnapshot['productos']['top_rentables'] = []
   try {
-    const authUser = await getSessionUser()
-    if (!authUser) throw new Error('no_authenticated_user')
+    if (!userId) throw new Error('no_authenticated_user')
 
-    const accountId = await resolveActiveAccountId(supabase, authUser.id)
+    const accountId = await resolveActiveAccountId(supabase, userId)
     if (!accountId) throw new Error('no_active_account')
 
     const ranked = await fetchTopProducts(supabase, accountId, {

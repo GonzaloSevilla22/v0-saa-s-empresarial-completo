@@ -8,23 +8,24 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest"
 import type { SupabaseClient } from "@supabase/supabase-js"
-
-// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b): la identidad ya no sale
-// del cliente que el snapshot recibe por parámetro — ese cliente es el de
-// NAVEGADOR y con `accessToken` configurado `supabase.auth` LANZA
-// (`supabase-js/index.mjs:389`). El doble deja de ofrecer un `auth` que no va a
-// existir y el seam pasa al store del token.
-const getSessionUserMock = vi.fn()
-
-vi.mock("@/lib/auth/access-token-store", () => ({
-  getSessionUser: () => getSessionUserMock(),
-}))
-
 import {
   buildBusinessSnapshot,
   snapshotToText,
   buildAdaptiveContext,
 } from "@/lib/ai/buildBusinessSnapshot"
+
+// auth-hardening-jwt-cookies (Parte C, D1, task 19.8b + revisión adversarial): la
+// identidad ya no sale del cliente que el snapshot recibe —ese cliente es el de
+// NAVEGADOR y con `accessToken` configurado `supabase.auth` LANZA
+// (`supabase-js/index.mjs:389`)— pero **tampoco** del store del token: el único
+// caller del snapshot es `POST /api/ai/copilot`, un Route Handler sin `window`,
+// donde el store devuelve `null` siempre. Llega por parámetro, y este archivo deja
+// de mockear el store: un doble que devuelve un usuario que el servidor no puede
+// producir es exactamente la clase de doble que el candado de 19.7b prohíbe.
+//
+// `doubleUserId` es la identidad que el caller pasaría, configurada desde
+// `makeSupabaseDouble({ authUser })` para no reescribir los casos que ya existían.
+let doubleUserId: string | null = "u1"
 
 // ─── Fake query builder (chainable + thenable, sin `any`) ─────────────────────
 
@@ -222,10 +223,10 @@ function makeSupabaseDouble(cfg: {
     }
   })
 
-  // La identidad viaja por el store, no por el cliente: el doble la configura
-  // igual desde `cfg.authUser` para no reescribir los casos que ya existían.
+  // La identidad viaja por parámetro, no por el cliente ni por el store: el doble
+  // la deja en `doubleUserId` para que los casos la pasen tal cual.
   const authUser = cfg.authUser === undefined ? { id: "u1" } : cfg.authUser
-  getSessionUserMock.mockResolvedValue(authUser === null ? null : { ...authUser, email: null })
+  doubleUserId = authUser === null ? null : authUser.id
 
   return { rpc: rpcMock, from: fromMock } as unknown as SupabaseClient
 }
@@ -246,7 +247,7 @@ describe("buildBusinessSnapshot — ventana ART (app-timezone-argentina)", () =>
       rpc: { data: [fullRpcRow({ invoiced_revenue: 0, net_profit: 0 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     // nowStr = argentinaToday() = 8/jun (no 9/jun); d30Str = 30 días ART antes = 9/may.
     expect(snapshot.periodo).toBe("2026-05-09 al 2026-06-08")
   })
@@ -270,7 +271,7 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 3000, net_profit: 1000 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.ventas.total).toBe(3000)
   })
 
@@ -282,7 +283,7 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 9000, net_profit: 4000 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.gastos.margen_neto_pct).toBe(44)
   })
 
@@ -292,7 +293,7 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 9000, net_profit: 4000 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.gastos.ganancia_neta).toBe(4000)
   })
 
@@ -308,7 +309,7 @@ describe("buildBusinessSnapshot — ventas (canon primero)", () => {
       },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.top_rentables[0].nombre).toBe("B")
     expect(snapshot.productos.top_rentables[0].revenue).toBe(8000)
     expect(snapshot.productos.top_rentables[0].margen_pct).toBe(50)
@@ -326,7 +327,7 @@ describe("buildBusinessSnapshot — top productos (migrar-top-productos-canon)",
       },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.top_rentables[0].margen_pct).toBeNull()
     expect(snapshotToText(snapshot)).not.toMatch(/null% margen/)
   })
@@ -336,21 +337,21 @@ describe("buildBusinessSnapshot — top productos (migrar-top-productos-canon)",
       ranking: { data: null, error: { message: "ranking rpc down" } },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.top_rentables).toEqual([])
   })
 
   it("sin usuario autenticado -> top_rentables omitido, sin throw", async () => {
     const supabase = makeSupabaseDouble({ authUser: null })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.top_rentables).toEqual([])
   })
 
   it("sin cuenta activa (account_members vacío) -> top_rentables omitido, sin throw", async () => {
     const supabase = makeSupabaseDouble({ accountMembers: [] })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.top_rentables).toEqual([])
   })
 })
@@ -367,7 +368,7 @@ describe("buildBusinessSnapshot — camino degradado (D4)", () => {
       rpc: { data: null, error: { message: "rpc down" } },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.ventas.total).toBe(3500)
     expect(snapshot.gastos.margen_neto_pct).toBeNull()
     expect(snapshot.gastos.ganancia_neta).toBeNull()
@@ -380,7 +381,7 @@ describe("buildBusinessSnapshot — camino degradado (D4)", () => {
       rpc: { data: null, error: { message: "rpc down" } },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     const text = snapshotToText(snapshot)
     const adaptive = buildAdaptiveContext(snapshot, "¿cómo viene el margen este mes?")
 
@@ -402,7 +403,7 @@ describe("buildBusinessSnapshot — clamp del top cliente (D6)", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 5000, net_profit: 1000 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.clientes.top_cliente_revenue).toMatch(/100% del total/)
   })
 })
@@ -422,7 +423,7 @@ describe("buildBusinessSnapshot — KPIs de productos", () => {
       criticalStock: { data: 1, error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.stock_critico_total).toBe(1)
     expect(snapshot.productos.margen_bajo.map((p) => p.nombre)).toContain("Bajo stock")
     expect(snapshot.productos.sin_rotacion.map((p) => p.nombre)).toContain("Sin rotacion")
@@ -436,7 +437,7 @@ describe("buildBusinessSnapshot — KPIs de productos", () => {
       criticalStock: { data: "2", error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.stock_critico_total).toBe(2)
     expect(snapshotToText(snapshot)).toContain("STOCK CRÍTICO: 2 productos")
   })
@@ -462,7 +463,7 @@ describe("buildBusinessSnapshot — KPIs de productos", () => {
       criticalStock: { data: 0, error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     const sinRotacionNombres = snapshot.productos.sin_rotacion.map((p) => p.nombre)
     const margenBajoNombres  = snapshot.productos.margen_bajo.map((p) => p.nombre)
     const sinCostoEntry = snapshot.productos.sin_rotacion.find(
@@ -490,7 +491,7 @@ describe("buildBusinessSnapshot — detalle de stock crítico (kpi-canonicalizat
       },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.stock_critico_items).toEqual([
       { productId: "p1", name: "Remera", sku: "REM-01", branchId: "b1", branchName: "Showroom", quantity: 1, minStock: 10 },
       { productId: "p2", name: "Short", sku: null, branchId: "b2", branchName: "Depósito", quantity: 0, minStock: 5 },
@@ -511,7 +512,7 @@ describe("buildBusinessSnapshot — detalle de stock crítico (kpi-canonicalizat
       criticalStockItems: { data: null, error: { message: "detalle rpc down" } },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.stock_critico_items).toBeNull()
 
     const text = snapshotToText(snapshot)
@@ -530,7 +531,7 @@ describe("buildBusinessSnapshot — detalle de stock crítico (kpi-canonicalizat
       },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.productos.stock_critico_total).toBe(9)
     expect(snapshot.productos.stock_critico_items).toHaveLength(1)
     expect(snapshotToText(snapshot)).toContain("STOCK CRÍTICO: 9 productos")
@@ -546,7 +547,7 @@ describe("buildBusinessSnapshot — casos borde", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 0, net_profit: 0 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.ventas.total).toBe(0)
     expect(snapshot.gastos.margen_neto_pct).toBeNull()
     expect(snapshot.gastos.ganancia_neta).toBe(0)
@@ -559,7 +560,7 @@ describe("buildBusinessSnapshot — casos borde", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 1000, net_profit: 1000 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.gastos.total).toBe(0)
     expect(snapshot.gastos.ganancia_neta).toBe(1000)
     expect(snapshot.gastos.margen_neto_pct).toBe(100)
@@ -571,7 +572,7 @@ describe("buildBusinessSnapshot — casos borde", () => {
       rpc: { data: [fullRpcRow({ invoiced_revenue: 1000, net_profit: -500 })], error: null },
     })
 
-    const snapshot = await buildBusinessSnapshot(supabase)
+    const snapshot = await buildBusinessSnapshot(supabase, doubleUserId)
     expect(snapshot.gastos.margen_neto_pct).toBe(-50)
     expect(snapshot.gastos.ganancia_neta).toBe(-500)
   })

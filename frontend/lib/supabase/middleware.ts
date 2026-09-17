@@ -78,6 +78,26 @@ export function generateCspNonce(): string {
  *    `dangerouslySetInnerHTML`. Eso es `style-src`, no `script-src`.
  */
 export function buildContentSecurityPolicy(nonce: string): string {
+  const isProduction = process.env.NODE_ENV === "production"
+
+  // `ws:` sólo fuera de producción. Hallazgo de la pasada visual del grupo 22,
+  // **preexistente** a este change: el Realtime del Supabase local es
+  // `ws://127.0.0.1:54321/realtime/v1/websocket`, y la directiva listaba
+  // `http://127.0.0.1:54321` y `wss:` — dos esquemas que no son ése. El navegador
+  // lo bloqueaba, así que la campana de notificaciones no funcionaba en desarrollo
+  // local. En producción el proyecto es `https://…supabase.co` y su Realtime ya
+  // entra por `wss:`: agregar `ws:` ahí sería permitir texto en claro sin motivo.
+  const connectSrc = [
+    "connect-src",
+    "'self'",
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    process.env.NEXT_PUBLIC_BACKEND_URL ?? "",
+    "https://api.resend.com",
+    "https://challenges.cloudflare.com",
+    "wss:",
+    ...(isProduction ? [] : ["ws:"]),
+  ].join(" ")
+
   const scriptSrc = [
     "script-src",
     "'self'",
@@ -86,7 +106,7 @@ export function buildContentSecurityPolicy(nonce: string): string {
     "'wasm-unsafe-eval'",
     // Turbopack y el HMR del modo desarrollo evalúan código en runtime. En
     // producción no hay ningún camino que lo necesite.
-    ...(process.env.NODE_ENV === "production" ? [] : ["'unsafe-eval'"]),
+    ...(isProduction ? [] : ["'unsafe-eval'"]),
     "https://challenges.cloudflare.com",
   ].join(" ")
 
@@ -96,7 +116,7 @@ export function buildContentSecurityPolicy(nonce: string): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    `connect-src 'self' ${process.env.NEXT_PUBLIC_SUPABASE_URL ?? ""} ${process.env.NEXT_PUBLIC_BACKEND_URL ?? ""} https://api.resend.com https://challenges.cloudflare.com wss:`,
+    connectSrc,
     "frame-src https://challenges.cloudflare.com https://www.youtube-nocookie.com",
     "worker-src 'self' blob:",
     "frame-ancestors 'none'",

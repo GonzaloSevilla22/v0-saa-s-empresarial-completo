@@ -145,6 +145,28 @@ describe("buildContentSecurityPolicy — nonce y strict-dynamic", () => {
       .toContain("'wasm-unsafe-eval'")
   })
 
+  it("connect_src_allows_ws_outside_production: el Realtime del stack local habla `ws://`", () => {
+    // Hallazgo REAL de la pasada visual del grupo 22, **preexistente** a este
+    // change: el canal de Realtime del Supabase local es
+    // `ws://127.0.0.1:54321/realtime/v1/websocket`, y `connect-src` listaba
+    // `http://127.0.0.1:54321` (otro esquema) más `wss:` (otro esquema). El
+    // navegador lo bloqueaba con "The action has been blocked", así que la campana
+    // de notificaciones NUNCA funcionó en desarrollo local — y sin esto la
+    // verificación de Realtime de la task 22.1 es imposible de hacer.
+    //
+    // En producción el proyecto es `https://…supabase.co`, su Realtime es `wss:` y
+    // ya estaba permitido: `ws:` **no** se agrega ahí.
+    vi.stubEnv("NODE_ENV", "development")
+    const dev = getDirective(buildContentSecurityPolicy("N0NC3"), "connect-src")!.split(" ")
+    expect(dev).toContain("ws:")
+    expect(dev).toContain("wss:")
+
+    vi.stubEnv("NODE_ENV", "production")
+    const prod = getDirective(buildContentSecurityPolicy("N0NC3"), "connect-src")!.split(" ")
+    expect(prod).not.toContain("ws:")
+    expect(prod).toContain("wss:")
+  })
+
   it("el resto de las directivas no se toca", () => {
     vi.stubEnv("NODE_ENV", "production")
     const csp = buildContentSecurityPolicy("N0NC3")

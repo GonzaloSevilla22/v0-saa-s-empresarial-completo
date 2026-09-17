@@ -52,6 +52,15 @@ interface HarnessState {
    * adversarial).
    */
   signOutReturnsError: boolean
+  /**
+   * Si es true, `auth.getUser()` **LANZA**.
+   *
+   * Es el modo de falla de una cookie `sb-*` cuyo cuerpo no es base64url válido:
+   * `@supabase/ssr/utils/base64url.js` tira `Invalid UTF-8 sequence` en vez de
+   * devolver `{ error }` (revisión adversarial de la Parte C). El middleware corre
+   * en todos los paths, así que sin atajarla era un 500 en la app entera.
+   */
+  getUserThrows: boolean
   /** Orden de eventos observados ("signOut", "getUser"), para aserciones de secuencia. */
   events: string[]
 }
@@ -64,6 +73,7 @@ export const harness: HarnessState = {
   signOutCalls: [],
   signOutRejects: false,
   signOutReturnsError: false,
+  getUserThrows: false,
   events: [],
 }
 
@@ -75,6 +85,7 @@ export function resetHarness(): void {
   harness.signOutCalls = []
   harness.signOutRejects = false
   harness.signOutReturnsError = false
+  harness.getUserThrows = false
   harness.events = []
 }
 
@@ -101,6 +112,12 @@ export function createServerClientMock(
   return {
     auth: {
       async getUser() {
+        if (harness.getUserThrows) {
+          // La librería LANZA acá cuando la cookie no es base64url válido; el
+          // `harness.events` NO registra la llamada, igual que en producción, donde
+          // la excepción sale antes de que el camino siga.
+          throw new Error("Invalid UTF-8 sequence at position 3")
+        }
         harness.events.push("getUser")
         if (harness.cookiesToRotate.length > 0) {
           options.cookies.setAll(

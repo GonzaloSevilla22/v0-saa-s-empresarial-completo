@@ -2,7 +2,11 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 import { evaluateIdle } from "@/lib/auth/idle-server"
 import { COOKIE_KEYS } from "@/lib/cookies"
-import { isProtectedPath as isProtectedRoute, isApiPath as isApiRoute } from "@/lib/auth/route-access"
+import {
+  isProtectedPath as isProtectedRoute,
+  isApiPath as isApiRoute,
+  isApiAuthPath as isApiAuthRoute,
+} from "@/lib/auth/route-access"
 import { resolveSafeRedirect } from "@/lib/auth/safe-next"
 import { authCookieOptions } from "@/lib/supabase/cookie-options"
 
@@ -131,7 +135,13 @@ export function buildContentSecurityPolicy(nonce: string): string {
 // cobertura rompa CI en vez de nacer sin gate (F1).
 // Re-exportado acá para que los consumidores existentes sigan importando la
 // decisión de protección desde el módulo del middleware.
-export { isProtectedPath, isApiPath, isPublicPath, PUBLIC_PREFIXES } from "@/lib/auth/route-access"
+export {
+  isProtectedPath,
+  isApiPath,
+  isApiAuthPath,
+  isPublicPath,
+  PUBLIC_PREFIXES,
+} from "@/lib/auth/route-access"
 
 const AUTH_ROUTES = ["/auth/login", "/auth/register"]
 
@@ -197,6 +207,23 @@ export async function updateSession(
   /** Opciones de reenvío con el nonce puesto, recalculadas en cada uso. */
   const forward = () => ({ request: { headers: cspRequestHeaders(request, nonce, csp) } })
 
+  const { pathname } = request.nextUrl
+
+  // ── Manejadores de sesión: pasan de largo ────────────────────────────────
+  //
+  // auth-hardening-jwt-cookies (D19-5; revisión adversarial pre-merge, hallazgo de
+  // las dos lentes). `/api/auth/token` y `/api/auth/status` leen la sesión, aplican
+  // el mismo corte por inactividad y rotan sus cookies por su cuenta. Lo único que
+  // el `getUser()` de acá agregaba era (a) una llamada de red repetida a GoTrue en
+  // el camino más caliente que la Parte C introduce —una o dos veces por carga de
+  // página, contra los rate limits por IP que D20 acaba de volver compartidos— y
+  // (b) la renovación **fuera** del single-flight del manejador, en otro runtime,
+  // que es justamente lo que D19-5 existe para evitar. La CSP sí se emite: es lo
+  // único que el middleware aporta a esas rutas.
+  if (isApiAuthRoute(pathname)) {
+    return applySecurityHeaders(NextResponse.next(forward()), csp)
+  }
+
   let supabaseResponse = NextResponse.next(forward())
 
   const supabase = createServerClient(
@@ -224,22 +251,16 @@ export async function updateSession(
     }
   )
 
-  // getUser() makes a network call to validate the JWT server-side.
-  // Never replace this with getSession() in middleware — that trusts the local cookie.
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  const { pathname } = request.nextUrl
-
-  // Stale session after DB reset / token rotation failure
-  if (authError?.message.includes("Refresh Token Not Found")) {
-    // D4: `/api/**` nunca recibe redirect. Esta rama corre ANTES de calcular la
-    // ruta y redirigía para cualquier path, así que el manejador de token de la
-    // Parte C habría recibido un 307 hacia HTML donde espera JSON. Las cookies
-    // muertas se borran igual: lo que cambia es la forma de la respuesta, no el
-    // efecto sobre la sesión.
+  /**
+   * Respuesta que **destruye** la sesión del navegador y lo devuelve al login.
+   *
+   * D4: `/api/**` nunca recibe redirect —habría devuelto HTML donde el consumidor
+   * espera JSON—, pero sí el borrado: lo que cambia es la forma de la respuesta, no
+   * el efecto sobre la sesión. Es la salida de las dos formas de sesión
+   * irrecuperable, y por eso vive en una sola función (revisión adversarial de la
+   * Parte C: eran dos ramas que tenían que hacer exactamente lo mismo).
+   */
+  const purgeSession = (): NextResponse => {
     const purge = isApiRoute(pathname)
       ? NextResponse.next(forward())
       : NextResponse.redirect(new URL("/auth/login", request.url))
@@ -247,6 +268,36 @@ export async function updateSession(
       if (cookie.name.startsWith("sb-")) purge.cookies.delete(cookie.name)
     })
     return applySecurityHeaders(purge, csp)
+  }
+
+  // getUser() makes a network call to validate the JWT server-side.
+  // Never replace this with getSession() in middleware — that trusts the local cookie.
+  //
+  // El `try` no es decorativo (revisión adversarial de la Parte C): una cookie
+  // `sb-*` cuyo cuerpo no sea base64url válido hace **lanzar** a la librería
+  // (`Invalid UTF-8 sequence`, `@supabase/ssr/utils/base64url.js`), no devolver
+  // `{ error }`. Y este código corre en el 100% de los paths, así que sin atajarla
+  // era un **500 en toda la app, `/auth/login` incluido** — sin salida para el
+  // usuario, porque la cookie es `HttpOnly` y no la puede borrar desde JS. La
+  // sesión ilegible es una sesión irrecuperable: misma salida que la muerta, y el
+  // navegador se autocura en una petición.
+  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] = null
+  let authError: { message: string } | null = null
+  try {
+    const result = await supabase.auth.getUser()
+    user = result.data.user
+    authError = result.error
+  } catch (unreadable) {
+    console.warn(
+      "[middleware] cookie de sesión ilegible; se purga la sesión y se vuelve al login:",
+      unreadable,
+    )
+    return purgeSession()
+  }
+
+  // Stale session after DB reset / token rotation failure
+  if (authError?.message.includes("Refresh Token Not Found")) {
+    return purgeSession()
   }
 
   // D4: protegido por exclusión (allow-list pública + `/api/**` nunca gateada

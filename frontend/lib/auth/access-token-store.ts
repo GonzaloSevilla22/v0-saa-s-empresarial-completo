@@ -58,8 +58,21 @@ export type AccessTokenResolution =
  *
  * 60 s: un token que vence en menos de eso puede vencer **en vuelo**, entre que
  * se lee de memoria y que llega al servidor que lo verifica.
+ *
+ * ⚠️ **No es un número libre: tiene que ser MENOR que el margen del servidor.**
+ * Revisión adversarial de la Parte C. Del otro lado, `getSession()` sólo renueva
+ * cuando al token le faltan menos de `EXPIRY_MARGIN_MS = AUTO_REFRESH_TICK_THRESHOLD
+ * × AUTO_REFRESH_TICK_DURATION_MS = 3 × 30 s = 90 s`
+ * (`@supabase/auth-js/dist/main/lib/constants.js:6,9,13`). Con 60 < 90, cuando el
+ * navegador pide el token el servidor **siempre** lo renueva y vuelve uno fresco.
+ * Si este margen subiera por encima de 90 s, el manejador devolvería el **mismo**
+ * token —para él todavía no vence—, el navegador lo seguiría viendo por vencer y
+ * agendaría la renovación con `delay = 0`: tormenta de pedidos contra el endpoint y
+ * contra los rate limits por IP de GoTrue, que D20 acaba de volver compartidos
+ * entre los 38 tenants. El candado que lo fija:
+ * `__tests__/lib/access-token-store-renewal-margin.test.ts`.
  */
-const RENEWAL_MARGIN_MS = 60_000
+export const RENEWAL_MARGIN_MS = 60_000
 
 // ── Estado de módulo ────────────────────────────────────────────────────────
 

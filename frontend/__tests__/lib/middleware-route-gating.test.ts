@@ -108,12 +108,20 @@ describe("updateSession — /api/** no recibe redirect", () => {
   // `/api/**` incluido — es decir, el propio manejador de token de la Parte C
   // habría recibido un 307 a HTML donde espera JSON, que es exactamente lo que
   // D4 declara que no puede pasar.
+  // Se mide sobre `/api/ai/copilot` y no sobre `/api/auth/token`: desde la revisión
+  // adversarial de la Parte C, `/api/auth/*` **no llega** a esta rama porque el
+  // middleware la cortocircuita antes de `getUser()` (D19-5, ver
+  // `middleware-api-auth-shortcircuit.test.ts`). La garantía de D4 que este caso
+  // fija —purga sin redirect en `/api/**`— sigue aplicando a las demás rutas de
+  // API, y el manejador de token borra sus propias cookies muertas
+  // (`route.ts:170-182` devuelve "sin sesión" con las cookies que `_removeSession`
+  // ya borró).
   it("la purga de sesión muerta NO redirige una ruta de API, pero igual borra las cookies", async () => {
     harness.user = null
     harness.authError = { message: "AuthApiError: Refresh Token Not Found" }
 
     const response = await updateSession(
-      buildRequest("/api/auth/token", { "sb-project-auth-token": "base64-muerta" }),
+      buildRequest("/api/ai/copilot", { "sb-project-auth-token": "base64-muerta" }),
     )
 
     expect(isRedirect(response)).toBe(false)

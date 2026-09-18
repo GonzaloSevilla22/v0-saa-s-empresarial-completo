@@ -25,6 +25,17 @@ export interface ReceiptOptions {
   businessEmail?: string
   /** Avatar URL — used as logo when available */
   logoUrl?: string
+  /**
+   * fix/comprobante-print-csp-nonce. Nonce de la CSP del documento que abre
+   * este HTML (típicamente en una pestaña `blob:`, que hereda esa política).
+   * Sin él, el `<script>` de impresión automática queda bloqueado bajo
+   * `script-src` sin `'unsafe-inline'` (ver `lib/script-nonce.ts`).
+   *
+   * Se valida contra el alfabeto de un nonce (base64/base64url) antes de
+   * interpolarlo — un valor que no matchea se OMITE, nunca se escribe crudo
+   * en el HTML (ver `sanitizeScriptNonce`).
+   */
+  scriptNonce?: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -36,6 +47,21 @@ function esc(str: string | undefined | null): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
+}
+
+/** Alfabeto válido de un nonce CSP: base64 / base64url. */
+const NONCE_ALPHABET = /^[A-Za-z0-9+/_=-]+$/
+
+/**
+ * Nonce listo para interpolar como atributo HTML, o `undefined` si no vino o
+ * no tiene forma de nonce. Nunca se interpola un valor no validado: un nonce
+ * es un dato de infraestructura (lo genera `generateCspNonce`), no un dato de
+ * usuario, así que si algo raro llega acá el fallback correcto es omitirlo,
+ * no intentar escaparlo como si fuera contenido.
+ */
+function sanitizeScriptNonce(nonce: string | undefined): string | undefined {
+  if (!nonce || !NONCE_ALPHABET.test(nonce)) return undefined
+  return nonce
 }
 
 function receiptNumber(op: SaleOperation): string {
@@ -310,6 +336,36 @@ const CSS = `
     max-width: 240px;
   }
 
+  /* ── Print bar (visible fallback button) ── */
+  .print-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .print-hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .print-button {
+    appearance: none;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
+    background: var(--primary);
+    color: #ffffff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+
+  .print-button:hover {
+    opacity: 0.9;
+  }
+
   /* ── Print optimisation ── */
   @page {
     size: A4 portrait;
@@ -372,6 +428,10 @@ export function generateReceiptHTML(
   // ── Operation ID (for footer reference) ────────────────────────────────
   const opId = op.operationId ?? op.key
 
+  // ── Print script nonce (fix/comprobante-print-csp-nonce) ───────────────
+  const validNonce = sanitizeScriptNonce(opts.scriptNonce)
+  const nonceAttr  = validNonce ? ` nonce="${validNonce}"` : ""
+
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -381,6 +441,22 @@ export function generateReceiptHTML(
   <style>${CSS}</style>
 </head>
 <body>
+
+  <!-- ── Print bar ──────────────────────────────────────────────────────
+       fix/comprobante-print-csp-nonce: red de seguridad visible. El script
+       de más abajo dispara window.print() solo, pero si algún navegador
+       igual bloquea la ejecución automática (o el usuario cerró el diálogo
+       sin querer), este botón es el único camino manual. La pista de texto
+       de al lado (revisión adversarial MINOR 2) no depende del script: cubre
+       también el caso en que el propio script con nonce no llegó a correr,
+       que es justo el modo de falla que motiva este fix. No se imprime a sí
+       mismo (.no-print). -->
+  <div class="no-print">
+    <div class="print-bar">
+      <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
+      <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
+    </div>
+  </div>
 
   <!-- ── Header ─────────────────────────────────────────────────────── -->
   <div class="receipt-header">
@@ -442,10 +518,19 @@ export function generateReceiptHTML(
     <div class="footer-id">ID: ${esc(opId)}</div>
   </div>
 
-  <script>
-    // Auto-open print dialog. The user can choose "Guardar como PDF"
-    // or send to a physical printer.
-    window.onload = function () { window.print() }
+  <script${nonceAttr}>
+    // fix/comprobante-print-csp-nonce: sin atributos on*= (script-src los
+    // bloquea igual bajo CSP; el cableado va por addEventListener). Cablea
+    // el botón visible y conserva la apertura automática del diálogo de
+    // impresión — el usuario puede elegir "Guardar como PDF" o mandarlo a
+    // una impresora física por cualquiera de los dos caminos.
+    (function () {
+      var btn = document.getElementById("receipt-print-button")
+      if (btn) {
+        btn.addEventListener("click", function () { window.print() })
+      }
+      window.onload = function () { window.print() }
+    })()
   </script>
 
 </body>

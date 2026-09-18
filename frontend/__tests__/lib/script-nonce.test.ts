@@ -44,4 +44,24 @@ describe("getDocumentScriptNonce", () => {
     // que monta jsdom para el propio test runner no llevan nonce.
     expect(getDocumentScriptNonce()).toBeUndefined()
   })
+
+  it("lee la PROPIEDAD IDL, no el atributo — un navegador real oculta el atributo", () => {
+    // jsdom no reproduce la ocultación del atributo `nonce` que hacen los
+    // navegadores reales (ver el comentario de cabecera): en jsdom
+    // `getAttribute("nonce")` y la propiedad `.nonce` devuelven lo mismo, así
+    // que ese camino equivocado (`script?.getAttribute("nonce")`) pasaría los
+    // demás tests de este archivo igual de bien que el correcto. Este test
+    // fuerza la distinción con `Object.defineProperty`, tal como la expone un
+    // navegador real: atributo vacío, propiedad con el valor verdadero.
+    const script = document.createElement("script")
+    script.setAttribute("nonce", "") // lo que deja ver el navegador
+    Object.defineProperty(script, "nonce", {
+      value: "NONCE-REAL-OCULTO-EN-EL-ATRIBUTO",
+      configurable: true,
+    })
+    document.head.appendChild(script)
+
+    expect(script.getAttribute("nonce")).toBe("") // control: el atributo miente
+    expect(getDocumentScriptNonce()).toBe("NONCE-REAL-OCULTO-EN-EL-ATRIBUTO")
+  })
 })

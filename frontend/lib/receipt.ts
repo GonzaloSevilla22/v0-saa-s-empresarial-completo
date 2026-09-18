@@ -339,8 +339,14 @@ const CSS = `
   /* ── Print bar (visible fallback button) ── */
   .print-bar {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 16px;
+  }
+
+  .print-hint {
+    font-size: 12px;
+    color: var(--muted);
   }
 
   .print-button {
@@ -440,10 +446,14 @@ export function generateReceiptHTML(
        fix/comprobante-print-csp-nonce: red de seguridad visible. El script
        de más abajo dispara window.print() solo, pero si algún navegador
        igual bloquea la ejecución automática (o el usuario cerró el diálogo
-       sin querer), este botón es el único camino manual. No se imprime a sí
+       sin querer), este botón es el único camino manual. La pista de texto
+       de al lado (revisión adversarial MINOR 2) no depende del script: cubre
+       también el caso en que el propio script con nonce no llegó a correr,
+       que es justo el modo de falla que motiva este fix. No se imprime a sí
        mismo (.no-print). -->
   <div class="no-print">
     <div class="print-bar">
+      <span class="print-hint">Si el diálogo no se abre solo: Ctrl+P (⌘+P en Mac)</span>
       <button type="button" id="receipt-print-button" class="print-button">Imprimir / Guardar como PDF</button>
     </div>
   </div>

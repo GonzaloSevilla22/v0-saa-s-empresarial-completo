@@ -116,12 +116,28 @@ describe("generateReceiptHTML — botón de impresión visible", () => {
   it("el botón está en un contenedor con la clase que @media print oculta", () => {
     const html = generateReceiptHTML(makeOp(), BASE_OPTS)
 
-    // La hoja de estilos ya oculta `.no-print` sólo al imprimir — el botón no
-    // debe imprimirse junto con el comprobante.
-    expect(html).toMatch(/@media print[\s\S]*\.no-print\s*\{[^}]*display:\s*none/)
+    // Extraído del bloque @media print (no un regex greedy sobre todo el
+    // documento — revisión adversarial MINOR 3: una regla `.no-print` fuera
+    // del bloque, después de su apertura, pasaba igual con el regex viejo).
+    const mediaPrintMatch = html.match(/@media print\s*\{([\s\S]*?)\n\s*\}\s*\n/)
+    expect(mediaPrintMatch).not.toBeNull()
+    expect(mediaPrintMatch![1]).toMatch(/\.no-print\s*\{[^}]*display:\s*none/)
+
     const noPrintBlock = html.match(/<div class="no-print"[^>]*>[\s\S]*?<\/div>/)
     expect(noPrintBlock).not.toBeNull()
     expect(noPrintBlock![0]).toMatch(/<button/i)
+  })
+
+  it("trae una pista de texto fijo (sin depender del script) para el caso en que el diálogo no se abre solo", () => {
+    // Revisión adversarial MINOR 2: el botón vive dentro del mismo <script>
+    // con nonce que puede fallar (nonce vacío, navegador sin IDL .nonce,
+    // etc.) — justo el modo de falla que motiva este fix. Un texto fijo, sin
+    // script, cubre ese caso.
+    const html = generateReceiptHTML(makeOp(), BASE_OPTS)
+    const noPrintBlock = html.match(/<div class="no-print"[^>]*>[\s\S]*?<\/div>\s*<\/div>/)
+
+    expect(noPrintBlock).not.toBeNull()
+    expect(noPrintBlock![0]).toMatch(/Ctrl\+P/i)
   })
 })
 

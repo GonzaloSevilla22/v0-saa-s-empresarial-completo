@@ -15,9 +15,17 @@
  * `onAuthStateChange`) siguen en el navegador **a propósito** en este grupo: las
  * reemplazan `GET /api/auth/status` (19.4b) y el bus de sesión (20.3). Acá van
  * mockeadas en el cliente para que el sondeo no interfiera.
+ *
+ * fix/auth-reenvio-verificacion-captcha: el proyecto real tiene Turnstile ACTIVO
+ * y `/resend` en GoTrue no está exento de captcha (400 captcha_failed medido
+ * contra prod sin `captcha_token`) — el botón fallaba SIEMPRE. La pantalla monta
+ * ahora `<CaptchaWidget>` + `useCaptchaGate`, mismo patrón que
+ * `ForgotPasswordPage.test.tsx`: se mockea `@/components/auth/CaptchaWidget` (no
+ * `@/hooks/auth`) para poder ejercitar la política real de frescura
+ * (`isStale`/`refresh`) con la MISMA compuerta que usan las otras 4 pantallas.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { render, screen, act, waitFor } from "@testing-library/react"
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react"
 import React from "react"
 
 const resendMock = vi.fn()
@@ -69,6 +77,35 @@ vi.mock("sonner", () => ({
   },
 }))
 
+// Mismo doble que `ForgotPasswordPage.test.tsx`: un botón "solve-captcha" que
+// dispara `onVerify` con un token fijo, y los tres métodos del ref
+// (reset/isStale/refresh) como mocks controlables por test — necesarios para
+// ejercitar `submitWithFreshCaptcha` (token viejo → refresh antes de enviar) con
+// la compuerta REAL (`useCaptchaGate`, sin mockear).
+const captchaResetMock = vi.fn()
+const captchaIsStaleMock = vi.fn()
+const captchaRefreshMock = vi.fn()
+
+vi.mock("@/components/auth/CaptchaWidget", () => ({
+  CaptchaWidget: React.forwardRef(
+    (
+      { onVerify }: { onVerify: (t: string) => void; onExpire?: () => void; onError?: () => void },
+      ref: React.Ref<unknown>,
+    ) => {
+      React.useImperativeHandle(ref, () => ({
+        reset: captchaResetMock,
+        isStale: captchaIsStaleMock,
+        refresh: captchaRefreshMock,
+      }))
+      return (
+        <button type="button" onClick={() => onVerify("resend-captcha")}>
+          solve-captcha
+        </button>
+      )
+    },
+  ),
+}))
+
 import VerifyEmailPage from "@/app/auth/verify-email/page"
 
 /** Corre los 30 s del cooldown dejando resolver las promesas del sondeo. */
@@ -81,11 +118,19 @@ async function runCooldown() {
   }
 }
 
+/** Resuelve el challenge simulado — deja la compuerta en fase `ready`. */
+function solveCaptcha() {
+  fireEvent.click(screen.getByText("solve-captcha"))
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   resendMock.mockReset().mockResolvedValue({ ok: true })
   toastSuccessMock.mockReset()
   toastErrorMock.mockReset()
+  captchaResetMock.mockReset()
+  captchaIsStaleMock.mockReset().mockReturnValue(false)
+  captchaRefreshMock.mockReset().mockResolvedValue("refreshed-resend-captcha")
 })
 
 afterEach(() => {
@@ -101,9 +146,10 @@ describe("/auth/verify-email — reenvío por la acción de servidor", () => {
     expect(resendMock).not.toHaveBeenCalled()
   })
 
-  it("pasados los 30 s el click llama a la acción con el email de la sesión", async () => {
+  it("pasados los 30 s, con el captcha resuelto, el click llama a la acción con el email y el token del widget", async () => {
     render(<VerifyEmailPage />)
     await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
 
     await runCooldown()
 
@@ -114,7 +160,7 @@ describe("/auth/verify-email — reenvío por la acción de servidor", () => {
       button.click()
     })
 
-    expect(resendMock).toHaveBeenCalledWith({ email: "susana@test.local" })
+    expect(resendMock).toHaveBeenCalledWith({ email: "susana@test.local", captchaToken: "resend-captcha" })
     await waitFor(() =>
       expect(toastSuccessMock).toHaveBeenCalledWith("Email reenviado. Revisá tu bandeja o spam."),
     )
@@ -123,6 +169,7 @@ describe("/auth/verify-email — reenvío por la acción de servidor", () => {
   it("y el cooldown se reinicia: un segundo click inmediato no reenvía", async () => {
     render(<VerifyEmailPage />)
     await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
     await runCooldown()
 
     const button = await screen.findByRole("button", { name: /^reenviar email$/i })
@@ -148,6 +195,7 @@ describe("/auth/verify-email — reenvío por la acción de servidor", () => {
 
     render(<VerifyEmailPage />)
     await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
     await runCooldown()
 
     const button = await screen.findByRole("button", { name: /^reenviar email$/i })
@@ -161,5 +209,57 @@ describe("/auth/verify-email — reenvío por la acción de servidor", () => {
       ),
     )
     expect(toastSuccessMock).not.toHaveBeenCalled()
+  })
+})
+
+// ── fix/auth-reenvio-verificacion-captcha ───────────────────────────────────
+describe("/auth/verify-email — gate de captcha", () => {
+  it("con el gate sin token utilizable (captcha no resuelto), el botón no dispara la acción", async () => {
+    render(<VerifyEmailPage />)
+    await screen.findByRole("button", { name: /reenviar email/i })
+    // A propósito: NO se resuelve el captcha ("solve-captcha" nunca se clickea).
+    await runCooldown()
+
+    // El cooldown ya terminó (el rótulo pasa a "Reenviar email" sin segundos),
+    // pero sin token emitido la compuerta sigue en fase `cold` y el botón sigue
+    // deshabilitado — el mismo criterio que ya usan login/registro/recuperación.
+    const button = await screen.findByRole("button", { name: /^reenviar email$/i })
+    expect(button).toBeDisabled()
+
+    await act(async () => {
+      button.click()
+    })
+    expect(resendMock).not.toHaveBeenCalled()
+  })
+
+  it("(triangulate) un token vencido se renueva por el helper antes de enviar", async () => {
+    // Esta pantalla queda abierta mucho tiempo (el usuario va a revisar su
+    // bandeja); el token de Turnstile vence a los ~5 min y submitWithFreshCaptcha
+    // es el que lo renueva antes de llamar a la acción — mismo caso que fija
+    // ForgotPasswordPage.test.tsx ("token viejo al enviar").
+    captchaIsStaleMock.mockReturnValue(true)
+    captchaRefreshMock.mockResolvedValue("fresh-resend-captcha")
+
+    render(<VerifyEmailPage />)
+    await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
+    await runCooldown()
+
+    const button = await screen.findByRole("button", { name: /^reenviar email$/i })
+    await act(async () => {
+      button.click()
+    })
+
+    await waitFor(() =>
+      expect(resendMock).toHaveBeenCalledWith({
+        email: "susana@test.local",
+        captchaToken: "fresh-resend-captcha",
+      }),
+    )
+    expect(captchaRefreshMock).toHaveBeenCalled()
+    // El token viejo del widget nunca llegó a la acción.
+    expect(resendMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ captchaToken: "resend-captcha" }),
+    )
   })
 })

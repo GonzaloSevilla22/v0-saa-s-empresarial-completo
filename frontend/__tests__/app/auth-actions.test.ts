@@ -321,6 +321,8 @@ describe("el captcha sobrevive el salto al servidor", () => {
     ["app/auth/register/page.tsx", "register("],
     ["components/auth/MagicLinkForm.tsx", "loginWithMagicLink("],
     ["app/auth/forgot-password/page.tsx", "requestPasswordResetAction("],
+    // fix/auth-reenvio-verificacion-captcha: quinta pantalla gateada.
+    ["app/auth/verify-email/page.tsx", "resendVerificationEmailAction("],
   ]
 
   function submitsThroughGate(source: string, call: string): boolean {

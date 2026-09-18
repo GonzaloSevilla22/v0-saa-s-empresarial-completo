@@ -226,13 +226,39 @@ describe("las siete operaciones que tocan la sesión", () => {
     })
   })
 
-  it("::verification_resend_runs_on_the_server", async () => {
+  it("::verification_resend_runs_on_the_server — con captchaToken lo pasa junto a emailRedirectTo", async () => {
+    // fix/auth-reenvio-verificacion-captcha: el proyecto real tiene Turnstile
+    // ACTIVO y GoTrue exige `captcha_token` en `/resend` — sin este campo el
+    // botón fallaba SIEMPRE en producción (probado hoy: 400 captcha_failed).
+    await resendVerificationEmailAction({ email: "susana@test.local", captchaToken: "captcha-resend" })
+
+    expect(resend).toHaveBeenCalledWith({
+      type: "signup",
+      email: "susana@test.local",
+      options: { emailRedirectTo: `${SITE}/auth/callback`, captchaToken: "captcha-resend" },
+    })
+  })
+
+  it("::verification_resend_runs_on_the_server — sin captchaToken no inventa uno", async () => {
     await resendVerificationEmailAction({ email: "susana@test.local" })
 
     expect(resend).toHaveBeenCalledWith({
       type: "signup",
       email: "susana@test.local",
-      options: { emailRedirectTo: `${SITE}/auth/callback` },
+      options: { emailRedirectTo: `${SITE}/auth/callback`, captchaToken: undefined },
+    })
+  })
+
+  it("::verification_resend_runs_on_the_server — el contrato de error no cambia", async () => {
+    resend.mockResolvedValue({
+      error: { message: "For security purposes, you can only request this after 60 seconds" },
+    })
+
+    await expect(
+      resendVerificationEmailAction({ email: "susana@test.local", captchaToken: "captcha-resend" }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "For security purposes, you can only request this after 60 seconds",
     })
   })
 

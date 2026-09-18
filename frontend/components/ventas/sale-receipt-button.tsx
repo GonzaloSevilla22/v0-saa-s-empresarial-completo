@@ -30,6 +30,7 @@ import {
   generateReceiptShortText,
   buildSalesReceiptPdfPayload,
 } from "@/lib/receipt"
+import { getDocumentScriptNonce } from "@/lib/script-nonce"
 import { buildWhatsAppUrl, normalizeWhatsAppPhone } from "@/lib/phone-utils"
 import type { SaleOperation } from "@/lib/group-operations"
 
@@ -67,7 +68,14 @@ export function SaleReceiptButton({
   const handleDownload = useCallback(async () => {
     setLoadingPrint(true)
     try {
-      const html = generateReceiptHTML(op, receiptOpts)
+      // fix/comprobante-print-csp-nonce: la pestaña `blob:` que abrimos más
+      // abajo HEREDA la CSP de este documento (script-src sin
+      // 'unsafe-inline'). Sin el nonce vigente, el <script> de auto-impresión
+      // del comprobante queda bloqueado — se abre la pestaña pero nunca
+      // dispara window.print(). El helper lee el nonce del <script> que Next
+      // ya montó con la política de ESTA carga.
+      const scriptNonce = getDocumentScriptNonce()
+      const html = generateReceiptHTML(op, { ...receiptOpts, scriptNonce })
       const blob = new Blob([html], { type: "text/html;charset=utf-8" })
       const url  = URL.createObjectURL(blob)
 
@@ -85,8 +93,9 @@ export function SaleReceiptButton({
 
       // Revoke after enough time for the new tab to read the blob
       setTimeout(() => URL.revokeObjectURL(url), 10_000)
-    } catch (err: any) {
-      toast.error(err?.message || "No se pudo generar el comprobante.")
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : undefined
+      toast.error(message || "No se pudo generar el comprobante.")
     } finally {
       setLoadingPrint(false)
     }

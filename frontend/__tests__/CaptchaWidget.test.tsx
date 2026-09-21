@@ -9,6 +9,7 @@ interface MockTurnstileProps {
   onSuccess?: (token: string) => void
   onExpire?: () => void
   onError?: () => void
+  options?: { size?: string }
 }
 
 interface MockTurnstileHandle {
@@ -35,16 +36,40 @@ const turnstile = vi.hoisted(() => {
       handlers.onError?.()
     },
     resetMock: vi.fn(),
+    /** Cada `size` con el que se llegó a montar Turnstile, en orden. */
+    sizesSeen: [] as Array<string | undefined>,
   }
 })
 
 vi.mock("@marsidev/react-turnstile", () => ({
   Turnstile: forwardRef<MockTurnstileHandle, MockTurnstileProps>((props, ref) => {
     turnstile.setHandlers(props)
+    turnstile.sizesSeen.push(props.options?.size)
     useImperativeHandle(ref, () => ({ reset: turnstile.resetMock }), [])
-    return <div data-testid="turnstile-widget" />
+    return <div data-testid="turnstile-widget" data-size={props.options?.size} />
   }),
 }))
+
+/**
+ * jsdom no hace layout: `clientWidth` es siempre 0. Para ejercitar la elección
+ * de tamaño se fija el ancho que "mediría" el slot. Se restaura en afterEach.
+ */
+const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth")
+
+function stubSlotClientWidth(widthPx: number) {
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get() {
+      return widthPx
+    },
+  })
+}
+
+function restoreClientWidth() {
+  if (originalClientWidth) {
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", originalClientWidth)
+  }
+}
 
 function setVisibilityState(state: DocumentVisibilityState) {
   Object.defineProperty(document, "visibilityState", { value: state, configurable: true })
@@ -57,6 +82,7 @@ function dispatchVisibilityChange() {
 beforeEach(() => {
   turnstile.setHandlers({})
   turnstile.resetMock.mockClear()
+  turnstile.sizesSeen.length = 0
   setVisibilityState("visible")
 })
 
@@ -64,6 +90,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllEnvs()
   vi.useRealTimers()
+  restoreClientWidth()
 })
 
 describe("CaptchaWidget — stub local de Playwright", () => {
@@ -314,5 +341,93 @@ describe("CaptchaWidget — exención de frescura en el stub de Playwright (D5)"
     const visibilityCalls = addEventListenerSpy.mock.calls.filter(([eventName]) => eventName === "visibilitychange")
     expect(visibilityCalls).toHaveLength(0)
     addEventListenerSpy.mockRestore()
+  })
+})
+
+/**
+ * fix/captcha-widget-mobile-overflow.
+ *
+ * En un teléfono de 360 px la columna de las pantallas de auth mide 294,4 px
+ * y Turnstile `flexible` exige 300: la librería fuerza su contenedor a 300 px
+ * alineado a la IZQUIERDA, así que el widget sobresalía 5,6 px sólo por la
+ * derecha (medido en navegador real). El slot centra ese desborde y, cuando
+ * ni así entra, elige `compact`.
+ *
+ * jsdom no hace layout, así que acá se fija la ESTRUCTURA y la decisión de
+ * tamaño; el ancho real lo verifica `e2e/harness/captcha-slot-mobile.spec.ts`.
+ */
+describe("CaptchaWidget — slot de ancho (móvil)", () => {
+  function renderReal(props: { className?: string } = {}) {
+    vi.stubEnv("NEXT_PUBLIC_PLAYWRIGHT_LOCAL", "false")
+    vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "turnstile-public-test-key")
+    return render(<CaptchaWidget onVerify={vi.fn()} {...props} />)
+  }
+
+  it("monta Turnstile dentro de un marco, dentro del slot, en flexible a 360 px", () => {
+    stubSlotClientWidth(294)
+    renderReal()
+
+    const slot = screen.getByTestId("captcha-slot")
+    const frame = screen.getByTestId("captcha-frame")
+    const widget = screen.getByTestId("turnstile-widget")
+
+    expect(slot).toContainElement(frame)
+    expect(frame).toContainElement(widget)
+    expect(slot).toHaveAttribute("data-captcha-size", "flexible")
+    expect(widget).toHaveAttribute("data-size", "flexible")
+  })
+
+  it("elige compact cuando la columna es demasiado angosta (viewport de 320 px)", () => {
+    stubSlotClientWidth(254)
+    renderReal()
+
+    expect(screen.getByTestId("captcha-slot")).toHaveAttribute("data-captcha-size", "compact")
+    expect(screen.getByTestId("turnstile-widget")).toHaveAttribute("data-size", "compact")
+  })
+
+  it("nunca monta Turnstile con un tamaño y después con otro (re-renderizar el widget tira el challenge)", () => {
+    stubSlotClientWidth(254)
+    renderReal()
+
+    expect(new Set(turnstile.sizesSeen)).toEqual(new Set(["compact"]))
+  })
+
+  it("sigue aplicando el className del consumidor al slot", () => {
+    stubSlotClientWidth(400)
+    renderReal({ className: "mt-2" })
+
+    expect(screen.getByTestId("captcha-slot")).toHaveClass("mt-2")
+  })
+
+  it("el stub de Playwright ocupa el MISMO slot y marco que el widget real — no queda ciego al layout", async () => {
+    stubSlotClientWidth(294)
+    renderReal()
+    const realSlotClass = screen.getByTestId("captcha-slot").className
+    const realFrameClass = screen.getByTestId("captcha-frame").className
+    cleanup()
+    vi.unstubAllEnvs()
+
+    vi.stubEnv("NEXT_PUBLIC_PLAYWRIGHT_LOCAL", "true")
+    render(<CaptchaWidget onVerify={vi.fn()} />)
+    await waitFor(() => {
+      expect(screen.getByTestId("captcha-local-stub")).toBeInTheDocument()
+    })
+
+    const stubSlot = screen.getByTestId("captcha-slot")
+    const stubFrame = screen.getByTestId("captcha-frame")
+    expect(stubFrame).toContainElement(screen.getByTestId("captcha-local-stub"))
+    expect(stubSlot.className).toBe(realSlotClass)
+    expect(stubFrame.className).toBe(realFrameClass)
+    expect(stubSlot).toHaveAttribute("data-captcha-size", "flexible")
+  })
+
+  it("el stub también publica compact cuando la columna es angosta", async () => {
+    stubSlotClientWidth(254)
+    vi.stubEnv("NEXT_PUBLIC_PLAYWRIGHT_LOCAL", "true")
+    render(<CaptchaWidget onVerify={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId("captcha-slot")).toHaveAttribute("data-captcha-size", "compact")
+    })
   })
 })

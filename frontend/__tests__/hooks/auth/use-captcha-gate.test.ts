@@ -278,6 +278,46 @@ describe("useCaptchaGate — cola de submit durante la renovación", () => {
   })
 })
 
+// ── fix/auth-reenvio-verificacion-captcha (MAJOR 1 de la revisión adversarial) ──
+//
+// `/auth/verify-email` es la primera pantalla cuyo botón de submit sobrevive a
+// su propio éxito (las otras 4 desmontan el form o navegan). Sin consumir el
+// token tras un envío exitoso, un segundo click dentro de los ~2 min de
+// frescura reenviaría el MISMO token ya gastado por Cloudflare, y GoTrue
+// respondería `timeout-or-duplicate`. `consumeToken()` hace exactamente lo que
+// ya hace el `catch` de `executeSubmission` (reset del widget + limpiar token +
+// `tokenLost`), pero como acción explícita que un consumidor dispara tras un
+// éxito.
+describe("useCaptchaGate — consumeToken (fix/auth-reenvio-verificacion-captcha)", () => {
+  it("en fase 'ready' resetea el widget vía ref, limpia el token y pasa a 'renewing'", () => {
+    const { result } = renderHook(() => useCaptchaGate())
+    const resetMock = vi.fn()
+    act(() => result.current.captchaProps.onVerify("token-used"))
+    result.current.captchaRef.current = { reset: resetMock, isStale: () => false, refresh: vi.fn() }
+
+    act(() => result.current.consumeToken())
+
+    expect(resetMock).toHaveBeenCalledTimes(1)
+    expect(result.current.token).toBe("")
+    expect(result.current.phase).toBe("renewing")
+    expect(result.current.isRenewing).toBe(true)
+  })
+
+  it("(triangulate) en fase 'cold' (nunca hubo token) es un no-op: no hay nada que consumir", () => {
+    const { result } = renderHook(() => useCaptchaGate())
+    const resetMock = vi.fn()
+    result.current.captchaRef.current = { reset: resetMock, isStale: () => false, refresh: vi.fn() }
+
+    act(() => result.current.consumeToken())
+
+    // El reducer ya guarda esta transición (tokenLost en 'cold' es no-op, D1),
+    // pero `consumeToken` igual llama a `reset()` — resetear un widget sin
+    // token emitido es inofensivo y más simple que replicar el guard acá.
+    expect(result.current.phase).toBe("cold")
+    expect(result.current.token).toBe("")
+  })
+})
+
 describe("useCaptchaGate — anti-doble-submit", () => {
   it("click con submit en vuelo no encola ni dispara un segundo run", async () => {
     const { result } = renderHook(() => useCaptchaGate())

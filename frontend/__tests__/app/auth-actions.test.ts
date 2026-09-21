@@ -226,13 +226,45 @@ describe("las siete operaciones que tocan la sesión", () => {
     })
   })
 
-  it("::verification_resend_runs_on_the_server", async () => {
+  it("::verification_resend_runs_on_the_server — con captchaToken lo pasa junto a emailRedirectTo", async () => {
+    // fix/auth-reenvio-verificacion-captcha: el proyecto real tiene Turnstile
+    // ACTIVO y GoTrue exige `captcha_token` en `/resend` — sin este campo el
+    // botón fallaba SIEMPRE en producción (probado hoy: 400 captcha_failed).
+    await resendVerificationEmailAction({ email: "susana@test.local", captchaToken: "captcha-resend" })
+
+    expect(resend).toHaveBeenCalledWith({
+      type: "signup",
+      email: "susana@test.local",
+      options: { emailRedirectTo: `${SITE}/auth/callback`, captchaToken: "captcha-resend" },
+    })
+  })
+
+  it("::verification_resend_runs_on_the_server — sin captchaToken no inventa uno", async () => {
     await resendVerificationEmailAction({ email: "susana@test.local" })
 
     expect(resend).toHaveBeenCalledWith({
       type: "signup",
       email: "susana@test.local",
-      options: { emailRedirectTo: `${SITE}/auth/callback` },
+      options: { emailRedirectTo: `${SITE}/auth/callback`, captchaToken: undefined },
+    })
+    // MINOR 1 de la revisión adversarial: `toHaveBeenCalledWith` usa la misma
+    // igualdad recursiva que `toEqual`, que ignora propiedades en `undefined`
+    // — la aserción de arriba pasaría igual si la acción OMITIERA la clave
+    // por completo. Esta fija la forma real: la clave viaja siempre, sólo su
+    // valor es `undefined` sin token.
+    expect("captchaToken" in resend.mock.calls[0][0].options).toBe(true)
+  })
+
+  it("::verification_resend_runs_on_the_server — el contrato de error no cambia", async () => {
+    resend.mockResolvedValue({
+      error: { message: "For security purposes, you can only request this after 60 seconds" },
+    })
+
+    await expect(
+      resendVerificationEmailAction({ email: "susana@test.local", captchaToken: "captcha-resend" }),
+    ).resolves.toEqual({
+      ok: false,
+      error: "For security purposes, you can only request this after 60 seconds",
     })
   })
 
@@ -295,6 +327,8 @@ describe("el captcha sobrevive el salto al servidor", () => {
     ["app/auth/register/page.tsx", "register("],
     ["components/auth/MagicLinkForm.tsx", "loginWithMagicLink("],
     ["app/auth/forgot-password/page.tsx", "requestPasswordResetAction("],
+    // fix/auth-reenvio-verificacion-captcha: quinta pantalla gateada.
+    ["app/auth/verify-email/page.tsx", "resendVerificationEmailAction("],
   ]
 
   function submitsThroughGate(source: string, call: string): boolean {

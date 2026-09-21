@@ -25,6 +25,16 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Mail, Loader2, CheckCircle2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
+// fix/auth-reenvio-verificacion-captcha: el proyecto real tiene Turnstile
+// ACTIVO y GoTrue no exime a `/resend` de captcha (400 captcha_failed medido
+// contra prod sin `captcha_token` — el botón fallaba SIEMPRE, invisible porque
+// `/resend` tiene tráfico cero). Mismo patrón que las otras 4 pantallas de auth
+// (login, registro, recuperación, enlace mágico): `useCaptchaGate` +
+// `<CaptchaWidget>` es el ÚNICO camino de envío (regla del proyecto).
+import { CaptchaWidget } from "@/components/auth/CaptchaWidget"
+import { CaptchaRenewalStatus } from "@/components/auth/CaptchaRenewalStatus"
+import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
+import { useCaptchaGate } from "@/hooks/auth"
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -55,6 +65,7 @@ function VerifyEmailContent() {
   const params      = useSearchParams()
   const emailParam  = params.get("email") ?? ""
   const { refreshSession } = useAuth()
+  const captchaGate = useCaptchaGate()
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [email,      setEmail]      = useState(emailParam)
@@ -261,12 +272,28 @@ function VerifyEmailContent() {
   }, [cooldown])
 
   // ── Resend handler ────────────────────────────────────────────────────────
+  //
+  // fix/auth-reenvio-verificacion-captcha: `captchaGate.submit` es el ÚNICO
+  // camino de envío (regla del proyecto) — resuelve token viejo/renovación
+  // igual que forgot-password/login, y el guard de `submitButtonProps.disabled`
+  // (fase `cold` o submit en vuelo) evita disparar sin un token utilizable, en
+  // la misma línea que el guard de cooldown/resending de acá abajo.
   async function handleResend() {
-    if (!email || cooldown > 0 || resending) return
+    if (!email || cooldown > 0 || resending || captchaGate.submitButtonProps.disabled) return
 
     setResending(true)
     try {
-      unwrapAuthResult(await resendVerificationEmailAction({ email }))
+      await captchaGate.submit(async (token) => {
+        unwrapAuthResult(await resendVerificationEmailAction({ email, captchaToken: token }))
+      })
+      // MAJOR 1 de la revisión adversarial: esta es la primera pantalla de
+      // auth cuyo botón sobrevive a su propio éxito (las otras 4 desmontan el
+      // form o navegan). Sin consumir el token ya usado, un 2º click dentro
+      // de la ventana de frescura (~120s, muy por encima del cooldown de 30s)
+      // reenviaría el MISMO token que Cloudflare ya gastó, y GoTrue
+      // respondería `timeout-or-duplicate` — una petición condenada que
+      // además gasta cupo del limiter de `/resend`.
+      captchaGate.consumeToken()
       toast.success("Email reenviado. Revisá tu bandeja o spam.")
       setCooldown(RESEND_COOLDOWN) // restart countdown
     } catch (err: unknown) {
@@ -368,13 +395,18 @@ function VerifyEmailContent() {
 
             <div className="border-t border-border" />
 
+            {/* Captcha — gatea el botón de reenvío (fix/auth-reenvio-verificacion-captcha) */}
+            <CaptchaWidget ref={captchaGate.captchaRef} {...captchaGate.captchaProps} />
+            <CaptchaRenewalStatus message={captchaGate.statusMessage} />
+
             {/* Resend button */}
             <div className="flex flex-col gap-2">
               <Button
                 variant="outline"
-                className="w-full border-border"
+                className="w-full border-border aria-disabled:opacity-50"
                 onClick={handleResend}
-                disabled={cooldown > 0 || resending}
+                disabled={cooldown > 0 || resending || captchaGate.submitButtonProps.disabled}
+                aria-disabled={captchaGate.submitButtonProps["aria-disabled"]}
               >
                 {resending ? (
                   <>
@@ -385,6 +417,11 @@ function VerifyEmailContent() {
                   <>
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Reenviar email ({cooldown}s)
+                  </>
+                ) : captchaGate.isRenewing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    {CAPTCHA_RENEWAL_LABEL}
                   </>
                 ) : (
                   <>

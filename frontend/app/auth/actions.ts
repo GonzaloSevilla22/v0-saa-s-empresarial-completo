@@ -175,15 +175,22 @@ export async function requestPasswordResetAction(input: {
  * El límite de 30 s entre reenvíos sigue donde estaba, en la pantalla
  * (`RESEND_COOLDOWN` de `app/auth/verify-email/page.tsx`): es de experiencia. El
  * límite que protege al proveedor es el suyo, y su error vuelve al toast.
+ *
+ * fix/auth-reenvio-verificacion-captcha: a diferencia de las otras cuatro
+ * operaciones de este archivo, esta acción quedó sin `captchaToken` — y el
+ * proyecto real tiene Turnstile ACTIVO con `/resend` sin eximir de captcha
+ * (medido contra prod: `400 captcha_failed` sin el campo). El botón fallaba
+ * siempre; nadie lo vio porque `/resend` tiene tráfico cero.
  */
 export async function resendVerificationEmailAction(input: {
   email: string
+  captchaToken?: string
 }): Promise<AuthActionResult> {
   const supabase = createClient()
   const { error } = await supabase.auth.resend({
     type: "signup",
     email: input.email,
-    options: { emailRedirectTo: await callbackUrl() },
+    options: { emailRedirectTo: await callbackUrl(), captchaToken: input.captchaToken },
   })
   return toResult("resend", error)
 }

@@ -22,6 +22,13 @@ const EVENT_LABELS: Record<string, string> = {
   cancellation_requested: "Cancelación solicitada",
   trial_expired: "Trial vencido",
   migration_backfill: "Migración inicial",
+  // Tipos que ya existen en `billing_events` y caían al string crudo de la base
+  // (medido en prod el 2026-09-21; los fija `BillingHistory-labels.test.tsx`).
+  exemption_granted: "Acceso de cortesía",
+  trial_pro_granted: "Prueba del plan Pro",
+  subscription_payment_approved: "Pago de suscripción acreditado",
+  subscription_ambiguous_resolved: "Suscripción asociada a la cuenta",
+  subscription_cancelled: "Suscripción cancelada",
 }
 
 /**

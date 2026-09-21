@@ -7,8 +7,23 @@ import {
   CaptchaRefreshTimeoutError,
   isTokenStale,
 } from "@/lib/captcha-freshness"
+import { pickCaptchaSize, type CaptchaSize } from "@/lib/captcha-layout"
+import { cn } from "@/lib/utils"
 
 const PLAYWRIGHT_STUB_TOKEN = "playwright-local-captcha-stub"
+
+/**
+ * Clases del marco que aloja al widget, por tamaño. Los literales espejan
+ * `TURNSTILE_FLEXIBLE_MIN_WIDTH_PX` / `TURNSTILE_COMPACT_WIDTH_PX` de
+ * `lib/captcha-layout.ts` (Tailwind necesita el literal en el fuente; la
+ * divergencia la atrapa `e2e/harness/captcha-slot-mobile.spec.ts`, que mide el
+ * ancho real contra esas constantes). El alto se reserva acá porque Turnstile
+ * se monta recién después de medir: sin reserva, el formulario saltaría.
+ */
+const FRAME_CLASS: Record<CaptchaSize, string> = {
+  flexible: "w-full min-w-[300px] min-h-[65px] shrink-0",
+  compact: "w-[150px] min-h-[140px] shrink-0",
+}
 
 export interface CaptchaWidgetHandle {
   /** Re-lanza el challenge (tras un error/expiración o un signUp/login rechazado). También limpia `mintedAt`. */
@@ -61,6 +76,12 @@ interface CaptchaWidgetProps {
  *   captcha-token-freshness — cierra el gap de idle-logout con pestaña en
  *   segundo plano).
  * - Degrada con un mensaje claro si falta la env var (no rompe el render).
+ * - Vive en un *slot* que centra el widget sobre su columna y elige el tamaño
+ *   una sola vez, al montar (`lib/captcha-layout.ts`): en un teléfono de 360 px
+ *   la columna mide 294 px y Turnstile `flexible` exige 300, así que sin el
+ *   slot el widget sobresalía sólo por la derecha. El stub local de Playwright
+ *   ocupa el MISMO slot y marco, para que los specs de navegador vean el
+ *   layout real en vez de un `sr-only`.
  *
  * El token se valida server-side por Supabase Auth (`options.captchaToken`);
  * no hay validación propia en el backend.
@@ -71,7 +92,18 @@ export const CaptchaWidget = forwardRef<CaptchaWidgetHandle, CaptchaWidgetProps>
     const mintedAtRef = useRef<number | null>(null)
     const pendingRefreshResolversRef = useRef<Array<(token: string) => void>>([])
     const [isLocalPlaywright, setIsLocalPlaywright] = useState(false)
+    const slotRef = useRef<HTMLDivElement>(null)
+    // `null` hasta medir: Turnstile no se monta antes, porque cambiarle el
+    // `size` a un widget ya montado lo re-renderiza y tira el challenge.
+    const [size, setSize] = useState<CaptchaSize | null>(null)
     const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
+    // Se decide UNA vez, al montar (el `prev ??` lo hace idempotente ante el
+    // doble efecto de StrictMode). Una rotación posterior no re-decide: a lo
+    // sumo deja un desborde simétrico, que es preferible a invalidar el token.
+    useEffect(() => {
+      setSize((prev) => prev ?? pickCaptchaSize(slotRef.current?.clientWidth ?? 0))
+    }, [])
 
     // Última onExpire vigente, leída desde el listener de visibilidad sin
     // que su identidad (nueva arrow function en cada render de las 4
@@ -174,29 +206,50 @@ export const CaptchaWidget = forwardRef<CaptchaWidgetHandle, CaptchaWidgetProps>
 
     useImperativeHandle(ref, () => ({ reset, isStale, refresh }), [reset, isStale, refresh])
 
-    if (isLocalPlaywright) {
-      return <span data-testid="captcha-local-stub" className="sr-only">Captcha local de Playwright</span>
-    }
+    // El slot es SIEMPRE el elemento raíz (también en el primer render y sin
+    // site key): es lo que se mide. `justify-center` reparte el desborde del
+    // marco a ambos lados, dentro del padding de la tarjeta.
+    const frameClass = FRAME_CLASS[size ?? "flexible"]
 
-    if (!siteKey) {
-      return (
-        <p role="note" className="text-xs text-amber-600 dark:text-amber-400">
+    let content
+    if (isLocalPlaywright) {
+      content = (
+        <div data-testid="captcha-frame" className={frameClass}>
+          <span data-testid="captcha-local-stub" className="sr-only">Captcha local de Playwright</span>
+        </div>
+      )
+    } else if (!siteKey) {
+      content = (
+        <p role="note" className="w-full text-xs text-amber-600 dark:text-amber-400">
           Verificación anti-bots no configurada. Definí{" "}
           <code>NEXT_PUBLIC_TURNSTILE_SITE_KEY</code> para habilitar este formulario.
         </p>
       )
+    } else {
+      content = (
+        <div data-testid="captcha-frame" className={frameClass}>
+          {size && (
+            <Turnstile
+              ref={innerRef}
+              siteKey={siteKey}
+              onSuccess={handleVerify}
+              onExpire={handleExpire}
+              onError={handleError}
+              options={{ language: "es", theme, size }}
+            />
+          )}
+        </div>
+      )
     }
 
     return (
-      <div className={className}>
-        <Turnstile
-          ref={innerRef}
-          siteKey={siteKey}
-          onSuccess={handleVerify}
-          onExpire={handleExpire}
-          onError={handleError}
-          options={{ language: "es", theme, size: "flexible" }}
-        />
+      <div
+        ref={slotRef}
+        data-testid="captcha-slot"
+        data-captcha-size={size ?? undefined}
+        className={cn("flex justify-center", className)}
+      >
+        {content}
       </div>
     )
   },

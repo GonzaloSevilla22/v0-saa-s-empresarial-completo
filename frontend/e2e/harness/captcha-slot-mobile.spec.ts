@@ -26,10 +26,8 @@
  * hace falta red ni la site key de prueba de Cloudflare.
  *
  * Corre en el proyecto `harness` (sin sesión ni seeds): son rutas públicas.
- *
- * `/auth/verify-email` monta este mismo componente desde
- * `fix/auth-reenvio-verificacion-captcha`; cuando esa rama esté en `main`,
- * sumar su fila a SCREENS.
+ * Cubre las CINCO superficies que montan `CaptchaWidget` — una pantalla nueva
+ * con captcha suma su fila a SCREENS.
  */
 import { test, expect, type Page } from '@playwright/test'
 
@@ -57,6 +55,9 @@ const SCREENS: Screen[] = [
   },
   { name: 'registro', path: '/auth/register' },
   { name: 'recuperar contraseña', path: '/auth/forgot-password' },
+  // Donde se reportó el defecto. Con `?email=` como llega desde el registro:
+  // la pantalla renderiza igual sin él, pero así se mide el estado real.
+  { name: 'reenvío de verificación', path: '/auth/verify-email?email=qa.captcha@local.test' },
 ]
 
 const VIEWPORTS = [

@@ -61,6 +61,17 @@ export interface UseCaptchaGateResult {
    * no hay ninguna submission real que reportar para esa activación.
    */
   submit: <T>(run: (token: string) => Promise<T>) => Promise<T>
+  /**
+   * Da por gastado el token vigente sin pasar por un error (fix/auth-reenvio-
+   * verificacion-captcha, MAJOR 1 de la revisión adversarial). Mismo efecto
+   * que el `catch` de un submit rechazado —reset del widget, token limpio,
+   * `tokenLost`—, para el consumidor que sabe que Cloudflare ya consumió el
+   * token con un envío EXITOSO. Sin esto, una pantalla cuyo botón sobrevive a
+   * su propio éxito (el caso de `/auth/verify-email`, único hoy: las otras 4
+   * desmontan el form o navegan) reenviaría el mismo token dentro de la
+   * ventana de frescura y GoTrue respondería `timeout-or-duplicate`.
+   */
+  consumeToken: () => void
 }
 
 /**
@@ -167,6 +178,15 @@ export function useCaptchaGate(): UseCaptchaGateResult {
     }
   }, [dispatchGate, clearPendingQueue])
 
+  const consumeToken = useCallback(() => {
+    // Mismo tratamiento que el `catch` de `executeSubmission` (D2/D4.6): un
+    // token de un solo uso que ya se gastó necesita el mismo re-challenge que
+    // uno rechazado por el proveedor.
+    captchaRef.current?.reset()
+    setToken("")
+    dispatchGate({ type: "tokenLost" })
+  }, [dispatchGate])
+
   const captchaProps = useMemo<CaptchaGateWidgetProps>(
     () => ({ onVerify: handleVerify, onExpire: handleExpire, onError: handleError }),
     [handleVerify, handleExpire, handleError],
@@ -229,5 +249,6 @@ export function useCaptchaGate(): UseCaptchaGateResult {
     submitButtonProps,
     statusMessage: isRenewing ? CAPTCHA_RENEWAL_LABEL : "",
     submit,
+    consumeToken,
   }
 }

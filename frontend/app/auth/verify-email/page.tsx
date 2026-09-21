@@ -286,6 +286,14 @@ function VerifyEmailContent() {
       await captchaGate.submit(async (token) => {
         unwrapAuthResult(await resendVerificationEmailAction({ email, captchaToken: token }))
       })
+      // MAJOR 1 de la revisión adversarial: esta es la primera pantalla de
+      // auth cuyo botón sobrevive a su propio éxito (las otras 4 desmontan el
+      // form o navegan). Sin consumir el token ya usado, un 2º click dentro
+      // de la ventana de frescura (~120s, muy por encima del cooldown de 30s)
+      // reenviaría el MISMO token que Cloudflare ya gastó, y GoTrue
+      // respondería `timeout-or-duplicate` — una petición condenada que
+      // además gasta cupo del limiter de `/resend`.
+      captchaGate.consumeToken()
       toast.success("Email reenviado. Revisá tu bandeja o spam.")
       setCooldown(RESEND_COOLDOWN) // restart countdown
     } catch (err: unknown) {

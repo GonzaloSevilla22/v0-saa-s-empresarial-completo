@@ -247,6 +247,12 @@ describe("las siete operaciones que tocan la sesión", () => {
       email: "susana@test.local",
       options: { emailRedirectTo: `${SITE}/auth/callback`, captchaToken: undefined },
     })
+    // MINOR 1 de la revisión adversarial: `toHaveBeenCalledWith` usa la misma
+    // igualdad recursiva que `toEqual`, que ignora propiedades en `undefined`
+    // — la aserción de arriba pasaría igual si la acción OMITIERA la clave
+    // por completo. Esta fija la forma real: la clave viaja siempre, sólo su
+    // valor es `undefined` sin token.
+    expect("captchaToken" in resend.mock.calls[0][0].options).toBe(true)
   })
 
   it("::verification_resend_runs_on_the_server — el contrato de error no cambia", async () => {

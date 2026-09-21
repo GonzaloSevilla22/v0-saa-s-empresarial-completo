@@ -86,12 +86,39 @@ const captchaResetMock = vi.fn()
 const captchaIsStaleMock = vi.fn()
 const captchaRefreshMock = vi.fn()
 
+// setHandlers + fireExpire/fireError (MAJOR 2 de la revisión adversarial: el
+// doble original declaraba `onExpire`/`onError` en el tipo y los descartaba,
+// a diferencia de los 4 dobles de referencia — `ForgotPasswordPage.test.tsx`,
+// `LoginPage.test.tsx`, `RegisterPage.test.tsx`, `MagicLinkForm.test.tsx` —
+// que sí los cablean). Sin esto, la auto-renovación por visibilidad de
+// `CaptchaWidget` (que llega al gate únicamente vía `onExpire`) queda sin
+// cobertura en la pantalla más longeva de auth.
+const captchaHandlers = vi.hoisted(() => {
+  let handlers: { onExpire?: () => void; onError?: () => void } = {}
+  return {
+    setHandlers(next: { onExpire?: () => void; onError?: () => void }) {
+      handlers = next
+    },
+    fireExpire() {
+      handlers.onExpire?.()
+    },
+    fireError() {
+      handlers.onError?.()
+    },
+  }
+})
+
 vi.mock("@/components/auth/CaptchaWidget", () => ({
   CaptchaWidget: React.forwardRef(
     (
-      { onVerify }: { onVerify: (t: string) => void; onExpire?: () => void; onError?: () => void },
+      {
+        onVerify,
+        onExpire,
+        onError,
+      }: { onVerify: (t: string) => void; onExpire?: () => void; onError?: () => void },
       ref: React.Ref<unknown>,
     ) => {
+      captchaHandlers.setHandlers({ onExpire, onError })
       React.useImperativeHandle(ref, () => ({
         reset: captchaResetMock,
         isStale: captchaIsStaleMock,
@@ -261,5 +288,95 @@ describe("/auth/verify-email — gate de captcha", () => {
     expect(resendMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ captchaToken: "resend-captcha" }),
     )
+  })
+})
+
+// ── MAJOR 1 de la revisión adversarial ──────────────────────────────────────
+//
+// `/auth/verify-email` es la primera pantalla cuyo botón de submit sobrevive a
+// su propio éxito (las otras 4 desmontan el form o navegan). Sin consumir el
+// token tras un envío exitoso, el 2º reenvío (pasado el cooldown de 30 s, muy
+// por debajo de los ~120 s de frescura) reenviaría el MISMO token ya gastado
+// por Cloudflare, y GoTrue respondería `timeout-or-duplicate` — una petición
+// condenada de antemano que además consume cupo del limiter de `/resend`.
+describe("/auth/verify-email — el token se consume tras un envío exitoso (MAJOR 1)", () => {
+  it("tras el éxito, el widget se resetea (consumeToken) en vez de conservar el token ya usado", async () => {
+    render(<VerifyEmailPage />)
+    await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
+    await runCooldown()
+
+    const button = await screen.findByRole("button", { name: /^reenviar email$/i })
+    await act(async () => {
+      button.click()
+    })
+
+    await waitFor(() => expect(resendMock).toHaveBeenCalledTimes(1))
+    expect(captchaResetMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("(triangulate) un segundo click sin resolver de nuevo el captcha NO reenvía hasta que llegue un token fresco", async () => {
+    render(<VerifyEmailPage />)
+    await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
+    await runCooldown()
+
+    const firstButton = await screen.findByRole("button", { name: /^reenviar email$/i })
+    await act(async () => {
+      firstButton.click()
+    })
+    await waitFor(() => expect(resendMock).toHaveBeenCalledTimes(1))
+
+    // El cooldown de UX se reinicia tras el éxito; la compuerta de captcha,
+    // en cambio, quedó en 'renewing' (consumeToken) — son dos gates distintos.
+    await runCooldown()
+
+    const secondButton = screen.getByRole("button", { name: /reenviar email|renovando verificación/i })
+    await act(async () => {
+      secondButton.click()
+    })
+    // Sin un challenge nuevo resuelto, la intención queda encolada: no se
+    // dispara un segundo reenvío con el token viejo.
+    expect(resendMock).toHaveBeenCalledTimes(1)
+
+    // Recién al resolverse un challenge nuevo (auto-renovación real de
+    // Turnstile en producción) se dispara la intención encolada.
+    solveCaptcha()
+    await waitFor(() => expect(resendMock).toHaveBeenCalledTimes(2))
+  })
+})
+
+// ── MAJOR 2 de la revisión adversarial ──────────────────────────────────────
+//
+// El doble original no cableaba `onExpire`/`onError`, así que la auto-
+// renovación por visibilidad (que llega al gate únicamente vía `onExpire`)
+// tenía cobertura cero en esta pantalla, a diferencia de las otras 4. Mismo
+// test que fija `ForgotPasswordPage.test.tsx` para el guard mezclado
+// (cooldown/resending + aria-disabled de la renovación).
+describe("/auth/verify-email — estado de renovación del captcha (MAJOR 2)", () => {
+  it("tras onExpire con token previo, el botón muestra el rótulo de renovación; un click no reenvía todavía y sí lo hace una vez al llegar el token fresco", async () => {
+    render(<VerifyEmailPage />)
+    await screen.findByRole("button", { name: /reenviar email/i })
+    solveCaptcha()
+    await runCooldown()
+
+    const button = await screen.findByRole("button", { name: /^reenviar email$/i })
+    expect(button).not.toHaveAttribute("aria-disabled")
+
+    act(() => captchaHandlers.fireExpire())
+
+    expect(button).toHaveTextContent("Renovando verificación…")
+    expect(button).toHaveAttribute("aria-disabled", "true")
+    expect(button).not.toBeDisabled()
+
+    await act(async () => {
+      button.click()
+    })
+    expect(resendMock).not.toHaveBeenCalled()
+
+    solveCaptcha()
+
+    await waitFor(() => expect(resendMock).toHaveBeenCalledTimes(1))
+    expect(resendMock).toHaveBeenCalledWith({ email: "susana@test.local", captchaToken: "resend-captcha" })
   })
 })

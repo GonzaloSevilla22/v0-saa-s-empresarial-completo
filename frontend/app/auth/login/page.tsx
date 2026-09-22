@@ -93,7 +93,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        <Card className="border-border bg-card">
+        <Card className="border-border bg-card" data-testid="auth-card">
           <CardHeader className="text-center">
             <CardTitle className="text-xl text-card-foreground">Iniciar sesión</CardTitle>
           <CardDescription>

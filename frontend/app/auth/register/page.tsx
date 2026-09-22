@@ -174,7 +174,7 @@ export default function RegisterPage() {
           <p className="text-sm text-muted-foreground">Emprender es Inteligente</p>
         </div>
 
-        <Card className="border-border bg-card">
+        <Card className="border-border bg-card" data-testid="auth-card">
           <CardHeader className="text-center">
             <CardTitle className="text-xl text-card-foreground">Crear cuenta</CardTitle>
             <CardDescription>Registrate para empezar a gestionar tu negocio</CardDescription>

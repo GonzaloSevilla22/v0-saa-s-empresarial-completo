@@ -161,9 +161,10 @@ export default function RegisterPage() {
       {/* v4-visual-3d-refresh 3.2: mismo tratamiento que login (escena de
           acompañamiento en el fondo, formulario 100% usable sin ella).
           fix/login-3d-visible: ver AUTH_SCENE_BOX_CLASS y el comentario de
-          items-start/md:items-center en auth/login/page.tsx — acá importa
+          items-start/md:items-center (y la opacidad más baja bajo md, MINOR 3
+          de la revisión adversarial) en auth/login/page.tsx — acá importa
           más todavía, este Card es el más alto de los dos. */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-start justify-center opacity-60 md:items-center">
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-start justify-center opacity-30 md:items-center md:opacity-60">
         <AuthSceneMount className={AUTH_SCENE_BOX_CLASS} />
       </div>
       <div className="relative z-10 w-full max-w-md">

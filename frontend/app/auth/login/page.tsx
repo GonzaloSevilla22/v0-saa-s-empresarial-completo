@@ -68,8 +68,12 @@ export default function LoginPage() {
           sobra ancho). En mobile el Card ocupa casi todo el ancho, así que
           asoma en VERTICAL en cambio: items-start la ancla arriba (por detrás
           del logo/título) en vez de centrarla sobre un Card que en /auth/register
-          puede ser más alto que el propio viewport. */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-start justify-center opacity-60 md:items-center">
+          puede ser más alto que el propio viewport.
+          MINOR 3 de la revisión adversarial: en mobile los anillos cruzan el
+          logo/título/subtítulo (items-start), y ahí ya no compiten por
+          atención con un formulario a un costado como en desktop — opacidad
+          más baja bajo md, sin tocar el desktop existente. */}
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-start justify-center opacity-30 md:items-center md:opacity-60">
         <AuthSceneMount className={AUTH_SCENE_BOX_CLASS} />
       </div>
       <div className="relative z-10 w-full max-w-md">

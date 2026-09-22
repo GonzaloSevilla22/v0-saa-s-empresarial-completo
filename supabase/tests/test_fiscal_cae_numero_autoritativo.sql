@@ -39,6 +39,34 @@
 --        cuentas (P0435), por los dos lados (alta/actualización de PV y cambio
 --        de CUIT del perfil), sin tocar las filas que ya existen.
 --
+-- fiscal-riesgos-residuales (20261055000001) agrega:
+--
+--   (13) Firma única, SECURITY DEFINER y ACLs de las 2 RPCs nuevas de la marca
+--        previa (mark_submit_started / clear_submit_mark), y las 2 columnas que
+--        claim_pending pasa a devolver (cae_submit_started_at,
+--        receptor_iva_condition).
+--   (14) Meta-candado de firmas: EXTIENDE el array del bloque (3) a las 7 RPCs
+--        internas del relay (5 de #577 + las 2 nuevas), que son las mismas
+--        cadenas de v_internal_only_fns en test_function_acl_gate.sql.
+--        (Las ACLs de las 7 viven en el bloque (2), también extendido.)
+--   (15) Cuerpos vivos: EXTIENDE el bloque (4). claim_pending devuelve la marca
+--        y NO la usa como predicado de exclusión (ese error la volvería
+--        inalcanzable para siempre); mark_submit_started tiene el guard de
+--        marca viva; clear_submit_mark no desmarca congelados y acota la
+--        re-emisión con attempts + 1.
+--   (16) Comportamiento de la marca sobre datos: marcar, reclamar con la marca,
+--        rechazar la segunda marca, el índice único del número en vuelo,
+--        limpiar y volver al reposo, y la cota de re-emisión por attempts.
+--   (17) R2 — allow-list de escritura sobre fiscal_documents y
+--        document_sequences: cero INSERT/UPDATE/DELETE/TRUNCATE para
+--        anon/authenticated, SELECT sólo para authenticated, y ninguna policy
+--        de escritura sobre fiscal_documents.
+--   (18) R2 — el trigger BEFORE INSERT existe, está habilitado y MUERDE, con la
+--        matriz de evasión ejecutada (authorized / rejected / pending_cae con
+--        CAE / pending_cae con marca) y el control positivo (pending_cae limpio
+--        pasa).
+--   (19) Limpieza verificada de los fixtures nuevos (dentro del bloque (16)).
+--
 -- Patrón del proyecto (test_edicion_preserva_contexto.sql): acumular fallos en
 -- text[], un solo RAISE EXCEPTION al final, anchors sintéticos vía
 -- handle_new_user, limpieza en el camino feliz y en el EXCEPTION.
@@ -78,7 +106,7 @@ BEGIN
 END $$;
 
 
--- ── (2) ACLs exactas de las 5 RPCs del relay ────────────────────────────────
+-- ── (2) ACLs exactas de las 7 RPCs del relay ────────────────────────────────
 DO $$
 DECLARE
   v_fns CONSTANT text[] := ARRAY[
@@ -86,7 +114,16 @@ DECLARE
     'public.rpc_fiscal_document_claim_pending(uuid, integer)',
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
-    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)'
+    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)',
+    -- fiscal-riesgos-residuales (R1): las 2 de la marca previa. Mismo contrato
+    -- que las 5 de arriba — SECURITY DEFINER, sin validación de tenencia,
+    -- reciben el doc_id y escriben. mark_submit_started con EXECUTE para
+    -- authenticated sería la primitiva para MARCAR un comprobante ajeno y
+    -- dejarlo sin poder emitirse; clear_submit_mark, la de BORRARLE la marca a
+    -- uno cuyo FECAESolicitar salió de verdad — o sea, provocar la segunda
+    -- factura real que este change existe para impedir.
+    'public.rpc_fiscal_document_mark_submit_started(uuid, bigint)',
+    'public.rpc_fiscal_document_clear_submit_mark(uuid, text)'
   ];
   v_sig       text;
   v_oid       oid;
@@ -119,7 +156,7 @@ BEGIN
       array_to_string(v_offenders, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'PASS (2): las 5 RPCs del relay sin EXECUTE para anon/authenticated y con service_role.';
+  RAISE NOTICE 'PASS (2): las 7 RPCs del relay sin EXECUTE para anon/authenticated y con service_role.';
 END $$;
 
 
@@ -135,7 +172,10 @@ DECLARE
     'public.rpc_fiscal_document_claim_pending(uuid, integer)',
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
-    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)'
+    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)',
+    -- (14) fiscal-riesgos-residuales (R1)
+    'public.rpc_fiscal_document_mark_submit_started(uuid, bigint)',
+    'public.rpc_fiscal_document_clear_submit_mark(uuid, text)'
   ];
   v_sig       text;
   v_offenders text[] := '{}';
@@ -151,7 +191,7 @@ BEGIN
       array_to_string(v_offenders, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'PASS (3): las 5 firmas del gate de ACLs resuelven — el chequeo (3) sigue vivo.';
+  RAISE NOTICE 'PASS (3)+(14): las 7 firmas del gate de ACLs resuelven — el chequeo (3) sigue vivo.';
 END $$;
 
 
@@ -160,6 +200,8 @@ DO $$
 DECLARE
   v_authorize text;
   v_claim     text;
+  v_mark      text;
+  v_clear     text;
   v_missing   text[] := '{}';
   v_token     text;
 BEGIN
@@ -185,12 +227,60 @@ BEGIN
     v_missing := v_missing || format('claim_pending sin el predicado de congelamiento');
   END IF;
 
+  -- ── (15) fiscal-riesgos-residuales (R1) ────────────────────────────────────
+  -- claim_pending TIENE que devolver la marca: sin la columna, el processor no
+  -- puede saber que el documento ya tiene un envío en curso y vuelve a pedir un
+  -- CAE nuevo — que es exactamente el riesgo R1.
+  IF position('fd.cae_submit_started_at' in v_claim) = 0 THEN
+    v_missing := v_missing || format('claim_pending no devuelve cae_submit_started_at (el relay no podría reconciliar y re-emitiría)');
+  END IF;
+
+  -- OQ-3: el único camino de emisión pasa por acá. Sin esta columna llega None
+  -- al adapter y ARCA recibe siempre CondicionIVAReceptorId=5.
+  IF position('fd.receptor_iva_condition' in v_claim) = 0 THEN
+    v_missing := v_missing || format('claim_pending no devuelve receptor_iva_condition (ARCA recibiría siempre consumidor final)');
+  END IF;
+
+  -- Candado contra el error "obvio": excluir del claim a los documentos
+  -- MARCADOS. Parece la defensa natural y es lo contrario — un documento cuyo
+  -- proceso murió quedaría inalcanzable PARA SIEMPRE (ni se reconcilia ni se
+  -- emite). La marca no excluye; lo que cambia es qué se hace con el documento.
+  IF position('cae_submit_started_at IS NULL' in v_claim) > 0 THEN
+    v_missing := v_missing || format('claim_pending EXCLUYE a los marcados (cae_submit_started_at IS NULL en el WHERE): quedarían inalcanzables para siempre');
+  END IF;
+
+  SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_mark_submit_started(uuid, bigint)'))
+  INTO   v_mark;
+  SELECT pg_get_functiondef(to_regprocedure('public.rpc_fiscal_document_clear_submit_mark(uuid, text)'))
+  INTO   v_clear;
+
+  IF v_mark IS NULL THEN
+    v_missing := v_missing || format('rpc_fiscal_document_mark_submit_started NO EXISTE');
+  ELSIF position('cae_submit_started_at IS NULL' in v_mark) = 0 THEN
+    -- Sin este guard, marcar dos veces pisaría el número de un envío que puede
+    -- estar en vuelo y la reconciliación consultaría en ARCA el número equivocado.
+    v_missing := v_missing || format('mark_submit_started sin el guard de marca viva (cae_submit_started_at IS NULL)');
+  END IF;
+
+  IF v_clear IS NULL THEN
+    v_missing := v_missing || format('rpc_fiscal_document_clear_submit_mark NO EXISTE');
+  ELSE
+    IF position('cae_submit_unconfirmed_at IS NULL' in v_clear) = 0 THEN
+      v_missing := v_missing || format('clear_submit_mark sin el guard de congelados: desmarcaría un congelado por la vía automática');
+    END IF;
+    IF position('attempts + 1' in v_clear) = 0 THEN
+      -- La cota de la re-emisión: claim_pending exige attempts < p_max_attempts,
+      -- así que el ciclo marca → 602 → limpieza → marca no puede volverse infinito.
+      v_missing := v_missing || format('clear_submit_mark sin attempts + 1: la re-emisión dejaría de estar acotada');
+    END IF;
+  END IF;
+
   IF array_length(v_missing, 1) > 0 THEN
-    RAISE EXCEPTION E'GATE FISCAL-CAE (4) FAILED: los cuerpos vivos perdieron piezas del change:\n  %',
+    RAISE EXCEPTION E'GATE FISCAL-CAE (4)+(15) FAILED: los cuerpos vivos perdieron piezas del change:\n  %',
       array_to_string(v_missing, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'PASS (4): cuerpos vivos con el desfasaje, la colisión, el caso irresoluble, la resincronización y el predicado de congelamiento.';
+  RAISE NOTICE 'PASS (4)+(15): cuerpos vivos con el desfasaje, la colisión, el caso irresoluble, la resincronización, el predicado de congelamiento, la marca previa devuelta (y NO usada para excluir) y los guards de mark/clear.';
 END $$;
 
 
@@ -749,6 +839,442 @@ EXCEPTION
     RAISE;
 END $$;
 
+-- ── (13) R1: firma, SECURITY DEFINER y ACLs de las 2 RPCs de la marca previa,
+--        y las 2 columnas que claim_pending pasa a devolver ──────────────────
+DO $$
+DECLARE
+  v_fns CONSTANT text[] := ARRAY[
+    'public.rpc_fiscal_document_mark_submit_started(uuid, bigint)',
+    'public.rpc_fiscal_document_clear_submit_mark(uuid, text)'
+  ];
+  v_names CONSTANT text[] := ARRAY[
+    'rpc_fiscal_document_mark_submit_started',
+    'rpc_fiscal_document_clear_submit_mark'
+  ];
+  v_has_anon  boolean;
+  v_sig       text;
+  v_oid       oid;
+  v_count     integer;
+  v_secdef    boolean;
+  v_result    text;
+  v_offenders text[] := '{}';
+  i           integer;
+BEGIN
+  v_has_anon := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon');
+
+  FOR i IN 1 .. array_length(v_fns, 1) LOOP
+    v_sig := v_fns[i];
+
+    SELECT count(*) INTO v_count
+    FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE  n.nspname = 'public' AND p.proname = v_names[i];
+
+    IF v_count <> 1 THEN
+      v_offenders := v_offenders || format('%s: se esperaba UNA sola definición y hay %s (un overload es el 42725 de siempre)', v_names[i], v_count);
+      CONTINUE;
+    END IF;
+
+    v_oid := to_regprocedure(v_sig);
+    IF v_oid IS NULL THEN
+      v_offenders := v_offenders || format('%s NO EXISTE con esa firma', v_sig);
+      CONTINUE;
+    END IF;
+
+    SELECT prosecdef INTO v_secdef FROM pg_proc WHERE oid = v_oid;
+    IF NOT v_secdef THEN
+      v_offenders := v_offenders || format('%s dejó de ser SECURITY DEFINER (el relay corre con service conn y fiscal_documents no tiene policy de UPDATE)', v_sig);
+    END IF;
+
+    IF has_function_privilege('authenticated', v_oid, 'EXECUTE') THEN
+      v_offenders := v_offenders || format('%s ejecutable por authenticated', v_sig);
+    END IF;
+    IF v_has_anon AND has_function_privilege('anon', v_oid, 'EXECUTE') THEN
+      v_offenders := v_offenders || format('%s ejecutable por anon', v_sig);
+    END IF;
+    IF NOT has_function_privilege('service_role', v_oid, 'EXECUTE') THEN
+      v_offenders := v_offenders || format('%s SIN EXECUTE para service_role (el relay dejaría de poder marcar y NINGÚN comprobante se emitiría)', v_sig);
+    END IF;
+  END LOOP;
+
+  -- El tipo de retorno de claim_pending es parte del contrato con el relay: si
+  -- pierde cae_submit_started_at, el processor no ve la marca y vuelve a pedir
+  -- un CAE nuevo (R1). DROP+CREATE con una columna de menos no falla en ningún
+  -- otro lado — asyncpg simplemente no traería la clave.
+  SELECT pg_get_function_result(to_regprocedure('public.rpc_fiscal_document_claim_pending(uuid, integer)'))
+  INTO   v_result;
+
+  IF v_result IS NULL THEN
+    v_offenders := v_offenders || format('rpc_fiscal_document_claim_pending(uuid, integer) NO EXISTE');
+  ELSE
+    IF position('cae_submit_started_at' in v_result) = 0 THEN
+      v_offenders := v_offenders || format('claim_pending no DEVUELVE cae_submit_started_at: %s', v_result);
+    END IF;
+    IF position('receptor_iva_condition' in v_result) = 0 THEN
+      v_offenders := v_offenders || format('claim_pending no DEVUELVE receptor_iva_condition (OQ-3): %s', v_result);
+    END IF;
+  END IF;
+
+  IF array_length(v_offenders, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FISCAL-CAE (13) FAILED: las RPCs de la marca previa (R1).\n  %\n  Contexto: mark_submit_started es la que hace que un FECAESolicitar NUNCA salga sin marca commiteada, y clear_submit_mark la única que borra esa marca. Con EXECUTE para authenticated, la segunda es la primitiva para provocar a mano la segunda factura real que este change impide.',
+      array_to_string(v_offenders, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (13): las 2 RPCs de la marca previa con firma única, SECURITY DEFINER y sin EXECUTE para anon/authenticated; claim_pending devuelve la marca y la condición IVA del receptor.';
+END $$;
+
+
+-- ── (16)+(19) R1: comportamiento de la marca sobre datos ────────────────────
+DO $$
+DECLARE
+  v_failures  text[] := '{}';
+
+  v_email_m   text := 'fiscal-marca-previa@test.local';
+  v_user_m    uuid := gen_random_uuid();
+  v_account_m uuid;
+  v_fp_m      uuid;
+
+  v_pv_a      uuid;   -- marcado / limpieza / cota
+  v_pv_u      uuid;   -- índice único del número en vuelo
+  v_pv_f      uuid;   -- congelado
+
+  v_doc1      uuid;   -- marcar → reclamar → limpiar
+  v_doc2      uuid;   -- número NULL / clear sin marca
+  v_doc3      uuid;   -- authorized → no se marca
+  v_doc4      uuid;   -- índice único (primero)
+  v_doc5      uuid;   -- índice único (segundo, colisiona)
+  v_doc6      uuid;   -- congelado + marcado
+  v_doc7      uuid;   -- cota de re-emisión
+
+  v_ret       boolean;
+  v_state     text;
+  v_started   timestamptz;
+  v_req       bigint;
+  v_attempts  integer;
+  v_count     integer;
+  v_last_err  text;
+  v_cond      text;
+  i           integer;
+BEGIN
+  -- ═══ Setup ═══
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_user_m, 'authenticated', 'authenticated', v_email_m, now(), now(),
+          jsonb_build_object('name', 'Gate Fiscal Marca Previa', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_m
+  FROM   public.account_members WHERE user_id = v_user_m ORDER BY created_at LIMIT 1;
+
+  IF v_account_m IS NULL THEN
+    RAISE EXCEPTION 'SETUP FAILED (16): no se pudo resolver account para el anchor — handle_new_user no corrió';
+  END IF;
+
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (v_account_m, '20555555560', 'monotributista', 'homologacion', true)
+  RETURNING id INTO v_fp_m;
+
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp_m, v_account_m, 8020, true) RETURNING id INTO v_pv_a;
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp_m, v_account_m, 8021, true) RETURNING id INTO v_pv_u;
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp_m, v_account_m, 8022, true) RETURNING id INTO v_pv_f;
+
+  -- ═══ (16.a) Marcar un pending_cae limpio, y reclamarlo CON la marca ═══
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts, receptor_iva_condition)
+  VALUES (v_account_m, v_fp_m, v_pv_a, 'factura_c', 8020, 1, 1000, 'pending_cae', 0, 'monotributista')
+  RETURNING id INTO v_doc1;
+
+  v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc1, 101);
+  IF v_ret IS NOT TRUE THEN
+    v_failures := v_failures || '(16.a) mark_submit_started sobre un pending_cae limpio debía devolver true';
+  END IF;
+
+  SELECT cae_submit_started_at, arca_requested_number
+  INTO   v_started, v_req
+  FROM   public.fiscal_documents WHERE id = v_doc1;
+
+  IF v_started IS NULL OR v_req <> 101 THEN
+    v_failures := v_failures || format('(16.a) la marca debía quedar persistida; started=%s requested=%s',
+                                       COALESCE(v_started::text, '<NULL>'), COALESCE(v_req::text, '<NULL>'));
+  END IF;
+
+  -- El documento MARCADO se sigue reclamando (si no, quedaría inalcanzable), y
+  -- la fila que devuelve trae la marca — es el dato con el que el processor
+  -- decide reconciliar en vez de pedir un CAE nuevo.
+  SELECT count(*), max(cae_submit_started_at), max(arca_requested_number), max(receptor_iva_condition)
+  INTO   v_count, v_started, v_req, v_cond
+  FROM   public.rpc_fiscal_document_claim_pending(v_doc1, 10);
+
+  IF v_count <> 1 THEN
+    v_failures := v_failures || format('(16.a) un documento MARCADO debe seguir siendo reclamable (para reconciliarlo); claim devolvió %s filas', v_count);
+  END IF;
+  IF v_started IS NULL OR v_req <> 101 THEN
+    v_failures := v_failures || '(16.a) claim_pending debe devolver la marca (cae_submit_started_at + arca_requested_number)';
+  END IF;
+  IF v_cond IS DISTINCT FROM 'monotributista' THEN
+    v_failures := v_failures || format('(16.a, OQ-3) claim_pending debe devolver receptor_iva_condition; got %s', COALESCE(v_cond, '<NULL>'));
+  END IF;
+
+  -- ═══ (16.b) Segunda marca sobre el mismo documento → P0437 ═══
+  BEGIN
+    v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc1, 102);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0437' THEN
+    v_failures := v_failures || format('(16.b) una segunda marca (envío ya en curso) debía dar P0437; got %s', v_state);
+  END IF;
+
+  SELECT arca_requested_number INTO v_req FROM public.fiscal_documents WHERE id = v_doc1;
+  IF v_req <> 101 THEN
+    v_failures := v_failures || format('(16.b) la segunda marca NO debe pisar el número en vuelo; requested=%s', COALESCE(v_req::text, '<NULL>'));
+  END IF;
+
+  -- ═══ (16.c) Marcar sin número → P0437 (no se marca un envío sin número) ═══
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_a, 'factura_c', 8020, 2, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc2;
+
+  BEGIN
+    v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc2, NULL);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0437' THEN
+    v_failures := v_failures || format('(16.c) marcar con p_arca_requested_number NULL debía dar P0437; got %s', v_state);
+  END IF;
+
+  SELECT cae_submit_started_at INTO v_started FROM public.fiscal_documents WHERE id = v_doc2;
+  IF v_started IS NOT NULL THEN
+    v_failures := v_failures || '(16.c) una marca sin número no debe dejar rastro';
+  END IF;
+
+  -- ═══ (16.d) Documento inexistente → P0437 ═══
+  BEGIN
+    v_ret := public.rpc_fiscal_document_mark_submit_started(gen_random_uuid(), 1);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0437' THEN
+    v_failures := v_failures || format('(16.d) marcar un documento inexistente debía dar P0437; got %s', v_state);
+  END IF;
+
+  -- ═══ (16.e) Documento ya authorized → P0437 ═══
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_a, 'factura_c', 8020, 3, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc3;
+
+  v_ret := public.rpc_fiscal_document_authorize(v_doc3, 'CAE-MARCA-YA-AUTH', current_date + 10, 3);
+
+  BEGIN
+    v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc3, 3);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0437' THEN
+    v_failures := v_failures || format('(16.e) marcar un documento ya authorized debía dar P0437; got %s', v_state);
+  END IF;
+
+  -- ═══ (16.f) Dos documentos del mismo PV/tipo con el mismo número EN VUELO ═══
+  -- Hoy el relay es serial y no puede pasar; el índice único parcial hace que,
+  -- si algún día deja de serlo, el segundo falle al MARCAR (sin enviar nada) en
+  -- vez de pedirle a ARCA un número que otro documento ya tiene en vuelo.
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_u, 'factura_c', 8021, 1, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc4;
+
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_u, 'factura_c', 8021, 2, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc5;
+
+  v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc4, 500);
+  IF v_ret IS NOT TRUE THEN
+    v_failures := v_failures || '(16.f) control positivo: la PRIMERA marca del número 500 debía pasar';
+  END IF;
+
+  BEGIN
+    v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc5, 500);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> '23505' THEN
+    v_failures := v_failures || format('(16.f) marcar el MISMO número en vuelo en el mismo PV debía violar fiscal_documents_submit_mark_uq (23505); got %s', v_state);
+  END IF;
+
+  -- ═══ (16.g) Limpiar la marca: vuelve al reposo, con attempts + 1 ═══
+  v_ret := public.rpc_fiscal_document_clear_submit_mark(v_doc1, 'ARCA_602: no existen datos en nuestros registros (ultimo=100 < 101)');
+  IF v_ret IS NOT TRUE THEN
+    v_failures := v_failures || '(16.g) clear_submit_mark sobre un marcado debía devolver true';
+  END IF;
+
+  SELECT cae_submit_started_at, arca_requested_number, attempts, last_error
+  INTO   v_started, v_req, v_attempts, v_last_err
+  FROM   public.fiscal_documents WHERE id = v_doc1;
+
+  IF v_started IS NOT NULL OR v_req IS NOT NULL THEN
+    v_failures := v_failures || '(16.g) clear_submit_mark debía dejar la marca y el número en NULL';
+  END IF;
+  IF v_attempts <> 1 THEN
+    v_failures := v_failures || format('(16.g) clear_submit_mark debía incrementar attempts (cota de la re-emisión); attempts=%s', v_attempts);
+  END IF;
+  IF v_last_err IS NULL OR position('ARCA_602' in v_last_err) = 0 THEN
+    v_failures := v_failures || format('(16.g) el detalle de ARCA debía quedar en last_error; got %s', COALESCE(v_last_err, '<NULL>'));
+  END IF;
+
+  -- next_attempt_at = now() ⇒ el PRÓXIMO tick lo toma, ya sin marca.
+  SELECT count(*), max(cae_submit_started_at)
+  INTO   v_count, v_started
+  FROM   public.rpc_fiscal_document_claim_pending(v_doc1, 10);
+
+  IF v_count <> 1 OR v_started IS NOT NULL THEN
+    v_failures := v_failures || format('(16.g) tras la limpieza el documento debe volver al reposo y ser reclamable SIN marca; filas=%s started=%s',
+                                       v_count, COALESCE(v_started::text, '<NULL>'));
+  END IF;
+
+  -- ═══ (16.h) clear sobre un documento SIN marca → false, sin efectos ═══
+  SELECT attempts INTO v_attempts FROM public.fiscal_documents WHERE id = v_doc2;
+
+  v_ret := public.rpc_fiscal_document_clear_submit_mark(v_doc2, 'no debería tocar nada');
+  IF v_ret IS NOT FALSE THEN
+    v_failures := v_failures || '(16.h) clear_submit_mark sobre un documento sin marca debía devolver false';
+  END IF;
+
+  SELECT attempts, last_error INTO v_count, v_last_err FROM public.fiscal_documents WHERE id = v_doc2;
+  IF v_count <> v_attempts OR v_last_err IS NOT NULL THEN
+    v_failures := v_failures || format('(16.h) clear_submit_mark sin marca no debe tener efectos; attempts %s→%s last_error=%s',
+                                       v_attempts, v_count, COALESCE(v_last_err, '<NULL>'));
+  END IF;
+
+  -- ═══ (16.i) Un CONGELADO marcado: no se reclama y NO se desmarca ═══
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_f, 'factura_c', 8022, 1, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc6;
+
+  v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc6, 700);
+  v_ret := public.rpc_fiscal_document_freeze_unconfirmed(v_doc6, 700, '[CAE_SUBMIT_UNCONFIRMED] respuesta ilegible');
+
+  SELECT count(*) INTO v_count FROM public.rpc_fiscal_document_claim_pending(v_doc6, 10);
+  IF v_count <> 0 THEN
+    v_failures := v_failures || format('(16.i) un congelado (aunque esté marcado) NO debe reclamarse; claim devolvió %s filas', v_count);
+  END IF;
+
+  v_ret := public.rpc_fiscal_document_clear_submit_mark(v_doc6, 'intento de desmarcar un congelado');
+  IF v_ret IS NOT FALSE THEN
+    v_failures := v_failures || '(16.i) clear_submit_mark NO debe desmarcar un congelado (devolver false)';
+  END IF;
+
+  SELECT cae_submit_started_at, arca_requested_number
+  INTO   v_started, v_req
+  FROM   public.fiscal_documents WHERE id = v_doc6;
+
+  IF v_started IS NULL OR v_req <> 700 THEN
+    v_failures := v_failures || '(16.i) la marca de un congelado debe sobrevivir (es el rastro para resolverlo a mano)';
+  END IF;
+
+  -- ═══ (16.j) La re-emisión está ACOTADA por attempts ═══
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_a, 'factura_c', 8020, 4, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc7;
+
+  FOR i IN 1 .. 9 LOOP
+    v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc7, 900 + i);
+    v_ret := public.rpc_fiscal_document_clear_submit_mark(v_doc7, format('ciclo %s', i));
+  END LOOP;
+
+  SELECT attempts INTO v_attempts FROM public.fiscal_documents WHERE id = v_doc7;
+  IF v_attempts <> 9 THEN
+    v_failures := v_failures || format('(16.j) tras 9 ciclos marca→limpieza attempts debía ser 9; got %s', v_attempts);
+  END IF;
+
+  -- Control positivo: con attempts = 9 todavía se reclama.
+  SELECT count(*) INTO v_count FROM public.rpc_fiscal_document_claim_pending(v_doc7, 10);
+  IF v_count <> 1 THEN
+    v_failures := v_failures || format('(16.j) control positivo: con attempts=9 el documento todavía debe reclamarse; filas=%s', v_count);
+  END IF;
+
+  v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc7, 910);
+  v_ret := public.rpc_fiscal_document_clear_submit_mark(v_doc7, 'ciclo 10');
+
+  SELECT count(*) INTO v_count FROM public.rpc_fiscal_document_claim_pending(v_doc7, 10);
+  IF v_count <> 0 THEN
+    v_failures := v_failures || format('(16.j) con attempts=10 el ciclo marca→602→limpieza→marca debe cortarse; filas=%s', v_count);
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FISCAL-CAE (16) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (16): marca previa persistida y devuelta por claim_pending, segunda marca / sin número / documento inexistente / ya authorized rechazados con P0437, número en vuelo único por PV, limpieza con attempts+1 y vuelta al reposo, congelado no desmarcable y re-emisión acotada.';
+
+  -- ═══ (19) Limpieza verificada ═══
+  DELETE FROM public.document_status_history WHERE account_id = v_account_m;
+  DELETE FROM public.fiscal_documents        WHERE account_id = v_account_m;
+  DELETE FROM public.document_sequences
+  WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id = v_account_m);
+  DELETE FROM public.points_of_sale          WHERE account_id = v_account_m;
+  DELETE FROM public.fiscal_profiles         WHERE account_id = v_account_m;
+
+  SELECT count(*) INTO v_count FROM public.fiscal_documents WHERE account_id = v_account_m;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE FISCAL-CAE (19) FAILED: quedaron % fiscal_documents del fixture de la marca previa', v_count;
+  END IF;
+  SELECT count(*) INTO v_count FROM public.document_status_history WHERE account_id = v_account_m;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE FISCAL-CAE (19) FAILED: quedaron % filas de document_status_history del fixture de la marca previa', v_count;
+  END IF;
+  SELECT count(*) INTO v_count FROM public.document_sequences ds
+  JOIN public.points_of_sale pos ON pos.id = ds.point_of_sale_id
+  WHERE pos.account_id = v_account_m;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE FISCAL-CAE (19) FAILED: quedaron % document_sequences del fixture de la marca previa', v_count;
+  END IF;
+
+  SET session_replication_role = replica;
+  DELETE FROM public.account_members WHERE account_id = v_account_m;
+  DELETE FROM public.accounts        WHERE id = v_account_m;
+  DELETE FROM public.profiles        WHERE id = v_user_m;
+  DELETE FROM auth.users             WHERE id = v_user_m;
+  SET session_replication_role = DEFAULT;
+
+  RAISE NOTICE 'PASS (19): limpieza verificada — cero filas residuales del fixture de la marca previa.';
+
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      DELETE FROM public.document_status_history WHERE account_id = v_account_m;
+      DELETE FROM public.fiscal_documents        WHERE account_id = v_account_m;
+      DELETE FROM public.document_sequences
+      WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id = v_account_m);
+      DELETE FROM public.points_of_sale          WHERE account_id = v_account_m;
+      DELETE FROM public.fiscal_profiles         WHERE account_id = v_account_m;
+      SET session_replication_role = replica;
+      DELETE FROM public.account_members WHERE account_id = v_account_m;
+      DELETE FROM public.accounts        WHERE id = v_account_m;
+      DELETE FROM public.profiles        WHERE id = v_user_m;
+      DELETE FROM auth.users             WHERE id = v_user_m;
+      SET session_replication_role = DEFAULT;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;
+
 -- =============================================================================
--- GATE FISCAL-CAE PASSED (12 bloques).
+-- GATE FISCAL-CAE PASSED (16 bloques).
 -- =============================================================================

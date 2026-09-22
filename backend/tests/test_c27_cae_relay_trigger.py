@@ -329,6 +329,9 @@ class TestAntiDoubleCAEClaim:
         mock_repo = MagicMock()
         mock_repo.claim_pending = AsyncMock(return_value=dict(doc))
         mock_repo.update_authorized = AsyncMock()
+        # fiscal-riesgos-residuales (R1): el relay inyecta el hook de la marca previa.
+        mock_repo.mark_submit_started = AsyncMock()
+        mock_repo.clear_submit_mark = AsyncMock(return_value=True)
 
         mock_adapter = MagicMock()
         mock_adapter.request_cae = AsyncMock(
@@ -420,6 +423,9 @@ class TestCrossAccountBatch:
         mock_repo.list_pending_all = AsyncMock(return_value=[doc1, doc2])
         mock_repo.claim_pending = AsyncMock(side_effect=[dict(doc1), dict(doc2)])
         mock_repo.update_authorized = AsyncMock()
+        # fiscal-riesgos-residuales (R1): el relay inyecta el hook de la marca previa.
+        mock_repo.mark_submit_started = AsyncMock()
+        mock_repo.clear_submit_mark = AsyncMock(return_value=True)
 
         mock_adapter = MagicMock()
         mock_adapter.request_cae = AsyncMock(
@@ -451,6 +457,9 @@ class TestCrossAccountBatch:
         # doc1 claimed successfully, doc2 already claimed by fire-and-forget
         mock_repo.claim_pending = AsyncMock(side_effect=[dict(doc1), None])
         mock_repo.update_authorized = AsyncMock()
+        # fiscal-riesgos-residuales (R1): el relay inyecta el hook de la marca previa.
+        mock_repo.mark_submit_started = AsyncMock()
+        mock_repo.clear_submit_mark = AsyncMock(return_value=True)
 
         mock_adapter = MagicMock()
         mock_adapter.request_cae = AsyncMock(

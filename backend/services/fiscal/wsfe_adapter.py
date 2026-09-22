@@ -726,6 +726,25 @@ class WSFEAdapter(FiscalDocumentPort):
             },
         }
 
+        # ── fiscal-riesgos-residuales (R1): la marca ANTES del envío ─────────
+        # Acá ya pasaron TODAS las validaciones que pueden levantar
+        # (CondicionIVAReceptorId, umbral de identificación del receptor,
+        # desglose de IVA), así que no se marca un envío que nunca iba a salir.
+        #
+        # Y está FUERA del try de abajo a propósito: si el hook levanta (base
+        # caída, documento que ya no está pending_cae, marca viva previa), la
+        # excepción NO puede convertirse en WSFESubmitInFlightError — ese raise
+        # vive dentro del try del submit. Cae al `except Exception` genérico de
+        # `request_cae` → WSFE_ERROR → retry normal, que es lo correcto: no
+        # salió un byte.
+        #
+        # La invariante que instala: un FECAESolicitar no puede salir sin una
+        # marca commiteada para ESTE documento con ESTE número. La
+        # contrapositiva es la que usa la reconciliación — sin marca no hubo
+        # envío, así que es seguro emitir.
+        if invoice_data.on_submit_start is not None:
+            await invoice_data.on_submit_start(cbte_numero)
+
         # ── fiscal-emision-segura (G4): desde acá, un fallo NO es reintentable
         # salvo que se pueda demostrar lo contrario ───────────────────────────
         # Una excepción de la que no se puede demostrar qué pasó deja al

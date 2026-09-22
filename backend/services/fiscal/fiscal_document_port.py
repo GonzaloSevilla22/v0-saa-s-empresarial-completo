@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import datetime
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+
+# fiscal-riesgos-residuales (R1): hook que el relay inyecta por documento. El
+# adapter lo AWAITEA con el número que está por pedirle a ARCA, justo antes del
+# FECAESolicitar. Si levanta, el envío NO sale.
+SubmitStartHook = Callable[[int], Awaitable[None]]
 
 
 @dataclass
@@ -50,6 +56,18 @@ class CAERequest:
     # fiscal-receptor-iva-relay (D2): identificación del receptor (AFIP DocTipo/DocNro)
     receptor_doc_tipo: int | None = None        # 80=CUIT, 96=DNI, 99=sin identificar (None → derivar)
     receptor_doc_nro: str | None = None         # número de documento del receptor (sin guiones)
+    # ── fiscal-riesgos-residuales (R1): la marca ANTES del envío ──────────────
+    # El adapter lo awaitea con el número que va a pedirle a ARCA
+    # (FECompUltimoAutorizado + 1), FUERA del try del FECAESolicitar e
+    # inmediatamente antes. Si levanta, el envío NO sale: es lo que sostiene la
+    # invariante "un FECAESolicitar nunca sale sin una marca commiteada".
+    #
+    # Viaja en el CAERequest y NO como parámetro nuevo de `request_cae` a
+    # propósito: así la firma del port queda intacta y ninguno de los ~20 mocks
+    # de adapter de backend/tests/ se rompe. El precio es un Callable dentro de
+    # un dataclass de dominio (roza el ACL del D4); el beneficio es no tocar
+    # seis archivos de test por una cuestión de forma.
+    on_submit_start: SubmitStartHook | None = None
 
 
 @dataclass

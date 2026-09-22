@@ -66,6 +66,11 @@ class TestCAERelayProcessor:
         repo.update_authorized = AsyncMock()
         repo.update_rejected = AsyncMock()
         repo.update_retry = AsyncMock()
+        # fiscal-riesgos-residuales (R1): el relay inyecta el hook de la marca
+        # previa en el CAERequest, y el stub lo awaitea antes de "enviar". Sin
+        # estos dos AsyncMock, el hook levanta TypeError contra el MagicMock.
+        repo.mark_submit_started = AsyncMock()
+        repo.clear_submit_mark = AsyncMock(return_value=True)
         return repo
 
     @pytest.fixture

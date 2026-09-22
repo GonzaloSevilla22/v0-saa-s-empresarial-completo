@@ -60,6 +60,14 @@ class WSFEStubAdapter(FiscalDocumentPort):
                 ),
             )
 
+        # fiscal-riesgos-residuales (R1): el stub también marca. Si no lo
+        # hiciera, el camino local/dev (el único que corre en el humo y en las
+        # sondas de punta a punta) no ejercitaría la invariante "un envío nunca
+        # sale sin marca commiteada" y la prueba no probaría nada. El stub no
+        # habla con ARCA, así que el número que marca es el local.
+        if invoice_data.on_submit_start is not None:
+            await invoice_data.on_submit_start(invoice_data.number)
+
         fake_cae = self._derive_cae(invoice_data.fiscal_document_id)
         due_date = datetime.date.today() + datetime.timedelta(days=10)
 

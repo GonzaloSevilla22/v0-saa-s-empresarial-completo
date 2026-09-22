@@ -91,6 +91,9 @@ class CAERelayProcessor:
             neto=float(doc["neto"]) if doc.get("neto") is not None else None,
             iva_amount=float(doc["iva_amount"]) if doc.get("iva_amount") is not None else None,
             iva_alicuota_id=doc.get("iva_alicuota_id"),
+            # fiscal-riesgos-residuales (R1): el hook que persiste la marca del
+            # envío ANTES de que el FECAESolicitar salga.
+            on_submit_start=self._make_submit_hook(doc["id"]),
         )
 
         # ── fiscal-emision-segura (G2): capa 2 del guard de ambiente ──────────
@@ -222,6 +225,22 @@ class CAERelayProcessor:
                     "CAERelayProcessor: doc %s retry %d a las %s",
                     doc["id"], new_attempts, next_at.isoformat(),
                 )
+
+    def _make_submit_hook(self, doc_id: str):
+        """Hook que el adapter awaitea justo antes del FECAESolicitar (R1).
+
+        Persiste, en su propia transacción (el relay corre en autocommit sobre
+        `get_service_conn`), el número que se le va a pedir a ARCA. Si la
+        escritura falla, la excepción sale del hook y el envío NO se despacha:
+        fail-closed por construcción, no por disciplina del caller.
+        """
+        async def _hook(cbte_numero: int) -> None:
+            await self._repo.mark_submit_started(
+                doc_id=doc_id,
+                arca_requested_number=cbte_numero,
+            )
+
+        return _hook
 
     async def process_document_by_id(self, doc_id: str) -> None:
         """Attempt to claim and process a single document by id.

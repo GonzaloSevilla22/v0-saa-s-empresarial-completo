@@ -89,6 +89,11 @@ def make_repo() -> MagicMock:
     repo.update_rejected = AsyncMock()
     repo.update_retry = AsyncMock()
     repo.freeze_unconfirmed = AsyncMock()
+    # fiscal-riesgos-residuales (R1): el relay inyecta en el CAERequest el hook
+    # que persiste la marca ANTES del envío; cualquier adapter que lo awaitee
+    # (el stub lo hace) termina acá.
+    repo.mark_submit_started = AsyncMock()
+    repo.clear_submit_mark = AsyncMock(return_value=True)
     return repo
 
 

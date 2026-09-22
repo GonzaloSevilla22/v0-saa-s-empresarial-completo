@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 305 migraciones; última `20261058000001_fiscal_emit_pending_cae_consumidor_final` (la 20261057000001 la aporta el PR de riesgos fiscales en curso, rama `fix/fiscal-riesgos-residuales` sin mergear; verificar en prod tras el merge) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 305 migraciones; última `20261058000001_fiscal_emit_pending_cae_consumidor_final` (verificada en prod 2026-09-22: `max(version)=20261058000001`, 305 filas). La `20261059000001_fiscal_marca_previa_e_insert_interno` la aporta el PR de riesgos fiscales en curso (rama `fix/fiscal-riesgos-residuales`, sin mergear); verificar en prod tras el merge |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |

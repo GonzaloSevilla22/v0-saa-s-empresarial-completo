@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- 20261057000001_fiscal_marca_previa_e_insert_interno.sql
+-- 20261059000001_fiscal_marca_previa_e_insert_interno.sql
 --
 -- fiscal-riesgos-residuales (governance CRÍTICO). Los dos riesgos residuales
 -- que dejó abiertos fiscal-emision-segura (#577, 20261054000001):

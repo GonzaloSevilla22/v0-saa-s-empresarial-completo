@@ -10,7 +10,7 @@
 -- parte de este gate porque resuelve tenencia, no rol.
 --
 -- CONTEO (mantenimiento): nació en 48 policies sobre 20 tablas.
--- fiscal-riesgos-residuales (R2, 20261057000001) lo baja a 47 sobre 19: la
+-- fiscal-riesgos-residuales (R2, 20261059000001) lo baja a 47 sobre 19: la
 -- policy `fiscal_documents_writer_insert` se RETIRA a propósito. Era la única
 -- de `fiscal_documents`, y era justamente el agujero — un writer podía POSTear
 -- a PostgREST un comprobante 'authorized' con un CAE inventado en su propia

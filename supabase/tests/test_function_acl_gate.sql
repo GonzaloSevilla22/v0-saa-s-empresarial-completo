@@ -180,7 +180,7 @@ DECLARE
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
     'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)',
-    -- fiscal-riesgos-residuales (R1, 20261057000001): las 2 RPCs de la marca
+    -- fiscal-riesgos-residuales (R1, 20261059000001): las 2 RPCs de la marca
     -- previa al envío. Mismo contrato que las 5 de arriba. clear_submit_mark
     -- es la más sensible de las siete: borra la marca que impide re-emitir, así
     -- que con EXECUTE para `authenticated` sería la primitiva para provocar a

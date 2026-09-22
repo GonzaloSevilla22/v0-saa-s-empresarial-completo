@@ -236,13 +236,54 @@ El sistema SHALL acotar la llamada SOAP completa (carga del WSDL + cada operaci�
 - **WHEN** el cron corre su próximo tick
 - **THEN** `claim_pending` no lo reclama (0 filas) — un documento hermano sin congelar en el mismo estado sí se reclama (1 fila)
 
+**MODIFIED por `fiscal-riesgos-residuales` (2026-09-22).** Reason: el congelamiento de arriba se escribe DESPUÉS del intento (dentro del `except` que atrapa el fallo de transporte). Si el PROCESO MUERE (OOM, `SIGKILL`, redeploy de Render) o la base de datos está caída en el instante exacto entre que ARCA aprueba y que la respuesta se persiste (`authorize` o el propio `freeze_unconfirmed`), no hay excepción de Python que atrapar: no se escribe ni el CAE ni el congelamiento. Pasados los 5 minutos del lease, el próximo tick reclama el mismo documento, pide `FECompUltimoAutorizado + 1` (que YA avanzó) y emite una SEGUNDA factura real. Reproducido en local (base caída entre el envío y la persistencia: 2 llamadas a `request_cae`). El sistema SHALL cerrar esto moviendo la marca de "esto se va a enviar" de DESPUÉS a ANTES del envío, en su propia transacción committeada, y reemplazando el reintento ciego por una reconciliación activa contra ARCA:
+
+- El sistema SHALL persistir `arca_requested_number` junto con una marca `cae_submit_started_at`, en una transacción propia (vía un hook `on_submit_start` que el adapter awaitea inmediatamente antes de invocar `FECAESolicitar`), ANTES de que la llamada SOAP salga. Si esa persistencia falla o rechaza (p. ej. porque ya existe una marca viva), el `FECAESolicitar` NO SHALL ejecutarse.
+- `claim_pending` SHALL seguir reclamando un documento marcado (`cae_submit_started_at IS NOT NULL`) — excluirlo lo dejaría inalcanzable para siempre si el proceso murió — pero el relay SHALL tratarlo como un caso DISTINTO: en vez de invocar `FECAESolicitar` de nuevo, SHALL reconciliar primero contra ARCA consultando `FECompConsultar(PtoVta, CbteTipo, CbteNro=arca_requested_number)`.
+  - Si ARCA responde que el comprobante está autorizado, el sistema SHALL adoptar su CAE/vencimiento/número y autorizar el documento — nunca pedir uno nuevo.
+  - Si ARCA responde el código 602 ("no existe") **y**, como cross-check obligatorio, su último autorizado (`FECompUltimoAutorizado`) todavía NO alcanzó el número pedido, el sistema SHALL interpretar que el envío nunca llegó: limpia la marca (incrementando `attempts`, con el mismo tope que el resto del relay) y recién en un tick posterior vuelve a pedir un CAE. Un 602 SIN ese cross-check NO SHALL limpiar la marca (el código también aparece cuando el PtoVta/CbteTipo consultado no matchea, no sólo cuando el número no existe).
+  - Ante cualquier otra respuesta (rechazado, timeout, transporte, respuesta ilegible, excepción) el sistema NO SHALL emitir a ciegas: deja la marca como está y reintenta la consulta en un tick posterior.
+- Un documento con la marca de envío viva (`cae_submit_started_at` o `cae_submit_unconfirmed_at`) NO SHALL poder transicionar a `rejected` (estado terminal): la RPC de rechazo SHALL rechazar ese intento — el envío puede existir en ARCA y `rejected` lo taparía para siempre. Este guard SHALL vivir en la RPC (choke point), no sólo en el código que la invoca, para cubrir también un camino futuro que no la respete.
+
+#### Scenario: El proceso muere entre el envío y la persistencia — no hay segunda factura
+
+- **GIVEN** un documento `pending_cae` cuya marca de envío se committeó y cuyo `FECAESolicitar` fue aprobado por ARCA
+- **WHEN** el proceso muere antes de persistir el resultado y, en un tick posterior, `claim_pending` reclama el mismo documento
+- **THEN** el relay reconcilia contra ARCA en vez de invocar `FECAESolicitar` de nuevo, adopta el CAE que ARCA ya había aprobado, y en total se registra una sola llamada a `request_cae`
+
+#### Scenario: La base de datos está caída al momento de decidir — mismo resultado
+
+- **GIVEN** el mismo documento marcado y aprobado por ARCA, pero esta vez ni `authorize` ni `freeze_unconfirmed` pudieron escribir porque la base estaba caída
+- **WHEN** la base vuelve y un tick posterior reclama el documento
+- **THEN** la reconciliación contra ARCA se ejecuta igual (la marca sobrevive porque se escribió ANTES, en su propia transacción) y el documento se autoriza con el CAE real, sin una segunda solicitud
+
+#### Scenario: ARCA demuestra que el envío marcado nunca existió
+
+- **GIVEN** un documento marcado cuyo `FECompConsultar` responde 602 y cuyo `FECompUltimoAutorizado` es menor al número pedido
+- **WHEN** el relay reconcilia
+- **THEN** limpia la marca (incrementando `attempts`) y un tick posterior vuelve a pedir un CAE — exactamente una vez más
+
+#### Scenario: Un 602 sin el cross-check del último autorizado no limpia la marca
+
+- **GIVEN** un documento marcado cuyo `FECompConsultar` responde 602, pero cuyo `FECompUltimoAutorizado` ya alcanzó o superó el número pedido
+- **WHEN** el relay reconcilia
+- **THEN** NO limpia la marca ni re-emite — el 602 sin ese cross-check no demuestra que el comprobante no exista
+
+#### Scenario: Un rechazo terminal nunca tapa un envío que puede existir en ARCA
+
+- **GIVEN** un documento con `cae_submit_started_at` o `cae_submit_unconfirmed_at` no nulos
+- **WHEN** cualquier camino del relay intenta marcarlo `rejected`
+- **THEN** la RPC de rechazo lo rechaza — `rejected` es terminal y el envío puede tener un CAE real esperando del otro lado
+
 ---
 
 ### Requirement: Las RPCs del relay del CAE son internas
 
-El sistema SHALL revocar `EXECUTE` de las RPCs del relay del CAE (`rpc_fiscal_document_authorize`, `rpc_fiscal_document_claim_pending`, `rpc_fiscal_document_retry`, `rpc_fiscal_document_reject`, `rpc_fiscal_document_freeze_unconfirmed`) para los roles `PUBLIC`, `anon` y `authenticated`, dejando `EXECUTE` únicamente para `postgres` y `service_role` (los roles con los que corre el cron). Ninguna superficie `authenticated` (endpoint HTTP ni RPC directa) SHALL poder invocarlas.
+El sistema SHALL revocar `EXECUTE` de las RPCs del relay del CAE (`rpc_fiscal_document_authorize`, `rpc_fiscal_document_claim_pending`, `rpc_fiscal_document_retry`, `rpc_fiscal_document_reject`, `rpc_fiscal_document_freeze_unconfirmed`, `rpc_fiscal_document_mark_submit_started`, `rpc_fiscal_document_clear_submit_mark`) para los roles `PUBLIC`, `anon` y `authenticated`, dejando `EXECUTE` únicamente para `postgres` y `service_role` (los roles con los que corre el cron). Ninguna superficie `authenticated` (endpoint HTTP ni RPC directa) SHALL poder invocarlas.
 
 **ADDED por `fiscal-emision-segura` (2026-09-22).** Reason: `rpc_fiscal_document_authorize`, `rpc_fiscal_document_claim_pending`, `rpc_fiscal_document_retry` y `rpc_fiscal_document_reject` son `SECURITY DEFINER` y no validan tenencia — reciben un `doc_id` y escriben. Con `EXECUTE` para `authenticated` (heredado de cuando el endpoint de usuario retirado arriba era su único puente), cualquier usuario logueado podía marcar `authorized` con un CAE arbitrario el comprobante de **cualquier cuenta**, vía `POST /rest/v1/rpc/...` de PostgREST — exactamente la primitiva de CAE falso que el resto de este capability existe para evitar.
+
+**MODIFIED por `fiscal-riesgos-residuales` (2026-09-22).** Reason: la lista de RPCs internas suma las dos que persisten y limpian la marca previa al envío (`rpc_fiscal_document_mark_submit_started`, `rpc_fiscal_document_clear_submit_mark` — ver "Un envío a ARCA no confirmado congela el documento"). Son `SECURITY DEFINER` sobre `doc_id`, mismo patrón que las cinco anteriores: sin este `REVOKE`, `authenticated` podría marcar o desmarcar el envío de un comprobante ajeno.
 
 #### Scenario: authenticated no puede ejecutar las RPCs del relay
 
@@ -255,6 +296,50 @@ El sistema SHALL revocar `EXECUTE` de las RPCs del relay del CAE (`rpc_fiscal_do
 - **GIVEN** el proceso cron corriendo con conexión de servicio (rol `postgres`)
 - **WHEN** llama cualquiera de las RPCs del relay
 - **THEN** la llamada se ejecuta normalmente — el `REVOKE` sólo afecta a `authenticated`/`anon`/`PUBLIC`
+
+#### Scenario: authenticated no puede marcar ni limpiar la marca de envío
+
+- **GIVEN** un usuario autenticado con un JWT válido
+- **WHEN** intenta `POST /rest/v1/rpc/rpc_fiscal_document_mark_submit_started` o `rpc_fiscal_document_clear_submit_mark` con cualquier `doc_id`
+- **THEN** PostgREST rechaza la llamada por falta de privilegio (`42501`)
+
+---
+
+### Requirement: fiscal_documents y document_sequences no admiten escritura directa por PostgREST
+
+El sistema SHALL revocar `INSERT`, `UPDATE`, `DELETE` y `TRUNCATE` sobre `public.fiscal_documents` y `public.document_sequences` para los roles `anon` y `authenticated`, dejando únicamente `SELECT` (filtrado por la RLS existente). El único camino de escritura sobre estas dos tablas SHALL ser las RPCs `SECURITY DEFINER` de emisión y del relay, que corren como `postgres`/`service_role` y por lo tanto no dependen de estos privilegios. Como defensa adicional que sobrevive incluso a un re-`GRANT` futuro, el sistema SHALL instalar un trigger `BEFORE INSERT` sobre `fiscal_documents` que rechace cualquier fila que no nazca en `status = 'pending_cae'` con `cae`, `cae_due_date`, `cae_submit_started_at`, `cae_submit_unconfirmed_at` y `arca_requested_number` todos NULL.
+
+**ADDED por `fiscal-riesgos-residuales` (2026-09-22).** Reason: `fiscal_documents` tenía una policy de RLS (`fiscal_documents_writer_insert`, `FOR INSERT TO authenticated WITH CHECK is_account_writer(account_id)`) y privilegio de tabla `INSERT` para `authenticated`, y el CHECK constraint de `status` admite `'authorized'` — un escritor de la cuenta podía `POST /rest/v1/fiscal_documents` con `status='authorized'` y un CAE inventado **en su propia cuenta** (medido: HTTP 201), indistinguible de un CAE real para siempre (es un estado terminal que nada vuelve a mirar). El `REVOKE` de las RPCs del relay (requirement anterior) cierra la primitiva **cross-cuenta**; ésta es una primitiva DISTINTA, dentro de la propia cuenta, que ese `REVOKE` no toca. Agravante encontrado en la misma auditoría: `authenticated` tenía también `TRUNCATE` sobre las dos tablas — `TRUNCATE` NO pasa por RLS, así que habría vaciado ambas tablas de las ~40 cuentas de un solo comando. Se optó por el `REVOKE` (allow-list, cero escritura directa) en vez de endurecer el `WITH CHECK` de la policy, porque una allow-list no depende de enumerar por adelantado qué columna es peligrosa.
+
+#### Scenario: Un writer no puede insertar un comprobante ya autorizado en su propia cuenta
+
+- **GIVEN** un usuario `authenticated` con rol de escritor en su cuenta
+- **WHEN** intenta `POST /rest/v1/fiscal_documents` con `status='authorized'` y un `cae` arbitrario para su propia cuenta
+- **THEN** PostgREST rechaza la llamada por falta de privilegio (`42501`) — no llega a evaluarse el CHECK de la policy
+
+#### Scenario: TRUNCATE deja de estar disponible
+
+- **GIVEN** un usuario `authenticated`
+- **WHEN** intenta `TRUNCATE public.fiscal_documents` o `public.document_sequences`
+- **THEN** PostgREST/Postgres rechaza la operación por falta de privilegio
+
+#### Scenario: Las RPCs de emisión siguen insertando con normalidad
+
+- **GIVEN** una cuenta con perfil fiscal y punto de venta activos
+- **WHEN** se invoca `rpc_emit_pending_cae` o `rpc_emit_subscription_payment_cae`
+- **THEN** el comprobante se inserta normalmente en `pending_cae` — estas RPCs corren `SECURITY DEFINER` y no dependen de los privilegios revocados
+
+#### Scenario: El trigger es una segunda capa aunque el privilegio se restaure
+
+- **GIVEN** que alguien re-otorgara `INSERT` a `authenticated` sobre `fiscal_documents` por error
+- **WHEN** un writer intenta insertar una fila con `status='authorized'` o con cualquiera de las columnas de CAE/marca ya pobladas
+- **THEN** el trigger `BEFORE INSERT` rechaza la fila (`P0436`) independientemente del privilegio de tabla
+
+#### Scenario: SELECT sigue disponible para la pantalla y el realtime
+
+- **GIVEN** un usuario `authenticated` con acceso a su cuenta
+- **WHEN** consulta `fiscal_documents` o se suscribe a su canal realtime
+- **THEN** sigue viendo sus propios comprobantes — el `REVOKE` no tocó `SELECT`
 
 ---
 
@@ -572,6 +657,20 @@ El comprobante SHALL persistir, además de `receptor_doc_tipo`/`receptor_doc_nro
 - **GIVEN** una venta a consumidor final sin identidad fiscal, bajo el umbral de ARCA
 - **WHEN** se emite el comprobante
 - **THEN** `receptor_legal_name` y `receptor_iva_condition` quedan en NULL y la emisión completa como `DocTipo = 99`, sin exigir identificación
+
+**MODIFIED por `fiscal-riesgos-residuales` (2026-09-22).** Reason: `rpc_emit_pending_cae` resolvía este snapshot con `SELECT legal_name, iva_condition FROM clients WHERE id = p_client_id`, sin filtrar por `account_id`: un `client_id` de OTRA cuenta copiaba su razón social y condición IVA al comprobante propio, y dejaba ese `client_id` ajeno persistido en `fiscal_documents.client_id` (misma familia que `operacion-party-guard`). Hasta ahora era una fuga de datos sin consecuencia externa porque `claim_pending` no propagaba `receptor_iva_condition` al adapter; al empezar a propagarla (ver `Requirement: Numeración autoritativa...`/`claim_pending`), esa condición ajena pasaría a viajar a ARCA como `CondicionIVAReceptorId`. El sistema SHALL exigir que `p_client_id`, cuando no es NULL, pertenezca a la cuenta que emite (`account_id = v_account_id`); si no pertenece, SHALL rechazar con `P0404` en vez de emitir con un snapshot NULL en silencio.
+
+#### Scenario: Un client_id de otra cuenta se rechaza
+
+- **GIVEN** una cuenta A emitiendo un comprobante con `p_client_id` de un cliente que pertenece a la cuenta B
+- **WHEN** se invoca `rpc_emit_pending_cae`
+- **THEN** la emisión falla con `P0404` (`client_not_found`) y no se inserta ningún `fiscal_documents`
+
+#### Scenario: Un client_id inexistente se rechaza igual que uno ajeno
+
+- **GIVEN** un `p_client_id` que no corresponde a ningún cliente
+- **WHEN** se invoca `rpc_emit_pending_cae`
+- **THEN** la emisión falla con `P0404`, mismo código que un cliente ajeno — el caller no puede distinguir "no existe" de "no es tuyo"
 
 ---
 

@@ -662,6 +662,54 @@ class TestReconciliacionContraArca:
         assert rec.outcome == "unknown"
         assert rec.error_code == "RECONCILE_SIN_RESULTGET"
 
+    @pytest.mark.asyncio
+    async def test_errors_ilegible_es_unknown(self):
+        """4.11 TRIANGULACIÓN: si el nodo Errors no se puede leer, tampoco se
+        sabe nada — y en particular NO se puede descartar que haya un 602.
+
+        Caer al camino de `ResultGet` con un `Errors` ilegible sería interpretar
+        una respuesta que no se entendió.
+        """
+        ns = types.SimpleNamespace
+        # Err presente pero con un Code que no es un entero: el int() explota.
+        respuesta = ns(Errors=ns(Err=[ns(Code="no-es-un-numero", Msg="?")]))
+
+        rec = await _reconcile(respuesta, ultimo=51)
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "RECONCILE_ERRORS_ILEGIBLES"
+
+    @pytest.mark.asyncio
+    async def test_result_get_sin_resultado_es_unknown(self):
+        """4.12 TRIANGULACIÓN: `ResultGet` sin `Resultado` es imparseable, NO un
+        rechazo.
+
+        Tratarlo como `rejected` sería inventar una respuesta de ARCA. Como
+        `rejected` y `unknown` terminan igual en el processor, la diferencia es
+        de honestidad del error_code — que es lo que va a leer el humano que
+        resuelva el comprobante congelado.
+        """
+        rec = await _reconcile(_consultar_response(resultado=None), ultimo=51)
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "RECONCILE_SIN_RESULTADO"
+
+    @pytest.mark.asyncio
+    async def test_cbte_desde_ilegible_cae_al_numero_pedido(self):
+        """4.13 TRIANGULACIÓN: un `CbteDesde` imparseable NO descarta el CAE.
+
+        Se degrada al número que se le pidió a ARCA (que es el que está en la
+        marca), igual que el camino normal de `FECAESolicitar` degrada a
+        `ultimo+1`. Descartar un CAE real por no poder leer un número sería el
+        mismo error que B2-2.
+        """
+        rec = await _reconcile(_consultar_response(cbte_desde="cuarenta"), ultimo=51,
+                               requested_number=51)
+
+        assert rec.outcome == "authorized"
+        assert rec.cae == "86250464989491"
+        assert rec.number == 51
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # G5 — La decisión de dominio: con marca, NUNCA se pide un CAE nuevo

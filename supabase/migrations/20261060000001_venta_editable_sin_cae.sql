@@ -125,25 +125,52 @@ DO UPDATE SET is_terminal_to  = EXCLUDED.is_terminal_to,
 --   · NUNCA toca sales_orders.fiscal_document_id (D5): el vínculo sobrevive
 --     para que el badge muestre "Anulado" y para el rastro de auditoría.
 --
--- Concurrencia (D4). Dos pasos deliberadamente distintos:
---   Paso 1, lectura SIN lock: sirve SÓLO para RECHAZAR RÁPIDO. Nunca para
---     decidir anular.
---   Paso 2, SELECT ... FOR UPDATE NOWAIT + RE-EVALUACIÓN del predicado con lo
---     que se ve BAJO el lock: esa condición, y no la del paso 1, es la que
---     autoriza la anulación (mismo argumento de re-evaluación bajo READ
---     COMMITTED que el cuerpo de rpc_atomic_update_sale_operation ya usa para
---     el SELECT ... FOR UPDATE sobre public.events).
---   NOWAIT y no FOR UPDATE a secas: si el relay tiene la fila tomada, este
---     request del usuario NO puede quedar colgado detrás de un round-trip SOAP
---     a ARCA. 55P03 → P0423 con token TRANSITORIO ("probá en unos minutos").
+-- Concurrencia (D4). Hay TRES escritores de este comprobante y el helper se
+-- excluye contra los dos ajenos: el RELAY (que lo manda a ARCA) y la EMISIÓN
+-- (que lo crea). Cuatro pasos:
+--
+--   Paso 0 — la ORDEN primero, con SELECT ... FOR UPDATE, y `fiscal_document_id`
+--     leído de la fila BLOQUEADA. Dos cosas dependen de esto:
+--       (1) Exclusión contra rpc_emit_sale_invoice, que toma este MISMO lock
+--           ANTES de crear el comprobante y vincularlo. Sin el lock acá, la
+--           edición lee `fiscal_document_id` de un snapshot anterior al commit
+--           de la emisión, concluye "no hay nada que anular", y deja una venta
+--           editada con un comprobante pendiente VIVO por el importe VIEJO —
+--           que el relay después le factura a ARCA. Es exactamente el daño que
+--           este change existe para impedir (red team 2026-09-22, M1:
+--           reproducido con dos conexiones antes de este paso). READ COMMITTED
+--           re-evalúa la fila al otorgar el lock, así que lo que se lee bajo el
+--           lock ES lo que la emisión acabó de commitear.
+--       (2) ORDEN DE LOCKS. rpc_emit_sale_invoice bloquea so → fd; con la
+--           edición tomándolos al revés las dos se mataban con un deadlock
+--           40P01 CRUDO en el camino de dinero (red team M2, reproducido), y el
+--           NOWAIT del paso 2 no ayudaba: el que espera es la emisión. Unificado
+--           a so → fd no hay ciclo posible.
+--       Ningún otro camino invierte este orden: las únicas tres funciones que
+--       toman FOR UPDATE sobre las dos tablas son esta, la emisión y la edición
+--       (medido por prosrc). _c29_confirm_order_core sí bloquea products antes
+--       de UPDATEar sales_orders, pero su UPDATE está scopeado a SU orden
+--       (`WHERE id = p_sales_order_id`), cuyas filas de `sales` nacen en esa
+--       misma transacción: la edición no puede estar sosteniendo esa fila.
+--   Paso 1, lectura del comprobante SIN lock: sirve SÓLO para RECHAZAR RÁPIDO.
+--     Nunca para decidir anular.
+--   Paso 2, lock del comprobante con FOR UPDATE NOWAIT y no FOR UPDATE a secas:
+--     si el relay tiene la fila tomada, este request del usuario NO puede
+--     quedar colgado detrás de un round-trip SOAP a ARCA. 55P03 → P0423 con
+--     token TRANSITORIO ("probá en unos minutos").
+--   Paso 3, la anulación con el PREDICADO ADENTRO del UPDATE. Es la
+--     re-evaluación bajo el lock —lo único que cubre "la marca se commiteó
+--     entre el paso 1 y el paso 2"— y vive dentro del statement que escribe, no
+--     en un IF aparte: así no se puede borrar el guard sin borrar la escritura
+--     (el arnés de mutación del red team, m3, borraba ese IF y los 7 gates
+--     seguían en verde). `NOT FOUND` = la carrera la ganó el relay → P0423.
 --
 -- Por qué la carrera contra el relay es segura en las dos direcciones:
 --   · Si la anulación gana, rpc_fiscal_document_claim_pending no matchea
 --     (filtra status='pending_cae') y rpc_fiscal_document_mark_submit_started
 --     levanta P0437 (mismo filtro + RAISE) → el FECAESolicitar NUNCA sale.
---   · Si el relay gana, la marca ya está commiteada y el paso 1 (o la
---     re-evaluación del paso 2) rechaza con P0423 → JAMÁS se anula un
---     comprobante enviado.
+--   · Si el relay gana, la marca ya está commiteada y el paso 1 (o el predicado
+--     del paso 3) rechaza con P0423 → JAMÁS se anula un comprobante enviado.
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public._fiscal_void_pending_for_sale_edit(
   p_sales_order_id uuid,
@@ -157,23 +184,59 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
+  v_order   RECORD;
   v_doc     RECORD;
   v_locked  RECORD;
+  v_fresh   RECORD;
 BEGIN
   IF p_sales_order_id IS NULL THEN
     RETURN NULL;                      -- venta legacy sin sales_orders
   END IF;
 
-  -- ── Paso 1: lectura SIN lock, sólo para RECHAZAR RÁPIDO.
+  -- ── Paso 0: la ORDEN, con lock. Mismo lock que toma rpc_emit_sale_invoice
+  -- ANTES de crear el comprobante → o la emisión ya commiteó y se ve acá, o
+  -- espera detrás de este lock hasta que la edición termine. Y fija el orden
+  -- so → fd, el mismo de la emisión (sin ciclo = sin 40P01).
+  SELECT so.id, so.account_id, so.fiscal_document_id
+  INTO   v_order
+  FROM   public.sales_orders so
+  WHERE  so.id = p_sales_order_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN NULL;                      -- la orden no existe: nada que anular
+  END IF;
+
+  -- Guard de tenencia en el CHOKE POINT, no en los callers (precedente
+  -- cuenta-corriente-party-guard + hotfix #454): esto es un SECURITY DEFINER
+  -- con el tenant por PARÁMETRO, así que es la única defensa que un caller
+  -- futuro no puede olvidarse. Los dos callers de hoy ya filtran antes (la
+  -- edición por sales.user_id → P0403, el borrado por account_id) — este guard
+  -- es fail-closed, no redundancia decorativa: sin él, quien pudiera llamar al
+  -- helper anularía el comprobante pendiente de CUALQUIER cuenta.
+  IF v_order.account_id IS DISTINCT FROM p_account_id THEN
+    RAISE EXCEPTION 'sales_order_not_found: la orden de venta % no pertenece a la cuenta', p_sales_order_id
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  IF v_order.fiscal_document_id IS NULL THEN
+    RETURN NULL;                      -- sin comprobante: nada que anular
+  END IF;
+
+  -- ── Paso 1: el comprobante, todavía SIN lock — sólo para RECHAZAR RÁPIDO.
   SELECT fd.id, fd.status, fd.punto_de_venta, fd.number,
          fd.cae_submit_started_at, fd.cae_submit_unconfirmed_at
   INTO   v_doc
-  FROM   public.sales_orders so
-  JOIN   public.fiscal_documents fd ON fd.id = so.fiscal_document_id
-  WHERE  so.id = p_sales_order_id;
+  FROM   public.fiscal_documents fd
+  WHERE  fd.id = v_order.fiscal_document_id;
 
   IF NOT FOUND THEN
-    RETURN NULL;                      -- sin comprobante: nada que anular
+    -- Imposible por el FK de sales_orders.fiscal_document_id. Si aparece, se
+    -- BLOQUEA: no se puede probar que sea seguro editar un comprobante que no
+    -- se puede leer (mismo criterio fail-closed que la allow-list de
+    -- rpc_emit_sale_invoice, que también bloquea con el status NULL).
+    RAISE EXCEPTION 'invoiced_operation_immutable: la venta apunta a un comprobante fiscal (%) que no se puede leer — no se puede editar ni borrar', v_order.fiscal_document_id
+      USING ERRCODE = 'P0423';
   END IF;
 
   IF v_doc.status IN ('rejected', 'voided') THEN
@@ -201,11 +264,10 @@ BEGIN
       USING ERRCODE = 'P0423';
   END IF;
 
-  -- ── Paso 2: lock explícito + RE-EVALUACIÓN.
+  -- ── Paso 2: lock explícito del comprobante, NOWAIT (nunca esperar detrás de
+  -- un round-trip SOAP del relay).
   BEGIN
-    SELECT fd.id, fd.status, fd.punto_de_venta, fd.number,
-           fd.cae_submit_started_at, fd.cae_submit_unconfirmed_at
-    INTO   v_locked
+    PERFORM 1
     FROM   public.fiscal_documents fd
     WHERE  fd.id = v_doc.id
     FOR UPDATE NOWAIT;
@@ -215,19 +277,33 @@ BEGIN
         USING ERRCODE = 'P0423';
   END;
 
-  IF v_locked.status <> 'pending_cae'
-     OR v_locked.cae_submit_started_at     IS NOT NULL
-     OR v_locked.cae_submit_unconfirmed_at IS NOT NULL THEN
-    RAISE EXCEPTION 'fiscal_document_sent_immutable: el comprobante de esta venta (%-%) salió hacia ARCA mientras se guardaban los cambios — no se editó nada; volvé a intentar cuando se resuelva',
-      lpad(v_locked.punto_de_venta::text, 4, '0'), lpad(v_locked.number::text, 8, '0')
+  -- ── Paso 3: anular. El PREDICADO VIAJA DENTRO DEL UPDATE, no en un IF
+  -- separado: es la re-evaluación bajo el lock (la que cubre "el relay marcó el
+  -- envío entre el paso 1 y el paso 2"), y acá no se puede borrar sin borrar la
+  -- escritura misma. `NOT FOUND` = la carrera la ganó el relay.
+  -- El trigger de FSM valida la transición contra el catálogo;
+  -- record_status_transition escribe el historial con el motivo.
+  UPDATE public.fiscal_documents fd
+  SET    status = 'voided'
+  WHERE  fd.id = v_doc.id
+    AND  fd.status = 'pending_cae'
+    AND  fd.cae_submit_started_at IS NULL
+    AND  fd.cae_submit_unconfirmed_at IS NULL
+  RETURNING fd.id, fd.punto_de_venta, fd.number
+  INTO   v_locked;
+
+  IF NOT FOUND THEN
+    SELECT fd.status, fd.punto_de_venta, fd.number
+    INTO   v_fresh
+    FROM   public.fiscal_documents fd
+    WHERE  fd.id = v_doc.id;
+
+    RAISE EXCEPTION 'fiscal_document_sent_immutable: el comprobante de esta venta (%-%) salió hacia ARCA mientras se guardaban los cambios (estado %) — no se editó nada; volvé a intentar cuando se resuelva',
+      lpad(COALESCE(v_fresh.punto_de_venta, v_doc.punto_de_venta)::text, 4, '0'),
+      lpad(COALESCE(v_fresh.number, v_doc.number)::text, 8, '0'),
+      COALESCE(v_fresh.status, 'desconocido')
       USING ERRCODE = 'P0423';
   END IF;
-
-  -- ── Paso 3: anular. El trigger de FSM valida la transición contra el
-  -- catálogo; record_status_transition escribe el historial con el motivo.
-  UPDATE public.fiscal_documents
-  SET    status = 'voided'
-  WHERE  id = v_locked.id;
 
   PERFORM public.record_status_transition(
     p_account_id, 'fiscal_document', v_locked.id,
@@ -381,12 +457,19 @@ BEGIN
   -- la ÚNICA definición de esta regla y la comparte con el borrado).
   -- rejected y voided no bloquean ni se tocan.
   -- asiento-venta-formulario: el guard fiscal sigue siendo el PRIMERO.
+  --
+  -- Esta query NO filtra por `so.fiscal_document_id IS NOT NULL` (red team
+  -- 2026-09-22, M1): ese filtro se evalúa SIN lock, así que con una emisión
+  -- abierta en otra conexión devolvía cero filas, el helper no se llamaba
+  -- NUNCA, y la venta se editaba dejando vivo el comprobante que la emisión
+  -- estaba por commitear. Quién decide "hay comprobante" es el helper, con la
+  -- fila de la orden BLOQUEADA. Acá sólo se enumeran las órdenes de la
+  -- operación (a lo sumo una: sale_operation_id tiene índice único parcial).
   FOR v_void_rec IN
     SELECT DISTINCT so.id AS sales_order_id, s.operation_id AS operation_id
     FROM   public.sales s
     JOIN   public.sales_orders so ON so.sale_operation_id = s.operation_id
     WHERE  s.id = ANY(p_sale_ids)
-      AND  so.fiscal_document_id IS NOT NULL
   LOOP
     v_voided_doc := public._fiscal_void_pending_for_sale_edit(
       v_void_rec.sales_order_id, v_account_id, v_uid,
@@ -1419,10 +1502,67 @@ BEGIN
     v_missing := v_missing || format('rpc_fiscal_document_mark_submit_started dejó de exigir status=''pending_cae'': podría enviar a ARCA un comprobante anulado');
   END IF;
 
+  -- (f) El CONTRATO DE CONCURRENCIA del helper (red team 2026-09-22, M1/M2/m1
+  -- y m3). Los cuatro son invariantes de comportamiento que ningún test de
+  -- datos alcanza a fijar por sí solo, y los cuatro se rompen en silencio:
+  -- el resultado de romperlos es un comprobante pendiente VIVO sobre una venta
+  -- editada (= ARCA facturando importes viejos), un 40P01 crudo en el camino de
+  -- dinero, o la anulación del comprobante de otra cuenta.
+  -- Se comparan sobre el cuerpo SIN comentarios y con espacios colapsados: un
+  -- reformateo no rompe el gate, y un comentario no lo satisface.
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc
+  WHERE  oid = to_regprocedure('public._fiscal_void_pending_for_sale_edit(uuid, uuid, uuid, text)');
+
+  IF v_def IS NULL THEN
+    v_missing := v_missing || format('no se pudo leer el cuerpo del helper de anulación');
+  ELSE
+    -- (f1) La ORDEN se toma con lock, y ANTES que el comprobante: es la
+    -- exclusión contra rpc_emit_sale_invoice (M1) y el orden so → fd que evita
+    -- el deadlock (M2).
+    IF position('from public.sales_orders so where so.id = p_sales_order_id for update' in v_def) = 0 THEN
+      v_missing := v_missing || format('el helper no toma la orden con SELECT ... FOR UPDATE: sin ese lock no ve el comprobante que la emisión está por commitear (red team M1) y el orden de locks queda invertido (M2)');
+    ELSIF position('public.fiscal_documents' in v_def) > 0
+      AND position('from public.sales_orders so where so.id = p_sales_order_id for update' in v_def)
+          > position('public.fiscal_documents' in v_def) THEN
+      v_missing := v_missing || format('el helper toca fiscal_documents ANTES de bloquear la orden: orden de locks invertido respecto de rpc_emit_sale_invoice (deadlock 40P01)');
+    END IF;
+
+    -- (f2) Guard de tenencia en el choke point (m1).
+    IF position('v_order.account_id is distinct from p_account_id' in v_def) = 0 THEN
+      v_missing := v_missing || format('el helper perdió el guard de tenencia (account_id de la orden vs. p_account_id): anularía el comprobante pendiente de cualquier cuenta');
+    END IF;
+
+    -- (f3) El predicado de la anulación vive DENTRO del UPDATE (m3): es la
+    -- re-evaluación bajo el lock, y ahí no se puede borrar sin borrar la
+    -- escritura.
+    IF position('update public.fiscal_documents fd set status = ''voided'' where fd.id = v_doc.id and fd.status = ''pending_cae'' and fd.cae_submit_started_at is null and fd.cae_submit_unconfirmed_at is null' in v_def) = 0 THEN
+      v_missing := v_missing || format('el UPDATE que anula perdió el predicado de re-evaluación (status pending_cae + las dos marcas NULL): si el relay marca el envío entre la lectura y el lock, se anularía un comprobante YA ENVIADO a ARCA');
+    END IF;
+
+    -- (f4) El lock del comprobante sigue siendo NOWAIT: nunca colgar al usuario
+    -- detrás de un round-trip SOAP.
+    IF position('for update nowait' in v_def) = 0 THEN
+      v_missing := v_missing || format('el helper perdió el FOR UPDATE NOWAIT sobre el comprobante: el request del usuario quedaría esperando detrás del relay');
+    END IF;
+  END IF;
+
+  -- (g) El enumerador de órdenes de la edición NO filtra por comprobante: ese
+  -- filtro se evalúa sin lock y es exactamente el agujero M1.
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc
+  WHERE  oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  IF v_def IS NOT NULL
+     AND position('and so.fiscal_document_id is not null' in v_def) > 0 THEN
+    v_missing := v_missing || format('rpc_atomic_update_sale_operation volvió a filtrar las órdenes por fiscal_document_id IS NOT NULL SIN lock: con una emisión abierta el helper no se llama y queda un comprobante pendiente vivo con importes viejos (red team M1)');
+  END IF;
+
   IF array_length(v_missing, 1) > 0 THEN
     RAISE EXCEPTION E'MIGRACION 20261060000001 (venta-editable-sin-cae) INCOMPLETA:\n  %',
       array_to_string(v_missing, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'venta-editable-sin-cae OK: CHECK de 4 estados, catálogo pending_cae→voided (terminal + motivo obligatorio), helper interno cerrado a anon/authenticated, 3 RPCs con una sola definición viva y el guard nuevo, y los dos candados del relay (claim_pending/mark_submit_started) intactos.';
+  RAISE NOTICE 'venta-editable-sin-cae OK: CHECK de 4 estados, catálogo pending_cae→voided (terminal + motivo obligatorio), helper interno cerrado a anon/authenticated con guard de tenencia, contrato de concurrencia (orden so→fd, predicado dentro del UPDATE, NOWAIT), 3 RPCs con una sola definición viva y el guard nuevo, y los dos candados del relay (claim_pending/mark_submit_started) intactos.';
 END $$;

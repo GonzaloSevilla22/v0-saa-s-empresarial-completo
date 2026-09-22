@@ -187,8 +187,12 @@ BEGIN
   FROM   public.account_members WHERE user_id = v_user ORDER BY created_at LIMIT 1;
 
   IF v_account IS NULL THEN
-    RAISE NOTICE 'GATE VENTA-EDITABLE-SIN-CAE: no se pudo resolver cuenta para el anchor sintético — degradando sin abortar.';
-    RETURN;
+    -- ABORTA, no degrada (red team 2026-09-22, m4). Degradar acá saltea los
+    -- bloques (2) a (5) ENTEROS y deja el gate en verde sin haber probado nada:
+    -- es el mismo modo de fallo que este change encontró y arregló en
+    -- test_delete_guard_ledgers.sql, donde el único test del guard fiscal del
+    -- borrado no se había ejecutado NUNCA. El .sh hermano ya hace esto bien.
+    RAISE EXCEPTION 'GATE VENTA-EDITABLE-SIN-CAE: SETUP FAILED — handle_new_user no creó la cuenta del anchor sintético; sin cuenta los bloques de comportamiento no prueban nada.';
   END IF;
 
   SELECT id INTO v_branch FROM public.branches WHERE account_id = v_account ORDER BY created_at LIMIT 1;
@@ -425,6 +429,72 @@ BEGIN
     RAISE NOTICE 'PASS (4): con el lease del relay ya puesto, la edición anula igual; después el relay NO puede enviar — mark_submit_started da P0437 y claim_pending devuelve 0 filas.';
   END IF;
 
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- (5) Guard de TENENCIA del helper (red team 2026-09-22, m1). El helper es
+  -- un SECURITY DEFINER que recibe el tenant por PARÁMETRO: sin comparar la
+  -- cuenta de la orden contra ese parámetro, quien pudiera llamarlo anularía el
+  -- comprobante pendiente de cualquier cuenta (y escribiría el historial bajo
+  -- la cuenta equivocada). Es el anti-patrón que la casa ya cerró en
+  -- cuenta-corriente-party-guard: el guard va en el CHOKE POINT, no en los
+  -- callers. Se prueba llamando al helper directamente, que es justamente el
+  -- camino que los guards de los callers NO cubren.
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_result := public.rpc_create_sale_operation(
+    'vesc-tenancy-' || gen_random_uuid()::text, v_client, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 1, 'unit_id', NULL)),
+    v_branch, NULL, NULL
+  );
+  v_op := (v_result->>'operation_id')::uuid;
+
+  INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, created_by, sale_operation_id)
+  VALUES (v_account, v_branch, v_client, 'confirmed', 500, v_user, v_op)
+  RETURNING id INTO v_so;
+
+  v_doc1 := (public.rpc_emit_sale_invoice(v_so, v_pv)->>'fiscal_document_id')::uuid;
+  SELECT count(*) INTO v_count FROM public.document_status_history WHERE document_id = v_doc1;
+
+  -- (5a) Cuenta AJENA → P0404 y nada escrito.
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public._fiscal_void_pending_for_sale_edit(
+      v_so, gen_random_uuid(), v_user, 'intento con una cuenta ajena');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_sqlstate = RETURNED_SQLSTATE;
+    v_msg := SQLERRM;
+  END;
+  IF v_sqlstate IS DISTINCT FROM 'P0404' THEN
+    v_failures := v_failures || format('(5a) el helper con una cuenta ajena debe levantar P0404, obtuvo %s (%s) — anularía el comprobante pendiente de cualquier cuenta', COALESCE(v_sqlstate, 'ningún error'), COALESCE(v_msg, ''));
+  END IF;
+  SELECT status INTO v_status FROM public.fiscal_documents WHERE id = v_doc1;
+  IF v_status IS DISTINCT FROM 'pending_cae' THEN
+    v_failures := v_failures || format('(5a) el comprobante de la cuenta legítima quedó %s: el helper escribió con una cuenta ajena', COALESCE(v_status, '<inexistente>'));
+  END IF;
+  IF (SELECT count(*) FROM public.document_status_history WHERE document_id = v_doc1) <> v_count THEN
+    v_failures := v_failures || format('(5a) el intento con cuenta ajena escribió en document_status_history');
+  END IF;
+
+  -- (5b) Control positivo: con la cuenta CORRECTA el mismo helper sí anula. Sin
+  -- esto, (5a) podría estar pasando porque el helper no anula nunca.
+  v_sqlstate := NULL;
+  BEGIN
+    PERFORM public._fiscal_void_pending_for_sale_edit(
+      v_so, v_account, v_user, 'control positivo del guard de tenencia');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_sqlstate = RETURNED_SQLSTATE;
+    v_msg := SQLERRM;
+  END;
+  IF v_sqlstate IS NOT NULL THEN
+    v_failures := v_failures || format('(5b) con la cuenta correcta el helper debía anular, levantó %s (%s)', v_sqlstate, COALESCE(v_msg, ''));
+  END IF;
+  SELECT status INTO v_status FROM public.fiscal_documents WHERE id = v_doc1;
+  IF v_status IS DISTINCT FROM 'voided' THEN
+    v_failures := v_failures || format('(5b) con la cuenta correcta el comprobante debía quedar voided, quedó %s', COALESCE(v_status, '<inexistente>'));
+  END IF;
+
+  IF array_length(v_failures, 1) IS NULL THEN
+    RAISE NOTICE 'PASS (5): el helper rechaza con P0404 la orden de otra cuenta sin escribir nada, y con la cuenta correcta anula (control positivo).';
+  END IF;
+
   -- ═══ Resultado ═══
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE VENTA-EDITABLE-SIN-CAE FAILED:\n  %', array_to_string(v_failures, E'\n  ');
@@ -474,5 +544,5 @@ BEGIN
     RAISE EXCEPTION 'GATE VENTA-EDITABLE-SIN-CAE: la limpieza dejó el anchor sintético en auth.users';
   END IF;
 
-  RAISE NOTICE 'GATE VENTA-EDITABLE-SIN-CAE PASSED: introspección, re-emisión con número nuevo, allow-list de re-emisión y carrera edición-vs-relay (caso d) — fixtures limpios.';
+  RAISE NOTICE 'GATE VENTA-EDITABLE-SIN-CAE PASSED: introspección, re-emisión con número nuevo, allow-list de re-emisión, carrera edición-vs-relay (caso d) y guard de tenencia del helper — fixtures limpios.';
 END $$;

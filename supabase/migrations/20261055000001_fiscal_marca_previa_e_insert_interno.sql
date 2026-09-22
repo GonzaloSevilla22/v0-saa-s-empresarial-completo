@@ -261,3 +261,90 @@ REVOKE ALL ON FUNCTION public.rpc_fiscal_document_clear_submit_mark(uuid, text)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_clear_submit_mark(uuid, text)
   TO postgres, service_role;
+
+
+-- ════════════════════════════════ R2 ═══════════════════════════════════════
+-- Tres capas, ninguna delegando en la otra (lección de #577).
+
+-- ── R2.1: la policy de INSERT se retira ─────────────────────────────────────
+-- Sin el GRANT de abajo la policy ya es letra muerta, pero dejarla puesta es
+-- una trampa: el día que alguien re-otorgue INSERT "para probar algo", la
+-- policy lo vuelve a autorizar sola. Con la policy borrada, un re-GRANT
+-- accidental choca contra RLS sin policy de INSERT ⇒ cero filas insertables.
+DROP POLICY IF EXISTS fiscal_documents_writer_insert ON public.fiscal_documents;
+
+-- ── R2.2: allow-list de privilegios (cero escritura directa) ────────────────
+-- authenticated tenía arwdDxtm sobre las dos tablas: INSERT (comprobante
+-- 'authorized' con CAE inventado — medido HTTP 201) y TRUNCATE, que NO pasa
+-- por RLS: vaciado cross-tenant de las 40 cuentas. Se eligió el REVOKE y no
+-- "endurecer el WITH CHECK a status='pending_cae'" porque una allow-list no
+-- tiene que anticipar qué columna es peligrosa: hoy es status+cae, mañana es
+-- la que agregue el próximo change.
+--
+-- Verificado antes de escribir esto (prod, 2026-09-22): ninguna de las dos
+-- tablas tiene grants POR COLUMNA (attacl = 0 en ambas), así que el gotcha de
+-- "el REVOKE de tabla borra los grants por columna" no aplica acá.
+REVOKE ALL ON TABLE public.fiscal_documents   FROM anon, authenticated;
+REVOKE ALL ON TABLE public.document_sequences FROM anon, authenticated;
+
+-- SELECT de vuelta SÓLO para authenticated: lo necesitan la pantalla y la
+-- suscripción Realtime de FiscalDocumentBadge (Realtime evalúa la policy de
+-- SELECT; sin el GRANT el badge dejaría de actualizarse solo). `anon` queda
+-- sin nada: tenía el privilegio pero ninguna policy, así que nunca vio una
+-- fila — el cambio observable es 403 en vez de [] para un request anónimo, y
+-- no hay ninguna pantalla pública que consulte estas tablas.
+GRANT SELECT ON TABLE public.fiscal_documents   TO authenticated;
+GRANT SELECT ON TABLE public.document_sequences TO authenticated;
+
+-- ── R2.3: tercera capa — un INSERT directo sólo puede nacer pending_cae ─────
+-- Sigue puesta aunque alguien re-otorgue el privilegio Y recree la policy. Es
+-- exactamente el invariante que ya cumplen rpc_emit_pending_cae y
+-- rpc_emit_subscription_payment_cae (las dos insertan 'pending_cae' sin CAE),
+-- así que no estorba a ningún camino legítimo.
+--
+-- SIN exención por rol: un `IF current_user = 'postgres' THEN RETURN NEW` la
+-- volvería inverificable desde el gate (que corre como postgres) y la apagaría
+-- justamente para el camino que #577 demostró que puede fallar. El precio es
+-- migrar 6 fixtures de test con session_replication_role = replica — el
+-- precedente ya establecido por sucursal-guard-vaciado-auditoria.
+CREATE OR REPLACE FUNCTION public.fn_guard_fiscal_document_insert_interno()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NEW.status IS DISTINCT FROM 'pending_cae'
+     OR NEW.cae IS NOT NULL
+     OR NEW.cae_due_date IS NOT NULL
+     OR NEW.cae_submit_unconfirmed_at IS NOT NULL
+     OR NEW.cae_submit_started_at IS NOT NULL
+     OR NEW.arca_requested_number IS NOT NULL
+  THEN
+    RAISE EXCEPTION
+      'FISCAL_DOCUMENT_INSERT_SOLO_PENDING: un comprobante fiscal sólo puede NACER en pending_cae y sin CAE (status=%, cae=%). El CAE lo escribe el relay contra ARCA, nunca el INSERT.',
+      NEW.status, COALESCE(NEW.cae, '<NULL>')
+      USING ERRCODE = 'P0436';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_guard_fiscal_document_insert_interno() IS
+  'fiscal-riesgos-residuales (R2, tercera capa). Un comprobante sólo nace '
+  'pending_cae y sin CAE. Las dos primeras capas son el REVOKE de escritura y '
+  'la ausencia de policy de INSERT; ésta es la única que sobrevive a que '
+  'alguien re-otorgue el privilegio y recree la policy. Una migración futura '
+  'que necesite sembrar filas authorized (backfill histórico) debe desactivarla '
+  'explícitamente — que la omisión sea una decisión, no un descuido.';
+
+-- Los helpers de trigger nacen con EXECUTE para PUBLIC: REVOKE explícito
+-- (chequeo (1) del gate de ACLs, mismo patrón que fn_guard_pos_cuit_cross_account).
+REVOKE ALL ON FUNCTION public.fn_guard_fiscal_document_insert_interno()
+  FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_guard_fiscal_document_insert_interno ON public.fiscal_documents;
+CREATE TRIGGER trg_guard_fiscal_document_insert_interno
+  BEFORE INSERT ON public.fiscal_documents
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_guard_fiscal_document_insert_interno();

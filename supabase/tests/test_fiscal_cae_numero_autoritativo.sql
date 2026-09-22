@@ -430,10 +430,19 @@ BEGIN
   END IF;
 
   -- ═══ (7) Colisión: el número de ARCA ya lo tiene otro autorizado ═══
+  -- fiscal-riesgos-residuales (R2): el trigger trg_guard_fiscal_document_insert_interno
+  -- rechaza con P0436 cualquier INSERT que no nazca pending_cae y sin CAE. Este
+  -- fixture necesita sembrar el estado FINAL de un comprobante ya emitido, que
+  -- por el camino legítimo se alcanza con un UPDATE del relay. Se elude con
+  -- session_replication_role = replica, el mismo patrón que este archivo ya usa
+  -- en sus bloques de limpieza — y la elusión es DELIBERADA y acotada a la
+  -- sembrada, no un rol exento en el trigger (eso lo volvería inverificable).
+  SET session_replication_role = replica;
   INSERT INTO public.fiscal_documents
     (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts, cae)
   VALUES (v_account_a, v_fp_a, v_pv_7, 'factura_c', 8007, 9, 1000, 'authorized', 0, 'CAE-A-YA-ESTABA')
   RETURNING id INTO v_doc;
+  SET session_replication_role = DEFAULT;
 
   INSERT INTO public.fiscal_documents
     (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
@@ -462,6 +471,8 @@ BEGIN
   -- Sin el EXCEPTION WHEN unique_violation del authorize, el índice único
   -- parcial abortaría la RPC, el CAE REAL se perdería y el próximo tick del
   -- cron pediría OTRO: segunda factura real.
+  -- R2: misma elusión acotada que el bloque (7) — ver el comentario de arriba.
+  SET session_replication_role = replica;
   INSERT INTO public.fiscal_documents
     (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts, cae)
   VALUES (v_account_a, v_fp_a, v_pv_7b, 'factura_c', 8017, 20, 1000, 'authorized', 0, 'CAE-OCUPA-20')
@@ -471,6 +482,7 @@ BEGIN
     (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts, cae)
   VALUES (v_account_a, v_fp_a, v_pv_7b, 'factura_c', 8017, 21, 1000, 'authorized', 0, 'CAE-OCUPA-21')
   RETURNING id INTO v_doc;
+  SET session_replication_role = DEFAULT;
 
   INSERT INTO public.fiscal_documents
     (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
@@ -1275,6 +1287,265 @@ EXCEPTION
     RAISE;
 END $$;
 
+-- ── (17) R2: allow-list de escritura sobre las dos tablas fiscales ─────────
+-- Éste es el bloque que atrapa un `GRANT ALL ON ALL TABLES IN SCHEMA public`
+-- de una migración futura, en CI y en el PR que lo introduzca.
+DO $$
+DECLARE
+  v_tables CONSTANT text[] := ARRAY['public.fiscal_documents', 'public.document_sequences'];
+  v_writes CONSTANT text[] := ARRAY['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE'];
+  v_has_anon  boolean;
+  v_t         text;
+  v_priv      text;
+  v_count     integer;
+  v_offenders text[] := '{}';
+BEGIN
+  v_has_anon := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon');
+
+  FOREACH v_t IN ARRAY v_tables LOOP
+    FOREACH v_priv IN ARRAY v_writes LOOP
+      IF has_table_privilege('authenticated', v_t, v_priv) THEN
+        v_offenders := v_offenders || format('authenticated conserva %s sobre %s', v_priv, v_t);
+      END IF;
+      IF v_has_anon AND has_table_privilege('anon', v_t, v_priv) THEN
+        v_offenders := v_offenders || format('anon conserva %s sobre %s', v_priv, v_t);
+      END IF;
+    END LOOP;
+
+    -- SELECT: authenticated SÍ (la pantalla y la suscripción Realtime de
+    -- FiscalDocumentBadge lo necesitan — Realtime evalúa la policy de SELECT),
+    -- anon NO (tenía el privilegio pero ninguna policy, así que nunca vio una
+    -- fila: el cambio observable es 403 en vez de []).
+    IF NOT has_table_privilege('authenticated', v_t, 'SELECT') THEN
+      v_offenders := v_offenders || format('authenticated PERDIÓ el SELECT sobre %s (se rompe el badge fiscal y su Realtime)', v_t);
+    END IF;
+    IF v_has_anon AND has_table_privilege('anon', v_t, 'SELECT') THEN
+      v_offenders := v_offenders || format('anon conserva SELECT sobre %s', v_t);
+    END IF;
+  END LOOP;
+
+  -- Ninguna policy de escritura sobre fiscal_documents. Sin el GRANT la policy
+  -- ya sería letra muerta, pero dejarla puesta es una trampa: un re-GRANT
+  -- accidental la reactiva sola. Con la policy borrada, un re-GRANT choca
+  -- contra RLS sin policy ⇒ cero filas insertables.
+  SELECT count(*) INTO v_count
+  FROM   pg_policies
+  WHERE  schemaname = 'public' AND tablename = 'fiscal_documents'
+    AND  cmd IN ('INSERT', 'UPDATE', 'DELETE', 'ALL');
+
+  IF v_count <> 0 THEN
+    v_offenders := v_offenders || format('fiscal_documents volvió a tener %s policy(s) de escritura', v_count);
+  END IF;
+
+  -- Control positivo: las de SELECT siguen vivas (si no, el gate pasaría
+  -- porque alguien borró TODAS las policies y rompió la lectura).
+  FOREACH v_t IN ARRAY ARRAY['fiscal_documents', 'document_sequences'] LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = v_t AND cmd = 'SELECT'
+    ) THEN
+      v_offenders := v_offenders || format('%s se quedó SIN policy de SELECT', v_t);
+    END IF;
+  END LOOP;
+
+  IF array_length(v_offenders, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FISCAL-CAE (17) FAILED: allow-list de escritura de las tablas fiscales.\n  %\n  Contexto: con INSERT, un writer podía POSTear a PostgREST un comprobante status=''authorized'' con un CAE inventado en su propia cuenta (medido: HTTP 201). Y TRUNCATE NO pasa por RLS: vaciaba fiscal_documents y document_sequences de TODOS los tenants.',
+      array_to_string(v_offenders, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (17): fiscal_documents y document_sequences sin escritura directa para anon/authenticated, con SELECT sólo para authenticated y sin policies de escritura.';
+END $$;
+
+
+-- ── (18) R2: el trigger BEFORE INSERT existe, está habilitado y MUERDE ─────
+DO $$
+DECLARE
+  v_failures  text[] := '{}';
+
+  v_email_i   text := 'fiscal-insert-interno@test.local';
+  v_user_i    uuid := gen_random_uuid();
+  v_account_i uuid;
+  v_fp_i      uuid;
+  v_pv_i      uuid;
+
+  v_enabled   "char";
+  v_timing    text;
+  v_state     text;
+  v_doc       uuid;
+  v_count     integer;
+BEGIN
+  -- ═══ Metadata: BEFORE INSERT y HABILITADO ═══
+  SELECT t.tgenabled,
+         CASE WHEN (t.tgtype & 2) <> 0 THEN 'BEFORE' ELSE 'AFTER' END
+  INTO   v_enabled, v_timing
+  FROM   pg_trigger t
+  WHERE  t.tgrelid = 'public.fiscal_documents'::regclass
+    AND  t.tgname = 'trg_guard_fiscal_document_insert_interno';
+
+  IF v_enabled IS NULL THEN
+    RAISE EXCEPTION 'GATE FISCAL-CAE (18) FAILED: no existe el trigger trg_guard_fiscal_document_insert_interno sobre fiscal_documents.';
+  END IF;
+  IF v_timing <> 'BEFORE' THEN
+    v_failures := v_failures || format('(18) el trigger debe ser BEFORE INSERT y es %s', v_timing);
+  END IF;
+  IF v_enabled <> 'O' THEN
+    -- tgenabled='D' (disabled) o 'R'/'A' (replica) lo apagarían en silencio
+    -- para el camino normal. Es el mismo mecanismo con el que los fixtures lo
+    -- eluden a propósito (session_replication_role = replica).
+    v_failures := v_failures || format('(18) el trigger no está habilitado en modo origin; tgenabled=%s', v_enabled);
+  END IF;
+
+  -- ═══ Setup del fixture ═══
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_user_i, 'authenticated', 'authenticated', v_email_i, now(), now(),
+          jsonb_build_object('name', 'Gate Fiscal Insert Interno', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_i
+  FROM   public.account_members WHERE user_id = v_user_i ORDER BY created_at LIMIT 1;
+
+  IF v_account_i IS NULL THEN
+    RAISE EXCEPTION 'SETUP FAILED (18): no se pudo resolver account para el anchor — handle_new_user no corrió';
+  END IF;
+
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (v_account_i, '20555555561', 'monotributista', 'homologacion', true)
+  RETURNING id INTO v_fp_i;
+
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp_i, v_account_i, 8030, true) RETURNING id INTO v_pv_i;
+
+  -- ═══ Matriz de evasión EJECUTADA: las 5 formas deben fallar con P0436 ═══
+  -- (a) el ataque medido: status='authorized' con CAE inventado
+  BEGIN
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, cae)
+    VALUES (v_account_i, v_fp_i, v_pv_i, 'factura_c', 8030, 1, 1000, 'authorized', 'CAE-INVENTADO-01');
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  IF v_state <> 'P0436' THEN
+    v_failures := v_failures || format('(18a) un INSERT con status=authorized + CAE debía dar P0436; got %s', v_state);
+  END IF;
+
+  -- (b) 'rejected' tampoco: un comprobante sólo NACE pending_cae
+  BEGIN
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status)
+    VALUES (v_account_i, v_fp_i, v_pv_i, 'factura_c', 8030, 2, 1000, 'rejected');
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  IF v_state <> 'P0436' THEN
+    v_failures := v_failures || format('(18b) un INSERT con status=rejected debía dar P0436; got %s', v_state);
+  END IF;
+
+  -- (c) pending_cae CON CAE: el estado engaña, el CAE es lo que no puede nacer
+  BEGIN
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, cae)
+    VALUES (v_account_i, v_fp_i, v_pv_i, 'factura_c', 8030, 3, 1000, 'pending_cae', 'CAE-INVENTADO-02');
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  IF v_state <> 'P0436' THEN
+    v_failures := v_failures || format('(18c) un INSERT pending_cae CON cae debía dar P0436; got %s', v_state);
+  END IF;
+
+  -- (d) pending_cae con la marca de envío ya puesta: nacería "reconciliable"
+  --     contra un número que nadie pidió
+  BEGIN
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status,
+       cae_submit_started_at, arca_requested_number)
+    VALUES (v_account_i, v_fp_i, v_pv_i, 'factura_c', 8030, 4, 1000, 'pending_cae', now(), 99);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  IF v_state <> 'P0436' THEN
+    v_failures := v_failures || format('(18d) un INSERT pending_cae CON marca de envío debía dar P0436; got %s', v_state);
+  END IF;
+
+  -- (e) pending_cae nacido CONGELADO
+  BEGIN
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status,
+       cae_submit_unconfirmed_at)
+    VALUES (v_account_i, v_fp_i, v_pv_i, 'factura_c', 8030, 5, 1000, 'pending_cae', now());
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  IF v_state <> 'P0436' THEN
+    v_failures := v_failures || format('(18e) un INSERT pending_cae nacido CONGELADO debía dar P0436; got %s', v_state);
+  END IF;
+
+  -- ═══ Control positivo: un comprobante legítimo SÍ nace ═══
+  -- Sin esto, el bloque pasaría igual si el trigger rechazara TODO (y la
+  -- emisión entera estaría rota sin que el gate lo notara).
+  BEGIN
+    INSERT INTO public.fiscal_documents
+      (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+    VALUES (v_account_i, v_fp_i, v_pv_i, 'factura_c', 8030, 6, 1000, 'pending_cae', 0)
+    RETURNING id INTO v_doc;
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  IF v_state <> 'ok' THEN
+    v_failures := v_failures || format('(18) control positivo: un pending_cae limpio DEBE poder nacer (es lo que insertan las 2 RPCs de emisión); got %s', v_state);
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FISCAL-CAE (18) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (18): trg_guard_fiscal_document_insert_interno BEFORE INSERT y habilitado; las 5 formas de nacer con CAE/estado/marca rechazadas con P0436 y el pending_cae limpio aceptado.';
+
+  -- ═══ Limpieza verificada ═══
+  DELETE FROM public.document_status_history WHERE account_id = v_account_i;
+  DELETE FROM public.fiscal_documents        WHERE account_id = v_account_i;
+  DELETE FROM public.document_sequences
+  WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id = v_account_i);
+  DELETE FROM public.points_of_sale          WHERE account_id = v_account_i;
+  DELETE FROM public.fiscal_profiles         WHERE account_id = v_account_i;
+
+  SELECT count(*) INTO v_count FROM public.fiscal_documents WHERE account_id = v_account_i;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE FISCAL-CAE (18) FAILED: quedaron % fiscal_documents del fixture del trigger', v_count;
+  END IF;
+
+  SET session_replication_role = replica;
+  DELETE FROM public.account_members WHERE account_id = v_account_i;
+  DELETE FROM public.accounts        WHERE id = v_account_i;
+  DELETE FROM public.profiles        WHERE id = v_user_i;
+  DELETE FROM auth.users             WHERE id = v_user_i;
+  SET session_replication_role = DEFAULT;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      DELETE FROM public.document_status_history WHERE account_id = v_account_i;
+      DELETE FROM public.fiscal_documents        WHERE account_id = v_account_i;
+      DELETE FROM public.document_sequences
+      WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id = v_account_i);
+      DELETE FROM public.points_of_sale          WHERE account_id = v_account_i;
+      DELETE FROM public.fiscal_profiles         WHERE account_id = v_account_i;
+      SET session_replication_role = replica;
+      DELETE FROM public.account_members WHERE account_id = v_account_i;
+      DELETE FROM public.accounts        WHERE id = v_account_i;
+      DELETE FROM public.profiles        WHERE id = v_user_i;
+      DELETE FROM auth.users             WHERE id = v_user_i;
+      SET session_replication_role = DEFAULT;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;
+
 -- =============================================================================
--- GATE FISCAL-CAE PASSED (16 bloques).
+-- GATE FISCAL-CAE PASSED (18 bloques).
 -- =============================================================================

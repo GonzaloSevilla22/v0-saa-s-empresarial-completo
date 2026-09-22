@@ -69,6 +69,12 @@ export interface FiscalDocByReceiptResult {
    *  caso no se renderiza nada (no inventar un "—" que parezca un número). */
   punto_de_venta?: number | null
   number?: number | null
+  /** fiscal-emision-segura (M-4, red team 2026-09-22): true si el envío a
+   *  ARCA salió y nunca se confirmó (G4) — el documento sigue
+   *  `status: 'pending_cae'` pero está CONGELADO y requiere revisión manual
+   *  en ARCA. Sin esto, `/admin/pagos` lo mostraría "En trámite" para
+   *  siempre. */
+  is_frozen?: boolean
 }
 
 // El formateo del comprobante vive en `lib/fiscal-comprobante.ts` (funciones

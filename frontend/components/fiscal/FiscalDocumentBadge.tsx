@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
-import { Loader2 } from "lucide-react"
+import { AlertTriangle, Loader2 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,16 @@ interface FiscalDocumentBadgeProps {
   initialStatus: FiscalDocumentStatus
   /** Si es true, muestra el estado en texto largo. Default: false (compact). */
   verbose?: boolean
+  /**
+   * fiscal-emision-segura (M-4, red team 2026-09-22): true si el comprobante
+   * está CONGELADO (G4 — un FECAESolicitar salió y su resultado nunca se
+   * confirmó). Un congelado sigue reportando `status='pending_cae'` — sin
+   * esta bandera, el badge lo mostraría "En trámite" para siempre y nadie
+   * sabría que necesita revisión manual en ARCA. Es el estado inicial (page
+   * load); el badge también lo detecta en vivo por Realtime más abajo, así
+   * que el caller puede omitirlo si su endpoint todavía no lo trae.
+   */
+  initialFrozen?: boolean
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -58,13 +68,16 @@ export function FiscalDocumentBadge({
   documentId,
   initialStatus,
   verbose = false,
+  initialFrozen = false,
 }: FiscalDocumentBadgeProps) {
   const [status, setStatus] = useState<FiscalDocumentStatus>(initialStatus)
+  const [frozen, setFrozen] = useState<boolean>(initialFrozen)
 
   useEffect(() => {
     // Reset cuando el documento cambia (ej. la tabla re-renderiza otra fila)
     setStatus(initialStatus)
-  }, [documentId, initialStatus])
+    setFrozen(initialFrozen)
+  }, [documentId, initialStatus, initialFrozen])
 
   useEffect(() => {
     // Solo suscribirse si el estado es aún transitorio (pending_cae).
@@ -88,6 +101,12 @@ export function FiscalDocumentBadge({
           if (newStatus && newStatus !== status) {
             setStatus(newStatus)
           }
+          // fiscal-emision-segura (M-4, red team 2026-09-22): el mismo UPDATE
+          // que congela (G4) trae `cae_submit_unconfirmed_at` en el payload —
+          // reutiliza la suscripción que ya existía, sin un canal aparte.
+          if (payload.new?.cae_submit_unconfirmed_at) {
+            setFrozen(true)
+          }
         },
       )
       .subscribe()
@@ -96,6 +115,21 @@ export function FiscalDocumentBadge({
       supabase.removeChannel(channel)
     }
   }, [documentId, status])
+
+  // Un congelado sigue siendo status='pending_cae' — la bandera manda por
+  // encima del status para no mostrar "En trámite" indefinidamente.
+  if (frozen) {
+    return (
+      <Badge
+        variant="outline"
+        className="inline-flex items-center gap-1 text-xs bg-red-500/10 text-red-600 border-red-500/30 dark:text-red-400"
+        title="El envío a ARCA no se confirmó (pudo haber sido aprobado sin registro local). Requiere verificación manual en ARCA antes de reintentar."
+      >
+        <AlertTriangle className="h-3 w-3" />
+        {verbose ? "Congelado — requiere revisión manual" : "Congelado"}
+      </Badge>
+    )
+  }
 
   const config = STATUS_CONFIG[status]
 

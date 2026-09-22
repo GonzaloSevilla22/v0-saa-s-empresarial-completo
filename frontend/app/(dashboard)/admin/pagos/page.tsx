@@ -66,6 +66,9 @@ interface RowFiscalState {
   comprobanteType?: string | null
   puntoDeVenta?: number | null
   number?: number | null
+  /** fiscal-emision-segura (M-4, red team 2026-09-22): comprobante CONGELADO
+   *  (G4) — sigue en status='pending_cae' pero necesita revisión manual. */
+  isFrozen?: boolean
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -131,6 +134,7 @@ export default function AdminPagosPage() {
                   comprobanteType: doc.comprobante_type,
                   puntoDeVenta:    doc.punto_de_venta,
                   number:          doc.number,
+                  isFrozen:        doc.is_frozen ?? false,
                 }
               }
             } catch {
@@ -322,6 +326,7 @@ export default function AdminPagosPage() {
                           <FiscalDocumentBadge
                             documentId={fiscal.documentId}
                             initialStatus={fiscal.status}
+                            initialFrozen={fiscal.isFrozen}
                           />
                           {/* G7: identidad del comprobante ante ARCA. Si falta el
                               número no se renderiza nada — un "—" acá parecería

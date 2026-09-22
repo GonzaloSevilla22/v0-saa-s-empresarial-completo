@@ -2,6 +2,9 @@
  * v22-afip-delegation-billing — EmitirComprobante frontend unit tests.
  *
  * Tests pure functions only — no network, no DB, no Supabase client.
+ * translateEmitError / isDelegationError are imported from the real hook
+ * module (frontend/hooks/data/use-emit-comprobante.ts) — these tests exercise
+ * production logic, not a copy of it.
  *
  * TDD cycle:
  *   RED → GREEN → TRIANGULATE:
@@ -12,35 +15,26 @@
  * Spec refs:
  *   - v22-afip-delegation-billing/design.md §"OQ-3 – emit endpoint"
  *   - D11 (PV resolver), D7 (delegation error)
+ *   - fiscal-riesgos-residuales R4 (client_not_found — client no pertenece al tenant)
  */
 
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 
-// ── Duplicate pure logic from use-emit-comprobante.ts for isolated testing ────
+// use-emit-comprobante.ts imports `pythonClient`, which throws at module load
+// if NEXT_PUBLIC_BACKEND_URL isn't set (see lib/api/python-client.ts). These
+// tests only exercise the pure translateEmitError/isDelegationError exports,
+// so the client is mocked minimally — same pattern as
+// __tests__/hooks/use-expenses-payment-method.test.ts.
+vi.mock("@/lib/api/python-client", () => ({
+  pythonClient: {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+  },
+}))
 
-function translateEmitError(message: string): string {
-  if (
-    message.includes("DELEGATION_NOT_AUTHORIZED") ||
-    message.includes("Administrador de Relaciones") ||
-    message.includes("representante") ||
-    message.includes("aún no autorizó")
-  ) {
-    return "DELEGATION_NOT_AUTHORIZED: Aliadata aún no está autorizado como representante en tu cuenta ARCA. Configurá la delegación en Ajustes → Datos fiscales."
-  }
-  if (message.includes("ambiguous_point_of_sale"))
-    return "La cuenta tiene varios puntos de venta activos. Seleccioná cuál usar."
-  if (message.includes("no_active_point_of_sale"))
-    return "La cuenta no tiene puntos de venta activos. Configurá uno en Datos fiscales."
-  if (message.includes("fiscal_profile_not_found"))
-    return "La cuenta no tiene perfil fiscal configurado. Completá los datos en Ajustes → Datos fiscales."
-  if (message.includes("point_of_sale_not_found_or_inactive"))
-    return "El punto de venta seleccionado no existe o está inactivo."
-  return message || "Ocurrió un error inesperado al emitir el comprobante."
-}
-
-function isDelegationError(message: string): boolean {
-  return message.startsWith("DELEGATION_NOT_AUTHORIZED:")
-}
+import { translateEmitError, isDelegationError } from "@/hooks/data/use-emit-comprobante"
 
 // ── comprobanteLabel (duplicated from EmitirComprobanteDialog) ────────────────
 
@@ -93,6 +87,20 @@ describe("translateEmitError", () => {
     expect(result).toContain("no existe o está inactivo")
   })
 
+  it("maps client_not_found to a tenancy-friendly message", () => {
+    const result = translateEmitError(
+      "client_not_found: el cliente no existe o no pertenece a la cuenta",
+    )
+    expect(result).not.toContain("client_not_found")
+    expect(result).toContain("no pertenece a tu cuenta")
+  })
+
+  it("maps client_not_found with only the token + a uuid suffix", () => {
+    const result = translateEmitError("client_not_found: 3f2c1a90-6b7d-4e21-9c3a-8f1a2b3c4d5e")
+    expect(result).not.toContain("client_not_found")
+    expect(result).toContain("no pertenece a tu cuenta")
+  })
+
   it("passes through unknown errors verbatim", () => {
     const msg = "some unexpected backend error XYZ"
     expect(translateEmitError(msg)).toBe(msg)
@@ -118,6 +126,13 @@ describe("isDelegationError", () => {
 
   it("returns false for unknown errors", () => {
     expect(isDelegationError("some random error")).toBe(false)
+  })
+
+  it("returns false for the translated client_not_found message", () => {
+    const translated = translateEmitError(
+      "client_not_found: el cliente no existe o no pertenece a la cuenta",
+    )
+    expect(isDelegationError(translated)).toBe(false)
   })
 })
 

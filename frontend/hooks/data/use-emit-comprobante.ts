@@ -62,6 +62,8 @@ export function translateEmitError(message: string): string {
     return "La cuenta no tiene perfil fiscal configurado. Completá los datos en Ajustes → Datos fiscales."
   if (message.includes("point_of_sale_not_found_or_inactive"))
     return "El punto de venta seleccionado no existe o está inactivo."
+  if (message.includes("client_not_found"))
+    return "El cliente seleccionado no existe o no pertenece a tu cuenta. Elegí un cliente de tu lista o emití a consumidor final."
   return message || "Ocurrió un error inesperado al emitir el comprobante."
 }
 

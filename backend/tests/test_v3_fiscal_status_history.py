@@ -29,6 +29,11 @@ DOC_ID = "11111111-2222-3333-4444-555555555555"
 def _make_conn() -> AsyncMock:
     conn = AsyncMock()
     conn.execute = AsyncMock(return_value="SELECT 1")
+    # fiscal-emision-segura (M-1, red team 2026-09-22): update_authorized pasó
+    # de conn.execute (descarta el resultado) a conn.fetchval (recupera el
+    # boolean de la RPC) — el caller lo necesita para no loguear "autorizado"
+    # en el camino de idempotencia/colisión irresoluble.
+    conn.fetchval = AsyncMock(return_value=True)
     return conn
 
 
@@ -44,15 +49,16 @@ async def test_update_authorized_calls_authorize_rpc_with_cae_and_due_date():
     conn = _make_conn()
     repo = FiscalDocumentRepository(conn)
 
-    await repo.update_authorized(
+    matched = await repo.update_authorized(
         doc_id=DOC_ID,
         cae="75123456789012",
         cae_due_date=datetime.date(2026, 7, 20),
         number=9,
     )
 
-    conn.execute.assert_awaited_once()
-    query, doc_id, cae, cae_due_date, number = conn.execute.call_args.args
+    assert matched is True
+    conn.fetchval.assert_awaited_once()
+    query, doc_id, cae, cae_due_date, number = conn.fetchval.call_args.args
     assert "rpc_fiscal_document_authorize" in query
     assert doc_id == DOC_ID
     assert cae == "75123456789012"

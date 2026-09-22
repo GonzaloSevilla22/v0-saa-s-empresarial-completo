@@ -50,7 +50,7 @@ class FiscalDocumentRepository(BaseRepository):
         cae: str,
         cae_due_date: datetime.date,
         number: int | None = None,
-    ) -> None:
+    ) -> bool:
         """Transiciona el comprobante a authorized con el CAE obtenido.
 
         v31-tenancy-pool-rls (colisión #1, sign-off PO 2026-08-01):
@@ -67,8 +67,15 @@ class FiscalDocumentRepository(BaseRepository):
         en `document_status_history.reason`. `None` (o un caller viejo con 3
         argumentos, que el DEFAULT NULL de la RPC sigue aceptando durante la
         ventana de despliegue) = "no informado", y la RPC se comporta como antes.
+
+        (m-3 minor, red team 2026-09-22): retorna el boolean de la RPC. `False`
+        NO es un error — pasa en el camino de idempotencia (el doc ya no
+        estaba pending_cae) y en la colisión irresoluble (7b de la migración):
+        el CAE se persiste igual pero el documento queda CONGELADO, no
+        autorizado. El caller lo usa para no loguear "autorizado" cuando en
+        realidad no lo está.
         """
-        await self.execute(
+        return await self._conn.fetchval(
             "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint)",
             doc_id,
             cae,
@@ -158,6 +165,15 @@ class FiscalDocumentRepository(BaseRepository):
         NOTE: FOR UPDATE SKIP LOCKED is NOT used here because the SOAP call (request_cae)
         is long-running and must not hold a DB lock across a network round-trip.
         The claim_pending optimistic lease is the concurrency guard instead.
+
+        fiscal-emision-segura (M-2, red team 2026-09-22): excluye los
+        documentos CONGELADOS (`cae_submit_unconfirmed_at`, G4). Un congelado
+        tiene `next_attempt_at = NULL` PARA SIEMPRE — con la orden `NULLS
+        FIRST`, si hay >= `limit` congelados el batch entero se llena de ellos
+        (`claim_pending` los rechaza a todos porque tiene el mismo predicado)
+        y el relay deja de procesar CUALQUIER documento fresco,
+        indefinidamente. Mismo predicado que ya tiene
+        `rpc_fiscal_document_claim_pending`.
         """
         return await self.fetch(
             """
@@ -170,6 +186,7 @@ class FiscalDocumentRepository(BaseRepository):
             WHERE fd.status = 'pending_cae'
               AND (fd.next_attempt_at IS NULL OR fd.next_attempt_at <= now())
               AND fd.attempts < 10
+              AND fd.cae_submit_unconfirmed_at IS NULL
             ORDER BY fd.next_attempt_at NULLS FIRST, fd.created_at ASC
             LIMIT $1
             """,

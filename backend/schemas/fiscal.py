@@ -16,6 +16,33 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 
+def _check_receptor_coherente(tipo: int | None, nro: str | None) -> None:
+    """Valida que receptor_doc_tipo/receptor_doc_nro viajen JUNTOS o NINGUNO.
+
+    fiscal-emision-segura (m-2 minor, red team 2026-09-22): compartida por
+    EmitPendingCAERequest (venta directa) y EmitSubscriptionPaymentRequest
+    (pago de suscripción) — antes SOLO la segunda la tenía, así que una venta
+    con `receptor_doc_tipo=80` y `receptor_doc_nro` vacío/ausente pasaba el
+    schema, y `WSFEAdapter._resolve_receptor_doc` la resolvía como consumidor
+    final (cae a 99/0 sin `doc_nro_raw`): la fila local decía "CUIT 80" y a
+    ARCA iba consumidor final — receptor local y receptor real DIVERGÍAN.
+    Reutilización antes que repetición (regla PO 2026-08-02): un solo lugar
+    para esta coherencia, no dos copias que puedan divergir entre sí.
+    """
+    nro_clean = (nro or "").strip()
+    if tipo is not None and not nro_clean:
+        raise ValueError(
+            "receptor_doc_nro es obligatorio cuando se informa receptor_doc_tipo "
+            "(un DocTipo 80/96 sin número es inconsistente ante ARCA). Para "
+            "emitir a consumidor final, omitir los dos campos."
+        )
+    if tipo is None and nro_clean:
+        raise ValueError(
+            "receptor_doc_tipo es obligatorio cuando se informa receptor_doc_nro "
+            "(80=CUIT, 96=DNI)."
+        )
+
+
 # ── FiscalProfile schemas ────────────────────────────────────────────────────
 
 class FiscalProfileCreate(BaseModel):
@@ -134,6 +161,11 @@ class EmitPendingCAERequest(BaseModel):
     # v22-admin: referencia idempotente de pago de suscripción
     subscription_payment_id: str | None = None
 
+    @model_validator(mode="after")
+    def _receptor_coherente(self) -> "EmitPendingCAERequest":
+        _check_receptor_coherente(self.receptor_doc_tipo, self.receptor_doc_nro)
+        return self
+
 
 class EmitSubscriptionPaymentRequest(BaseModel):
     """Schema para emitir Factura C por un pago de suscripción (flujo admin).
@@ -163,19 +195,7 @@ class EmitSubscriptionPaymentRequest(BaseModel):
 
     @model_validator(mode="after")
     def _receptor_coherente(self) -> "EmitSubscriptionPaymentRequest":
-        nro = (self.receptor_doc_nro or "").strip()
-        tipo = self.receptor_doc_tipo
-        if tipo is not None and not nro:
-            raise ValueError(
-                "receptor_doc_nro es obligatorio cuando se informa receptor_doc_tipo "
-                "(un DocTipo 80/96 sin número es inconsistente ante ARCA). Para "
-                "emitir a consumidor final, omitir los dos campos."
-            )
-        if tipo is None and nro:
-            raise ValueError(
-                "receptor_doc_tipo es obligatorio cuando se informa receptor_doc_nro "
-                "(80=CUIT, 96=DNI)."
-            )
+        _check_receptor_coherente(self.receptor_doc_tipo, self.receptor_doc_nro)
         return self
 
 

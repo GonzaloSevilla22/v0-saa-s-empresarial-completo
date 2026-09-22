@@ -384,7 +384,24 @@ async def process_all_pending_documents(
         # v22: mismo adapter de plataforma para todos los docs.
         # El cuit_emisor de cada doc se usa como Auth.Cuit en WSFEAdapter._call_wsfe.
         processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
-        await processor.process_document(claimed)
+        try:
+            await processor.process_document(claimed)
+        except Exception:
+            # fiscal-emision-segura (M-1, red team 2026-09-22): sin este guard,
+            # UNA excepción no manejada en un solo documento (fila corrupta,
+            # bug nuevo, lo que sea) abortaba el batch COMPLETO — el resto de
+            # los documentos de este tick, algunos con lease ya tomado por
+            # claim_pending, quedaban sin procesar hasta el próximo minuto. No
+            # es sólo latencia: `process_document` ya sabe congelar en vez de
+            # perder un CAE aprobado (ver el try/except de la rama
+            # `is_approved`); esto cubre lo que ESE guard no puede — un fallo
+            # ANTES de siquiera llamar al adapter.
+            logger.exception(
+                "[process_all_pending_documents] doc %s: process_document lanzó "
+                "una excepción no manejada — se continúa con el resto del batch.",
+                doc_id,
+            )
+            continue
         processed += 1
 
     return {

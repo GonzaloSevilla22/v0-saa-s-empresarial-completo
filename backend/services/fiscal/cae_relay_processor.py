@@ -123,16 +123,58 @@ class CAERelayProcessor:
             response = await self._adapter.request_cae(cae_request)
 
         if response.is_approved:
-            # Éxito → authorized
-            await self._repo.update_authorized(
-                doc_id=doc["id"],
-                cae=response.cae,
-                cae_due_date=response.cae_due_date,
-                # G3: el número que ARCA confirmó. La RPC lo adopta si difiere
-                # del local y deja el desfasaje en document_status_history.
-                number=response.number,
-            )
-            logger.info("CAERelayProcessor: doc %s autorizado con CAE %s", doc["id"], response.cae)
+            # ── fiscal-emision-segura (M-1, red team 2026-09-22) ──────────────
+            # ARCA YA aprobó y el CAE está en memoria (`response.cae`), pero
+            # persistirlo puede fallar (lock, timeout de statement, corte de
+            # conexión). Sin este guard el documento queda pending_cae y el
+            # PRÓXIMO tick lo reclama como si nunca hubiera pedido nada: pide
+            # `FECompUltimoAutorizado+1` (que YA avanzó) y emite una SEGUNDA
+            # factura real. Se CONGELA con el CAE real en el detail para que
+            # la resolución manual no dependa de re-consultar ARCA a ciegas.
+            try:
+                matched = await self._repo.update_authorized(
+                    doc_id=doc["id"],
+                    cae=response.cae,
+                    cae_due_date=response.cae_due_date,
+                    # G3: el número que ARCA confirmó. La RPC lo adopta si difiere
+                    # del local y deja el desfasaje en document_status_history.
+                    number=response.number,
+                )
+            except Exception as exc:
+                logger.critical(
+                    "CAERelayProcessor: doc %s — ARCA APROBÓ (CAE %s, vto %s, "
+                    "numero %s) pero la persistencia de update_authorized FALLÓ: "
+                    "%s. CONGELANDO para no pedir un CAE nuevo en el próximo tick.",
+                    doc["id"], response.cae, response.cae_due_date, response.number, exc,
+                )
+                await self._repo.freeze_unconfirmed(
+                    doc_id=doc["id"],
+                    arca_requested_number=response.number,
+                    detail=(
+                        f"PERSIST_FAILED_AFTER_ARCA_APPROVAL: ARCA aprobó con CAE "
+                        f"{response.cae} (vto {response.cae_due_date}) pero la "
+                        f"escritura local falló: {exc}"
+                    ),
+                )
+                return
+
+            # (m-3 minor) `matched=False` sin excepción NO es un error: pasa en
+            # la idempotencia (otro relay ya lo transicionó) y en la colisión
+            # irresoluble (7b de la migración), donde la RPC persiste el CAE
+            # pero CONGELA en vez de autorizar. No hay que loguearlo como
+            # autorizado en ninguno de los dos casos.
+            if matched:
+                logger.info(
+                    "CAERelayProcessor: doc %s autorizado con CAE %s", doc["id"], response.cae,
+                )
+            else:
+                logger.warning(
+                    "CAERelayProcessor: doc %s — ARCA aprobó (CAE %s) pero "
+                    "rpc_fiscal_document_authorize devolvió false (idempotencia, o "
+                    "colisión irresoluble que la propia RPC ya congeló). Revisar "
+                    "document_status_history / last_error del documento.",
+                    doc["id"], response.cae,
+                )
 
         elif getattr(response, "submitted", False):
             # ── fiscal-emision-segura (G4) ────────────────────────────────────

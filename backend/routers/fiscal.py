@@ -240,10 +240,15 @@ async def get_fiscal_doc_by_receipt(
     # fiscal-emision-segura (G7): punto_de_venta + number son lo que identifica
     # al comprobante ante ARCA ("Factura C 0003-00000002"). Sin ellos acá, el
     # número que G3 persiste no lo ve nadie.
+    # (M-4, red team 2026-09-22): cae_submit_unconfirmed_at → is_frozen. Un
+    # comprobante CONGELADO (G4) sigue reportando status='pending_cae' — sin
+    # esta bandera, /admin/pagos lo muestra "En trámite" para siempre y nadie
+    # sabe que necesita revisión manual en ARCA.
     row = await conn.fetchrow(
         """
         SELECT id, status, cae, cae_due_date, comprobante_type, total,
-               subscription_payment_id, punto_de_venta, number
+               subscription_payment_id, punto_de_venta, number,
+               cae_submit_unconfirmed_at
         FROM   public.fiscal_documents
         WHERE  subscription_payment_id = $1
         LIMIT  1
@@ -263,6 +268,7 @@ async def get_fiscal_doc_by_receipt(
         "subscription_payment_id": doc["subscription_payment_id"],
         "punto_de_venta":         doc["punto_de_venta"],
         "number":                 doc["number"],
+        "is_frozen":              doc.get("cae_submit_unconfirmed_at") is not None,
     }
 
 

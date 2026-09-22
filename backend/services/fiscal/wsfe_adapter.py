@@ -52,7 +52,8 @@ _WSFEV1_URLS = {
 }
 
 
-# fiscal-emision-segura (G4): cota temporal de la llamada SOAP, en segundos.
+# fiscal-emision-segura (G4, endurecido en el red team B-1): cota temporal de
+# la llamada SOAP, en segundos.
 #
 # El default de zeep es `operation_timeout=None`, es decir el POST de la
 # operación va a `requests` SIN timeout y puede colgarse indefinidamente. El
@@ -66,6 +67,20 @@ _WSFEV1_URLS = {
 # (~9 s). Si resultara corto, el síntoma es un congelamiento espurio: molesto,
 # pero del lado seguro (nunca una segunda factura), y se afloja el valor.
 _SOAP_OPERATION_TIMEOUT_SECONDS = 45
+
+# BLOCKER B-1 (red team, 2026-09-22): `operation_timeout` acota el POST de la
+# OPERACIÓN, pero `zeep.Transport` tiene un SEGUNDO timeout independiente para
+# la CARGA del WSDL/XSD (`timeout`, default 300s — sin `cache=` cada llamada a
+# `_build_zeep_client` vuelve a bajar el WSDL). Sin acotarlo también, esa parte
+# se queda en 300s = EXACTAMENTE el lease: la "sección crítica sin cota" del
+# comentario de arriba seguía existiendo, sólo que más angosta. Peor caso antes
+# de FECAESolicitar (cache miss del TA): 2 builds de cliente (WSAA + WSFEv1,
+# `timeout` c/u) + 3 llamadas SOAP (loginCms, FECompUltimoAutorizado,
+# FECAESolicitar, `operation_timeout` c/u) = 2×20 + 3×45 = 175s, cómodamente
+# bajo los 300s del lease (test_presupuesto_total_peor_caso_queda_bajo_el_lease
+# lo fija como regresión: cualquier cambio futuro a estas dos constantes que
+# rompa el presupuesto total falla el gate, no sólo "está seteado").
+_SOAP_WSDL_LOAD_TIMEOUT_SECONDS = 20
 
 
 class WSFESubmitInFlightError(Exception):
@@ -129,11 +144,14 @@ def _build_zeep_client(url: str):
 
     session = requests.Session()
     session.mount("https://", _AfipTLSAdapter())
-    # G4: operation_timeout acota el POST de la operación (ver la constante).
+    # G4/B-1: operation_timeout acota el POST de la operación; timeout acota
+    # la CARGA del WSDL/XSD (default de zeep: 300s si no se pasa nada — ver
+    # las constantes arriba para el presupuesto total contra el lease).
     return zeep.Client(
         url,
         transport=zeep.Transport(
             session=session,
+            timeout=_SOAP_WSDL_LOAD_TIMEOUT_SECONDS,
             operation_timeout=_SOAP_OPERATION_TIMEOUT_SECONDS,
         ),
     )
@@ -652,27 +670,42 @@ class WSFEAdapter(FiscalDocumentPort):
             },
         }
 
-        # ── fiscal-emision-segura (G4): desde acá, un fallo NO es reintentable ──
-        # Todo lo que pase en o después de este envío deja al comprobante en
-        # estado desconocido: ARCA pudo haberlo autorizado. Se levanta
-        # WSFESubmitInFlightError con el número pedido para que el relay CONGELE
-        # el documento en vez de reintentar con un número nuevo.
+        # ── fiscal-emision-segura (G4): desde acá, un fallo de TRANSPORTE NO es
+        # reintentable ────────────────────────────────────────────────────────
+        # Sólo un fallo de TRANSPORTE (el POST nunca completó / la conexión se
+        # cortó DESPUÉS de salir) deja al comprobante en estado GENUINAMENTE
+        # desconocido: ARCA pudo haberlo autorizado sin que lo sepamos. Se
+        # levanta WSFESubmitInFlightError con el número pedido para que el
+        # relay CONGELE el documento en vez de reintentar con un número nuevo.
+        #
+        # M-3 (red team, 2026-09-22): angostado a propósito. Antes esto era un
+        # `except Exception` genérico, que también congelaba:
+        #   - un TypeError/ValueError de zeep serializando el envelope (nunca
+        #     salió un byte: no es ambiguo, es un error normal reintentable);
+        #   - un zeep.exceptions.Fault de autenticación ("Token invalido o
+        #     expirado" — ARCA SÍ respondió, aunque sea con un rechazo, así que
+        #     tampoco es ambiguo, y es rutinario/autosanable por backoff).
+        # Congelar de más no es gratis: alimenta la starvation de M-2 (una
+        # causa sistemática -p.ej. una tanda de TAs vencidos- congelaría
+        # documentos uno por uno). Todo lo que NO sea un fallo de transporte
+        # cae al `except Exception` genérico de `request_cae`, que ya sabe
+        # distinguir delegación (reintentable) de error de datos/red
+        # (reintentable): no hace falta repetir esa lógica acá.
+        import requests as _requests
+
         try:
             result = client.service.FECAESolicitar(**request_body)
-        except Exception as exc:
-            # Excepción a la excepción: un rechazo de ARCA por delegación no
-            # autorizada es una NO-emisión CONFIRMADA (rechazó la autenticación,
-            # no procesó el comprobante). Sigue siendo reintentable y no congela:
-            # si congelara, cada cuenta que todavía no autorizó a Aliadata en
-            # ARCA acumularía documentos que necesitan trabajo manual.
-            if self._is_delegation_error(exc):
-                raise
+        except (
+            _requests.exceptions.Timeout,
+            _requests.exceptions.ConnectionError,
+            _requests.exceptions.ChunkedEncodingError,
+        ) as exc:
             raise WSFESubmitInFlightError(
                 cbte_numero=cbte_numero,
                 detail=(
                     f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
                     f"{cbte_numero} ({invoice_data.comprobante_type}) salió y su "
-                    f"resultado NUNCA se confirmó: {exc}"
+                    f"resultado NUNCA se confirmó (fallo de transporte): {exc}"
                 ),
             ) from exc
 

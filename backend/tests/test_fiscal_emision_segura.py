@@ -368,22 +368,29 @@ class TestNumeroAutoritativo:
 
     @pytest.mark.asyncio
     async def test_update_authorized_llama_la_rpc_con_4_args(self):
-        """3.5 RED: el repo llama rpc_fiscal_document_authorize con 4 parámetros."""
+        """3.5 RED: el repo llama rpc_fiscal_document_authorize con 4 parámetros.
+
+        (M-1, red team 2026-09-22): el repo pasó de `execute` (descarta el
+        resultado) a `fetchval` (recupera el boolean de la RPC) — el caller
+        necesita saber si `authorize` matcheó de verdad para no loguear
+        "autorizado" en el camino de idempotencia/colisión irresoluble.
+        """
         from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 
         conn = AsyncMock()
-        conn.execute = AsyncMock(return_value="SELECT 1")
+        conn.fetchval = AsyncMock(return_value=True)
         repo = FiscalDocumentRepository(conn)
 
-        await repo.update_authorized(
+        matched = await repo.update_authorized(
             doc_id=DOC_ID,
             cae="86250464989491",
             cae_due_date=datetime.date(2026, 12, 31),
             number=51,
         )
 
-        conn.execute.assert_awaited_once()
-        args = conn.execute.await_args.args
+        assert matched is True
+        conn.fetchval.assert_awaited_once()
+        args = conn.fetchval.await_args.args
         query = args[0]
         assert "rpc_fiscal_document_authorize" in query
         assert "$4" in query, f"La query debe pasar 4 parámetros; got: {query}"
@@ -400,14 +407,14 @@ class TestNumeroAutoritativo:
         from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
 
         conn = AsyncMock()
-        conn.execute = AsyncMock(return_value="SELECT 1")
+        conn.fetchval = AsyncMock(return_value=True)
         repo = FiscalDocumentRepository(conn)
 
         await repo.update_authorized(
             doc_id=DOC_ID, cae="86250464989491", cae_due_date=datetime.date(2026, 12, 31)
         )
 
-        assert conn.execute.await_args.args[4] is None
+        assert conn.fetchval.await_args.args[4] is None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -819,3 +826,503 @@ class TestByReceiptDevuelveElComprobante:
         query = conn.fetchrow.await_args.args[0]
         assert "punto_de_venta" in query
         assert "number" in query
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Red team de fix/fiscal-emision-segura (2026-09-22) — BLOCKER + MAJOR
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# B-1  BLOCKER: operation_timeout NO acota la carga del WSDL — esa parte del
+#      Transport de zeep queda en el default (300s, IGUAL al lease de 5min de
+#      claim_pending). Peor caso: 2 builds de cliente (WSAA+WSFEv1) + 3
+#      llamadas SOAP con cache miss del TA puede superar el lease -> el cron
+#      re-reclama con el FECAESolicitar anterior todavía en vuelo. DOS
+#      facturas reales.
+# M-1  Un error de persistencia DESPUÉS de que ARCA aprobó (lock, timeout de
+#      statement) dejaba el documento pending_cae sin el CAE Y abortaba el
+#      batch completo — el próximo tick lo reclama como si nunca hubiera
+#      pedido nada y emite una SEGUNDA factura real.
+# M-2  Starvation: freeze_unconfirmed pone next_attempt_at=NULL y
+#      list_pending_all ordena NULLS FIRST sin excluir congelados — con >=
+#      limit documentos congelados el relay deja de procesar CUALQUIER
+#      documento fresco, indefinidamente.
+# M-3  La clasificación de "envío no confirmado" era demasiado amplia:
+#      congelaba por TypeError/ValueError de serialización (no salió un byte)
+#      y por Faults de autenticación (ARCA SÍ respondió) — ambos alimentan la
+#      starvation de M-2 sin necesidad.
+# M-4  Un documento CONGELADO seguía reportando status='pending_cae' sin
+#      ninguna bandera — /admin/pagos lo mostraba "En trámite" para siempre.
+# m-2  (minor) EmitPendingCAERequest (venta directa) no tenía el mismo
+#      validador de coherencia receptor que EmitSubscriptionPaymentRequest.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRedTeamZeepTransportPresupuestoTotal:
+    """B-1 BLOCKER: el Transport de zeep tiene que acotar TAMBIÉN la carga del
+    WSDL/XSD, y el presupuesto total del peor caso tiene que quedar
+    cómodamente por debajo del lease de 5 minutos de claim_pending."""
+
+    def test_zeep_transport_acota_tambien_la_carga_del_wsdl(self):
+        """RED: sin `timeout=`, la carga del WSDL queda en el default de zeep
+        (300s) — IGUAL al lease. La sección crítica sigue sin cota real."""
+        from backend.services.fiscal import wsfe_adapter as mod
+
+        captured: dict = {}
+
+        class _FakeTransport:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        with (
+            patch("zeep.Transport", _FakeTransport),
+            patch("zeep.Client", MagicMock()),
+        ):
+            mod._build_zeep_client("https://example.invalid/wsfev1?WSDL")
+
+        load_timeout = captured.get("timeout")
+        assert load_timeout is not None, (
+            "El Transport de zeep debe llevar `timeout` (carga del WSDL/XSD) — "
+            "sin él, el default de zeep es 300s, IGUAL al lease de "
+            "claim_pending: la sección crítica queda sin cota real."
+        )
+        assert 0 < load_timeout <= 60, f"timeout de carga del WSDL fuera de rango: {load_timeout}"
+
+    def test_presupuesto_total_peor_caso_queda_bajo_el_lease(self):
+        """RED: el peor caso (2 builds de cliente WSAA+WSFEv1, cache miss del
+        TA, con las 3 llamadas SOAP: loginCms + FECompUltimoAutorizado +
+        FECAESolicitar) tiene que quedar bajo el lease de 300s — si no, el
+        cron puede re-reclamar el documento con el pedido anterior en vuelo."""
+        from backend.services.fiscal import wsfe_adapter as mod
+
+        captured: dict = {}
+
+        class _FakeTransport:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        with (
+            patch("zeep.Transport", _FakeTransport),
+            patch("zeep.Client", MagicMock()),
+        ):
+            mod._build_zeep_client("https://example.invalid/wsfev1?WSDL")
+
+        load_timeout = captured["timeout"]
+        op_timeout = captured["operation_timeout"]
+        # 2 builds de cliente (carga de WSDL c/u) + 3 operaciones SOAP.
+        worst_case = 2 * load_timeout + 3 * op_timeout
+        lease_seconds = 5 * 60
+        assert worst_case < lease_seconds, (
+            f"presupuesto peor caso {worst_case}s >= lease de {lease_seconds}s: "
+            "el cron puede re-reclamar el documento con el FECAESolicitar "
+            "anterior todavía en vuelo (dos facturas reales)."
+        )
+
+
+class TestRedTeamClasificacionTransporte:
+    """M-3: SOLO un fallo de TRANSPORTE después de mandar el pedido es
+    genuinamente ambiguo. Un TypeError/ValueError de zeep serializando el
+    envelope (no salió un byte) o un Fault de autenticación (ARCA SÍ
+    respondió, aunque sea con un rechazo) NO deben congelar — congelarlos
+    también alimenta la starvation de M-2 (una causa sistemática congela
+    documentos uno por uno)."""
+
+    @pytest.mark.asyncio
+    async def test_error_de_serializacion_no_marca_submitted(self):
+        """RED: hoy CUALQUIER excepción en FECAESolicitar marca submitted=True,
+        incluido un TypeError que significa que NUNCA salió un byte."""
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.side_effect = TypeError(
+                "argument of type 'NoneType' is not iterable"
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.error_code == "WSFE_ERROR", (
+            "un TypeError serializando el envelope significa que NO salió "
+            "ningún byte: no es ambiguo, es un error normal reintentable."
+        )
+        assert resp.submitted is False
+
+    @pytest.mark.asyncio
+    async def test_fault_de_token_invalido_no_marca_submitted(self):
+        """RED: un Fault de TA vencido es rutinario y autosanable por backoff
+        — ARCA SÍ respondió (con un rechazo de autenticación), así que no es
+        ambiguo. Hoy lo congela igual que un timeout de red."""
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.side_effect = RuntimeError(
+                "Token invalido o expirado"
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.error_code == "WSFE_ERROR"
+        assert resp.submitted is False
+
+    @pytest.mark.asyncio
+    async def test_readtimeout_sigue_marcando_submitted(self):
+        """TRIANGULACIÓN: el camino que SÍ debe congelar no se rompe con la
+        clasificación más angosta."""
+        import requests
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.side_effect = requests.exceptions.ConnectionError(
+                "Connection aborted."
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.error_code == "CAE_SUBMIT_UNCONFIRMED"
+        assert resp.submitted is True
+        assert resp.number == 51
+
+    @pytest.mark.asyncio
+    async def test_error_de_delegacion_sigue_sin_congelar(self):
+        """TRIANGULACIÓN: el caso de delegación (4.2c, ya cubierto arriba) no
+        se rompe: sigue sin pasar por el guard de transporte."""
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.side_effect = RuntimeError(
+                "El representante no está autorizado a actuar en nombre del CUIT"
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.error_code == "DELEGATION_NOT_AUTHORIZED"
+        assert resp.submitted is False
+
+
+class TestRedTeamPersistenciaFallaTrasAprobacion:
+    """M-1: ARCA aprobó y el CAE está en memoria, pero persistirlo falla (lock,
+    timeout de statement, corte de conexión). Sin este guard el documento
+    queda pending_cae y el PRÓXIMO tick lo reclama como si nunca hubiera
+    pedido nada: pide FECompUltimoAutorizado+1 (que YA avanzó) y emite una
+    SEGUNDA factura real."""
+
+    @pytest.mark.asyncio
+    async def test_fallo_de_persistencia_congela_en_vez_de_perder_el_cae(self):
+        """RED: hoy update_authorized no está en ningún try/except — la
+        excepción se propaga y el CAE real se pierde sin dejar rastro."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(
+                cae="86250464989491",
+                cae_due_date=datetime.date(2026, 12, 31),
+                is_approved=True,
+                number=51,
+            )
+        )
+        repo = make_repo()
+        repo.update_authorized = AsyncMock(side_effect=RuntimeError("statement timeout"))
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        await processor.process_document(make_pending_doc(number=42))
+
+        repo.freeze_unconfirmed.assert_awaited_once()
+        kwargs = repo.freeze_unconfirmed.await_args.kwargs
+        assert kwargs["arca_requested_number"] == 51
+        assert "86250464989491" in kwargs["detail"], (
+            "el CAE real tiene que viajar en el detail: es la única pista si "
+            "la persistencia no lo guardó en la base."
+        )
+        repo.update_retry.assert_not_called()
+        repo.update_rejected.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_autorizado_con_exito_normal_no_cambia(self):
+        """TRIANGULACIÓN: sin fallo de persistencia, el camino feliz no
+        cambia."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(cae="X", cae_due_date=None, is_approved=True, number=51)
+        )
+        repo = make_repo()
+        repo.update_authorized = AsyncMock(return_value=True)
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        await processor.process_document(make_pending_doc(number=42))
+
+        repo.update_authorized.assert_awaited_once()
+        repo.freeze_unconfirmed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_authorize_false_sin_excepcion_no_loguea_autorizado(self, caplog):
+        """m-3 minor: rpc_fiscal_document_authorize puede devolver `false` SIN
+        levantar excepción (idempotencia, o la colisión irresoluble 7b que la
+        propia RPC ya congeló) — el processor no debe reportarlo como
+        autorizado."""
+        import logging
+
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(cae="X", cae_due_date=None, is_approved=True, number=51)
+        )
+        repo = make_repo()
+        repo.update_authorized = AsyncMock(return_value=False)
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        with caplog.at_level(logging.INFO, logger="backend.services.fiscal.cae_relay_processor"):
+            await processor.process_document(make_pending_doc(number=42))
+
+        assert not any("autorizado con CAE" in r.message for r in caplog.records), (
+            "authorize devolvió false: NO se puede loguear como autorizado — "
+            "el documento puede seguir pending_cae o haber quedado congelado."
+        )
+
+
+class TestRedTeamBatchNoAborta:
+    """M-1 (mitad batch): un error NO manejado en UN documento no debe abortar
+    el resto del batch — sin este guard, cualquier excepción inesperada en un
+    doc deja sin procesar a TODO el resto en ese tick del cron."""
+
+    @pytest.mark.asyncio
+    async def test_un_doc_malformado_no_aborta_el_resto_del_batch(self):
+        """RED: hoy process_all_pending_documents no tiene try/except en el
+        loop — una excepción en doc1 (p.ej. una fila con un campo faltante)
+        se propaga y doc2 nunca se procesa en este tick."""
+        from backend.services.fiscal.fiscal_profile_service import process_all_pending_documents
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+
+        doc1 = make_pending_doc(id="11111111-1111-1111-1111-111111111111")
+        del doc1["comprobante_type"]  # fila corrupta / migración a mitad de camino
+        doc2 = make_pending_doc(id="22222222-2222-2222-2222-222222222222")
+
+        mock_repo = MagicMock()
+        mock_repo.list_pending_all = AsyncMock(return_value=[doc1, doc2])
+        mock_repo.claim_pending = AsyncMock(side_effect=[doc1, doc2])
+        mock_repo.update_authorized = AsyncMock(return_value=True)
+
+        mock_adapter = MagicMock()
+        mock_adapter.request_cae = AsyncMock(
+            return_value=CAEResponse(cae="X", cae_due_date=None, is_approved=True, number=1)
+        )
+
+        result = await process_all_pending_documents(mock_repo, mock_adapter)
+
+        assert mock_adapter.request_cae.call_count == 1, (
+            "doc2 debe procesarse igual aunque doc1 haya explotado con una "
+            "excepción no manejada."
+        )
+        assert result["processed"] == 1
+
+
+class TestRedTeamStarvationCongelados:
+    """M-2: sin este predicado, con >= limit documentos CONGELADOS
+    (next_attempt_at NULL para siempre) en la orden NULLS FIRST, el batch
+    completo se llena de congelados y el relay deja de procesar CUALQUIER
+    documento fresco, indefinidamente."""
+
+    @pytest.mark.asyncio
+    async def test_list_pending_all_excluye_congelados(self):
+        """RED: hoy la query no filtra por cae_submit_unconfirmed_at."""
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.fetch = AsyncMock(return_value=[])
+
+        repo = FiscalDocumentRepository(conn)
+        await repo.list_pending_all(limit=50)
+
+        sql = conn.fetch.await_args.args[0]
+        assert "cae_submit_unconfirmed_at IS NULL" in sql, (
+            "list_pending_all debe excluir los documentos CONGELADOS (G4): "
+            "sin este predicado, con >= limit congelados el relay deja de "
+            "procesar cualquier documento fresco."
+        )
+
+
+class TestByReceiptExponeCongelado:
+    """M-4: un comprobante CONGELADO (G4) sigue reportando status='pending_cae'
+    — sin esta bandera, /admin/pagos lo muestra 'En trámite' PARA SIEMPRE y
+    nadie sabe que necesita revisión manual en ARCA."""
+
+    @pytest.mark.asyncio
+    async def test_by_receipt_expone_is_frozen_true(self):
+        """RED: hoy el endpoint no trae cae_submit_unconfirmed_at ni informa
+        is_frozen."""
+        from httpx import ASGITransport, AsyncClient
+
+        from backend.core.auth import get_current_user
+        from backend.core.database import get_db_conn
+        from backend.main import app
+
+        doc_id = uuid.UUID("cccc3333-3333-3333-3333-333333333333")
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": doc_id,
+                "status": "pending_cae",
+                "cae": None,
+                "cae_due_date": None,
+                "comprobante_type": "factura_c",
+                "total": 12000.0,
+                "subscription_payment_id": "receipt-002",
+                "punto_de_venta": 3,
+                "number": 8,
+                "cae_submit_unconfirmed_at": datetime.datetime(2026, 9, 21, 12, 0, 0),
+            }
+        )
+
+        def fake_admin():
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
+
+        async def fake_conn():
+            yield conn
+
+        app.dependency_overrides[get_current_user] = fake_admin
+        app.dependency_overrides[get_db_conn] = fake_conn
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/fiscal/documents/by-receipt/receipt-002")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db_conn, None)
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["is_frozen"] is True
+        query = conn.fetchrow.await_args.args[0]
+        assert "cae_submit_unconfirmed_at" in query
+
+    @pytest.mark.asyncio
+    async def test_by_receipt_expone_is_frozen_false_cuando_no_esta_congelado(self):
+        """TRIANGULACIÓN: un comprobante no congelado no queda marcado."""
+        from httpx import ASGITransport, AsyncClient
+
+        from backend.core.auth import get_current_user
+        from backend.core.database import get_db_conn
+        from backend.main import app
+
+        doc_id = uuid.UUID("cccc3333-3333-3333-3333-333333333333")
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": doc_id,
+                "status": "authorized",
+                "cae": "86250464989491",
+                "cae_due_date": datetime.date(2026, 12, 31),
+                "comprobante_type": "factura_c",
+                "total": 12000.0,
+                "subscription_payment_id": "receipt-003",
+                "punto_de_venta": 3,
+                "number": 9,
+                "cae_submit_unconfirmed_at": None,
+            }
+        )
+
+        def fake_admin():
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
+
+        async def fake_conn():
+            yield conn
+
+        app.dependency_overrides[get_current_user] = fake_admin
+        app.dependency_overrides[get_db_conn] = fake_conn
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/fiscal/documents/by-receipt/receipt-003")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db_conn, None)
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["is_frozen"] is False
+
+
+class TestReceptorCoherenteEnEmisionDirecta:
+    """m-2 minor: EmitPendingCAERequest (venta directa, /fiscal/documents/emit)
+    no tenía el mismo validador de coherencia receptor que
+    EmitSubscriptionPaymentRequest — una venta con receptor_doc_tipo=80 y
+    receptor_doc_nro vacío pasaba el schema y `_resolve_receptor_doc` la
+    resolvía como consumidor final ante ARCA: la fila local decía 'CUIT 80' y
+    a ARCA iba consumidor final."""
+
+    def test_tipo_sin_numero_rechazado(self):
+        from backend.schemas.fiscal import EmitPendingCAERequest
+
+        with pytest.raises(Exception):
+            EmitPendingCAERequest(comprobante_type="factura_c", total=100.0, receptor_doc_tipo=80)
+
+    def test_numero_sin_tipo_rechazado(self):
+        from backend.schemas.fiscal import EmitPendingCAERequest
+
+        with pytest.raises(Exception):
+            EmitPendingCAERequest(
+                comprobante_type="factura_c", total=100.0, receptor_doc_nro="20111111112"
+            )
+
+    def test_los_dos_juntos_aceptado(self):
+        from backend.schemas.fiscal import EmitPendingCAERequest
+
+        req = EmitPendingCAERequest(
+            comprobante_type="factura_c",
+            total=100.0,
+            receptor_doc_tipo=80,
+            receptor_doc_nro="20111111112",
+        )
+        assert req.receptor_doc_tipo == 80
+
+    def test_ninguno_aceptado_consumidor_final(self):
+        from backend.schemas.fiscal import EmitPendingCAERequest
+
+        req = EmitPendingCAERequest(comprobante_type="factura_c", total=100.0)
+        assert req.receptor_doc_tipo is None

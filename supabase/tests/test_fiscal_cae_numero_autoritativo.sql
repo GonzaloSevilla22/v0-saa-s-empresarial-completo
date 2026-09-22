@@ -176,7 +176,13 @@ BEGIN
   END LOOP;
 
   IF position('cae_submit_unconfirmed_at IS NULL' in v_claim) = 0 THEN
-    v_missing := v_missing || 'claim_pending sin el predicado de congelamiento';
+    -- m-1 (red team 2026-09-22): un literal SIN tipar concatenado con `||` a
+    -- un text[] es AMBIGUO en Postgres (intenta parsearlo como literal de
+    -- array) y explota con "malformed array literal" en vez del mensaje del
+    -- gate — es decir, este mismo camino de FALLO nunca se había ejercitado.
+    -- format() sin argumentos devuelve un `text` tipado (mismo patrón que la
+    -- línea de arriba), que resuelve al operador correcto (anyarray||anyelement).
+    v_missing := v_missing || format('claim_pending sin el predicado de congelamiento');
   END IF;
 
   IF array_length(v_missing, 1) > 0 THEN

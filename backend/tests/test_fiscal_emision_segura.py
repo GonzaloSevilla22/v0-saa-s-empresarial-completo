@@ -1285,6 +1285,24 @@ class TestRedTeamCaeAprobadoNuncaSeDescarta:
         assert resp.submitted is False
 
     @pytest.mark.asyncio
+    async def test_cbtedesde_deforme_cae_al_numero_pedido_sin_congelar(self):
+        """TRIANGULACIÓN del límite de B2-2: el CAE llegó bien, lo deforme es el
+        número. Ahí NO hay ambigüedad —ARCA aprobó y el número que pedimos es
+        `ultimo+1`— así que el fallback de G3 degrada al número pedido y el
+        comprobante se autoriza igual. Congelar acá sería congelar de más.
+
+        Cubre el `except (TypeError, ValueError)` del parseo de `CbteDesde`,
+        que hasta ahora no ejercitaba ningún test.
+        """
+        resp = await _request_cae_con_respuesta(
+            self._respuesta_aprobada(cbte="no-es-un-numero", CAEFchVto="20271231")
+        )
+
+        assert resp.is_approved is True
+        assert resp.number == 51, "el fallback es el número PEDIDO, nunca None"
+        assert resp.submitted is False
+
+    @pytest.mark.asyncio
     async def test_rechazo_explicito_sigue_siendo_rechazo(self):
         """TRIANGULACIÓN: un rechazo con Observaciones no congela — ARCA
         respondió que NO emitió."""

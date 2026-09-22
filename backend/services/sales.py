@@ -54,14 +54,17 @@ async def update_sale_operation(
     payment_method_provided: bool = False,
     branch_provided: bool = False,
     canal_provided: bool = False,
-) -> None:
+) -> dict[str, object]:
+    """venta-editable-sin-cae: devuelve el jsonb de la RPC tal cual (incluido
+    `voided_fiscal_document`). Sin lógica nueva acá — el guard fiscal y la
+    anulación viven en la RPC, que es donde la transacción es atómica."""
     require_role(auth, ["user", "admin"])
     items = [item.model_dump() for item in payload.items]
     payment_method_id = (
         str(payload.payment_method_id) if payload.payment_method_id is not None else None
     )
     branch_id = str(payload.branch_id) if payload.branch_id is not None else None
-    await repo.update_operation(
+    return await repo.update_operation(
         payload.sale_ids,
         payload.client_id,
         payload.date,

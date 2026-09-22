@@ -95,8 +95,11 @@ class WSFEStubAdapter(FiscalDocumentPort):
             await invoice_data.on_submit_start(invoice_data.number)
 
         # R1: queda registrado que "llegó a ARCA", para que la reconciliación
-        # pueda devolver el MISMO CAE que habría devuelto esta llamada.
-        self._submitted[invoice_data.fiscal_document_id] = invoice_data.number
+        # pueda devolver el MISMO CAE que habría devuelto esta llamada. La clave
+        # se normaliza a `str` por lo mismo que `_derive_cae`: el id viaja como
+        # `asyncpg.pgproto.UUID` por el camino del relay y como `str` por el de
+        # los tests, y las dos tienen que encontrar la misma entrada.
+        self._submitted[str(invoice_data.fiscal_document_id)] = invoice_data.number
 
         fake_cae = self._derive_cae(invoice_data.fiscal_document_id)
         due_date = datetime.date.today() + datetime.timedelta(days=10)
@@ -144,12 +147,13 @@ class WSFEStubAdapter(FiscalDocumentPort):
                 error_detail="El stub está configurado para simular una consulta fallida.",
             )
 
-        if invoice_data.fiscal_document_id in self._submitted:
+        doc_key = str(invoice_data.fiscal_document_id)
+        if doc_key in self._submitted:
             return ReconcileResponse(
                 outcome="authorized",
-                cae=self._derive_cae(invoice_data.fiscal_document_id),
+                cae=self._derive_cae(doc_key),
                 cae_due_date=datetime.date.today() + datetime.timedelta(days=10),
-                number=self._submitted[invoice_data.fiscal_document_id],
+                number=self._submitted[doc_key],
             )
 
         # ARCA no lo tiene. `ultimo_autorizado = requested_number - 1` hace que
@@ -163,9 +167,17 @@ class WSFEStubAdapter(FiscalDocumentPort):
         )
 
     @staticmethod
-    def _derive_cae(document_id: str) -> str:
-        """Deriva un CAE ficticio de 14 dígitos determinístico a partir del document_id."""
-        digest = hashlib.sha256(document_id.encode()).hexdigest()
+    def _derive_cae(document_id: object) -> str:
+        """Deriva un CAE ficticio de 14 dígitos determinístico a partir del document_id.
+
+        `str(document_id)` y no `document_id.encode()` — MINOR 3 del segundo red
+        team. `claim_pending` hace `dict(row)` sobre el `Record` de asyncpg, así
+        que `doc["id"]` es un `asyncpg.pgproto.UUID`, no un `str`: el `.encode()`
+        reventaba con AttributeError en el ÚNICO camino de emisión que corre en
+        dev y en las sondas de punta a punta. Las sondas no lo veían porque
+        usaban un fake propio que ya pasaba un `str`.
+        """
+        digest = hashlib.sha256(str(document_id).encode()).hexdigest()
         # Extraer 14 dígitos numéricos del digest (tomando los primeros chars hex y convirtiendo)
         numeric = "".join(c for c in digest if c.isdigit())
         # Si hay menos de 14 dígitos numéricos, rellenar con dígitos del hash int

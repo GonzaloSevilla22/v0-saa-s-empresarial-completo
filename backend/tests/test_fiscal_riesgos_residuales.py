@@ -1432,3 +1432,73 @@ class TestNuncaRechazadoConLaMarcaViva:
         repo.mark_submit_started.assert_not_awaited()
         repo.update_rejected.assert_awaited_once()
         repo.freeze_unconfirmed.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G9 — El stub corre con la fila REAL que entrega el relay
+#
+# MINOR 3 del segundo red team. `claim_pending` hace `dict(row)` sobre el
+# `Record` de asyncpg, así que `doc["id"]` es un `asyncpg.pgproto.UUID`, no un
+# `str`. El stub hacía `document_id.encode()` → AttributeError.
+#
+# Pre-existente para `request_cae` (está igual en `origin/main`), pero este
+# change EXTIENDE el mismo defecto al camino nuevo de reconciliación y su
+# docstring afirma que el camino local/dev "es el único que corre en el humo y
+# en las sondas de punta a punta" — que hoy no corre. Las sondas pasaban porque
+# usaban un fake propio con `str(...)`.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _uuid_de_asyncpg(valor: str):
+    """El MISMO tipo que `dict(row)` deja en `doc["id"]`.
+
+    No un doble: el defecto es exactamente que ese tipo no tiene `.encode`.
+    """
+    import asyncpg.pgproto.pgproto as pgproto
+
+    return pgproto.UUID(valor)
+
+
+class TestElStubAceptaElIdRealDeAsyncpg:
+    """9.1-9.3: los dos caminos del stub con el id tal como llega del relay."""
+
+    @pytest.mark.asyncio
+    async def test_request_cae_con_el_id_de_asyncpg(self):
+        """9.1 RED: el camino de emisión del cron con el stub."""
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        doc_id = _uuid_de_asyncpg(DOC_ID)
+        resp = await WSFEStubAdapter().request_cae(make_cae_request(fiscal_document_id=doc_id))
+
+        assert resp.is_approved is True
+        assert resp.cae is not None and len(resp.cae) == 14
+
+    @pytest.mark.asyncio
+    async def test_reconcile_submitted_con_el_id_de_asyncpg(self):
+        """9.2 RED: el camino NUEVO (R1), el que este change agregó."""
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        doc_id = _uuid_de_asyncpg(DOC_ID)
+        adapter = WSFEStubAdapter()
+        invoice = make_cae_request(fiscal_document_id=doc_id)
+
+        emitido = await adapter.request_cae(invoice)
+        rec = await adapter.reconcile_submitted(invoice, requested_number=invoice.number)
+
+        assert rec.outcome == "authorized"
+        # El CAE de la reconciliación es EL MISMO que el de la emisión: es la
+        # propiedad que hace útil al stub para una sonda de punta a punta.
+        assert rec.cae == emitido.cae
+
+    def test_el_cae_derivado_no_depende_del_tipo_del_id(self):
+        """9.3 TRIANGULACIÓN: `str` y `UUID` derivan el MISMO CAE.
+
+        Si no, un documento cambiaría de CAE ficticio según por qué camino se lo
+        mire, y las sondas que comparan emisión contra reconciliación dejarían
+        de probar identidad.
+        """
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        assert (
+            WSFEStubAdapter._derive_cae(_uuid_de_asyncpg(DOC_ID))
+            == WSFEStubAdapter._derive_cae(DOC_ID)
+        )

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from backend.services.fiscal.platform_credential_provider import PlatformCredentialProvider
 
 
-def build_cae_adapter(
+def build_cae_adapter(  # noqa: D417 — el gate de ambiente se explica en el docstring
     *,
     # v22: nuevo gate (reemplaza has_cert per-account como criterio de real-vs-stub)
     platform_provider: "PlatformCredentialProvider | None" = None,
@@ -43,6 +43,22 @@ def build_cae_adapter(
     account_id: str | None = None,
 ) -> FiscalDocumentPort:
     """Fabrica del adapter CAE — v22 gate: "platform cert configured?".
+
+    ATENCIÓN (fiscal-emision-segura G2, 2026-09-22) — QUÉ NO decide esta factory:
+        su gate es "¿hay certificado de plataforma configurado?" y NO
+        "¿este documento es de PRODUCCIÓN?". El `ambiente` viaja por documento
+        (CAERequest.ambiente, de fiscal_profiles.ambiente) y esta función no lo
+        ve. Consecuencia directa: **sin cert de plataforma, un comprobante de
+        producción recibe el STUB**, que devolvería un CAE inventado.
+
+        Esa combinación la cierran DOS guards independientes, no esta factory:
+          (1) WSFEStubAdapter.request_cae se niega si ambiente == 'produccion';
+          (2) CAERelayProcessor.process_document no llama a un adapter que no
+              sea WSFEAdapter cuando el doc es de producción.
+        Ninguno delega en el otro: (1) cubre cualquier caller futuro que
+        construya el stub a mano, (2) cualquier adapter futuro que llegue al
+        relay. NO cambiar la firma ni el gate de esta factory sin revisar los
+        dos — el default seguro (stub) depende de que sigan puestos.
 
     Args:
         platform_provider: PlatformCredentialProvider del representante de la plataforma.

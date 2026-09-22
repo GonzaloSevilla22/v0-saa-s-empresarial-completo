@@ -13,7 +13,34 @@ import datetime
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+
+def _check_receptor_coherente(tipo: int | None, nro: str | None) -> None:
+    """Valida que receptor_doc_tipo/receptor_doc_nro viajen JUNTOS o NINGUNO.
+
+    fiscal-emision-segura (m-2 minor, red team 2026-09-22): compartida por
+    EmitPendingCAERequest (venta directa) y EmitSubscriptionPaymentRequest
+    (pago de suscripción) — antes SOLO la segunda la tenía, así que una venta
+    con `receptor_doc_tipo=80` y `receptor_doc_nro` vacío/ausente pasaba el
+    schema, y `WSFEAdapter._resolve_receptor_doc` la resolvía como consumidor
+    final (cae a 99/0 sin `doc_nro_raw`): la fila local decía "CUIT 80" y a
+    ARCA iba consumidor final — receptor local y receptor real DIVERGÍAN.
+    Reutilización antes que repetición (regla PO 2026-08-02): un solo lugar
+    para esta coherencia, no dos copias que puedan divergir entre sí.
+    """
+    nro_clean = (nro or "").strip()
+    if tipo is not None and not nro_clean:
+        raise ValueError(
+            "receptor_doc_nro es obligatorio cuando se informa receptor_doc_tipo "
+            "(un DocTipo 80/96 sin número es inconsistente ante ARCA). Para "
+            "emitir a consumidor final, omitir los dos campos."
+        )
+    if tipo is None and nro_clean:
+        raise ValueError(
+            "receptor_doc_tipo es obligatorio cuando se informa receptor_doc_nro "
+            "(80=CUIT, 96=DNI)."
+        )
 
 
 # ── FiscalProfile schemas ────────────────────────────────────────────────────
@@ -134,6 +161,11 @@ class EmitPendingCAERequest(BaseModel):
     # v22-admin: referencia idempotente de pago de suscripción
     subscription_payment_id: str | None = None
 
+    @model_validator(mode="after")
+    def _receptor_coherente(self) -> "EmitPendingCAERequest":
+        _check_receptor_coherente(self.receptor_doc_tipo, self.receptor_doc_nro)
+        return self
+
 
 class EmitSubscriptionPaymentRequest(BaseModel):
     """Schema para emitir Factura C por un pago de suscripción (flujo admin).
@@ -142,12 +174,29 @@ class EmitSubscriptionPaymentRequest(BaseModel):
     al cliente de SaaS por el pago de su plan. El receptor se identifica con
     CUIT o DNI capturado en el dialog (PO decision 2026-06-24).
     Governance: CRÍTICO — solo admin puede llamar este endpoint.
+
+    fiscal-emision-segura (G5/H3): el receptor pasa a ser OPCIONAL —
+    "consumidor final sin identificar". El bloqueo era sólo de esta capa: la RPC
+    ya acepta `p_receptor_doc_tipo DEFAULT 99` con `NULLIF(..., 99)` y el adapter
+    ya resuelve un receptor no identificado como DocTipo=99 / DocNro=0 (el mismo
+    caso de una factura de mostrador). ARCA exige identificar al receptor a
+    partir del umbral de RG 5824/2026 (`afip_consumidor_final_threshold`), muy
+    por encima de un pago de suscripción; ese umbral lo verifica el adapter.
+
+    Los dos campos viajan JUNTOS o NINGUNO: un DocTipo=80 con DocNro vacío es un
+    comprobante inconsistente ante ARCA, y relajar el schema sin este validador
+    abriría exactamente esa puerta.
     """
 
     receipt_id: str                     # ID del PaymentReceipt (idempotency key)
     point_of_sale_id: uuid.UUID | None = None
-    receptor_doc_tipo: Literal[80, 96]  # 80=CUIT, 96=DNI
-    receptor_doc_nro: str               # sin guiones, validado en el service
+    receptor_doc_tipo: Literal[80, 96] | None = None  # 80=CUIT, 96=DNI, None=consumidor final
+    receptor_doc_nro: str | None = None               # sin guiones, validado en el service
+
+    @model_validator(mode="after")
+    def _receptor_coherente(self) -> "EmitSubscriptionPaymentRequest":
+        _check_receptor_coherente(self.receptor_doc_tipo, self.receptor_doc_nro)
+        return self
 
 
 # ── CertUpload schemas (C-31) ─────────────────────────────────────────────────

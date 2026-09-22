@@ -117,6 +117,90 @@ class TestNumeracionArcaAutoritativa:
         assert det["CbteHasta"] == 1
 
 
+class TestNumeroEnLaRespuesta:
+    """fiscal-emision-segura G3 (3.1 RED → 3.2/3.3 TRIANGULACIÓN).
+
+    Hasta este change el número que ARCA CONFIRMÓ (`det.CbteDesde`) se descartaba
+    al armar la respuesta aprobada: el adapter pedía `FECompUltimoAutorizado+1`,
+    lo mandaba, y en la base quedaba el número local reservado — distinto del que
+    figura en el comprobante real. `CAEResponse` no tenía dónde traerlo.
+    """
+
+    @pytest.mark.asyncio
+    async def test_response_lleva_el_numero_confirmado_por_arca(self):
+        """3.1 RED: `response.number` es el CbteDesde que ARCA devolvió, no el local."""
+        adapter = WSFEAdapter(supabase_service_client=MagicMock())
+        invoice = _make_request(local_number=42)  # local 42, ARCA va a decir 51
+
+        det = MagicMock()
+        det.Resultado = "A"
+        det.CAE = "86250464989491"
+        det.CAEFchVto = "20261231"
+        det.CbteDesde = 51
+        det.Observaciones = None
+        approved = MagicMock()
+        approved.FeDetResp.FECAEDetResponse = [det]
+
+        with patch("zeep.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.return_value = approved
+
+            resp = await adapter._call_wsfe(invoice, "token", "sign")
+
+        assert resp.is_approved is True
+        assert resp.number == 51, (
+            f"El número de la respuesta debe ser el que ARCA confirmó (51), "
+            f"no el local (42); got {resp.number}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sin_cbte_desde_cae_al_numero_pedido(self):
+        """3.2 TRIANGULACIÓN: si la respuesta real no trae CbteDesde, el fallback es
+        el número que se PIDIÓ (ultimo+1) — nunca None, nunca el local.
+
+        Es el riesgo #1 del change: local sólo ve el stub y un mock construido por
+        nosotros. Si la respuesta real de WSFEv1 no tuviera CbteDesde, este
+        fallback degrada al comportamiento de hoy, no a algo peor.
+        """
+        adapter = WSFEAdapter(supabase_service_client=MagicMock())
+        invoice = _make_request(local_number=42)
+
+        # spec sin CbteDesde → acceder al atributo levanta AttributeError
+        det = MagicMock(spec=["Resultado", "CAE", "CAEFchVto", "Observaciones"])
+        det.Resultado = "A"
+        det.CAE = "86250464989491"
+        det.CAEFchVto = "20261231"
+        det.Observaciones = None
+        approved = MagicMock()
+        approved.FeDetResp.FECAEDetResponse = [det]
+
+        with patch("zeep.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.return_value = approved
+
+            resp = await adapter._call_wsfe(invoice, "token", "sign")
+
+        assert resp.is_approved is True
+        assert resp.number == 51, (
+            f"Sin CbteDesde el fallback debe ser el número pedido (ultimo+1 = 51); got {resp.number}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stub_devuelve_el_numero_local(self):
+        """3.3 TRIANGULACIÓN: el stub nunca diverge del número local."""
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        invoice = _make_request(local_number=7)
+        resp = await WSFEStubAdapter().request_cae(invoice)
+
+        assert resp.is_approved is True
+        assert resp.number == 7
+
+
 class TestNumeracionMismatchDetected:
     """4.3 TRIANGULATE: mismatch entre numero local y ARCA se detecta y maneja."""
 

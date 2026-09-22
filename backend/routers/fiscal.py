@@ -12,8 +12,19 @@ Endpoints:
   POST /fiscal/points-of-sale   — crear PV
   PATCH /fiscal/points-of-sale/{id} — desactivar PV
   POST /fiscal/documents/emit   — emitir comprobante pending_cae (OQ-3)
-  POST /fiscal/documents/process-pending — relay del CAE (usuario, JWT-scoped)
   POST /fiscal/documents/process-pending-cron — relay del CAE (máquina, pg_cron, Bearer secret)
+
+fiscal-emision-segura (G1, 2026-09-22): el relay del CAE tiene UN SOLO camino —
+el cron. Se retiraron el disparo inmediato (`background_tasks.add_task`) de los
+dos endpoints de emisión y el endpoint de usuario
+`POST /fiscal/documents/process-pending`:
+  - el disparo inmediato instanciaba el STUB a mano (CAE inventado) y sólo lo
+    desarmaba un AttributeError de tipo; con `authorized` como estado terminal,
+    un CAE falso ahí no lo corregía nadie;
+  - `process-pending` construía el adapter REAL y NO llamaba `claim_pending`
+    (docstring propio: "el endpoint de usuario ya es single-threaded", falso
+    como argumento de concurrencia frente al cron), sin ningún caller en el
+    frontend y expuesto a cualquier JWT válido.
 
 Sin lógica de negocio en el router: solo parse + DI + response.
 Design ref: D9, D10, D11; 3 capas: router → service → repository.
@@ -26,7 +37,7 @@ import logging
 import uuid
 
 import asyncpg
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend.core.auth import get_current_user
 from backend.core.config import settings
@@ -48,7 +59,6 @@ from backend.schemas.fiscal import (
 )
 from backend.services.fiscal import fiscal_profile_service as svc
 from backend.services.fiscal.adapter_factory import build_cae_adapter, build_cae_adapter_from_settings
-from backend.services.fiscal.fiscal_profile_service import process_doc_by_id_background
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +73,6 @@ def get_fp_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> FiscalProfil
 
 def get_pv_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> PointOfSaleRepository:
     return PointOfSaleRepository(conn)
-
-
-def get_doc_repo(conn: asyncpg.Connection = Depends(get_db_conn)) -> FiscalDocumentRepository:
-    return FiscalDocumentRepository(conn)
 
 
 # ── FiscalProfile endpoints ───────────────────────────────────────────────────
@@ -231,9 +237,18 @@ async def get_fiscal_doc_by_receipt(
     from backend.core.guards import require_platform_admin
     await require_platform_admin(conn, auth)
 
+    # fiscal-emision-segura (G7): punto_de_venta + number son lo que identifica
+    # al comprobante ante ARCA ("Factura C 0003-00000002"). Sin ellos acá, el
+    # número que G3 persiste no lo ve nadie.
+    # (M-4, red team 2026-09-22): cae_submit_unconfirmed_at → is_frozen. Un
+    # comprobante CONGELADO (G4) sigue reportando status='pending_cae' — sin
+    # esta bandera, /admin/pagos lo muestra "En trámite" para siempre y nadie
+    # sabe que necesita revisión manual en ARCA.
     row = await conn.fetchrow(
         """
-        SELECT id, status, cae, cae_due_date, comprobante_type, total, subscription_payment_id
+        SELECT id, status, cae, cae_due_date, comprobante_type, total,
+               subscription_payment_id, punto_de_venta, number,
+               cae_submit_unconfirmed_at
         FROM   public.fiscal_documents
         WHERE  subscription_payment_id = $1
         LIMIT  1
@@ -251,13 +266,24 @@ async def get_fiscal_doc_by_receipt(
         "comprobante_type":       doc["comprobante_type"],
         "total":                  float(doc["total"]),
         "subscription_payment_id": doc["subscription_payment_id"],
+        "punto_de_venta":         doc["punto_de_venta"],
+        "number":                 doc["number"],
+        # B2-3 (segundo red team, 2026-09-22): la bandera vale MIENTRAS el
+        # documento siga esperando CAE. `cae_submit_unconfirmed_at` no la limpia
+        # ningún camino (todas las escrituras son `COALESCE(..., now())`), así
+        # que sin la condición de status un comprobante resuelto a mano —la
+        # única salida prevista del congelamiento— seguía mostrándose
+        # "Congelado" para siempre, tapando el CAE y el número reales.
+        "is_frozen": (
+            doc.get("cae_submit_unconfirmed_at") is not None
+            and doc["status"] == "pending_cae"
+        ),
     }
 
 
 @router.post("/documents/emit")
 async def emit_pending_cae(
     payload: EmitPendingCAERequest,
-    background_tasks: BackgroundTasks,
     auth: dict = Depends(get_current_user),
     account_id: uuid.UUID = Depends(get_account_id),
     conn: asyncpg.Connection = Depends(get_db_conn),
@@ -265,27 +291,16 @@ async def emit_pending_cae(
     """Emite un comprobante fiscal en pending_cae (OQ-3: solo maquinaria).
 
     Resuelve el PV efectivo (D11): error P0422 si hay varios y no se especifica.
-    No toca AFIP: persiste en pending_cae; luego dispara fire-and-forget para
-    intentar el CAE inmediatamente (OQ-1=A, D6). El pg_cron actúa como backstop.
+    No toca AFIP: persiste en pending_cae. El CAE lo obtiene el cron
+    (`relay-process-pending-cae`, cada minuto), que es el único camino de
+    emisión — fiscal-emision-segura G1 retiró el disparo inmediato.
     """
-    result = await svc.emit_pending_cae(conn, auth, str(account_id), payload)
-
-    # Fire-and-forget: intenta el CAE de inmediato para el doc recién emitido.
-    # La conexión del request ya será liberada — process_doc_by_id_background
-    # abre su propia service conn (BYPASSRLS). El claim_pending guard garantiza
-    # que si el pg_cron se superpone, solo uno llama a request_cae.
-    doc_id = result.get("id") or result.get("fiscal_document_id")
-    if doc_id:
-        background_tasks.add_task(process_doc_by_id_background, doc_id)
-        logger.debug("[emit_pending_cae] Scheduled background relay for doc %s", doc_id)
-
-    return result
+    return await svc.emit_pending_cae(conn, auth, str(account_id), payload)
 
 
 @router.post("/documents/emit-subscription-payment", status_code=201)
 async def emit_subscription_payment(
     payload: EmitSubscriptionPaymentRequest,
-    background_tasks: BackgroundTasks,
     auth: dict = Depends(get_current_user),
     conn: asyncpg.Connection = Depends(get_db_conn),
 ):
@@ -295,39 +310,12 @@ async def emit_subscription_payment(
     Idempotency: si el receipt_id ya tiene un fiscal_document asociado, retorna el
     existente con already_emitted=True (HTTP 200 → el frontend muestra el badge).
 
-    Pago identificado por receipt_id; receptor por CUIT (DocTipo=80) o DNI (DocTipo=96).
+    Pago identificado por receipt_id; receptor por CUIT (DocTipo=80), DNI
+    (DocTipo=96) o consumidor final sin identificar (G5, DocTipo=99).
+    El CAE lo obtiene el cron — sin disparo inmediato (G1).
     v22-admin — PO sign-off 2026-06-24.
     """
-    result = await svc.emit_subscription_payment_cae(conn, auth, payload)
-
-    # Fire-and-forget: intenta el CAE de inmediato si el doc es nuevo
-    if not result.get("already_emitted"):
-        doc_id = result.get("fiscal_document_id")
-        if doc_id:
-            background_tasks.add_task(process_doc_by_id_background, doc_id)
-            logger.debug("[emit_subscription_payment] Scheduled background relay for doc %s", doc_id)
-
-    return result
-
-
-@router.post("/documents/process-pending")
-async def process_pending_cae(
-    auth: dict = Depends(get_current_user),
-    account_id: uuid.UUID = Depends(get_account_id),
-    doc_repo: FiscalDocumentRepository = Depends(get_doc_repo),
-    fp_repo: FiscalProfileRepository = Depends(get_fp_repo),
-):
-    """Procesa documentos pending_cae con el relay idempotente (OQ-1=A).
-
-    Endpoint de usuario: JWT-scoped, single-account. Útil como trigger manual.
-    v22: el adapter se decide por el gate "platform cert configured?" — ya NO por
-    certificado_afip_path per-account. Si el cert de plataforma no está en env →
-    stub (default seguro). Si está → WSFEAdapter real (delegación).
-    """
-    # v22: gate de plataforma (no per-account cert).
-    # build_cae_adapter_from_settings lee AFIP_PLATFORM_CERT/KEY/CUIT del env.
-    adapter = build_cae_adapter_from_settings()
-    return await svc.process_pending_documents(doc_repo, adapter)
+    return await svc.emit_subscription_payment_cae(conn, auth, payload)
 
 
 @router.post("/documents/process-pending-cron")

@@ -52,6 +52,114 @@ _WSFEV1_URLS = {
 }
 
 
+# fiscal-emision-segura (G4, endurecido en el red team B-1): cota temporal de
+# la llamada SOAP, en segundos.
+#
+# El default de zeep es `operation_timeout=None`, es decir el POST de la
+# operación va a `requests` SIN timeout y puede colgarse indefinidamente. El
+# lease anti-doble-CAE de `rpc_fiscal_document_claim_pending`, en cambio, es fijo
+# (5 minutos): sección crítica sin cota + candado con cota ⇒ pasados 5 minutos el
+# cron puede re-reclamar el documento con el FECAESolicitar anterior todavía en
+# vuelo y emitir una SEGUNDA factura real. Con la cota acá, el lease vuelve a
+# dominar la sección crítica y recupera su propiedad de exclusión mutua.
+#
+# 45 s es MUY por debajo del lease y muy por encima de lo medido para un CAE real
+# (~9 s). Si resultara corto, el síntoma es un congelamiento espurio: molesto,
+# pero del lado seguro (nunca una segunda factura), y se afloja el valor.
+_SOAP_OPERATION_TIMEOUT_SECONDS = 45
+
+# BLOCKER B-1 (red team, 2026-09-22): `operation_timeout` acota el POST de la
+# OPERACIÓN, pero `zeep.Transport` tiene un SEGUNDO timeout independiente para
+# la CARGA del WSDL/XSD (`timeout`, default 300s — sin `cache=` cada llamada a
+# `_build_zeep_client` vuelve a bajar el WSDL). Sin acotarlo también, esa parte
+# se queda en 300s = EXACTAMENTE el lease: la "sección crítica sin cota" del
+# comentario de arriba seguía existiendo, sólo que más angosta. Peor caso antes
+# de FECAESolicitar (cache miss del TA): 2 builds de cliente (WSAA + WSFEv1,
+# `timeout` c/u) + 3 llamadas SOAP (loginCms, FECompUltimoAutorizado,
+# FECAESolicitar, `operation_timeout` c/u) = 2×20 + 3×45 = 175s, cómodamente
+# bajo los 300s del lease (test_presupuesto_total_peor_caso_queda_bajo_el_lease
+# lo fija como regresión: cualquier cambio futuro a estas dos constantes que
+# rompa el presupuesto total falla el gate, no sólo "está seteado").
+_SOAP_WSDL_LOAD_TIMEOUT_SECONDS = 20
+
+
+class WSFESubmitInFlightError(Exception):
+    """El FECAESolicitar SALIÓ y su resultado NUNCA se confirmó.
+
+    fiscal-emision-segura (G4). Es la distinción que le falta al `except
+    Exception` genérico de `request_cae`: un fallo ANTES del envío es un error
+    normal y reintentable; un fallo EN o DESPUÉS del envío significa que ARCA
+    PUEDE haber autorizado el comprobante sin que nosotros lo sepamos. En ese
+    caso reintentar pide `FECompUltimoAutorizado+1` —que ya avanzó— y emite una
+    segunda factura real por el camino feliz del backoff, sin ninguna excepción
+    visible.
+
+    Lleva el `cbte_numero` que se le pidió a ARCA: es el único dato con el que un
+    humano puede consultar en ARCA si la factura existe.
+    """
+
+    def __init__(self, cbte_numero: int, detail: str) -> None:
+        super().__init__(detail)
+        self.cbte_numero = cbte_numero
+        self.detail = detail
+
+
+def _submit_outcome_is_unambiguous(exc: BaseException) -> bool:
+    """¿Se puede DEMOSTRAR qué pasó con este `FECAESolicitar`?
+
+    fiscal-emision-segura (G4) / B2-1 (segundo red team, 2026-09-22). La regla
+    dentro del bloque que envuelve `FECAESolicitar` es **congelar por defecto**:
+    la asimetría del dominio manda. Congelar de más cuesta trabajo manual;
+    congelar de menos emite una SEGUNDA factura real contra ARCA.
+
+    Esta función es la única exención, y sólo admite lo que es demostrable:
+
+    (a) `TypeError`/`ValueError` que NO sean `requests.exceptions.RequestException`
+        — zeep falló serializando el envelope y no salió un byte. La condición
+        negativa no es cosmética: `requests.exceptions.InvalidHeader`,
+        `MissingSchema` e `InvalidURL` heredan de `ValueError` **y** de
+        `RequestException`; nacen del transporte y no se pueden declarar
+        pre-submit.
+    (b) `zeep.exceptions.Fault` — ARCA respondió a nivel de aplicación (un TA
+        vencido, un rechazo de delegación). Hay respuesta: no hay ambigüedad, y
+        el camino de Fault de `request_cae` ya sabe clasificarlo.
+    (c) `requests.exceptions.ConnectTimeout` — la conexión TCP nunca llegó a
+        establecerse, así que tampoco salió un byte.
+
+    Todo lo demás congela, incluido lo que zeep levanta DESPUÉS del POST:
+    `TransportError` (un 502/504 sin cuerpo de un gateway delante de ARCA),
+    `XMLSyntaxError`/`XMLParseError` (una página HTML de error en vez del
+    envelope), `ContentDecodingError`, `HTTPError`, y cualquier excepción opaca
+    que no sepamos ubicar.
+    """
+    try:
+        import requests
+        import zeep.exceptions
+    except ImportError:
+        # Sin las librerías no se puede clasificar nada, y "no se puede
+        # clasificar" es exactamente el caso que congela. Fail-closed: la
+        # alternativa sería que esta función explote DENTRO del except del
+        # submit y se lleve puesta la WSFESubmitInFlightError, volviendo el
+        # documento reintentable.
+        return False
+
+    # (b) ARCA respondió — el resultado se conoce aunque sea un rechazo.
+    if isinstance(exc, zeep.exceptions.Fault):
+        return True
+
+    # (c) Nunca se estableció la conexión: no salió un byte.
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return True
+
+    # (a) Serialización de zeep — ojo con las que también son RequestException.
+    if isinstance(exc, (TypeError, ValueError)) and not isinstance(
+        exc, requests.exceptions.RequestException
+    ):
+        return True
+
+    return False
+
+
 def _afip_ssl_context():
     """SSLContext para los web services de AFIP.
 
@@ -92,7 +200,17 @@ def _build_zeep_client(url: str):
 
     session = requests.Session()
     session.mount("https://", _AfipTLSAdapter())
-    return zeep.Client(url, transport=zeep.Transport(session=session))
+    # G4/B-1: operation_timeout acota el POST de la operación; timeout acota
+    # la CARGA del WSDL/XSD (default de zeep: 300s si no se pasa nada — ver
+    # las constantes arriba para el presupuesto total contra el lease).
+    return zeep.Client(
+        url,
+        transport=zeep.Transport(
+            session=session,
+            timeout=_SOAP_WSDL_LOAD_TIMEOUT_SECONDS,
+            operation_timeout=_SOAP_OPERATION_TIMEOUT_SECONDS,
+        ),
+    )
 
 
 # Mapping de comprobante_type a codigo AFIP (CbteTipo)
@@ -217,6 +335,29 @@ class WSFEAdapter(FiscalDocumentPort):
             # 2. Llamar WSFEv1 (Auth.Cuit = cuit_emisor ya estaba correcto en C-31)
             result = await self._call_wsfe(invoice_data, token, sign)
             return result
+
+        except WSFESubmitInFlightError as exc:
+            # fiscal-emision-segura (G4): el pedido SALIÓ y no sabemos qué pasó.
+            # NO es un error reintentable: el relay congela el documento.
+            logger.critical(
+                "WSFEAdapter: envío NO CONFIRMADO del doc %s (numero pedido %s): %s",
+                invoice_data.fiscal_document_id,
+                exc.cbte_numero,
+                exc.detail,
+            )
+            return CAEResponse(
+                cae=None,
+                cae_due_date=None,
+                is_approved=False,
+                error_code="CAE_SUBMIT_UNCONFIRMED",
+                error_detail=(
+                    f"{exc.detail}. El comprobante PUEDE existir en ARCA con el número "
+                    f"{exc.cbte_numero}: NO se reintenta automáticamente (se emitiría una "
+                    "segunda factura). Verificar en ARCA antes de resolver a mano."
+                ),
+                number=exc.cbte_numero,
+                submitted=True,
+            )
 
         except Exception as exc:
             # v22 (D7, OQ-4): distinguir error de delegación de error de datos/red
@@ -585,16 +726,62 @@ class WSFEAdapter(FiscalDocumentPort):
             },
         }
 
-        result = client.service.FECAESolicitar(**request_body)
+        # ── fiscal-emision-segura (G4): desde acá, un fallo NO es reintentable
+        # salvo que se pueda demostrar lo contrario ───────────────────────────
+        # Una excepción de la que no se puede demostrar qué pasó deja al
+        # comprobante en estado GENUINAMENTE desconocido: ARCA pudo haberlo
+        # autorizado sin que lo sepamos. Se levanta WSFESubmitInFlightError con
+        # el número pedido para que el relay CONGELE el documento en vez de
+        # reintentar con un número nuevo.
+        #
+        # M-3 (primer red team, 2026-09-22): el `except Exception` genérico
+        # congelaba de más, y congelar de más no es gratis — alimenta la
+        # starvation de M-2 (una causa sistemática, p.ej. una tanda de TAs
+        # vencidos, congelaría documentos uno por uno).
+        #
+        # B2-1 (SEGUNDO red team, mismo día): el remedio de M-3 fue una
+        # allow-list de tres excepciones de `requests`, y eso dejó afuera todo
+        # lo que zeep levanta DESPUÉS del POST — un 502/504 sin cuerpo
+        # (`TransportError`), una página HTML de error (`XMLSyntaxError`), un
+        # gzip roto, un `raise_for_status`. Las cinco volvieron a ser
+        # reintentables: el próximo tick pide ultimo+1 y emite una SEGUNDA
+        # factura real. La regla queda INVERTIDA — congelar por defecto y
+        # eximir sólo lo demostrable (ver `_submit_outcome_is_unambiguous`).
+        # Lo eximido cae al `except Exception` genérico de `request_cae`, que
+        # ya distingue delegación de error de datos/red (ambos reintentables).
+        try:
+            result = client.service.FECAESolicitar(**request_body)
+        except Exception as exc:
+            if _submit_outcome_is_unambiguous(exc):
+                raise
+            raise WSFESubmitInFlightError(
+                cbte_numero=cbte_numero,
+                detail=(
+                    f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
+                    f"{cbte_numero} ({invoice_data.comprobante_type}) salió y su "
+                    f"resultado NUNCA se confirmó ({type(exc).__name__}: {exc})"
+                ),
+            ) from exc
 
         # Parsear respuesta
         try:
             det = result.FeDetResp.FECAEDetResponse[0]
             if det.Resultado == "A":  # Aprobado
+                # fiscal-emision-segura (G3): el número que se PERSISTE es el que
+                # ARCA confirmó (det.CbteDesde), no el que calculamos antes de
+                # llamar. Fallback a cbte_numero (= ultimo+1, lo que pedimos) si
+                # la respuesta no lo trae: degrada al comportamiento anterior,
+                # nunca a None.
+                confirmed = getattr(det, "CbteDesde", None)
+                try:
+                    number = int(confirmed) if confirmed is not None else cbte_numero
+                except (TypeError, ValueError):
+                    number = cbte_numero
                 return CAEResponse(
                     cae=det.CAE,
                     cae_due_date=datetime.datetime.strptime(det.CAEFchVto, "%Y%m%d").date(),
                     is_approved=True,
+                    number=number,
                 )
             else:
                 # Rechazado: extraer primer error
@@ -606,5 +793,36 @@ class WSFEAdapter(FiscalDocumentPort):
                     error_code=str(obs.Code) if obs else "REJECTED",
                     error_detail=obs.Msg if obs else "Comprobante rechazado por AFIP",
                 )
-        except (AttributeError, IndexError, KeyError) as exc:
-            raise RuntimeError(f"Error parseando respuesta AFIP: {exc}") from exc
+        except (AttributeError, IndexError, KeyError, ValueError, TypeError) as exc:
+            # G4: no se puede parsear la respuesta de un pedido que YA salió →
+            # tampoco sabemos si ARCA autorizó. Antes esto era un RuntimeError
+            # que el `except Exception` de request_cae convertía en WSFE_ERROR y
+            # el relay trataba como un retry normal: el próximo intento pedía
+            # ultimo+1 y emitía una segunda factura real.
+            #
+            # B2-2 (segundo red team, 2026-09-22): `ValueError` y `TypeError`
+            # faltaban, y son justo las que levanta
+            # `strptime(det.CAEFchVto, "%Y%m%d")` con una fecha en otro formato,
+            # vacía o `None`. Con `det.Resultado == "A"` y `det.CAE` ya en
+            # memoria, un CAE REAL se descartaba y se reintentaba. El hermano
+            # (`CAEFchVto` ausente → AttributeError) sí congelaba: al handler le
+            # faltaban dos clases de excepción, no una regla.
+            try:
+                cae_visto = getattr(result.FeDetResp.FECAEDetResponse[0], "CAE", None)
+            except Exception:  # la respuesta ni siquiera tiene esa forma
+                cae_visto = None
+            cae_hint = (
+                f" ARCA devolvió el CAE {cae_visto} en esa respuesta: usarlo para "
+                "resolver el comprobante a mano."
+                if cae_visto
+                else ""
+            )
+            raise WSFESubmitInFlightError(
+                cbte_numero=cbte_numero,
+                detail=(
+                    f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
+                    f"{cbte_numero} salió y su respuesta no se pudo interpretar "
+                    f"(error parseando respuesta AFIP — {type(exc).__name__}: {exc})."
+                    f"{cae_hint}"
+                ),
+            ) from exc

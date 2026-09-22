@@ -102,6 +102,44 @@ El sistema SHALL persistir los puntos de venta AFIP de una cuenta en la tabla `p
 
 ---
 
+### Requirement: Un CUIT no puede tener el mismo punto de venta activo en dos cuentas
+
+El sistema SHALL rechazar dejar ACTIVO un punto de venta cuyo `numero` ya está activo en OTRO `fiscal_profile`, de OTRA cuenta, con el mismo CUIT normalizado (sin guiones ni otros caracteres no numéricos) — tanto al dar de alta/reactivar/renumerar un punto de venta como al cambiarle el CUIT a un perfil fiscal cuyos puntos de venta activos colisionarían con el nuevo CUIT. El rechazo SHALL usar un código de error de negocio distinguible (no un 500 genérico). Esta verificación SHALL alcanzar únicamente puntos de venta ACTIVOS: un punto de venta inactivo, o de una cuenta con un CUIT distinto, NO SHALL verse afectado. El sistema NO SHALL modificar ni desactivar ninguna fila existente al introducir esta verificación — sólo impide que el caso se cree o se agrande a partir de este punto; una colisión que ya existiera en la base sigue intacta hasta que se corrija el dato (el propio CUIT equivocado) manualmente.
+
+**ADDED por `fiscal-emision-segura` (2026-09-22).** Reason: `points_of_sale` sólo tiene UNIQUE `(fiscal_profile_id, numero)` — dos `fiscal_profiles` de CUENTAS DISTINTAS con el mismo CUIT pueden tener cada uno un PV con el mismo `numero`, sin que nada lo impida. ARCA numera por `(CUIT, PtoVta, CbteTipo)`, no por `fiscal_profile_id`: dos cuentas así compiten por LA MISMA secuencia de numeración de ARCA (prod tuvo este caso real: dos perfiles con el mismo CUIT, ambos con el punto de venta 3 activo, uno cargado con el CUIT equivocado). La segunda cuenta en emitir reservaría localmente un número que ARCA ya le dio a la primera.
+
+#### Scenario: Activar un punto de venta con el mismo número y CUIT que otra cuenta se rechaza
+
+- **GIVEN** la cuenta A con CUIT `20-11111111-1` y un punto de venta activo `numero = 3`
+- **WHEN** la cuenta B, con el mismo CUIT `20-11111111-1`, intenta activar (crear o reactivar) un punto de venta con `numero = 3`
+- **THEN** la operación se rechaza con un código de error de negocio, y el punto de venta de B no queda activo
+
+#### Scenario: El mismo número con un CUIT distinto se acepta
+
+- **GIVEN** la cuenta A con CUIT `20-11111111-1` y un punto de venta activo `numero = 3`
+- **WHEN** la cuenta C, con CUIT `20-22222222-2` (distinto), activa un punto de venta con `numero = 3`
+- **THEN** la operación se acepta — el conflicto es por CUIT compartido, no por el número en sí
+
+#### Scenario: Cambiarle el CUIT a un perfil puede crear el mismo conflicto y también se rechaza
+
+- **GIVEN** la cuenta A con CUIT `20-11111111-1` y un punto de venta activo `numero = 3`, y la cuenta B con un punto de venta activo `numero = 3` bajo un CUIT distinto
+- **WHEN** B actualiza el CUIT de su perfil fiscal a `20-11111111-1`
+- **THEN** la actualización se rechaza (colisionaría con el punto de venta activo de A)
+
+#### Scenario: Un punto de venta inactivo no compite
+
+- **GIVEN** la cuenta A con CUIT `20-11111111-1` y un punto de venta **inactivo** `numero = 3`
+- **WHEN** la cuenta B, con el mismo CUIT, activa un punto de venta con `numero = 3`
+- **THEN** la operación se acepta — un PV inactivo no numera nada ante ARCA
+
+#### Scenario: Una colisión preexistente no se toca al introducir el guard
+
+- **GIVEN** dos cuentas que YA tenían, antes de este requisito, el mismo CUIT y el mismo punto de venta activo
+- **WHEN** se despliega esta verificación
+- **THEN** ninguna de las dos filas existentes se modifica ni se desactiva automáticamente — la corrección del dato (el CUIT equivocado) queda a cargo de quien administra esa cuenta
+
+---
+
 ### Requirement: Selección del punto de venta en la emisión
 
 El sistema SHALL aceptar un `point_of_sale_id` **opcional** al emitir un comprobante. Si la cuenta tiene **un único** punto de venta activo, el sistema SHALL usarlo sin requerir que se especifique. Si la cuenta tiene **dos o más** puntos de venta activos y no se especifica `point_of_sale_id`, el sistema SHALL rechazar la emisión con error `P0422 ambiguous_point_of_sale`. Si el `point_of_sale_id` especificado no pertenece a la cuenta o está inactivo, el sistema SHALL rechazar la emisión (`P0404`/`P0422`).

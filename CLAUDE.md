@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 302 migraciones; última `20261053000001_accounts_profiles_privilege_columns` (pendiente de verificar en prod tras el merge) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 303 migraciones; última `20261054000001_fiscal_emision_segura` (pendiente de verificar en prod tras el merge) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |
@@ -319,6 +319,7 @@ C-22 fiscal-identity-clients · C-23 community-schema-split — paralelos e inde
 - **NUNCA exponer `SUPABASE_SERVICE_ROLE_KEY` al cliente** → Solo en Edge Functions (servidor). La service_role bypasea toda RLS.
 - **NUNCA usar el MCP `apply_migration` para aplicar migrations de producción** → Registra un timestamp diferente al del archivo local y desincroniza el historial. Siempre usar `npx supabase db push` via CLI. Si se usó el MCP accidentalmente, reparar con `npx supabase migration repair --status reverted <timestamp_mcp>` y luego `npx supabase db push`.
 - **Dos proyectos Supabase en este proyecto**: `gxdhpxvdjjkmxhdkkwyb` = proyecto real con usuarios (CLI + MCP). `pudaxiwqhwsxuaofsqda` = proyecto del preview de Vercel (vacío, schema más avanzado). Las migrations se aplican siempre al primero vía CLI.
+- **Las RPCs del relay fiscal son internas** (sin `EXECUTE` para `authenticated`) → **el stub del adapter WSFE jamás opera en producción** (defensa en dos capas: el stub se niega a sí mismo y el processor no lo llama para un documento de `ambiente='produccion'`) → **un envío a ARCA no confirmado se congela, nunca se reintenta a ciegas** (pedir un número nuevo tras un envío cuyo resultado no se confirmó emite una segunda factura real). Ver `fiscal-emision-segura` en CHANGES.md.
 - **Las columnas de privilegio (plan, billing, trial, exención, roles) nunca son escribibles por PostgREST para `authenticated`** → privilegios por COLUMNA con allow-list explícita (nunca deny-list vía trigger: una columna nueva sin declarar nace protegida sola, no al revés), verificado por el gate `supabase/tests/test_accounts_privilege_columns.sql`.
 
 ### TypeScript / Imports

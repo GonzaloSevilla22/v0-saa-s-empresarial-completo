@@ -86,6 +86,9 @@ class TestCAERelayProcessor:
         assert call_kwargs["doc_id"] == DOC_ID
         assert call_kwargs["cae"] is not None
         assert call_kwargs["cae_due_date"] is not None
+        # fiscal-emision-segura (G3): el número confirmado viaja hasta la RPC.
+        # Con el stub, el confirmado ES el local (el stub no habla con ARCA).
+        assert call_kwargs["number"] == doc["number"]
 
     @pytest.mark.asyncio
     async def test_authorized_doc_is_idempotent(self, processor, mock_repo):

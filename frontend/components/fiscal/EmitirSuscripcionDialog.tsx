@@ -18,6 +18,13 @@
  *   - Si empieza con dígitos del tipo CUIT (NN-), requiere CUIT válido.
  *   - Si tiene 7-8 dígitos numéricos, es DNI (DocTipo=96).
  *
+ * fiscal-emision-segura (G5/H3, 2026-09-22): el receptor pasa a ser OPCIONAL.
+ * Un selector de modo permite emitir a "Consumidor final (sin identificar)",
+ * que ante ARCA es DocTipo=99 / DocNro=0 — el mismo caso de una factura de
+ * mostrador. El bloqueo era sólo de esta pantalla y del schema Pydantic: la RPC
+ * y el adapter ya lo soportaban. Es excluyente, así que va con RadioGroup y no
+ * con un Checkbox.
+ *
  * Props:
  *   open / onOpenChange      — control del dialog
  *   receipt                  — datos del recibo (customer, amount, plan)
@@ -52,6 +59,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { isValidCuit, isValidTaxId, isCuitFormat } from "@/lib/cuit-utils"
 import type { PointOfSale } from "@/hooks/data/use-points-of-sale"
 import type { EmitSubscriptionPaymentInput, ReceptorDocTipo } from "@/hooks/data/use-emit-subscription-payment"
@@ -109,6 +117,18 @@ function normalizeDocNro(value: string, docTipo: ReceptorDocTipo | null): string
   return value.trim()
 }
 
+/**
+ * Modo de identificación del receptor (G5/H3).
+ *   "identified"  → CUIT (DocTipo 80) o DNI (DocTipo 96), comportamiento previo.
+ *   "final"       → consumidor final sin identificar: DocTipo 99 / DocNro 0.
+ */
+type ReceptorMode = "identified" | "final"
+
+/** Umbral de identificación obligatoria del receptor — RG 5824/2026.
+ *  Espejo de `afip_consumidor_final_threshold` (backend/core/config.py); el
+ *  adapter es el que lo verifica de verdad antes de pedir el CAE. */
+const RECEPTOR_REQUIRED_THRESHOLD_LABEL = "$10.000.000"
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function EmitirSuscripcionDialog({
@@ -122,10 +142,14 @@ export function EmitirSuscripcionDialog({
   const docInputId = useId()
   const pvSelectId = useId()
 
+  const receptorModeId = useId()
+
   const activePVs = pointsOfSale.filter((pv) => pv.isActive)
   const [docValue, setDocValue] = useState("")
   const [docError, setDocError] = useState<string | null>(null)
   const [selectedPvId, setSelectedPvId] = useState<string>("")
+  // Default "identified": preserva exactamente el comportamiento previo.
+  const [receptorMode, setReceptorMode] = useState<ReceptorMode>("identified")
 
   // Auto-select single active PV
   useEffect(() => {
@@ -140,6 +164,7 @@ export function EmitirSuscripcionDialog({
       setDocValue("")
       setDocError(null)
       setSelectedPvId(activePVs.length === 1 ? (activePVs[0]?.id ?? "") : "")
+      setReceptorMode("identified")
     }
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -168,6 +193,16 @@ export function EmitirSuscripcionDialog({
     setDocError(validateDoc(value))
   }
 
+  /** Al cambiar de modo se limpia lo tipeado: sin esto, un CUIT inválido escrito
+   *  antes podía volver al confirmar si el usuario iba y venía entre modos. */
+  function handleReceptorModeChange(value: string) {
+    setReceptorMode(value === "final" ? "final" : "identified")
+    setDocValue("")
+    setDocError(null)
+  }
+
+  const isConsumidorFinal = receptorMode === "final"
+
   const isDocValid = docValue.trim().length > 0 &&
     docError === null &&
     isValidTaxId(docValue.trim())
@@ -177,12 +212,22 @@ export function EmitirSuscripcionDialog({
   const canConfirm =
     !isSubmitting &&
     receipt !== null &&
-    isDocValid &&
     isPvSelected &&
-    docTipo !== null
+    (isConsumidorFinal || (isDocValid && docTipo !== null))
 
   function handleConfirm() {
-    if (!receipt || docTipo === null) return
+    if (!receipt) return
+    if (isConsumidorFinal) {
+      // DocTipo 99 / DocNro 0 los resuelve el adapter a partir de los nulls.
+      onConfirm({
+        receipt_id:        receipt.id,
+        receptor_doc_tipo: null,
+        receptor_doc_nro:  null,
+        point_of_sale_id:  selectedPvId || null,
+      })
+      return
+    }
+    if (docTipo === null) return
     const normalizedNro = normalizeDocNro(docValue, docTipo)
     onConfirm({
       receipt_id:        receipt.id,
@@ -208,7 +253,41 @@ export function EmitirSuscripcionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 py-2">
+        {/* fiscal-emision-segura (G5, pasada visual de 375 px + fix de revisión
+            visual ALTO en desktop 2026-09-22): el selector de receptor sumó
+            ~130 px de alto y el CTA primario se iba abajo del viewport.
+
+            La claim original ("en desktop, sm+, no cambia nada — ahí el
+            diálogo entra completo") era FALSA, y la causa real no era sólo
+            este div: `DialogContent` (components/ui/dialog.tsx) YA tiene su
+            PROPIO `max-h-[90dvh] overflow-y-auto` — un segundo scroll
+            contenedor por fuera de éste. Con `sm:max-h-none` acá, el modo
+            "Identificado" (~876 px de alto natural en 1366×900) quedaba sin
+            cota PROPIA, así que era el `overflow-y-auto` de `DialogContent`
+            el que recortaba — y como el footer es un hijo de flujo normal
+            (no `sticky`), quedaba escondido DENTRO de ese scroll externo, sin
+            ninguna pista visual de que hubiera que scrollear el diálogo
+            ENTERO (no el cuerpo) para encontrarlo. Medido: con `sm:max-h-none`
+            el CTA caía unos px por debajo del propio borde inferior
+            (clippeado) de `DialogContent` en 1366×900, y mucho más en 768.
+
+            Fix: este div SIEMPRE scrollea (nunca `sm:max-h-none`), con una
+            cota acoplada a la de `DialogContent` — `calc(90dvh - 310px)`. El
+            margen de 310px es el peor caso medido entre los dos anchos: en
+            desktop el chrome (header ~83px + footer de UNA fila ~39px + los
+            dos `gap-4` + el padding `p-6`) mide ~220px, pero `DialogFooter`
+            apila los botones (`flex-col-reverse sm:flex-row`) por debajo de
+            `sm:` — en 375px el footer pasa a DOS filas y el chrome real sube
+            a ~300px. Un solo margen fijo, calibrado contra el caso más ancho
+            (mobile), es más simple y más seguro que dos calc() por breakpoint;
+            el costo es que en desktop el cuerpo scrollea un poco antes de lo
+            estrictamente necesario. Así el total (chrome + cuerpo) queda
+            SIEMPRE por debajo del `max-h-[90dvh]` de `DialogContent` en
+            AMBOS anchos, y ES ESTE div, no el externo, el único que scrollea.
+            El footer queda fuera del scroll y siempre visible. Ese
+            `max-h-[90dvh]` externo sigue como red de seguridad si el chrome
+            creciera más en el futuro. */}
+        <div className="flex max-h-[calc(90dvh-310px)] flex-col gap-4 overflow-y-auto py-2">
           {/* Receipt summary */}
           {receipt && (
             <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-1.5">
@@ -301,7 +380,46 @@ export function EmitirSuscripcionDialog({
             </div>
           )}
 
+          {/* Receptor: identificado o consumidor final (G5/H3) */}
+          <div className="flex flex-col gap-2">
+            <Label id={receptorModeId}>Receptor</Label>
+            <RadioGroup
+              aria-labelledby={receptorModeId}
+              value={receptorMode}
+              onValueChange={handleReceptorModeChange}
+              className="gap-2"
+            >
+              <label className="flex items-start gap-2 text-sm text-foreground">
+                <RadioGroupItem
+                  value="identified"
+                  id="receptor-identified"
+                  disabled={isSubmitting}
+                  className="mt-0.5"
+                />
+                <span>Identificado con CUIT o DNI</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-foreground">
+                <RadioGroupItem
+                  value="final"
+                  id="receptor-final"
+                  disabled={isSubmitting}
+                  className="mt-0.5"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span>Consumidor final (sin identificar)</span>
+                  <span className="text-xs text-muted-foreground">
+                    Se emite con DocTipo 99 / DocNro 0, como una factura de mostrador.
+                    ARCA exige identificar al receptor a partir de{" "}
+                    {RECEPTOR_REQUIRED_THRESHOLD_LABEL} (RG 5824/2026); un pago de
+                    suscripción está muy por debajo.
+                  </span>
+                </span>
+              </label>
+            </RadioGroup>
+          </div>
+
           {/* CUIT / DNI input */}
+          {!isConsumidorFinal && (
           <div className="flex flex-col gap-1.5">
             <Label htmlFor={docInputId}>
               CUIT o DNI del receptor
@@ -335,6 +453,7 @@ export function EmitirSuscripcionDialog({
               </p>
             )}
           </div>
+          )}
 
           {/* Warning */}
           <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">

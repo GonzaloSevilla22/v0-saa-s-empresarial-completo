@@ -50,6 +50,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 import { useFiscalProfile, useUpsertFiscalProfile } from "@/hooks/data/use-fiscal-profile"
 import { usePointsOfSale, useCreatePointOfSale, useDeactivatePointOfSale } from "@/hooks/data/use-points-of-sale"
+import { translateFiscalConfigError } from "@/lib/fiscal-config-errors"
 import type { IvaCondition, Ambiente } from "@/hooks/data/use-fiscal-profile"
 import type { PointOfSale } from "@/hooks/data/use-points-of-sale"
 
@@ -122,7 +123,10 @@ function FiscalProfileForm() {
       setSaveOk(true)
       setTimeout(() => setSaveOk(false), 3000)
     } catch (err: unknown) {
-      setSaveError(err instanceof Error ? err.message : "Error al guardar el perfil.")
+      const msg = err instanceof Error ? err.message : "Error al guardar el perfil."
+      // fiscal-emision-segura (G9): cambiar el CUIT puede chocar con otra cuenta
+      // que ya tiene ese mismo punto de venta activo (P0435).
+      setSaveError(translateFiscalConfigError(msg) ?? msg)
     }
   }
 
@@ -548,6 +552,14 @@ function PointsOfSaleSection() {
       pvForm.reset()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al registrar el punto de venta."
+      // fiscal-emision-segura (G9): este caso se resuelve ANTES de la heurística
+      // de abajo — un CUIT puede contener "409" (p. ej. 20-40912345-6) y el
+      // mensaje terminaría diciendo "ya existe", que es otra cosa.
+      const fiscalMsg = translateFiscalConfigError(msg)
+      if (fiscalMsg) {
+        setPvError(fiscalMsg)
+        return
+      }
       setPvError(msg.includes("409") || msg.toLowerCase().includes("unique") || msg.toLowerCase().includes("duplicado")
         ? `El punto de venta número ${values.numero} ya existe.`
         : msg)

@@ -200,6 +200,18 @@ _BUSINESS_ERRCODE_STATUS = {
     # mismo email — 409, conflicto de ESTADO (ya existe una invitación viva),
     # misma familia que P0409/P0423/P0428.
     "P0407": 409,
+    # fiscal-emision-segura (G9, 2026-09-22): un mismo CUIT con el MISMO punto
+    # de venta ACTIVO en dos cuentas. Es exactamente la clave con la que ARCA
+    # numera (CUIT, PtoVta, CbteTipo), mientras `document_sequences` numera por
+    # point_of_sale_id: las dos cuentas competirían por la misma secuencia y la
+    # segunda en emitir reservaría un número que ARCA ya usó. Lo lanzan los
+    # disparadores trg_guard_pos_cuit_cross_account (points_of_sale) y
+    # trg_guard_fiscal_profile_cuit_cross_account (cambio de cuit), que son los
+    # dos puntos de paso obligados. 409 porque es un conflicto de ESTADO (misma
+    # familia que P0409/P0423/P0428), no de payload: el número de PV puede ser
+    # perfectamente válido y el problema es el CUIT cargado en la otra cuenta.
+    # El mensaje del RAISE ya nombra las dos salidas.
+    "P0435": 409,
 }
 
 # banco-caja-historial-ajustes (task 6.4): errcodes cuyo 7807 debe llevar

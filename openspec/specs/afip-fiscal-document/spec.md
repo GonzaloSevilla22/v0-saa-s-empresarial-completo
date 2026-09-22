@@ -125,7 +125,9 @@ Los datos de IVA y de condición del receptor necesarios para (a) y (b) SHALL vi
 
 ### Requirement: Selección del adaptador WSFE por cuenta (real vs stub)
 
-El sistema SHALL seleccionar la implementación del `FiscalDocumentPort` mediante una factory cuyo gate es **"certificado de plataforma configurado"** (no el certificado por cuenta): SHALL usar `WSFEAdapter` (real, WSAA + WSFEv1) cuando el certificado del representante de la plataforma está configurado y es legible server-side (cert + key + CUIT representante); en cualquier otro caso SHALL usar `WSFEStubAdapter`. El `WSFEStubAdapter` SHALL permanecer como **default**, de modo que mientras el certificado de plataforma no esté configurado ninguna cuenta cambie de comportamiento. El `ambiente` (homologación/producción) NO es parámetro de la factory: lo resuelve el `WSFEAdapter` internamente a partir de `CAERequest.ambiente` (que proviene del perfil de la cuenta — D2). La selección real-vs-stub SHALL aplicarse en los tres puntos de relay: el endpoint de usuario (`process-pending`), el endpoint de máquina cron (`process-pending-cron`, cross-account, por documento/cuenta) y el fire-and-forget post-emisión (`process_doc_by_id_background`).
+El sistema SHALL seleccionar la implementación del `FiscalDocumentPort` mediante una factory cuyo gate es **"certificado de plataforma configurado"** (no el certificado por cuenta): SHALL usar `WSFEAdapter` (real, WSAA + WSFEv1) cuando el certificado del representante de la plataforma está configurado y es legible server-side (cert + key + CUIT representante); en cualquier otro caso SHALL usar `WSFEStubAdapter`. El `WSFEStubAdapter` SHALL permanecer como **default**, de modo que mientras el certificado de plataforma no esté configurado ninguna cuenta cambie de comportamiento. El `ambiente` (homologación/producción) NO es parámetro de la factory: lo resuelve el `WSFEAdapter` internamente a partir de `CAERequest.ambiente` (que proviene del perfil de la cuenta — D2).
+
+**MODIFIED por `fiscal-emision-segura` (2026-09-22).** Reason: la redacción previa describía la selección real-vs-stub aplicada en "los tres puntos de relay: el endpoint de usuario (`process-pending`), el endpoint de máquina cron (`process-pending-cron`...) y el fire-and-forget post-emisión (`process_doc_by_id_background`)". Los dos primeros de esos tres caminos **se retiraron** (ver "Único camino de emisión en background: el cron", abajo) porque ninguno tenía guard de concurrencia real: el fire-and-forget instanciaba el stub **a mano**, sin pasar por esta factory, y el endpoint de usuario no llamaba `claim_pending`. El sistema SHALL aplicar esta factory en el **único** punto de relay que queda: el endpoint de máquina cron (`process-pending-cron`, cross-account, vía `pg_cron`). Además, la selección de esta factory deja de ser la ÚNICA defensa: el sistema SHALL rechazar el stub para un documento de `ambiente = 'produccion'` en una **segunda** capa independiente, sin importar qué adapter haya construido esta factory (ver "El stub nunca autoriza un comprobante de producción", abajo — ninguna de las dos capas delega en la otra).
 
 #### Scenario: Sin certificado de plataforma se usa el stub
 
@@ -147,9 +149,120 @@ El sistema SHALL seleccionar la implementación del `FiscalDocumentPort` mediant
 
 ---
 
+### Requirement: Único camino de emisión en background: el cron
+
+El sistema SHALL exponer un ÚNICO camino de background que pueda pedir un CAE para un documento `pending_cae`: el endpoint de máquina cron `POST /fiscal/documents/process-pending-cron` (dispatcher de `pg_cron`, cross-account, vía `process_all_pending_documents`), que SHALL reclamar cada documento con `claim_pending` antes de llamar al adapter. El sistema NO SHALL exponer ningún otro endpoint HTTP que permita solicitar un CAE sin pasar por ese reclamo, y NO SHALL disparar ninguna solicitud de CAE de forma síncrona ni asíncrona en el request que emite el comprobante (`POST /fiscal/documents/emit` y `POST /fiscal/documents/emit-subscription-payment` SHALL persistir `pending_cae` y devolver, sin programar ningún trabajo de background propio — el cron es quien lo recoge).
+
+**ADDED por `fiscal-emision-segura` (2026-09-22).** Reason: el sistema tenía hasta cuatro caminos que podían pedir un CAE para el mismo documento sin ningún guard de concurrencia compartido entre ellos: (1) el disparo inmediato post-emisión (fire-and-forget, instanciaba `WSFEStubAdapter()` a mano, sin la factory de selección); (2) `POST /fiscal/documents/process-pending` (endpoint de usuario, adapter real vía la factory pero **sin** llamar `claim_pending` — su propio docstring decía "el endpoint de usuario ya es single-threaded", premisa falsa: nada impedía que corriera en paralelo con el cron sobre el mismo documento); (3) el cron (`process-pending-cron`); (4) `process_document_by_id` (usado sólo internamente por el cron, con `claim_pending`). El riesgo real: el lease anti-doble-CAE de `claim_pending` (5 minutos) no protege una llamada SOAP que no tiene su propia cota de tiempo — dos caminos podían competir por el mismo documento y pedir dos veces `FECAESolicitar`, cada uno con un `CbteDesde` distinto: **dos facturas reales para el mismo documento**.
+
+#### Scenario: Emitir un comprobante no dispara ningún trabajo de background propio
+
+- **GIVEN** un comprobante recién persistido en `pending_cae`
+- **WHEN** el endpoint de emisión (`emit` o `emit-subscription-payment`) responde
+- **THEN** no programó ninguna tarea de background para ese documento — el único camino que lo procesará es el próximo tick del cron
+
+#### Scenario: No existe ningún endpoint de usuario para pedir un CAE fuera del cron
+
+- **WHEN** se inspeccionan las rutas de `backend/routers/fiscal.py`
+- **THEN** `POST /fiscal/documents/process-pending` no existe (404) — el único endpoint que puede iniciar una solicitud de CAE es `POST /fiscal/documents/process-pending-cron`
+
+#### Scenario: El cron sigue reclamando el lease antes de llamar al adapter
+
+- **GIVEN** un documento `pending_cae` sin lease vigente
+- **WHEN** `process_all_pending_documents` lo encuentra
+- **THEN** llama `claim_pending` antes de invocar `request_cae`, y si `claim_pending` no matchea (lease vigente de otro tick, o documento congelado) el documento se saltea sin pedir ningún CAE
+
+---
+
+### Requirement: El stub nunca autoriza un comprobante de producción
+
+El sistema SHALL rechazar cualquier intento de autorizar un comprobante de `ambiente = 'produccion'` con el `WSFEStubAdapter`, en DOS capas independientes que no delegan una en la otra: (1) el propio `WSFEStubAdapter.request_cae` SHALL devolver un error (`STUB_FORBIDDEN_IN_PRODUCTION`, `is_approved = false`, sin CAE) cuando `invoice_data.ambiente == 'produccion'`; (2) el proceso de background (`CAERelayProcessor.process_document`) SHALL verificar, antes de llamar a `request_cae`, que un documento de `ambiente = 'produccion'` sólo se procese con una instancia de `WSFEAdapter` (allow-list del adapter real, no deny-list del stub, para cubrir también cualquier adapter futuro que no sea el real) — si no lo es, SHALL dejar el documento en retry con un `last_error` explícito, sin llamar al adapter.
+
+**ADDED por `fiscal-emision-segura` (2026-09-22).** Reason: la factory de selección (ver arriba) era la ÚNICA defensa contra que el `WSFEStubAdapter` escribiera un CAE inventado en un comprobante de producción — un `WSFEStubAdapter()` instanciado a mano (como hacía el disparo inmediato retirado) evitaba la factory por completo. Como `authorized` es un estado terminal (`claim_pending`/`list_pending_all` sólo miran `status = 'pending_cae'`), un CAE falso escrito ahí quedaría indistinguible de uno real para siempre.
+
+#### Scenario: El stub se niega a sí mismo en producción
+
+- **GIVEN** un `WSFEStubAdapter` y datos de un comprobante con `ambiente = 'produccion'`
+- **WHEN** se llama `request_cae`
+- **THEN** devuelve `is_approved = false`, `error_code = 'STUB_FORBIDDEN_IN_PRODUCTION'`, `cae = None` — nunca un CAE ficticio
+
+#### Scenario: El stub sigue funcionando en homologación (no regresión)
+
+- **GIVEN** un `WSFEStubAdapter` y datos de un comprobante con `ambiente = 'homologacion'`
+- **WHEN** se llama `request_cae`
+- **THEN** devuelve el CAE ficticio determinístico de siempre
+
+#### Scenario: El processor no llama al stub para un documento de producción
+
+- **GIVEN** un `CAERelayProcessor` con un `WSFEStubAdapter` inyectado y un documento con `ambiente = 'produccion'`
+- **WHEN** procesa el documento
+- **THEN** NO llama a `request_cae`, deja el documento en retry con un `last_error` que nombra el ambiente, y no lo autoriza
+
+#### Scenario: El mismo documento de producción con el adapter real sí se procesa
+
+- **GIVEN** el mismo documento de `ambiente = 'produccion'`, esta vez con un `WSFEAdapter` real inyectado que aprueba
+- **WHEN** el processor lo procesa
+- **THEN** sí llama a `request_cae` y autoriza el documento — el guard discrimina por tipo de adapter, no bloquea producción en general
+
+---
+
+### Requirement: Un envío a ARCA no confirmado congela el documento
+
+El sistema SHALL acotar la llamada SOAP completa (carga del WSDL + cada operación) muy por debajo del lease de `claim_pending`. Cuando un `FECAESolicitar` SALE hacia ARCA y su resultado NO puede confirmarse (fallo de transporte después del envío, o una respuesta que no se puede interpretar), el sistema SHALL tratarlo como un caso DISTINTO de un error normal: NO SHALL reintentarlo con el backoff habitual (que pediría un número nuevo), SHALL **congelar** el documento (permanece `pending_cae`, pero `claim_pending` deja de reclamarlo) y SHALL registrar el número que se le pidió a ARCA, para que la resolución sea manual (consultar ese número en ARCA antes de decidir). Un fallo ANTES de enviar el `FECAESolicitar` (p. ej. al consultar `FECompUltimoAutorizado`, o un error de serialización que nunca llegó a salir por la red, o un rechazo de ARCA que sí respondió — como un token de autenticación vencido) NO SHALL congelar: sigue el backoff normal, reintentable.
+
+**ADDED por `fiscal-emision-segura` (2026-09-22).** Reason: `zeep.Transport` corría sin ninguna cota de tiempo (`operation_timeout = None` y, hasta el BLOCKER del red team, también sin `timeout` para la carga del WSDL — ambos quedaban en el default de zeep, 300s, IGUAL al lease de 5 minutos de `claim_pending`). Con la sección crítica sin cota real y el candado con cota fija, el próximo tick del cron podía re-reclamar el mismo documento con el `FECAESolicitar` anterior todavía en vuelo y pedir un CAE por segunda vez — o, más sutil: un timeout de red DESPUÉS de que ARCA ya aprobó el comprobante hacía que el reintento normal pidiera `FECompUltimoAutorizado + 1` (que ya había avanzado) y emitiera una segunda factura real, sin ninguna excepción visible (el fallo caía al backoff normal).
+
+#### Scenario: Un timeout de red después de enviar el pedido congela el documento
+
+- **GIVEN** un documento `pending_cae` reclamado por el cron
+- **WHEN** el `FECAESolicitar` sale hacia ARCA y la conexión se corta antes de recibir una respuesta
+- **THEN** el documento queda `pending_cae` pero CONGELADO (no reclamable por `claim_pending`), con el número pedido a ARCA registrado para la resolución manual
+
+#### Scenario: Un fallo antes de enviar el pedido no congela (no regresión)
+
+- **GIVEN** un documento `pending_cae`
+- **WHEN** falla la consulta a `FECompUltimoAutorizado` (antes de llegar a `FECAESolicitar`)
+- **THEN** el documento sigue el backoff normal (reintento con `next_attempt_at` futuro), sin congelarse
+
+#### Scenario: Un rechazo de autenticación que ARCA sí respondió no congela
+
+- **GIVEN** un documento `pending_cae`
+- **WHEN** `FECAESolicitar` recibe un rechazo por token de autenticación vencido (ARCA respondió, no es un fallo de transporte)
+- **THEN** el documento sigue el backoff normal — congelar cada rechazo de autenticación acumularía documentos que se auto-resuelven en el próximo intento
+
+#### Scenario: Un documento congelado no vuelve a ser reclamado automáticamente
+
+- **GIVEN** un documento congelado por un envío no confirmado
+- **WHEN** el cron corre su próximo tick
+- **THEN** `claim_pending` no lo reclama (0 filas) — un documento hermano sin congelar en el mismo estado sí se reclama (1 fila)
+
+---
+
+### Requirement: Las RPCs del relay del CAE son internas
+
+El sistema SHALL revocar `EXECUTE` de las RPCs del relay del CAE (`rpc_fiscal_document_authorize`, `rpc_fiscal_document_claim_pending`, `rpc_fiscal_document_retry`, `rpc_fiscal_document_reject`, `rpc_fiscal_document_freeze_unconfirmed`) para los roles `PUBLIC`, `anon` y `authenticated`, dejando `EXECUTE` únicamente para `postgres` y `service_role` (los roles con los que corre el cron). Ninguna superficie `authenticated` (endpoint HTTP ni RPC directa) SHALL poder invocarlas.
+
+**ADDED por `fiscal-emision-segura` (2026-09-22).** Reason: `rpc_fiscal_document_authorize`, `rpc_fiscal_document_claim_pending`, `rpc_fiscal_document_retry` y `rpc_fiscal_document_reject` son `SECURITY DEFINER` y no validan tenencia — reciben un `doc_id` y escriben. Con `EXECUTE` para `authenticated` (heredado de cuando el endpoint de usuario retirado arriba era su único puente), cualquier usuario logueado podía marcar `authorized` con un CAE arbitrario el comprobante de **cualquier cuenta**, vía `POST /rest/v1/rpc/...` de PostgREST — exactamente la primitiva de CAE falso que el resto de este capability existe para evitar.
+
+#### Scenario: authenticated no puede ejecutar las RPCs del relay
+
+- **GIVEN** un usuario autenticado con un JWT válido de cualquier cuenta
+- **WHEN** intenta `POST /rest/v1/rpc/rpc_fiscal_document_authorize` con el id de un comprobante (propio o ajeno)
+- **THEN** PostgREST rechaza la llamada por falta de privilegio (`42501`), sin importar de qué cuenta sea el documento
+
+#### Scenario: El cron sigue pudiendo ejecutarlas
+
+- **GIVEN** el proceso cron corriendo con conexión de servicio (rol `postgres`)
+- **WHEN** llama cualquiera de las RPCs del relay
+- **THEN** la llamada se ejecuta normalmente — el `REVOKE` sólo afecta a `authenticated`/`anon`/`PUBLIC`
+
+---
+
 ### Requirement: Numeración autoritativa de ARCA vía FECompUltimoAutorizado
 
-El sistema SHALL obtener el número de comprobante autorizable consultando a ARCA `FECompUltimoAutorizado(PtoVta, CbteTipo)` por cada par `(punto de venta, tipo de comprobante)` y solicitando `CbteDesde = CbteHasta = último + 1`, en lugar de confiar únicamente en `invoice_data.number`. El sistema SHALL reconciliar ese número autoritativo con el número reservado localmente por `rpc_next_document_number(point_of_sale_id, comprobante_type)` (ver requisito "Emision sincrona reserva numero..."): ante un desfasaje entre el número local reservado y el último autorizado por ARCA, el sistema SHALL detectar y manejar el desync (el error de ARCA por número fuera de secuencia es **Code 10016**) sin persistir un CAE contra un número incorrecto.
+El sistema SHALL obtener el número de comprobante autorizable consultando a ARCA `FECompUltimoAutorizado(PtoVta, CbteTipo)` por cada par `(punto de venta, tipo de comprobante)` y solicitando `CbteDesde = CbteHasta = último + 1`, en lugar de confiar únicamente en `invoice_data.number`. El sistema SHALL reconciliar ese número autoritativo con el número reservado localmente por `rpc_next_document_number(point_of_sale_id, comprobante_type)` (ver requisito "Emision sincrona reserva numero...").
+
+**MODIFIED por `fiscal-emision-segura` (2026-09-22).** Reason: el adaptador ya pedía el número correcto a ARCA (`FECompUltimoAutorizado + 1`), pero la respuesta APROBADA de `FECAESolicitar` (`det.CbteDesde`, el número que ARCA efectivamente confirmó) se descartaba al construir el resultado, y `rpc_fiscal_document_authorize` sólo persistía `status`/`cae`/`cae_due_date` — nunca el número. Ante un desfasaje (los dos números numeran secuencias distintas: ARCA por `(CUIT, PtoVta, CbteTipo)`, `document_sequences` por `point_of_sale_id`), la base quedaba con el número LOCAL, potencialmente distinto al del CAE real. El sistema SHALL persistir el número que ARCA CONFIRMÓ (no el que se calculó antes de llamar): si coincide con el reservado localmente, no hay cambio; si difiere, el sistema SHALL adoptar el de ARCA (fuente de verdad), resincronizar `document_sequences` **sólo hacia adelante** (nunca hacia atrás — retroceder reentregaría un número ya usado) y dejar el desfasaje registrado en el historial de transiciones del documento. Si el número de ARCA colisiona con el de otro comprobante YA autorizado del mismo punto de venta y tipo, el sistema NO SHALL sacrificar el CAE real: SHALL conservar el número local, persistir el CAE igual, y dejar registro para revisión manual (nunca perder un CAE ya emitido por un conflicto de numeración).
 
 #### Scenario: Usa último + 1 de ARCA
 
@@ -157,17 +270,31 @@ El sistema SHALL obtener el número de comprobante autorizable consultando a ARC
 - **WHEN** el `WSFEAdapter` arma la solicitud de CAE
 - **THEN** pide `CbteDesde = CbteHasta = 42` (último + 1)
 
-#### Scenario: Mismatch con el número local reservado se detecta y maneja
+#### Scenario: El número confirmado por ARCA se persiste, no el calculado antes de pedir
 
-- **GIVEN** un comprobante con `number` local reservado `42` pero `FECompUltimoAutorizado` devuelve un último que implicaría un número distinto (desfasaje)
-- **WHEN** el `WSFEAdapter` intenta solicitar el CAE
-- **THEN** el desync se detecta/maneja (alineando con el número autoritativo de ARCA o registrando el error) y NO se persiste un CAE contra un número fuera de secuencia (Code 10016 de ARCA queda contemplado como rechazo manejado)
+- **GIVEN** una respuesta aprobada de `FECAESolicitar` con `CbteDesde = 51`
+- **WHEN** el adaptador arma el `CAEResponse`
+- **THEN** el `number` de la respuesta es `51` (lo que ARCA confirmó), no un valor calculado antes de la llamada
+
+#### Scenario: Desfasaje entre el número local y el de ARCA se adopta y se resincroniza
+
+- **GIVEN** un comprobante `pending_cae` con `number` local reservado `7`, y ARCA autoriza con `CbteDesde = 9`
+- **WHEN** se persiste la autorización
+- **THEN** el comprobante queda con `number = 9`, el historial de transiciones registra el desfasaje, y el contador local (`document_sequences`) se resincroniza a `9` (sólo si eso avanza el contador, nunca lo retrocede)
+
+#### Scenario: Colisión de número nunca pierde un CAE real
+
+- **GIVEN** un documento A ya autorizado con `number = 9` en el mismo punto de venta y tipo, y un documento B `pending_cae` al que ARCA le confirma también `CbteDesde = 9`
+- **WHEN** se persiste la autorización de B
+- **THEN** B queda con su CAE persistido y `number` SIN CAMBIAR (conserva el local), marcado para revisión manual — nunca se descarta el CAE real de B por el conflicto de numeración
 
 ---
 
 ### Requirement: Caché del Ticket de Acceso WSAA
 
-El sistema SHALL cachear el Ticket de Acceso (TA) de WSAA (token + sign + expiración) keyado por `(representante de la plataforma + servicio 'wsfe' + ambiente)` y reusarlo mientras esté vigente, re-autenticando contra WSAA (`loginCms`) solo cuando el TA está expirado o próximo a expirar. Dado que en el modelo de delegación el material criptográfico es **único** (el del representante), la caché SHALL tener efectivamente **una entrada por ambiente** (no una por CUIT representado): todos los CUIT comparten el mismo TA del representante para un ambiente dado. La caché SHALL persistir **entre invocaciones del relay** (no in-process), de modo que el endpoint de usuario (`process-pending`), la máquina cron (`process-pending-cron`) y el fire-and-forget post-emisión (`process_doc_by_id_background`) — que corren en procesos/invocaciones separados — compartan el mismo TA. El reúso del TA vigente SHALL evitar el cooldown de WSAA (~10 min) que rechaza un nuevo `loginCms` con "el CUIT ya posee un TA válido".
+El sistema SHALL cachear el Ticket de Acceso (TA) de WSAA (token + sign + expiración) keyado por `(representante de la plataforma + servicio 'wsfe' + ambiente)` y reusarlo mientras esté vigente, re-autenticando contra WSAA (`loginCms`) solo cuando el TA está expirado o próximo a expirar. Dado que en el modelo de delegación el material criptográfico es **único** (el del representante), la caché SHALL tener efectivamente **una entrada por ambiente** (no una por CUIT representado): todos los CUIT comparten el mismo TA del representante para un ambiente dado. La caché SHALL persistir **entre invocaciones del relay** (no in-process). El reúso del TA vigente SHALL evitar el cooldown de WSAA (~10 min) que rechaza un nuevo `loginCms` con "el CUIT ya posee un TA válido".
+
+**MODIFIED por `fiscal-emision-segura` (2026-09-22).** Reason: el endpoint de usuario (`process-pending`) y el fire-and-forget post-emisión (`process_doc_by_id_background`) que se mencionaban como consumidores de esta caché **se retiraron** (ver "Único camino de emisión en background: el cron"). El único invocador del relay que queda es el cron (`process-pending-cron`, dispatcher de `pg_cron`), así que "entre invocaciones del relay" ahora significa concretamente "entre ticks sucesivos del cron".
 
 #### Scenario: Un único TA por ambiente compartido entre cuentas
 
@@ -187,11 +314,11 @@ El sistema SHALL cachear el Ticket de Acceso (TA) de WSAA (token + sign + expira
 - **WHEN** se solicita un CAE en ese ambiente
 - **THEN** el adapter ejecuta un nuevo `loginCms` contra WSAA (con el cert del representante), obtiene un TA fresco y actualiza la caché
 
-#### Scenario: La caché persiste entre invocaciones del relay
+#### Scenario: La caché persiste entre ticks sucesivos del cron
 
-- **GIVEN** que `process-pending-cron` (proceso cron) obtuvo y cacheó el TA del representante para un ambiente
-- **WHEN** `process_doc_by_id_background` (otra invocación/proceso) procesa otro comprobante en el mismo ambiente mientras el TA sigue vigente
-- **THEN** reusa el TA cacheado (la caché no es in-process: sobrevive entre invocaciones del relay)
+- **GIVEN** que un tick de `process-pending-cron` obtuvo y cacheó el TA del representante para un ambiente
+- **WHEN** el siguiente tick del cron procesa otro comprobante en el mismo ambiente mientras el TA sigue vigente
+- **THEN** reusa el TA cacheado (la caché no es in-process: sobrevive entre invocaciones del cron)
 
 ### Requirement: Dependencia supabase-py declarada
 

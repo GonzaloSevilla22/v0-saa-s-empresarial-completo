@@ -49,7 +49,8 @@ class FiscalDocumentRepository(BaseRepository):
         doc_id: str,
         cae: str,
         cae_due_date: datetime.date,
-    ) -> None:
+        number: int | None = None,
+    ) -> bool:
         """Transiciona el comprobante a authorized con el CAE obtenido.
 
         v31-tenancy-pool-rls (colisión #1, sign-off PO 2026-08-01):
@@ -59,12 +60,51 @@ class FiscalDocumentRepository(BaseRepository):
         (rpc_record_fiscal_transition) en el mismo statement SQL. Si el
         UPDATE no matcheó (otro relay ya lo transicionó — lease de
         claim_pending), no se registra historial — mismo contrato que antes.
+
+        fiscal-emision-segura (G3): `number` es el número que ARCA CONFIRMÓ. La
+        RPC lo adopta si difiere del local (ARCA es la fuente de verdad),
+        resincroniza `document_sequences` SOLO hacia adelante y deja el desfasaje
+        en `document_status_history.reason`. `None` (o un caller viejo con 3
+        argumentos, que el DEFAULT NULL de la RPC sigue aceptando durante la
+        ventana de despliegue) = "no informado", y la RPC se comporta como antes.
+
+        (m-3 minor, red team 2026-09-22): retorna el boolean de la RPC. `False`
+        NO es un error — pasa en el camino de idempotencia (el doc ya no
+        estaba pending_cae) y en la colisión irresoluble (7b de la migración):
+        el CAE se persiste igual pero el documento queda CONGELADO, no
+        autorizado. El caller lo usa para no loguear "autorizado" cuando en
+        realidad no lo está.
         """
-        await self.execute(
-            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3)",
+        return await self._conn.fetchval(
+            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint)",
             doc_id,
             cae,
             cae_due_date,
+            number,
+        )
+
+    async def freeze_unconfirmed(
+        self,
+        doc_id: str,
+        arca_requested_number: int | None,
+        detail: str,
+    ) -> None:
+        """CONGELA un comprobante cuyo FECAESolicitar salió y nunca se confirmó.
+
+        fiscal-emision-segura (G4). El status NO cambia (sigue pending_cae: no
+        sabemos si ARCA autorizó); lo que cambia es que
+        `rpc_fiscal_document_claim_pending` deja de reclamarlo, por un predicado
+        estructural y no por el contador de intentos. Evita el peor error del
+        dominio: reintentar pidiendo `FECompUltimoAutorizado+1` y emitir una
+        SEGUNDA factura real para el mismo documento.
+
+        Resolución manual: consultar `arca_requested_number` en ARCA.
+        """
+        await self.execute(
+            "SELECT public.rpc_fiscal_document_freeze_unconfirmed($1::uuid, $2::bigint, $3)",
+            doc_id,
+            arca_requested_number,
+            detail,
         )
 
     async def update_rejected(self, doc_id: str, last_error: str) -> None:
@@ -125,6 +165,15 @@ class FiscalDocumentRepository(BaseRepository):
         NOTE: FOR UPDATE SKIP LOCKED is NOT used here because the SOAP call (request_cae)
         is long-running and must not hold a DB lock across a network round-trip.
         The claim_pending optimistic lease is the concurrency guard instead.
+
+        fiscal-emision-segura (M-2, red team 2026-09-22): excluye los
+        documentos CONGELADOS (`cae_submit_unconfirmed_at`, G4). Un congelado
+        tiene `next_attempt_at = NULL` PARA SIEMPRE — con la orden `NULLS
+        FIRST`, si hay >= `limit` congelados el batch entero se llena de ellos
+        (`claim_pending` los rechaza a todos porque tiene el mismo predicado)
+        y el relay deja de procesar CUALQUIER documento fresco,
+        indefinidamente. Mismo predicado que ya tiene
+        `rpc_fiscal_document_claim_pending`.
         """
         return await self.fetch(
             """
@@ -137,6 +186,7 @@ class FiscalDocumentRepository(BaseRepository):
             WHERE fd.status = 'pending_cae'
               AND (fd.next_attempt_at IS NULL OR fd.next_attempt_at <= now())
               AND fd.attempts < 10
+              AND fd.cae_submit_unconfirmed_at IS NULL
             ORDER BY fd.next_attempt_at NULLS FIRST, fd.created_at ASC
             LIMIT $1
             """,

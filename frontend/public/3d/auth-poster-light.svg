@@ -1,4 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" role="img" aria-hidden="true" focusable="false">
+<!-- fix/login-3d-visible (MAJOR 2 de la revisión adversarial): el viewBox
+     original (0 0 400 400) dejaba ~14.5% de margen transparente por lado
+     alrededor del círculo externo (r=140 + stroke-width/2=2 → tinta hasta
+     r=142, un 71% de la caja) — el `Poster` con `fill` ahora escala esta caja
+     a 860x860 en desktop, pero esa tinta pintaba de menos de lo que la caja
+     prometía. Recortado a la extensión real del dibujo (+ margen chico contra
+     antialiasing): la tinta pasa a llenar ~95% de la caja, igual que el
+     <canvas> real (AuthScene, anillo externo r=2.2 sobre una semialtura de
+     cámara de 2.33 ≈ 94%). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="50 50 300 300" role="img" aria-hidden="true" focusable="false">
   <title></title>
   <g fill="none" stroke-linejoin="round">
     <circle cx="200" cy="200" r="70" stroke="#16a34a" stroke-width="6" opacity="0.85" />

@@ -11,6 +11,18 @@ export interface PosterProps {
   className?: string
   /** Forwarded to `next/image` — set for the poster that is also the LCP element. */
   priority?: boolean
+  /**
+   * fix/login-3d-visible (MINOR 2 de la revisión adversarial): cuando es
+   * `true`, el `<Image>` escala a `h-full w-full object-contain` en vez de
+   * quedar clavado a su tamaño intrínseco (`width`/`height`) — lo que
+   * necesita `AuthPoster` para llenar una caja decorativa más grande que su
+   * intrínseco 400x400 (`AUTH_SCENE_BOX_CLASS`). Default `false`: preserva el
+   * render previo de todo OTRO caller de `Poster` (hoy, `HeroPoster`, montado
+   * sin `className` en `HeroSection`/`LandingPageFull` — este cambio de layout
+   * es exclusivo de `/auth/login` y `/auth/register`, no debía tocar la
+   * landing sin que nadie lo revisara ni lo probara).
+   */
+  fill?: boolean
 }
 
 /**
@@ -31,14 +43,19 @@ export interface PosterProps {
  */
 // fix/login-3d-visible: el `width`/`height` de arriba son el tamaño INTRÍNSECO
 // que `next/image` exige (metadata/aspect, nunca se descarga otra cosa al ser
-// SVG). El tamaño RENDERIZADO lo decide el contenedor (el `className` del
-// caller, p. ej. `AuthSceneMount`) — `h-full w-full` + `object-contain` hacen
-// que el dibujo escale con su caja (más grande en desktop, más chica en
-// mobile) preservando aspecto, en vez de quedar clavado a 400x400 y anclado
-// arriba-izquierda dentro de una caja más grande sin centrar.
+// SVG). Con `fill`, el tamaño RENDERIZADO lo decide el contenedor (el
+// `className` del caller, p. ej. `AuthSceneMount`) — `h-full w-full` +
+// `object-contain` hacen que el dibujo escale con su caja (más grande en
+// desktop, más chica en mobile) preservando aspecto, en vez de quedar clavado
+// a 400x400 y anclado arriba-izquierda dentro de una caja más grande sin
+// centrar. Sin `fill` (default), el `<Image>` no lleva clase de tamaño — el
+// mismo comportamiento que tenía CUALQUIER caller de `Poster` antes de este
+// change.
 const RESPONSIVE_IMAGE_CLASS = "h-full w-full object-contain"
 
-export function Poster({ src, srcDark, width, height, className, priority }: PosterProps) {
+export function Poster({ src, srcDark, width, height, className, priority, fill = false }: PosterProps) {
+  const imageClass = fill ? RESPONSIVE_IMAGE_CLASS : undefined
+
   if (!srcDark) {
     return (
       <div aria-hidden="true" className={cn("pointer-events-none select-none", className)}>
@@ -49,7 +66,7 @@ export function Poster({ src, srcDark, width, height, className, priority }: Pos
           height={height}
           priority={priority}
           unoptimized={src.endsWith(".svg")}
-          className={RESPONSIVE_IMAGE_CLASS}
+          className={imageClass}
         />
       </div>
     )
@@ -64,7 +81,7 @@ export function Poster({ src, srcDark, width, height, className, priority }: Pos
         height={height}
         priority={priority}
         unoptimized={src.endsWith(".svg")}
-        className={cn(RESPONSIVE_IMAGE_CLASS, "block dark:hidden")}
+        className={cn(imageClass, "block dark:hidden")}
       />
       <Image
         src={srcDark}
@@ -73,7 +90,7 @@ export function Poster({ src, srcDark, width, height, className, priority }: Pos
         height={height}
         priority={priority}
         unoptimized={srcDark.endsWith(".svg")}
-        className={cn(RESPONSIVE_IMAGE_CLASS, "hidden dark:block")}
+        className={cn(imageClass, "hidden dark:block")}
       />
     </div>
   )

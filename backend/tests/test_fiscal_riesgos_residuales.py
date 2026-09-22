@@ -1502,3 +1502,95 @@ class TestElStubAceptaElIdRealDeAsyncpg:
             WSFEStubAdapter._derive_cae(_uuid_de_asyncpg(DOC_ID))
             == WSFEStubAdapter._derive_cae(DOC_ID)
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G10 — Los dos invariantes que estaban documentados y sin candado
+#
+# MINOR 6 del segundo red team: mutación del código de producción, 13 mutantes,
+# 11 muertos. Los dos que sobrevivían con 158 tests en verde:
+#
+#   M3  el default de `ReconcileResponse.outcome` pasa de "unknown" a
+#       "not_found". El docstring dice "Es el DEFAULT del dataclass a propósito
+#       — nunca 'not_found' por omisión", y `not_found` es la ÚNICA salida que
+#       habilita re-emitir: un adapter futuro que construya la respuesta sin
+#       llenar `outcome` autorizaría una segunda factura por omisión.
+#   M8  `rejected` de ARCA tratado como `not_found` (se limpia la marca). El
+#       comentario dice "`rejected` NO rechaza el documento"; el test que
+#       existía no lo mataba porque el cross-check lo rescataba por otro lado
+#       (`ultimo_autorizado` venía None). El caso que lo mata es un adapter que
+#       dice `rejected` Y trae un cross-check que pasaría.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestInvariantesSinCandado:
+    """10.1-10.4: candados para los dos mutantes sobrevivientes."""
+
+    def test_el_outcome_por_omision_es_unknown(self):
+        """10.1 RED (M3): el default del dataclass, asserteado directamente."""
+        from backend.services.fiscal.fiscal_document_port import ReconcileResponse
+
+        assert ReconcileResponse().outcome == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_una_respuesta_sin_outcome_no_limpia_la_marca(self):
+        """10.2 TRIANGULACIÓN (M3): la consecuencia, no sólo el literal.
+
+        Un adapter que construya `ReconcileResponse()` sin llenar nada no puede
+        terminar habilitando una re-emisión.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import ReconcileResponse
+
+        repo = make_repo()
+        adapter = MagicMock()
+        adapter.request_cae = AsyncMock()
+        adapter.reconcile_submitted = AsyncMock(return_value=ReconcileResponse())
+
+        await CAERelayProcessor(adapter, repo).process_document(_marcado())
+
+        repo.clear_submit_mark.assert_not_awaited()
+        adapter.request_cae.assert_not_called()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_rejected_no_limpia_la_marca_aunque_el_cross_check_pase(self):
+        """10.3 RED (M8): `rejected` NO es `not_found`, ni siquiera con un
+        cross-check que pasaría.
+
+        Un `FECAESolicitar` rechazado no consume el número, así que "existe pero
+        rechazado" es una respuesta que no sabemos interpretar — y el cross-check
+        del 602 no opina sobre ella. El test que existía no mataba este mutante
+        porque su adapter no traía `ultimo_autorizado` y el guard del cross-check
+        lo rescataba por otro camino.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(
+            outcome="rejected",
+            error_code="RESULTADO_R",
+            ultimo_autorizado=50,   # < 51 pedido: el cross-check PASARÍA
+        )
+
+        await CAERelayProcessor(adapter, repo).process_document(_marcado())
+
+        repo.clear_submit_mark.assert_not_awaited()
+        repo.update_rejected.assert_not_awaited()
+        adapter.request_cae.assert_not_called()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_control_positivo_not_found_con_el_mismo_cross_check_si_limpia(self):
+        """10.4 CONTROL POSITIVO: con el MISMO `ultimo_autorizado=50`, un
+        `not_found` sí limpia la marca.
+
+        Es lo que prueba que 10.3 mide el `outcome` y no el cross-check.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="not_found", ultimo_autorizado=50)
+
+        await CAERelayProcessor(adapter, repo).process_document(_marcado())
+
+        repo.clear_submit_mark.assert_awaited_once()

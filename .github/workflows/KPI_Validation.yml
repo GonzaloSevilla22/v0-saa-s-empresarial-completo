@@ -2051,3 +2051,20 @@ jobs:
       # falla ni avisa: se queda muda, por eso necesita gate.
       - name: Run auth-hardening realtime publication gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_realtime_publication.sql
+
+      # accounts-profiles-privilege-columns (2026-09-21, governance CRITICO:
+      # billing + seguridad, OK del PO). accounts y profiles tenian UPDATE de
+      # TABLA para authenticated y CERO ACLs de columna: con su propio JWT, el
+      # titular podia PATCH /rest/v1/accounts y ponerse billing_exempt=true /
+      # billing_plan=pro / un trial eterno (Pro gratis), y cualquier usuario
+      # podia auto-otorgarse profiles.billing_plan y resetear sus contadores
+      # de cuota de IA/export. Asserta: allow-list POR COLUMNA exacta (una
+      # columna nueva escribible y no declarada FALLA), nada de INSERT/DELETE/
+      # TRUNCATE, la matriz de evasion EJECUTADA bajo SET LOCAL ROLE
+      # authenticated (UPDATE, UPDATE...RETURNING, upsert ON CONFLICT DO
+      # UPDATE, vista actualizable, contadores, role) exigiendo que frene la
+      # CAPA DE PRIVILEGIO y no la RLS ni el trigger (mismo 42501), el camino
+      # legitimo (perfil, preferencias, 2 RPCs de configuracion y la RPC de
+      # cancelacion sin parametros) y que la fila quede intacta.
+      - name: Run accounts/profiles privilege columns gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_accounts_privilege_columns.sql

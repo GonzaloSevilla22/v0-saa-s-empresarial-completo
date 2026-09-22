@@ -11,8 +11,14 @@
 --        espejo de payment_method_id de #419); la pata APPLY del ledger
 --        aterriza en la sucursal EFECTIVA (no en la default); la sales_orders
 --        promovida sin comprobante se re-apunta al operation_id nuevo.
---   F2 — una VENTA con comprobante fiscal pending_cae/authorized es
---        inmutable (P0423); rejected y sin comprobante no bloquean.
+--   F2 — una VENTA con comprobante fiscal es inmutable (P0423) SÓLO cuando el
+--        pedido YA SALIÓ hacia ARCA. venta-editable-sin-cae (D2) reemplaza el
+--        predicado original ("hay comprobante pending_cae/authorized") por
+--        "el comprobante ya salió": authorized, o pending_cae MARCADO
+--        (cae_submit_started_at) o CONGELADO (cae_submit_unconfirmed_at).
+--        Un pending_cae sin ninguna marca ya NO bloquea: se ANULA (voided)
+--        en la misma transacción de la edición/borrado. rejected, voided y
+--        sin comprobante tampoco bloquean.
 --   F3 — quantity acepta decimales en la ruta de edición, igual que la de
 --        creación.
 --
@@ -58,6 +64,18 @@ DECLARE
   v_doc_authorized  uuid;
   v_doc_pending     uuid;
   v_doc_rejected    uuid;
+  -- venta-editable-sin-cae: tres comprobantes más para separar "pendiente y
+  -- todavía NO enviado" (anulable) de "pendiente pero YA enviado" (bloquea).
+  v_doc_marked      uuid;  -- pending_cae con cae_submit_started_at    → BLOQUEA
+  v_doc_frozen      uuid;  -- pending_cae con cae_submit_unconfirmed_at → BLOQUEA
+  v_doc_lease       uuid;  -- pending_cae con lease/backoff pero SIN marca → anulable
+  v_doc_void_del    uuid;  -- pending_cae sin marca, para el caso de BORRADO
+  v_msg             text;
+  v_status_text     text;
+  -- Marca de "cuántos fallos había antes de este bloque", para que el
+  -- RAISE NOTICE de PASS de un bloque no dependa de que NINGÚN bloque
+  -- anterior haya fallado.
+  v_fail_before     integer;
 
   v_result          jsonb;
   v_op              uuid;
@@ -165,6 +183,44 @@ BEGIN
   VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 3, 1000, 'rejected', 3)
   RETURNING id INTO v_doc_rejected;
   SET session_replication_role = DEFAULT;
+
+  -- venta-editable-sin-cae: los tres pendientes "con historia" NACEN
+  -- pending_cae limpios (camino legítimo, sin eludir
+  -- trg_guard_fiscal_document_insert_interno — que rechaza con P0436 un
+  -- INSERT que ya traiga marca) y recién después reciben la marca / el lease
+  -- por UPDATE. Un UPDATE que NO cambia `status` no dispara
+  -- fiscal_documents_enforce_status_transition (su WHEN es
+  -- old.status IS DISTINCT FROM new.status), así que no hace falta ninguna
+  -- elusión: es exactamente lo que hace el relay en producción.
+  INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 4, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc_marked;
+  UPDATE public.fiscal_documents
+  SET    cae_submit_started_at = now(), arca_requested_number = 4
+  WHERE  id = v_doc_marked;
+
+  INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 5, 1000, 'pending_cae', 1)
+  RETURNING id INTO v_doc_frozen;
+  UPDATE public.fiscal_documents
+  SET    cae_submit_unconfirmed_at = now(), last_error = 'timeout contra ARCA'
+  WHERE  id = v_doc_frozen;
+
+  -- Lease de claim_pending (+5 min) MÁS backoff de update_retry, SIN ninguna
+  -- marca: el pedido nunca salió hacia ARCA, así que esta venta TIENE que
+  -- poder editarse (D3 — si alguien mete next_attempt_at en el predicado,
+  -- una venta queda inmutable hasta 60 minutos por un backoff).
+  INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 6, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc_lease;
+  UPDATE public.fiscal_documents
+  SET    next_attempt_at = now() + interval '15 minutes', attempts = 3,
+         last_error = 'fallo previo al envío'
+  WHERE  id = v_doc_lease;
+
+  INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 7, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc_void_del;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- Setup anchor B (cuenta ajena, solo para el gate de sucursal cross-account)
@@ -440,6 +496,7 @@ BEGIN
   SELECT quantity INTO v_stock_before FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_branch_a;
 
   v_caught_sqlstate := NULL;
+  v_msg := NULL;
   BEGIN
     PERFORM public.rpc_atomic_update_sale_operation(
       ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
@@ -449,25 +506,40 @@ BEGIN
   EXCEPTION
     WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+      v_msg := SQLERRM;
   END;
 
   SELECT quantity INTO v_stock_after FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_branch_a;
 
   IF v_caught_sqlstate IS DISTINCT FROM 'P0423' THEN
     v_failures := array_append(v_failures, format('FAIL (2.6 SQLSTATE): esperaba P0423, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  -- venta-editable-sin-cae: con tres causas distintas compartiendo P0423, el
+  -- SQLSTATE dejó de alcanzar para saber CUÁL disparó. El token del mensaje
+  -- es lo que distingue "emití una nota de crédito" de "esperá al relay", y
+  -- es lo que lee el frontend — se asserta explícitamente.
+  ELSIF position('invoiced_operation_immutable' in COALESCE(v_msg, '')) = 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.6 token): esperaba el token invoiced_operation_immutable en el mensaje, obtuvo: %s', COALESCE(v_msg, '<sin mensaje>')));
   ELSIF NOT EXISTS (SELECT 1 FROM public.sales WHERE id = v_sale_id AND quantity = 2) THEN
     v_failures := array_append(v_failures, 'FAIL (2.6 fila intacta): la venta facturada no debería haber cambiado');
   ELSIF v_stock_after IS DISTINCT FROM v_stock_before THEN
     v_failures := array_append(v_failures, format('FAIL (2.6 stock intacto): branch_stock no debería cambiar (%s), quedó %s', v_stock_before, v_stock_after));
   ELSE
-    RAISE NOTICE 'PASS (2.6): editar una venta con comprobante authorized falla con P0423 y deja fila/stock intactos';
+    RAISE NOTICE 'PASS (2.6): editar una venta con comprobante authorized falla con P0423 (token invoiced_operation_immutable) y deja fila/stock intactos';
   END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
-  -- GATE 2.7 — pending_cae también bloquea (P0423); rejected y sin
-  -- comprobante NO bloquean (control negativo — sin esto 2.6 no prueba nada).
+  -- GATE 2.7 — venta-editable-sin-cae (D2), REESCRITO: un pending_cae que
+  -- TODAVÍA NO SALIÓ hacia ARCA ya NO bloquea — la venta se edita y el
+  -- comprobante se ANULA (voided) en la misma transacción. rejected, voided
+  -- y sin comprobante siguen sin bloquear (controles negativos — sin ellos
+  -- 2.6 y 2.10/2.11 no prueban nada).
+  --
+  -- Este bloque afirmaba EXACTAMENTE lo contrario hasta este change
+  -- ("pending_cae también bloquea"): era la regla vieja de
+  -- edicion-preserva-contexto F2, más estricta de lo que el PO necesita.
+  -- Se REESCRIBE, no se extiende.
   -- ═══════════════════════════════════════════════════════════════════════
-  -- (a) pending_cae bloquea.
+  -- (a) pending_cae SIN marca: edita y ANULA el comprobante.
   v_result := public.rpc_create_sale_operation(
     'epc-sale-27a-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
     jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 1, 'unit_id', NULL)),
@@ -476,25 +548,68 @@ BEGIN
   v_op := (v_result->>'operation_id')::uuid;
   SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
   INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
-  VALUES (v_account_a, v_branch_a, 'confirmed', 100, v_user_a, v_op, v_doc_pending);
+  VALUES (v_account_a, v_branch_a, 'confirmed', 100, v_user_a, v_op, v_doc_pending)
+  RETURNING id INTO v_so_id;
 
   v_caught_sqlstate := NULL;
+  v_result := NULL;
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   BEGIN
-    PERFORM public.rpc_atomic_update_sale_operation(
+    v_result := public.rpc_atomic_update_sale_operation(
       ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
       jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 5))
     );
   EXCEPTION
     WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+      v_msg := SQLERRM;
   END;
-  IF v_caught_sqlstate IS DISTINCT FROM 'P0423' THEN
-    v_failures := array_append(v_failures, format('FAIL (2.7a pending_cae): esperaba P0423, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+
+  IF v_caught_sqlstate IS NOT NULL THEN
+    v_failures := array_append(v_failures, format('FAIL (2.7a pending sin marca): la edición debería HABER FUNCIONADO (el comprobante nunca salió hacia ARCA), levantó %s (%s)', v_caught_sqlstate, COALESCE(v_msg, '')));
   ELSE
-    RAISE NOTICE 'PASS (2.7a): comprobante pending_cae también bloquea la edición con P0423';
+    v_op := (v_result->>'operation_id')::uuid;
+
+    SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_pending;
+    IF v_status_text IS DISTINCT FROM 'voided' THEN
+      v_failures := array_append(v_failures, format('FAIL (2.7a anulación): el comprobante pendiente debería quedar voided, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+    END IF;
+
+    -- El motivo y el historial: sin la fila de document_status_history la
+    -- anulación es invisible para una auditoría posterior.
+    SELECT COUNT(*) INTO v_count
+    FROM   public.document_status_history
+    WHERE  document_type = 'fiscal_document'
+      AND  document_id   = v_doc_pending
+      AND  from_status   = 'pending_cae'
+      AND  to_status     = 'voided'
+      AND  reason IS NOT NULL AND trim(reason) <> '';
+    IF v_count <> 1 THEN
+      v_failures := array_append(v_failures, format('FAIL (2.7a historial): esperaba 1 fila pending_cae→voided con motivo en document_status_history, hay %s', v_count));
+    END IF;
+
+    -- D5: el vínculo orden↔comprobante anulado SOBREVIVE (el badge "Anulado"
+    -- lo necesita); y la orden se re-apunta al operation_id nuevo.
+    IF NOT EXISTS (
+      SELECT 1 FROM public.sales_orders
+      WHERE id = v_so_id AND fiscal_document_id = v_doc_pending AND sale_operation_id = v_op
+    ) THEN
+      v_failures := array_append(v_failures, 'FAIL (2.7a orden): la sales_order debería conservar fiscal_document_id (apuntando al anulado) y re-apuntar sale_operation_id al operation_id nuevo');
+    END IF;
+
+    -- El efecto de la edición ocurrió de verdad (si no, "no falló" no prueba nada).
+    IF NOT EXISTS (SELECT 1 FROM public.sales WHERE operation_id = v_op AND product_id = v_p1 AND quantity = 5) THEN
+      v_failures := array_append(v_failures, 'FAIL (2.7a edición efectiva): la venta editada debería tener quantity=5 en la operación nueva');
+    END IF;
+
+    IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+      RAISE NOTICE 'PASS (2.7a): un comprobante pending_cae SIN marca de envío ya no bloquea — la venta se edita y el comprobante queda voided con motivo e historial';
+    END IF;
   END IF;
 
-  -- (b) rejected NO bloquea.
+  -- (b) rejected NO bloquea, y TAMPOCO se toca (no es anulable: nunca llegó
+  -- a existir fiscalmente, así que no hay nada que anular — el helper
+  -- devuelve NULL y no escribe historial).
   v_result := public.rpc_create_sale_operation(
     'epc-sale-27b-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
     jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 1, 'unit_id', NULL)),
@@ -505,12 +620,25 @@ BEGIN
   INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
   VALUES (v_account_a, v_branch_a, 'confirmed', 100, v_user_a, v_op, v_doc_rejected);
 
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
   BEGIN
     v_result := public.rpc_atomic_update_sale_operation(
       ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
       jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 5))
     );
-    RAISE NOTICE 'PASS (2.7b): comprobante rejected NO bloquea la edición';
+    SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_rejected;
+    IF v_status_text IS DISTINCT FROM 'rejected' THEN
+      v_failures := array_append(v_failures, format('FAIL (2.7b intacto): un comprobante rejected NO debe anularse, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+    END IF;
+    SELECT COUNT(*) INTO v_count
+    FROM   public.document_status_history
+    WHERE  document_type = 'fiscal_document' AND document_id = v_doc_rejected;
+    IF v_count <> 0 THEN
+      v_failures := array_append(v_failures, format('FAIL (2.7b historial): un rejected no debería generar ninguna transición, hay %s', v_count));
+    END IF;
+    IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+      RAISE NOTICE 'PASS (2.7b): comprobante rejected NO bloquea la edición y NO se toca (sin anulación ni historial)';
+    END IF;
   EXCEPTION
     WHEN OTHERS THEN
       v_failures := array_append(v_failures, format('FAIL (2.7b rejected): un comprobante rejected NO debería bloquear la edición, levantó %s', SQLERRM));
@@ -534,6 +662,307 @@ BEGIN
     WHEN OTHERS THEN
       v_failures := array_append(v_failures, format('FAIL (2.7c sin comprobante): no debería bloquear, levantó %s', SQLERRM));
   END;
+
+  -- (d) voided NO bloquea (control negativo del estado nuevo): una venta
+  -- cuyo comprobante ya se anuló se puede volver a editar cuantas veces haga
+  -- falta, y la segunda edición NO escribe una segunda transición.
+  v_result := public.rpc_create_sale_operation(
+    'epc-sale-27d-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 1, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL
+  );
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
+  -- v_doc_pending YA quedó voided en (a): se reusa como fixture del estado
+  -- terminal nuevo, alcanzado por el camino REAL (no sembrado a mano).
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 100, v_user_a, v_op, v_doc_pending);
+
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  BEGIN
+    v_result := public.rpc_atomic_update_sale_operation(
+      ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
+      jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 4))
+    );
+    SELECT COUNT(*) INTO v_count
+    FROM   public.document_status_history
+    WHERE  document_type = 'fiscal_document' AND document_id = v_doc_pending AND to_status = 'voided';
+    IF v_count <> 1 THEN
+      v_failures := array_append(v_failures, format('FAIL (2.7d idempotencia): editar una venta cuyo comprobante YA está voided no debe escribir una segunda transición, hay %s', v_count));
+    END IF;
+    IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+      RAISE NOTICE 'PASS (2.7d): un comprobante YA voided no bloquea ni se vuelve a anular (sin segunda fila de historial)';
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN
+      v_failures := array_append(v_failures, format('FAIL (2.7d voided): un comprobante voided NO debería bloquear la edición, levantó %s', SQLERRM));
+  END;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- GATE 2.10 — venta-editable-sin-cae (D2): pending_cae MARCADO
+  -- (cae_submit_started_at) bloquea con P0423, token
+  -- fiscal_document_sent_immutable, y deja venta, stock y comprobante
+  -- intactos. Es el corazón del change: la marca previa al envío
+  -- (fiscal-riesgos-residuales R1) se persiste ANTES del FECAESolicitar, así
+  -- que "marcado" es exactamente "el pedido salió hacia ARCA".
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_result := public.rpc_create_sale_operation(
+    'epc-sale-210-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 2, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL
+  );
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 200, v_user_a, v_op, v_doc_marked)
+  RETURNING id INTO v_so_id;
+
+  SELECT quantity INTO v_stock_before FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_branch_a;
+  v_caught_sqlstate := NULL;
+  v_msg := NULL;
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  BEGIN
+    PERFORM public.rpc_atomic_update_sale_operation(
+      ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
+      jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 9))
+    );
+    v_failures := array_append(v_failures, 'FAIL (2.10): editar una venta cuyo comprobante YA se envió a ARCA debería fallar, no falló');
+  EXCEPTION
+    WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+      v_msg := SQLERRM;
+  END;
+  SELECT quantity INTO v_stock_after FROM public.branch_stock WHERE product_id = v_p1 AND branch_id = v_branch_a;
+  SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_marked;
+
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0423' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.10 SQLSTATE): esperaba P0423, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  ELSIF position('fiscal_document_sent_immutable' in COALESCE(v_msg, '')) = 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.10 token): esperaba fiscal_document_sent_immutable, obtuvo: %s', COALESCE(v_msg, '<sin mensaje>')));
+  ELSIF v_status_text IS DISTINCT FROM 'pending_cae' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.10 comprobante intacto): un comprobante MARCADO jamás debe anularse, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+  ELSIF NOT EXISTS (SELECT 1 FROM public.sales WHERE id = v_sale_id AND quantity = 2) THEN
+    v_failures := array_append(v_failures, 'FAIL (2.10 fila intacta): la venta bloqueada no debería haber cambiado');
+  ELSIF v_stock_after IS DISTINCT FROM v_stock_before THEN
+    v_failures := array_append(v_failures, format('FAIL (2.10 stock intacto): branch_stock no debería cambiar (%s), quedó %s', v_stock_before, v_stock_after));
+  END IF;
+  SELECT COUNT(*) INTO v_count
+  FROM   public.document_status_history
+  WHERE  document_type = 'fiscal_document' AND document_id = v_doc_marked;
+  IF v_count <> 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.10 historial): un comprobante marcado no debe generar ninguna transición, hay %s', v_count));
+  END IF;
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+    RAISE NOTICE 'PASS (2.10): pending_cae MARCADO bloquea con P0423/fiscal_document_sent_immutable — venta, stock y comprobante intactos';
+  END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- GATE 2.11 — triangulación de 2.10: pending_cae CONGELADO
+  -- (cae_submit_unconfirmed_at, SIN cae_submit_started_at) bloquea igual.
+  -- El congelado es un caso de marca: el envío salió y su resultado nunca se
+  -- confirmó, así que ARCA pudo haberlo aprobado.
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_result := public.rpc_create_sale_operation(
+    'epc-sale-211-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 2, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL
+  );
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 200, v_user_a, v_op, v_doc_frozen);
+
+  v_caught_sqlstate := NULL;
+  v_msg := NULL;
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  BEGIN
+    PERFORM public.rpc_atomic_update_sale_operation(
+      ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
+      jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 9))
+    );
+    v_failures := array_append(v_failures, 'FAIL (2.11): editar una venta con comprobante CONGELADO debería fallar, no falló');
+  EXCEPTION
+    WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+      v_msg := SQLERRM;
+  END;
+  SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_frozen;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0423' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.11 SQLSTATE): esperaba P0423, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  ELSIF position('fiscal_document_sent_immutable' in COALESCE(v_msg, '')) = 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.11 token): esperaba fiscal_document_sent_immutable, obtuvo: %s', COALESCE(v_msg, '<sin mensaje>')));
+  ELSIF v_status_text IS DISTINCT FROM 'pending_cae' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.11 comprobante intacto): un congelado jamás debe anularse, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+  END IF;
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+    RAISE NOTICE 'PASS (2.11): pending_cae CONGELADO bloquea con P0423/fiscal_document_sent_immutable — el comprobante no se anula';
+  END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- GATE 2.12 — venta-editable-sin-cae (D3): el LEASE de claim_pending y el
+  -- BACKOFF de update_retry comparten la columna next_attempt_at, así que
+  -- NO puede entrar en el predicado: si entrara, una venta quedaría
+  -- inmutable hasta 60 minutos por un comprobante que nunca llegó a ARCA.
+  -- Este bloque es el candado contra ese "endurecimiento" que parece
+  -- prudente y es exactamente lo contrario de lo que pidió el PO.
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_result := public.rpc_create_sale_operation(
+    'epc-sale-212-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 2, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL
+  );
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 200, v_user_a, v_op, v_doc_lease);
+
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  BEGIN
+    v_result := public.rpc_atomic_update_sale_operation(
+      ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
+      jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 6))
+    );
+    SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_lease;
+    IF v_status_text IS DISTINCT FROM 'voided' THEN
+      v_failures := array_append(v_failures, format('FAIL (2.12 anulación): un pendiente con lease/backoff pero SIN marca debe anularse, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+    END IF;
+    IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+      RAISE NOTICE 'PASS (2.12): next_attempt_at (lease de claim_pending + backoff de update_retry) NO bloquea — la venta se edita y el comprobante se anula';
+    END IF;
+  EXCEPTION
+    WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+      v_failures := array_append(v_failures, format('FAIL (2.12 lease): un comprobante con next_attempt_at futuro y SIN marca NO debe bloquear, levantó %s (%s)', v_caught_sqlstate, SQLERRM));
+  END;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- GATE 2.13 — la máquina de estados del comprobante no admite nada más.
+  -- El catálogo document_status_transitions ES el guard: no hay que escribir
+  -- ninguna condición para prohibir authorized→voided ni voided→*, alcanza
+  -- con que esas triples NO estén catalogadas y con que el trigger
+  -- fiscal_documents_enforce_status_transition siga vivo (P0409).
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+
+  v_caught_sqlstate := NULL;
+  BEGIN
+    UPDATE public.fiscal_documents SET status = 'voided' WHERE id = v_doc_authorized;
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+  END;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0409' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.13 authorized→voided): esperaba P0409 (fsm_violation), obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  END IF;
+
+  v_caught_sqlstate := NULL;
+  BEGIN
+    UPDATE public.fiscal_documents SET status = 'voided' WHERE id = v_doc_rejected;
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+  END;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0409' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.13 rejected→voided): esperaba P0409 (fsm_violation), obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  END IF;
+
+  -- voided es TERMINAL: no vuelve a pending_cae ni salta a authorized.
+  v_caught_sqlstate := NULL;
+  BEGIN
+    UPDATE public.fiscal_documents SET status = 'pending_cae' WHERE id = v_doc_pending;
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+  END;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0409' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.13 voided→pending_cae): esperaba P0409 (fsm_violation), obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  END IF;
+
+  v_caught_sqlstate := NULL;
+  BEGIN
+    UPDATE public.fiscal_documents SET status = 'authorized' WHERE id = v_doc_pending;
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+  END;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0409' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.13 voided→authorized): esperaba P0409 (fsm_violation), obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  END IF;
+
+  -- Un voided NO puede NACER: todo comprobante nace pending_cae (P0436).
+  v_caught_sqlstate := NULL;
+  BEGIN
+    INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+    VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 900, 1000, 'voided', 0);
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+  END;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0436' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.13 INSERT voided): esperaba P0436, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  END IF;
+
+  -- D6: requires_reason=true en la fila del catálogo — una anulación sin
+  -- motivo no se registra (P0400 reason_required). Sin esto, la anulación
+  -- quedaría en el historial sin decir por qué.
+  v_caught_sqlstate := NULL;
+  BEGIN
+    PERFORM public.record_status_transition(
+      v_account_a, 'fiscal_document', v_doc_lease, 'pending_cae', 'voided', v_user_a, NULL
+    );
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+  END;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0400' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.13 reason_required): la transición a voided exige motivo (requires_reason=true), esperaba P0400 y obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  END IF;
+
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+    RAISE NOTICE 'PASS (2.13): la FSM sólo admite pending_cae→voided (P0409 en las otras cuatro), un voided no puede nacer (P0436) y la anulación exige motivo (P0400)';
+  END IF;
+
+  -- ═══════════════════════════════════════════════════════════════════════
+  -- GATE 2.14 — venta-editable-sin-cae (R9/T6): el guard fiscal corre ANTES
+  -- que el de cuenta corriente, así que anula y RECIÉN DESPUÉS el guard de
+  -- pago aborta. La transacción hace rollback completo → la anulación se
+  -- deshace con todo lo demás. Se asserta en vez de suponerlo.
+  -- ═══════════════════════════════════════════════════════════════════════
+  v_result := public.rpc_create_sale_operation(
+    'epc-sale-214-' || gen_random_uuid()::text, v_client_a, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 2, 'unit_id', NULL)),
+    v_branch_a, NULL, NULL
+  );
+  v_op := (v_result->>'operation_id')::uuid;
+  SELECT id INTO v_sale_id FROM public.sales WHERE operation_id = v_op AND product_id = v_p1;
+  INSERT INTO public.sales_orders (account_id, branch_id, status, total, created_by, sale_operation_id, fiscal_document_id)
+  VALUES (v_account_a, v_branch_a, 'confirmed', 200, v_user_a, v_op, v_doc_void_del);
+
+  -- Cargo de cuenta corriente posteado sobre la MISMA operación (D12: los
+  -- guards hermanos quedan intactos).
+  PERFORM public.c30_register_customer_account_movement(
+    public.c30_get_or_create_customer_account(v_account_a, v_client_a), 200, 'sale', v_op
+  );
+
+  v_caught_sqlstate := NULL;
+  v_msg := NULL;
+  v_fail_before := COALESCE(array_length(v_failures, 1), 0);
+  BEGIN
+    PERFORM public.rpc_atomic_update_sale_operation(
+      ARRAY[v_sale_id], v_client_a, CURRENT_DATE, 'ARS',
+      jsonb_build_array(jsonb_build_object('product_id', v_p1, 'amount', 100.00, 'quantity', 8))
+    );
+    v_failures := array_append(v_failures, 'FAIL (2.14): una venta con cargo de cuenta corriente posteado sigue siendo inmutable (D12), no falló');
+  EXCEPTION
+    WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_caught_sqlstate = RETURNED_SQLSTATE;
+      v_msg := SQLERRM;
+  END;
+  SELECT status INTO v_status_text FROM public.fiscal_documents WHERE id = v_doc_void_del;
+  IF v_caught_sqlstate IS DISTINCT FROM 'P0423' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.14 SQLSTATE): esperaba P0423, obtuvo %s', COALESCE(v_caught_sqlstate, 'ningún error')));
+  ELSIF position('operation_has_account_charge_immutable' in COALESCE(v_msg, '')) = 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.14 token): esperaba operation_has_account_charge_immutable, obtuvo: %s', COALESCE(v_msg, '<sin mensaje>')));
+  ELSIF v_status_text IS DISTINCT FROM 'pending_cae' THEN
+    v_failures := array_append(v_failures, format('FAIL (2.14 rollback): el guard de pago abortó DESPUÉS de anular — el rollback de la transacción debe dejar el comprobante en pending_cae, quedó %s', COALESCE(v_status_text, '<inexistente>')));
+  END IF;
+  SELECT COUNT(*) INTO v_count
+  FROM   public.document_status_history
+  WHERE  document_type = 'fiscal_document' AND document_id = v_doc_void_del;
+  IF v_count <> 0 THEN
+    v_failures := array_append(v_failures, format('FAIL (2.14 historial): el rollback debe llevarse también la fila de historial de la anulación, hay %s', v_count));
+  END IF;
+  IF COALESCE(array_length(v_failures, 1), 0) = v_fail_before THEN
+    RAISE NOTICE 'PASS (2.14): con cargo de cuenta corriente posteado la edición sigue bloqueada (D12) y el rollback deshace la anulación — comprobante e historial intactos';
+  END IF;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- GATE 2.8 — editar una venta promovida a sales_orders SIN comprobante

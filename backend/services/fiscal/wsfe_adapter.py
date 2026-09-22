@@ -88,6 +88,47 @@ _SOAP_OPERATION_TIMEOUT_SECONDS = 45
 _SOAP_WSDL_LOAD_TIMEOUT_SECONDS = 20
 
 
+class WSFEUltimoAutorizadoIlegibleError(Exception):
+    """`FECompUltimoAutorizado` no AFIRMÓ un último número autorizado.
+
+    BLOCKER 1 del segundo red team de fiscal-riesgos-residuales (2026-09-22).
+    Antes, una respuesta sin `CbteNro` legible se resolvía con `return 0`, y ese
+    `0` no es un dato: es una afirmación fabricada ("ARCA no autorizó nada en
+    este punto de venta"). En el cross-check del 602 esa afirmación es la que
+    habilita re-emitir, y como el número pedido siempre es ≥ 1, un `0`
+    fabricado hacía pasar el cross-check SIEMPRE.
+
+    Levantar es lo seguro en los DOS usos:
+      * en `reconcile_submitted`, cae en el `except` que ya existe y produce
+        `unknown` → la marca se conserva y no se emite nada;
+      * en `_call_wsfe`, cae ANTES del hook que escribe la marca y antes del
+        `FECAESolicitar` → no sale un byte y es un retry normal.
+    """
+
+
+def _wsfe_error_codes(resp) -> list[int]:
+    """Códigos de `Errors.Err` de una respuesta de WSFEv1 (lista vacía = sin errores).
+
+    Es así como WSFEv1 reporta token vencido, punto de venta inexistente y el
+    602: devuelve la respuesta "bien" y pone el detalle en el CUERPO. Ignorar
+    este nodo es la mitad del BLOCKER 1 — `FECompUltimoAutorizado` llegaba con
+    `CbteNro=0` + `Errors` poblado y se leía como un cero legítimo.
+
+    Raises:
+        ValueError / TypeError / AttributeError: el nodo existe pero no se
+            puede interpretar. Los dos callers lo tratan como "no se sabe nada"
+            (nunca como "no hay errores"): `reconcile_submitted` devuelve
+            `RECONCILE_ERRORS_ILEGIBLES` y `_ultimo_autorizado` levanta.
+    """
+    errors_node = getattr(resp, "Errors", None)
+    if errors_node is None:
+        return []
+    err_list = getattr(errors_node, "Err", None)
+    if err_list is None:
+        return []
+    return [int(e.Code) for e in err_list]
+
+
 class WSFESubmitInFlightError(Exception):
     """El FECAESolicitar SALIÓ y su resultado NUNCA se confirmó.
 
@@ -587,14 +628,61 @@ class WSFEAdapter(FiscalDocumentPort):
 
         El campo de la respuesta es `CbteNro` (no `Nro`): usar `.Nro` lanzaba
         "FERecuperaLastCbteResponse instance has no attribute 'Nro'".
+
+        BLOCKER 1 (segundo red team, 2026-09-22) — **devuelve un número sólo
+        cuando ARCA lo AFIRMA**. El cierre anterior era
+
+            return int(ultimo_cbte) if ultimo_cbte is not None else 0
+
+        y ese `0` no era un dato sino una afirmación fabricada. Da lo mismo en
+        `_call_wsfe` (se pide el comprobante 1 y ARCA lo valida con 10016), pero
+        en `reconcile_submitted` es la afirmación que habilita RE-EMITIR: como
+        el número pedido siempre es ≥ 1, `0 < requested` pasaba el cross-check
+        del 602 SIEMPRE → se limpiaba la marca → segunda factura real.
+
+        Las dos mitades del hueco, medidas por el red team con ARCA degradada:
+          * `CbteNro` ausente o `None` (la respuesta no trae el escalar);
+          * `Errors` poblado —token vencido, PV inexistente— que WSFEv1 manda
+            en el CUERPO junto a un `CbteNro=0`, y que no se miraba.
+
+        El `0` sigue siendo válido cuando viene solo: es el primer comprobante
+        de un punto de venta nuevo.
         """
         ultimo_resp = client.service.FECompUltimoAutorizado(
             Auth=auth,
             PtoVta=punto_de_venta,
             CbteTipo=cbte_tipo,
         )
+
+        try:
+            codes = _wsfe_error_codes(ultimo_resp)
+        except Exception as exc:
+            raise WSFEUltimoAutorizadoIlegibleError(
+                f"FECompUltimoAutorizado({punto_de_venta}, {cbte_tipo}): el nodo "
+                f"Errors de la respuesta no se pudo interpretar "
+                f"({type(exc).__name__}: {exc}) — no se puede afirmar nada."
+            ) from exc
+
+        if codes:
+            raise WSFEUltimoAutorizadoIlegibleError(
+                f"FECompUltimoAutorizado({punto_de_venta}, {cbte_tipo}) devolvió los "
+                f"códigos de error {codes}: su CbteNro no es una afirmación de ARCA."
+            )
+
         ultimo_cbte = getattr(ultimo_resp, "CbteNro", None)
-        return int(ultimo_cbte) if ultimo_cbte is not None else 0
+        if ultimo_cbte is None:
+            raise WSFEUltimoAutorizadoIlegibleError(
+                f"FECompUltimoAutorizado({punto_de_venta}, {cbte_tipo}) no trae "
+                "CbteNro: ARCA no afirmó ningún último autorizado."
+            )
+
+        try:
+            return int(ultimo_cbte)
+        except (TypeError, ValueError) as exc:
+            raise WSFEUltimoAutorizadoIlegibleError(
+                f"FECompUltimoAutorizado({punto_de_venta}, {cbte_tipo}) devolvió un "
+                f"CbteNro ilegible ({ultimo_cbte!r})."
+            ) from exc
 
     async def reconcile_submitted(
         self,
@@ -656,9 +744,7 @@ class WSFEAdapter(FiscalDocumentPort):
 
         # ── Errores del cuerpo de la respuesta ───────────────────────────────
         try:
-            errors_node = getattr(resp, "Errors", None)
-            err_list = getattr(errors_node, "Err", None) if errors_node is not None else None
-            codes = [int(e.Code) for e in (err_list or [])]
+            codes = _wsfe_error_codes(resp)
         except Exception as exc:
             return ReconcileResponse(
                 outcome="unknown",

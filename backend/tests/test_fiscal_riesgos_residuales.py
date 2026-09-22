@@ -484,11 +484,32 @@ def _consultar_response(
     return ns(**kwargs)
 
 
-async def _reconcile(respuesta=None, *, exc=None, ultimo=None, requested_number: int = 51):
+def _ultimo_response(*, cbte_nro: object = 50, errors: list[tuple[int, str]] | None = None,
+                     sin_cbte_nro: bool = False):
+    """Respuesta de `FECompUltimoAutorizado` con la forma real del WSDL.
+
+    `types.SimpleNamespace` y NO `MagicMock`, por la misma razón que
+    `_consultar_response`: en un MagicMock cualquier atributo existe, así que
+    `Errors` sería siempre truthy y `CbteNro` nunca podría faltar — el BLOCKER
+    del segundo red team (el cross-check del 602 creyéndole a un `0` fabricado)
+    es invisible para un mock así.
+    """
+    ns = types.SimpleNamespace
+    kwargs: dict = {}
+    if not sin_cbte_nro:
+        kwargs["CbteNro"] = cbte_nro
+    if errors is not None:
+        kwargs["Errors"] = ns(Err=[ns(Code=c, Msg=m) for c, m in errors])
+    return ns(**kwargs)
+
+
+async def _reconcile(respuesta=None, *, exc=None, ultimo=None, ultimo_resp=None,
+                     requested_number: int = 51):
     """Corre `reconcile_submitted` con `FECompConsultar` mockeado.
 
-    `ultimo` es lo que devuelve `FECompUltimoAutorizado` (el cross-check del
-    602). `None` = esa llamada falla.
+    `ultimo` es el número que devuelve `FECompUltimoAutorizado` (el cross-check
+    del 602). `None` = esa llamada falla. `ultimo_resp` inyecta una respuesta
+    CRUDA (para las formas degradadas: sin `CbteNro`, con `Errors`, etc.).
     """
     from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
@@ -505,10 +526,12 @@ async def _reconcile(respuesta=None, *, exc=None, ultimo=None, requested_number:
             mock_client.service.FECompConsultar.side_effect = exc
         else:
             mock_client.service.FECompConsultar.return_value = respuesta
-        if ultimo is None:
+        if ultimo_resp is not None:
+            mock_client.service.FECompUltimoAutorizado.return_value = ultimo_resp
+        elif ultimo is None:
             mock_client.service.FECompUltimoAutorizado.side_effect = RuntimeError("cross-check caído")
         else:
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=ultimo)
+            mock_client.service.FECompUltimoAutorizado.return_value = _ultimo_response(cbte_nro=ultimo)
         return await adapter.reconcile_submitted(invoice, requested_number=requested_number)
 
 
@@ -1044,3 +1067,183 @@ class TestStubReconcilia:
 
         assert rec.outcome == "unknown"
         assert rec.error_code == "STUB_FORBIDDEN_IN_PRODUCTION"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G7 — El cross-check del 602 no puede apoyarse en un número FABRICADO
+#
+# BLOCKER 1 del SEGUNDO red team (2026-09-22). `_ultimo_autorizado` cerraba con
+#
+#     return int(ultimo_cbte) if ultimo_cbte is not None else 0
+#
+# En `_call_wsfe` ese `0` era inocuo (se pide el comprobante 1 y ARCA valida con
+# 10016). En `reconcile_submitted` es una AFIRMACIÓN: "ARCA no autorizó nada en
+# este PV". Como el número pedido siempre es ≥ 1, un `0` fabricado hacía PASAR
+# el cross-check SIEMPRE → `not_found` → el processor limpia la marca → el tick
+# siguiente pide `ultimo+1` y emite una SEGUNDA factura real.
+#
+# Y `Errors` —que es JUSTO como WSFEv1 reporta un token vencido o un PV
+# inexistente, devolviendo la respuesta "bien" con `CbteNro=0`— no se miraba.
+#
+# La regla que fija este grupo: el `0` sólo vale cuando ARCA lo AFIRMA sin
+# errores. Todo lo demás levanta, y levantar cae en los caminos que ya son
+# fail-closed (unknown en la reconciliación, retry antes de marcar en la
+# emisión).
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _llamar_ultimo_autorizado(respuesta):
+    from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+    client = MagicMock()
+    client.service.FECompUltimoAutorizado.return_value = respuesta
+    return WSFEAdapter._ultimo_autorizado(client, {"Token": "t"}, 3, 11)
+
+
+# Las tres formas hostiles que el red team reprodujo contra ARCA degradada.
+_ULTIMO_DEGRADADO = [
+    pytest.param(
+        dict(sin_cbte_nro=True, errors=[(600, "Token invalido")]),
+        id="sin-CbteNro-con-Errors-600",
+    ),
+    pytest.param(
+        dict(cbte_nro=None, errors=[(600, "Token invalido")]),
+        id="CbteNro-None-con-Errors",
+    ),
+    pytest.param(
+        dict(cbte_nro=0, errors=[(602, "No existen datos")]),
+        id="CbteNro-0-con-Errors-602",
+    ),
+    pytest.param(dict(sin_cbte_nro=True), id="sin-CbteNro-sin-Errors"),
+    pytest.param(dict(cbte_nro=""), id="CbteNro-vacio"),
+    pytest.param(dict(cbte_nro="no-es-un-numero"), id="CbteNro-no-numerico"),
+]
+
+
+class TestUltimoAutorizadoNoFabricaUnCero:
+    """7.1-7.4: `_ultimo_autorizado` afirma o levanta. Nunca inventa."""
+
+    @pytest.mark.parametrize("forma", _ULTIMO_DEGRADADO)
+    def test_una_respuesta_ilegible_levanta(self, forma):
+        """7.1 RED: ninguna de las formas degradadas puede devolver un número.
+
+        Antes las seis devolvían `0` — y `0 < requested` siempre, así que el
+        cross-check del 602 las daba por buenas.
+        """
+        from backend.services.fiscal.wsfe_adapter import WSFEUltimoAutorizadoIlegibleError
+
+        with pytest.raises(WSFEUltimoAutorizadoIlegibleError):
+            _llamar_ultimo_autorizado(_ultimo_response(**forma))
+
+    def test_el_cero_afirmado_por_arca_sigue_siendo_valido(self):
+        """7.2 CONTROL POSITIVO: un PV sin ningún comprobante autorizado
+        devuelve `CbteNro=0` SIN errores, y eso es una afirmación legítima.
+
+        Sin este caso el fix sería "levantar siempre que venga 0", que rompería
+        la primera factura de cada punto de venta.
+        """
+        assert _llamar_ultimo_autorizado(_ultimo_response(cbte_nro=0)) == 0
+
+    def test_un_numero_normal_se_devuelve_igual(self):
+        """7.3 TRIANGULACIÓN: el camino feliz no cambia."""
+        assert _llamar_ultimo_autorizado(_ultimo_response(cbte_nro=50)) == 50
+
+    def test_un_numero_como_texto_se_interpreta(self):
+        """7.4 TRIANGULACIÓN: zeep puede entregar el escalar como str.
+
+        Levantar acá sería congelar de más por una cuestión de tipo.
+        """
+        assert _llamar_ultimo_autorizado(_ultimo_response(cbte_nro="50")) == 50
+
+
+class TestElCrossCheckDegradadoNoHabilitaReEmitir:
+    """7.5-7.7: la consecuencia en la reconciliación y en el processor."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("forma", _ULTIMO_DEGRADADO)
+    async def test_602_con_cross_check_degradado_es_unknown(self, forma):
+        """7.5 RED: 602 + cross-check ilegible NO es `not_found`.
+
+        `not_found` es la ÚNICA salida que habilita re-emitir. Antes las seis
+        formas la producían.
+        """
+        rec = await _reconcile(
+            _consultar_response(errors=[(602, "No existen datos")], sin_result_get=True),
+            ultimo_resp=_ultimo_response(**forma),
+        )
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "RECONCILE_602_SIN_CROSSCHECK"
+        assert rec.ultimo_autorizado is None
+
+    @pytest.mark.asyncio
+    async def test_el_processor_no_limpia_la_marca_con_el_cross_check_degradado(self):
+        """7.6 RED: la consecuencia medida por el red team.
+
+        Con la marca limpiada, el próximo tick pide `ultimo+1` y emite la
+        segunda factura. Acá la marca tiene que sobrevivir y el documento
+        reintentar la CONSULTA.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        repo = make_repo()
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        adapter.request_cae = AsyncMock()
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompConsultar.return_value = _consultar_response(
+                errors=[(602, "No existen datos")], sin_result_get=True,
+            )
+            # ARCA degradada: responde "bien" pero sin número legible.
+            mock_client.service.FECompUltimoAutorizado.return_value = _ultimo_response(
+                sin_cbte_nro=True, errors=[(600, "Token invalido")],
+            )
+
+            await CAERelayProcessor(adapter, repo).process_document(
+                make_pending_doc(
+                    cae_submit_started_at=datetime.datetime.now(datetime.timezone.utc),
+                    arca_requested_number=7,
+                ),
+            )
+
+        repo.clear_submit_mark.assert_not_awaited()
+        adapter.request_cae.assert_not_called()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_un_ultimo_autorizado_ilegible_no_marca_ni_envia(self):
+        """7.7 TRIANGULACIÓN: en la EMISIÓN, la misma respuesta degradada aborta
+        antes de marcar nada.
+
+        El `0` fabricado hacía pedir el comprobante 1 sobre un PV que ya tiene
+        comprobantes. Ahora levanta ANTES del hook: no hay marca, no sale un
+        byte, y es un retry normal (`WSFE_ERROR`).
+        """
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        hook = AsyncMock()
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = _ultimo_response(
+                cbte_nro=0, errors=[(600, "Token invalido")],
+            )
+
+            resp = await adapter.request_cae(make_cae_request(on_submit_start=hook))
+
+            mock_client.service.FECAESolicitar.assert_not_called()
+
+        hook.assert_not_awaited()
+        assert resp.is_approved is False
+        assert resp.submitted is False
+        assert resp.error_code == "WSFE_ERROR"

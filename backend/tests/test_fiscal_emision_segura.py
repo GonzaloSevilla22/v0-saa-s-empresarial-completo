@@ -408,3 +408,252 @@ class TestNumeroAutoritativo:
         )
 
         assert conn.execute.await_args.args[4] is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G4 — Un envío no confirmado congela el documento (nunca se reintenta a ciegas)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _make_invoice_for_adapter(local_number: int = 42):
+    return make_cae_request(
+        number=local_number,
+        comprobante_type="factura_c",
+        punto_de_venta=3,
+        ambiente="homologacion",
+    )
+
+
+class TestSubmitNoConfirmado:
+    """4.1-4.6: el escenario catastrófico del dominio.
+
+    Si el `FECAESolicitar` SALE y su resultado nunca se confirma (timeout de red,
+    respuesta inesperada), ARCA puede haber autorizado la factura. Reintentar
+    pide `FECompUltimoAutorizado+1` —que ya avanzó— y emite una SEGUNDA factura
+    real por el camino feliz del backoff, sin ninguna excepción visible. El
+    documento se CONGELA.
+    """
+
+    @pytest.mark.asyncio
+    async def test_timeout_en_fecaesolicitar_marca_submitted(self):
+        """4.1 RED: timeout DESPUÉS de mandar el pedido → CAE_SUBMIT_UNCONFIRMED."""
+        import requests
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.side_effect = requests.exceptions.ReadTimeout(
+                "HTTPSConnectionPool(host=wswhomo.afip.gob.ar, port=443): Read timed out."
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.is_approved is False
+        assert resp.error_code == "CAE_SUBMIT_UNCONFIRMED"
+        assert resp.submitted is True
+        assert resp.number == 51, (
+            "El número PEDIDO tiene que viajar en la respuesta: es el único dato "
+            "con el que un humano puede consultar en ARCA si la factura existe."
+        )
+
+    @pytest.mark.asyncio
+    async def test_fallo_antes_de_submit_no_marca_submitted(self):
+        """4.2 TRIANGULACIÓN: el fallo ocurre ANTES del pedido → error normal.
+
+        Este test es el que le da sentido al guard: sin él, cualquier fallo de
+        red previo al FECAESolicitar congelaría documentos que nunca pidieron CAE.
+        """
+        import requests
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.side_effect = (
+                requests.exceptions.ReadTimeout("Read timed out.")
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.is_approved is False
+        assert resp.error_code == "WSFE_ERROR"
+        assert resp.submitted is False
+        mock_client.service.FECAESolicitar.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_respuesta_imparseable_marca_submitted(self):
+        """4.2b TRIANGULACIÓN: una respuesta que no se puede parsear TAMBIÉN es un
+        envío no confirmado — es el caso que el segundo estudio describió mal
+        (creía que abortaba el batch) y que en realidad terminaba en un
+        `update_retry` normal, o sea en una segunda factura real."""
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        # Respuesta sin FeDetResp → AttributeError al parsear
+        garbage = MagicMock(spec=[])
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.return_value = garbage
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.is_approved is False
+        assert resp.error_code == "CAE_SUBMIT_UNCONFIRMED"
+        assert resp.submitted is True
+        assert resp.number == 51
+
+    @pytest.mark.asyncio
+    async def test_error_de_delegacion_en_el_submit_no_congela(self):
+        """4.2c TRIANGULACIÓN (refinamiento sobre el plan): un rechazo de ARCA por
+        delegación no autorizada es una NO-emisión CONFIRMADA (ARCA rechazó la
+        autenticación, no procesó el comprobante). Sigue siendo reintentable y
+        NO congela — si congelara, cada cuenta que todavía no autorizó a
+        Aliadata en ARCA acumularía documentos que requieren trabajo manual."""
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        adapter = WSFEAdapter(platform_provider=MagicMock())
+        invoice = _make_invoice_for_adapter(local_number=42)
+
+        with (
+            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch("zeep.Client") as mock_client_cls,
+        ):
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+            mock_client.service.FECAESolicitar.side_effect = RuntimeError(
+                "El representante no está autorizado a actuar en nombre del CUIT"
+            )
+
+            resp = await adapter.request_cae(invoice)
+
+        assert resp.is_approved is False
+        assert resp.error_code == "DELEGATION_NOT_AUTHORIZED"
+        assert resp.submitted is False
+
+    @pytest.mark.asyncio
+    async def test_processor_congela_en_vez_de_reintentar(self):
+        """4.3 RED: con submitted=True el relay congela, no reintenta ni rechaza."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(
+                cae=None,
+                cae_due_date=None,
+                is_approved=False,
+                error_code="CAE_SUBMIT_UNCONFIRMED",
+                error_detail="Read timed out.",
+                number=51,
+                submitted=True,
+            )
+        )
+        repo = make_repo()
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        await processor.process_document(make_pending_doc(number=42))
+
+        repo.freeze_unconfirmed.assert_awaited_once()
+        kwargs = repo.freeze_unconfirmed.await_args.kwargs
+        assert kwargs["doc_id"] == DOC_ID
+        assert kwargs["arca_requested_number"] == 51
+        assert "CAE_SUBMIT_UNCONFIRMED" in kwargs["detail"]
+        repo.update_retry.assert_not_called()
+        repo.update_rejected.assert_not_called()
+        repo.update_authorized.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_fallo_normal_sigue_con_backoff(self):
+        """4.4 TRIANGULACIÓN: submitted=False → el backoff de siempre (no regresión)."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(
+                cae=None, cae_due_date=None, is_approved=False,
+                error_code="WSFE_ERROR", error_detail="connection refused",
+            )
+        )
+        repo = make_repo()
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        await processor.process_document(make_pending_doc())
+
+        repo.update_retry.assert_awaited_once()
+        repo.freeze_unconfirmed.assert_not_called()
+
+    def test_zeep_transport_tiene_operation_timeout(self):
+        """4.5 RED: la llamada SOAP tiene cota temporal.
+
+        Es lo que le devuelve al lease de 5 minutos su propiedad de exclusión
+        mutua: con `operation_timeout=None` (el default de zeep) el POST puede
+        colgarse indefinidamente, la sección crítica queda sin cota y el candado
+        con cota fija, así que el cron re-reclama el documento con el
+        FECAESolicitar anterior todavía en vuelo. Dos facturas reales.
+        """
+        from backend.services.fiscal import wsfe_adapter as mod
+
+        captured: dict = {}
+
+        class _FakeTransport:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        with (
+            patch("zeep.Transport", _FakeTransport),
+            patch("zeep.Client", MagicMock()),
+        ):
+            mod._build_zeep_client("https://example.invalid/wsfev1?WSDL")
+
+        timeout = captured.get("operation_timeout")
+        assert timeout is not None, (
+            "El Transport de zeep debe llevar operation_timeout — sin él, el POST "
+            "de la operación va a requests SIN timeout."
+        )
+        assert 0 < timeout <= 120, f"operation_timeout fuera de rango razonable: {timeout}"
+        assert timeout < 5 * 60, (
+            "operation_timeout debe ser MUY menor al lease de 5 minutos de claim_pending."
+        )
+
+    @pytest.mark.asyncio
+    async def test_freeze_unconfirmed_llama_la_rpc(self):
+        """4.6 RED (repo): freeze_unconfirmed encamina por la RPC nueva."""
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.execute = AsyncMock(return_value="SELECT 1")
+        repo = FiscalDocumentRepository(conn)
+
+        await repo.freeze_unconfirmed(
+            doc_id=DOC_ID, arca_requested_number=51, detail="[CAE_SUBMIT_UNCONFIRMED] x"
+        )
+
+        conn.execute.assert_awaited_once()
+        args = conn.execute.await_args.args
+        assert "rpc_fiscal_document_freeze_unconfirmed" in args[0]
+        assert args[1:] == (DOC_ID, 51, "[CAE_SUBMIT_UNCONFIRMED] x")

@@ -52,6 +52,43 @@ _WSFEV1_URLS = {
 }
 
 
+# fiscal-emision-segura (G4): cota temporal de la llamada SOAP, en segundos.
+#
+# El default de zeep es `operation_timeout=None`, es decir el POST de la
+# operación va a `requests` SIN timeout y puede colgarse indefinidamente. El
+# lease anti-doble-CAE de `rpc_fiscal_document_claim_pending`, en cambio, es fijo
+# (5 minutos): sección crítica sin cota + candado con cota ⇒ pasados 5 minutos el
+# cron puede re-reclamar el documento con el FECAESolicitar anterior todavía en
+# vuelo y emitir una SEGUNDA factura real. Con la cota acá, el lease vuelve a
+# dominar la sección crítica y recupera su propiedad de exclusión mutua.
+#
+# 45 s es MUY por debajo del lease y muy por encima de lo medido para un CAE real
+# (~9 s). Si resultara corto, el síntoma es un congelamiento espurio: molesto,
+# pero del lado seguro (nunca una segunda factura), y se afloja el valor.
+_SOAP_OPERATION_TIMEOUT_SECONDS = 45
+
+
+class WSFESubmitInFlightError(Exception):
+    """El FECAESolicitar SALIÓ y su resultado NUNCA se confirmó.
+
+    fiscal-emision-segura (G4). Es la distinción que le falta al `except
+    Exception` genérico de `request_cae`: un fallo ANTES del envío es un error
+    normal y reintentable; un fallo EN o DESPUÉS del envío significa que ARCA
+    PUEDE haber autorizado el comprobante sin que nosotros lo sepamos. En ese
+    caso reintentar pide `FECompUltimoAutorizado+1` —que ya avanzó— y emite una
+    segunda factura real por el camino feliz del backoff, sin ninguna excepción
+    visible.
+
+    Lleva el `cbte_numero` que se le pidió a ARCA: es el único dato con el que un
+    humano puede consultar en ARCA si la factura existe.
+    """
+
+    def __init__(self, cbte_numero: int, detail: str) -> None:
+        super().__init__(detail)
+        self.cbte_numero = cbte_numero
+        self.detail = detail
+
+
 def _afip_ssl_context():
     """SSLContext para los web services de AFIP.
 
@@ -92,7 +129,14 @@ def _build_zeep_client(url: str):
 
     session = requests.Session()
     session.mount("https://", _AfipTLSAdapter())
-    return zeep.Client(url, transport=zeep.Transport(session=session))
+    # G4: operation_timeout acota el POST de la operación (ver la constante).
+    return zeep.Client(
+        url,
+        transport=zeep.Transport(
+            session=session,
+            operation_timeout=_SOAP_OPERATION_TIMEOUT_SECONDS,
+        ),
+    )
 
 
 # Mapping de comprobante_type a codigo AFIP (CbteTipo)
@@ -217,6 +261,29 @@ class WSFEAdapter(FiscalDocumentPort):
             # 2. Llamar WSFEv1 (Auth.Cuit = cuit_emisor ya estaba correcto en C-31)
             result = await self._call_wsfe(invoice_data, token, sign)
             return result
+
+        except WSFESubmitInFlightError as exc:
+            # fiscal-emision-segura (G4): el pedido SALIÓ y no sabemos qué pasó.
+            # NO es un error reintentable: el relay congela el documento.
+            logger.critical(
+                "WSFEAdapter: envío NO CONFIRMADO del doc %s (numero pedido %s): %s",
+                invoice_data.fiscal_document_id,
+                exc.cbte_numero,
+                exc.detail,
+            )
+            return CAEResponse(
+                cae=None,
+                cae_due_date=None,
+                is_approved=False,
+                error_code="CAE_SUBMIT_UNCONFIRMED",
+                error_detail=(
+                    f"{exc.detail}. El comprobante PUEDE existir en ARCA con el número "
+                    f"{exc.cbte_numero}: NO se reintenta automáticamente (se emitiría una "
+                    "segunda factura). Verificar en ARCA antes de resolver a mano."
+                ),
+                number=exc.cbte_numero,
+                submitted=True,
+            )
 
         except Exception as exc:
             # v22 (D7, OQ-4): distinguir error de delegación de error de datos/red
@@ -585,7 +652,29 @@ class WSFEAdapter(FiscalDocumentPort):
             },
         }
 
-        result = client.service.FECAESolicitar(**request_body)
+        # ── fiscal-emision-segura (G4): desde acá, un fallo NO es reintentable ──
+        # Todo lo que pase en o después de este envío deja al comprobante en
+        # estado desconocido: ARCA pudo haberlo autorizado. Se levanta
+        # WSFESubmitInFlightError con el número pedido para que el relay CONGELE
+        # el documento en vez de reintentar con un número nuevo.
+        try:
+            result = client.service.FECAESolicitar(**request_body)
+        except Exception as exc:
+            # Excepción a la excepción: un rechazo de ARCA por delegación no
+            # autorizada es una NO-emisión CONFIRMADA (rechazó la autenticación,
+            # no procesó el comprobante). Sigue siendo reintentable y no congela:
+            # si congelara, cada cuenta que todavía no autorizó a Aliadata en
+            # ARCA acumularía documentos que necesitan trabajo manual.
+            if self._is_delegation_error(exc):
+                raise
+            raise WSFESubmitInFlightError(
+                cbte_numero=cbte_numero,
+                detail=(
+                    f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
+                    f"{cbte_numero} ({invoice_data.comprobante_type}) salió y su "
+                    f"resultado NUNCA se confirmó: {exc}"
+                ),
+            ) from exc
 
         # Parsear respuesta
         try:
@@ -618,4 +707,16 @@ class WSFEAdapter(FiscalDocumentPort):
                     error_detail=obs.Msg if obs else "Comprobante rechazado por AFIP",
                 )
         except (AttributeError, IndexError, KeyError) as exc:
-            raise RuntimeError(f"Error parseando respuesta AFIP: {exc}") from exc
+            # G4: no se puede parsear la respuesta de un pedido que YA salió →
+            # tampoco sabemos si ARCA autorizó. Antes esto era un RuntimeError
+            # que el `except Exception` de request_cae convertía en WSFE_ERROR y
+            # el relay trataba como un retry normal: el próximo intento pedía
+            # ultimo+1 y emitía una segunda factura real.
+            raise WSFESubmitInFlightError(
+                cbte_numero=cbte_numero,
+                detail=(
+                    f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
+                    f"{cbte_numero} salió y su respuesta no se pudo interpretar "
+                    f"(error parseando respuesta AFIP: {exc})"
+                ),
+            ) from exc

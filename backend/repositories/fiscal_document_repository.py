@@ -76,6 +76,30 @@ class FiscalDocumentRepository(BaseRepository):
             number,
         )
 
+    async def freeze_unconfirmed(
+        self,
+        doc_id: str,
+        arca_requested_number: int | None,
+        detail: str,
+    ) -> None:
+        """CONGELA un comprobante cuyo FECAESolicitar salió y nunca se confirmó.
+
+        fiscal-emision-segura (G4). El status NO cambia (sigue pending_cae: no
+        sabemos si ARCA autorizó); lo que cambia es que
+        `rpc_fiscal_document_claim_pending` deja de reclamarlo, por un predicado
+        estructural y no por el contador de intentos. Evita el peor error del
+        dominio: reintentar pidiendo `FECompUltimoAutorizado+1` y emitir una
+        SEGUNDA factura real para el mismo documento.
+
+        Resolución manual: consultar `arca_requested_number` en ARCA.
+        """
+        await self.execute(
+            "SELECT public.rpc_fiscal_document_freeze_unconfirmed($1::uuid, $2::bigint, $3)",
+            doc_id,
+            arca_requested_number,
+            detail,
+        )
+
     async def update_rejected(self, doc_id: str, last_error: str) -> None:
         """Transiciona el comprobante a rejected con el detalle del error.
 

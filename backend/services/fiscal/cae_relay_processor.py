@@ -134,6 +134,25 @@ class CAERelayProcessor:
             )
             logger.info("CAERelayProcessor: doc %s autorizado con CAE %s", doc["id"], response.cae)
 
+        elif getattr(response, "submitted", False):
+            # ── fiscal-emision-segura (G4) ────────────────────────────────────
+            # El FECAESolicitar SALIÓ y su resultado nunca se confirmó: ARCA
+            # PUEDE haber autorizado el comprobante. Reintentar pediría
+            # `FECompUltimoAutorizado+1` (que ya avanzó) y emitiría una SEGUNDA
+            # factura real, por el camino feliz del backoff y sin ninguna
+            # excepción visible. Se CONGELA: el documento sigue pending_cae pero
+            # claim_pending deja de reclamarlo. Resolución manual.
+            await self._repo.freeze_unconfirmed(
+                doc_id=doc["id"],
+                arca_requested_number=response.number,
+                detail=f"[{response.error_code}] {response.error_detail}",
+            )
+            logger.critical(
+                "CAERelayProcessor: doc %s CONGELADO — envío no confirmado "
+                "(numero pedido a ARCA: %s). Requiere verificación manual en ARCA.",
+                doc["id"], response.number,
+            )
+
         else:
             # Error: ¿intentar de nuevo o rechazar?
             new_attempts = current_attempts + 1

@@ -1247,3 +1247,188 @@ class TestElCrossCheckDegradadoNoHabilitaReEmitir:
         assert resp.is_approved is False
         assert resp.submitted is False
         assert resp.error_code == "WSFE_ERROR"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G8 — Con la marca viva, `rejected` está PROHIBIDO
+#
+# MAJOR 2 del segundo red team (2026-09-22). `rejected` es terminal y
+# `_retry_or_freeze_reconcile` existe exactamente porque un documento marcado
+# "podría estar tapando un CAE real". Esa protección sólo cubría la rama de
+# reconciliación; tres caminos independientes la esquivaban:
+#
+#   (a) el guard de ambiente se evalúa ANTES de la rama de reconciliación y no
+#       retorna: un documento de producción con marca viva y un adapter que no
+#       es el real (cert de plataforma perdido en un redeploy) caía al bloque de
+#       error y, a los `max_attempts`, a `update_rejected`. Nunca se consultaba
+#       a ARCA.
+#   (b) el camino de error ORDINARIO: el hook escribe la marca en ESTE tick y
+#       después el envío falla de forma demostrablemente pre-submit; el `doc`
+#       reclamado dice `cae_submit_started_at=None` (es un snapshot anterior al
+#       hook), así que el processor no sabía que ya había marca.
+#   (c) `rpc_fiscal_document_reject` no tenía guard alguno — ni siquiera para un
+#       documento CONGELADO (ver el bloque (19) del gate SQL).
+#
+# Este grupo cubre (a) y (b). (c) es el choke point y vive en la migración.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class _AdapterQueMarcaYFalla:
+    """Adapter que escribe la marca (como el real, justo antes del envío) y
+    después devuelve un error ORDINARIO, no un `submitted=True`.
+
+    Es el escenario (b) exacto: `_submit_outcome_is_unambiguous` exime lo
+    demostrablemente pre-submit (un `Fault`, un `ConnectTimeout`), y esa exención
+    devuelve `WSFE_ERROR` con la marca ya commiteada.
+    """
+
+    def __init__(self, error_code: str = "WSFE_ERROR") -> None:
+        self._error_code = error_code
+        self.llamadas = 0
+
+    async def request_cae(self, invoice_data):
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+
+        self.llamadas += 1
+        if invoice_data.on_submit_start is not None:
+            await invoice_data.on_submit_start(invoice_data.number)
+        return CAEResponse(
+            cae=None, cae_due_date=None, is_approved=False,
+            error_code=self._error_code, error_detail="fallo tras marcar",
+        )
+
+
+class TestNuncaRechazadoConLaMarcaViva:
+    """8.1-8.6: ningún camino del processor puede dejar terminal un documento
+    cuyo número puede existir en ARCA."""
+
+    @pytest.mark.asyncio
+    async def test_produccion_con_adapter_no_real_y_marca_viva_congela(self):
+        """8.1 RED (a): el guard de ambiente ya no cae al camino del rechazo.
+
+        El red team lo midió: `rejected=1 freeze=0 retry=0` con la marca viva.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        repo = make_repo()
+        adapter = WSFEStubAdapter()
+
+        await CAERelayProcessor(adapter, repo, max_attempts=10).process_document(
+            make_pending_doc(
+                ambiente="produccion",
+                attempts=9,
+                cae_submit_started_at=datetime.datetime.now(datetime.timezone.utc),
+                arca_requested_number=3,
+            ),
+        )
+
+        repo.update_rejected.assert_not_awaited()
+        repo.freeze_unconfirmed.assert_awaited_once()
+        assert repo.freeze_unconfirmed.await_args.kwargs["arca_requested_number"] == 3
+
+    @pytest.mark.asyncio
+    async def test_produccion_con_adapter_no_real_y_marca_viva_reintenta_antes_del_tope(self):
+        """8.2 TRIANGULACIÓN (a): por debajo del tope, reintenta y conserva la
+        marca — no congela de más ni limpia nada."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        repo = make_repo()
+
+        await CAERelayProcessor(WSFEStubAdapter(), repo, max_attempts=10).process_document(
+            make_pending_doc(
+                ambiente="produccion",
+                attempts=0,
+                cae_submit_started_at=datetime.datetime.now(datetime.timezone.utc),
+                arca_requested_number=3,
+            ),
+        )
+
+        repo.update_rejected.assert_not_awaited()
+        repo.freeze_unconfirmed.assert_not_awaited()
+        repo.clear_submit_mark.assert_not_awaited()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_produccion_sin_marca_sigue_rechazando_en_el_tope(self):
+        """8.3 CONTROL POSITIVO (a): el comportamiento de #577 queda intacto
+        cuando NO hay marca.
+
+        Sin este caso el fix sería "no rechazar nunca", que enmascararía una
+        cuenta mal configurada reintentando para siempre.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        repo = make_repo()
+
+        await CAERelayProcessor(WSFEStubAdapter(), repo, max_attempts=10).process_document(
+            make_pending_doc(ambiente="produccion", attempts=9),
+        )
+
+        repo.update_rejected.assert_awaited_once()
+        repo.freeze_unconfirmed.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_el_error_ordinario_tras_marcar_en_este_tick_congela(self):
+        """8.4 RED (b): el `doc` reclamado dice que no hay marca, pero el hook la
+        escribió hace un instante.
+
+        Medido por el red team con el stack real y `max_attempts=3`: el tercer
+        tick dejaba `status='rejected'` con `arca_requested_number=1` puesto.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _AdapterQueMarcaYFalla()
+
+        await CAERelayProcessor(adapter, repo, max_attempts=3).process_document(
+            make_pending_doc(attempts=2),
+        )
+
+        assert adapter.llamadas == 1
+        repo.mark_submit_started.assert_awaited_once()
+        repo.update_rejected.assert_not_awaited()
+        repo.freeze_unconfirmed.assert_awaited_once()
+        # El número que viaja al freeze es el que el hook le pidió a ARCA, no el
+        # `arca_requested_number` del snapshot (que era None).
+        assert repo.freeze_unconfirmed.await_args.kwargs["arca_requested_number"] == 7
+
+    @pytest.mark.asyncio
+    async def test_el_error_ordinario_tras_marcar_reintenta_antes_del_tope(self):
+        """8.5 TRIANGULACIÓN (b): por debajo del tope el comportamiento es el de
+        siempre (retry con backoff); lo único prohibido es el estado terminal."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+
+        await CAERelayProcessor(_AdapterQueMarcaYFalla(), repo, max_attempts=10).process_document(
+            make_pending_doc(attempts=0),
+        )
+
+        repo.update_rejected.assert_not_awaited()
+        repo.freeze_unconfirmed.assert_not_awaited()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_un_error_sin_marca_sigue_rechazando_en_el_tope(self):
+        """8.6 CONTROL POSITIVO (b): un adapter que falla ANTES de marcar (una
+        validación, un `FECompUltimoAutorizado` caído) sigue llegando a
+        `rejected`. Sin marca no hubo envío: no hay ningún CAE que tapar."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+
+        repo = make_repo()
+        adapter = MagicMock()
+        adapter.request_cae = AsyncMock(return_value=CAEResponse(
+            cae=None, cae_due_date=None, is_approved=False,
+            error_code="WSFE_ERROR", error_detail="cayó antes de marcar",
+        ))
+
+        await CAERelayProcessor(adapter, repo, max_attempts=3).process_document(
+            make_pending_doc(attempts=2),
+        )
+
+        repo.mark_submit_started.assert_not_awaited()
+        repo.update_rejected.assert_awaited_once()
+        repo.freeze_unconfirmed.assert_not_awaited()

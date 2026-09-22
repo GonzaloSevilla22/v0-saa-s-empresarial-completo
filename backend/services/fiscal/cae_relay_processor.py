@@ -30,6 +30,26 @@ _BACKOFF_MINUTES = [1, 2, 5, 15, 60]
 DEFAULT_MAX_ATTEMPTS = 10
 
 
+class _MarcaDelTick:
+    """¿El hook escribió la marca DURANTE esta invocación? — MAJOR 2.
+
+    El `doc` que llega es un snapshot de `claim_pending`, tomado ANTES de que el
+    adapter llame al hook. Preguntarle a `doc["cae_submit_started_at"]` después
+    de un envío fallido responde por el pasado, no por el presente: el camino de
+    error ordinario rechazaba documentos cuyo número ya se le había pedido a
+    ARCA en ese mismo tick (medido por el red team con el stack real).
+    """
+
+    __slots__ = ("numero",)
+
+    def __init__(self) -> None:
+        self.numero: int | None = None
+
+    @property
+    def viva(self) -> bool:
+        return self.numero is not None
+
+
 class CAERelayProcessor:
     """Procesa comprobantes pending_cae y los transiciona a authorized/rejected.
 
@@ -71,6 +91,10 @@ class CAERelayProcessor:
 
         current_attempts = doc.get("attempts", 0)
 
+        # MAJOR 2 (b): el snapshot de `claim_pending` no puede contestar por lo
+        # que el hook escriba dentro de esta misma invocación.
+        marca_del_tick = _MarcaDelTick()
+
         # Construir request de dominio (sin SOAP)
         # fiscal-receptor-iva-relay (D1): propagar la identificación del receptor y el
         # desglose de IVA persistidos en el doc, para que el adapter arme DocTipo/DocNro
@@ -93,8 +117,12 @@ class CAERelayProcessor:
             iva_alicuota_id=doc.get("iva_alicuota_id"),
             # fiscal-riesgos-residuales (R1): el hook que persiste la marca del
             # envío ANTES de que el FECAESolicitar salga.
-            on_submit_start=self._make_submit_hook(doc["id"]),
+            on_submit_start=self._make_submit_hook(doc["id"], marca_del_tick),
         )
+
+        # La marca que el documento YA traía al ser reclamado (un envío de un
+        # tick anterior cuyo proceso murió).
+        marca_previa = doc.get("cae_submit_started_at") is not None
 
         # ── fiscal-emision-segura (G2): capa 2 del guard de ambiente ──────────
         # Punto de paso canónico del relay. Si el documento es de PRODUCCIÓN, el
@@ -105,23 +133,45 @@ class CAERelayProcessor:
         # filtre a un camino de producción). No delega en el guard del stub —
         # ni siquiera le pregunta: un guard que delega no es guard.
         if doc.get("ambiente") == "produccion" and not isinstance(self._adapter, WSFEAdapter):
-            response = CAEResponse(
-                cae=None,
-                cae_due_date=None,
-                is_approved=False,
-                error_code="STUB_FORBIDDEN_IN_PRODUCTION",
-                error_detail=(
-                    f"guard del relay: el comprobante es de ambiente 'produccion' y el "
-                    f"adapter inyectado no es el real ({type(self._adapter).__name__}). "
-                    "No se llamó al adapter. Configurá el certificado de plataforma "
-                    "(AFIP_PLATFORM_CERT/KEY/CUIT) para emitir en producción."
-                ),
+            detail_guard = (
+                f"guard del relay: el comprobante es de ambiente 'produccion' y el "
+                f"adapter inyectado no es el real ({type(self._adapter).__name__}). "
+                "No se llamó al adapter. Configurá el certificado de plataforma "
+                "(AFIP_PLATFORM_CERT/KEY/CUIT) para emitir en producción."
             )
             logger.critical(
                 "CAERelayProcessor: doc %s de PRODUCCIÓN con adapter %s — no se pidió CAE",
                 doc["id"], type(self._adapter).__name__,
             )
-        elif doc.get("cae_submit_started_at") is not None:
+
+            # ── MAJOR 2 (a), red team 2026-09-22 ──────────────────────────────
+            # Este guard se evalúa ANTES de la rama de reconciliación y hasta
+            # acá NO retornaba: un documento de producción con la marca viva y
+            # un adapter que no es el real (el cert de plataforma perdido en un
+            # redeploy, una rotación de AFIP_PLATFORM_CERT) seguía al bloque de
+            # error y, a los `max_attempts`, terminaba `rejected` — TERMINAL,
+            # sin que nadie le preguntara a ARCA si el comprobante existe.
+            #
+            # Con marca no se puede ni emitir (sería una segunda factura) ni
+            # reconciliar (el adapter que hay diría "no existe" sobre un
+            # comprobante real). Sólo queda esperar a que vuelva el adapter
+            # real, y congelarse si no vuelve.
+            if marca_previa:
+                await self._retry_or_freeze_reconcile(
+                    doc,
+                    doc.get("arca_requested_number"),
+                    detail=f"[STUB_FORBIDDEN_IN_PRODUCTION] {detail_guard}",
+                )
+                return
+
+            response = CAEResponse(
+                cae=None,
+                cae_due_date=None,
+                is_approved=False,
+                error_code="STUB_FORBIDDEN_IN_PRODUCTION",
+                error_detail=detail_guard,
+            )
+        elif marca_previa:
             # ── fiscal-riesgos-residuales (R1) ────────────────────────────────
             # El documento tiene un envío MARCADO: alguien ya le pidió a ARCA el
             # número `arca_requested_number` y no sabemos cómo terminó (el
@@ -218,6 +268,24 @@ class CAERelayProcessor:
             # Error: ¿intentar de nuevo o rechazar?
             new_attempts = current_attempts + 1
             error_message = f"[{response.error_code}] {response.error_detail}"
+
+            # ── MAJOR 2 (b), red team 2026-09-22 ──────────────────────────────
+            # El hook pudo haber escrito la marca DENTRO de esta invocación, y
+            # el `doc` reclamado —un snapshot anterior— sigue diciendo que no
+            # hay ninguna. Pasa con todo lo que `_submit_outcome_is_unambiguous`
+            # exime (un `Fault`, un `ConnectTimeout`): el resultado es un
+            # `WSFE_ERROR` reintentable con el número YA pedido a ARCA.
+            #
+            # Si además se alcanzó el tope, `update_rejected` dejaba el
+            # documento TERMINAL sobre un número que puede existir en ARCA. Con
+            # marca viva la salida no resolutiva es la misma que la de la
+            # reconciliación: reintentar y, en el tope, CONGELAR.
+            if marca_del_tick.viva:
+                await self._retry_or_freeze_reconcile(
+                    doc, marca_del_tick.numero, detail=error_message,
+                )
+                return
+
             if new_attempts >= self._max_attempts:
                 # Rechazar definitivamente (ya en el límite de intentos)
                 await self._repo.update_rejected(
@@ -393,19 +461,24 @@ class CAERelayProcessor:
             doc["id"], new_attempts, next_at.isoformat(),
         )
 
-    def _make_submit_hook(self, doc_id: str):
+    def _make_submit_hook(self, doc_id: str, marca: _MarcaDelTick):
         """Hook que el adapter awaitea justo antes del FECAESolicitar (R1).
 
         Persiste, en su propia transacción (el relay corre en autocommit sobre
         `get_service_conn`), el número que se le va a pedir a ARCA. Si la
         escritura falla, la excepción sale del hook y el envío NO se despacha:
         fail-closed por construcción, no por disciplina del caller.
+
+        MAJOR 2 (b): anota el número en `marca` SÓLO si la escritura salió bien.
+        Es lo que le permite al camino de error de este mismo tick saber que ya
+        hay un número pedido a ARCA — el `doc` reclamado no puede saberlo.
         """
         async def _hook(cbte_numero: int) -> None:
             await self._repo.mark_submit_started(
                 doc_id=doc_id,
                 arca_requested_number=cbte_numero,
             )
+            marca.numero = cbte_numero
 
         return _hook
 

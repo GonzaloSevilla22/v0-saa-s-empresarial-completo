@@ -12,7 +12,6 @@ import logging
 
 from fastapi import HTTPException
 
-import backend.core.database as _db
 from backend.core.guards import require_role, require_platform_admin
 from backend.repositories.fiscal_profile_repository import FiscalProfileRepository
 from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
@@ -27,7 +26,6 @@ from backend.schemas.fiscal import (
 )
 from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
 from backend.services.fiscal.fiscal_document_port import FiscalDocumentPort
-from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -326,28 +324,6 @@ async def emit_subscription_payment_cae(
     return dict(result)
 
 
-async def process_pending_documents(
-    doc_repo: FiscalDocumentRepository,
-    adapter: FiscalDocumentPort,
-    limit: int = 10,
-) -> dict:
-    """Procesa hasta `limit` documentos pending_cae con el relay idempotente.
-
-    Retorna un resumen de lo procesado.
-    Usado por el endpoint de usuario POST /fiscal/documents/process-pending (JWT-scoped,
-    single account). No usa claim_pending — el endpoint de usuario ya es single-threaded.
-    """
-    docs = await doc_repo.list_pending(limit=limit)
-    processor = CAERelayProcessor(adapter=adapter, repo=doc_repo)
-
-    processed = 0
-    for doc in docs:
-        await processor.process_document(doc)
-        processed += 1
-
-    return {"processed": processed, "total_found": len(docs)}
-
-
 async def process_all_pending_documents(
     doc_repo: FiscalDocumentRepository,
     adapter: FiscalDocumentPort | None = None,
@@ -366,10 +342,18 @@ async def process_all_pending_documents(
 
     Anti-double-CAE guard (D6, OQ-1=A):
       Para cada doc encontrado con list_pending_all, se llama claim_pending antes de
-      procesar. Si claim_pending retorna None (otro trigger — fire-and-forget — ya reclamó
-      el doc), este caller lo saltea. Esto garantiza que request_cae se llama exactamente
-      una vez por documento por intento, incluso si el pg_cron y el fire-and-forget se
-      superponen.
+      procesar. Si claim_pending retorna None (otro tick del cron ya reclamó el doc,
+      o el doc está CONGELADO por un envío no confirmado — G4), este caller lo
+      saltea. Esto garantiza que request_cae se llama exactamente una vez por
+      documento por intento.
+
+    fiscal-emision-segura (G1/G4): este es el ÚNICO camino de emisión que queda
+    (el disparo inmediato y el endpoint de usuario se retiraron). Y el lease de
+    5 minutos recuperó su propiedad de exclusión mutua porque la llamada SOAP
+    pasó a tener cota temporal (`operation_timeout`, G4): antes el `Transport`
+    de zeep corría con `operation_timeout=None` — sección crítica sin cota y
+    candado de 5 minutos fijos ⇒ el cron podía re-reclamar un documento con el
+    FECAESolicitar anterior todavía en vuelo (dos facturas reales).
 
     Nota: FOR UPDATE SKIP LOCKED no se mantiene durante la llamada SOAP (larga);
     el lease de 5 minutos en next_attempt_at es el mecanismo de concurrencia.
@@ -411,38 +395,17 @@ async def process_all_pending_documents(
     }
 
 
-async def process_doc_by_id_background(doc_id: str) -> None:
-    """BackgroundTask: procesa un único doc por id abriendo su propia conexión service.
-
-    Diseñado para ser disparado como fire-and-forget inmediatamente después de
-    que emit_pending_cae persiste el documento (OQ-1=A, D6).
-
-    Flujo:
-      1. Adquiere una conexión BYPASSRLS del pool service (postgres user).
-         La conexión del request ya fue liberada al responder.
-      2. Intenta claim_pending en el doc_id — si ya fue reclamado por el cron
-         coincidente, es un no-op seguro.
-      3. Si gana el claim, llama process_document (que llama request_cae).
-
-    C-31 (W4): el adapter es el stub por defecto (safe) — la cuenta siempre tiene
-    el pg_cron como backstop con la factory real. El fire-and-forget usa stub para
-    no bloquear la respuesta del usuario con una llamada SOAP potencialmente lenta.
-    Si el stub falla, el cron lo reintenta con el adapter correcto.
-    """
-    if _db.pool is None:
-        logger.warning("[process_doc_by_id_background] pool not initialized — skipping doc %s", doc_id)
-        return
-
-    try:
-        async with _db.pool.acquire() as conn:
-            repo = FiscalDocumentRepository(conn)
-            adapter = WSFEStubAdapter()
-            processor = CAERelayProcessor(adapter=adapter, repo=repo)
-            await processor.process_document_by_id(doc_id)
-    except Exception:
-        # Background tasks must not crash the caller — log and swallow.
-        # The pg_cron backstop will retry on the next minute.
-        logger.exception(
-            "[process_doc_by_id_background] error processing doc %s — cron backstop will retry",
-            doc_id,
-        )
+# fiscal-emision-segura (G1, 2026-09-22): acá vivía `process_doc_by_id_background`,
+# el disparo inmediato (fire-and-forget) que corría tras `emit_pending_cae` /
+# `emit_subscription_payment_cae`. Se RETIRÓ, no se arregló:
+#   - instanciaba `WSFEStubAdapter()` a mano, sin el gate de la factory: el stub
+#     devuelve `is_approved=True` con un CAE inventado, y `update_authorized`
+#     lo habría escrito en un comprobante de PRODUCCIÓN;
+#   - `authorized` es terminal por catálogo y `claim_pending`/`list_pending_all`
+#     filtran por `status='pending_cae'`, así que el cron NUNCA lo corregiría;
+#   - lo único que lo desarmaba era un `AttributeError` de tipo
+#     (`doc["id"]` llega como `uuid.UUID` y el stub hacía `.encode()`), es decir
+#     coercionar ese id a `str` —el arreglo "obvio"— ARMABA el escritor de CAEs
+#     falsos en producción.
+# Su contrapartida es latencia: el CAE lo obtiene el cron en el próximo tick
+# (~17-65 s). Aceptado explícitamente por el PO el 2026-09-21.

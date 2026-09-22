@@ -374,30 +374,32 @@ class TestEmitSubscriptionPaymentRouter:
         async def fake_conn():
             yield mock_conn
 
-        # Patch background_tasks to avoid background processing in tests
-        with patch(
-            "backend.services.fiscal.fiscal_profile_service.process_doc_by_id_background",
-            new_callable=AsyncMock,
-        ):
-            app.dependency_overrides[get_current_user] = fake_admin
-            app.dependency_overrides[get_db_conn] = fake_conn
-            try:
-                async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                    resp = await client.post(
-                        "/fiscal/documents/emit-subscription-payment",
-                        json={
-                            "receipt_id": "receipt-001",
-                            "receptor_doc_tipo": 80,
-                            "receptor_doc_nro": "20422662457",
-                        },
-                    )
-                assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
-                body = resp.json()
-                assert body["fiscal_document_id"] == "bbbb2222-2222-2222-2222-222222222222"
-                assert body["status"] == "pending_cae"
-            finally:
-                app.dependency_overrides.pop(get_current_user, None)
-                app.dependency_overrides.pop(get_db_conn, None)
+        # fiscal-emision-segura (G1, 2026-09-22): acá había un `patch` de
+        # `process_doc_by_id_background` para que el disparo inmediato no corriera
+        # durante el test. Ese helper YA NO EXISTE — se retiró junto con el disparo
+        # inmediato —, y `patch` sobre un atributo inexistente levanta
+        # AttributeError: el patch se RETIRA, no se reemplaza. El endpoint ya no
+        # programa ninguna BackgroundTask (candado en
+        # test_fiscal_emision_segura.py::TestNoHayDisparoInmediato).
+        app.dependency_overrides[get_current_user] = fake_admin
+        app.dependency_overrides[get_db_conn] = fake_conn
+        try:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+                resp = await client.post(
+                    "/fiscal/documents/emit-subscription-payment",
+                    json={
+                        "receipt_id": "receipt-001",
+                        "receptor_doc_tipo": 80,
+                        "receptor_doc_nro": "20422662457",
+                    },
+                )
+            assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
+            body = resp.json()
+            assert body["fiscal_document_id"] == "bbbb2222-2222-2222-2222-222222222222"
+            assert body["status"] == "pending_cae"
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db_conn, None)
 
 
 # =============================================================================

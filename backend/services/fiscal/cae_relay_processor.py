@@ -8,7 +8,10 @@ Implementa el proceso de background (OQ-1=A, D5/D6):
   - Idempotente: documentos ya authorized/rejected no se modifican
 
 Patrón: reusa la filosofía de operation_idempotency del proyecto.
-El relay se dispara vía pg_cron cada minuto + fire-and-forget al emitir (D6, OQ-1=A).
+El relay se dispara vía pg_cron cada minuto. fiscal-emision-segura (G1,
+2026-09-22) retiró el disparo inmediato al emitir (instanciaba el STUB a mano y
+podía escribir un CAE inventado en un comprobante de producción, con
+`authorized` como estado terminal): el cron es el ÚNICO camino de emisión.
 
 Design refs: D5 (máquina de estados), D6 (OQ-1=A relay), PA-22
 """
@@ -30,9 +33,9 @@ class CAERelayProcessor:
     """Procesa comprobantes pending_cae y los transiciona a authorized/rejected.
 
     El processor es stateless: recibe un doc dict y un adapter; el repository
-    persiste el resultado. Diseñado para ser invocado desde:
-      - El endpoint POST /fiscal/documents/process-pending (fire-and-forget)
-      - El pg_cron job relay-process-pending-cae (dispatcher cada minuto)
+    persiste el resultado. Único invocador en producción (G1):
+      - El pg_cron job relay-process-pending-cae (dispatcher cada minuto), vía
+        POST /fiscal/documents/process-pending-cron → process_all_pending_documents.
 
     Idempotencia: si el doc ya está en authorized o rejected, no hace nada.
     """
@@ -133,12 +136,15 @@ class CAERelayProcessor:
         """Attempt to claim and process a single document by id.
 
         Anti-double-CAE guard: calls claim_pending first. If claim returns None
-        (another trigger holds the lease), this method is a no-op. Only the caller
-        that successfully claims the lease proceeds to request_cae.
+        (another trigger holds the lease, or the doc is FROZEN by an unconfirmed
+        submit — G4), this method is a no-op. Only the caller that successfully
+        claims the lease proceeds to request_cae.
 
-        Safe to call concurrently from:
-          - fire-and-forget BackgroundTask (immediately after emit)
-          - pg_cron batch via process_all_pending_documents
+        fiscal-emision-segura (G1): sin caller en producción desde que se retiró
+        el disparo inmediato. Se conserva porque es la forma canónica de
+        "procesar UN doc respetando el lease" y sus tests son el candado del
+        guard de claim; cualquier camino futuro por-documento debe pasar por acá
+        (nunca llamar process_document sin haber reclamado el lease antes).
         """
         doc = await self._repo.claim_pending(doc_id)
         if doc is None:

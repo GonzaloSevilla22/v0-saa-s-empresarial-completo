@@ -14,9 +14,10 @@ TDD RED→GREEN cycle:
     - Two concurrent claims → exactly one succeeds, one None
     - process_document_by_id calls request_cae only for the claiming caller
     - list_pending_all fetches cross-account docs
-  Part 3: Fire-and-forget on emit
-    - process_doc_by_id_background uses claim_pending guard
-    - process_doc_by_id_background skips when claim fails
+  Part 3: RETIRADA — fiscal-emision-segura (G1, 2026-09-22) retiró el disparo
+    inmediato al emitir; sus 3 tests se borraron con la feature. Ver el bloque
+    de comentario en el lugar que ocupaban y
+    backend/tests/test_fiscal_emision_segura.py::TestNoHayDisparoInmediato.
   Part 4: Cross-account batch via process_all_pending_documents
     - Processes docs from multiple accounts
     - Skips docs where claim_pending returns None
@@ -382,124 +383,23 @@ class TestAntiDoubleCAEClaim:
         assert ACCOUNT_ID_2 in account_ids
 
 
-# ── Part 3: Fire-and-forget background helper ─────────────────────────────────
-
-class TestFireAndForgetBackground:
-    """Part 3 RED: process_doc_by_id_background helper used as BackgroundTask."""
-
-    @pytest.mark.asyncio
-    async def test_process_doc_by_id_background_calls_claim(self):
-        """RED: process_doc_by_id_background calls claim_pending for the given doc_id."""
-        from backend.services.fiscal.fiscal_profile_service import process_doc_by_id_background
-        from backend.services.fiscal.fiscal_document_port import CAEResponse
-
-        doc = make_pending_doc()
-        mock_repo = MagicMock()
-        mock_repo.claim_pending = AsyncMock(return_value=dict(doc))
-        mock_repo.update_authorized = AsyncMock()
-
-        mock_adapter = MagicMock()
-        mock_adapter.request_cae = AsyncMock(
-            return_value=CAEResponse(
-                cae="12345678901234",
-                cae_due_date=None,
-                is_approved=True,
-                error_code=None,
-                error_detail=None,
-            )
-        )
-
-        mock_conn = AsyncMock()
-        mock_pool = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with (
-            patch(
-                "backend.services.fiscal.fiscal_profile_service.FiscalDocumentRepository",
-                return_value=mock_repo,
-            ),
-            patch(
-                "backend.services.fiscal.fiscal_profile_service.WSFEStubAdapter",
-                return_value=mock_adapter,
-            ),
-            patch("backend.services.fiscal.fiscal_profile_service._db") as mock_db,
-        ):
-            mock_db.pool = mock_pool
-
-            await process_doc_by_id_background(DOC_ID)
-
-        mock_repo.claim_pending.assert_called_once_with(DOC_ID)
-
-    @pytest.mark.asyncio
-    async def test_process_doc_by_id_background_skips_when_claim_fails(self):
-        """RED: process_doc_by_id_background does NOT call request_cae if claim fails."""
-        from backend.services.fiscal.fiscal_profile_service import process_doc_by_id_background
-
-        mock_repo = MagicMock()
-        mock_repo.claim_pending = AsyncMock(return_value=None)
-
-        mock_adapter = MagicMock()
-        mock_adapter.request_cae = AsyncMock()
-
-        mock_conn = AsyncMock()
-        mock_pool = MagicMock()
-        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-
-        with (
-            patch(
-                "backend.services.fiscal.fiscal_profile_service.FiscalDocumentRepository",
-                return_value=mock_repo,
-            ),
-            patch(
-                "backend.services.fiscal.fiscal_profile_service.WSFEStubAdapter",
-                return_value=mock_adapter,
-            ),
-            patch("backend.services.fiscal.fiscal_profile_service._db") as mock_db,
-        ):
-            mock_db.pool = mock_pool
-
-            await process_doc_by_id_background(DOC_ID)
-
-        mock_adapter.request_cae.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_emit_endpoint_registers_background_task(self, async_client, mock_pool):
-        """RED: POST /fiscal/documents/emit triggers a BackgroundTask for the new doc_id."""
-        pool, conn = mock_pool
-
-        import json as _json
-        emit_result = {
-            "id": DOC_ID,
-            "fiscal_document_id": DOC_ID,
-            "status": "pending_cae",
-            "comprobante_type": "factura_b",
-            "number": 1,
-        }
-        conn.fetchrow = AsyncMock(return_value={"result": _json.dumps(emit_result)})
-        owner_token = make_token({"role": "user"})
-
-        # Track whether the background task was scheduled
-        background_calls: list[str] = []
-
-        async def fake_bg_task(doc_id: str) -> None:
-            background_calls.append(doc_id)
-
-        with (
-            patch("backend.core.database.pool", pool),
-            patch(
-                "backend.routers.fiscal.process_doc_by_id_background",
-                side_effect=fake_bg_task,
-            ),
-        ):
-            resp = await async_client.post(
-                "/fiscal/documents/emit",
-                json={"comprobante_type": "factura_b", "total": 1500.0},
-                headers={"Authorization": f"Bearer {owner_token}"},
-            )
-
-        assert resp.status_code == 200
+# ── Part 3: RETIRADA — fiscal-emision-segura (G1, 2026-09-22) ────────────────
+#
+# Acá vivía `TestFireAndForgetBackground` (3 tests):
+#   - test_process_doc_by_id_background_calls_claim
+#   - test_process_doc_by_id_background_skips_when_claim_fails
+#   - test_emit_endpoint_registers_background_task
+#
+# Se BORRAN porque se retira la feature que probaban, no porque molesten: el
+# disparo inmediato instanciaba `WSFEStubAdapter()` a mano (CAE inventado,
+# `is_approved=True`) y `authorized` es estado terminal — un CAE falso escrito
+# ahí no lo corrige nunca el cron. Sus candados nuevos viven en
+# backend/tests/test_fiscal_emision_segura.py::TestNoHayDisparoInmediato, que
+# asserta lo contrario: que NINGUNA BackgroundTask se programa al emitir.
+#
+# El guard de `claim_pending` que estos tests ejercitaban de rebote sigue
+# cubierto por la Part 2 de este mismo archivo
+# (test_process_document_by_id_calls_request_cae_when_claim_wins / _skips_).
 
 
 # ── Part 4: Cross-account batch ───────────────────────────────────────────────

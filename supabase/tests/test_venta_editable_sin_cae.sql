@@ -139,11 +139,63 @@ BEGIN
     v_failures := v_failures || format('(1) rpc_emit_sale_invoice sin la ALLOW-LIST de re-emisión: o no se puede re-facturar, o —peor— el guard pasó a deny-list y un status futuro desconocido habilitaría una SEGUNDA factura real');
   END IF;
 
+  -- ── Contrato de CONCURRENCIA del helper (red team 2026-09-22: M1, M2, m1, m3)
+  --
+  -- Los cuatro son invariantes de comportamiento cuya violación no se ve en
+  -- ningún test de datos de una sola conexión, y cuyo resultado es un
+  -- comprobante pendiente VIVO sobre una venta editada (ARCA facturando
+  -- importes viejos), un 40P01 crudo en el camino de dinero, o la anulación del
+  -- comprobante de otra cuenta. La migración los asserta también en su gate
+  -- embebido, pero ESE se ejecuta cuando la migración corre: una migración
+  -- POSTERIOR que redefina el helper pasa por al lado. Este gate corre después
+  -- de todas las migraciones, así que es el que cubre el futuro.
+  --
+  -- Se compara sobre el cuerpo SIN comentarios y con espacios colapsados: un
+  -- reformateo no rompe el gate, y un comentario no lo satisface.
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc
+  WHERE  oid = to_regprocedure('public._fiscal_void_pending_for_sale_edit(uuid, uuid, uuid, text)');
+
+  IF v_def IS NULL THEN
+    v_failures := v_failures || format('(1) no se pudo leer el cuerpo del helper de anulación');
+  ELSE
+    IF position('from public.sales_orders so where so.id = p_sales_order_id for update' in v_def) = 0 THEN
+      v_failures := v_failures || format('(1) el helper no toma la ORDEN con SELECT ... FOR UPDATE: sin ese lock no ve el comprobante que la emisión está por commitear (queda un pending_cae vivo con importes viejos) y el orden de locks queda invertido respecto de rpc_emit_sale_invoice (deadlock 40P01)');
+    ELSIF position('public.fiscal_documents' in v_def) > 0
+      AND position('from public.sales_orders so where so.id = p_sales_order_id for update' in v_def)
+          > position('public.fiscal_documents' in v_def) THEN
+      v_failures := v_failures || format('(1) el helper toca fiscal_documents ANTES de bloquear la orden: orden de locks invertido respecto de la emisión (deadlock 40P01)');
+    END IF;
+
+    IF position('v_order.account_id is distinct from p_account_id' in v_def) = 0 THEN
+      v_failures := v_failures || format('(1) el helper perdió el guard de TENENCIA (account_id de la orden vs. p_account_id): recibe la cuenta por parámetro, así que sin ese guard anularía el comprobante pendiente de cualquier cuenta');
+    END IF;
+
+    IF position('update public.fiscal_documents fd set status = ''voided'' where fd.id = v_doc.id and fd.status = ''pending_cae'' and fd.cae_submit_started_at is null and fd.cae_submit_unconfirmed_at is null' in v_def) = 0 THEN
+      v_failures := v_failures || format('(1) el UPDATE que anula perdió el predicado de re-evaluación (pending_cae + las dos marcas NULL): si el relay marca el envío entre la lectura y el lock, se anularía un comprobante YA ENVIADO a ARCA');
+    END IF;
+
+    IF position('for update nowait' in v_def) = 0 THEN
+      v_failures := v_failures || format('(1) el helper perdió el FOR UPDATE NOWAIT sobre el comprobante: un request de usuario quedaría esperando detrás de un round-trip SOAP del relay');
+    END IF;
+  END IF;
+
+  -- El enumerador de órdenes de la edición NO puede volver a filtrar por
+  -- comprobante: ese filtro se evalúa SIN lock y es exactamente el agujero M1.
+  SELECT lower(regexp_replace(regexp_replace(prosrc, '--[^' || chr(10) || ']*', '', 'g'), '\s+', ' ', 'g'))
+  INTO   v_def
+  FROM   pg_proc
+  WHERE  oid = to_regprocedure('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)');
+  IF v_def IS NOT NULL AND position('and so.fiscal_document_id is not null' in v_def) > 0 THEN
+    v_failures := v_failures || format('(1) rpc_atomic_update_sale_operation volvió a filtrar las órdenes por fiscal_document_id IS NOT NULL SIN lock: con una emisión abierta el helper no se llama y queda un comprobante pendiente vivo con importes viejos');
+  END IF;
+
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE VENTA-EDITABLE-SIN-CAE (1) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'PASS (1): CHECK de 4 estados, catálogo con voided terminal/con-motivo/sin-rol y sin transiciones extra, helper cerrado a anon/authenticated, 3 RPCs con una sola definición viva y el guard nuevo (y sin el viejo).';
+  RAISE NOTICE 'PASS (1): CHECK de 4 estados, catálogo con voided terminal/con-motivo/sin-rol y sin transiciones extra, helper cerrado a anon/authenticated, contrato de concurrencia del helper (orden so→fd, tenencia, predicado dentro del UPDATE, NOWAIT), 3 RPCs con una sola definición viva y el guard nuevo (y sin el viejo).';
 END $$;
 
 

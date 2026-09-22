@@ -2089,3 +2089,23 @@ jobs:
       # los dos lados, sin tocar las filas que ya existen).
       - name: Run fiscal emision segura gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_fiscal_cae_numero_autoritativo.sql
+
+      # fiscal-emit-cae-consumidor-final (2026-09-22, fix ad-hoc, governance
+      # CRITICO -- dominio fiscal). rpc_emit_pending_cae (el camino de
+      # "facturar una VENTA") levantaba SQLSTATE 55000 "record v_client is not
+      # assigned yet" al llamarla SIN p_client_id (consumidor final): v_client
+      # era un RECORD que solo se asignaba con cliente, pero el INSERT leia
+      # sus campos sin condicion -- leer un campo de un RECORD nunca asignado
+      # es error en plpgsql, nunca NULL. `supabase start` ya aplico
+      # 20261058000001 al levantar el stack; este paso solo corre el gate.
+      # 6 bloques: firma UNICA de rpc_emit_pending_cae sin overload (42725),
+      # ACLs exactas (authenticated y service_role CON EXECUTE -- es RPC de
+      # usuario --, anon y PUBLIC SIN EXECUTE), emision SIN cliente que ya NO
+      # levanta y nace pending_cae con client_id y los snapshots del receptor
+      # en NULL, triangulacion con receptor_doc_tipo/nro persistidos y
+      # snapshots igual en NULL, control positivo CON cliente que copia
+      # legal_name/iva_condition (incluido el sub-caso de un cliente sin esos
+      # datos, que nace igual sin error), y la limpieza verificada de sus
+      # propios fixtures.
+      - name: Run fiscal emit consumidor final gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_fiscal_emit_consumidor_final.sql

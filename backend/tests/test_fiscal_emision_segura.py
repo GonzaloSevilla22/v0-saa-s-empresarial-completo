@@ -1540,6 +1540,78 @@ class TestByReceiptExponeCongelado:
         assert resp.status_code == 200, resp.text
         assert resp.json()["is_frozen"] is False
 
+    @pytest.mark.parametrize(
+        "status,cae",
+        [
+            pytest.param("authorized", "CAE-RESUELTO-A-MANO", id="resuelto-a-mano-authorized"),
+            pytest.param("rejected", None, id="resuelto-a-mano-rejected"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_by_receipt_apaga_is_frozen_cuando_el_documento_se_resolvio(
+        self, status, cae
+    ):
+        """RED (B2-3, defecto introducido por M-4): `is_frozen` salía sólo de
+        `cae_submit_unconfirmed_at IS NOT NULL`, y NINGÚN camino limpia esa
+        columna (todas las escrituras son `COALESCE(..., now())`).
+
+        La resolución manual es la ÚNICA salida prevista del congelamiento: un
+        humano verifica en ARCA y cierra el documento. Después de eso el
+        comprobante seguía mostrándose "Congelado" para siempre, tapando el CAE
+        y el número reales. La marca histórica se conserva en la columna; lo que
+        se apaga es la BANDERA de "necesita revisión".
+        """
+        from httpx import ASGITransport, AsyncClient
+
+        from backend.core.auth import get_current_user
+        from backend.core.database import get_db_conn
+        from backend.main import app
+
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value="admin")
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": uuid.UUID("cccc3333-3333-3333-3333-333333333333"),
+                "status": status,
+                "cae": cae,
+                "cae_due_date": None,
+                "comprobante_type": "factura_c",
+                "total": 12000.0,
+                "subscription_payment_id": "receipt-004",
+                "punto_de_venta": 3,
+                "number": 3,
+                # el congelamiento QUEDÓ registrado: nada lo limpia nunca
+                "cae_submit_unconfirmed_at": datetime.datetime(2026, 9, 21, 12, 0, 0),
+            }
+        )
+
+        def fake_admin():
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
+
+        async def fake_conn():
+            yield conn
+
+        app.dependency_overrides[get_current_user] = fake_admin
+        app.dependency_overrides[get_db_conn] = fake_conn
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/fiscal/documents/by-receipt/receipt-004")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db_conn, None)
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["is_frozen"] is False, (
+            "un documento que ya salió de pending_cae fue resuelto: la bandera "
+            "de 'requiere revisión manual' no puede seguir encendida y tapando "
+            "el estado real."
+        )
+        assert body["status"] == status
+        assert body["cae"] == cae
+
 
 class TestReceptorCoherenteEnEmisionDirecta:
     """m-2 minor: EmitPendingCAERequest (venta directa, /fiscal/documents/emit)

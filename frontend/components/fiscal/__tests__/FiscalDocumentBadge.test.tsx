@@ -93,6 +93,39 @@ describe("FiscalDocumentBadge", () => {
     expect(screen.getByText("Congelado")).toBeInTheDocument()
   })
 
+  it("un congelado RESUELTO a mano muestra su estado real, no 'Congelado' (B2-3)", () => {
+    // La resolución manual es la única salida prevista del congelamiento, y
+    // `cae_submit_unconfirmed_at` no la limpia nadie: la fila sigue trayendo
+    // la marca histórica. Si la bandera manda por encima del status, el badge
+    // tapa para siempre el CAE y el número que el humano acaba de cargar.
+    render(
+      <FiscalDocumentBadge documentId="doc-6" initialStatus="authorized" initialFrozen />,
+    )
+
+    expect(screen.getByText("Autorizado")).toBeInTheDocument()
+    expect(screen.queryByText("Congelado")).not.toBeInTheDocument()
+  })
+
+  it("un UPDATE de Realtime que resuelve el congelado deja de mostrar 'Congelado'", () => {
+    render(<FiscalDocumentBadge documentId="doc-7" initialStatus="pending_cae" initialFrozen />)
+
+    expect(screen.getByText("Congelado")).toBeInTheDocument()
+
+    // El UPDATE de la resolución manual trae el status nuevo y la marca vieja
+    // (nada limpia la columna).
+    act(() => {
+      realtimeCallback?.({
+        new: {
+          status: "authorized",
+          cae_submit_unconfirmed_at: "2026-09-22T12:00:00.000Z",
+        },
+      })
+    })
+
+    expect(screen.getByText("Autorizado")).toBeInTheDocument()
+    expect(screen.queryByText("Congelado")).not.toBeInTheDocument()
+  })
+
   it("un UPDATE de Realtime sin cae_submit_unconfirmed_at no congela (no regresión del camino feliz)", () => {
     render(<FiscalDocumentBadge documentId="doc-5" initialStatus="pending_cae" />)
 

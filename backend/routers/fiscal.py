@@ -268,7 +268,16 @@ async def get_fiscal_doc_by_receipt(
         "subscription_payment_id": doc["subscription_payment_id"],
         "punto_de_venta":         doc["punto_de_venta"],
         "number":                 doc["number"],
-        "is_frozen":              doc.get("cae_submit_unconfirmed_at") is not None,
+        # B2-3 (segundo red team, 2026-09-22): la bandera vale MIENTRAS el
+        # documento siga esperando CAE. `cae_submit_unconfirmed_at` no la limpia
+        # ningún camino (todas las escrituras son `COALESCE(..., now())`), así
+        # que sin la condición de status un comprobante resuelto a mano —la
+        # única salida prevista del congelamiento— seguía mostrándose
+        # "Congelado" para siempre, tapando el CAE y el número reales.
+        "is_frozen": (
+            doc.get("cae_submit_unconfirmed_at") is not None
+            and doc["status"] == "pending_cae"
+        ),
     }
 
 

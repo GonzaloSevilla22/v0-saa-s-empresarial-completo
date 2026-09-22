@@ -118,7 +118,14 @@ export function FiscalDocumentBadge({
 
   // Un congelado sigue siendo status='pending_cae' — la bandera manda por
   // encima del status para no mostrar "En trámite" indefinidamente.
-  if (frozen) {
+  //
+  // B2-3 (segundo red team, 2026-09-22): sólo MIENTRAS siga en pending_cae.
+  // `cae_submit_unconfirmed_at` no la limpia ningún camino, así que un
+  // comprobante resuelto a mano —la única salida prevista del congelamiento—
+  // llega con la marca puesta y el status nuevo (por props o por el UPDATE de
+  // Realtime): sin esta condición, el badge tapaba para siempre el CAE y el
+  // número que el humano acababa de cargar.
+  if (frozen && status === "pending_cae") {
     return (
       <Badge
         variant="outline"

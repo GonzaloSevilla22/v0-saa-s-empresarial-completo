@@ -6062,6 +6062,10 @@ export type Database = {
         Args: { p_account_id: string; p_target_user_id: string }
         Returns: Json
       }
+      rpc_request_subscription_cancellation: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       rpc_reverse_payment_made: {
         Args: { p_payment_id: string; p_reason?: string }
         Returns: Json

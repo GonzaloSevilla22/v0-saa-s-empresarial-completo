@@ -79,8 +79,19 @@ interface AuthContextType {
    * @returns `true` si tras renovar hay sesión viva en este navegador.
    */
   refreshSession: () => Promise<boolean>
-  upgradePlan: () => Promise<void>
-  downgradePlan: () => Promise<void>
+  /**
+   * accounts-profiles-privilege-columns (2026-09-21): `upgradePlan` /
+   * `downgradePlan` se RETIRARON. Escribían `profiles.plan` con
+   * `.from('profiles').update(...)` desde el navegador, o sea un
+   * auto-otorgamiento de plan por PostgREST — la misma familia que el hallazgo
+   * de `accounts.billing_exempt`, y hasta hoy sólo fallaba porque
+   * `trg_prevent_profile_escalation` lo rechazaba para quien no es admin. La
+   * migración 20261053000001 le quita a `authenticated` el UPDATE de esa
+   * columna, así que dejarlas habría sido dejar dos botones que revientan.
+   * El cambio de plan real vive en `/planes` (MercadoPago) y la baja en
+   * `POST /api/billing/cancel`. Candado:
+   * `__tests__/lib/no-privilege-column-writes.test.ts`.
+   */
   /** Update editable profile fields (name, avatar, business info, etc.) */
   updateProfile: (data: ProfileUpdateData) => Promise<void>
   /** Update system preferences (currency, timezone, date format) */
@@ -452,19 +463,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/auth/login")
   }, [router])
 
-  const upgradePlan = useCallback(async () => {
-    if (!user) return
-    const { error } = await supabase.from('profiles').update({ plan: 'pro' }).eq('id', user.id)
-    if (error) throw error
-    await refreshSession()
-  }, [supabase, user, refreshSession])
-
-  const downgradePlan = useCallback(async () => {
-    if (!user) return
-    const { error } = await supabase.from('profiles').update({ plan: 'free' }).eq('id', user.id)
-    if (error) throw error
-    await refreshSession()
-  }, [supabase, user, refreshSession])
+  // upgradePlan / downgradePlan retirados — ver el comentario en la interfaz
+  // del contexto (accounts-profiles-privilege-columns).
 
   // Don't render children until initial session check is complete to prevent auth flashes
   if (loading) {
@@ -483,8 +483,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         refreshSession,
-        upgradePlan,
-        downgradePlan,
         updateProfile,
         updatePreferences,
         changePassword,

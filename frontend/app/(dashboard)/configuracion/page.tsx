@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
 import { useProducts } from "@/hooks/data/use-products"
@@ -44,7 +45,7 @@ const TAB_VALUES = [
 ] as const
 
 export default function ConfiguracionPage() {
-  const { user, effectivePlan, upgradePlan, downgradePlan } = useAuth()
+  const { user, effectivePlan } = useAuth()
   // cobranzas-vencimientos (task 9.7): /cobranzas enlaza directo a la pestaña
   // Cobranzas con ?tab= — un valor fuera del dominio cae al default.
   const searchParams = useSearchParams()
@@ -284,9 +285,16 @@ export default function ConfiguracionPage() {
                       {typeof f.free === "string" && <span className="ml-auto text-xs text-muted-foreground/70">{f.free}</span>}
                     </div>
                   ))}
+                  {/*
+                    accounts-profiles-privilege-columns: antes llamaba a
+                    `downgradePlan()`, que escribía `profiles.plan` desde el
+                    navegador (auto-otorgamiento de plan por PostgREST). La baja
+                    real se gestiona en Facturación; misma superficie visual
+                    (mismo Button, mismas clases), sólo cambia el destino.
+                  */}
                   {isPro && (
-                    <Button onClick={downgradePlan} variant="outline" size="sm" className="mt-3 border-border text-muted-foreground">
-                      Cambiar a Gratis
+                    <Button asChild variant="outline" size="sm" className="mt-3 border-border text-muted-foreground">
+                      <Link href="/facturacion">Cambiar a Gratis</Link>
                     </Button>
                   )}
                 </CardContent>
@@ -311,10 +319,13 @@ export default function ConfiguracionPage() {
                       {typeof f.pro === "string" && <span className="ml-auto text-xs text-yellow-500/70">{f.pro}</span>}
                     </div>
                   ))}
+                  {/* Ídem: el alta real de un plan pago es /planes (MercadoPago). */}
                   {!isPro && (
-                    <Button onClick={upgradePlan} size="sm" className="mt-3 bg-yellow-500 text-yellow-950 hover:bg-yellow-400">
-                      <Crown className="h-3.5 w-3.5 mr-1" />
-                      Actualizar a Pro
+                    <Button asChild size="sm" className="mt-3 bg-yellow-500 text-yellow-950 hover:bg-yellow-400">
+                      <Link href="/planes">
+                        <Crown className="h-3.5 w-3.5 mr-1" />
+                        Actualizar a Pro
+                      </Link>
                     </Button>
                   )}
                 </CardContent>

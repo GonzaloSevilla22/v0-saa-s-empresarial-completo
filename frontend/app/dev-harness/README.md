@@ -25,3 +25,11 @@ layout ni scroll ante `wheel`/`touchmove` (RED de `tasks.md` 1.1/2.1).
   `/expenses/import` (catálogos sintéticos + heurística mínima para ejercitar
   ok/aviso/error del paso 2), para la pasada visual de los tres pasos sin
   sesión ni backend real.
+- `/dev-harness/emitir-suscripcion?theme=light|dark` — fiscal-emision-segura
+  (G5/H3): `EmitirSuscripcionDialog` real con props sintéticas, para la pasada
+  visual de las 4 combinaciones (1366 / 375 × claro / oscuro) y para fijar que
+  el CTA primario entra en el viewport de un teléfono. El diálogo vive en
+  `/admin/pagos`, que exige sesión de admin y backend; acá no hace falta
+  ninguno de los dos. Gotcha aprendido en su spec: con el diálogo abierto,
+  Radix marca `aria-hidden` el resto de la página, así que el `<h1>` del arnés
+  NO existe para el árbol de accesibilidad — esperar el diálogo, no el heading.

@@ -38,7 +38,7 @@ import { DeleteOperationDialog } from "@/components/shared/delete-operation-dial
 import { exportToCSV } from "@/lib/excel"
 import { formatMoney, formatDate, type Currency } from "@/lib/format"
 import { SaleReceiptButton } from "@/components/ventas/sale-receipt-button"
-import type { Sale, Client } from "@/lib/types"
+import type { Sale, Client, SaleFiscalState } from "@/lib/types"
 import { ProductDisplay } from "@/components/shared/product-display"
 import type { PaginationMeta, PageSizeOption } from "@/lib/pagination-utils"
 import {
@@ -64,6 +64,42 @@ import { PaymentMethodSelect } from "@/components/payment-methods/PaymentMethodS
 // consistente con el RAISE del backend (P0423, mensaje distinto por causa).
 const PAYMENT_LOCKED_REASON =
   "No editable: esta operación ya tiene un cargo de cuenta corriente, un movimiento de caja o un movimiento bancario registrado. Emití una nota de crédito y registrá una venta nueva."
+
+// venta-editable-sin-cae: el motivo NOMBRA LA CAUSA REAL, que es lo que pidió
+// el PO. Tres causas distintas comparten P0423 en el servidor y la acción que
+// le queda al usuario es distinta en cada una — un texto único las confundiría.
+// Hallazgo del estudio corregido en este change: el lápiz NO consultaba el
+// estado fiscal en absoluto (sólo `isPaymentLocked`); lo único que frenaba
+// editar una venta facturada era el banner del formulario, UNA VEZ ABIERTO.
+function fiscalBlockedReason(fiscal: SaleFiscalState | null | undefined): string | null {
+  if (!fiscal) return null
+  const comprobante = fiscal.label ? `el comprobante ${fiscal.label}` : "el comprobante de esta venta"
+  if (fiscal.status === "authorized") {
+    return `No editable: esta venta tiene un comprobante autorizado por ARCA (${fiscal.label ?? "sin número"}). Emití una nota de crédito y registrá una venta nueva.`
+  }
+  if (fiscal.frozen) {
+    return `No editable: el envío de ${comprobante} a ARCA no se confirmó y necesita revisión manual antes de reintentar.`
+  }
+  if (fiscal.submittedToArca) {
+    return `No editable: ${comprobante} ya se envió a ARCA y estamos esperando la respuesta. Probá de nuevo cuando se resuelva.`
+  }
+  return null
+}
+
+// Fail-closed: si el servidor dice que la venta está bloqueada fiscalmente pero
+// el estado que llegó no encaja en ninguna de las tres causas conocidas (status
+// nuevo, fila sin derivados), se muestra este texto y el lápiz queda igual de
+// deshabilitado. La autoridad es el servidor; la UI no adivina "se puede".
+const FISCAL_LOCKED_FALLBACK_REASON =
+  "No editable: el comprobante fiscal de esta venta ya se envió a ARCA. Emití una nota de crédito y registrá una venta nueva."
+
+/** Aviso en el lápiz HABILITADO: guardar va a anular el comprobante pendiente. */
+function voidableEditHint(fiscal: SaleFiscalState | null | undefined): string | null {
+  if (!fiscal?.voidable) return null
+  return fiscal.label
+    ? `Editar — se va a anular el comprobante pendiente ${fiscal.label} (todavía no se envió a ARCA)`
+    : "Editar — se va a anular el comprobante pendiente de esta venta (todavía no se envió a ARCA)"
+}
 
 interface SaleOperationsListProps {
   // Paginated data from parent (usePaginatedQuery)
@@ -362,6 +398,24 @@ export function SaleOperationsList({
         {/* Operation rows */}
         {filtered.map((op) => {
           const isExpanded = expandedKey === op.key
+          // venta-editable-sin-cae: el motivo fiscal tiene PRIORIDAD sobre el de
+          // pago (es el que el PO pidió que se nombrara). Fail-closed: si el
+          // servidor marca isFiscallyLocked y el estado no encaja en ninguna
+          // causa conocida, igual se bloquea con el texto genérico.
+          const fiscalReason =
+            fiscalBlockedReason(op.fiscal) ??
+            (op.isFiscallyLocked ? FISCAL_LOCKED_FALLBACK_REASON : null)
+          const editBlockedReason =
+            fiscalReason ?? (op.isPaymentLocked ? PAYMENT_LOCKED_REASON : null)
+          const voidHint = voidableEditHint(op.fiscal)
+          const deleteInfo = getDeleteCompensation(
+            {
+              ...op,
+              fiscalBlockedReason: fiscalReason,
+              voidsPendingFiscalDocument: op.fiscal?.voidable ? op.fiscal.label : null,
+            },
+            "cliente",
+          )
           return (
             <div key={op.key} className="border-t border-border/50 first:border-t-0">
               <div
@@ -382,15 +436,17 @@ export function SaleOperationsList({
                         </Badge>
                       )}
                       {onEditOperation && (
-                        op.isPaymentLocked ? (
+                        editBlockedReason ? (
                           <Button type="button" variant="ghost" size="icon" disabled
-                            title={PAYMENT_LOCKED_REASON} aria-label={PAYMENT_LOCKED_REASON}
+                            title={editBlockedReason} aria-label={editBlockedReason}
                             className="h-8 w-8 text-muted-foreground/50">
                             <Lock className="h-3.5 w-3.5" />
                           </Button>
                         ) : (
                           <Button type="button" variant="ghost" size="icon"
                             onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                            title={voidHint ?? undefined}
+                            aria-label={voidHint ?? "Editar esta venta"}
                             className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
@@ -398,7 +454,7 @@ export function SaleOperationsList({
                       )}
                       <DeleteOperationDialog
                         label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
-                        info={getDeleteCompensation(op, "cliente")}
+                        info={deleteInfo}
                         onConfirm={() => handleDelete(op)}
                         isDeleting={deletingKey === op.key}
                         onTriggerClick={(e) => e.stopPropagation()}
@@ -449,14 +505,16 @@ export function SaleOperationsList({
                     {formatMoney(op.total, op.currency)}
                   </span>
                   {onEditOperation
-                    ? op.isPaymentLocked
+                    ? editBlockedReason
                       ? <Button type="button" variant="ghost" size="icon" disabled
-                          title={PAYMENT_LOCKED_REASON} aria-label={PAYMENT_LOCKED_REASON}
+                          title={editBlockedReason} aria-label={editBlockedReason}
                           className="h-8 w-8 text-muted-foreground/50">
                           <Lock className="h-3.5 w-3.5" />
                         </Button>
                       : <Button type="button" variant="ghost" size="icon"
                           onClick={(e) => { e.stopPropagation(); onEditOperation(op) }}
+                          title={voidHint ?? undefined}
+                          aria-label={voidHint ?? "Editar esta venta"}
                           className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -464,7 +522,7 @@ export function SaleOperationsList({
                   }
                   <DeleteOperationDialog
                     label={op.isGrouped ? `esta operación (${op.items.length} ítems)` : "esta venta"}
-                    info={getDeleteCompensation(op, "cliente")}
+                    info={deleteInfo}
                     onConfirm={() => handleDelete(op)}
                     isDeleting={deletingKey === op.key}
                     onTriggerClick={(e) => e.stopPropagation()}
@@ -504,7 +562,27 @@ export function SaleOperationsList({
                         Paso 1: promote → SalesOrder (si aún no está promovida)
                         Paso 2: EmitInvoiceButton sobre la SalesOrder materializada
                         "Enviar al ARCA" retirado — decisión PO 2026-06-27. */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* venta-editable-sin-cae: hasta este change el listado no
+                          mostraba NINGÚN badge para una venta facturada en una
+                          sesión anterior — sólo para las emitidas en la sesión
+                          en curso, vía promotedMap. El read model nuevo cierra
+                          ese hueco, y de paso es donde se ve "Anulado". */}
+                      {op.fiscal && (
+                        <span className="inline-flex items-center gap-1.5">
+                          <FiscalDocumentBadge
+                            documentId={op.fiscal.documentId}
+                            initialStatus={op.fiscal.status}
+                            initialFrozen={op.fiscal.frozen}
+                            verbose
+                          />
+                          {op.fiscal.label && (
+                            <span className="text-xs text-muted-foreground tabular-nums">
+                              {op.fiscal.label}
+                            </span>
+                          )}
+                        </span>
+                      )}
                       {promotedMap.has(op.key) ? (
                         // Ya promovida en esta sesión: renderizar EmitInvoiceButton
                         <EmitInvoiceButton
@@ -514,6 +592,21 @@ export function SaleOperationsList({
                           ivaConditionEmisor={fiscalProfile?.ivaCondition ?? null}
                           pointOfSaleId={defaultPointOfSaleId}
                         />
+                      ) : op.isFiscallyLocked || op.fiscal?.voidable ? (
+                        // venta-editable-sin-cae: no hay nada que facturar.
+                        //   · isFiscallyLocked → el comprobante ya salió a ARCA.
+                        //   · voidable → hay uno PENDIENTE vivo; re-emitir
+                        //     exige anularlo primero (la RPC responde
+                        //     already_invoiced, P0409), y eso se hace editando
+                        //     o borrando la venta, no desde acá.
+                        // Los estados terminal-inocuos (rejected / voided) NO
+                        // entran en esta rama: ahí "Facturar" vuelve a aparecer,
+                        // que es justamente la re-emisión que habilita D5.
+                        <span className="text-xs text-muted-foreground/70 italic">
+                          {op.isFiscallyLocked
+                            ? "Comprobante enviado a ARCA"
+                            : "Comprobante pendiente de emisión"}
+                        </span>
                       ) : op.operationId ? (
                         // Venta con operationId: mostrar botón "Facturar" (step 1)
                         <Button
@@ -522,7 +615,11 @@ export function SaleOperationsList({
                           className="gap-1.5 text-xs border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
                           onClick={(e) => handleFacturar(e, op)}
                           disabled={promotingKey === op.key}
-                          aria-label="Facturar esta venta en AFIP"
+                          aria-label={
+                            op.fiscal
+                              ? "Volver a facturar esta venta en AFIP"
+                              : "Facturar esta venta en AFIP"
+                          }
                         >
                           {promotingKey === op.key ? (
                             <>
@@ -532,7 +629,10 @@ export function SaleOperationsList({
                           ) : (
                             <>
                               <Receipt className="h-3.5 w-3.5" />
-                              Facturar
+                              {/* venta-editable-sin-cae (D5): con un comprobante
+                                  terminal-inocuo (anulado o rechazado) el botón
+                                  vuelve, y la etiqueta lo dice. */}
+                              {op.fiscal ? "Volver a facturar" : "Facturar"}
                             </>
                           )}
                         </Button>

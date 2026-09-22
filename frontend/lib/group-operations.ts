@@ -6,7 +6,7 @@
  * - Records without operationId (historical) → each is its OWN operation.
  * - Result is sorted by date descending.
  */
-import type { Sale, Purchase } from "@/lib/types"
+import type { Sale, Purchase, SaleFiscalState } from "@/lib/types"
 import type { Currency } from "@/lib/format"
 
 // ─── Sale Operations ──────────────────────────────────────────────────────────
@@ -32,9 +32,15 @@ export interface SaleOperation {
   canal: string | null
   /** edicion-preserva-contexto: unidad de medida de la primera línea (viaja pegada al producto, no al header). */
   unitId: string | null
-  /** edicion-preserva-contexto (F2): true si la operación tiene un comprobante
-   * fiscal pending_cae/authorized — el form de edición se abre en solo lectura. */
-  isInvoiced: boolean
+  /** venta-editable-sin-cae (D11): true si el comprobante de la operación YA
+   * SALIÓ hacia ARCA (authorized, o pending_cae marcado/congelado) — el form de
+   * edición se abre en solo lectura. Reemplaza `isInvoiced`: una venta con
+   * comprobante pendiente NO enviado está facturada y SÍ es editable. */
+  isFiscallyLocked: boolean
+  /** venta-editable-sin-cae: estado fiscal de la operación. La PRIMERA línea no
+   * nula, no un OR: todas las líneas de una operación comparten la misma orden,
+   * así que agregar un objeto con OR no significaría nada. null = sin comprobante. */
+  fiscal: SaleFiscalState | null
   /** pagos-cableados-restantes (D6): true si la operación tiene un cargo de
    * cuenta corriente o movimiento de caja posteado — inmutable (P0423). */
   isPaymentLocked: boolean
@@ -57,7 +63,8 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
       op.items.push(sale)
       op.total += sale.total
       op.isGrouped = true
-      op.isInvoiced = op.isInvoiced || !!sale.isInvoiced
+      op.isFiscallyLocked = op.isFiscallyLocked || !!sale.isFiscallyLocked
+      op.fiscal = op.fiscal ?? sale.fiscal ?? null
       op.isPaymentLocked = op.isPaymentLocked || !!sale.isPaymentLocked
       op.hasAccountCharge = op.hasAccountCharge || !!sale.hasAccountCharge
       op.hasCashMovement = op.hasCashMovement || !!sale.hasCashMovement
@@ -77,7 +84,8 @@ export function groupSalesByOperation(sales: Sale[]): SaleOperation[] {
         branchId: sale.branchId ?? null,
         canal: sale.canal ?? null,
         unitId: sale.unitId ?? null,
-        isInvoiced: !!sale.isInvoiced,
+        isFiscallyLocked: !!sale.isFiscallyLocked,
+        fiscal: sale.fiscal ?? null,
         isPaymentLocked: !!sale.isPaymentLocked,
         hasAccountCharge: !!sale.hasAccountCharge,
         hasCashMovement: !!sale.hasCashMovement,

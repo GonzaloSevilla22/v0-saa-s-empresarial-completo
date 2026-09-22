@@ -11,11 +11,44 @@ import { getDeleteCompensation } from "@/lib/delete-compensation"
 // confirma sin enumerar.
 
 describe("getDeleteCompensation (operation-delete-compensation, derivado de lectura)", () => {
-  it("comprobante fiscal emitido → no borrable, con razón que nombra la Nota de Crédito", () => {
-    const info = getDeleteCompensation({ isInvoiced: true, hasAccountCharge: true })
+  it("comprobante fiscal ya enviado a ARCA → no borrable, con razón que nombra la Nota de Crédito", () => {
+    const info = getDeleteCompensation({ isFiscallyLocked: true, hasAccountCharge: true })
     expect(info.deletable).toBe(false)
     expect(info.blockedReason).toMatch(/Nota de Crédito/i)
     expect(info.compensations).toEqual([])
+  })
+
+  // ── venta-editable-sin-cae ───────────────────────────────────────────────
+
+  it("el motivo por CAUSA REAL gana al genérico cuando el caller lo pasa", () => {
+    const info = getDeleteCompensation({
+      isFiscallyLocked: true,
+      fiscalBlockedReason: "No editable: esta venta tiene un comprobante autorizado por ARCA (0003-00000004).",
+    })
+    expect(info.deletable).toBe(false)
+    expect(info.blockedReason).toContain("0003-00000004")
+    expect(info.blockedReason).not.toMatch(/Nota de Crédito/i)
+  })
+
+  it("comprobante PENDIENTE no enviado → borrable, y la anulación es la PRIMERA compensación", () => {
+    const info = getDeleteCompensation({
+      isFiscallyLocked: false,
+      voidsPendingFiscalDocument: "0003-00000005",
+      hasAccountCharge: true,
+      hasCashMovement: true,
+    })
+    expect(info.deletable).toBe(true)
+    expect(info.blockedReason).toBeNull()
+    // Mismo orden que los guards del servidor: el fiscal corre primero.
+    expect(info.compensations[0]).toContain("0003-00000005")
+    expect(info.compensations[0]).toMatch(/anulará el comprobante pendiente/i)
+    expect(info.compensations[0]).toMatch(/volver a emitirlo/i)
+    expect(info.compensations).toHaveLength(3)
+  })
+
+  it("sin comprobante pendiente, NO se enumera ninguna anulación", () => {
+    const info = getDeleteCompensation({ hasAccountCharge: true })
+    expect(info.compensations.some((c) => /anular/i.test(c))).toBe(false)
   })
 
   it("sin comprobante, con cargo + caja + banco → enumera los tres", () => {

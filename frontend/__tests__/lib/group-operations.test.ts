@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { groupSalesByOperation, groupPurchasesByOperation } from "@/lib/group-operations"
 import type { Sale, Purchase } from "@/lib/types"
 
-// edicion-preserva-contexto (F1/F2): branchId/canal/unitId/isInvoiced viajan
+// edicion-preserva-contexto (F1/F2): branchId/canal/unitId/isFiscallyLocked viajan
 // desde la fila (Sale/Purchase) hacia la SaleOperation/PurchaseOperation
 // agrupada — sin esto SaleForm/PurchaseForm no tienen con qué prefillear ni
 // con qué decidir el bloqueo fiscal.
@@ -55,26 +55,26 @@ describe("groupSalesByOperation — contexto edicion-preserva-contexto", () => {
     expect(op.unitId).toBeNull()
   })
 
-  it("isInvoiced=false por defecto cuando la fila no lo trae", () => {
-    const [op] = groupSalesByOperation([makeSale({ isInvoiced: undefined })])
-    expect(op.isInvoiced).toBe(false)
+  it("isFiscallyLocked=false por defecto cuando la fila no lo trae", () => {
+    const [op] = groupSalesByOperation([makeSale({ isFiscallyLocked: undefined })])
+    expect(op.isFiscallyLocked).toBe(false)
   })
 
-  it("isInvoiced=true se propaga a la operación agrupada", () => {
-    const [op] = groupSalesByOperation([makeSale({ isInvoiced: true })])
-    expect(op.isInvoiced).toBe(true)
+  it("isFiscallyLocked=true se propaga a la operación agrupada", () => {
+    const [op] = groupSalesByOperation([makeSale({ isFiscallyLocked: true })])
+    expect(op.isFiscallyLocked).toBe(true)
   })
 
   it("TRIANGULATE: en una operación multi-línea, si CUALQUIER línea está facturada, la operación queda marcada facturada", () => {
     const [op] = groupSalesByOperation([
-      makeSale({ id: "s1", isInvoiced: false }),
-      makeSale({ id: "s2", isInvoiced: true }),
+      makeSale({ id: "s1", isFiscallyLocked: false }),
+      makeSale({ id: "s2", isFiscallyLocked: true }),
     ])
     expect(op.isGrouped).toBe(true)
-    expect(op.isInvoiced).toBe(true)
+    expect(op.isFiscallyLocked).toBe(true)
   })
 
-  // pagos-cableados-restantes (D6): mismo contrato que isInvoiced, para el
+  // pagos-cableados-restantes (D6): mismo contrato que isFiscallyLocked, para el
   // guard de inmutabilidad por cargo de cuenta corriente / movimiento de caja.
   it("isPaymentLocked=false por defecto cuando la fila no lo trae", () => {
     const [op] = groupSalesByOperation([makeSale({ isPaymentLocked: undefined })])

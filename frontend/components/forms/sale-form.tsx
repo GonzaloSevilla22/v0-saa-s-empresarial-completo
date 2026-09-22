@@ -43,6 +43,10 @@ import { toast } from "sonner"
 import { BranchSelect } from "@/components/branches/BranchSelect"
 import { PaymentMethodSelect, BankAccountDestinationSelect } from "@/components/payment-methods/PaymentMethodSelect"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { usePaymentMethods } from "@/hooks/data/use-payment-methods"
 import { bankAccountForKind } from "@/lib/types"
 import { humanizeOperationError } from "@/lib/operation-errors"
@@ -74,12 +78,23 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // antes que repetición: usePaymentMethods, useCustomerAccount, useBranches/
   // useCashboxes/useCurrentSession son los mismos hooks, no una copia.
   const { paymentMethods } = usePaymentMethods()
-  // edicion-preserva-contexto (F2 §D11): la operación ya tiene comprobante
-  // fiscal emitido (pending_cae/authorized) — el form se abre en solo
-  // lectura. El P0423 del backend sigue siendo la defensa real (RPC guard);
-  // esto solo evita que el usuario llegue hasta ese error.
-  const isInvoiced = isEdit && !!editingOperation?.isInvoiced
+  // edicion-preserva-contexto (F2 §D11) + venta-editable-sin-cae (D11): el
+  // comprobante fiscal de la operación YA SALIÓ hacia ARCA (authorized, o
+  // pending_cae marcado/congelado) — el form se abre en solo lectura. El P0423
+  // del backend sigue siendo la defensa real (guard de la RPC); esto sólo evita
+  // que el usuario llegue hasta ese error.
+  const isFiscallyLocked = isEdit && !!editingOperation?.isFiscallyLocked
   const invoicedBannerId = "sale-form-invoiced-banner"
+  // venta-editable-sin-cae: el comprobante está PENDIENTE y todavía no se
+  // envió — guardar los cambios lo va a ANULAR. No bloquea nada: el pedido del
+  // PO es justamente que se pueda, con aviso y confirmación explícita.
+  const fiscal = isEdit ? editingOperation?.fiscal ?? null : null
+  const willVoidFiscalDocument = !!fiscal?.voidable
+  const voidableComprobante = fiscal?.label ?? null
+  const voidBannerId = "sale-form-void-pending-banner"
+  // Confirmación explícita antes de disparar la mutación (patrón de la casa:
+  // el servidor compensa, el diálogo enumera antes de confirmar).
+  const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
 
   // Synchronous re-entrancy guard: closes the double-click window before the
   // async `submitting` state has a chance to re-render the disabled button.
@@ -494,12 +509,25 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (isInvoiced) {
+    if (isFiscallyLocked) {
       // Defensa en profundidad: el botón ya está deshabilitado y el
       // fieldset ya bloquea los inputs — esto cubre un submit programático.
-      toast.error("Esta operación ya tiene un comprobante fiscal emitido y no puede editarse.")
+      toast.error("El comprobante fiscal de esta venta ya se envió a ARCA y no puede editarse.")
       return
     }
+    // venta-editable-sin-cae: confirmación explícita ANTES de anular el
+    // comprobante pendiente. Se abre el diálogo y se corta acá; "Guardar y
+    // anular" vuelve a entrar por `submitOperation`.
+    if (willVoidFiscalDocument) {
+      setConfirmVoidOpen(true)
+      return
+    }
+    await submitOperation()
+  }
+
+  /** El submit real, sin el paso de confirmación (lo comparten el submit
+   * directo y el botón "Guardar y anular" del AlertDialog). */
+  async function submitOperation() {
     if (cartItems.length === 0) {
       toast.error("Agregá al menos un producto al carrito")
       return
@@ -515,7 +543,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
       setSubmitting(true)
       try {
         const saleIds = editingOperation.items.map(i => i.id)
-        await updateSaleOperation({
+        const result = await updateSaleOperation({
           saleIds,
           newItems: cartItems,
           meta: {
@@ -535,7 +563,16 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             canal,
           },
         })
-        toast.success("✅ Venta actualizada correctamente")
+        // venta-editable-sin-cae: el toast se arma con lo que dice el
+        // SERVIDOR (`voided_fiscal_document`), no con lo que el cliente creía
+        // antes de guardar: si la carrera contra el relay hizo que el servidor
+        // bloqueara, llega un 409 y nunca se muestra un "anulado" falso.
+        const voided = result?.voided_fiscal_document ?? null
+        toast.success(
+          voided
+            ? `✅ Cambios guardados — se anuló el comprobante ${voided.label}`
+            : "✅ Venta actualizada correctamente",
+        )
         await refreshData()
         onSuccess()
       } catch (err: any) {
@@ -617,20 +654,48 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           párrafo (con role="status" para que un lector de pantalla lo
           anuncie al entrar en modo edición) es el "motivo accesible" del
           botón deshabilitado. */}
-      {isInvoiced && (
+      {isFiscallyLocked && (
         <div
           id={invoicedBannerId}
           role="status"
           className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          <p className="font-semibold">Esta venta ya tiene un comprobante fiscal emitido</p>
+          {/* venta-editable-sin-cae: el motivo NOMBRA LA CAUSA REAL — tres
+              causas distintas comparten P0423 y la salida del usuario es
+              distinta en cada una. */}
+          <p className="font-semibold">
+            {fiscal?.status === "authorized"
+              ? "Esta venta tiene un comprobante autorizado por ARCA"
+              : fiscal?.frozen
+                ? "El envío del comprobante a ARCA no se confirmó"
+                : "El comprobante de esta venta ya se envió a ARCA"}
+          </p>
           <p className="mt-1 text-destructive/90">
-            No se puede editar una operación facturada. Para corregirla, emití una nota de
-            crédito por el comprobante actual y registrá una venta nueva con los datos correctos.
+            {fiscal?.status === "authorized"
+              ? `No se puede editar una venta con comprobante autorizado${fiscal?.label ? ` (${fiscal.label})` : ""}. Para corregirla, emití una nota de crédito y registrá una venta nueva con los datos correctos.`
+              : fiscal?.frozen
+                ? `El comprobante${fiscal?.label ? ` ${fiscal.label}` : ""} salió hacia ARCA y su resultado nunca se confirmó. Necesita revisión manual en ARCA antes de reintentar.`
+                : `El comprobante${fiscal?.label ? ` ${fiscal.label}` : ""} ya se envió a ARCA y todavía no hay respuesta. Vas a poder editar la venta cuando se resuelva.`}
           </p>
         </div>
       )}
-      <fieldset disabled={isInvoiced} className="contents">
+      {/* venta-editable-sin-cae: banner DISTINTO del de bloqueo — acá no hay un
+          error, hay un aviso. Tokens de advertencia, no `destructive`. */}
+      {willVoidFiscalDocument && (
+        <div
+          id={voidBannerId}
+          role="status"
+          className="mb-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
+        >
+          <p className="font-semibold">Esta venta tiene un comprobante pendiente</p>
+          <p className="mt-1 text-muted-foreground">
+            Si guardás los cambios se va a anular el comprobante
+            {voidableComprobante ? ` ${voidableComprobante}` : ""}, que todavía no se envió
+            a ARCA. Después podés volver a emitirlo desde la venta.
+          </p>
+        </div>
+      )}
+      <fieldset disabled={isFiscallyLocked} className="contents">
       <ScrollableCartShell
         hasItems={cartItems.length > 0}
 
@@ -680,12 +745,18 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
             <Button
               type="submit"
               className="w-full"
-              disabled={submitting || cartItems.length === 0 || isInvoiced}
-              aria-disabled={isInvoiced}
-              aria-describedby={isInvoiced ? invoicedBannerId : undefined}
+              disabled={submitting || cartItems.length === 0 || isFiscallyLocked}
+              aria-disabled={isFiscallyLocked}
+              aria-describedby={
+                isFiscallyLocked
+                  ? invoicedBannerId
+                  : willVoidFiscalDocument
+                    ? voidBannerId
+                    : undefined
+              }
             >
-              {isInvoiced
-                ? "No editable — comprobante emitido"
+              {isFiscallyLocked
+                ? "No editable — comprobante enviado a ARCA"
                 : submitting
                 ? isEdit ? "Guardando..." : "Registrando..."
                 : isEdit
@@ -1063,6 +1134,38 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
         </div>
       </ScrollableCartShell>
       </fieldset>
+
+      {/* venta-editable-sin-cae: confirmación EXPLÍCITA antes de anular el
+          comprobante pendiente. Mismo patrón que operation-delete-compensation:
+          el servidor compensa, el diálogo enumera antes de confirmar. */}
+      <AlertDialog open={confirmVoidOpen} onOpenChange={setConfirmVoidOpen}>
+        <AlertDialogContent className="bg-card border-border">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-card-foreground">
+              ¿Guardar los cambios y anular el comprobante?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-muted-foreground">
+              El comprobante{voidableComprobante ? ` ${voidableComprobante}` : ""} todavía no
+              se envió a ARCA, así que se va a anular para que no se emita con los importes
+              viejos. Vas a poder emitir uno nuevo cuando quieras.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-border text-foreground">
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmVoidOpen(false)
+                void submitOperation()
+              }}
+              disabled={submitting}
+            >
+              Guardar y anular
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </form>
   )
 }

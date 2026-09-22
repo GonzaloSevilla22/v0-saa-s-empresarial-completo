@@ -3,11 +3,14 @@
  *
  * Deriva, DE LECTURA, qué va a pasar si se borra una operación de venta o
  * compra — nunca una columna denormalizada (misma regla D5 que ya rige
- * is_payment_locked/is_invoiced). Espeja el orden de guards del backend
+ * is_payment_locked/is_fiscally_locked). Espeja el orden de guards del backend
  * (rpc_delete_sale_operation / rpc_delete_purchase_operation, D2/D3):
  *
- *   1. Comprobante fiscal emitido → NO borrable (P0423). El camino correcto
- *      es la Nota de Crédito.
+ *   1. Comprobante fiscal que YA SALIÓ hacia ARCA → NO borrable (P0423). El
+ *      camino correcto es la Nota de Crédito.
+ *      venta-editable-sin-cae: un comprobante pendiente que TODAVÍA NO se
+ *      envió ya NO bloquea — se anula al borrar, y el diálogo lo enumera
+ *      primero (`voidsPendingFiscalDocument`).
  *   2. Dinero posteado (cuenta corriente / caja / banco) → borrable, pero
  *      el diálogo enumera qué libro se va a compensar antes de confirmar.
  *   3. Sin nada de lo anterior → borrable, confirmación simple.
@@ -17,7 +20,27 @@
  */
 
 export interface DeletableOperationFlags {
-  isInvoiced?: boolean
+  /**
+   * venta-editable-sin-cae (D11): renombrado desde `isInvoiced`. true sólo
+   * cuando el comprobante YA SALIÓ hacia ARCA (authorized, marcado o
+   * congelado) — un comprobante pendiente NO enviado ya no bloquea el borrado:
+   * se ANULA, y eso se enumera como compensación.
+   */
+  isFiscallyLocked?: boolean
+  /**
+   * venta-editable-sin-cae: motivo por CAUSA REAL cuando `isFiscallyLocked`.
+   * Lo arma el listado, que es quien tiene el estado fiscal completo (¿está
+   * autorizado? ¿se envió y esperamos respuesta? ¿quedó congelado?). Ausente =
+   * se usa el texto genérico de siempre.
+   */
+  fiscalBlockedReason?: string | null
+  /**
+   * venta-editable-sin-cae: identidad del comprobante PENDIENTE que el borrado
+   * va a anular ("0003-00000005"), o null/ausente si no hay ninguno. Cuando
+   * viene, el diálogo lo enumera ANTES de las otras compensaciones — mismo
+   * orden que los guards del servidor.
+   */
+  voidsPendingFiscalDocument?: string | null
   hasAccountCharge?: boolean
   hasCashMovement?: boolean
   hasBankMovement?: boolean
@@ -51,8 +74,10 @@ export interface DeleteCompensationInfo {
   compensations: string[]
 }
 
+/** Fallback genérico: lo usan los callers que no derivan el motivo por causa
+ * real (compras y gastos, que no tienen estado fiscal propio). */
 const FISCAL_BLOCKED_REASON =
-  "No se puede borrar: la operación tiene un comprobante fiscal emitido. El camino correcto es emitir una Nota de Crédito."
+  "No se puede borrar: la operación tiene un comprobante fiscal ya enviado a ARCA. El camino correcto es emitir una Nota de Crédito."
 
 /** Documento sobre el que se deriva — sólo cambia la redacción, no la lógica.
  * caja-compras-cobranzas (task 12.2): suma "compra" — la compra ahora
@@ -79,14 +104,27 @@ export function getDeleteCompensation(
   party: "cliente" | "proveedor" = "cliente",
   document: DeletableDocument = "operacion",
 ): DeleteCompensationInfo {
-  if (flags.isInvoiced) {
-    return { deletable: false, blockedReason: FISCAL_BLOCKED_REASON, compensations: [] }
+  if (flags.isFiscallyLocked) {
+    // venta-editable-sin-cae: el motivo por causa real gana al genérico. El
+    // fallback se conserva para los callers que no lo pasan (compras/gastos).
+    return {
+      deletable: false,
+      blockedReason: flags.fiscalBlockedReason || FISCAL_BLOCKED_REASON,
+      compensations: [],
+    }
   }
   if (flags.isDeleteBlocked) {
     return { deletable: false, blockedReason: NO_OPEN_SESSION_BLOCKED_REASON[document], compensations: [] }
   }
 
   const compensations: string[] = []
+  // venta-editable-sin-cae: PRIMERA de la lista, mismo orden que los guards del
+  // servidor (el fiscal corre antes que cuenta corriente, caja y banco).
+  if (flags.voidsPendingFiscalDocument) {
+    compensations.push(
+      `Se anulará el comprobante pendiente ${flags.voidsPendingFiscalDocument} (todavía no se envió a ARCA). Podés volver a emitirlo después.`,
+    )
+  }
   if (flags.hasAccountCharge) {
     compensations.push(
       party === "proveedor"

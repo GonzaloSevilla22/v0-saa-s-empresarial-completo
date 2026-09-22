@@ -409,6 +409,42 @@ export interface Product {
   stockControlType?: StockControlType
 }
 
+/**
+ * Estado de un comprobante fiscal.
+ *
+ * venta-editable-sin-cae: suma el 4o estado terminal `voided` (anulado por
+ * editar o borrar su venta ANTES de que el pedido saliera hacia ARCA — NO es
+ * una nota de crédito, que revierte uno que SÍ tuvo efecto fiscal), y mueve el
+ * tipo desde `components/fiscal/FiscalDocumentBadge` a la capa canónica de
+ * tipos: `Sale.fiscal` lo necesita y `lib/` no debe depender de `components/`.
+ * El badge lo re-exporta para no romper a sus 6 importadores.
+ */
+export type FiscalDocumentStatus = "pending_cae" | "authorized" | "rejected" | "voided"
+
+/**
+ * venta-editable-sin-cae: estado fiscal de una operación de venta, derivado de
+ * lectura en el backend (mismo predicado que el helper SQL de anulación) —
+ * nunca una columna denormalizada.
+ */
+export interface SaleFiscalState {
+  documentId: string
+  /** Incluye "voided" (anulado por editar/borrar la venta antes de enviarla). */
+  status: FiscalDocumentStatus
+  /**
+   * Identidad ARCA del comprobante ("0003-00000005"), formateada con
+   * `formatComprobante` de lib/fiscal-comprobante (reutilización: es el mismo
+   * formato que ya muestra la pantalla de emisión). null si falta el punto de
+   * venta o el número — la UI no debe renderizar un hueco donde va un número.
+   */
+  label: string | null
+  /** El pedido salió hacia ARCA (cae_submit_started_at). */
+  submittedToArca: boolean
+  /** Salió y su resultado nunca se confirmó — requiere revisión manual. */
+  frozen: boolean
+  /** Pendiente SIN marca: editar o borrar la venta lo ANULA. */
+  voidable: boolean
+}
+
 export interface Sale {
   id: string
   date: string
@@ -436,8 +472,16 @@ export interface Sale {
   branchId?: string | null
   /** edicion-preserva-contexto: canal de venta de la operación (editable, tri-estado). */
   canal?: string | null
-  /** edicion-preserva-contexto (F2): true si tiene comprobante fiscal pending_cae/authorized — inmutable. */
-  isInvoiced?: boolean
+  /**
+   * venta-editable-sin-cae (D11): true si el comprobante de la venta YA SALIÓ
+   * hacia ARCA (authorized, o pending_cae marcado/congelado) — inmutable.
+   * Reemplaza `isInvoiced`: con la regla nueva una venta FACTURADA cuyo
+   * comprobante todavía no se envió SÍ es editable, así que "facturada" e
+   * "inmutable" dejaron de ser lo mismo.
+   */
+  isFiscallyLocked?: boolean
+  /** venta-editable-sin-cae: estado fiscal de la venta, derivado de lectura. null = sin comprobante. */
+  fiscal?: SaleFiscalState | null
   /** pagos-cableados-restantes (D6): true si tiene cargo de cuenta corriente o movimiento de caja posteado — inmutable. */
   isPaymentLocked?: boolean
   /** delete-guard-ledgers: mismos tres EXISTS de isPaymentLocked, separados

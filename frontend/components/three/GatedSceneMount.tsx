@@ -67,7 +67,12 @@ export function GatedSceneMount({ importer, poster, className }: GatedSceneMount
   const shouldLoad = gate.qualifies && isInView
 
   return (
-    <div ref={containerRef} aria-hidden="true" className={cn("pointer-events-none", className)}>
+    <div
+      ref={containerRef}
+      aria-hidden="true"
+      data-testid="scene-decorative-box"
+      className={cn("pointer-events-none", className)}
+    >
       {shouldLoad ? <Scene className={className} /> : poster}
     </div>
   )

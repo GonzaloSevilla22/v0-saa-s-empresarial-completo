@@ -17,7 +17,7 @@ import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
 import { useCaptchaGate } from "@/hooks/auth"
 import { TERMS_VERSION, LEGAL_ROUTES } from "@/lib/legal"
 import { PROVINCIAS_AR } from "@/lib/provincias"
-import { AuthSceneMount } from "@/components/three/AuthSceneMount"
+import { AuthSceneMount, AUTH_SCENE_BOX_CLASS } from "@/components/three/AuthSceneMount"
 
 // Email: chequeo pragmático (algo@algo.algo, sin espacios).
 const isValidEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
@@ -159,11 +159,13 @@ export default function RegisterPage() {
   return (
     <div className="relative flex min-h-svh items-center justify-center overflow-hidden bg-background p-4">
       {/* v4-visual-3d-refresh 3.2: mismo tratamiento que login (escena de
-          acompañamiento en el fondo, formulario 100% usable sin ella). */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center opacity-60">
-        <div className="h-[480px] w-[480px]">
-          <AuthSceneMount />
-        </div>
+          acompañamiento en el fondo, formulario 100% usable sin ella).
+          fix/login-3d-visible: ver AUTH_SCENE_BOX_CLASS y el comentario de
+          items-start/md:items-center (y la opacidad más baja bajo md, MINOR 3
+          de la revisión adversarial) en auth/login/page.tsx — acá importa
+          más todavía, este Card es el más alto de los dos. */}
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-start justify-center opacity-30 md:items-center md:opacity-60">
+        <AuthSceneMount className={AUTH_SCENE_BOX_CLASS} />
       </div>
       <div className="relative z-10 w-full max-w-md">
         <div className="flex flex-col items-center gap-4">
@@ -174,7 +176,7 @@ export default function RegisterPage() {
           <p className="text-sm text-muted-foreground">Emprender es Inteligente</p>
         </div>
 
-        <Card className="border-border bg-card">
+        <Card className="border-border bg-card" data-testid="auth-card">
           <CardHeader className="text-center">
             <CardTitle className="text-xl text-card-foreground">Crear cuenta</CardTitle>
             <CardDescription>Registrate para empezar a gestionar tu negocio</CardDescription>

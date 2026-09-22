@@ -26,13 +26,22 @@
 --       Cierre: allow-list (cero escritura directa) + policy retirada +
 --       trigger BEFORE INSERT como tercera capa.
 --
+--   R3  (segundo red team sobre el fix de R1/R2, mismo día) `rejected` es
+--       TERMINAL y rpc_fiscal_document_reject no tenía más guard que
+--       `status = 'pending_cae'`: rechazaba igual un comprobante con la marca
+--       de envío viva —cuyo número PUEDE existir en ARCA— y hasta uno
+--       CONGELADO, congelado justamente porque no sabemos si ARCA lo autorizó.
+--       Tres caminos independientes del relay llegaban ahí (el guard de
+--       ambiente, el camino de error ordinario y una llamada manual).
+--       Cierre: el guard en la RPC, que es el CHOKE POINT de los tres.
+--
 -- Sin backfill: 0 documentos pending_cae, 0 congelados, las 2 filas vivas son
 -- authorized con CAE real de ARCA (medido en prod el 2026-09-22).
 --
--- Layout: R1 (columna, índice, 2 RPCs nuevas, claim_pending y SUS ACLs) y
--- después R2 (policy, privilegios, trigger y SU revoke). Las ACLs van al final
--- de la sección que hace el DROP+CREATE que las resetea, no al final del
--- archivo: R2 no redefine ninguna de las funciones de R1.
+-- Layout: R1 (columna, índice, 2 RPCs nuevas, claim_pending y SUS ACLs),
+-- después R2 (policy, privilegios, trigger y SU revoke) y al final R3. Las ACLs
+-- van al final de la sección que hace el DROP+CREATE que las resetea, no al
+-- final del archivo: ninguna sección redefine funciones de otra.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -348,3 +357,93 @@ CREATE TRIGGER trg_guard_fiscal_document_insert_interno
   BEFORE INSERT ON public.fiscal_documents
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_guard_fiscal_document_insert_interno();
+
+
+-- ════════════════════════════════ R3 ═══════════════════════════════════════
+-- `rejected` PROHIBIDO sobre un envío que puede haber llegado a ARCA.
+--
+-- `rejected` es un estado TERMINAL: nadie lo revisa después. El relay ya tenía
+-- `_retry_or_freeze_reconcile` —que NUNCA rechaza— precisamente porque un
+-- documento marcado "podría estar tapando un CAE real", pero esa protección
+-- sólo cubría la rama de reconciliación. El segundo red team encontró TRES
+-- caminos que la esquivaban:
+--
+--   (a) el guard de ambiente del processor se evalúa antes de la rama de
+--       reconciliación y no retornaba;
+--   (b) el camino de error ordinario, cuando el hook marcó en ESE mismo tick
+--       (el snapshot de claim_pending todavía decía que no había marca);
+--   (c) una llamada directa a esta RPC, que no tenía guard alguno — ni siquiera
+--       para un documento CONGELADO.
+--
+-- (a) y (b) se cierran en el processor (Python). Éste es el CHOKE POINT que los
+-- cubre a los tres de una vez, y el único que sobrevive a un camino futuro que
+-- nadie anticipó — mismo patrón que `cuenta-corriente-party-guard` usó con
+-- `c30_get_or_create_*`.
+--
+-- LEVANTA en vez de devolver false a propósito: un rechazo silenciosamente
+-- ignorado dejaría el documento pending_cae para siempre, sin señal. Con el
+-- guard de la capa 1 puesto, este RAISE no debería dispararse nunca; si se
+-- dispara, es un camino nuevo que hay que mirar.
+--
+-- La resolución MANUAL de un congelado no pasa por acá (la RPC no tiene EXECUTE
+-- para authenticated desde #577): un DBA que decida que ARCA efectivamente lo
+-- rechazó hace el UPDATE directo, que es deliberado y auditable.
+--
+-- Cuerpo partido del pg_get_functiondef VIVO de prod (releído 2026-09-22); lo
+-- único que se agrega es el bloque del guard. CREATE OR REPLACE con la MISMA
+-- firma (uuid, text) — no hay cambio de tipo de retorno ni parámetro nuevo, así
+-- que no aplica ni el 42P13 ni el 42725 del overload. Las ACLs se re-aplican
+-- igual, por si esta migración corre sobre una base donde la función nace acá.
+CREATE OR REPLACE FUNCTION public.rpc_fiscal_document_reject(
+  p_doc_id     uuid,
+  p_last_error text
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_matched      boolean;
+  v_started      timestamptz;
+  v_unconfirmed  timestamptz;
+  v_req          bigint;
+BEGIN
+  SELECT cae_submit_started_at, cae_submit_unconfirmed_at, arca_requested_number
+  INTO   v_started, v_unconfirmed, v_req
+  FROM   public.fiscal_documents
+  WHERE  id = p_doc_id;
+
+  IF v_started IS NOT NULL OR v_unconfirmed IS NOT NULL THEN
+    RAISE EXCEPTION
+      'FISCAL_DOCUMENT_REJECT_CON_ENVIO_MARCADO: el comprobante % tiene un envío a ARCA marcado (started=%, unconfirmed=%, número pedido %) y "rejected" es TERMINAL: taparía un CAE que puede existir en ARCA. Reconciliar (FECompConsultar) o congelar; nunca rechazar.',
+      p_doc_id, v_started, v_unconfirmed, COALESCE(v_req::text, '<NULL>')
+      USING ERRCODE = 'P0438';
+  END IF;
+
+  UPDATE public.fiscal_documents
+  SET status     = 'rejected',
+      last_error = p_last_error
+  WHERE id = p_doc_id AND status = 'pending_cae';
+
+  v_matched := FOUND;
+
+  IF v_matched THEN
+    PERFORM public.rpc_record_fiscal_transition(p_doc_id, 'rejected', p_last_error);
+  END IF;
+
+  RETURN v_matched;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.rpc_fiscal_document_reject(uuid, text) IS
+  'Transición terminal a rejected. fiscal-riesgos-residuales (R3): RECHAZA con '
+  'P0438 si el comprobante tiene cae_submit_started_at o '
+  'cae_submit_unconfirmed_at — un envío que puede haber llegado a ARCA no se '
+  'puede dejar en un estado terminal. Choke point de los tres caminos del relay '
+  'que llegaban acá. Interna: sólo postgres/service_role.';
+
+REVOKE ALL ON FUNCTION public.rpc_fiscal_document_reject(uuid, text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_reject(uuid, text)
+  TO postgres, service_role;

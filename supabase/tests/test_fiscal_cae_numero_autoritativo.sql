@@ -956,6 +956,8 @@ DECLARE
   v_doc5      uuid;   -- índice único (segundo, colisiona)
   v_doc6      uuid;   -- congelado + marcado
   v_doc7      uuid;   -- cota de re-emisión
+  v_doc8      uuid;   -- rechazo SIN marca (control positivo)
+  v_doc9      uuid;   -- rechazo CON marca → P0438
 
   v_ret       boolean;
   v_state     text;
@@ -1229,11 +1231,79 @@ BEGIN
     v_failures := v_failures || format('(16.j) con attempts=10 el ciclo marca→602→limpieza→marca debe cortarse; filas=%s', v_count);
   END IF;
 
+  -- ═══ (16.k) MAJOR 2 (c): `rejected` PROHIBIDO sobre un envío que salió ═════
+  -- `rpc_fiscal_document_reject` no tenía más guard que `status='pending_cae'`,
+  -- así que dejaba TERMINAL un documento cuyo número ya se le pidió a ARCA — y
+  -- también uno CONGELADO, congelado justamente porque no sabemos si ARCA lo
+  -- autorizó. Es el CHOKE POINT: cubre de una vez los tres caminos que el red
+  -- team encontró (el guard de ambiente, el error ordinario y una llamada
+  -- manual), mismo patrón que `cuenta-corriente-party-guard` usó con
+  -- `c30_get_or_create_*`.
+
+  -- (16.k.1) CONTROL POSITIVO: sin marca, el rechazo sigue funcionando. Sin
+  -- este caso el guard podría ser "no rechazar nunca" y nadie lo notaría.
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_a, 'factura_c', 8020, 5, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc8;
+
+  v_ret := public.rpc_fiscal_document_reject(v_doc8, '[WSFE_ERROR] sin marca: se rechaza');
+  IF v_ret IS NOT TRUE THEN
+    v_failures := v_failures || '(16.k.1) control positivo: un pending_cae SIN marca se sigue rechazando';
+  END IF;
+
+  SELECT status INTO v_state FROM public.fiscal_documents WHERE id = v_doc8;
+  IF v_state <> 'rejected' THEN
+    v_failures := v_failures || format('(16.k.1) el documento sin marca debía quedar rejected; got %s', v_state);
+  END IF;
+
+  -- (16.k.2) Con la marca viva → P0438, y el documento NO se mueve.
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_a, 'factura_c', 8020, 6, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc9;
+
+  v_ret := public.rpc_fiscal_document_mark_submit_started(v_doc9, 500);
+
+  BEGIN
+    v_ret := public.rpc_fiscal_document_reject(v_doc9, '[WSFE_ERROR] tope de intentos');
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0438' THEN
+    v_failures := v_failures || format('(16.k.2) rechazar un documento con la marca viva debía dar P0438; got %s', v_state);
+  END IF;
+
+  SELECT status INTO v_state FROM public.fiscal_documents WHERE id = v_doc9;
+  IF v_state <> 'pending_cae' THEN
+    v_failures := v_failures || format('(16.k.2) el documento marcado NO debe moverse de pending_cae; got %s', v_state);
+  END IF;
+
+  -- (16.k.3) Un CONGELADO tampoco se rechaza. El congelamiento protegía contra
+  -- `claim_pending`, no contra el rechazo: v_doc6 quedó congelado en (16.i).
+  BEGIN
+    v_ret := public.rpc_fiscal_document_reject(v_doc6, '[WSFE_ERROR] rechazo de un congelado');
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0438' THEN
+    v_failures := v_failures || format('(16.k.3) rechazar un CONGELADO debía dar P0438; got %s', v_state);
+  END IF;
+
+  SELECT status INTO v_state FROM public.fiscal_documents WHERE id = v_doc6;
+  IF v_state <> 'pending_cae' THEN
+    v_failures := v_failures || format('(16.k.3) el congelado NO debe quedar rejected; got %s', v_state);
+  END IF;
+
   IF array_length(v_failures, 1) > 0 THEN
     RAISE EXCEPTION E'GATE FISCAL-CAE (16) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'PASS (16): marca previa persistida y devuelta por claim_pending, segunda marca / sin número / documento inexistente / ya authorized rechazados con P0437, número en vuelo único por PV, limpieza con attempts+1 y vuelta al reposo, congelado no desmarcable y re-emisión acotada.';
+  RAISE NOTICE 'PASS (16): marca previa persistida y devuelta por claim_pending, segunda marca / sin número / documento inexistente / ya authorized rechazados con P0437, número en vuelo único por PV, limpieza con attempts+1 y vuelta al reposo, congelado no desmarcable, re-emisión acotada y rechazo prohibido (P0438) sobre marcado y congelado con control positivo.';
 
   -- ═══ (19) Limpieza verificada ═══
   DELETE FROM public.document_status_history WHERE account_id = v_account_m;

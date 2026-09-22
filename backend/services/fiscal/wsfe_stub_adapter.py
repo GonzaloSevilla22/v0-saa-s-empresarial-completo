@@ -69,6 +69,9 @@ class WSFEStubAdapter(FiscalDocumentPort):
             is_approved=True,
             error_code=None,
             error_detail=None,
+            # G3: el stub nunca diverge del número local (no habla con ARCA, así
+            # que no tiene otro número que informar).
+            number=invoice_data.number,
         )
 
     @staticmethod

@@ -128,6 +128,9 @@ class CAERelayProcessor:
                 doc_id=doc["id"],
                 cae=response.cae,
                 cae_due_date=response.cae_due_date,
+                # G3: el número que ARCA confirmó. La RPC lo adopta si difiere
+                # del local y deja el desfasaje en document_status_history.
+                number=response.number,
             )
             logger.info("CAERelayProcessor: doc %s autorizado con CAE %s", doc["id"], response.cae)
 

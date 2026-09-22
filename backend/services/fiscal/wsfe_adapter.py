@@ -591,10 +591,21 @@ class WSFEAdapter(FiscalDocumentPort):
         try:
             det = result.FeDetResp.FECAEDetResponse[0]
             if det.Resultado == "A":  # Aprobado
+                # fiscal-emision-segura (G3): el número que se PERSISTE es el que
+                # ARCA confirmó (det.CbteDesde), no el que calculamos antes de
+                # llamar. Fallback a cbte_numero (= ultimo+1, lo que pedimos) si
+                # la respuesta no lo trae: degrada al comportamiento anterior,
+                # nunca a None.
+                confirmed = getattr(det, "CbteDesde", None)
+                try:
+                    number = int(confirmed) if confirmed is not None else cbte_numero
+                except (TypeError, ValueError):
+                    number = cbte_numero
                 return CAEResponse(
                     cae=det.CAE,
                     cae_due_date=datetime.datetime.strptime(det.CAEFchVto, "%Y%m%d").date(),
                     is_approved=True,
+                    number=number,
                 )
             else:
                 # Rechazado: extraer primer error

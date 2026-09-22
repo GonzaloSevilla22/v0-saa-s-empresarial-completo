@@ -49,6 +49,7 @@ class FiscalDocumentRepository(BaseRepository):
         doc_id: str,
         cae: str,
         cae_due_date: datetime.date,
+        number: int | None = None,
     ) -> None:
         """Transiciona el comprobante a authorized con el CAE obtenido.
 
@@ -59,12 +60,20 @@ class FiscalDocumentRepository(BaseRepository):
         (rpc_record_fiscal_transition) en el mismo statement SQL. Si el
         UPDATE no matcheó (otro relay ya lo transicionó — lease de
         claim_pending), no se registra historial — mismo contrato que antes.
+
+        fiscal-emision-segura (G3): `number` es el número que ARCA CONFIRMÓ. La
+        RPC lo adopta si difiere del local (ARCA es la fuente de verdad),
+        resincroniza `document_sequences` SOLO hacia adelante y deja el desfasaje
+        en `document_status_history.reason`. `None` (o un caller viejo con 3
+        argumentos, que el DEFAULT NULL de la RPC sigue aceptando durante la
+        ventana de despliegue) = "no informado", y la RPC se comporta como antes.
         """
         await self.execute(
-            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3)",
+            "SELECT public.rpc_fiscal_document_authorize($1::uuid, $2, $3, $4::bigint)",
             doc_id,
             cae,
             cae_due_date,
+            number,
         )
 
     async def update_rejected(self, doc_id: str, last_error: str) -> None:

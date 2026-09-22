@@ -35,20 +35,29 @@ def _make_conn() -> AsyncMock:
 @pytest.mark.asyncio
 async def test_update_authorized_calls_authorize_rpc_with_cae_and_due_date():
     """update_authorized encamina por rpc_fiscal_document_authorize (colisión
-    #1) — la RPC hace el UPDATE + el registro de historial internamente."""
+    #1) — la RPC hace el UPDATE + el registro de historial internamente.
+
+    fiscal-emision-segura (G3, 2026-09-22): la RPC pasó de 3 a 4 argumentos —
+    el 4.º es el número que ARCA confirmó. Este test se AMPLÍA (no se adapta
+    para que pase): asserta explícitamente el 4.º parámetro.
+    """
     conn = _make_conn()
     repo = FiscalDocumentRepository(conn)
 
     await repo.update_authorized(
-        doc_id=DOC_ID, cae="75123456789012", cae_due_date=datetime.date(2026, 7, 20)
+        doc_id=DOC_ID,
+        cae="75123456789012",
+        cae_due_date=datetime.date(2026, 7, 20),
+        number=9,
     )
 
     conn.execute.assert_awaited_once()
-    query, doc_id, cae, cae_due_date = conn.execute.call_args.args
+    query, doc_id, cae, cae_due_date, number = conn.execute.call_args.args
     assert "rpc_fiscal_document_authorize" in query
     assert doc_id == DOC_ID
     assert cae == "75123456789012"
     assert cae_due_date == datetime.date(2026, 7, 20)
+    assert number == 9
 
 
 @pytest.mark.asyncio

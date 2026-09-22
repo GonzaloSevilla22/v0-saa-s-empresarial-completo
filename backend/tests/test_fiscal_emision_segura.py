@@ -325,3 +325,86 @@ class TestStubNuncaEnProduccion:
             "El docstring de build_cae_adapter debe decir explícitamente que su "
             "gate NO mira el ambiente del documento."
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G3 — El número que ARCA autorizó se persiste
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestNumeroAutoritativo:
+    """3.4-3.5: el número confirmado por ARCA llega desde el adapter hasta la RPC.
+
+    R6 del plan: el desfasaje no es hipotético. Prod tiene dos fiscal_profiles con
+    el MISMO CUIT y el mismo PV activo; ARCA numera por (CUIT, PtoVta, CbteTipo) y
+    `document_sequences` por point_of_sale_id, que es distinto en cada perfil. La
+    primera factura_c del segundo perfil reservará el 1 mientras ARCA está en 2.
+    """
+
+    @pytest.mark.asyncio
+    async def test_processor_pasa_el_numero_a_update_authorized(self):
+        """3.4 RED: el processor propaga response.number a update_authorized."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(
+                cae="86250464989491",
+                cae_due_date=datetime.date(2026, 12, 31),
+                is_approved=True,
+                number=51,
+            )
+        )
+        repo = make_repo()
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        await processor.process_document(make_pending_doc(number=42))
+
+        kwargs = repo.update_authorized.await_args.kwargs
+        assert kwargs["number"] == 51, (
+            "El processor debe pasar el número que ARCA confirmó, no el local."
+        )
+
+    @pytest.mark.asyncio
+    async def test_update_authorized_llama_la_rpc_con_4_args(self):
+        """3.5 RED: el repo llama rpc_fiscal_document_authorize con 4 parámetros."""
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.execute = AsyncMock(return_value="SELECT 1")
+        repo = FiscalDocumentRepository(conn)
+
+        await repo.update_authorized(
+            doc_id=DOC_ID,
+            cae="86250464989491",
+            cae_due_date=datetime.date(2026, 12, 31),
+            number=51,
+        )
+
+        conn.execute.assert_awaited_once()
+        args = conn.execute.await_args.args
+        query = args[0]
+        assert "rpc_fiscal_document_authorize" in query
+        assert "$4" in query, f"La query debe pasar 4 parámetros; got: {query}"
+        assert args[1:] == (DOC_ID, "86250464989491", datetime.date(2026, 12, 31), 51)
+
+    @pytest.mark.asyncio
+    async def test_update_authorized_acepta_number_ausente(self):
+        """3.5 TRIANGULACIÓN: `number` es opcional — un caller que no lo pase manda
+        NULL, y la RPC (p_number DEFAULT NULL) se comporta como antes.
+
+        Esto es lo que sostiene la ventana de despliegue: el merge aplica la
+        migración antes de que Render termine de desplegar el backend nuevo.
+        """
+        from backend.repositories.fiscal_document_repository import FiscalDocumentRepository
+
+        conn = AsyncMock()
+        conn.execute = AsyncMock(return_value="SELECT 1")
+        repo = FiscalDocumentRepository(conn)
+
+        await repo.update_authorized(
+            doc_id=DOC_ID, cae="86250464989491", cae_due_date=datetime.date(2026, 12, 31)
+        )
+
+        assert conn.execute.await_args.args[4] is None

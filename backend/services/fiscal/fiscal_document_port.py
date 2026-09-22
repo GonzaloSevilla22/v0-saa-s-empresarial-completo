@@ -57,6 +57,19 @@ class CAEResponse:
     """Respuesta normalizada del adaptador WSFE.
 
     El service solo ve estos campos; nunca estructuras SOAP.
+
+    fiscal-emision-segura (G3/G4):
+      - number: el número que ARCA CONFIRMÓ (`det.CbteDesde` de la respuesta
+        aprobada). Hasta este change se descartaba: el adapter pedía el CAE con
+        `FECompUltimoAutorizado+1` y en la base quedaba el número local
+        reservado, que puede ser OTRO (ARCA numera por (CUIT, PtoVta, CbteTipo)
+        y `document_sequences` por point_of_sale_id). None = el adapter no lo
+        informa (respuesta rechazada, o un adapter viejo).
+      - submitted: True SOLO si el `FECAESolicitar` ya salió y su resultado
+        NUNCA se confirmó. Con `is_approved=False` y `submitted=True` el
+        comprobante PUEDE tener un CAE real emitido en ARCA sin registro local:
+        reintentar pediría `ultimo+1` otra vez y emitiría una SEGUNDA factura.
+        El relay congela el documento en vez de reintentar.
     """
 
     cae: str | None
@@ -64,6 +77,8 @@ class CAEResponse:
     is_approved: bool
     error_code: str | None = None
     error_detail: str | None = None
+    number: int | None = None
+    submitted: bool = False
 
 
 class FiscalDocumentPort(ABC):

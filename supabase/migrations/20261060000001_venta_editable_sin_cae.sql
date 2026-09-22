@@ -867,7 +867,7 @@ BEGIN
   RETURN jsonb_build_object('operation_id', v_new_op_id, 'items', v_result_items,
                             'voided_fiscal_document', v_voided_doc);
 END;
-$function$;
+$function$;
 
 -- ACLs re-emitidas idénticas a las vivas en prod (postgres=X | authenticated=X
 -- | service_role=X). CREATE OR REPLACE no las resetea, pero re-emitirlas
@@ -1091,7 +1091,7 @@ BEGIN
 
   RETURN true;
 END;
-$function$;
+$function$;
 
 -- ACLs re-emitidas idénticas a las vivas en prod.
 REVOKE ALL     ON FUNCTION public.rpc_delete_sale_operation(uuid, uuid, text) FROM PUBLIC, anon;
@@ -1270,7 +1270,7 @@ BEGIN
 
   RETURN v_emit_result;
 END;
-$function$;
+$function$;
 
 -- ACLs re-emitidas idénticas a las vivas en prod.
 REVOKE ALL     ON FUNCTION public.rpc_emit_sale_invoice(uuid, uuid) FROM PUBLIC, anon;

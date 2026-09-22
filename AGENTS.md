@@ -66,7 +66,7 @@
 | Capa | Tecnología | Notas |
 |------|------------|-------|
 | **BaaS** | Supabase (Auth, DB, Edge Functions, Storage, Realtime) | Proyecto real: `gxdhpxvdjjkmxhdkkwyb` |
-| **DB** | PostgreSQL vía Supabase, con RLS org-based | 303 migraciones; última `20261054000001_fiscal_emision_segura` (pendiente de verificar en prod tras el merge) |
+| **DB** | PostgreSQL vía Supabase, con RLS org-based | 305 migraciones; última `20261056000001_registro_bonificacion_trial_po` (la 20261055000001 está reservada por el PR de riesgos fiscales en curso; verificar en prod tras el merge) |
 | **Extensiones PG** | `pg_cron` (grace period, relay outbox) · `pg_net` / DB webhooks (email, outbox, relay CAE) | — |
 | **Edge Functions** | Deno (Supabase) — 12 funciones | `ai-insights`, `ai-resumen`, `ai-precio`, `ai-rentabilidad`, `ai-comparativo`, `ai-prediccion`, `ai-simulador`, `ai-estadisticas`, `fair-advisor`, `invoice-ocr`, `generate-export`, `send-email` |
 | **IA** | OpenAI API | `gpt-4o-mini` en las 9 funciones de IA; **`gpt-4o`** (visión) en `invoice-ocr` |

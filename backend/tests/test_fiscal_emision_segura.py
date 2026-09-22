@@ -455,6 +455,24 @@ async def _request_cae_con_fallo_en_el_submit(exc: BaseException):
         return await adapter.request_cae(invoice)
 
 
+async def _request_cae_con_respuesta(respuesta):
+    """Corre `request_cae` con `FECAESolicitar` devolviendo `respuesta`."""
+    from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+    adapter = WSFEAdapter(platform_provider=MagicMock())
+    invoice = _make_invoice_for_adapter(local_number=42)
+
+    with (
+        patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+        patch("zeep.Client") as mock_client_cls,
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+        mock_client.service.FECAESolicitar.return_value = respuesta
+        return await adapter.request_cae(invoice)
+
+
 def _lxml_xml_syntax_error():
     """La excepción REAL que lxml levanta ante un cuerpo que no es XML.
 
@@ -1186,6 +1204,86 @@ class TestRedTeamClasificacionTransporte:
         assert resp.submitted is False
         assert resp.error_code != "CAE_SUBMIT_UNCONFIRMED"
         mock_client.service.FECAESolicitar.assert_not_called()
+
+
+class TestRedTeamCaeAprobadoNuncaSeDescarta:
+    """B2-2: ARCA aprobó, el CAE REAL está en memoria… y se descarta.
+
+    `datetime.strptime(det.CAEFchVto, "%Y%m%d")` levanta `ValueError` con una
+    fecha en otro formato o vacía, y `TypeError` si viene `None`. El handler
+    atrapaba `(AttributeError, IndexError, KeyError)`: las tres caían al
+    `except Exception` de `request_cae` → `WSFE_ERROR` → retry normal → el
+    próximo tick pide ultimo+1 y emite una SEGUNDA factura sobre una que ARCA
+    ya autorizó. El hermano (`CAEFchVto` ausente → AttributeError) sí
+    congelaba: al handler le faltaban dos clases de excepción, no una regla.
+    """
+
+    @staticmethod
+    def _respuesta_aprobada(cae="71234567890123", cbte=51, **vto):
+        """Respuesta APROBADA con `CAEFchVto` deforme (o ausente si no se pasa)."""
+        det = types.SimpleNamespace(Resultado="A", CAE=cae, CbteDesde=cbte)
+        if "CAEFchVto" in vto:
+            det.CAEFchVto = vto["CAEFchVto"]
+        return types.SimpleNamespace(
+            FeDetResp=types.SimpleNamespace(FECAEDetResponse=[det])
+        )
+
+    @pytest.mark.parametrize(
+        "vto",
+        [
+            pytest.param({"CAEFchVto": "2027-12-31"}, id="ISO-en-vez-de-yyyymmdd-ValueError"),
+            pytest.param({"CAEFchVto": ""}, id="vacio-ValueError"),
+            pytest.param({"CAEFchVto": None}, id="None-TypeError"),
+            pytest.param({}, id="ausente-AttributeError-ya-congelaba"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_aprobado_con_vencimiento_deforme_congela(self, vto):
+        """RED (B2-2): los tres primeros REINTENTABAN con un CAE real de ARCA."""
+        resp = await _request_cae_con_respuesta(self._respuesta_aprobada(**vto))
+
+        assert resp.error_code == "CAE_SUBMIT_UNCONFIRMED", (
+            "det.Resultado == 'A': ARCA AUTORIZÓ. Reintentar emite una segunda "
+            "factura real sobre una que ya existe."
+        )
+        assert resp.submitted is True
+        assert resp.number == 51
+        assert "71234567890123" in (resp.error_detail or ""), (
+            "el CAE que ARCA devolvió es el dato con el que un humano resuelve "
+            "el congelamiento a mano: tiene que quedar en el detalle."
+        )
+
+    @pytest.mark.asyncio
+    async def test_camino_feliz_intacto(self):
+        """TRIANGULACIÓN: una respuesta aprobada bien formada sigue autorizando
+        (el guard nuevo no se come el camino feliz)."""
+        resp = await _request_cae_con_respuesta(
+            self._respuesta_aprobada(CAEFchVto="20271231")
+        )
+
+        assert resp.is_approved is True
+        assert resp.cae == "71234567890123"
+        assert resp.cae_due_date == datetime.date(2027, 12, 31)
+        assert resp.number == 51
+        assert resp.submitted is False
+
+    @pytest.mark.asyncio
+    async def test_rechazo_explicito_sigue_siendo_rechazo(self):
+        """TRIANGULACIÓN: un rechazo con Observaciones no congela — ARCA
+        respondió que NO emitió."""
+        det = types.SimpleNamespace(
+            Resultado="R",
+            Observaciones=types.SimpleNamespace(
+                Obs=[types.SimpleNamespace(Code=10016, Msg="El numero o fecha no se corresponde")]
+            ),
+        )
+        resp = await _request_cae_con_respuesta(
+            types.SimpleNamespace(FeDetResp=types.SimpleNamespace(FECAEDetResponse=[det]))
+        )
+
+        assert resp.is_approved is False
+        assert resp.error_code == "10016"
+        assert resp.submitted is False
 
 
 class TestRedTeamPersistenciaFallaTrasAprobacion:

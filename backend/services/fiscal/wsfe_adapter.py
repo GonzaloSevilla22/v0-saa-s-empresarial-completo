@@ -785,17 +785,36 @@ class WSFEAdapter(FiscalDocumentPort):
                     error_code=str(obs.Code) if obs else "REJECTED",
                     error_detail=obs.Msg if obs else "Comprobante rechazado por AFIP",
                 )
-        except (AttributeError, IndexError, KeyError) as exc:
+        except (AttributeError, IndexError, KeyError, ValueError, TypeError) as exc:
             # G4: no se puede parsear la respuesta de un pedido que YA salió →
             # tampoco sabemos si ARCA autorizó. Antes esto era un RuntimeError
             # que el `except Exception` de request_cae convertía en WSFE_ERROR y
             # el relay trataba como un retry normal: el próximo intento pedía
             # ultimo+1 y emitía una segunda factura real.
+            #
+            # B2-2 (segundo red team, 2026-09-22): `ValueError` y `TypeError`
+            # faltaban, y son justo las que levanta
+            # `strptime(det.CAEFchVto, "%Y%m%d")` con una fecha en otro formato,
+            # vacía o `None`. Con `det.Resultado == "A"` y `det.CAE` ya en
+            # memoria, un CAE REAL se descartaba y se reintentaba. El hermano
+            # (`CAEFchVto` ausente → AttributeError) sí congelaba: al handler le
+            # faltaban dos clases de excepción, no una regla.
+            try:
+                cae_visto = getattr(result.FeDetResp.FECAEDetResponse[0], "CAE", None)
+            except Exception:  # la respuesta ni siquiera tiene esa forma
+                cae_visto = None
+            cae_hint = (
+                f" ARCA devolvió el CAE {cae_visto} en esa respuesta: usarlo para "
+                "resolver el comprobante a mano."
+                if cae_visto
+                else ""
+            )
             raise WSFESubmitInFlightError(
                 cbte_numero=cbte_numero,
                 detail=(
                     f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
                     f"{cbte_numero} salió y su respuesta no se pudo interpretar "
-                    f"(error parseando respuesta AFIP: {exc})"
+                    f"(error parseando respuesta AFIP — {type(exc).__name__}: {exc})."
+                    f"{cae_hint}"
                 ),
             ) from exc

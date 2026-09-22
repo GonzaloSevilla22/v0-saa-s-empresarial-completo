@@ -1090,7 +1090,10 @@ BEGIN
     RAISE EXCEPTION E'GATE EDICION_PRESERVA_CONTEXTO FAILED:\n  %', array_to_string(v_failures, E'\n  ');
   END IF;
 
-  RAISE NOTICE 'GATE EDICION_PRESERVA_CONTEXTO PASSED: F1 (contexto preservado y tri-estado branch/canal, ledger en sucursal efectiva, sales_orders re-apuntada), F2 (P0423 sobre pending_cae/authorized, rejected y sin comprobante no bloquean) y F3 (quantity decimal exacto) verificados.';
+  -- venta-editable-sin-cae: este mensaje afirmaba la regla VIEJA de F2 ("P0423
+  -- sobre pending_cae/authorized"), que dejó de ser cierta. Una spec o un
+  -- mensaje que afirma algo falso es un bug, no cosmética.
+  RAISE NOTICE 'GATE EDICION_PRESERVA_CONTEXTO PASSED: F1 (contexto preservado y tri-estado branch/canal, ledger en sucursal efectiva, sales_orders re-apuntada), F2 REDEFINIDO por venta-editable-sin-cae (P0423 sólo cuando el comprobante YA SALIÓ hacia ARCA: authorized, marcado o congelado; un pending_cae sin marca se ANULA y la venta se edita; rejected, voided y sin comprobante no bloquean; la FSM sólo admite pending_cae→voided) y F3 (quantity decimal exacto) verificados.';
 
   -- ── Limpieza ────────────────────────────────────────────────────────────
   DELETE FROM public.sales_orders     WHERE account_id = v_account_a;

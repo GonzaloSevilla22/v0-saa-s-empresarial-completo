@@ -17,7 +17,7 @@ import { CaptchaRenewalStatus } from "@/components/auth/CaptchaRenewalStatus"
 import { CAPTCHA_RENEWAL_LABEL } from "@/lib/captcha-freshness"
 import { useCaptchaGate } from "@/hooks/auth"
 import { safeNext } from "@/lib/auth/safe-next"
-import { AuthSceneMount } from "@/components/three/AuthSceneMount"
+import { AuthSceneMount, AUTH_SCENE_BOX_CLASS } from "@/components/three/AuthSceneMount"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -60,11 +60,17 @@ export default function LoginPage() {
     <div className="relative flex min-h-svh items-center justify-center overflow-hidden bg-background p-4">
       {/* v4-visual-3d-refresh 3.2: escena de acompañamiento (fondo) — el
           formulario sigue 100% usable sin ella (gate/error boundary degradan
-          a poster). Detrás del card (z-0), sin interceptar clicks. */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center opacity-60">
-        <div className="h-[480px] w-[480px]">
-          <AuthSceneMount />
-        </div>
+          a poster). Detrás del card (z-0), sin interceptar clicks.
+          fix/login-3d-visible: antes esta caja (480x480) quedaba centrada
+          EXACTAMENTE sobre el Card (~448x700) y quedaba tapada casi al 100%.
+          El Card no cambia de lugar/tamaño; la caja crece (AUTH_SCENE_BOX_CLASS)
+          para asomar alrededor — sobre todo a izq/der en desktop (items-center,
+          sobra ancho). En mobile el Card ocupa casi todo el ancho, así que
+          asoma en VERTICAL en cambio: items-start la ancla arriba (por detrás
+          del logo/título) en vez de centrarla sobre un Card que en /auth/register
+          puede ser más alto que el propio viewport. */}
+      <div className="pointer-events-none absolute inset-0 z-0 flex items-start justify-center opacity-60 md:items-center">
+        <AuthSceneMount className={AUTH_SCENE_BOX_CLASS} />
       </div>
       <div className="relative z-10 w-full max-w-md">
         <div className="flex flex-col items-center gap-4">

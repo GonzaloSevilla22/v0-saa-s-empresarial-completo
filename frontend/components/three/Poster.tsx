@@ -29,6 +29,15 @@ export interface PosterProps {
  * correct variant is visible on the very first paint, no client-only theme
  * hook to resolve first.
  */
+// fix/login-3d-visible: el `width`/`height` de arriba son el tamaño INTRÍNSECO
+// que `next/image` exige (metadata/aspect, nunca se descarga otra cosa al ser
+// SVG). El tamaño RENDERIZADO lo decide el contenedor (el `className` del
+// caller, p. ej. `AuthSceneMount`) — `h-full w-full` + `object-contain` hacen
+// que el dibujo escale con su caja (más grande en desktop, más chica en
+// mobile) preservando aspecto, en vez de quedar clavado a 400x400 y anclado
+// arriba-izquierda dentro de una caja más grande sin centrar.
+const RESPONSIVE_IMAGE_CLASS = "h-full w-full object-contain"
+
 export function Poster({ src, srcDark, width, height, className, priority }: PosterProps) {
   if (!srcDark) {
     return (
@@ -40,6 +49,7 @@ export function Poster({ src, srcDark, width, height, className, priority }: Pos
           height={height}
           priority={priority}
           unoptimized={src.endsWith(".svg")}
+          className={RESPONSIVE_IMAGE_CLASS}
         />
       </div>
     )
@@ -54,7 +64,7 @@ export function Poster({ src, srcDark, width, height, className, priority }: Pos
         height={height}
         priority={priority}
         unoptimized={src.endsWith(".svg")}
-        className="block dark:hidden"
+        className={cn(RESPONSIVE_IMAGE_CLASS, "block dark:hidden")}
       />
       <Image
         src={srcDark}
@@ -63,7 +73,7 @@ export function Poster({ src, srcDark, width, height, className, priority }: Pos
         height={height}
         priority={priority}
         unoptimized={srcDark.endsWith(".svg")}
-        className="hidden dark:block"
+        className={cn(RESPONSIVE_IMAGE_CLASS, "hidden dark:block")}
       />
     </div>
   )

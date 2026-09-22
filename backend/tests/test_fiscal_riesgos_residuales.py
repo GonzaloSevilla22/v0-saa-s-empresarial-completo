@@ -441,3 +441,558 @@ class TestProcessorInyectaElHook:
 
         adapter.request_cae.assert_not_called()
         repo.mark_submit_started.assert_not_awaited()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G4 — Reconciliación contra ARCA (FECompConsultar) en el adapter real
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _consultar_response(
+    *,
+    resultado: str | None = "A",
+    cod_autorizacion: str | None = "86250464989491",
+    fch_vto: object = "20261231",
+    cbte_desde: object = 51,
+    errors: list[tuple[int, str]] | None = None,
+    sin_result_get: bool = False,
+    con_cae_en_vez_de_cod_autorizacion: bool = False,
+):
+    """Respuesta de `FECompConsultar` con la forma real del WSDL de WSFEv1.
+
+    `types.SimpleNamespace` y no `MagicMock` a propósito: con un MagicMock
+    CUALQUIER atributo existe y es truthy, así que el candado de
+    `CodAutorizacion` vs `CAE` (4.7) no podría escribirse — sería verde con el
+    código equivocado.
+    """
+    ns = types.SimpleNamespace
+    kwargs: dict = {}
+
+    if errors is not None:
+        kwargs["Errors"] = ns(Err=[ns(Code=c, Msg=m) for c, m in errors])
+
+    if not sin_result_get:
+        det: dict = {"CbteDesde": cbte_desde, "FchVto": fch_vto}
+        if resultado is not None:
+            det["Resultado"] = resultado
+        if cod_autorizacion is not None:
+            if con_cae_en_vez_de_cod_autorizacion:
+                det["CAE"] = cod_autorizacion
+            else:
+                det["CodAutorizacion"] = cod_autorizacion
+        kwargs["ResultGet"] = ns(**det)
+
+    return ns(**kwargs)
+
+
+async def _reconcile(respuesta=None, *, exc=None, ultimo=None, requested_number: int = 51):
+    """Corre `reconcile_submitted` con `FECompConsultar` mockeado.
+
+    `ultimo` es lo que devuelve `FECompUltimoAutorizado` (el cross-check del
+    602). `None` = esa llamada falla.
+    """
+    from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+    adapter = WSFEAdapter(platform_provider=MagicMock())
+    invoice = make_cae_request()
+
+    with (
+        patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+        patch("zeep.Client") as mock_client_cls,
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        if exc is not None:
+            mock_client.service.FECompConsultar.side_effect = exc
+        else:
+            mock_client.service.FECompConsultar.return_value = respuesta
+        if ultimo is None:
+            mock_client.service.FECompUltimoAutorizado.side_effect = RuntimeError("cross-check caído")
+        else:
+            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=ultimo)
+        return await adapter.reconcile_submitted(invoice, requested_number=requested_number)
+
+
+class TestReconciliacionContraArca:
+    """4.1-4.10: la consulta es la ÚNICA fuente que puede desbloquear un
+    documento marcado. Todo lo que no sea una respuesta interpretable es
+    `unknown` — nunca `not_found` por defecto, porque `not_found` es la única
+    salida que habilita re-emitir.
+    """
+
+    @pytest.mark.asyncio
+    async def test_el_port_sin_implementar_no_emite(self):
+        """4.1: la implementación por defecto del port es FAIL-CLOSED.
+
+        Un adapter futuro que no implemente `reconcile_submitted` hace que el
+        documento reintente la consulta y termine congelado — NUNCA que se
+        emita a ciegas. Por eso NO es @abstractmethod: si lo fuera, cada fake
+        tendría que implementarla y un adapter incompleto explotaría en runtime.
+        """
+        from backend.services.fiscal.fiscal_document_port import (
+            CAEResponse,
+            FiscalDocumentPort,
+        )
+
+        class AdapterIncompleto(FiscalDocumentPort):
+            async def request_cae(self, invoice_data):
+                return CAEResponse(cae=None, cae_due_date=None, is_approved=False)
+
+        rec = await AdapterIncompleto().reconcile_submitted(make_cae_request(), requested_number=51)
+
+        assert rec.outcome == "unknown"
+        assert rec.cae is None
+
+    @pytest.mark.asyncio
+    async def test_comprobante_aprobado_en_arca(self):
+        """4.2 GREEN: Resultado='A' + CodAutorizacion → authorized con ese CAE."""
+        rec = await _reconcile(_consultar_response(), ultimo=51)
+
+        assert rec.outcome == "authorized"
+        assert rec.cae == "86250464989491"
+        assert rec.cae_due_date == datetime.date(2026, 12, 31)
+        assert rec.number == 51
+
+    @pytest.mark.asyncio
+    async def test_602_no_existe_con_cross_check(self):
+        """4.3 TRIANGULACIÓN: 602 + `ultimo < n` → not_found, con el cross-check.
+
+        El 602 solo NO alcanza: también aparece cuando el PtoVta/CbteTipo de la
+        consulta no matchea. Tomarlo como "no existe" y re-emitir sería la forma
+        elegante de volver a la doble factura.
+        """
+        rec = await _reconcile(
+            _consultar_response(errors=[(602, "No existen datos en nuestros registros")],
+                                sin_result_get=True),
+            ultimo=50,
+        )
+
+        assert rec.outcome == "not_found"
+        assert rec.ultimo_autorizado == 50
+
+    @pytest.mark.asyncio
+    async def test_602_sin_cross_check_es_unknown(self):
+        """4.4 TRIANGULACIÓN: si `FECompUltimoAutorizado` falla, el 602 no se
+        puede creer y la respuesta es `unknown`.
+
+        Fail-closed: sin el cross-check no hay nada demostrado.
+        """
+        rec = await _reconcile(
+            _consultar_response(errors=[(602, "No existen datos")], sin_result_get=True),
+            ultimo=None,
+        )
+
+        assert rec.outcome == "unknown"
+        assert rec.ultimo_autorizado is None
+
+    @pytest.mark.asyncio
+    async def test_otro_codigo_de_error_es_unknown(self):
+        """4.5 TRIANGULACIÓN: cualquier código que no sea 602 → unknown."""
+        rec = await _reconcile(
+            _consultar_response(errors=[(600, "Token invalido")], sin_result_get=True),
+            ultimo=51,
+        )
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "600"
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            pytest.param(Exception("Read timed out"), id="timeout"),
+            pytest.param(RuntimeError("TransportError 502"), id="transport"),
+            pytest.param(ValueError("Document is empty"), id="xml-ilegible"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_la_consulta_que_falla_es_unknown(self, exc):
+        """4.6 TRIANGULACIÓN: si la consulta no se puede hacer, no se sabe nada.
+
+        La marca se conserva y NO se emite: el documento reintenta la CONSULTA
+        con el backoff de siempre y, al agotar intentos, termina congelado.
+        """
+        rec = await _reconcile(exc=exc, ultimo=51)
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "RECONCILE_CALL_FAILED"
+
+    @pytest.mark.asyncio
+    async def test_el_cae_viene_en_cod_autorizacion_no_en_cae(self):
+        """4.7 TRIANGULACIÓN — candado contra copiar el parseo de FECAESolicitar.
+
+        En `FECompConsultar` el CAE se llama `CodAutorizacion`. Una respuesta
+        que sólo trae `CAE` NO se puede interpretar: `unknown`, nunca
+        "autorizado sin CAE".
+        """
+        rec = await _reconcile(
+            _consultar_response(con_cae_en_vez_de_cod_autorizacion=True), ultimo=51,
+        )
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "RECONCILE_SIN_CAE"
+
+    @pytest.mark.asyncio
+    async def test_fecha_de_vencimiento_deforme_no_descarta_el_cae(self):
+        """4.8 TRIANGULACIÓN: un `FchVto` imparseable degrada el vencimiento a
+        None — el CAE REAL nunca se descarta.
+
+        Mismo hallazgo que B2-2 de #577 encontró en `CAEFchVto`: ahí un strptime
+        deforme hacía perder un CAE real y reintentar.
+        """
+        rec = await _reconcile(_consultar_response(fch_vto="31/12/2026"), ultimo=51)
+
+        assert rec.outcome == "authorized"
+        assert rec.cae == "86250464989491"
+        assert rec.cae_due_date is None
+
+    @pytest.mark.asyncio
+    async def test_resultado_rechazado(self):
+        """4.9 TRIANGULACIÓN: `Resultado='R'` → rejected (que el processor trata
+        como unknown: un FECAESolicitar rechazado no consume el número, así que
+        un comprobante "existente pero rechazado" no se sabe interpretar).
+        """
+        rec = await _reconcile(_consultar_response(resultado="R"), ultimo=51)
+
+        assert rec.outcome == "rejected"
+
+    @pytest.mark.asyncio
+    async def test_sin_result_get_ni_errores_es_unknown(self):
+        """4.10 TRIANGULACIÓN: una respuesta vacía no dice nada."""
+        rec = await _reconcile(_consultar_response(sin_result_get=True), ultimo=51)
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "RECONCILE_SIN_RESULTGET"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G5 — La decisión de dominio: con marca, NUNCA se pide un CAE nuevo
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _adapter_que_reconcilia(**rec_kwargs):
+    """Adapter mock cuya `reconcile_submitted` devuelve lo que se le indique."""
+    from backend.services.fiscal.fiscal_document_port import ReconcileResponse
+
+    adapter = MagicMock()
+    adapter.request_cae = AsyncMock()
+    adapter.reconcile_submitted = AsyncMock(return_value=ReconcileResponse(**rec_kwargs))
+    return adapter
+
+
+def _marcado(**overrides) -> dict:
+    base = dict(
+        cae_submit_started_at=datetime.datetime.now(datetime.timezone.utc),
+        arca_requested_number=51,
+    )
+    base.update(overrides)
+    return make_pending_doc(**base)
+
+
+class TestProcessorReconciliaEnVezDeEmitir:
+    """5.1-5.11: la aserción que importa es `request_cae.assert_not_called()`.
+
+    No se assertea sólo el estado final del documento: un `if/else` que "casi
+    siempre" cae del lado bueno pasaría igual. Lo que se fija es que la rama de
+    reconciliación es un `return` temprano y que en NINGUNA de sus salidas se
+    pide un CAE nuevo.
+    """
+
+    @pytest.mark.asyncio
+    async def test_marcado_y_aprobado_en_arca_se_autoriza_sin_pedir_cae(self):
+        """5.1 GREEN: el documento se autoriza con el CAE que ARCA ya tenía."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(
+            outcome="authorized", cae="86250464989491",
+            cae_due_date=datetime.date(2026, 12, 31), number=51,
+        )
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado())
+
+        adapter.request_cae.assert_not_called()
+        repo.update_authorized.assert_awaited_once_with(
+            doc_id=DOC_ID, cae="86250464989491",
+            cae_due_date=datetime.date(2026, 12, 31), number=51,
+        )
+        repo.clear_submit_mark.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_602_con_cross_check_limpia_la_marca_y_no_emite_en_ese_tick(self):
+        """5.2 TRIANGULACIÓN: ARCA demuestra que no existe → se limpia la marca.
+
+        Y NO se emite en ESE tick: el documento vuelve al reposo con attempts+1
+        y next_attempt_at=now(), y se re-emite UNA vez en el siguiente.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="not_found", ultimo_autorizado=50, error_code="602")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado())
+
+        adapter.request_cae.assert_not_called()
+        repo.clear_submit_mark.assert_awaited_once()
+        assert repo.clear_submit_mark.await_args.kwargs["doc_id"] == DOC_ID
+        repo.update_authorized.assert_not_awaited()
+        repo.freeze_unconfirmed.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_602_contradicho_no_limpia_nada(self):
+        """5.3 TRIANGULACIÓN: ARCA dice "no existe" un número que su propio
+        último autorizado ya alcanzó → se contradice, y no se le cree.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="not_found", ultimo_autorizado=51, error_code="602")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado())
+
+        adapter.request_cae.assert_not_called()
+        repo.clear_submit_mark.assert_not_awaited()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_602_sin_cross_check_no_limpia_nada(self):
+        """5.4 TRIANGULACIÓN: sin `ultimo_autorizado` no hay cross-check, así que
+        el 602 no alcanza para limpiar la marca.
+
+        Segunda capa del mismo guard: el adapter ya devuelve `unknown` cuando la
+        consulta del último autorizado falla, pero el processor NO delega en eso
+        — un adapter futuro que devuelva `not_found` sin cross-check tampoco
+        puede provocar una re-emisión.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="not_found", ultimo_autorizado=None, error_code="602")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado())
+
+        adapter.request_cae.assert_not_called()
+        repo.clear_submit_mark.assert_not_awaited()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_unknown_reintenta_la_consulta_con_la_marca_intacta(self):
+        """5.5 TRIANGULACIÓN: no se sabe nada → retry, y la marca se conserva.
+
+        Conservar la marca es lo que impide emitir en el próximo tick.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="unknown", error_code="RECONCILE_CALL_FAILED")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado(attempts=2))
+
+        adapter.request_cae.assert_not_called()
+        repo.clear_submit_mark.assert_not_awaited()
+        repo.update_retry.assert_awaited_once()
+        assert repo.update_retry.await_args.kwargs["attempts"] == 3
+
+    @pytest.mark.asyncio
+    async def test_al_agotar_intentos_se_congela_nunca_se_rechaza(self):
+        """5.6 TRIANGULACIÓN: `rejected` es terminal y el documento PUEDE tener
+        un CAE real en ARCA. Al agotar intentos se CONGELA.
+
+        El camino normal de error sí rechaza al llegar al tope (comportamiento
+        de siempre, intacto); el de reconciliación no puede.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="unknown", error_code="RECONCILE_CALL_FAILED")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo, max_attempts=10)
+
+        await processor.process_document(_marcado(attempts=9))
+
+        adapter.request_cae.assert_not_called()
+        repo.update_rejected.assert_not_awaited()
+        repo.freeze_unconfirmed.assert_awaited_once()
+        assert repo.freeze_unconfirmed.await_args.kwargs["arca_requested_number"] == 51
+
+    @pytest.mark.asyncio
+    async def test_rejected_se_trata_como_unknown(self):
+        """5.7 TRIANGULACIÓN: un comprobante "existente pero rechazado" no se
+        puede interpretar. Rechazar el documento sería terminal y podría estar
+        tapando un CAE real.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="rejected", error_code="RESULTADO_R")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado())
+
+        adapter.request_cae.assert_not_called()
+        repo.update_rejected.assert_not_awaited()
+        repo.clear_submit_mark.assert_not_awaited()
+        repo.update_retry.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_marca_sin_numero_congela(self):
+        """5.8 TRIANGULACIÓN: una marca sin número es imposible por construcción
+        (la RPC rechaza el NULL con P0437). Si igual aparece, fail-closed: se
+        congela, nunca se emite.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="authorized", cae="x")
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado(arca_requested_number=None))
+
+        adapter.request_cae.assert_not_called()
+        adapter.reconcile_submitted.assert_not_called()
+        repo.freeze_unconfirmed.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_produccion_con_adapter_no_real_no_reconcilia_tampoco(self):
+        """5.9 TRIANGULACIÓN: el guard de ambiente de G2 (#577) cubre las DOS
+        ramas, porque se evalúa primero.
+
+        Un stub reconciliando un documento de producción devolvería `not_found`
+        y limpiaría una marca REAL — o sea, provocaría exactamente la segunda
+        factura que este change impide.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="not_found", ultimo_autorizado=50)
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado(ambiente="produccion"))
+
+        adapter.request_cae.assert_not_called()
+        adapter.reconcile_submitted.assert_not_called()
+        repo.clear_submit_mark.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sin_marca_el_camino_feliz_no_consulta_nada(self):
+        """5.10 TRIANGULACIÓN: el documento en REPOSO va por el camino de
+        siempre y NO agrega una llamada SOAP.
+
+        Es la contrapositiva de la invariante: sin marca no hubo envío, así que
+        es seguro emitir sin preguntarle nada a ARCA.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+
+        repo = make_repo()
+        adapter = _adapter_que_reconcilia(outcome="not_found", ultimo_autorizado=50)
+        adapter.request_cae = AsyncMock(return_value=CAEResponse(
+            cae="123", cae_due_date=datetime.date(2026, 12, 31), is_approved=True, number=7,
+        ))
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(make_pending_doc())
+
+        adapter.reconcile_submitted.assert_not_called()
+        adapter.request_cae.assert_awaited_once()
+        repo.update_authorized.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_si_la_persistencia_del_reconciliado_falla_se_congela(self):
+        """5.11 TRIANGULACIÓN: mismo guard M-1 que el camino normal.
+
+        ARCA ya confirmó el CAE y está en memoria; si la escritura local falla,
+        el documento se CONGELA con el CAE en el detalle — no vuelve a pedir
+        nada.
+        """
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+
+        repo = make_repo()
+        repo.update_authorized = AsyncMock(side_effect=RuntimeError("statement timeout"))
+        adapter = _adapter_que_reconcilia(
+            outcome="authorized", cae="86250464989491",
+            cae_due_date=datetime.date(2026, 12, 31), number=51,
+        )
+        processor = CAERelayProcessor(adapter=adapter, repo=repo)
+
+        await processor.process_document(_marcado())
+
+        adapter.request_cae.assert_not_called()
+        repo.freeze_unconfirmed.assert_awaited_once()
+        assert "86250464989491" in repo.freeze_unconfirmed.await_args.kwargs["detail"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G6 — El stub sabe simular los tres caminos de la reconciliación
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestStubReconcilia:
+    """6.1-6.4: sin esto, ni el humo local ni las sondas de punta a punta
+    podrían ejercitar la reconciliación.
+    """
+
+    @pytest.mark.asyncio
+    async def test_el_stub_nace_sin_memoria(self):
+        """6.1: un stub nuevo no conoce ningún envío — que es exactamente lo
+        que pasa cuando el proceso del relay muere y arranca otro.
+        """
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        rec = await WSFEStubAdapter().reconcile_submitted(make_cae_request(), requested_number=51)
+
+        assert rec.outcome == "not_found"
+        assert rec.ultimo_autorizado == 50, "el cross-check del 602 tiene que PASAR por defecto"
+
+    @pytest.mark.asyncio
+    async def test_el_registro_inyectado_sobrevive_al_proceso(self):
+        """6.2: con un registro inyectado, "ARCA sí lo tiene aunque nosotros
+        morimos" — y el CAE que devuelve la reconciliación es EL MISMO que
+        habría devuelto `request_cae`.
+
+        Que sea el mismo es lo que permite assertear identidad en la sonda de
+        punta a punta, y no sólo "hay algo".
+        """
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        registro: dict[str, int] = {}
+        stub = WSFEStubAdapter(submitted_registry=registro)
+        invoice = make_cae_request(number=51)
+
+        emitido = await stub.request_cae(invoice)
+
+        otro_proceso = WSFEStubAdapter(submitted_registry=registro)
+        rec = await otro_proceso.reconcile_submitted(invoice, requested_number=51)
+
+        assert rec.outcome == "authorized"
+        assert rec.cae == emitido.cae
+        assert rec.number == 51
+
+    @pytest.mark.asyncio
+    async def test_el_stub_puede_simular_una_consulta_fallida(self):
+        """6.3: `reconcile_failure=True` → unknown, para ejercitar el camino en
+        que la consulta no se puede hacer.
+        """
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        rec = await WSFEStubAdapter(reconcile_failure=True).reconcile_submitted(
+            make_cae_request(), requested_number=51,
+        )
+
+        assert rec.outcome == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_el_stub_sigue_negandose_en_produccion(self):
+        """6.4 TRIANGULACIÓN: G2 de #577 intacto — el stub no reconcilia un
+        documento de producción, ni siquiera para "sólo consultar".
+
+        Devolvería `not_found` y el processor limpiaría una marca real.
+        """
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        rec = await WSFEStubAdapter().reconcile_submitted(
+            make_cae_request(ambiente="produccion"), requested_number=51,
+        )
+
+        assert rec.outcome == "unknown"
+        assert rec.error_code == "STUB_FORBIDDEN_IN_PRODUCTION"

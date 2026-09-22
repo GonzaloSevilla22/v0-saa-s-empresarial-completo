@@ -38,6 +38,21 @@ class TestFiscalDocumentPort:
         sig = inspect.signature(method)
         assert "invoice_data" in sig.parameters
 
+    def test_port_has_reconcile_submitted_method(self):
+        """fiscal-riesgos-residuales (R1): el port define `reconcile_submitted`.
+
+        NO es abstracto a propósito (un adapter futuro incompleto explotaría en
+        runtime, dentro del relay): tiene implementación por defecto FAIL-CLOSED.
+        Este test fija las dos cosas — que el método es parte del contrato y
+        que NO está marcado como abstracto.
+        """
+        assert hasattr(FiscalDocumentPort, "reconcile_submitted")
+        method = getattr(FiscalDocumentPort, "reconcile_submitted")
+        sig = inspect.signature(method)
+        assert "invoice_data" in sig.parameters
+        assert "requested_number" in sig.parameters
+        assert "reconcile_submitted" not in FiscalDocumentPort.__abstractmethods__
+
     def test_cae_request_has_required_fields(self):
         """CAERequest contiene los campos mínimos de dominio."""
         req = CAERequest(

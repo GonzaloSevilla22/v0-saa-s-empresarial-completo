@@ -121,6 +121,22 @@ class CAERelayProcessor:
                 "CAERelayProcessor: doc %s de PRODUCCIÓN con adapter %s — no se pidió CAE",
                 doc["id"], type(self._adapter).__name__,
             )
+        elif doc.get("cae_submit_started_at") is not None:
+            # ── fiscal-riesgos-residuales (R1) ────────────────────────────────
+            # El documento tiene un envío MARCADO: alguien ya le pidió a ARCA el
+            # número `arca_requested_number` y no sabemos cómo terminó (el
+            # proceso murió, o la base se cayó antes de persistir). Pedirle un
+            # CAE nuevo pediría `FECompUltimoAutorizado+1` —que ya avanzó— y
+            # emitiría una SEGUNDA factura real. La única salida es preguntarle
+            # a ARCA.
+            #
+            # Es un `return` temprano y no un `if/else`: en NINGUNA de las
+            # salidas de esta rama se llama a `request_cae`. El guard de
+            # ambiente de arriba se evalúa PRIMERO y cubre las dos ramas — un
+            # stub reconciliando un documento de producción devolvería
+            # "no existe" y borraría una marca real.
+            await self._reconcile_marked_document(doc, cae_request)
+            return
         else:
             # Llamar al adapter (stub o real)
             response = await self._adapter.request_cae(cae_request)
@@ -225,6 +241,157 @@ class CAERelayProcessor:
                     "CAERelayProcessor: doc %s retry %d a las %s",
                     doc["id"], new_attempts, next_at.isoformat(),
                 )
+
+    async def _reconcile_marked_document(self, doc: dict, cae_request: CAERequest) -> None:
+        """Resuelve un documento con la marca de envío puesta — R1.
+
+        Invariante de esta función: NUNCA llama a `request_cae`. El documento
+        sale de acá autorizado (con el CAE que ARCA ya tenía), devuelto al
+        reposo (sólo si ARCA DEMOSTRÓ que el comprobante no existe), reintentado
+        o congelado. Nunca con una segunda factura.
+        """
+        doc_id = doc["id"]
+        requested = doc.get("arca_requested_number")
+
+        if requested is None:
+            # Imposible por construcción: rpc_fiscal_document_mark_submit_started
+            # rechaza el NULL con P0437. Si aparece igual, fail-closed.
+            logger.critical(
+                "CAERelayProcessor: doc %s tiene marca de envío SIN número pedido. "
+                "CONGELANDO: no se puede consultar en ARCA ni emitir a ciegas.",
+                doc_id,
+            )
+            await self._repo.freeze_unconfirmed(
+                doc_id=doc_id,
+                arca_requested_number=None,
+                detail=(
+                    "MARCA_SIN_NUMERO: el comprobante tiene cae_submit_started_at pero "
+                    "arca_requested_number es NULL. Verificar en ARCA a mano."
+                ),
+            )
+            return
+
+        rec = await self._adapter.reconcile_submitted(
+            cae_request, requested_number=requested,
+        )
+        outcome = getattr(rec, "outcome", "unknown")
+
+        if outcome == "authorized":
+            # Mismo guard M-1 que el camino normal: ARCA ya confirmó y el CAE
+            # está en memoria; si la persistencia falla, se congela con el CAE
+            # en el detalle en vez de volver a pedir nada.
+            try:
+                await self._repo.update_authorized(
+                    doc_id=doc_id,
+                    cae=rec.cae,
+                    cae_due_date=rec.cae_due_date,
+                    number=rec.number or requested,
+                )
+            except Exception as exc:
+                logger.critical(
+                    "CAERelayProcessor: doc %s — la RECONCILIACIÓN encontró el CAE %s "
+                    "(vto %s) en ARCA pero la persistencia falló: %s. CONGELANDO.",
+                    doc_id, rec.cae, rec.cae_due_date, exc,
+                )
+                await self._repo.freeze_unconfirmed(
+                    doc_id=doc_id,
+                    arca_requested_number=requested,
+                    detail=(
+                        f"PERSIST_FAILED_AFTER_ARCA_RECONCILE: ARCA tiene el comprobante "
+                        f"con CAE {rec.cae} (vto {rec.cae_due_date}) pero la escritura "
+                        f"local falló: {exc}"
+                    ),
+                )
+                return
+
+            logger.critical(
+                "CAERelayProcessor: doc %s RECONCILIADO — el comprobante %s ya existía "
+                "en ARCA con CAE %s. Se adoptó ese CAE en vez de pedir uno nuevo "
+                "(que habría sido una segunda factura real).",
+                doc_id, requested, rec.cae,
+            )
+            return
+
+        if outcome == "not_found":
+            ultimo = getattr(rec, "ultimo_autorizado", None)
+            # El 602 solo no alcanza. Sin cross-check no hay nada demostrado, y
+            # si el último autorizado de ARCA ya alcanzó el número pedido, ARCA
+            # se está contradiciendo. Segunda capa del mismo guard que el
+            # adapter ya aplica: no delega en él.
+            if ultimo is None or ultimo >= requested:
+                await self._retry_or_freeze_reconcile(
+                    doc,
+                    requested,
+                    detail=(
+                        f"[RECONCILE_602_NO_VERIFICABLE] ARCA dijo que el comprobante "
+                        f"{requested} no existe, pero el cross-check no lo confirma "
+                        f"(ultimo_autorizado={ultimo}). NO se re-emite."
+                    ),
+                )
+                return
+
+            await self._repo.clear_submit_mark(
+                doc_id=doc_id,
+                detail=(
+                    f"[ARCA_602] El comprobante {requested} no existe en ARCA "
+                    f"(ultimo autorizado {ultimo}): el envío nunca llegó. Se limpia la "
+                    "marca y se vuelve a emitir UNA vez."
+                ),
+            )
+            logger.warning(
+                "CAERelayProcessor: doc %s — ARCA no tiene el comprobante %s "
+                "(ultimo=%s). Marca limpiada: se re-emite en el próximo tick.",
+                doc_id, requested, ultimo,
+            )
+            return
+
+        # "rejected" y "unknown" son lo mismo acá: no se puede demostrar qué
+        # pasó con el envío, así que no se emite y no se limpia nada. `rejected`
+        # NO rechaza el documento — un FECAESolicitar rechazado no consume el
+        # número, y `rejected` es terminal: podría estar tapando un CAE real.
+        await self._retry_or_freeze_reconcile(
+            doc,
+            requested,
+            detail=f"[{rec.error_code}] {rec.error_detail}",
+        )
+
+    async def _retry_or_freeze_reconcile(
+        self, doc: dict, requested: int | None, detail: str,
+    ) -> None:
+        """Salida no resolutiva de la reconciliación: reintentar o congelar.
+
+        NUNCA rechaza. El camino normal de error sí rechaza al llegar al tope de
+        intentos (comportamiento de siempre, intacto), pero acá el documento
+        puede tener un CAE real en ARCA y `rejected` es terminal.
+        """
+        new_attempts = doc.get("attempts", 0) + 1
+
+        if new_attempts >= self._max_attempts:
+            logger.critical(
+                "CAERelayProcessor: doc %s CONGELADO — la reconciliación agotó los "
+                "intentos sin poder demostrar qué pasó con el comprobante %s. "
+                "Requiere verificación manual en ARCA. Último detalle: %s",
+                doc["id"], requested, detail,
+            )
+            await self._repo.freeze_unconfirmed(
+                doc_id=doc["id"],
+                arca_requested_number=requested,
+                detail=detail,
+            )
+            return
+
+        next_at = self._next_attempt_at(new_attempts)
+        await self._repo.update_retry(
+            doc_id=doc["id"],
+            attempts=new_attempts,
+            next_attempt_at=next_at,
+            last_error=detail,
+        )
+        logger.info(
+            "CAERelayProcessor: doc %s — reconciliación sin resolver, reintento %d a "
+            "las %s (la marca se conserva: no se emite nada)",
+            doc["id"], new_attempts, next_at.isoformat(),
+        )
 
     def _make_submit_hook(self, doc_id: str):
         """Hook que el adapter awaitea justo antes del FECAESolicitar (R1).

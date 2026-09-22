@@ -132,8 +132,16 @@ def _submit_outcome_is_unambiguous(exc: BaseException) -> bool:
     envelope), `ContentDecodingError`, `HTTPError`, y cualquier excepción opaca
     que no sepamos ubicar.
     """
-    import requests
-    import zeep.exceptions
+    try:
+        import requests
+        import zeep.exceptions
+    except ImportError:
+        # Sin las librerías no se puede clasificar nada, y "no se puede
+        # clasificar" es exactamente el caso que congela. Fail-closed: la
+        # alternativa sería que esta función explote DENTRO del except del
+        # submit y se lleve puesta la WSFESubmitInFlightError, volviendo el
+        # documento reintentable.
+        return False
 
     # (b) ARCA respondió — el resultado se conoce aunque sea un rechazo.
     if isinstance(exc, zeep.exceptions.Fault):

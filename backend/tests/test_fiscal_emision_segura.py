@@ -1150,6 +1150,23 @@ class TestRedTeamClasificacionTransporte:
         assert resp.submitted is True
 
     @pytest.mark.asyncio
+    async def test_si_el_clasificador_no_puede_clasificar_congela(self):
+        """TRIANGULACIÓN del fail-closed: el clasificador importa `requests` y
+        `zeep.exceptions` DENTRO del except del submit. Si ese import fallara y
+        la excepción se propagara, se llevaría puesta la
+        WSFESubmitInFlightError y el documento volvería a ser reintentable —
+        con el pedido ya en la red. "No se puede clasificar" es exactamente el
+        caso que congela."""
+        from backend.services.fiscal.wsfe_adapter import _submit_outcome_is_unambiguous
+
+        # None en sys.modules hace que `import zeep.exceptions` levante ImportError.
+        with patch.dict(sys.modules, {"zeep.exceptions": None}):
+            assert _submit_outcome_is_unambiguous(TypeError("serializando")) is False
+
+        # Control: sin el sabotaje, ese mismo TypeError SÍ se exime.
+        assert _submit_outcome_is_unambiguous(TypeError("serializando")) is True
+
+    @pytest.mark.asyncio
     async def test_error_de_delegacion_sigue_sin_congelar(self):
         """TRIANGULACIÓN: un rechazo de delegación de ARCA llega como Fault SOAP
         (ARCA respondió), así que sigue mapeando a DELEGATION_NOT_AUTHORIZED y

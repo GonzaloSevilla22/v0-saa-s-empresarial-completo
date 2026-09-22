@@ -39,7 +39,7 @@
 --        cuentas (P0435), por los dos lados (alta/actualización de PV y cambio
 --        de CUIT del perfil), sin tocar las filas que ya existen.
 --
--- fiscal-riesgos-residuales (20261055000001) agrega:
+-- fiscal-riesgos-residuales (20261057000001) agrega:
 --
 --   (13) Firma única, SECURITY DEFINER y ACLs de las 2 RPCs nuevas de la marca
 --        previa (mark_submit_started / clear_submit_mark), y las 2 columnas que

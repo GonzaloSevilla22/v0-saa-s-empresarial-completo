@@ -20,7 +20,8 @@ from __future__ import annotations
 import datetime
 import logging
 
-from backend.services.fiscal.fiscal_document_port import CAERequest, FiscalDocumentPort
+from backend.services.fiscal.fiscal_document_port import CAERequest, CAEResponse, FiscalDocumentPort
+from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +93,34 @@ class CAERelayProcessor:
             iva_alicuota_id=doc.get("iva_alicuota_id"),
         )
 
-        # Llamar al adapter (stub o real)
-        response = await self._adapter.request_cae(cae_request)
+        # ── fiscal-emision-segura (G2): capa 2 del guard de ambiente ──────────
+        # Punto de paso canónico del relay. Si el documento es de PRODUCCIÓN, el
+        # adapter tiene que ser el real: cualquier otro devolvería un CAE que no
+        # existe en ARCA, y `authorized` es terminal (nadie lo corrige después).
+        # Es una ALLOW-LIST del adapter real, no una deny-list del stub: así
+        # cubre también cualquier adapter futuro (un fake de demo, un mock que se
+        # filtre a un camino de producción). No delega en el guard del stub —
+        # ni siquiera le pregunta: un guard que delega no es guard.
+        if doc.get("ambiente") == "produccion" and not isinstance(self._adapter, WSFEAdapter):
+            response = CAEResponse(
+                cae=None,
+                cae_due_date=None,
+                is_approved=False,
+                error_code="STUB_FORBIDDEN_IN_PRODUCTION",
+                error_detail=(
+                    f"guard del relay: el comprobante es de ambiente 'produccion' y el "
+                    f"adapter inyectado no es el real ({type(self._adapter).__name__}). "
+                    "No se llamó al adapter. Configurá el certificado de plataforma "
+                    "(AFIP_PLATFORM_CERT/KEY/CUIT) para emitir en producción."
+                ),
+            )
+            logger.critical(
+                "CAERelayProcessor: doc %s de PRODUCCIÓN con adapter %s — no se pidió CAE",
+                doc["id"], type(self._adapter).__name__,
+            )
+        else:
+            # Llamar al adapter (stub o real)
+            response = await self._adapter.request_cae(cae_request)
 
         if response.is_approved:
             # Éxito → authorized

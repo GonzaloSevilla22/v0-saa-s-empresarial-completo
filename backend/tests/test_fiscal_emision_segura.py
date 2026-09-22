@@ -210,3 +210,118 @@ class TestNoHayDisparoInmediato:
             "process_all_pending_documents es el ÚNICO camino de emisión que "
             "debe quedar — no se toca."
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G2 — El stub no puede escribir un CAE en producción (defensa en profundidad)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def make_cae_request(**overrides):
+    from backend.services.fiscal.fiscal_document_port import CAERequest
+
+    base = dict(
+        account_id=ACCOUNT_ID,
+        fiscal_document_id=DOC_ID,
+        comprobante_type="factura_c",
+        punto_de_venta=3,
+        number=7,
+        total=12000.0,
+        cuit_emisor="20422662457",
+        ambiente="homologacion",
+    )
+    base.update(overrides)
+    return CAERequest(**base)
+
+
+class TestStubNuncaEnProduccion:
+    """2.1-2.4: dos capas independientes, ninguna delegando en la otra.
+
+    El stub cubre cualquier CALLER futuro; el guard del processor cubre
+    cualquier ADAPTER futuro (allow-list del real, no deny-list del stub).
+    """
+
+    @pytest.mark.asyncio
+    async def test_stub_rechaza_produccion(self):
+        """2.1 RED: el stub NUNCA devuelve un CAE para un doc de producción."""
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        resp = await WSFEStubAdapter().request_cae(make_cae_request(ambiente="produccion"))
+
+        assert resp.is_approved is False
+        assert resp.error_code == "STUB_FORBIDDEN_IN_PRODUCTION"
+        assert resp.cae is None
+        assert resp.cae_due_date is None
+
+    @pytest.mark.asyncio
+    async def test_stub_sigue_funcionando_en_homologacion(self):
+        """2.2 TRIANGULACIÓN: en homologación el stub sigue dando su CAE de 14 dígitos."""
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        resp = await WSFEStubAdapter().request_cae(make_cae_request(ambiente="homologacion"))
+
+        assert resp.is_approved is True
+        assert resp.cae is not None
+        assert len(resp.cae) == 14 and resp.cae.isdigit()
+        assert resp.error_code is None
+
+    @pytest.mark.asyncio
+    async def test_processor_no_llama_stub_para_doc_de_produccion(self):
+        """2.3 RED: el processor no llama a un adapter que no sea el real si el
+        documento es de producción — ni siquiera para preguntarle."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.wsfe_stub_adapter import WSFEStubAdapter
+
+        repo = make_repo()
+        stub = WSFEStubAdapter()
+        spy = MagicMock(wraps=stub.request_cae)
+        processor = CAERelayProcessor(adapter=stub, repo=repo)
+
+        with patch.object(WSFEStubAdapter, "request_cae", spy):
+            await processor.process_document(make_pending_doc(ambiente="produccion"))
+
+        spy.assert_not_called()
+        repo.update_authorized.assert_not_called()
+        repo.update_rejected.assert_not_called()
+        repo.update_retry.assert_awaited_once()
+        last_error = repo.update_retry.await_args.kwargs["last_error"]
+        assert "produccion" in last_error
+        assert "STUB_FORBIDDEN_IN_PRODUCTION" in last_error
+        assert "WSFEStubAdapter" in last_error
+
+    @pytest.mark.asyncio
+    async def test_processor_si_autoriza_produccion_con_el_adapter_real(self):
+        """2.4 TRIANGULACIÓN: el guard discrimina por TIPO de adapter, no bloquea
+        producción en general. Con el adapter real, un doc de producción se autoriza."""
+        from backend.services.fiscal.cae_relay_processor import CAERelayProcessor
+        from backend.services.fiscal.fiscal_document_port import CAEResponse
+        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+        real = MagicMock(spec=WSFEAdapter)
+        real.request_cae = AsyncMock(
+            return_value=CAEResponse(
+                cae="86250464989491",
+                cae_due_date=datetime.date(2026, 12, 31),
+                is_approved=True,
+            )
+        )
+        repo = make_repo()
+        processor = CAERelayProcessor(adapter=real, repo=repo)
+
+        await processor.process_document(make_pending_doc(ambiente="produccion"))
+
+        real.request_cae.assert_awaited_once()
+        repo.update_authorized.assert_awaited_once()
+        repo.update_retry.assert_not_called()
+
+    def test_la_factory_documenta_que_su_gate_no_es_el_ambiente(self):
+        """2.5: el gate de la factory es "¿hay cert de plataforma?", NO "¿este
+        documento es de producción?". Sin este recordatorio, alguien puede leer
+        la factory como si ya cubriera el ambiente — y no lo hace: sin cert de
+        plataforma, un doc de PRODUCCIÓN recibe el stub."""
+        from backend.services.fiscal import adapter_factory
+
+        doc = adapter_factory.build_cae_adapter.__doc__ or ""
+        assert "ambiente" in doc.lower(), (
+            "El docstring de build_cae_adapter debe decir explícitamente que su "
+            "gate NO mira el ambiente del documento."
+        )

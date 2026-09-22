@@ -795,7 +795,41 @@ jobs:
           # veces consecutivas: EXIT=0 las tres, gate de introspección
           # embebido en verde las tres, 14/19 pobladas estable (nunca crece
           # ni se corrompe), 0 overloads en las 5 funciones tocadas.
-          psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261048000001_v3_rbac_multirole_parte_b.sql
+          #
+          # fiscal-riesgos-residuales (2026-09-22): el GATE DE INTROSPECCIÓN
+          # embebido al final de ESTE archivo (línea 673) hardcodea "48
+          # policies/20 tablas invocando is_account_writer" como invariante.
+          # Para cuando este paso reaplica esta migración, `supabase start` ya
+          # aplicó la cadena completa UNA vez — incluida la migración nueva de
+          # este change (20261059000001, R2), que retira a propósito
+          # `fiscal_documents_writer_insert` (era el único INSERT directo
+          # sobre `fiscal_documents`, y el agujero: un writer podía POSTear a
+          # PostgREST un comprobante 'authorized' con un CAE inventado en su
+          # propia cuenta). El conteo real ya es 47/19 antes de que este `psql
+          # -f` reejecute el DO $$ de abajo, que por lo tanto vuelve a fallar
+          # — mismo mecanismo "phantom regression" de las notas anteriores,
+          # pero el gate que dispara es el de la PROPIA migración vieja, no
+          # uno de un paso posterior. No hay nada que reconverger DESPUÉS (el
+          # gate es la ÚLTIMA sentencia del archivo, no lo sigue ningún DDL),
+          # así que tolerar acá es no-op en la práctica — mismo criterio y
+          # misma tolerancia ESTRECHA (sólo el marcador literal de ESTE
+          # chequeo puntual, (b) de 6, no cualquier "GATE INTROSPECCION
+          # FAILED") que las tolerancias de 20260928000001/20261002000001 más
+          # arriba. `test_is_account_writer_pivot.sql` (gate dedicado, no
+          # embebido) ya espera 47/19 con la explicación completa.
+          set +e
+          REAPPLY_OUT=$(psql -v ON_ERROR_STOP=1 "$DSN" -f supabase/migrations/20261048000001_v3_rbac_multirole_parte_b.sql 2>&1)
+          REAPPLY_RC=$?
+          set -e
+          echo "$REAPPLY_OUT"
+          if [ "$REAPPLY_RC" -ne 0 ]; then
+            if echo "$REAPPLY_OUT" | grep -qF 'GATE INTROSPECCION FAILED: is_account_writer debía seguir invocada por 48 policies/20 tablas'; then
+              echo "20261048000001 reapply disparó su propio gate de introspección embebido (esperado: fiscal-riesgos-residuales/20261059000001 ya bajó el conteo a 47/19 en el apply inicial) — tolerado, nada posterior en este archivo depende de él"
+            else
+              echo "ERROR: el reapply de 20261048000001 falló por un motivo DISTINTO del gate de introspección esperado."
+              exit 1
+            fi
+          fi
 
           # v3-rbac-multirole Parte C (2026-09-11): idempotente — 2 RPCs
           # nuevas (rpc_assign_member_role, rpc_revoke_member_role) CREATE OR

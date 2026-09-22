@@ -179,7 +179,16 @@ DECLARE
     'public.rpc_fiscal_document_claim_pending(uuid, integer)',
     'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
     'public.rpc_fiscal_document_reject(uuid, text)',
-    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)'
+    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)',
+    -- fiscal-riesgos-residuales (R1, 20261059000001): las 2 RPCs de la marca
+    -- previa al envío. Mismo contrato que las 5 de arriba. clear_submit_mark
+    -- es la más sensible de las siete: borra la marca que impide re-emitir, así
+    -- que con EXECUTE para `authenticated` sería la primitiva para provocar a
+    -- mano la SEGUNDA factura real contra ARCA que este change existe para
+    -- impedir. Candado de firma en el bloque (3) de
+    -- supabase/tests/test_fiscal_cae_numero_autoritativo.sql.
+    'public.rpc_fiscal_document_mark_submit_started(uuid, bigint)',
+    'public.rpc_fiscal_document_clear_submit_mark(uuid, text)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

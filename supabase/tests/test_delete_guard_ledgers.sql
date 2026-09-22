@@ -322,10 +322,17 @@ BEGIN
     VALUES (v_user_id, v_account_id, v_client_id, v_product_id, 500, 1, 500, 'ARS', CURRENT_DATE, v_op2, v_branch_id)
     RETURNING id INTO v_sale2_id;
 
+    -- fiscal-riesgos-residuales (R2): trg_guard_fiscal_document_insert_interno
+    -- rechaza con P0436 un INSERT que no nazca pending_cae. Este fixture
+    -- siembra el estado FINAL de un comprobante emitido (al que por el camino
+    -- legítimo se llega con un UPDATE del relay), así que elude el trigger de
+    -- forma acotada — mismo patrón que este archivo ya usa en su limpieza.
+    SET session_replication_role = replica;
     INSERT INTO public.fiscal_documents
       (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, client_id, total, status)
     VALUES (v_account_id, v_fiscal_profile_id, v_pos_id, 'factura_b', 1, 99001, v_client_id, 500, 'authorized')
     RETURNING id INTO v_fd2_id;
+    SET session_replication_role = DEFAULT;
 
     INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, sale_operation_id, fiscal_document_id, created_by)
     VALUES (v_account_id, v_branch_id, v_client_id, 'confirmed', 500, v_op2, v_fd2_id, v_user_id)

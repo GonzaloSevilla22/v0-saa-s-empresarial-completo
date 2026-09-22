@@ -57,6 +57,9 @@ def _repo():
     repo.update_authorized = AsyncMock()
     repo.update_rejected = AsyncMock()
     repo.update_retry = AsyncMock()
+    # fiscal-riesgos-residuales (R1): el relay inyecta el hook de la marca previa.
+    repo.mark_submit_started = AsyncMock()
+    repo.clear_submit_mark = AsyncMock(return_value=True)
     return repo
 
 

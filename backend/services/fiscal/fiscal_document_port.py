@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import datetime
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+
+# fiscal-riesgos-residuales (R1): hook que el relay inyecta por documento. El
+# adapter lo AWAITEA con el número que está por pedirle a ARCA, justo antes del
+# FECAESolicitar. Si levanta, el envío NO sale.
+SubmitStartHook = Callable[[int], Awaitable[None]]
 
 
 @dataclass
@@ -50,6 +56,18 @@ class CAERequest:
     # fiscal-receptor-iva-relay (D2): identificación del receptor (AFIP DocTipo/DocNro)
     receptor_doc_tipo: int | None = None        # 80=CUIT, 96=DNI, 99=sin identificar (None → derivar)
     receptor_doc_nro: str | None = None         # número de documento del receptor (sin guiones)
+    # ── fiscal-riesgos-residuales (R1): la marca ANTES del envío ──────────────
+    # El adapter lo awaitea con el número que va a pedirle a ARCA
+    # (FECompUltimoAutorizado + 1), FUERA del try del FECAESolicitar e
+    # inmediatamente antes. Si levanta, el envío NO sale: es lo que sostiene la
+    # invariante "un FECAESolicitar nunca sale sin una marca commiteada".
+    #
+    # Viaja en el CAERequest y NO como parámetro nuevo de `request_cae` a
+    # propósito: así la firma del port queda intacta y ninguno de los ~20 mocks
+    # de adapter de backend/tests/ se rompe. El precio es un Callable dentro de
+    # un dataclass de dominio (roza el ACL del D4); el beneficio es no tocar
+    # seis archivos de test por una cuestión de forma.
+    on_submit_start: SubmitStartHook | None = None
 
 
 @dataclass
@@ -81,6 +99,39 @@ class CAEResponse:
     submitted: bool = False
 
 
+@dataclass
+class ReconcileResponse:
+    """Qué dice ARCA sobre un comprobante que YA se le pidió.
+
+    fiscal-riesgos-residuales (R1). La devuelve `reconcile_submitted` cuando el
+    relay reclama un documento con la marca de envío puesta: es la única fuente
+    que puede desbloquearlo, porque pedirle un CAE nuevo emitiría una segunda
+    factura real.
+
+    `outcome`:
+      - "authorized" — ARCA lo tiene con `Resultado='A'`: se adopta su CAE.
+      - "not_found"  — ARCA demostró que NO existe (602) **y** su último
+        autorizado todavía no llegó a ese número. Es la ÚNICA salida que
+        habilita re-emitir, y por eso exige el cross-check: el 602 también
+        aparece cuando el PtoVta/CbteTipo de la consulta no matchea.
+      - "rejected"   — existe pero con `Resultado='R'`. El processor lo trata
+        como "unknown": un FECAESolicitar rechazado no consume el número, así
+        que un comprobante "existente pero rechazado" es una respuesta que no
+        sabemos interpretar.
+      - "unknown"    — TODO lo demás: timeout, transporte, HTML en vez de
+        envelope, Fault, fecha deforme, librerías ausentes. Es el DEFAULT del
+        dataclass a propósito — nunca "not_found" por omisión.
+    """
+
+    outcome: str = "unknown"   # "authorized" | "not_found" | "rejected" | "unknown"
+    cae: str | None = None
+    cae_due_date: datetime.date | None = None
+    number: int | None = None
+    ultimo_autorizado: int | None = None   # cross-check del 602
+    error_code: str | None = None
+    error_detail: str | None = None
+
+
 class FiscalDocumentPort(ABC):
     """Port (interfaz de dominio) del adaptador WSFE.
 
@@ -99,3 +150,25 @@ class FiscalDocumentPort(ABC):
             CAEResponse con el resultado (is_approved, cae, cae_due_date o error).
         """
         ...
+
+    async def reconcile_submitted(
+        self, invoice_data: CAERequest, requested_number: int
+    ) -> ReconcileResponse:
+        """¿Qué pasó con el comprobante `requested_number` que ya se envió?
+
+        fiscal-riesgos-residuales (R1). NO es @abstractmethod a propósito: si lo
+        fuera, cada fake de la suite tendría que implementarla y —peor— un
+        adapter futuro incompleto explotaría en runtime, dentro del relay.
+
+        El default es FAIL-CLOSED: `unknown`. Un adapter que no la implemente
+        hace que el documento reintente la consulta y termine CONGELADO; nunca
+        que se emita un CAE nuevo sobre un envío que puede haber salido.
+        """
+        return ReconcileResponse(
+            outcome="unknown",
+            error_code="RECONCILE_NOT_IMPLEMENTED",
+            error_detail=(
+                f"{type(self).__name__} no implementa reconcile_submitted: no se "
+                "puede demostrar qué pasó con el envío, así que no se emite nada."
+            ),
+        )

@@ -143,17 +143,28 @@ BEGIN
   VALUES (gen_random_uuid(), v_fp_id, v_account_a, 1, true, now())
   RETURNING id INTO v_pv_id;
 
+  -- fiscal-riesgos-residuales (R2): trg_guard_fiscal_document_insert_interno
+  -- rechaza con P0436 todo INSERT que no nazca pending_cae y sin CAE. Los dos
+  -- comprobantes 'authorized'/'rejected' de este fixture son estados FINALES
+  -- (a los que por el camino legítimo se llega con un UPDATE del relay), así
+  -- que eluden el trigger de forma acotada y deliberada. El 'pending_cae' del
+  -- medio queda FUERA de la elusión a propósito: es el control positivo de que
+  -- el camino legítimo sigue abierto.
+  SET session_replication_role = replica;
   INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
   VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 1, 1000, 'authorized', 0)
   RETURNING id INTO v_doc_authorized;
+  SET session_replication_role = DEFAULT;
 
   INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
   VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 2, 1000, 'pending_cae', 0)
   RETURNING id INTO v_doc_pending;
 
+  SET session_replication_role = replica;
   INSERT INTO public.fiscal_documents (id, account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
   VALUES (gen_random_uuid(), v_account_a, v_fp_id, v_pv_id, 'factura_c', 1, 3, 1000, 'rejected', 3)
   RETURNING id INTO v_doc_rejected;
+  SET session_replication_role = DEFAULT;
 
   -- ═══════════════════════════════════════════════════════════════════════
   -- Setup anchor B (cuenta ajena, solo para el gate de sucursal cross-account)

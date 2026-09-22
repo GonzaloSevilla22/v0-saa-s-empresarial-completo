@@ -3,14 +3,24 @@
 -- CHANGE: v3-rbac-multirole Parte B, grupo 8 (D11) — is_account_writer sobre
 -- el pivot.
 --
--- is_account_writer conserva su FIRMA (p_account_id uuid) y sus 48 policies
--- sobre 20 tablas; sólo cambia el CUERPO, para resolver EXISTS(rol activo del
--- usuario en la cuenta cuyo is_writer del catálogo sea true) en vez de
--- `role IN ('owner','admin')` contra la columna espejo. current_account_ids()
--- NO se toca (D11) — no forma parte de este gate porque resuelve tenencia,
--- no rol.
+-- is_account_writer conserva su FIRMA (p_account_id uuid) y sus policies; sólo
+-- cambia el CUERPO, para resolver EXISTS(rol activo del usuario en la cuenta
+-- cuyo is_writer del catálogo sea true) en vez de `role IN ('owner','admin')`
+-- contra la columna espejo. current_account_ids() NO se toca (D11) — no forma
+-- parte de este gate porque resuelve tenencia, no rol.
 --
---   (1) estructura: la firma no cambió y las 48 policies sobre 20 tablas
+-- CONTEO (mantenimiento): nació en 48 policies sobre 20 tablas.
+-- fiscal-riesgos-residuales (R2, 20261059000001) lo baja a 47 sobre 19: la
+-- policy `fiscal_documents_writer_insert` se RETIRA a propósito. Era la única
+-- de `fiscal_documents`, y era justamente el agujero — un writer podía POSTear
+-- a PostgREST un comprobante 'authorized' con un CAE inventado en su propia
+-- cuenta (medido: HTTP 201). Desde ese change la tabla no acepta escritura
+-- directa de ningún rol de PostgREST: la emisión pasa sólo por las RPCs
+-- SECURITY DEFINER. Bajar este número es correcto ACÁ y sospechoso en
+-- cualquier otro lado: si vuelve a bajar sin un change que lo explique, es una
+-- policy de escritura que alguien borró sin querer.
+--
+--   (1) estructura: la firma no cambió y las 47 policies sobre 19 tablas
 --       siguen existiendo (8.2) — no depende de datos, corre siempre.
 --   (2) un miembro con un rol que CONCEDE escritura (is_writer=true, p.ej.
 --       'seller') -> is_account_writer = true (8.1).
@@ -31,7 +41,7 @@
 -- y no se aborta el gate completo por esto.
 -- =============================================================================
 
--- ── (1) Estructura: firma sin cambios + 48 policies / 20 tablas ─────────────
+-- ── (1) Estructura: firma sin cambios + 47 policies / 19 tablas ─────────────
 DO $$
 DECLARE
   v_nargs   int;
@@ -50,11 +60,11 @@ BEGIN
   WHERE schemaname = 'public'
     AND (qual ILIKE '%is_account_writer%' OR with_check ILIKE '%is_account_writer%');
 
-  IF v_n_pol <> 48 OR v_n_tab <> 20 THEN
-    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 48 policies sobre 20 tablas invocando is_account_writer, hay % sobre %', v_n_pol, v_n_tab;
+  IF v_n_pol <> 47 OR v_n_tab <> 19 THEN
+    RAISE EXCEPTION 'GATE FAILED (1): se esperaban 47 policies sobre 19 tablas invocando is_account_writer, hay % sobre %. (El conteo bajó de 48/20 a 47/19 en fiscal-riesgos-residuales R2, que retiró fiscal_documents_writer_insert a propósito — ver la cabecera.)', v_n_pol, v_n_tab;
   END IF;
 
-  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 48 policies sobre 20 tablas.';
+  RAISE NOTICE 'PASS (1): is_account_writer conserva su firma (1 arg) y las 47 policies sobre 19 tablas.';
 END $$;
 
 

@@ -107,6 +107,43 @@ class FiscalDocumentRepository(BaseRepository):
             detail,
         )
 
+    async def mark_submit_started(self, doc_id: str, arca_requested_number: int) -> None:
+        """Marca el envío ANTES de que salga — fiscal-riesgos-residuales (R1).
+
+        La llama el hook `on_submit_start` que el relay inyecta en el
+        `CAERequest`, justo antes del `FECAESolicitar`. El relay corre sobre
+        `get_service_conn`, que NO abre transacción explícita: cada statement
+        es autocommit, así que la marca queda commiteada aunque el proceso
+        muera un instante después. Eso es exactamente lo que el fix necesita.
+
+        NO traga la excepción: si `rpc_fiscal_document_mark_submit_started`
+        levanta (P0437 — documento inexistente, ya no pending_cae, o con una
+        marca viva), el `raise` tiene que llegar hasta `_call_wsfe` para
+        ABORTAR el envío. Un booleano que alguien pueda ignorar no serviría.
+        """
+        await self.execute(
+            "SELECT public.rpc_fiscal_document_mark_submit_started($1::uuid, $2::bigint)",
+            doc_id,
+            arca_requested_number,
+        )
+
+    async def clear_submit_mark(self, doc_id: str, detail: str) -> bool:
+        """Borra la marca de envío — fiscal-riesgos-residuales (R1).
+
+        SÓLO cuando ARCA demostró que el comprobante no existe (FECompConsultar
+        602 + FECompUltimoAutorizado < el número pedido). La RPC incrementa
+        `attempts`, así que el ciclo marca → 602 → limpieza → marca queda
+        acotado por el mismo tope que el resto del relay.
+
+        `False` = no había marca que limpiar, o el documento está CONGELADO (la
+        RPC no desmarca congelados ni aunque se la llame por error).
+        """
+        return await self._conn.fetchval(
+            "SELECT public.rpc_fiscal_document_clear_submit_mark($1::uuid, $2)",
+            doc_id,
+            detail,
+        )
+
     async def update_rejected(self, doc_id: str, last_error: str) -> None:
         """Transiciona el comprobante a rejected con el detalle del error.
 

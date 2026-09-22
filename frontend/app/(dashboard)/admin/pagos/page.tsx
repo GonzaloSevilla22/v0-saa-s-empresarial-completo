@@ -31,9 +31,13 @@ import { Receipt, Download, FileText, AlertTriangle, Send, CheckCircle2, FileChe
 import { FiscalDocumentBadge, type FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBadge"
 import { EmitirSuscripcionDialog, type SubscriptionReceipt } from "@/components/fiscal/EmitirSuscripcionDialog"
 import { useEmitSubscriptionPayment } from "@/hooks/data/use-emit-subscription-payment"
+import { formatComprobante, comprobanteTypeLabel } from "@/lib/fiscal-comprobante"
 import { usePointsOfSale } from "@/hooks/data/use-points-of-sale"
 import { translateEmitError, isDelegationError } from "@/hooks/data/use-emit-comprobante"
-import type { EmitSubscriptionPaymentInput } from "@/hooks/data/use-emit-subscription-payment"
+import type {
+  EmitSubscriptionPaymentInput,
+  FiscalDocByReceiptResult,
+} from "@/hooks/data/use-emit-subscription-payment"
 
 interface PaymentReceipt {
   id: string
@@ -56,6 +60,12 @@ interface RowFiscalState {
   documentId: string
   status: FiscalDocumentStatus
   cae?: string | null
+  /** fiscal-emision-segura (G7): identidad del comprobante ante ARCA
+   *  ("Factura C 0003-00000002"). Sin esto, el número que el relay persiste
+   *  desde la respuesta de ARCA no se ve en ninguna pantalla. */
+  comprobanteType?: string | null
+  puntoDeVenta?: number | null
+  number?: number | null
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -110,16 +120,17 @@ export default function AdminPagosPage() {
           .filter((r) => !(r.id in existing))
           .map(async (r) => {
             try {
-              const doc = await pythonClient.get<{
-                id: string
-                status: FiscalDocumentStatus
-                cae?: string | null
-              } | null>(`/fiscal/documents/by-receipt/${r.id}`)
+              const doc = await pythonClient.get<FiscalDocByReceiptResult | null>(
+                `/fiscal/documents/by-receipt/${r.id}`,
+              )
               if (doc) {
                 newStates[r.id] = {
-                  documentId: doc.id,
-                  status:     doc.status,
-                  cae:        doc.cae,
+                  documentId:      doc.id,
+                  status:          doc.status,
+                  cae:             doc.cae,
+                  comprobanteType: doc.comprobante_type,
+                  puntoDeVenta:    doc.punto_de_venta,
+                  number:          doc.number,
                 }
               }
             } catch {
@@ -307,10 +318,26 @@ export default function AdminPagosPage() {
                     {/* ARCA column: badge or placeholder */}
                     <td className="px-4 py-3 text-right">
                       {fiscal ? (
-                        <FiscalDocumentBadge
-                          documentId={fiscal.documentId}
-                          initialStatus={fiscal.status}
-                        />
+                        <div className="flex flex-col items-end gap-1">
+                          <FiscalDocumentBadge
+                            documentId={fiscal.documentId}
+                            initialStatus={fiscal.status}
+                          />
+                          {/* G7: identidad del comprobante ante ARCA. Si falta el
+                              número no se renderiza nada — un "—" acá parecería
+                              un número que no existe. Y sólo con el comprobante
+                              AUTORIZADO: mientras está pending_cae el número es
+                              el reservado localmente, y G3 lo reemplaza por el
+                              que ARCA confirme. Mostrarlo antes sería mostrar un
+                              número que puede cambiar. */}
+                          {fiscal.status === "authorized" &&
+                            formatComprobante(fiscal.puntoDeVenta, fiscal.number) && (
+                            <span className="font-mono text-xs text-slate-400">
+                              {comprobanteTypeLabel(fiscal.comprobanteType)}{" "}
+                              {formatComprobante(fiscal.puntoDeVenta, fiscal.number)}
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-slate-600">—</span>
                       )}

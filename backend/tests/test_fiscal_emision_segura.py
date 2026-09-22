@@ -657,3 +657,165 @@ class TestSubmitNoConfirmado:
         args = conn.execute.await_args.args
         assert "rpc_fiscal_document_freeze_unconfirmed" in args[0]
         assert args[1:] == (DOC_ID, 51, "[CAE_SUBMIT_UNCONFIRMED] x")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G5 — Consumidor final (DocTipo 99) en el pago de suscripción (H3)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestConsumidorFinalSuscripcion:
+    """5.1-5.3: el bloqueo era sólo Pydantic + UI.
+
+    `rpc_emit_subscription_payment_cae` ya acepta `p_receptor_doc_tipo DEFAULT 99`
+    y hace `NULLIF(p_receptor_doc_tipo, 99)`, y el adapter ya resuelve un receptor
+    sin identificar como DocTipo=99 / DocNro=0. Sin migración.
+    """
+
+    def test_schema_acepta_receptor_ausente(self):
+        """5.1 RED: el schema valida sin receptor y deja los dos campos en None."""
+        from backend.schemas.fiscal import EmitSubscriptionPaymentRequest
+
+        req = EmitSubscriptionPaymentRequest(receipt_id="receipt-001")
+
+        assert req.receptor_doc_tipo is None
+        assert req.receptor_doc_nro is None
+
+    def test_schema_acepta_receptor_identificado(self):
+        """5.2 TRIANGULACIÓN: el camino identificado no cambia."""
+        from backend.schemas.fiscal import EmitSubscriptionPaymentRequest
+
+        req = EmitSubscriptionPaymentRequest(
+            receipt_id="receipt-001", receptor_doc_tipo=80, receptor_doc_nro="20422662457"
+        )
+
+        assert req.receptor_doc_tipo == 80
+        assert req.receptor_doc_nro == "20422662457"
+
+    def test_schema_rechaza_tipo_sin_numero(self):
+        """5.2 TRIANGULACIÓN: relajar el schema no puede abrir la puerta a un
+        DocTipo=80 con DocNro vacío — ante ARCA es un comprobante inconsistente."""
+        import pydantic
+
+        from backend.schemas.fiscal import EmitSubscriptionPaymentRequest
+
+        with pytest.raises(pydantic.ValidationError):
+            EmitSubscriptionPaymentRequest(receipt_id="receipt-001", receptor_doc_tipo=80)
+
+    def test_schema_rechaza_numero_sin_tipo(self):
+        """5.2 TRIANGULACIÓN (simétrico)."""
+        import pydantic
+
+        from backend.schemas.fiscal import EmitSubscriptionPaymentRequest
+
+        with pytest.raises(pydantic.ValidationError):
+            EmitSubscriptionPaymentRequest(
+                receipt_id="receipt-001", receptor_doc_nro="20422662457"
+            )
+
+    def test_schema_rechaza_numero_vacio_con_tipo(self):
+        """5.2 TRIANGULACIÓN: un string vacío no alcanza para identificar."""
+        import pydantic
+
+        from backend.schemas.fiscal import EmitSubscriptionPaymentRequest
+
+        with pytest.raises(pydantic.ValidationError):
+            EmitSubscriptionPaymentRequest(
+                receipt_id="receipt-001", receptor_doc_tipo=96, receptor_doc_nro="   "
+            )
+
+    @pytest.mark.asyncio
+    async def test_service_pasa_none_a_la_rpc(self):
+        """5.3 RED: con receptor ausente, la RPC recibe None en los dos parámetros.
+
+        `NULLIF(NULL, 99)` ya es NULL, así que el documento queda con
+        receptor_doc_tipo NULL y el adapter manda DocTipo=99 / DocNro=0.
+        """
+        from backend.schemas.fiscal import EmitSubscriptionPaymentRequest
+        from backend.services.fiscal import fiscal_profile_service as svc
+
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            side_effect=[
+                None,  # idempotency check
+                {"result": json.dumps({"fiscal_document_id": DOC_ID, "status": "pending_cae"})},
+            ]
+        )
+
+        with patch.object(svc, "require_platform_admin", AsyncMock(return_value=None)):
+            await svc.emit_subscription_payment_cae(
+                conn,
+                {"user_id": "u", "role": "admin"},
+                EmitSubscriptionPaymentRequest(receipt_id="receipt-001"),
+            )
+
+        rpc_args = conn.fetchrow.await_args_list[1].args
+        assert "rpc_emit_subscription_payment_cae" in rpc_args[0]
+        # (query, receipt_id, point_of_sale_id, receptor_doc_tipo, receptor_doc_nro)
+        assert rpc_args[3] is None, "p_receptor_doc_tipo debe viajar NULL"
+        assert rpc_args[4] is None, "p_receptor_doc_nro debe viajar NULL"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# G7 — Superficie visible del número (regla PO: backend sin puerta = incompleto)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestByReceiptDevuelveElComprobante:
+    """7.1: sin esto, G3 corrige un dato que nadie ve.
+
+    `GET /fiscal/documents/by-receipt/{id}` es lo que consume /admin/pagos para
+    mostrar el estado del comprobante de un pago de suscripción. Traía el CAE
+    pero NO el punto de venta ni el número, que es justamente lo que identifica
+    al comprobante ante ARCA ("Factura C 0003-00000002").
+    """
+
+    @pytest.mark.asyncio
+    async def test_by_receipt_devuelve_punto_de_venta_y_numero(self):
+        from httpx import ASGITransport, AsyncClient
+
+        from backend.core.auth import get_current_user
+        from backend.core.database import get_db_conn
+        from backend.main import app
+
+        doc_id = uuid.UUID("cccc3333-3333-3333-3333-333333333333")
+        conn = AsyncMock()
+        conn.fetchval = AsyncMock(return_value="admin")  # guard de platform admin
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": doc_id,
+                "status": "authorized",
+                "cae": "86250464989491",
+                "cae_due_date": datetime.date(2026, 12, 31),
+                "comprobante_type": "factura_c",
+                "total": 12000.0,
+                "subscription_payment_id": "receipt-001",
+                "punto_de_venta": 3,
+                "number": 2,
+            }
+        )
+
+        def fake_admin():
+            return {"user_id": str(uuid.uuid4()), "role": "admin", "plan": "pro"}
+
+        async def fake_conn():
+            yield conn
+
+        app.dependency_overrides[get_current_user] = fake_admin
+        app.dependency_overrides[get_db_conn] = fake_conn
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.get("/fiscal/documents/by-receipt/receipt-001")
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db_conn, None)
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["punto_de_venta"] == 3
+        assert body["number"] == 2
+        # La query tiene que TRAER las dos columnas (si no, el dict no las tiene
+        # y el endpoint devolvería null aunque el comprobante las tenga).
+        query = conn.fetchrow.await_args.args[0]
+        assert "punto_de_venta" in query
+        assert "number" in query

@@ -32,11 +32,17 @@ import type { FiscalDocumentStatus } from "@/components/fiscal/FiscalDocumentBad
 /** AFIP DocTipo: 80 = CUIT, 96 = DNI */
 export type ReceptorDocTipo = 80 | 96
 
+/**
+ * fiscal-emision-segura (G5/H3): el receptor es OPCIONAL. Los dos campos viajan
+ * JUNTOS o NINGUNO — `null`/`null` = consumidor final sin identificar, que el
+ * backend traduce a DocTipo 99 / DocNro 0. El schema Pydantic rechaza la mezcla
+ * (un DocTipo sin número es inconsistente ante ARCA).
+ */
 export interface EmitSubscriptionPaymentInput {
   receipt_id: string
   point_of_sale_id?: string | null
-  receptor_doc_tipo: ReceptorDocTipo
-  receptor_doc_nro: string
+  receptor_doc_tipo?: ReceptorDocTipo | null
+  receptor_doc_nro?: string | null
 }
 
 export interface EmitSubscriptionPaymentResult {
@@ -58,7 +64,15 @@ export interface FiscalDocByReceiptResult {
   cae?: string | null
   cae_due_date?: string | null
   subscription_payment_id?: string | null
+  /** fiscal-emision-segura (G7): PV + número = la identidad del comprobante
+   *  ante ARCA. `number` puede ser null en filas viejas o sin numerar; en ese
+   *  caso no se renderiza nada (no inventar un "—" que parezca un número). */
+  punto_de_venta?: number | null
+  number?: number | null
 }
+
+// El formateo del comprobante vive en `lib/fiscal-comprobante.ts` (funciones
+// puras, testeables sin mockear el cliente HTTP que este módulo arrastra).
 
 // ── Hook: emit ────────────────────────────────────────────────────────────────
 

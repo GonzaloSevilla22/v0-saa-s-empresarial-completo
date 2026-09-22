@@ -237,9 +237,13 @@ async def get_fiscal_doc_by_receipt(
     from backend.core.guards import require_platform_admin
     await require_platform_admin(conn, auth)
 
+    # fiscal-emision-segura (G7): punto_de_venta + number son lo que identifica
+    # al comprobante ante ARCA ("Factura C 0003-00000002"). Sin ellos acá, el
+    # número que G3 persiste no lo ve nadie.
     row = await conn.fetchrow(
         """
-        SELECT id, status, cae, cae_due_date, comprobante_type, total, subscription_payment_id
+        SELECT id, status, cae, cae_due_date, comprobante_type, total,
+               subscription_payment_id, punto_de_venta, number
         FROM   public.fiscal_documents
         WHERE  subscription_payment_id = $1
         LIMIT  1
@@ -257,6 +261,8 @@ async def get_fiscal_doc_by_receipt(
         "comprobante_type":       doc["comprobante_type"],
         "total":                  float(doc["total"]),
         "subscription_payment_id": doc["subscription_payment_id"],
+        "punto_de_venta":         doc["punto_de_venta"],
+        "number":                 doc["number"],
     }
 
 

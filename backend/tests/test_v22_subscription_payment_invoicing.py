@@ -460,6 +460,11 @@ class TestGetFiscalDocByReceipt:
             "comprobante_type": "factura_c",
             "total": 1500.0,
             "subscription_payment_id": "receipt-with-cae",
+            # fiscal-emision-segura (G7): el endpoint ahora trae también el PV y
+            # el número — son lo que identifica al comprobante ante ARCA. El
+            # doble se amplía para seguir siendo fiel a la fila real.
+            "punto_de_venta": 3,
+            "number": 2,
         }
 
         def fake_admin():

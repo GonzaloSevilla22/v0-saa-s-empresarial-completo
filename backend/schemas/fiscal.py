@@ -13,7 +13,7 @@ import datetime
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 # ── FiscalProfile schemas ────────────────────────────────────────────────────
@@ -142,12 +142,41 @@ class EmitSubscriptionPaymentRequest(BaseModel):
     al cliente de SaaS por el pago de su plan. El receptor se identifica con
     CUIT o DNI capturado en el dialog (PO decision 2026-06-24).
     Governance: CRÍTICO — solo admin puede llamar este endpoint.
+
+    fiscal-emision-segura (G5/H3): el receptor pasa a ser OPCIONAL —
+    "consumidor final sin identificar". El bloqueo era sólo de esta capa: la RPC
+    ya acepta `p_receptor_doc_tipo DEFAULT 99` con `NULLIF(..., 99)` y el adapter
+    ya resuelve un receptor no identificado como DocTipo=99 / DocNro=0 (el mismo
+    caso de una factura de mostrador). ARCA exige identificar al receptor a
+    partir del umbral de RG 5824/2026 (`afip_consumidor_final_threshold`), muy
+    por encima de un pago de suscripción; ese umbral lo verifica el adapter.
+
+    Los dos campos viajan JUNTOS o NINGUNO: un DocTipo=80 con DocNro vacío es un
+    comprobante inconsistente ante ARCA, y relajar el schema sin este validador
+    abriría exactamente esa puerta.
     """
 
     receipt_id: str                     # ID del PaymentReceipt (idempotency key)
     point_of_sale_id: uuid.UUID | None = None
-    receptor_doc_tipo: Literal[80, 96]  # 80=CUIT, 96=DNI
-    receptor_doc_nro: str               # sin guiones, validado en el service
+    receptor_doc_tipo: Literal[80, 96] | None = None  # 80=CUIT, 96=DNI, None=consumidor final
+    receptor_doc_nro: str | None = None               # sin guiones, validado en el service
+
+    @model_validator(mode="after")
+    def _receptor_coherente(self) -> "EmitSubscriptionPaymentRequest":
+        nro = (self.receptor_doc_nro or "").strip()
+        tipo = self.receptor_doc_tipo
+        if tipo is not None and not nro:
+            raise ValueError(
+                "receptor_doc_nro es obligatorio cuando se informa receptor_doc_tipo "
+                "(un DocTipo 80/96 sin número es inconsistente ante ARCA). Para "
+                "emitir a consumidor final, omitir los dos campos."
+            )
+        if tipo is None and nro:
+            raise ValueError(
+                "receptor_doc_tipo es obligatorio cuando se informa receptor_doc_nro "
+                "(80=CUIT, 96=DNI)."
+            )
+        return self
 
 
 # ── CertUpload schemas (C-31) ─────────────────────────────────────────────────

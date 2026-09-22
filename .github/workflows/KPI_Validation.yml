@@ -2143,3 +2143,38 @@ jobs:
       # propios fixtures.
       - name: Run fiscal emit consumidor final gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_fiscal_emit_consumidor_final.sql
+
+      # venta-editable-sin-cae (2026-09-22, governance CRITICO -- dominio
+      # fiscal). Pedido del PO: "las ventas se puedan modificar, solo si esta no
+      # tiene el CAE, es decir no se envio al ARCA aun". `supabase start` ya
+      # aplico 20261060000001 al levantar el stack; este paso solo corre el gate.
+      # 4 bloques: introspeccion (CHECK de 4 estados, catalogo FSM con voided
+      # terminal + motivo obligatorio y SIN transiciones extra, ACLs del helper
+      # de anulacion cerradas a anon/authenticated -- expuesto seria la
+      # primitiva para anular por PostgREST el comprobante pendiente de
+      # cualquier cuenta --, una sola definicion viva de las 3 RPCs reescritas
+      # con el guard nuevo y sin el viejo); RE-EMISION despues de anular
+      # (comprobante nuevo con numero NUEVO, el anulado queda como rastro con su
+      # numero -- el hueco en document_sequences es deliberado, D9); la
+      # ALLOW-LIST de re-emision (solo rejected y voided habilitan; pending_cae
+      # vivo y authorized siguen dando already_invoiced -- un deny-list
+      # convertiria un status futuro desconocido en una SEGUNDA factura real); y
+      # la carrera edicion-vs-relay caso (d) (con el lease del relay ya puesto
+      # la edicion anula igual, y despues mark_submit_started da P0437 y
+      # claim_pending 0 filas: el FECAESolicitar NUNCA sale con importes viejos).
+      - name: Run venta editable sin CAE gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_venta_editable_sin_cae.sql
+
+      # venta-editable-sin-cae, caso (c) de la prueba de exclusion: el relay
+      # tiene la fila de fiscal_documents TOMADA y la edicion entra en el medio.
+      # Paso APARTE porque necesita DOS conexiones reales -- una sesion nunca
+      # bloquea contra su propio lock, asi que esto NO se puede probar dentro de
+      # un archivo .sql (dblink tampoco sirve: el rol `postgres` de Supabase no
+      # es superusuario). Verifica que el FOR UPDATE NOWAIT del helper rechace
+      # con P0423/fiscal_document_claim_in_flight SIN COLGARSE (con un FOR
+      # UPDATE a secas el request del usuario quedaria esperando detras de un
+      # round-trip SOAP a ARCA: control negativo ejecutado, el gate lo detecta
+      # por statement_timeout), que no anule nada, y que el MISMO pedido
+      # funcione una vez liberado el lock -- el rechazo es TRANSITORIO.
+      - name: Run venta editable sin CAE race gate (dos conexiones)
+        run: DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres bash supabase/tests/test_venta_editable_sin_cae_race.sh

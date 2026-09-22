@@ -2068,3 +2068,24 @@ jobs:
       # cancelacion sin parametros) y que la fila quede intacta.
       - name: Run accounts/profiles privilege columns gate
         run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_accounts_privilege_columns.sql
+
+      # fiscal-emision-segura (2026-09-22, governance CRITICO -- PRIMER gate SQL
+      # del dominio fiscal: hasta este change supabase/tests/ no tenia ninguno,
+      # y por eso rpc_fiscal_document_authorize pudo tener EXECUTE para
+      # authenticated sin que nada lo notara). `supabase start` ya aplico
+      # 20261054000001 al levantar el stack; este paso solo corre el gate.
+      # 12 bloques: firma UNICA de 4 args sin overload (42725), ACLs de las 5
+      # RPCs del relay sin authenticated (esa RPC es SECURITY DEFINER, no valida
+      # tenencia, y expuesta a PostgREST alcanzaba para escribir un CAE
+      # arbitrario en el comprobante de otra cuenta), meta-candado de que las 5
+      # firmas cargadas en v_internal_only_fns RESUELVEN (el chequeo (3) de
+      # test_function_acl_gate.sql es drift-tolerante y una firma vieja lo apaga
+      # EN SILENCIO -- ya paso en este proyecto), numero de ARCA persistido con
+      # resincronizacion solo hacia adelante, colision que NUNCA pierde el CAE,
+      # caso irresoluble que congela en vez de perderlo, el candado de que un
+      # envio no confirmado deja de ser reclamable (con control positivo), las
+      # idempotencias, la limpieza verificada de sus propios fixtures, y G9
+      # (mismo CUIT + mismo punto de venta activo en dos cuentas -> P0435, por
+      # los dos lados, sin tocar las filas que ya existen).
+      - name: Run fiscal emision segura gate
+        run: psql -v ON_ERROR_STOP=1 postgresql://postgres:postgres@127.0.0.1:54322/postgres -f supabase/tests/test_fiscal_cae_numero_autoritativo.sql

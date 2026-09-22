@@ -85,6 +85,13 @@ def _body(resp) -> dict:
         # v3-rbac-multirole Parte C (D18): invitación pendiente duplicada —
         # 409, conflicto de ESTADO.
         ("P0407", 409),
+        # fiscal-emision-segura (G9): un mismo CUIT con el mismo punto de venta
+        # ACTIVO en dos cuentas — es la clave con la que ARCA numera
+        # (CUIT, PtoVta, CbteTipo), así que las dos cuentas competirían por la
+        # misma secuencia. 409, conflicto de ESTADO (misma familia que
+        # P0409/P0423/P0428): el mensaje del RAISE ya nombra la salida (revisar
+        # el CUIT cargado, o usar otro número de punto de venta).
+        ("P0435", 409),
     ],
 )
 async def test_business_codes_map_to_http_status_with_original_message(

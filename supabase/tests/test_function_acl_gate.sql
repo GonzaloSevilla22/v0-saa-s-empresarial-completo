@@ -163,7 +163,23 @@ DECLARE
     -- cobranzas-vencimientos: firma con (p_charge_date, p_due_date) trailing.
     'public._pay_register_party_charge(uuid, text, uuid, numeric, uuid, uuid, date, date)',
     'public._journal_post_from_event(events)',
-    'public._pay_reverse_party_charge(uuid, text, uuid, numeric, uuid, uuid)'
+    'public._pay_reverse_party_charge(uuid, text, uuid, numeric, uuid, uuid)',
+    -- fiscal-emision-segura (2026-09-22): las 5 RPCs del relay del CAE. Son
+    -- SECURITY DEFINER y NO validan tenencia — reciben el doc_id y escriben.
+    -- Con EXECUTE para `authenticated`, `authorize` era la primitiva para
+    -- marcar authorized CUALQUIER comprobante de CUALQUIER cuenta con un CAE
+    -- inventado, vía PostgREST (aparecía en database.types.ts justamente por
+    -- eso). Su único caller authenticated era
+    -- POST /fiscal/documents/process-pending, retirado en ese change; hoy sólo
+    -- las llama el cron con service conn (rol postgres). NUNCA re-otorgar.
+    -- Candado de firma, porque este chequeo (3) es drift-tolerante y una firma
+    -- vieja lo apagaría en silencio: bloque (3) de
+    -- supabase/tests/test_fiscal_cae_numero_autoritativo.sql.
+    'public.rpc_fiscal_document_authorize(uuid, text, date, bigint)',
+    'public.rpc_fiscal_document_claim_pending(uuid, integer)',
+    'public.rpc_fiscal_document_retry(uuid, integer, timestamp with time zone, text)',
+    'public.rpc_fiscal_document_reject(uuid, text)',
+    'public.rpc_fiscal_document_freeze_unconfirmed(uuid, bigint, text)'
   ];
   -- Allowlist del chequeo (4) — helpers internos que HOY siguen expuestos a
   -- `authenticated`. Cada entrada necesita su justificación.

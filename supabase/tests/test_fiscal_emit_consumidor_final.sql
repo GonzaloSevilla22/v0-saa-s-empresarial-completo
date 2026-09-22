@@ -402,6 +402,225 @@ EXCEPTION
     RAISE;
 END $$;
 
+-- ── (7) Tenencia del cliente: un client_id ajeno NO copia su identidad fiscal ─
+-- fiscal-riesgos-residuales (R4). El `SELECT legal_name, iva_condition FROM
+-- clients WHERE id = p_client_id` no filtraba por account_id: un client_id de
+-- OTRA cuenta copiaba su razón social y su condición IVA al comprobante propio
+-- y dejaba ese client_id ajeno persistido en fiscal_documents.client_id.
+--
+-- Estaba anotado como candidato desde #579. Deja de ser sólo una fuga de datos
+-- cuando `claim_pending` empieza a devolver receptor_iva_condition (OQ-3 de
+-- este change): desde ahí esa condición AJENA viaja a ARCA como
+-- CondicionIVAReceptorId. Por eso se cierra acá y no después.
+--
+-- Bloque autocontenido, con DOS cuentas: no toca el fixture de (3)-(6).
+DO $$
+DECLARE
+  v_failures  text[] := '{}';
+
+  v_email_a   text := 'fiscal-emit-tenencia-a@test.local';
+  v_email_b   text := 'fiscal-emit-tenencia-b@test.local';
+  v_user_a    uuid := gen_random_uuid();
+  v_user_b    uuid := gen_random_uuid();
+  v_account_a uuid;
+  v_account_b uuid;
+  v_fp_a      uuid;
+  v_pv_a      uuid;
+  v_claims_a  text;
+
+  v_client_propio uuid;
+  v_client_ajeno  uuid;
+  v_inexistente   uuid := gen_random_uuid();
+
+  v_result    jsonb;
+  v_state     text;
+  v_docs_antes  integer;
+  v_docs_despues integer;
+  v_count     integer;
+  v_name      text;
+  v_iva       text;
+BEGIN
+  -- ═══ Setup: dos cuentas independientes ═══
+  INSERT INTO auth.users (id, aud, role, email, created_at, updated_at, raw_user_meta_data)
+  VALUES (v_user_a, 'authenticated', 'authenticated', v_email_a, now(), now(),
+          jsonb_build_object('name', 'Gate Emit Tenencia A', 'phone', '', 'locality', '', 'province', '')),
+         (v_user_b, 'authenticated', 'authenticated', v_email_b, now(), now(),
+          jsonb_build_object('name', 'Gate Emit Tenencia B', 'phone', '', 'locality', '', 'province', ''))
+  ON CONFLICT (id) DO NOTHING;
+
+  SELECT account_id INTO v_account_a
+  FROM   public.account_members WHERE user_id = v_user_a ORDER BY created_at LIMIT 1;
+  SELECT account_id INTO v_account_b
+  FROM   public.account_members WHERE user_id = v_user_b ORDER BY created_at LIMIT 1;
+
+  IF v_account_a IS NULL OR v_account_b IS NULL THEN
+    RAISE EXCEPTION 'SETUP FAILED (7): no se pudieron resolver las dos cuentas — handle_new_user no corrió';
+  END IF;
+
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (v_account_a, '20111111113', 'monotributista', 'homologacion', true)
+  RETURNING id INTO v_fp_a;
+
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp_a, v_account_a, 9202, true) RETURNING id INTO v_pv_a;
+
+  INSERT INTO public.clients (account_id, user_id, name, legal_name, iva_condition)
+  VALUES (v_account_a, v_user_a, 'Cliente Propio', 'Cliente Propio SA', 'exento')
+  RETURNING id INTO v_client_propio;
+
+  -- El cliente de la cuenta B: su identidad fiscal es la que NO puede viajar.
+  INSERT INTO public.clients (account_id, user_id, name, legal_name, iva_condition)
+  VALUES (v_account_b, v_user_b, 'Cliente Ajeno', 'Secretos Ajenos SRL', 'responsable_inscripto')
+  RETURNING id INTO v_client_ajeno;
+
+  v_claims_a := json_build_object('sub', v_user_a::text, 'role', 'authenticated')::text;
+
+  -- ═══ (7.a) CONTROL POSITIVO: el cliente PROPIO sigue funcionando ═══
+  PERFORM set_config('request.jwt.claims', v_claims_a, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    v_result := public.rpc_emit_pending_cae('factura_c', 1000, v_client_propio, v_pv_a);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  IF v_state <> 'ok' THEN
+    v_failures := v_failures || format('(7.a) control positivo: emitir con el cliente PROPIO no debe levantar; got %s', v_state);
+  ELSE
+    SELECT receptor_legal_name, receptor_iva_condition
+    INTO   v_name, v_iva
+    FROM   public.fiscal_documents WHERE id = (v_result->>'fiscal_document_id')::uuid;
+
+    IF v_name IS DISTINCT FROM 'Cliente Propio SA' OR v_iva IS DISTINCT FROM 'exento' THEN
+      v_failures := v_failures || format('(7.a) el snapshot del cliente propio debía copiarse; legal_name=%s iva=%s',
+                                         COALESCE(v_name, '<NULL>'), COALESCE(v_iva, '<NULL>'));
+    END IF;
+  END IF;
+
+  -- ═══ (7.b) Cliente de OTRA cuenta → P0404 y CERO filas nuevas ═══
+  SELECT count(*) INTO v_docs_antes FROM public.fiscal_documents WHERE account_id = v_account_a;
+
+  PERFORM set_config('request.jwt.claims', v_claims_a, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    v_result := public.rpc_emit_pending_cae('factura_c', 2000, v_client_ajeno, v_pv_a);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  IF v_state <> 'P0404' THEN
+    v_failures := v_failures || format('(7.b) emitir con un client_id de OTRA cuenta debía dar P0404; got %s', v_state);
+  END IF;
+
+  SELECT count(*) INTO v_docs_despues FROM public.fiscal_documents WHERE account_id = v_account_a;
+  IF v_docs_despues <> v_docs_antes THEN
+    v_failures := v_failures || format('(7.b) no debía nacer ningún comprobante; antes=%s despues=%s', v_docs_antes, v_docs_despues);
+  END IF;
+
+  -- Y en particular: la identidad fiscal del cliente ajeno NO quedó en ninguna
+  -- fila de la cuenta A.
+  SELECT count(*) INTO v_count
+  FROM   public.fiscal_documents
+  WHERE  account_id = v_account_a
+    AND  (receptor_legal_name = 'Secretos Ajenos SRL' OR client_id = v_client_ajeno);
+  IF v_count <> 0 THEN
+    v_failures := v_failures || format('(7.b) la identidad del cliente ajeno se filtró a %s comprobante(s) de la cuenta A', v_count);
+  END IF;
+
+  -- ═══ (7.c) Cliente inexistente → P0404 (fail-closed, no snapshot NULL) ═══
+  -- Antes del guard esto nacía en silencio con los snapshots NULL, tapando el
+  -- bug del caller que mandó un id que no existe.
+  PERFORM set_config('request.jwt.claims', v_claims_a, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    v_result := public.rpc_emit_pending_cae('factura_c', 3000, v_inexistente, v_pv_a);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  IF v_state <> 'P0404' THEN
+    v_failures := v_failures || format('(7.c) emitir con un client_id inexistente debía dar P0404; got %s', v_state);
+  END IF;
+
+  -- ═══ (7.d) Sin cliente sigue siendo consumidor final (el fix de #579) ═══
+  PERFORM set_config('request.jwt.claims', v_claims_a, true);
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    v_result := public.rpc_emit_pending_cae('factura_c', 4000, NULL, v_pv_a);
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+  EXECUTE 'RESET ROLE';
+
+  IF v_state <> 'ok' THEN
+    v_failures := v_failures || format('(7.d) el guard NO debe alcanzar al consumidor final (p_client_id NULL); got %s', v_state);
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FISCAL-EMIT-CF (7) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  RAISE NOTICE 'PASS (7): el cliente propio copia su snapshot, un client_id de otra cuenta o inexistente da P0404 sin crear comprobante, y el consumidor final (sin cliente) sigue intacto.';
+
+  -- ═══ Limpieza verificada ═══
+  DELETE FROM public.document_status_history WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.fiscal_documents        WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.document_sequences
+  WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id IN (v_account_a, v_account_b));
+  DELETE FROM public.points_of_sale          WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.fiscal_profiles         WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.clients                 WHERE account_id IN (v_account_a, v_account_b);
+
+  SELECT count(*) INTO v_count FROM public.fiscal_documents WHERE account_id IN (v_account_a, v_account_b);
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE FISCAL-EMIT-CF (7) FAILED: quedaron % fiscal_documents del fixture de tenencia', v_count;
+  END IF;
+  SELECT count(*) INTO v_count FROM public.clients WHERE account_id IN (v_account_a, v_account_b);
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'GATE FISCAL-EMIT-CF (7) FAILED: quedaron % clients del fixture de tenencia', v_count;
+  END IF;
+
+  SET session_replication_role = replica;
+  DELETE FROM public.account_members WHERE account_id IN (v_account_a, v_account_b);
+  DELETE FROM public.accounts        WHERE id IN (v_account_a, v_account_b);
+  DELETE FROM public.profiles        WHERE id IN (v_user_a, v_user_b);
+  DELETE FROM auth.users             WHERE id IN (v_user_a, v_user_b);
+  SET session_replication_role = DEFAULT;
+
+  RAISE NOTICE 'PASS (7): limpieza verificada — cero filas residuales del fixture de tenencia.';
+
+EXCEPTION
+  WHEN OTHERS THEN
+    BEGIN
+      EXECUTE 'RESET ROLE';
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN
+      DELETE FROM public.document_status_history WHERE account_id IN (v_account_a, v_account_b);
+      DELETE FROM public.fiscal_documents        WHERE account_id IN (v_account_a, v_account_b);
+      DELETE FROM public.document_sequences
+      WHERE  point_of_sale_id IN (SELECT id FROM public.points_of_sale WHERE account_id IN (v_account_a, v_account_b));
+      DELETE FROM public.points_of_sale          WHERE account_id IN (v_account_a, v_account_b);
+      DELETE FROM public.fiscal_profiles         WHERE account_id IN (v_account_a, v_account_b);
+      DELETE FROM public.clients                 WHERE account_id IN (v_account_a, v_account_b);
+      SET session_replication_role = replica;
+      DELETE FROM public.account_members WHERE account_id IN (v_account_a, v_account_b);
+      DELETE FROM public.accounts        WHERE id IN (v_account_a, v_account_b);
+      DELETE FROM public.profiles        WHERE id IN (v_user_a, v_user_b);
+      DELETE FROM auth.users             WHERE id IN (v_user_a, v_user_b);
+      SET session_replication_role = DEFAULT;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END $$;
+
 -- =============================================================================
--- GATE FISCAL-EMIT-CF PASSED (6 bloques).
+-- GATE FISCAL-EMIT-CF PASSED (7 bloques).
 -- =============================================================================

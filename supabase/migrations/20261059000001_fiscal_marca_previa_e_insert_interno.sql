@@ -35,11 +35,21 @@
 --       ambiente, el camino de error ordinario y una llamada manual).
 --       Cierre: el guard en la RPC, que es el CHOKE POINT de los tres.
 --
+--   R4  `rpc_emit_pending_cae` resolvía el snapshot fiscal del receptor con
+--       `SELECT ... FROM clients WHERE id = p_client_id`, SIN filtrar por
+--       account_id: un client_id ajeno copiaba razón social y condición IVA de
+--       otra cuenta. Candidato anotado desde #579; entra en alcance porque
+--       OQ-3 hace que esa condición IVA empiece a VIAJAR A ARCA.
+--       Cierre: `AND account_id = v_account_id` + P0404.
+--
 -- Sin backfill: 0 documentos pending_cae, 0 congelados, las 2 filas vivas son
--- authorized con CAE real de ARCA (medido en prod el 2026-09-22).
+-- authorized con CAE real de ARCA, las dos de la MISMA cuenta
+-- (9b52ebe0-0660-4938-9ccf-b7746e52c1f7, CUIT 20-42266245-7, PV 3, números 1 y
+-- 2, factura_c), las dos con client_id NULL y receptor_iva_condition NULL; y 0
+-- documentos con un cliente de otra cuenta (medido en prod el 2026-09-22).
 --
 -- Layout: R1 (columna, índice, 2 RPCs nuevas, claim_pending y SUS ACLs),
--- después R2 (policy, privilegios, trigger y SU revoke) y al final R3. Las ACLs
+-- después R2 (policy, privilegios, trigger y SU revoke), R3 y R4. Las ACLs
 -- van al final de la sección que hace el DROP+CREATE que las resetea, no al
 -- final del archivo: ninguna sección redefine funciones de otra.
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -204,12 +214,32 @@ RETURNS TABLE(
   -- saber que el documento ya tiene un envío marcado y volvería a pedir un CAE
   -- nuevo — que es exactamente el riesgo que este change cierra.
   cae_submit_started_at timestamp with time zone,
-  -- OQ-3: hasta este change claim_pending NO devolvía receptor_iva_condition,
-  -- así que en el ÚNICO camino de emisión llegaba None al adapter y ARCA
-  -- recibía siempre CondicionIVAReceptorId=5 (consumidor final), aunque la
-  -- columna estuviera poblada. Medido en prod el 2026-09-22: 0 de 2 documentos
-  -- la tienen poblada y clients.iva_condition sólo admite los 4 valores que el
-  -- adapter ya mapea ⇒ incluirla es un no-op hoy y cierra el futuro.
+  -- OQ-3 — CAMBIO DE COMPORTAMIENTO DECLARADO, no un no-op.
+  --
+  -- Hasta este change claim_pending NO devolvía receptor_iva_condition, así que
+  -- en el ÚNICO camino de emisión llegaba None al adapter y ARCA recibía
+  -- siempre CondicionIVAReceptorId=5 (consumidor final), aunque la columna
+  -- estuviera poblada. Es decir: se le mandaba a ARCA una condición de receptor
+  -- FALSA. Con la columna devuelta, a partir del primer comprobante emitido con
+  -- cliente lo que viaja es la real:
+  --
+  --     NULL / consumidor_final  -> 5   (igual que antes)
+  --     monotributista           -> 6   (antes iba 5)
+  --     exento                   -> 4   (antes iba 5)
+  --     responsable_inscripto    -> 1   (antes iba 5)
+  --
+  -- Se deja PUESTO —y no diferido— porque la alternativa es seguir declarando
+  -- ante ARCA una condición que sabemos falsa, que en un change fiscal es peor
+  -- que el riesgo que introduce. El riesgo que introduce: una factura B a un
+  -- receptor RI pasa de salir con la condición mal a ser rechazada por ARCA
+  -- (10246). Para la ÚNICA cuenta que hoy emite en producción no aplica: emite
+  -- factura_c (monotributista emisor), donde cualquier condición de receptor es
+  -- legítima. Medido en prod el 2026-09-22: 0 de 2 documentos tienen la columna
+  -- poblada, y clients.iva_condition sólo admite los 4 valores que el adapter
+  -- ya mapea (ninguno cae en el ValueError de condición desconocida).
+  --
+  -- El agravante que traía —que esa condición podía venir de un cliente de OTRA
+  -- cuenta— se cierra en la sección R4 de esta misma migración.
   receptor_iva_condition text
 )
 LANGUAGE plpgsql
@@ -447,3 +477,200 @@ REVOKE ALL ON FUNCTION public.rpc_fiscal_document_reject(uuid, text)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.rpc_fiscal_document_reject(uuid, text)
   TO postgres, service_role;
+
+
+-- ════════════════════════════════ R4 ═══════════════════════════════════════
+-- El snapshot del receptor deja de poder copiarse de un cliente AJENO.
+--
+-- `rpc_emit_pending_cae` resolvía la identidad fiscal del receptor con
+--
+--     SELECT legal_name, iva_condition INTO ...
+--     FROM public.clients WHERE id = p_client_id;
+--
+-- sin filtrar por `account_id`. Un `client_id` de otra cuenta copiaba su razón
+-- social y su condición IVA al comprobante propio, y dejaba ese `client_id`
+-- ajeno persistido en `fiscal_documents.client_id`. Misma familia que
+-- `operacion-party-guard` (#552) y que `cuenta-corriente-party-guard`.
+--
+-- Estaba anotado como candidato desde #579 y se cierra ACÁ, en este change, por
+-- una razón concreta: hasta ahora `claim_pending` no devolvía
+-- `receptor_iva_condition`, así que el adapter recibía siempre `None` y le
+-- mandaba a ARCA el default `consumidor_final`. Con OQ-3 esa columna empieza a
+-- viajar — y con ella viajaría a ARCA la condición IVA de un tercero. Deja de
+-- ser una fuga de datos para ser un dato falso en un comprobante fiscal.
+--
+-- Daño histórico: CERO. Medido en prod hoy — 2 fiscal_documents, los 2 con
+-- `client_id IS NULL` (consumidor final) y `receptor_iva_condition IS NULL`,
+-- y 0 documentos cuyo cliente pertenezca a otra cuenta. Sin backfill.
+--
+-- P0404 y no un snapshot NULL en silencio: un `client_id` que no pertenece a la
+-- cuenta es un bug del caller o un ataque, y el mismo P0404 ya se usa dos
+-- líneas más abajo para el punto de venta que no es de la cuenta. El
+-- `p_client_id NULL` (consumidor final, el fix de #579) NO entra al guard.
+--
+-- Cuerpo partido del `pg_get_functiondef` VIVO de prod (releído hoy, DESPUÉS
+-- de #579 — incluye sus escalares `v_client_legal_name`/`v_client_iva_condition`
+-- que reemplazaron al `v_client RECORD` del 55000). Lo único que cambia es el
+-- `AND account_id = v_account_id` y el `IF NOT FOUND`. CREATE OR REPLACE con
+-- la MISMA firma de 9 parámetros: no aplica el 42725.
+CREATE OR REPLACE FUNCTION public.rpc_emit_pending_cae(
+  p_comprobante_type  text,
+  p_total             numeric,
+  p_client_id         uuid    DEFAULT NULL::uuid,
+  p_point_of_sale_id  uuid    DEFAULT NULL::uuid,
+  p_receptor_doc_tipo integer DEFAULT NULL::integer,
+  p_receptor_doc_nro  text    DEFAULT NULL::text,
+  p_neto              numeric DEFAULT NULL::numeric,
+  p_iva_amount        numeric DEFAULT NULL::numeric,
+  p_iva_alicuota_id   integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid                    uuid;
+  v_account_id             uuid;
+  v_profile                RECORD;
+  v_pv                     RECORD;
+  v_effective_pv_id        uuid;
+  v_active_pv_count        integer;
+  v_doc_number             bigint;
+  v_doc_id                 uuid;
+  -- fiscal-emit-cae-consumidor-final (#579): escalares en vez de
+  -- `v_client RECORD`. Un escalar declarado sin asignar es NULL al leerlo;
+  -- un RECORD sin asignar levanta 55000 al leer cualquiera de sus campos —
+  -- y el caso "sin cliente" (consumidor final) nunca lo asigna a propósito.
+  v_client_legal_name      text;
+  v_client_iva_condition   text;
+BEGIN
+  v_uid := (SELECT auth.uid());
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id FROM current_account_ids() AS cai LIMIT 1;
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  -- Guard: solo owner/admin puede emitir
+  IF NOT public.is_account_writer(v_account_id) THEN
+    RAISE EXCEPTION 'unauthorized: only owner or admin can emit fiscal documents'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  -- Obtener perfil fiscal de la cuenta
+  SELECT id, iva_condition, ambiente INTO v_profile
+  FROM   public.fiscal_profiles
+  WHERE  account_id = v_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fiscal_profile_not_found: la cuenta no tiene perfil fiscal configurado'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- v3-snapshot-pattern (D4): FiscalIdentitySnapshot del receptor — derivar
+  -- razón social y condición IVA desde clients si hay client_id. NULL si
+  -- no hay cliente identificado (consumidor final, comportamiento previo).
+  --
+  -- fiscal-riesgos-residuales (R4): `AND account_id = v_account_id`. Sin ese
+  -- filtro, un client_id ajeno copiaba la identidad fiscal de otra cuenta al
+  -- comprobante propio — y desde OQ-3 esa condición IVA viaja a ARCA.
+  IF p_client_id IS NOT NULL THEN
+    SELECT legal_name, iva_condition INTO v_client_legal_name, v_client_iva_condition
+    FROM   public.clients
+    WHERE  id = p_client_id
+      AND  account_id = v_account_id;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'client_not_found: el cliente no existe o no pertenece a la cuenta'
+        USING ERRCODE = 'P0404';
+    END IF;
+  END IF;
+
+  -- Resolver PV efectivo (D11)
+  IF p_point_of_sale_id IS NOT NULL THEN
+    SELECT id, numero INTO v_pv
+    FROM   public.points_of_sale
+    WHERE  id = p_point_of_sale_id
+      AND  account_id = v_account_id
+      AND  is_active = TRUE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'point_of_sale_not_found_or_inactive: el punto de venta no existe, no pertenece a la cuenta o está inactivo'
+        USING ERRCODE = 'P0404';
+    END IF;
+    v_effective_pv_id := v_pv.id;
+
+  ELSE
+    SELECT count(*) INTO v_active_pv_count
+    FROM   public.points_of_sale
+    WHERE  account_id = v_account_id AND is_active = TRUE;
+
+    IF v_active_pv_count = 0 THEN
+      RAISE EXCEPTION 'no_active_point_of_sale: la cuenta no tiene puntos de venta activos'
+        USING ERRCODE = 'P0404';
+    ELSIF v_active_pv_count > 1 THEN
+      RAISE EXCEPTION 'ambiguous_point_of_sale: la cuenta tiene % puntos de venta activos — especificá point_of_sale_id', v_active_pv_count
+        USING ERRCODE = 'P0422';
+    ELSE
+      SELECT id, numero INTO v_pv
+      FROM   public.points_of_sale
+      WHERE  account_id = v_account_id AND is_active = TRUE;
+      v_effective_pv_id := v_pv.id;
+    END IF;
+  END IF;
+
+  -- Reservar número (lock corto, fuera de transacción larga de la venta — C-29)
+  v_doc_number := public.rpc_next_document_number(v_effective_pv_id, p_comprobante_type);
+
+  -- Insertar comprobante en pending_cae (SIN tocar AFIP — D5). v3-snapshot-pattern:
+  -- persistir receptor_legal_name/receptor_iva_condition (D4), además del
+  -- receptor + IVA ya existentes (fiscal-receptor-iva-relay).
+  INSERT INTO public.fiscal_documents (
+    account_id, fiscal_profile_id, point_of_sale_id,
+    comprobante_type, punto_de_venta, number,
+    client_id, total, status,
+    receptor_doc_tipo, receptor_doc_nro, neto, iva_amount, iva_alicuota_id,
+    receptor_legal_name, receptor_iva_condition
+  ) VALUES (
+    v_account_id, v_profile.id, v_effective_pv_id,
+    p_comprobante_type, v_pv.numero, v_doc_number,
+    p_client_id, COALESCE(p_total, 0), 'pending_cae',
+    p_receptor_doc_tipo, p_receptor_doc_nro, p_neto, p_iva_amount, p_iva_alicuota_id,
+    v_client_legal_name, v_client_iva_condition
+  )
+  RETURNING id INTO v_doc_id;
+
+  -- v3-document-status-history (RN-A2): creación del comprobante → historial
+  PERFORM public.record_status_transition(
+    v_account_id, 'fiscal_document', v_doc_id, NULL, 'pending_cae', v_uid, NULL);
+
+  RETURN jsonb_build_object(
+    'fiscal_document_id', v_doc_id,
+    'point_of_sale_id',   v_effective_pv_id,
+    'punto_de_venta',     v_pv.numero,
+    'comprobante_type',   p_comprobante_type,
+    'number',             v_doc_number,
+    'status',             'pending_cae'
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.rpc_emit_pending_cae(text, numeric, uuid, uuid, integer, text, numeric, numeric, integer) IS
+  'Emite un comprobante fiscal en pending_cae para una VENTA. RPC de USUARIO: '
+  'conserva EXECUTE para authenticated. fiscal-riesgos-residuales (R4): el '
+  'client_id tiene que pertenecer a la cuenta (P0404) — sin ese filtro copiaba '
+  'la identidad fiscal de un cliente ajeno, que desde OQ-3 viaja a ARCA como '
+  'CondicionIVAReceptorId.';
+
+-- Es RPC de USUARIO: `authenticated` CONSERVA su EXECUTE (a diferencia de las
+-- del relay). `anon` y PUBLIC, nunca. Re-aplicado acá porque el CREATE OR
+-- REPLACE de arriba corre sobre una base donde el ALTER DEFAULT PRIVILEGES de
+-- Supabase puede haber otorgado a anon.
+REVOKE ALL ON FUNCTION public.rpc_emit_pending_cae(text, numeric, uuid, uuid, integer, text, numeric, numeric, integer)
+  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rpc_emit_pending_cae(text, numeric, uuid, uuid, integer, text, numeric, numeric, integer)
+  TO authenticated, service_role, postgres;

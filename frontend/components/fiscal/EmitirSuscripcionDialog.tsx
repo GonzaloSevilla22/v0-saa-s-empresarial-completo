@@ -253,7 +253,13 @@ export function EmitirSuscripcionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 py-2">
+        {/* fiscal-emision-segura (G5, pasada visual de 375 px): el selector de
+            receptor sumó ~130 px de alto y el CTA primario se iba abajo del
+            viewport en un teléfono (medido: 883,6 px de fondo contra 812 de
+            alto). El cuerpo scrollea SOLO en pantallas chicas y el footer queda
+            fijo, así que "Confirmar y enviar al ARCA" sigue siempre a la vista;
+            en desktop (sm+) no cambia nada — ahí el diálogo entra completo. */}
+        <div className="flex max-h-[58dvh] flex-col gap-4 overflow-y-auto py-2 sm:max-h-none sm:overflow-visible">
           {/* Receipt summary */}
           {receipt && (
             <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-1.5">

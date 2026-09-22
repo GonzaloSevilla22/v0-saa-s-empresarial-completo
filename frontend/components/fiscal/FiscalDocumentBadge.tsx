@@ -160,7 +160,16 @@ export function FiscalDocumentBadge({
     )
   }
 
-  const config = STATUS_CONFIG[status]
+  // Fallback fail-closed: sin esto, un status que el cliente no conoce (el
+  // CHECK de fiscal_documents puede ganar un valor nuevo antes que este bundle)
+  // daba `undefined` y el badge rompía el render de la fila ENTERA con un
+  // TypeError. Mostrar "Estado desconocido" es peor que mostrar el estado, pero
+  // es muchísimo mejor que no mostrar la venta.
+  const config = STATUS_CONFIG[status] ?? {
+    label:        "Estado desconocido",
+    labelVerbose: `Estado desconocido (${String(status)})`,
+    className:    "bg-muted text-muted-foreground border-border",
+  }
 
   return (
     <Badge variant="outline" className={`inline-flex items-center gap-1 text-xs ${config.className}`}>

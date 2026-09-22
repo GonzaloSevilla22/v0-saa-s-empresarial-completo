@@ -4,7 +4,8 @@ import { useState, useCallback, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
-import type { FiscalDocumentStatus, Sale } from "@/lib/types"
+import { isFiscalDocumentStatus } from "@/lib/types"
+import type { Sale } from "@/lib/types"
 import { formatComprobante } from "@/lib/fiscal-comprobante"
 import type { SaleCartItem } from "@/lib/cart-utils"
 import {
@@ -125,7 +126,15 @@ function mapSale(s: SaleApiRow): Sale {
     fiscal: s.fiscal_document_id
       ? {
           documentId:      s.fiscal_document_id,
-          status:          (s.fiscal_document_status ?? "pending_cae") as FiscalDocumentStatus,
+          // Validado, no casteado: un status que el cliente no conoce no se
+          // hace pasar por uno que sí. Las decisiones reales (¿editable?, ¿se
+          // anula?) no dependen de esto —vienen derivadas del servidor en
+          // `is_fiscally_locked` / `fiscal_pending_voidable`, y el guard SQL es
+          // fail-closed ante un status desconocido—, así que acá alcanza con
+          // caer en el estado que no ofrece ninguna acción destructiva.
+          status:          isFiscalDocumentStatus(s.fiscal_document_status)
+                             ? s.fiscal_document_status
+                             : "pending_cae",
           label:           formatComprobante(s.fiscal_punto_de_venta, s.fiscal_number),
           submittedToArca: s.fiscal_submitted_to_arca ?? false,
           frozen:          s.fiscal_frozen ?? false,

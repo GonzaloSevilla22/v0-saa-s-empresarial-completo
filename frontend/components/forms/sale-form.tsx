@@ -95,6 +95,12 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
   // Confirmación explícita antes de disparar la mutación (patrón de la casa:
   // el servidor compensa, el diálogo enumera antes de confirmar).
   const [confirmVoidOpen, setConfirmVoidOpen] = useState(false)
+  // El AlertDialog se abre por ESTADO (no hay AlertDialogTrigger: lo dispara el
+  // submit del formulario), y Radix sólo sabe devolver el foco al trigger que
+  // no existe — al cerrar con Escape o Cancelar el foco caía al <body> y quien
+  // navega con teclado quedaba al principio del formulario, con todo el carrito
+  // por recorrer de nuevo. Se devuelve a mano al botón que lo abrió.
+  const submitButtonRef = useRef<HTMLButtonElement>(null)
 
   // Synchronous re-entrancy guard: closes the double-click window before the
   // async `submitting` state has a chance to re-render the disabled button.
@@ -744,6 +750,7 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
 
             <Button
               type="submit"
+              ref={submitButtonRef}
               className="w-full"
               disabled={submitting || cartItems.length === 0 || isFiscallyLocked}
               aria-disabled={isFiscallyLocked}
@@ -1139,7 +1146,13 @@ export function SaleForm({ onSuccess, editingOperation }: SaleFormProps) {
           comprobante pendiente. Mismo patrón que operation-delete-compensation:
           el servidor compensa, el diálogo enumera antes de confirmar. */}
       <AlertDialog open={confirmVoidOpen} onOpenChange={setConfirmVoidOpen}>
-        <AlertDialogContent className="bg-card border-border">
+        <AlertDialogContent
+          className="bg-card border-border"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            submitButtonRef.current?.focus()
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle className="text-card-foreground">
               ¿Guardar los cambios y anular el comprobante?

@@ -20,6 +20,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { pythonClient } from "@/lib/api/python-client"
 import { queryKeys } from "@/lib/query-keys"
+import type { FiscalDocumentStatus } from "@/lib/types"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -34,7 +35,12 @@ export interface EmitComprobanteInput {
 
 export interface EmitComprobanteResult {
   id: string
-  status: "pending_cae" | "authorized" | "rejected"
+  // venta-editable-sin-cae: este union vivia duplicado aca, y sin `voided`.
+  // Una SOLA definicion, la canonica de lib/types.ts: el change movio el tipo
+  // a `lib/` justamente para eso. Un comprobante recien emitido nace
+  // pending_cae, pero este tipo describe la RESPUESTA del servidor, y el
+  // servidor conoce los 4 estados.
+  status: FiscalDocumentStatus
   comprobante_type: ComprobanteType
   total: number | string
   cae?: string | null

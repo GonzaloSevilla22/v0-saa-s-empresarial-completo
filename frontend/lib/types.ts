@@ -419,7 +419,26 @@ export interface Product {
  * tipos: `Sale.fiscal` lo necesita y `lib/` no debe depender de `components/`.
  * El badge lo re-exporta para no romper a sus 6 importadores.
  */
-export type FiscalDocumentStatus = "pending_cae" | "authorized" | "rejected" | "voided"
+export const FISCAL_DOCUMENT_STATUSES = [
+  "pending_cae",
+  "authorized",
+  "rejected",
+  "voided",
+] as const
+
+export type FiscalDocumentStatus = (typeof FISCAL_DOCUMENT_STATUSES)[number]
+
+/**
+ * Guard del borde servidor→cliente. El estado viaja como `string` en el read
+ * model (y el CHECK de `fiscal_documents.status` puede ganar un valor nuevo
+ * antes de que el cliente lo conozca), así que castear a ciegas es afirmar algo
+ * que no se verificó. La lista y el tipo salen de la MISMA constante: no pueden
+ * divergir.
+ */
+export function isFiscalDocumentStatus(value: unknown): value is FiscalDocumentStatus {
+  return typeof value === "string"
+    && (FISCAL_DOCUMENT_STATUSES as readonly string[]).includes(value)
+}
 
 /**
  * venta-editable-sin-cae: estado fiscal de una operación de venta, derivado de

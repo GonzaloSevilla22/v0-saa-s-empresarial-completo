@@ -290,6 +290,26 @@ describe("SaleForm — edición preserva contexto (branch/canal/unit + bloqueo f
     expect(updateSaleOperationMock).toHaveBeenCalledTimes(1)
   })
 
+  // Hallazgo de la verificación visual (2026-09-22): el diálogo se abre por
+  // ESTADO, no con un AlertDialogTrigger, así que Radix no tiene trigger al que
+  // devolver el foco y al cancelar lo dejaba en el <body>. Quien navega con
+  // teclado volvía al principio del formulario, con todo el carrito por
+  // recorrer de nuevo para llegar al botón que acababa de usar.
+  it("al cancelar la confirmación el foco vuelve al botón que la abrió, no al body", async () => {
+    const { container } = render(
+      <SaleForm
+        onSuccess={() => {}}
+        editingOperation={makeOperation({ isFiscallyLocked: false, fiscal: PENDING_VOIDABLE_FISCAL })}
+      />,
+    )
+    const submit = container.querySelector('button[type="submit"]') as HTMLButtonElement
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement)
+    await new Promise((r) => setTimeout(r, 0))
+    fireEvent.click(screen.getByRole("button", { name: /^Cancelar$/i }))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(document.activeElement).toBe(submit)
+  })
+
   it("sin comprobante, el submit NO pide confirmación (no hay nada que anular)", async () => {
     const { container } = render(
       <SaleForm onSuccess={() => {}} editingOperation={makeOperation({ fiscal: null })} />,

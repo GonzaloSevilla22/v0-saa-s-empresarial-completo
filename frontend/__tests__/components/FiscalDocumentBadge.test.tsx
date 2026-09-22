@@ -59,6 +59,31 @@ describe("FiscalDocumentBadge — estado voided (venta-editable-sin-cae)", () =>
     expect(container.innerHTML).not.toMatch(/bg-red-500/)
   })
 
+  // Red team 2026-09-22 (n2): el read model del listado es fail-open para lo
+  // desconocido (`as FiscalDocumentStatus` sobre un string del servidor) y el
+  // badge hacía `STATUS_CONFIG[status]` sin fallback: un valor que este bundle
+  // no conozca —el CHECK de fiscal_documents puede ganar uno antes de que el
+  // frontend se despliegue— daba `undefined` y tiraba el render de la fila
+  // ENTERA con un TypeError. Mostrar el estado mal es malo; no mostrar la venta
+  // es peor.
+  it("un status que el cliente no conoce no rompe el render: cae en 'Estado desconocido'", () => {
+    const { container } = render(
+      // @ts-expect-error — a propósito: simula un status que el servidor ya
+      // emite y este bundle todavía no conoce.
+      <FiscalDocumentBadge documentId="fd-4" initialStatus="cancelado_por_arca" />,
+    )
+    expect(screen.getByText("Estado desconocido")).toBeInTheDocument()
+    expect(container.innerHTML).not.toMatch(/undefined/)
+  })
+
+  it("con verbose, el estado desconocido dice CUÁL era — para que se pueda diagnosticar", () => {
+    render(
+      // @ts-expect-error — ver arriba.
+      <FiscalDocumentBadge documentId="fd-5" initialStatus="cancelado_por_arca" verbose />,
+    )
+    expect(screen.getByText("Estado desconocido (cancelado_por_arca)")).toBeInTheDocument()
+  })
+
   it("no se confunde con rejected: 'Rechazado' sigue siendo su propio rótulo", () => {
     render(<FiscalDocumentBadge documentId="fd-3" initialStatus="rejected" verbose />)
     expect(screen.getByText("Rechazado por AFIP")).toBeInTheDocument()

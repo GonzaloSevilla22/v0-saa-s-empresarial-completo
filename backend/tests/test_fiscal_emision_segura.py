@@ -46,6 +46,9 @@ except ImportError:
     _fpdf_stub.FPDF = MagicMock  # type: ignore[attr-defined]
     sys.modules["fpdf"] = _fpdf_stub
 
+import requests  # noqa: E402
+import zeep.exceptions  # noqa: E402
+
 from backend.tests.conftest import TEST_ACCOUNT_ID, make_token  # noqa: E402
 
 ACCOUNT_ID = str(TEST_ACCOUNT_ID)
@@ -430,6 +433,44 @@ def _make_invoice_for_adapter(local_number: int = 42):
     )
 
 
+async def _request_cae_con_fallo_en_el_submit(exc: BaseException):
+    """Corre `request_cae` con `FECAESolicitar` levantando `exc`.
+
+    `FECompUltimoAutorizado` devuelve 50 → el número PEDIDO es 51. El cliente
+    zeep está mockeado: no sale un byte a la red ni se toca ARCA.
+    """
+    from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+
+    adapter = WSFEAdapter(platform_provider=MagicMock())
+    invoice = _make_invoice_for_adapter(local_number=42)
+
+    with (
+        patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+        patch("zeep.Client") as mock_client_cls,
+    ):
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
+        mock_client.service.FECAESolicitar.side_effect = exc
+        return await adapter.request_cae(invoice)
+
+
+def _lxml_xml_syntax_error():
+    """La excepción REAL que lxml levanta ante un cuerpo que no es XML.
+
+    zeep parsea la respuesta DENTRO de `client.service.FECAESolicitar(...)`:
+    una página HTML de error de un proxy, o un cuerpo truncado, llega acá
+    DESPUÉS de que el POST salió.
+    """
+    from lxml import etree
+
+    try:
+        etree.fromstring(b"<Envelope><Body><trunca")
+    except etree.XMLSyntaxError as exc:
+        return exc
+    raise AssertionError("lxml no levantó XMLSyntaxError con un cuerpo truncado")
+
+
 class TestSubmitNoConfirmado:
     """4.1-4.6: el escenario catastrófico del dominio.
 
@@ -531,29 +572,60 @@ class TestSubmitNoConfirmado:
         assert resp.number == 51
 
     @pytest.mark.asyncio
-    async def test_error_de_delegacion_en_el_submit_no_congela(self):
-        """4.2c TRIANGULACIÓN (refinamiento sobre el plan): un rechazo de ARCA por
-        delegación no autorizada es una NO-emisión CONFIRMADA (ARCA rechazó la
-        autenticación, no procesó el comprobante). Sigue siendo reintentable y
-        NO congela — si congelara, cada cuenta que todavía no autorizó a
-        Aliadata en ARCA acumularía documentos que requieren trabajo manual."""
+    async def test_error_de_delegacion_en_wsaa_no_congela(self):
+        """4.2c TRIANGULACIÓN: un rechazo por delegación no autorizada es una
+        NO-emisión CONFIRMADA. Sigue siendo reintentable y NO congela — si
+        congelara, cada cuenta que todavía no autorizó a Aliadata en ARCA
+        acumularía documentos que requieren trabajo manual.
+
+        Este es el camino REAL: la delegación se rechaza en el `loginCms` de
+        WSAA (`_get_wsaa_token`), o sea ANTES de que exista un submit. B2-1
+        (segundo red team) invirtió la regla dentro del bloque del submit, y
+        este test fija que la inversión no alcanza a este camino.
+        """
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
         adapter = WSFEAdapter(platform_provider=MagicMock())
         invoice = _make_invoice_for_adapter(local_number=42)
 
         with (
-            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
+            patch.object(
+                WSFEAdapter,
+                "_get_wsaa_token",
+                AsyncMock(
+                    side_effect=RuntimeError(
+                        "El representante no está autorizado a actuar en nombre del CUIT"
+                    )
+                ),
+            ),
             patch("zeep.Client") as mock_client_cls,
         ):
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
-            mock_client.service.FECAESolicitar.side_effect = RuntimeError(
-                "El representante no está autorizado a actuar en nombre del CUIT"
-            )
 
             resp = await adapter.request_cae(invoice)
+
+        assert resp.is_approved is False
+        assert resp.error_code == "DELEGATION_NOT_AUTHORIZED"
+        assert resp.submitted is False
+        mock_client.service.FECAESolicitar.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_error_de_delegacion_como_fault_en_el_submit_no_congela(self):
+        """4.2c-bis TRIANGULACIÓN: si el rechazo de delegación llega DENTRO del
+        submit, llega como Fault SOAP (ARCA respondió) — la exención (b) de la
+        regla invertida lo deja pasar al clasificador de delegación.
+
+        Antes de B2-1 este test usaba un `RuntimeError` con el texto de
+        delegación. Ya no vale: una excepción opaca levantada dentro de
+        `FECAESolicitar` no se puede demostrar pre-submit por su TEXTO, y
+        clasificarla por texto es exactamente el agujero que B2-1 cerró.
+        """
+        resp = await _request_cae_con_fallo_en_el_submit(
+            zeep.exceptions.Fault(
+                "El representante no está autorizado a actuar en nombre del CUIT"
+            )
+        )
 
         assert resp.is_approved is False
         assert resp.error_code == "DELEGATION_NOT_AUTHORIZED"
@@ -919,98 +991,183 @@ class TestRedTeamZeepTransportPresupuestoTotal:
 
 
 class TestRedTeamClasificacionTransporte:
-    """M-3: SOLO un fallo de TRANSPORTE después de mandar el pedido es
-    genuinamente ambiguo. Un TypeError/ValueError de zeep serializando el
-    envelope (no salió un byte) o un Fault de autenticación (ARCA SÍ
-    respondió, aunque sea con un rechazo) NO deben congelar — congelarlos
-    también alimenta la starvation de M-2 (una causa sistemática congela
-    documentos uno por uno)."""
+    """M-3 + B2-1: la regla es CONGELAR POR DEFECTO dentro del submit.
 
+    M-3 (primer red team) angostó el guard a tres excepciones de `requests`.
+    B2-1 (segundo red team, 2026-09-22) midió que eso dejó AFUERA todo lo que
+    zeep levanta DESPUÉS del POST —un 502/504 sin cuerpo de un gateway
+    (`zeep.exceptions.TransportError`), una página HTML de error
+    (`XMLSyntaxError` de lxml), un `XMLParseError`, un gzip roto
+    (`ContentDecodingError`), un `raise_for_status` (`HTTPError`)— y todas
+    volvieron a ser reintentables: el próximo tick pide
+    `FECompUltimoAutorizado+1` y emite una SEGUNDA factura real.
+
+    La regla queda invertida: dentro del bloque que envuelve
+    `FECAESolicitar`, TODO congela salvo lo que se puede DEMOSTRAR que no es
+    ambiguo:
+      (a) `TypeError`/`ValueError` de serialización de zeep que NO sean
+          `requests.exceptions.RequestException` (no salió un byte);
+      (b) `zeep.exceptions.Fault` (ARCA respondió a nivel de aplicación);
+      (c) `requests.exceptions.ConnectTimeout` (la conexión TCP nunca se
+          estableció).
+    Congelar de más no es gratis (alimenta la starvation de M-2), pero
+    congelar de menos emite una factura de verdad: la asimetría manda.
+    """
+
+    # ── (1) Llegó a ARCA (o pudo llegar) → CONGELA ────────────────────────────
+    @pytest.mark.parametrize(
+        "make_exc",
+        [
+            pytest.param(
+                lambda: zeep.exceptions.TransportError(
+                    "Server returned HTTP status 502 (no content available)",
+                    status_code=502,
+                ),
+                id="zeep-TransportError-502-sin-cuerpo",
+            ),
+            pytest.param(_lxml_xml_syntax_error, id="lxml-XMLSyntaxError-cuerpo-no-xml"),
+            pytest.param(
+                lambda: zeep.exceptions.XMLParseError(
+                    "no se pudo parsear el envelope de respuesta"
+                ),
+                id="zeep-XMLParseError",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.ContentDecodingError("failed to decode gzip body"),
+                id="requests-ContentDecodingError-gzip-roto",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.HTTPError("500 Server Error"),
+                id="requests-HTTPError-raise-for-status",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.ReadTimeout("Read timed out."),
+                id="requests-ReadTimeout",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.ConnectionError("Connection aborted."),
+                id="requests-ConnectionError",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.ChunkedEncodingError("IncompleteRead(512 bytes read)"),
+                id="requests-ChunkedEncodingError",
+            ),
+            pytest.param(
+                lambda: RuntimeError("zeep exploto de una forma que no conocemos"),
+                id="excepcion-opaca-desconocida",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_error_de_serializacion_no_marca_submitted(self):
-        """RED: hoy CUALQUIER excepción en FECAESolicitar marca submitted=True,
-        incluido un TypeError que significa que NUNCA salió un byte."""
-        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+    async def test_todo_lo_que_pudo_llegar_a_arca_congela(self, make_exc):
+        """RED (B2-1): las cinco de arriba REINTENTABAN tras `b8090f96`.
 
-        adapter = WSFEAdapter(platform_provider=MagicMock())
-        invoice = _make_invoice_for_adapter(local_number=42)
+        Todas salen de DENTRO de `client.service.FECAESolicitar(...)`, o sea
+        después de que el POST salió: `SoapBinding.process_reply` levanta
+        `TransportError` ante un `status_code != 200` sin cuerpo, y
+        `zeep.loader.parse_xml` levanta `XMLSyntaxError` ante una página HTML
+        de error. ARCA pudo haber autorizado el comprobante.
+        """
+        resp = await _request_cae_con_fallo_en_el_submit(make_exc())
 
-        with (
-            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
-            patch("zeep.Client") as mock_client_cls,
-        ):
-            mock_client = MagicMock()
-            mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
-            mock_client.service.FECAESolicitar.side_effect = TypeError(
-                "argument of type 'NoneType' is not iterable"
-            )
-
-            resp = await adapter.request_cae(invoice)
-
-        assert resp.error_code == "WSFE_ERROR", (
-            "un TypeError serializando el envelope significa que NO salió "
-            "ningún byte: no es ambiguo, es un error normal reintentable."
+        assert resp.error_code == "CAE_SUBMIT_UNCONFIRMED", (
+            "una excepción que NO se puede demostrar pre-submit deja el "
+            "comprobante en estado ambiguo: reintentar pide ultimo+1 y emite "
+            "una SEGUNDA factura real."
         )
-        assert resp.submitted is False
+        assert resp.submitted is True
+        assert resp.number == 51, (
+            "el número PEDIDO tiene que viajar: es el único dato con el que "
+            "un humano puede consultar en ARCA si la factura existe."
+        )
 
+    # ── (2) Demostrablemente NO ambiguo → reintentable ────────────────────────
+    @pytest.mark.parametrize(
+        "make_exc",
+        [
+            pytest.param(
+                lambda: TypeError("argument of type 'NoneType' is not iterable"),
+                id="TypeError-serializando-el-envelope",
+            ),
+            pytest.param(
+                lambda: ValueError("Missing element CbteFch"),
+                id="ValueError-serializando-el-envelope",
+            ),
+            pytest.param(
+                lambda: zeep.exceptions.Fault("Token invalido o expirado"),
+                id="zeep-Fault-TA-vencido",
+            ),
+            pytest.param(
+                lambda: requests.exceptions.ConnectTimeout("connect timed out"),
+                id="requests-ConnectTimeout-nunca-conecto",
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_fault_de_token_invalido_no_marca_submitted(self):
-        """RED: un Fault de TA vencido es rutinario y autosanable por backoff
-        — ARCA SÍ respondió (con un rechazo de autenticación), así que no es
-        ambiguo. Hoy lo congela igual que un timeout de red."""
-        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
+    async def test_lo_demostrablemente_no_ambiguo_sigue_siendo_reintentable(self, make_exc):
+        """TRIANGULACIÓN de la regla invertida: sin estas exenciones, cualquier
+        bug de serialización o cualquier TA vencido congelaría documentos uno
+        por uno (es la starvation que M-2 vino a cerrar).
 
-        adapter = WSFEAdapter(platform_provider=MagicMock())
-        invoice = _make_invoice_for_adapter(local_number=42)
-
-        with (
-            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
-            patch("zeep.Client") as mock_client_cls,
-        ):
-            mock_client = MagicMock()
-            mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
-            mock_client.service.FECAESolicitar.side_effect = RuntimeError(
-                "Token invalido o expirado"
-            )
-
-            resp = await adapter.request_cae(invoice)
+        `ConnectTimeout` es RED propio (NIT del segundo red team): hereda de
+        `ConnectionError`, así que hasta ahora congelaba aunque no haya salido
+        un byte — un connect timeout es, por construcción, antes del envío.
+        """
+        resp = await _request_cae_con_fallo_en_el_submit(make_exc())
 
         assert resp.error_code == "WSFE_ERROR"
         assert resp.submitted is False
 
     @pytest.mark.asyncio
-    async def test_readtimeout_sigue_marcando_submitted(self):
-        """TRIANGULACIÓN: el camino que SÍ debe congelar no se rompe con la
-        clasificación más angosta."""
-        import requests
-        from backend.services.fiscal.wsfe_adapter import WSFEAdapter
-
-        adapter = WSFEAdapter(platform_provider=MagicMock())
-        invoice = _make_invoice_for_adapter(local_number=42)
-
-        with (
-            patch.object(WSFEAdapter, "_get_wsaa_token", AsyncMock(return_value=("tok", "sig"))),
-            patch("zeep.Client") as mock_client_cls,
-        ):
-            mock_client = MagicMock()
-            mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
-            mock_client.service.FECAESolicitar.side_effect = requests.exceptions.ConnectionError(
-                "Connection aborted."
-            )
-
-            resp = await adapter.request_cae(invoice)
+    async def test_invalid_header_congela_aunque_sea_un_valueerror(self):
+        """TRIANGULACIÓN (la trampa): `requests.exceptions.InvalidHeader` hereda
+        de `ValueError` Y de `RequestException`. La exención (a) exige que NO
+        sea un `RequestException` justamente por esto: cualquier excepción de
+        `requests` nace del transporte y no se puede declarar pre-submit."""
+        resp = await _request_cae_con_fallo_en_el_submit(
+            requests.exceptions.InvalidHeader("Invalid leading whitespace in header")
+        )
 
         assert resp.error_code == "CAE_SUBMIT_UNCONFIRMED"
         assert resp.submitted is True
-        assert resp.number == 51
 
     @pytest.mark.asyncio
     async def test_error_de_delegacion_sigue_sin_congelar(self):
-        """TRIANGULACIÓN: el caso de delegación (4.2c, ya cubierto arriba) no
-        se rompe: sigue sin pasar por el guard de transporte."""
+        """TRIANGULACIÓN: un rechazo de delegación de ARCA llega como Fault SOAP
+        (ARCA respondió), así que sigue mapeando a DELEGATION_NOT_AUTHORIZED y
+        no congela, con la regla invertida puesta."""
+        resp = await _request_cae_con_fallo_en_el_submit(
+            zeep.exceptions.Fault("El representante no está autorizado a actuar en nombre del CUIT")
+        )
+
+        assert resp.error_code == "DELEGATION_NOT_AUTHORIZED"
+        assert resp.submitted is False
+
+    @pytest.mark.parametrize(
+        "make_exc",
+        [
+            pytest.param(
+                lambda: __import__("requests").exceptions.ReadTimeout("Read timed out."),
+                id="ReadTimeout-en-FECompUltimoAutorizado",
+            ),
+            pytest.param(
+                lambda: __import__("requests").exceptions.ConnectionError("reset"),
+                id="ConnectionError-en-FECompUltimoAutorizado",
+            ),
+            pytest.param(
+                lambda: __import__("zeep.exceptions", fromlist=["x"]).Fault(
+                    "Token invalido o expirado"
+                ),
+                id="Fault-en-FECompUltimoAutorizado",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_fallo_en_el_pedido_de_numero_nunca_congela(self, make_exc):
+        """TRIANGULACIÓN: la regla invertida vive DENTRO del bloque del submit.
+        Un fallo en `FECompUltimoAutorizado` ocurre ANTES y no congela nunca —
+        si congelara, cada corte de red previo al envío dejaría un documento
+        que nadie puede desbloquear sin trabajo manual."""
         from backend.services.fiscal.wsfe_adapter import WSFEAdapter
 
         adapter = WSFEAdapter(platform_provider=MagicMock())
@@ -1022,15 +1179,13 @@ class TestRedTeamClasificacionTransporte:
         ):
             mock_client = MagicMock()
             mock_client_cls.return_value = mock_client
-            mock_client.service.FECompUltimoAutorizado.return_value = MagicMock(CbteNro=50)
-            mock_client.service.FECAESolicitar.side_effect = RuntimeError(
-                "El representante no está autorizado a actuar en nombre del CUIT"
-            )
+            mock_client.service.FECompUltimoAutorizado.side_effect = make_exc()
 
             resp = await adapter.request_cae(invoice)
 
-        assert resp.error_code == "DELEGATION_NOT_AUTHORIZED"
         assert resp.submitted is False
+        assert resp.error_code != "CAE_SUBMIT_UNCONFIRMED"
+        mock_client.service.FECAESolicitar.assert_not_called()
 
 
 class TestRedTeamPersistenciaFallaTrasAprobacion:

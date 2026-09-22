@@ -104,6 +104,54 @@ class WSFESubmitInFlightError(Exception):
         self.detail = detail
 
 
+def _submit_outcome_is_unambiguous(exc: BaseException) -> bool:
+    """¿Se puede DEMOSTRAR qué pasó con este `FECAESolicitar`?
+
+    fiscal-emision-segura (G4) / B2-1 (segundo red team, 2026-09-22). La regla
+    dentro del bloque que envuelve `FECAESolicitar` es **congelar por defecto**:
+    la asimetría del dominio manda. Congelar de más cuesta trabajo manual;
+    congelar de menos emite una SEGUNDA factura real contra ARCA.
+
+    Esta función es la única exención, y sólo admite lo que es demostrable:
+
+    (a) `TypeError`/`ValueError` que NO sean `requests.exceptions.RequestException`
+        — zeep falló serializando el envelope y no salió un byte. La condición
+        negativa no es cosmética: `requests.exceptions.InvalidHeader`,
+        `MissingSchema` e `InvalidURL` heredan de `ValueError` **y** de
+        `RequestException`; nacen del transporte y no se pueden declarar
+        pre-submit.
+    (b) `zeep.exceptions.Fault` — ARCA respondió a nivel de aplicación (un TA
+        vencido, un rechazo de delegación). Hay respuesta: no hay ambigüedad, y
+        el camino de Fault de `request_cae` ya sabe clasificarlo.
+    (c) `requests.exceptions.ConnectTimeout` — la conexión TCP nunca llegó a
+        establecerse, así que tampoco salió un byte.
+
+    Todo lo demás congela, incluido lo que zeep levanta DESPUÉS del POST:
+    `TransportError` (un 502/504 sin cuerpo de un gateway delante de ARCA),
+    `XMLSyntaxError`/`XMLParseError` (una página HTML de error en vez del
+    envelope), `ContentDecodingError`, `HTTPError`, y cualquier excepción opaca
+    que no sepamos ubicar.
+    """
+    import requests
+    import zeep.exceptions
+
+    # (b) ARCA respondió — el resultado se conoce aunque sea un rechazo.
+    if isinstance(exc, zeep.exceptions.Fault):
+        return True
+
+    # (c) Nunca se estableció la conexión: no salió un byte.
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return True
+
+    # (a) Serialización de zeep — ojo con las que también son RequestException.
+    if isinstance(exc, (TypeError, ValueError)) and not isinstance(
+        exc, requests.exceptions.RequestException
+    ):
+        return True
+
+    return False
+
+
 def _afip_ssl_context():
     """SSLContext para los web services de AFIP.
 
@@ -670,42 +718,40 @@ class WSFEAdapter(FiscalDocumentPort):
             },
         }
 
-        # ── fiscal-emision-segura (G4): desde acá, un fallo de TRANSPORTE NO es
-        # reintentable ────────────────────────────────────────────────────────
-        # Sólo un fallo de TRANSPORTE (el POST nunca completó / la conexión se
-        # cortó DESPUÉS de salir) deja al comprobante en estado GENUINAMENTE
-        # desconocido: ARCA pudo haberlo autorizado sin que lo sepamos. Se
-        # levanta WSFESubmitInFlightError con el número pedido para que el
-        # relay CONGELE el documento en vez de reintentar con un número nuevo.
+        # ── fiscal-emision-segura (G4): desde acá, un fallo NO es reintentable
+        # salvo que se pueda demostrar lo contrario ───────────────────────────
+        # Una excepción de la que no se puede demostrar qué pasó deja al
+        # comprobante en estado GENUINAMENTE desconocido: ARCA pudo haberlo
+        # autorizado sin que lo sepamos. Se levanta WSFESubmitInFlightError con
+        # el número pedido para que el relay CONGELE el documento en vez de
+        # reintentar con un número nuevo.
         #
-        # M-3 (red team, 2026-09-22): angostado a propósito. Antes esto era un
-        # `except Exception` genérico, que también congelaba:
-        #   - un TypeError/ValueError de zeep serializando el envelope (nunca
-        #     salió un byte: no es ambiguo, es un error normal reintentable);
-        #   - un zeep.exceptions.Fault de autenticación ("Token invalido o
-        #     expirado" — ARCA SÍ respondió, aunque sea con un rechazo, así que
-        #     tampoco es ambiguo, y es rutinario/autosanable por backoff).
-        # Congelar de más no es gratis: alimenta la starvation de M-2 (una
-        # causa sistemática -p.ej. una tanda de TAs vencidos- congelaría
-        # documentos uno por uno). Todo lo que NO sea un fallo de transporte
-        # cae al `except Exception` genérico de `request_cae`, que ya sabe
-        # distinguir delegación (reintentable) de error de datos/red
-        # (reintentable): no hace falta repetir esa lógica acá.
-        import requests as _requests
-
+        # M-3 (primer red team, 2026-09-22): el `except Exception` genérico
+        # congelaba de más, y congelar de más no es gratis — alimenta la
+        # starvation de M-2 (una causa sistemática, p.ej. una tanda de TAs
+        # vencidos, congelaría documentos uno por uno).
+        #
+        # B2-1 (SEGUNDO red team, mismo día): el remedio de M-3 fue una
+        # allow-list de tres excepciones de `requests`, y eso dejó afuera todo
+        # lo que zeep levanta DESPUÉS del POST — un 502/504 sin cuerpo
+        # (`TransportError`), una página HTML de error (`XMLSyntaxError`), un
+        # gzip roto, un `raise_for_status`. Las cinco volvieron a ser
+        # reintentables: el próximo tick pide ultimo+1 y emite una SEGUNDA
+        # factura real. La regla queda INVERTIDA — congelar por defecto y
+        # eximir sólo lo demostrable (ver `_submit_outcome_is_unambiguous`).
+        # Lo eximido cae al `except Exception` genérico de `request_cae`, que
+        # ya distingue delegación de error de datos/red (ambos reintentables).
         try:
             result = client.service.FECAESolicitar(**request_body)
-        except (
-            _requests.exceptions.Timeout,
-            _requests.exceptions.ConnectionError,
-            _requests.exceptions.ChunkedEncodingError,
-        ) as exc:
+        except Exception as exc:
+            if _submit_outcome_is_unambiguous(exc):
+                raise
             raise WSFESubmitInFlightError(
                 cbte_numero=cbte_numero,
                 detail=(
                     f"El FECAESolicitar del comprobante {invoice_data.punto_de_venta}-"
                     f"{cbte_numero} ({invoice_data.comprobante_type}) salió y su "
-                    f"resultado NUNCA se confirmó (fallo de transporte): {exc}"
+                    f"resultado NUNCA se confirmó ({type(exc).__name__}: {exc})"
                 ),
             ) from exc
 

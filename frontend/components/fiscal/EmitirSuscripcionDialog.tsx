@@ -253,13 +253,41 @@ export function EmitirSuscripcionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* fiscal-emision-segura (G5, pasada visual de 375 px): el selector de
-            receptor sumó ~130 px de alto y el CTA primario se iba abajo del
-            viewport en un teléfono (medido: 883,6 px de fondo contra 812 de
-            alto). El cuerpo scrollea SOLO en pantallas chicas y el footer queda
-            fijo, así que "Confirmar y enviar al ARCA" sigue siempre a la vista;
-            en desktop (sm+) no cambia nada — ahí el diálogo entra completo. */}
-        <div className="flex max-h-[58dvh] flex-col gap-4 overflow-y-auto py-2 sm:max-h-none sm:overflow-visible">
+        {/* fiscal-emision-segura (G5, pasada visual de 375 px + fix de revisión
+            visual ALTO en desktop 2026-09-22): el selector de receptor sumó
+            ~130 px de alto y el CTA primario se iba abajo del viewport.
+
+            La claim original ("en desktop, sm+, no cambia nada — ahí el
+            diálogo entra completo") era FALSA, y la causa real no era sólo
+            este div: `DialogContent` (components/ui/dialog.tsx) YA tiene su
+            PROPIO `max-h-[90dvh] overflow-y-auto` — un segundo scroll
+            contenedor por fuera de éste. Con `sm:max-h-none` acá, el modo
+            "Identificado" (~876 px de alto natural en 1366×900) quedaba sin
+            cota PROPIA, así que era el `overflow-y-auto` de `DialogContent`
+            el que recortaba — y como el footer es un hijo de flujo normal
+            (no `sticky`), quedaba escondido DENTRO de ese scroll externo, sin
+            ninguna pista visual de que hubiera que scrollear el diálogo
+            ENTERO (no el cuerpo) para encontrarlo. Medido: con `sm:max-h-none`
+            el CTA caía unos px por debajo del propio borde inferior
+            (clippeado) de `DialogContent` en 1366×900, y mucho más en 768.
+
+            Fix: este div SIEMPRE scrollea (nunca `sm:max-h-none`), con una
+            cota acoplada a la de `DialogContent` — `calc(90dvh - 310px)`. El
+            margen de 310px es el peor caso medido entre los dos anchos: en
+            desktop el chrome (header ~83px + footer de UNA fila ~39px + los
+            dos `gap-4` + el padding `p-6`) mide ~220px, pero `DialogFooter`
+            apila los botones (`flex-col-reverse sm:flex-row`) por debajo de
+            `sm:` — en 375px el footer pasa a DOS filas y el chrome real sube
+            a ~300px. Un solo margen fijo, calibrado contra el caso más ancho
+            (mobile), es más simple y más seguro que dos calc() por breakpoint;
+            el costo es que en desktop el cuerpo scrollea un poco antes de lo
+            estrictamente necesario. Así el total (chrome + cuerpo) queda
+            SIEMPRE por debajo del `max-h-[90dvh]` de `DialogContent` en
+            AMBOS anchos, y ES ESTE div, no el externo, el único que scrollea.
+            El footer queda fuera del scroll y siempre visible. Ese
+            `max-h-[90dvh]` externo sigue como red de seguridad si el chrome
+            creciera más en el futuro. */}
+        <div className="flex max-h-[calc(90dvh-310px)] flex-col gap-4 overflow-y-auto py-2">
           {/* Receipt summary */}
           {receipt && (
             <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-1.5">

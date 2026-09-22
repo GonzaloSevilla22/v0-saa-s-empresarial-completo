@@ -4,10 +4,27 @@
  * El diálogo de "Enviar al ARCA" gana un selector de receptor (identificado /
  * consumidor final). Lo que este spec fija, y que jsdom no puede ver:
  *   - el diálogo no desborda el viewport en 375 px (ni gana scroll horizontal);
- *   - el CTA primario queda dentro del viewport en los dos anchos;
+ *   - el CTA primario queda dentro del viewport en los dos anchos, EN LOS DOS
+ *     MODOS (identificado y consumidor final — ver el hallazgo ALTO abajo);
  *   - las 4 combinaciones (1366 / 375 × claro / oscuro) quedan capturadas para
  *     la revisión visual del PR (regla del PO: desktop Y mobile, claro Y
  *     oscuro, antes del merge).
+ *
+ * Hallazgo ALTO de la revisión visual (2026-09-22), DOS capas:
+ *   (a) esta versión del spec SOLO verificaba el CTA después de cambiar a
+ *       "Consumidor final" (más corto) — nunca en el modo por defecto
+ *       ("Identificado con CUIT o DNI", el más largo y el más usado);
+ *   (b) el check original comparaba el CTA contra el VIEWPORT de la ventana
+ *       (`vp.height`), no contra el borde INFERIOR del propio diálogo — y
+ *       `DialogContent` (components/ui/dialog.tsx) tiene su PROPIO
+ *       `max-h-[90dvh] overflow-y-auto`. Un CTA clippeado por ESE scroll
+ *       externo (footer sin `sticky`, escondido dentro del diálogo) puede
+ *       seguir teniendo una `boundingClientRect` con `y` DENTRO del viewport
+ *       de la ventana — el bug pasaba ese check igual. El check correcto es
+ *       contra `dialogBox`, no contra `vp`.
+ * El fix real (EmitirSuscripcionDialog.tsx) hace que el cuerpo scrollee
+ * SIEMPRE (nunca `sm:max-h-none`) con una cota acoplada a la de
+ * `DialogContent`, así el CTA queda SIEMPRE dentro del `dialogBox`.
  *
  * Corre en el proyecto `harness` (sin sesión ni seeds) contra
  * /dev-harness/emitir-suscripcion, que monta el componente real.
@@ -65,6 +82,26 @@ for (const vp of VIEWPORTS) {
       )
       expect(docScroll).toBeLessThanOrEqual(1)
 
+      // Hallazgo ALTO (revisión visual 2026-09-22): el CTA primario tiene que
+      // quedar DENTRO del viewport Y DENTRO DEL PROPIO DIÁLOGO también en el
+      // modo por DEFECTO (identificado), no sólo tras cambiar a consumidor
+      // final. Es el modo más largo (input CUIT/DNI + su ayuda) y el más
+      // usado. El check contra `box` (el diálogo, que tiene su propio
+      // max-h-[90dvh] + overflow-y-auto en components/ui/dialog.tsx) es el
+      // que de verdad detecta un footer clippeado por ESE scroll externo —
+      // comparar sólo contra `vp` no lo veía (el bug real medido pasaba ese
+      // check con margen).
+      const ctaIdentificado = page.getByRole('button', { name: /Confirmar y enviar al ARCA/i })
+      const ctaIdentificadoBox = await ctaIdentificado.boundingBox()
+      expect(ctaIdentificadoBox).not.toBeNull()
+      if (ctaIdentificadoBox && box) {
+        expect(ctaIdentificadoBox.x + ctaIdentificadoBox.width).toBeLessThanOrEqual(vp.width + 1)
+        expect(ctaIdentificadoBox.y + ctaIdentificadoBox.height).toBeLessThanOrEqual(vp.height + 1)
+        expect(ctaIdentificadoBox.y + ctaIdentificadoBox.height).toBeLessThanOrEqual(
+          box.y + box.height + 1,
+        )
+      }
+
       // (2) Modo consumidor final — el input desaparece y el CTA se habilita.
       await page.getByRole('radio', { name: /Consumidor final/i }).click()
       await expect(page.getByLabel(/CUIT o DNI del receptor/i)).toHaveCount(0)
@@ -76,12 +113,17 @@ for (const vp of VIEWPORTS) {
         fullPage: false,
       })
 
-      // El CTA queda alcanzable dentro del viewport.
+      // El CTA queda alcanzable dentro del viewport Y dentro del propio diálogo
+      // (mismo razonamiento que el check de arriba en modo identificado).
       const ctaBox = await cta.boundingBox()
+      const boxFinal = await page.getByRole('dialog').boundingBox()
       expect(ctaBox).not.toBeNull()
       if (ctaBox) {
         expect(ctaBox.x + ctaBox.width).toBeLessThanOrEqual(vp.width + 1)
         expect(ctaBox.y + ctaBox.height).toBeLessThanOrEqual(vp.height + 1)
+        if (boxFinal) {
+          expect(ctaBox.y + ctaBox.height).toBeLessThanOrEqual(boxFinal.y + boxFinal.height + 1)
+        }
       }
 
       // (3) El payload que sale al confirmar lleva los dos campos en null.

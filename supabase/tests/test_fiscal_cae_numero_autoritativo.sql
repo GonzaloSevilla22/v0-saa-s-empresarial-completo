@@ -958,6 +958,7 @@ DECLARE
   v_doc7      uuid;   -- cota de re-emisión
   v_doc8      uuid;   -- rechazo SIN marca (control positivo)
   v_doc9      uuid;   -- rechazo CON marca → P0438
+  v_doc10     uuid;   -- rechazo de un congelado SIN marca previa (estilo #577)
 
   v_ret       boolean;
   v_state     text;
@@ -1297,6 +1298,39 @@ BEGIN
   SELECT status INTO v_state FROM public.fiscal_documents WHERE id = v_doc6;
   IF v_state <> 'pending_cae' THEN
     v_failures := v_failures || format('(16.k.3) el congelado NO debe quedar rejected; got %s', v_state);
+  END IF;
+
+  -- (16.k.4) Congelado SIN marca previa: la SEGUNDA mitad del predicado tiene
+  -- que ser load-bearing por sí sola. No es un caso sintético — un comprobante
+  -- congelado entre el deploy de #577 y el de este change tiene
+  -- cae_submit_unconfirmed_at puesto y cae_submit_started_at NULL, porque esa
+  -- columna todavía no existía. Sin este caso, un guard que mirara sólo la
+  -- marca previa pasaría el gate igual (v_doc6 tiene las dos).
+  INSERT INTO public.fiscal_documents
+    (account_id, fiscal_profile_id, point_of_sale_id, comprobante_type, punto_de_venta, number, total, status, attempts)
+  VALUES (v_account_m, v_fp_m, v_pv_f, 'factura_c', 8022, 9, 1000, 'pending_cae', 0)
+  RETURNING id INTO v_doc10;
+
+  UPDATE public.fiscal_documents
+  SET cae_submit_unconfirmed_at = now(),
+      arca_requested_number     = 800,
+      cae_submit_started_at     = NULL
+  WHERE id = v_doc10;
+
+  BEGIN
+    v_ret := public.rpc_fiscal_document_reject(v_doc10, '[WSFE_ERROR] congelado al estilo #577');
+    v_state := 'ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_state := SQLSTATE;
+  END;
+
+  IF v_state <> 'P0438' THEN
+    v_failures := v_failures || format('(16.k.4) rechazar un congelado SIN marca previa (estilo #577) debía dar P0438; got %s', v_state);
+  END IF;
+
+  SELECT status INTO v_state FROM public.fiscal_documents WHERE id = v_doc10;
+  IF v_state <> 'pending_cae' THEN
+    v_failures := v_failures || format('(16.k.4) el congelado sin marca previa NO debe quedar rejected; got %s', v_state);
   END IF;
 
   IF array_length(v_failures, 1) > 0 THEN

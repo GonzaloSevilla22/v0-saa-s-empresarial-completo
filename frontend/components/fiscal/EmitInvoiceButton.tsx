@@ -45,6 +45,18 @@ interface EmitInvoiceButtonProps {
   pointOfSaleId?: string | null
   /** Clase CSS extra para el contenedor. */
   className?: string
+  /**
+   * venta-editable-vs-promocion-legacy: texto del botón. Default "Facturar"
+   * (/ventas/ordenes). En /ventas es el SEGUNDO paso — el primero ya se llamó
+   * "Facturar" — así que el listado pasa "Emitir comprobante".
+   */
+  label?: string
+  /**
+   * Se llama cuando la emisión falla (después del toast), para que el
+   * contenedor vuelva la fila a su estado inicial: en /ventas el próximo
+   * "Facturar" re-prepara la venta (re-sincroniza una orden desactualizada).
+   */
+  onEmitFailed?: () => void
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -56,6 +68,8 @@ export function EmitInvoiceButton({
   ivaConditionEmisor,
   pointOfSaleId,
   className,
+  label = "Facturar",
+  onEmitFailed,
 }: EmitInvoiceButtonProps) {
   // Estado local del documento fiscal (se actualiza al emitir)
   const [fiscalDocumentId, setFiscalDocumentId] = useState<string | null>(
@@ -116,6 +130,7 @@ export function EmitInvoiceButton({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error al emitir el comprobante"
       toast.error(msg)
+      onEmitFailed?.()
     }
   }
 
@@ -139,7 +154,7 @@ export function EmitInvoiceButton({
         ) : (
           <>
             <Receipt className="h-3.5 w-3.5" />
-            Facturar
+            {label}
           </>
         )}
       </Button>

@@ -30,14 +30,29 @@ export interface PromoteToOrderResult {
 
 // ── Error translation ─────────────────────────────────────────────────────────
 
-function translatePromoteError(message: string): string {
+const PROMOTE_GENERIC_ERROR =
+  "No pudimos preparar la venta para facturar. Probá de nuevo en unos minutos."
+
+/**
+ * venta-editable-vs-promocion-legacy: traduce el error del backend a un texto
+ * accionable. Nunca devuelve el texto crudo del servidor (el 42883 de
+ * min(uuid) que vivió tres meses llegaba al toast tal cual), y un 409 ya no
+ * se asume "sin sucursal": cada token tiene su texto.
+ */
+export function translatePromoteError(message: string): string {
+  if (message.includes("operation_inconsistent"))
+    return "Esta venta tiene ítems con distinto cliente o sucursal. Editala para unificarlos y después facturala."
+  if (message.includes("operation_empty"))
+    return "Esta venta no tiene ítems: no hay nada que facturar."
   if (message.includes("operation_not_found"))
-    return "Operación de venta no encontrada."
-  if (message.includes("unauthorized") || message.includes("Sin permiso"))
-    return "No tenés permisos para facturar esta venta."
-  if (message.includes("no_branch_found") || message.includes("Conflicto"))
-    return "No se encontró una sucursal activa para la cuenta. Configurá una en Ajustes."
-  return message || "Error al preparar la venta para facturación."
+    return "Esta venta ya no existe o cambió mientras la preparábamos. Actualizá la lista y volvé a intentar."
+  if (message.includes("no_branch_found"))
+    return "No encontramos una sucursal activa en la cuenta. Configurá una en Ajustes y volvé a intentar."
+  if (message.includes("unauthorized") || message.includes("Sin permiso") || message.includes("Rol insuficiente"))
+    return "No tenés permiso para facturar ventas en esta cuenta."
+  // Los avisos de sesión (401) son texto nuestro y le dicen al usuario qué hacer.
+  if (message.startsWith("Tu sesión")) return message
+  return PROMOTE_GENERIC_ERROR
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────

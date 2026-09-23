@@ -120,9 +120,17 @@ export interface QuickSaleInput {
 
 // ── Error translation ─────────────────────────────────────────────────────────
 
-function translateEmitInvoiceError(message: string): string {
+export function translateEmitInvoiceError(message: string): string {
   if (message.includes("already_invoiced"))
     return "Esta venta ya tiene un comprobante emitido."
+  // venta-editable-vs-promocion-legacy (D6): la orden ya no coincide con su
+  // venta (se editó después de prepararla). "Facturar" de nuevo la re-sincroniza.
+  if (message.includes("sales_order_out_of_sync"))
+    return "La venta cambió después de prepararla para facturar. Tocá «Facturar» de nuevo para actualizarla."
+  if (message.includes("sales_order_not_found"))
+    return "Esta venta ya no está disponible para facturar (se borró o se editó). Actualizá la lista."
+  if (message.includes("order_not_confirmed") && message.includes("canceled"))
+    return "Esta venta se borró: no hay nada que facturar. Actualizá la lista."
   if (message.includes("order_not_confirmed"))
     return "La venta debe estar confirmada para emitir un comprobante."
   if (message.includes("ri_not_supported") || message.includes("ri_not_supported"))
@@ -267,6 +275,10 @@ export function useEmitInvoice(salesOrderId: string) {
       // Invalidar el detalle de la venta para que el badge y el botón se actualicen
       queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.detail(salesOrderId) })
       queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.lists() })
+      // venta-editable-vs-promocion-legacy: el listado de /ventas lee el estado
+      // fiscal de la venta (read model): sin esto la fila no pasa sola a
+      // "En trámite" con el número del comprobante.
+      queryClient.invalidateQueries({ queryKey: queryKeys.sales.all() })
     },
   })
 }

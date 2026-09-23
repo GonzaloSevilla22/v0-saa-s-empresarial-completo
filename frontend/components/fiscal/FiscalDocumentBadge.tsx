@@ -19,7 +19,7 @@
  *   <FiscalDocumentBadge documentId="uuid" initialStatus="pending_cae" />
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Badge } from "@/components/ui/badge"
 import { AlertTriangle, Ban, Loader2 } from "lucide-react"
@@ -47,6 +47,14 @@ interface FiscalDocumentBadgeProps {
    * que el caller puede omitirlo si su endpoint todavía no lo trae.
    */
   initialFrozen?: boolean
+  /**
+   * venta-editable-vs-promocion-legacy: se llama cuando Realtime trae un status
+   * NUEVO (p.ej. pending_cae → authorized), para que el contenedor refresque
+   * lo que deriva del estado (en /ventas, el texto lateral de la fila). Se
+   * guarda en una ref: si entrara en las deps del efecto, cada render del
+   * contenedor (que pasa una arrow nueva) re-suscribiría el canal.
+   */
+  onStatusChange?: (status: FiscalDocumentStatus) => void
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -91,9 +99,14 @@ export function FiscalDocumentBadge({
   initialStatus,
   verbose = false,
   initialFrozen = false,
+  onStatusChange,
 }: FiscalDocumentBadgeProps) {
   const [status, setStatus] = useState<FiscalDocumentStatus>(initialStatus)
   const [frozen, setFrozen] = useState<boolean>(initialFrozen)
+  const onStatusChangeRef = useRef(onStatusChange)
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange
+  }, [onStatusChange])
 
   useEffect(() => {
     // Reset cuando el documento cambia (ej. la tabla re-renderiza otra fila)
@@ -122,6 +135,7 @@ export function FiscalDocumentBadge({
           const newStatus = payload.new?.status as FiscalDocumentStatus | undefined
           if (newStatus && newStatus !== status) {
             setStatus(newStatus)
+            onStatusChangeRef.current?.(newStatus)
           }
           // fiscal-emision-segura (M-4, red team 2026-09-22): el mismo UPDATE
           // que congela (G4) trae `cae_submit_unconfirmed_at` en el payload —

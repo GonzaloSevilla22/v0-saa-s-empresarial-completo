@@ -688,3 +688,205 @@ BEGIN
   PERFORM pg_temp.fvm_cleanup(v_user, v_account);
   RAISE NOTICE 'PASS (7)/(9)/(10): la edición recalcula la orden que re-apunta (total 2500, cliente y líneas nuevas) y el comprobante sale por el importe y el receptor nuevos; re-emitir después de anular sale por el importe NUEVO (1500), también después de un rechazo + edición (1800); borrar una venta promovida cancela y desvincula la orden y la emisión posterior da P0400 order_not_confirmed.';
 END $$;
+
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- (0) Estructura: el helper de sincronización es INVOKER y está cerrado a
+-- anon/authenticated; su firma RESUELVE (meta-candado: el chequeo (3) de
+-- test_function_acl_gate.sql es drift-tolerante y una firma vieja lo apaga EN
+-- SILENCIO); una sola definición viva de cada función tocada (42725); y los
+-- COMMENT vivos de las 4 RPCs reescritas se conservan (CREATE OR REPLACE
+-- mantiene el oid y su comentario — md5 medido en prod el 2026-09-23).
+-- ═════════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_fn       text;
+  v_count    int;
+  v_md5      text;
+  r          record;
+BEGIN
+  IF to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)') IS NULL THEN
+    v_failures := v_failures || format('(0) public._sales_order_sync_from_operation(uuid, uuid, uuid) NO RESUELVE: la entrada de v_internal_only_fns en test_function_acl_gate.sql quedaría apagada en silencio');
+  ELSE
+    IF (SELECT prosecdef FROM pg_proc WHERE oid = to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)')) THEN
+      v_failures := v_failures || format('(0) el helper de sincronización debe ser SECURITY INVOKER (sólo corre dentro de RPCs SECURITY DEFINER)');
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon')
+       AND (   has_function_privilege('anon',          to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)'), 'EXECUTE')
+            OR has_function_privilege('authenticated', to_regprocedure('public._sales_order_sync_from_operation(uuid, uuid, uuid)'), 'EXECUTE')) THEN
+      v_failures := v_failures || format('(0) el helper de sincronización es ejecutable por anon/authenticated: sería la primitiva para reescribir por PostgREST el total de una orden ajena');
+    END IF;
+  END IF;
+
+  FOREACH v_fn IN ARRAY ARRAY['rpc_promote_legacy_sale_to_order', 'rpc_atomic_update_sale_operation',
+                              'rpc_delete_sale_operation', 'rpc_emit_sale_invoice',
+                              '_sales_order_sync_from_operation']
+  LOOP
+    SELECT count(*) INTO v_count
+    FROM   pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE  n.nspname = 'public' AND p.proname = v_fn;
+    IF v_count <> 1 THEN
+      v_failures := v_failures || format('(0) %s: %s definiciones vivas (esperaba 1)', v_fn, v_count);
+    END IF;
+  END LOOP;
+
+  FOR r IN
+    SELECT * FROM (VALUES
+      ('public.rpc_promote_legacy_sale_to_order(uuid)', 'ce7de587bb7b83e33d50436f383fcbfd'),
+      ('public.rpc_emit_sale_invoice(uuid, uuid)', '9472c9d93a85a73370a10e71fbb7beb4'),
+      ('public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean)', '1675d3824b79fccd3efba3b256adf89e'),
+      ('public.rpc_delete_sale_operation(uuid, uuid, text)', 'b3bafc6d5c0a20bbd42b006af8769513')
+    ) AS t(sig, md5)
+  LOOP
+    SELECT md5(replace(obj_description(to_regprocedure(r.sig), 'pg_proc'), chr(13), '')) INTO v_md5;
+    IF v_md5 IS DISTINCT FROM r.md5 THEN
+      v_failures := v_failures || format('(0) el COMMENT de %s cambió (md5 %s, el vivo de prod es %s): la reescritura no debe tocarlo', r.sig, COALESCE(v_md5, '<sin comentario>'), r.md5);
+    END IF;
+  END LOOP;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FACTURAR-VENTA-MANUAL (0) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+  RAISE NOTICE 'PASS (0): helper de sincronización INVOKER, cerrado a anon/authenticated y con firma que resuelve; una sola definición viva de las 5 funciones; COMMENT vivos de las 4 RPCs intactos.';
+END $$;
+
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- (8), (11) D6 — la emisión RECHAZA una orden que no coincide con su venta
+-- (importe a 2 decimales o receptor), fail-closed, en el punto donde el daño
+-- se vuelve real. La salida del usuario es volver a tocar "Facturar": la
+-- promoción en replay re-sincroniza una orden sin comprobante vivo. Con un
+-- comprobante vivo, el replay NO toca la orden.
+-- ═════════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_fx       jsonb;
+  v_user     uuid; v_account uuid; v_branch uuid;
+  v_client   uuid; v_client2 uuid;
+  v_product  uuid;
+  v_pv       uuid;
+  v_res      jsonb;
+  v_op       uuid;
+  v_so       uuid;
+  v_so_ok    uuid;
+  v_doc      uuid;
+  v_fd       record;
+  v_order    record;
+  v_try      record;
+  v_docs     int;
+  v_count    int;
+BEGIN
+  v_fx := pg_temp.fvm_anchor('facturar-venta-manual-8@test.local');
+  v_user := (v_fx->>'user')::uuid; v_account := (v_fx->>'account')::uuid; v_branch := (v_fx->>'branch')::uuid;
+  INSERT INTO public.clients (user_id, account_id, name) VALUES (v_user, v_account, '__gate_fvm_client_8__') RETURNING id INTO v_client;
+  INSERT INTO public.clients (user_id, account_id, name) VALUES (v_user, v_account, '__gate_fvm_client_8b__') RETURNING id INTO v_client2;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user, v_account, '__gate_fvm_product_8__', 'FVM-8', 300, 500) RETURNING id INTO v_product;
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, v_branch, 500);
+  v_pv := pg_temp.fvm_fiscal(v_account);
+  PERFORM pg_temp.fvm_login(v_user);
+
+  v_res := public.rpc_create_sale_operation(
+    'fvm-8-' || gen_random_uuid()::text, v_client, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 333.335, 'quantity', 3, 'unit_id', NULL)),
+    v_branch, NULL, NULL);
+  v_op := (v_res->>'operation_id')::uuid;
+  v_so := (public.rpc_promote_legacy_sale_to_order(v_op)->>'sales_order_id')::uuid;
+
+  -- ── (8a) importe desincronizado a mano → P0409 sales_order_out_of_sync y
+  -- NINGÚN comprobante nuevo.
+  UPDATE public.sales_orders SET total = total + 1 WHERE id = v_so;
+  SELECT count(*) INTO v_docs FROM public.fiscal_documents WHERE account_id = v_account;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_emit_sale_invoice(%L::uuid, %L::uuid)', v_so, v_pv));
+  IF v_try.o_state IS DISTINCT FROM 'P0409' OR position('sales_order_out_of_sync' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(8a) una orden con otro importe que su venta debía dar P0409 sales_order_out_of_sync, dio %s %s', COALESCE(v_try.o_state, 'ningún error — SE FACTURÓ UN IMPORTE QUE NO ES EL DE LA VENTA'), COALESCE(v_try.o_msg, ''));
+  END IF;
+  IF (SELECT count(*) FROM public.fiscal_documents WHERE account_id = v_account) <> v_docs THEN
+    v_failures := v_failures || format('(8a) el rechazo dejó un comprobante creado');
+  END IF;
+
+  -- ── (8c) salida del usuario: "Facturar" de nuevo → la promoción en replay
+  -- re-sincroniza y la emisión sale por el importe de la venta (1000.01 —
+  -- 333.335 × 3 = 1000.005, redondeado a 2 decimales).
+  v_res := public.rpc_promote_legacy_sale_to_order(v_op);
+  IF (v_res->>'replayed')::boolean IS DISTINCT FROM true OR (v_res->>'sales_order_id')::uuid IS DISTINCT FROM v_so THEN
+    v_failures := v_failures || format('(8c) el replay debía devolver la misma orden con replayed=true, devolvió %s', v_res);
+  END IF;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_emit_sale_invoice(%L::uuid, %L::uuid)', v_so, v_pv));
+  IF v_try.o_state IS NOT NULL THEN
+    v_failures := v_failures || format('(8c) después del replay la emisión debía funcionar, dio %s %s', v_try.o_state, COALESCE(v_try.o_msg, ''));
+  ELSE
+    SELECT fd.* INTO v_fd FROM public.fiscal_documents fd JOIN public.sales_orders so ON so.fiscal_document_id = fd.id WHERE so.id = v_so;
+    IF v_fd.total IS DISTINCT FROM 1000.01 THEN
+      v_failures := v_failures || format('(8c) el comprobante salió por %s, esperaba 1000.01 (Σ sales.total a 2 decimales)', v_fd.total);
+    END IF;
+    v_doc := v_fd.id;
+  END IF;
+
+  -- ── (11) replay con comprobante VIVO: no se re-sincroniza nada (ni total,
+  -- ni líneas, ni fiscal_document_id); y el helper llamado directo rechaza.
+  SELECT * INTO v_order FROM public.sales_orders WHERE id = v_so;
+  SELECT count(*) INTO v_count FROM public.sales_order_items WHERE sales_order_id = v_so;
+  UPDATE public.sales SET total = total + 5 WHERE operation_id = v_op;   -- la venta "cambia" por fuera
+  v_res := public.rpc_promote_legacy_sale_to_order(v_op);
+  IF (v_res->>'replayed')::boolean IS DISTINCT FROM true THEN
+    v_failures := v_failures || format('(11) el replay con comprobante vivo debía devolver replayed=true, devolvió %s', v_res);
+  END IF;
+  IF (SELECT total FROM public.sales_orders WHERE id = v_so) IS DISTINCT FROM v_order.total
+     OR (SELECT fiscal_document_id FROM public.sales_orders WHERE id = v_so) IS DISTINCT FROM v_doc
+     OR (SELECT count(*) FROM public.sales_order_items WHERE sales_order_id = v_so) <> v_count THEN
+    v_failures := v_failures || format('(11) el replay re-sincronizó una orden con comprobante VIVO (pending_cae): la orden tiene que quedar como se facturó');
+  END IF;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public._sales_order_sync_from_operation(%L::uuid, %L::uuid, %L::uuid)', v_so, v_op, v_account));
+  IF v_try.o_state IS DISTINCT FROM 'P0409' OR position('sales_order_has_live_invoice' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(11) el helper sobre una orden con comprobante vivo debía dar P0409 sales_order_has_live_invoice, dio %s %s', COALESCE(v_try.o_state, 'ningún error'), COALESCE(v_try.o_msg, ''));
+  END IF;
+  -- Con 'authorized' tampoco (allow-list: sólo sin comprobante, rejected, voided).
+  UPDATE public.fiscal_documents SET status = 'authorized', cae = '70000000000002', cae_due_date = CURRENT_DATE + 10 WHERE id = v_doc;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public._sales_order_sync_from_operation(%L::uuid, %L::uuid, %L::uuid)', v_so, v_op, v_account));
+  IF v_try.o_state IS DISTINCT FROM 'P0409' THEN
+    v_failures := v_failures || format('(11) el helper sobre una orden AUTORIZADA debía dar P0409, dio %s', COALESCE(v_try.o_state, 'ningún error'));
+  END IF;
+  -- Y con una cuenta ajena, P0404 (tenencia en el choke point, ANTES de mirar
+  -- el comprobante).
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public._sales_order_sync_from_operation(%L::uuid, %L::uuid, %L::uuid)', v_so, v_op, gen_random_uuid()));
+  IF v_try.o_state IS DISTINCT FROM 'P0404' THEN
+    v_failures := v_failures || format('(11) el helper con una cuenta ajena debía dar P0404, dio %s', COALESCE(v_try.o_state, 'ningún error'));
+  END IF;
+
+  -- ── (8b) TRIANGULATE: receptor desincronizado → P0409; orden confirmada sin
+  -- venta vinculada → P0409; orden sana → emite (control positivo).
+  v_res := public.rpc_create_sale_operation(
+    'fvm-8b-' || gen_random_uuid()::text, v_client, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 1, 'unit_id', NULL)),
+    v_branch, NULL, NULL);
+  v_op := (v_res->>'operation_id')::uuid;
+  v_so := (public.rpc_promote_legacy_sale_to_order(v_op)->>'sales_order_id')::uuid;
+  UPDATE public.sales_orders SET client_id = v_client2 WHERE id = v_so;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_emit_sale_invoice(%L::uuid, %L::uuid)', v_so, v_pv));
+  IF v_try.o_state IS DISTINCT FROM 'P0409' OR position('sales_order_out_of_sync' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(8b) una orden con otro receptor que su venta debía dar P0409 sales_order_out_of_sync, dio %s %s', COALESCE(v_try.o_state, 'ningún error'), COALESCE(v_try.o_msg, ''));
+  END IF;
+
+  INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, created_by, sale_operation_id)
+  VALUES (v_account, v_branch, NULL, 'confirmed', 100, v_user, NULL) RETURNING id INTO v_so_ok;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_emit_sale_invoice(%L::uuid, %L::uuid)', v_so_ok, v_pv));
+  IF v_try.o_state IS DISTINCT FROM 'P0409' OR position('sales_order_out_of_sync' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(8b) una orden confirmada SIN venta vinculada debía dar P0409 sales_order_out_of_sync, dio %s %s', COALESCE(v_try.o_state, 'ningún error'), COALESCE(v_try.o_msg, ''));
+  END IF;
+
+  UPDATE public.sales_orders SET client_id = v_client WHERE id = v_so;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_emit_sale_invoice(%L::uuid, %L::uuid)', v_so, v_pv));
+  IF v_try.o_state IS NOT NULL THEN
+    v_failures := v_failures || format('(8b) control positivo: una orden SANA debía emitirse, dio %s %s', v_try.o_state, COALESCE(v_try.o_msg, ''));
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FACTURAR-VENTA-MANUAL (8)/(11) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  PERFORM pg_temp.fvm_cleanup(v_user, v_account);
+  RAISE NOTICE 'PASS (8)/(11): la emisión rechaza con P0409 sales_order_out_of_sync una orden con otro importe, otro receptor o sin venta vinculada (sin crear comprobante), y emite una sana; "Facturar" de nuevo re-sincroniza y emite por Σ sales.total a 2 decimales (1000.01); con comprobante vivo el replay no toca la orden y el helper rechaza (P0409 pending/authorized, P0404 cuenta ajena).';
+END $$;

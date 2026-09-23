@@ -1011,3 +1011,205 @@ $function$;
 
 REVOKE ALL     ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) FROM PUBLIC, anon;
 GRANT  EXECUTE ON FUNCTION public.rpc_atomic_update_sale_operation(uuid[], uuid, date, text, jsonb, uuid, boolean, uuid, boolean, text, boolean) TO postgres, authenticated, service_role;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- (5) rpc_emit_sale_invoice — guard fail-closed D6
+--
+-- Cuerpo VIVO de 20261060000001 (md5 01862c30…) con TRES hunks: M1 tres
+-- variables; M2 so.sale_operation_id en el SELECT de la orden (con lock, sin
+-- cambio); M3 el bloque "1-bis" DESPUÉS de la allow-list de re-emisión (que
+-- queda byte-idéntica) y ANTES de numerar/emitir. Firma IDÉNTICA.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.rpc_emit_sale_invoice(
+  p_sales_order_id   uuid,
+  p_point_of_sale_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid               uuid;
+  v_account_id        uuid;
+  v_order             RECORD;
+  v_profile           RECORD;
+  v_client            RECORD;
+  v_comprobante_type  text;
+  v_receptor_doc_tipo integer;
+  v_receptor_doc_nro  text;
+  v_emit_result       jsonb;
+  v_existing_status   text;   -- venta-editable-sin-cae (D5)
+  -- venta-editable-vs-promocion-legacy (D6): la orden tiene que reflejar su venta.
+  v_ops_rows          integer;
+  v_ops_total         numeric(15,2);
+  v_ops_client_diff   integer;
+BEGIN
+  -- ── 0. Autenticación ──────────────────────────────────────────────────────
+  v_uid := (SELECT auth.uid());
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  SELECT cai INTO v_account_id FROM current_account_ids() AS cai LIMIT 1;
+  IF v_account_id IS NULL THEN
+    RAISE EXCEPTION 'Usuario sin cuenta activa' USING ERRCODE = 'P0403';
+  END IF;
+
+  -- ── 1. Cargar la orden con lock (anti doble-emisión concurrente) ──────────
+  SELECT so.id, so.account_id, so.status, so.fiscal_document_id,
+         so.total, so.client_id, so.sale_operation_id
+  INTO   v_order
+  FROM   public.sales_orders so
+  WHERE  so.id = p_sales_order_id
+    AND  so.account_id = v_account_id
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'sales_order_not_found: orden de venta no encontrada o no pertenece a la cuenta'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- Validar estado: solo confirmadas
+  IF v_order.status != 'confirmed' THEN
+    RAISE EXCEPTION 'order_not_confirmed: la orden debe estar en estado confirmed para facturar (estado actual: %)',
+      v_order.status
+      USING ERRCODE = 'P0400';
+  END IF;
+
+  -- Idempotencia: si ya tiene un comprobante que NO es terminal-inocuo → 409.
+  -- venta-editable-sin-cae (D5): ALLOW-LIST deliberada, no deny-list. Sólo
+  -- 'rejected' (nunca existió fiscalmente) y 'voided' (anulado por editar o
+  -- borrar la venta, antes de salir hacia ARCA) habilitan volver a facturar.
+  -- Cualquier otro valor —incluido uno que no exista hoy— BLOQUEA: un
+  -- deny-list ("NOT IN (pending_cae, authorized)") convertiría un status
+  -- futuro desconocido en una SEGUNDA factura real, que es el peor bug
+  -- posible en este dominio (lección de #577/#580: guards cerrados por
+  -- defecto). v_existing_status NULL (FK colgada, imposible hoy) bloquea igual.
+  -- La orden ya está tomada con FOR UPDATE más arriba, y acá se toma también
+  -- el comprobante, así que este chequeo y el UPDATE de más abajo son
+  -- atómicos contra otra emisión Y contra la anulación de la edición.
+  -- Efecto lateral DECLARADO y deseado: cierra el bug preexistente de que una
+  -- orden cuyo único comprobante quedó 'rejected' no se podía volver a
+  -- facturar NUNCA (el guard era incondicional al status).
+  IF v_order.fiscal_document_id IS NOT NULL THEN
+    SELECT fd.status INTO v_existing_status
+    FROM   public.fiscal_documents fd
+    WHERE  fd.id = v_order.fiscal_document_id
+    FOR UPDATE;
+
+    IF v_existing_status IS NULL OR v_existing_status NOT IN ('rejected', 'voided') THEN
+      RAISE EXCEPTION 'already_invoiced: la orden ya tiene un comprobante fiscal asociado (fiscal_document_id=%, status=%)',
+        v_order.fiscal_document_id, COALESCE(v_existing_status, 'desconocido')
+        USING ERRCODE = 'P0409';
+    END IF;
+  END IF;
+
+  -- ── 1-bis. La orden coincide con su venta (venta-editable-vs-promocion-legacy, D6)
+  -- Guard FAIL-CLOSED en el punto donde el daño se vuelve real: un comprobante
+  -- por un importe o un receptor que ya no son los de la venta. La orden la
+  -- mantienen sincronizada la promoción y la edición (helper único
+  -- _sales_order_sync_from_operation); si algún camino, hoy o futuro, la
+  -- desincroniza, acá se RECHAZA en vez de facturar. sales se LEE sin lock a
+  -- propósito: tomarla después de sales_orders invertiría el orden global de
+  -- locks (sales → sales_orders → fiscal_documents) y abriría un deadlock
+  -- contra la edición. No hace falta: con la orden tomada, ninguna edición ni
+  -- borrado de esta operación puede commitear (los dos pasan por esta fila).
+  -- Importes a 2 decimales de los dos lados (hay filas de sales con más).
+  IF v_order.sale_operation_id IS NULL THEN
+    RAISE EXCEPTION 'sales_order_out_of_sync: la orden % no está vinculada a ninguna venta — no se puede facturar', p_sales_order_id
+      USING ERRCODE = 'P0409';
+  END IF;
+
+  SELECT count(*),
+         round(COALESCE(sum(COALESCE(s.total, s.amount * s.quantity)), 0), 2),
+         count(*) FILTER (WHERE s.client_id IS DISTINCT FROM v_order.client_id)
+  INTO   v_ops_rows, v_ops_total, v_ops_client_diff
+  FROM   public.sales s
+  WHERE  s.operation_id = v_order.sale_operation_id
+    AND  s.account_id   = v_account_id;
+
+  IF v_ops_rows = 0
+     OR v_ops_total IS DISTINCT FROM round(v_order.total, 2)
+     OR v_ops_client_diff > 0 THEN
+    RAISE EXCEPTION 'sales_order_out_of_sync: la orden % no coincide con su venta (orden %, venta %, líneas %) — volvé a preparar la venta para facturar',
+      p_sales_order_id, round(v_order.total, 2), v_ops_total, v_ops_rows
+      USING ERRCODE = 'P0409';
+  END IF;
+
+  -- ── 2. Leer perfil fiscal del emisor ──────────────────────────────────────
+  SELECT id, iva_condition INTO v_profile
+  FROM   public.fiscal_profiles
+  WHERE  account_id = v_account_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'fiscal_profile_not_found: la cuenta no tiene perfil fiscal configurado'
+      USING ERRCODE = 'P0404';
+  END IF;
+
+  -- OQ-1: bloquear si el emisor es RI (Factura A/B fuera de alcance MVP — D8)
+  IF v_profile.iva_condition = 'responsable_inscripto' THEN
+    RAISE EXCEPTION 'ri_not_supported: la facturación A/B para Responsables Inscriptos aún no está disponible. Completá la configuración cuando se habilite la función.'
+      USING ERRCODE = 'P0401';
+  END IF;
+
+  -- ── 3. Resolver tipo de comprobante (D3) ─────────────────────────────────
+  -- MVP: monotributista → factura_c (único caso soportado tras el guard OQ-1)
+  v_comprobante_type := 'factura_c';
+
+  -- ── 4. Derivar receptor desde clients (C-22) (D5) ────────────────────────
+  -- Sin client_id o sin tax_id → NULL/NULL (el WSFEAdapter lo convierte a 99/0)
+  v_receptor_doc_tipo := NULL;
+  v_receptor_doc_nro  := NULL;
+
+  IF v_order.client_id IS NOT NULL THEN
+    SELECT iva_condition, tax_id INTO v_client
+    FROM   public.clients
+    WHERE  id = v_order.client_id
+      AND  account_id = v_account_id;
+
+    IF FOUND AND v_client.tax_id IS NOT NULL THEN
+      -- Responsable Inscripto con CUIT → DocTipo 80
+      IF v_client.iva_condition = 'responsable_inscripto' THEN
+        v_receptor_doc_tipo := 80;
+        v_receptor_doc_nro  := v_client.tax_id;
+      -- Monotributista u otro con tax_id → tratar como DNI (DocTipo 96)
+      ELSIF v_client.iva_condition IN ('monotributista', 'exento') THEN
+        v_receptor_doc_tipo := 96;
+        v_receptor_doc_nro  := v_client.tax_id;
+      END IF;
+      -- consumidor_final con tax_id → seguir como NULL (99/0)
+    END IF;
+  END IF;
+
+  -- ── 5. Emitir comprobante vía pipeline existente ──────────────────────────
+  -- Llama rpc_emit_pending_cae con neto/IVA en NULL (Factura C no discrimina)
+  v_emit_result := public.rpc_emit_pending_cae(
+    p_comprobante_type  => v_comprobante_type,
+    p_total             => v_order.total,
+    p_client_id         => v_order.client_id,
+    p_point_of_sale_id  => p_point_of_sale_id,
+    p_receptor_doc_tipo => v_receptor_doc_tipo,
+    p_receptor_doc_nro  => v_receptor_doc_nro,
+    p_neto              => NULL,
+    p_iva_amount        => NULL,
+    p_iva_alicuota_id   => NULL
+  );
+
+  -- ── 6. Vincular el comprobante a la orden (mismo commit) ─────────────────
+  UPDATE public.sales_orders
+  SET    fiscal_document_id = (v_emit_result->>'fiscal_document_id')::uuid
+  WHERE  id = p_sales_order_id;
+
+  -- Enriquecer la respuesta con el status de la orden (OQ-3)
+  v_emit_result := v_emit_result || jsonb_build_object(
+    'sales_order_id', p_sales_order_id,
+    'status',         'pending_cae'
+  );
+
+  RETURN v_emit_result;
+END;
+$function$;
+
+REVOKE ALL     ON FUNCTION public.rpc_emit_sale_invoice(uuid, uuid) FROM PUBLIC, anon;
+GRANT  EXECUTE ON FUNCTION public.rpc_emit_sale_invoice(uuid, uuid) TO postgres, authenticated, service_role;

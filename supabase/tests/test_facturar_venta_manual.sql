@@ -527,3 +527,164 @@ BEGIN
   PERFORM pg_temp.fvm_cleanup(v_user_a, v_account_a);
   RAISE NOTICE 'PASS (2)-(6): idempotente (3 llamadas → 1 orden, líneas sin duplicar, snapshots de sale_items conservados); cuenta ajena, operación inexistente y NULL → P0404; viewer → P0401; clientes/sucursales mezclados → P0422 operation_inconsistent; fila de otra cuenta → P0404; sale_items duplicados → total por cabecera (1000, no 2000) y la línea con los snapshots del sale_item del producto.';
 END $$;
+
+
+-- Perfil fiscal MONOTRIBUTISTA en homologación + un punto de venta propio
+-- (rpc_emit_sale_invoice bloquea a los RI). CUIT/PV propios de este gate:
+-- fn_guard_pos_cuit_cross_account (P0435) rechaza el mismo CUIT con el mismo
+-- PV activo en otra cuenta, y los demás gates fiscales usan otros.
+CREATE FUNCTION pg_temp.fvm_fiscal(p_account uuid) RETURNS uuid
+LANGUAGE plpgsql AS $f$
+DECLARE v_fp uuid; v_pv uuid;
+BEGIN
+  INSERT INTO public.fiscal_profiles (account_id, cuit, iva_condition, ambiente, delegacion_autorizada)
+  VALUES (p_account, '20999999997', 'monotributista', 'homologacion', true)
+  RETURNING id INTO v_fp;
+  INSERT INTO public.points_of_sale (fiscal_profile_id, account_id, numero, is_active)
+  VALUES (v_fp, p_account, 9801, true) RETURNING id INTO v_pv;
+  RETURN v_pv;
+END $f$;
+
+
+-- ═════════════════════════════════════════════════════════════════════════════
+-- (7), (9), (10) N3 — la edición RECALCULA la orden que re-apunta. Antes sólo
+-- movía sale_operation_id: total, cliente y líneas quedaban VIEJOS, y tanto la
+-- re-emisión después de anular (D5 de venta-editable-sin-cae) como el
+-- "Facturar" de una venta del POS editada emitían por el importe anterior. Las
+-- órdenes se insertan a mano (como las del POS): este bloque no depende de la
+-- promoción.
+-- ═════════════════════════════════════════════════════════════════════════════
+DO $$
+DECLARE
+  v_failures text[] := '{}';
+  v_fx       jsonb;
+  v_user     uuid; v_account uuid; v_branch uuid;
+  v_client   uuid; v_client2 uuid;
+  v_product  uuid;
+  v_pv       uuid;
+  v_res      jsonb;
+  v_op       uuid;
+  v_op_new   uuid;
+  v_sale     uuid;
+  v_so       uuid;
+  v_doc      uuid;
+  v_doc2     uuid;
+  v_order    record;
+  v_fd       record;
+  v_count    int;
+  v_sum      numeric;
+  v_try      record;
+BEGIN
+  v_fx := pg_temp.fvm_anchor('facturar-venta-manual-7@test.local');
+  v_user := (v_fx->>'user')::uuid; v_account := (v_fx->>'account')::uuid; v_branch := (v_fx->>'branch')::uuid;
+  INSERT INTO public.clients (user_id, account_id, name) VALUES (v_user, v_account, '__gate_fvm_client_7__') RETURNING id INTO v_client;
+  INSERT INTO public.clients (user_id, account_id, name, tax_id, iva_condition)
+  VALUES (v_user, v_account, '__gate_fvm_client_7b__', '20111111113', 'monotributista') RETURNING id INTO v_client2;
+  INSERT INTO public.products (user_id, account_id, name, sku, cost, price)
+  VALUES (v_user, v_account, '__gate_fvm_product_7__', 'FVM-7', 300, 500) RETURNING id INTO v_product;
+  PERFORM public.c21_apply_branch_stock_delta(v_account, v_product, v_branch, 500);
+  v_pv := pg_temp.fvm_fiscal(v_account);
+  PERFORM pg_temp.fvm_login(v_user);
+
+  -- ── (7) venta $1000 + orden (forma del POS) → editar a 500 × 5 con OTRO
+  -- cliente. La orden re-apuntada tiene que quedar en 2500, con el cliente
+  -- nuevo y las líneas nuevas; y lo que se emite después, también.
+  v_res := public.rpc_create_sale_operation(
+    'fvm-7-' || gen_random_uuid()::text, v_client, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 2, 'unit_id', NULL)),
+    v_branch, NULL, NULL);
+  v_op := (v_res->>'operation_id')::uuid;
+  SELECT id INTO v_sale FROM public.sales WHERE operation_id = v_op;
+  INSERT INTO public.sales_orders (account_id, branch_id, client_id, status, total, created_by, sale_operation_id)
+  VALUES (v_account, v_branch, v_client, 'confirmed', 1000, v_user, v_op) RETURNING id INTO v_so;
+  INSERT INTO public.sales_order_items (sales_order_id, account_id, product_id, quantity, price, subtotal)
+  VALUES (v_so, v_account, v_product, 2, 500, 1000);
+
+  v_res := public.rpc_atomic_update_sale_operation(
+    ARRAY[v_sale], v_client2, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 5)));
+  v_op_new := (v_res->>'operation_id')::uuid;
+
+  SELECT * INTO v_order FROM public.sales_orders WHERE id = v_so;
+  IF v_order.sale_operation_id IS DISTINCT FROM v_op_new THEN
+    v_failures := v_failures || format('(7) la orden no se re-apuntó a la operación nueva');
+  END IF;
+  IF v_order.total IS DISTINCT FROM 2500.00 THEN
+    v_failures := v_failures || format('(7) N3: la orden re-apuntada quedó con total %s — se facturaría el importe VIEJO; esperaba 2500.00', v_order.total);
+  END IF;
+  IF v_order.client_id IS DISTINCT FROM v_client2 THEN
+    v_failures := v_failures || format('(7) N3: la orden re-apuntada conservó el cliente viejo');
+  END IF;
+  SELECT count(*), COALESCE(sum(subtotal), 0) INTO v_count, v_sum FROM public.sales_order_items WHERE sales_order_id = v_so;
+  IF v_count <> 1 OR v_sum IS DISTINCT FROM 2500.00
+     OR NOT EXISTS (SELECT 1 FROM public.sales_order_items WHERE sales_order_id = v_so AND quantity = 5 AND price = 500) THEN
+    v_failures := v_failures || format('(7) N3: las líneas de la orden no son las de la venta editada (%s líneas, Σ %s)', v_count, v_sum);
+  END IF;
+
+  v_doc := (public.rpc_emit_sale_invoice(v_so, v_pv)->>'fiscal_document_id')::uuid;
+  SELECT * INTO v_fd FROM public.fiscal_documents WHERE id = v_doc;
+  IF v_fd.total IS DISTINCT FROM 2500.00 OR v_fd.client_id IS DISTINCT FROM v_client2 THEN
+    v_failures := v_failures || format('(7) el comprobante emitido después de editar salió por %s / cliente %s — esperaba 2500.00 y el cliente nuevo',
+      v_fd.total, COALESCE(v_fd.client_id::text, '<null>'));
+  END IF;
+  IF v_fd.receptor_doc_tipo IS DISTINCT FROM 96 OR v_fd.receptor_doc_nro IS DISTINCT FROM '20111111113' THEN
+    v_failures := v_failures || format('(7) el receptor del comprobante no es el del cliente nuevo (%s / %s)', v_fd.receptor_doc_tipo, v_fd.receptor_doc_nro);
+  END IF;
+
+  -- ── (10) Re-emisión después de ANULAR (el caso de #582 con el total que
+  -- faltaba assertar): editar la cantidad anula el pendiente; lo re-emitido
+  -- tiene que salir por el importe NUEVO.
+  SELECT id INTO v_sale FROM public.sales WHERE operation_id = v_op_new;
+  v_res := public.rpc_atomic_update_sale_operation(
+    ARRAY[v_sale], v_client2, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 3)));
+  v_op_new := (v_res->>'operation_id')::uuid;
+  SELECT status INTO v_fd FROM public.fiscal_documents WHERE id = v_doc;
+  IF v_fd.status IS DISTINCT FROM 'voided' THEN
+    v_failures := v_failures || format('(10) el comprobante pendiente debía quedar voided, quedó %s', v_fd.status);
+  END IF;
+  v_doc2 := (public.rpc_emit_sale_invoice(v_so, v_pv)->>'fiscal_document_id')::uuid;
+  SELECT * INTO v_fd FROM public.fiscal_documents WHERE id = v_doc2;
+  IF v_fd.total IS DISTINCT FROM 1500.00 THEN
+    v_failures := v_failures || format('(10) N3: "Volver a facturar" después de anular emitió %s — esperaba el importe NUEVO 1500.00', v_fd.total);
+  END IF;
+
+  -- TRIANGULATE: re-emisión después de un RECHAZO, con otra edición en el medio.
+  PERFORM public.rpc_fiscal_document_reject(v_doc2, 'rechazo sintético del gate');
+  SELECT id INTO v_sale FROM public.sales WHERE operation_id = v_op_new;
+  v_res := public.rpc_atomic_update_sale_operation(
+    ARRAY[v_sale], v_client2, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 450.00, 'quantity', 4)));
+  v_doc2 := (public.rpc_emit_sale_invoice(v_so, v_pv)->>'fiscal_document_id')::uuid;
+  SELECT * INTO v_fd FROM public.fiscal_documents WHERE id = v_doc2;
+  IF v_fd.total IS DISTINCT FROM 1800.00 THEN
+    v_failures := v_failures || format('(10b) re-emisión después de un rechazo + edición emitió %s — esperaba 1800.00', v_fd.total);
+  END IF;
+
+  -- ── (9) Borrado después de promover: la orden se cancela y se desvincula;
+  -- una emisión posterior (botón que quedó en pantalla) no tiene qué facturar.
+  v_res := public.rpc_create_sale_operation(
+    'fvm-9-' || gen_random_uuid()::text, v_client, CURRENT_DATE, 'ARS',
+    jsonb_build_array(jsonb_build_object('product_id', v_product, 'amount', 500.00, 'quantity', 1, 'unit_id', NULL)),
+    v_branch, NULL, NULL);
+  v_op := (v_res->>'operation_id')::uuid;
+  v_so := (public.rpc_promote_legacy_sale_to_order(v_op)->>'sales_order_id')::uuid;
+  IF NOT public.rpc_delete_sale_operation(NULL, v_op, 'gate (9)') THEN
+    v_failures := v_failures || format('(9) el borrado de la operación promovida devolvió false');
+  END IF;
+  SELECT * INTO v_order FROM public.sales_orders WHERE id = v_so;
+  IF v_order.status IS DISTINCT FROM 'canceled' OR v_order.sale_operation_id IS NOT NULL THEN
+    v_failures := v_failures || format('(9) la orden de una venta borrada debía quedar canceled y desvinculada (quedó %s / %s)', v_order.status, v_order.sale_operation_id);
+  END IF;
+  SELECT * INTO v_try FROM pg_temp.fvm_try(format('SELECT public.rpc_emit_sale_invoice(%L::uuid, %L::uuid)', v_so, v_pv));
+  IF v_try.o_state IS DISTINCT FROM 'P0400' OR position('order_not_confirmed' in COALESCE(v_try.o_msg, '')) = 0 THEN
+    v_failures := v_failures || format('(9) emitir sobre la orden de una venta borrada debía dar P0400 order_not_confirmed, dio %s %s', COALESCE(v_try.o_state, 'ningún error'), COALESCE(v_try.o_msg, ''));
+  END IF;
+
+  IF array_length(v_failures, 1) > 0 THEN
+    RAISE EXCEPTION E'GATE FACTURAR-VENTA-MANUAL (7)/(9)/(10) FAILED:\n  %', array_to_string(v_failures, E'\n  ');
+  END IF;
+
+  PERFORM pg_temp.fvm_cleanup(v_user, v_account);
+  RAISE NOTICE 'PASS (7)/(9)/(10): la edición recalcula la orden que re-apunta (total 2500, cliente y líneas nuevas) y el comprobante sale por el importe y el receptor nuevos; re-emitir después de anular sale por el importe NUEVO (1500), también después de un rechazo + edición (1800); borrar una venta promovida cancela y desvincula la orden y la emisión posterior da P0400 order_not_confirmed.';
+END $$;

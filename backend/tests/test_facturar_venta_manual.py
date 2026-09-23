@@ -446,3 +446,90 @@ class TestPromoteToOrderEndpoint:
 
         assert resp.status_code == 200
         assert resp.json()["replayed"] is True
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# venta-editable-vs-promocion-legacy (20261061000001) — endurecimiento del
+# endpoint. La evidencia de que la SQL CORRE no vive acá (acá todo mockea
+# asyncpg): vive en supabase/tests/test_facturar_venta_manual.sql y en
+# test_facturar_venta_manual_integration.py (Postgres local real).
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestPromoteEndpointHardening:
+
+    async def test_promote_rejects_malformed_operation_id_with_422(self, async_client, mock_pool):
+        """Un operation_id que no es uuid se rechaza en el borde (422) sin tocar
+        la DB. Antes llegaba a asyncpg como texto y salía un 500."""
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        conn.fetchrow = AsyncMock(
+            return_value={"result": json.dumps(PROMOTE_RPC_RESULT_NEW)}
+        )
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                "/sales/no-es-un-uuid/promote-to-order",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 422
+        conn.fetchrow.assert_not_awaited()
+
+    async def test_promote_passes_canonical_uuid_to_repo(self, async_client, mock_pool):
+        """TRIANGULATE: un uuid válido (en mayúsculas) llega a la RPC en su forma
+        canónica — la validación no rompe el camino feliz."""
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        conn.fetchrow = AsyncMock(
+            return_value={"result": json.dumps(PROMOTE_RPC_RESULT_NEW)}
+        )
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                f"/sales/{OPERATION_ID.upper()}/promote-to-order",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 200
+        assert OPERATION_ID in conn.fetchrow.call_args[0]
+
+    async def test_promote_unmapped_sqlstate_does_not_leak_postgres_text(self, async_client, mock_pool):
+        """Un error de Postgres sin mapear (el 42883 de min(uuid) que vivió tres
+        meses) sale como 500 genérico problem+json con code=internal_error — el
+        texto crudo del motor NUNCA llega al usuario (el toast lo mostraba)."""
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        err = asyncpg.exceptions.UndefinedFunctionError("function min(uuid) does not exist")
+        err.sqlstate = "42883"
+        conn.fetchrow = AsyncMock(side_effect=err)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                f"/sales/{OPERATION_ID}/promote-to-order",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 500
+        assert "min(uuid)" not in resp.text
+        assert "does not exist" not in resp.text
+        assert resp.json()["code"] == "internal_error"
+
+    async def test_promote_operation_inconsistent_maps_to_409(self, async_client, mock_pool):
+        """P0422 operation_inconsistent (filas con distinto cliente/sucursal) → 409
+        con el token en el detail, para que el frontend lo traduzca."""
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        err = asyncpg.exceptions.RaiseError(
+            "operation_inconsistent: las líneas de la operación tienen distinto cliente"
+        )
+        err.sqlstate = "P0422"
+        conn.fetchrow = AsyncMock(side_effect=err)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                f"/sales/{OPERATION_ID}/promote-to-order",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 409
+        assert "operation_inconsistent" in resp.json()["detail"]

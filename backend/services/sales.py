@@ -116,7 +116,12 @@ def _map_postgres_error(exc: asyncpg.PostgresError) -> None:
     if sqlstate in ("P0409", "P0422"):
         raise HTTPException(status_code=409, detail=f"Conflicto: {message}")
 
-    raise HTTPException(status_code=500, detail=f"Error de base de datos: {message}")
+    # venta-editable-vs-promocion-legacy: un sqlstate SIN mapear (p.ej. el
+    # 42883 "function min(uuid) does not exist" que la promoción levantó en
+    # cada llamada durante tres meses) ya no viaja crudo en el detail: se
+    # re-lanza y lo toma asyncpg_error_handler, que lo loguea con su sqlstate y
+    # responde el 500 genérico problem+json (code=internal_error).
+    raise exc
 
 
 async def create_sale_operation(

@@ -422,3 +422,27 @@ def test_e2e_afip_emit_factura_c_homologacion():
     Tarea 5.1 de tasks.md — requiere trámite ARCA del PO (no bloquea el merge).
     """
     pytest.skip("E2E AFIP: manual — requiere credenciales ARCA del PO")
+
+
+class TestEmitInvoiceOutOfSync:
+    """venta-editable-vs-promocion-legacy (D6): la RPC rechaza una orden que no
+    coincide con su venta con P0409 sales_order_out_of_sync. El backend lo
+    expone como 409 CON el token, que es lo que traduce el frontend."""
+
+    async def test_emit_out_of_sync_maps_to_409_with_token(self, async_client, mock_pool):
+        pool, conn = mock_pool
+        owner_token = make_token({"role": "user"})
+        err = asyncpg.exceptions.RaiseError(
+            "sales_order_out_of_sync: la orden no coincide con su venta"
+        )
+        err.sqlstate = "P0409"
+        conn.fetchrow = AsyncMock(side_effect=err)
+
+        with patch("backend.core.database.pool", pool):
+            resp = await async_client.post(
+                f"/sales-orders/{SALES_ORDER_ID}/emit-invoice",
+                headers={"Authorization": f"Bearer {owner_token}"},
+            )
+
+        assert resp.status_code == 409
+        assert "sales_order_out_of_sync" in resp.json()["detail"]
